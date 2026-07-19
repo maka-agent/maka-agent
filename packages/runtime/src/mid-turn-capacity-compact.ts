@@ -60,10 +60,14 @@ export function estimateNextRequestTokens(input: EstimateNextRequestTokensInput)
   if (input.priorUsageTokens !== undefined && Number.isFinite(input.priorUsageTokens)) {
     return Math.max(
       0,
-      Math.max(0, Math.floor(input.priorUsageTokens)) + estimateSignedChars(input.appendedChars, charsPerToken),
+      Math.max(0, Math.floor(input.priorUsageTokens)) +
+        estimateSignedChars(input.appendedChars, charsPerToken),
     );
   }
-  return Math.max(0, estimateSignedChars(input.coldStartChars ?? input.appendedChars, charsPerToken));
+  return Math.max(
+    0,
+    estimateSignedChars(input.coldStartChars ?? input.appendedChars, charsPerToken),
+  );
 }
 
 /** Proactive threshold: the next request would cross `contextWindow - reserve`. */
@@ -84,6 +88,14 @@ export function exceedsContextWindow(estimatedTokens: number, contextWindow: num
 export interface MidTurnBoundaryOptions {
   /** Keep at least this many trailing events uncovered as the verbatim tail. */
   reserveTailEvents?: number;
+  /**
+   * Events that must stay in the verbatim tail: the boundary retreats to
+   * strictly before the first pinned event, exactly like a partial. Used for
+   * the current turn's steering messages — the injection accumulator re-appends
+   * a folded directive anyway, so covering one only desynchronizes the
+   * capacity measurement from the request that actually goes out.
+   */
+  isPinned?: (event: RuntimeEvent) => boolean;
 }
 
 export type MidTurnBoundary =
@@ -109,11 +121,16 @@ export function selectMidTurnSafeBoundary(
   const reserveTail = Math.max(0, Math.floor(options.reserveTailEvents ?? 0));
   // A partial anywhere in the covered prefix (not just at the cut) poisons the
   // digest — its snapshot is later replaced or deleted — so the boundary
-  // retreats to strictly before the first partial in the pool.
+  // retreats to strictly before the first partial in the pool. A pinned event
+  // (see MidTurnBoundaryOptions.isPinned) bounds the cut the same way.
   const firstPartialIndex = events.findIndex((event) => event.partial === true);
+  const firstPinnedIndex = options.isPinned
+    ? events.findIndex((event) => options.isPinned!(event))
+    : -1;
   const maxCut = Math.min(
     events.length - reserveTail,
     firstPartialIndex === -1 ? events.length : firstPartialIndex,
+    firstPinnedIndex === -1 ? events.length : firstPinnedIndex,
   );
   const pairSpans = toolPairSpans(events);
   for (let cut = maxCut; cut >= 1; cut -= 1) {
@@ -224,9 +241,7 @@ export type PlanMidTurnCapacityCompactionResult =
       estimatedTokensAfter: number;
     };
 
-export type MidTurnFailReason =
-  | 'no_safe_completed_span'
-  | 'summarizer_failed';
+export type MidTurnFailReason = 'no_safe_completed_span' | 'summarizer_failed';
 
 /**
  * Decide, deterministically, how a long active turn compacts before the next
@@ -246,8 +261,16 @@ export async function planMidTurnCapacityCompaction(
     return { decision: 'skip', reason: 'below_high_water' };
   }
 
+  // The current turn's steering messages are pinned out of the foldable span:
+  // the backend's injection accumulator re-appends a live directive to every
+  // request of this send, so folding one never shrinks the outgoing payload —
+  // it only hides the directive from the final capacity measurement.
   const boundary = selectMidTurnSafeBoundary(input.orderedEvents, {
     reserveTailEvents: input.reserveTailEvents ?? 1,
+    isPinned: (event) =>
+      event.turnId === input.headAnchor.turnId &&
+      event.content?.kind === 'text' &&
+      event.content.steering === true,
   });
   const headAnchorIndex = input.orderedEvents.findIndex(
     (event) => event.id === input.headAnchor.runtimeEventId,
@@ -255,10 +278,10 @@ export async function planMidTurnCapacityCompaction(
   // Coverage must include the head anchor and at least one other event, since the
   // anchor is re-rendered verbatim — folding only the anchor saves nothing.
   if (
-    !boundary.ok
-    || headAnchorIndex < 0
-    || boundary.coveredCount <= headAnchorIndex
-    || boundary.coveredCount < 2
+    !boundary.ok ||
+    headAnchorIndex < 0 ||
+    boundary.coveredCount <= headAnchorIndex ||
+    boundary.coveredCount < 2
   ) {
     return { decision: 'fail_open', reason: 'no_safe_completed_span' };
   }
@@ -271,18 +294,23 @@ export async function planMidTurnCapacityCompaction(
   const checkpointMatch = input.previousCheckpoint
     ? matchHistoryCompactCheckpointPrefix(input.previousCheckpoint, coveredRuntimeEvents)
     : undefined;
-  const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? input.previousCheckpoint : undefined;
+  const previousCheckpoint =
+    checkpointMatch && !checkpointMatch.reason ? input.previousCheckpoint : undefined;
   const newlyFoldedRuntimeEvents = previousCheckpoint
     ? checkpointMatch!.successorRuntimeEvents
     : coveredRuntimeEvents;
 
   let summary: string | undefined;
   try {
-    summary = (await Promise.resolve(input.summarize({
-      coveredRuntimeEvents,
-      newlyFoldedRuntimeEvents,
-      ...(previousCheckpoint ? { previousCheckpoint } : {}),
-    })))?.trim();
+    summary = (
+      await Promise.resolve(
+        input.summarize({
+          coveredRuntimeEvents,
+          newlyFoldedRuntimeEvents,
+          ...(previousCheckpoint ? { previousCheckpoint } : {}),
+        }),
+      )
+    )?.trim();
   } catch (error) {
     if (error instanceof HistoryCompactSummarizerError) {
       return {

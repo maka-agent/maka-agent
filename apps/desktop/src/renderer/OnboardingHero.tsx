@@ -21,7 +21,7 @@
 
 import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from '@maka/ui/icons';
 import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection, type UiCatalog } from '@maka/core';
+import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection } from '@maka/core';
 import {
   Button,
   Item,
@@ -41,8 +41,9 @@ import {
   type ChatInputActionOwner,
 } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './settings/provider-display';
-import { FIRST_RUN_TASK_SUGGESTIONS } from './first-run-task-suggestions';
-import { getOnboardingSetupSteps, type OnboardingSetupStep } from './onboarding-hero-copy';
+import { getFirstRunTaskSuggestions } from './first-run-task-suggestions';
+import { getOnboardingHeroCopy, getOnboardingSetupSteps, type OnboardingSetupStep } from './onboarding-hero-copy';
+import { getOnboardingCopy } from './locales/onboarding-copy';
 
 /**
  * PR-UI-15 (@yuejing 2026-05-22): unify OnboardingHero quickChat
@@ -52,44 +53,6 @@ import { getOnboardingSetupSteps, type OnboardingSetupStep } from './onboarding-
  * short placeholder, example sentence moved to a `<small>` hint
  * below the textarea so first-run users still know what to type.
  */
-const READY_HERO_COPY_BY_LOCALE: UiCatalog<{
-  ariaLabel: string;
-  eyebrow: string;
-  headline: string;
-  intro: string;
-  quickChatPlaceholder: string;
-  quickChatAria: string;
-  quickChatExample: string;
-  submitIdleLabel: string;
-  submitPendingLabel: string;
-}> = {
-  zh: {
-    ariaLabel: '开始对话',
-    // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8`):
-    // dropped the all-caps English prefix to match the Chinese-
-    // first surface; en-locale entry below stays all-English.
-    eyebrow: '准备就绪 · 开始对话',
-    headline: '今天想让 Maka 帮你做什么？',
-    intro: '下面这个输入框会用默认模型开新会话；空提交也会打开一个空会话，方便你之后再输入。',
-    quickChatPlaceholder: '给 Maka 发消息…',
-    quickChatAria: '快速对话输入框',
-    quickChatExample: '例如：帮我读一下这个项目的目录结构，告诉我入口在哪里。',
-    submitIdleLabel: '开始对话',
-    submitPendingLabel: '正在创建…',
-  },
-  en: {
-    ariaLabel: 'Start a conversation',
-    eyebrow: 'READY · Start a conversation',
-    headline: 'What should Maka help with today?',
-    intro: 'The box below opens a new session with your default model; empty submit also opens a session so you can type later.',
-    quickChatPlaceholder: 'Message Maka…',
-    quickChatAria: 'Quick Chat input',
-    quickChatExample: 'Example: walk me through this project\'s directory layout and where the entry point lives.',
-    submitIdleLabel: 'Start chat',
-    submitPendingLabel: 'Creating…',
-  },
-};
-
 export interface OnboardingHeroProps {
   state: OnboardingState;
   /** Open Settings with a specific section preselected. */
@@ -255,20 +218,22 @@ function NeedsConnectionHero(props: {
   onSkip?: () => Promise<void> | void;
 }) {
   const locale = useUiLocale();
-  const setupSteps = getOnboardingSetupSteps({ kind: 'needs_connection' });
+  const copy = getOnboardingCopy(locale);
+  const hero = getOnboardingHeroCopy({ kind: 'needs_connection' }, locale)!;
+  const setupSteps = getOnboardingSetupSteps({ kind: 'needs_connection' }, locale);
   return (
-    <section className="maka-onboarding maka-firstrun" aria-label="欢迎使用 Maka">
+    <section className="maka-onboarding maka-firstrun" aria-label={hero.eyebrow}>
       {/* Selection-led layout: a big title sets the hierarchy, the three
           setup steps compress to one quiet stepper line (context, not the
           subject), and the provider list is the clear primary action. */}
-      <h1 className="maka-firstrun-title">不只是聊天，搞定真事。</h1>
-      <p className="maka-firstrun-sub">本地运行 · 自带 key · 每一步可见可控</p>
+      <h1 className="maka-firstrun-title">{hero.title}</h1>
+      <p className="maka-firstrun-sub">{copy.needsConnection.subtitle}</p>
 
       {setupSteps && <FirstRunStepper steps={setupSteps} />}
 
       <div className="maka-firstrun-pick">
-        <span className="maka-firstrun-pick-label">选择你的 AI</span>
-        <span className="maka-firstrun-pick-hint">点一个进入设置，填它的 key</span>
+        <span className="maka-firstrun-pick-label">{copy.needsConnection.pickLabel}</span>
+        <span className="maka-firstrun-pick-hint">{copy.needsConnection.pickHint}</span>
       </div>
 
       {/* The list scrolls vertically (CSS max-height) so it scales as more
@@ -311,7 +276,7 @@ function NeedsConnectionHero(props: {
           the footer keeps only genuinely distinct paths. */}
       <footer className="maka-onboarding-footer">
         <Button type="button" variant="secondary" onClick={props.onBrowseProviders}>
-          浏览全部服务商
+          {copy.needsConnection.browseProviders}
         </Button>
         {props.onRefreshConnections && (
           <Button
@@ -321,7 +286,7 @@ function NeedsConnectionHero(props: {
             disabled={props.refreshConnectionsPending === true}
             aria-busy={props.refreshConnectionsPending === true ? 'true' : undefined}
           >
-            {props.refreshConnectionsPending === true ? '刷新中…' : '已经配好了？刷新检测'}
+            {props.refreshConnectionsPending === true ? copy.refresh.pending : copy.refresh.connection}
           </Button>
         )}
         {props.onSkip && <SkipButton onSkip={props.onSkip} />}
@@ -336,8 +301,9 @@ function NeedsConnectionHero(props: {
  * rest outlined. Stays one quiet line so the provider list keeps the lead.
  */
 function FirstRunStepper({ steps }: { steps: readonly OnboardingSetupStep[] }) {
+  const copy = getOnboardingCopy(useUiLocale());
   return (
-    <ol className="maka-firstrun-stepper" aria-label="配置 AI 进度">
+    <ol className="maka-firstrun-stepper" aria-label={copy.setupProgressLabel}>
       {steps.map((step, index) => (
         <Fragment key={`${step.label}-${index}`}>
           {index > 0 && <li className="maka-firstrun-step-line" aria-hidden="true" />}
@@ -357,24 +323,21 @@ function NeedsDefaultConnectionHero(props: {
   refreshConnectionsPending?: boolean;
   onSkip?: () => Promise<void> | void;
 }) {
+  const locale = useUiLocale();
+  const copy = getOnboardingCopy(locale);
+  const hero = getOnboardingHeroCopy({ kind: 'needs_default_connection' }, locale)!;
   return (
     <SetupHero
       icon={<SettingsIcon size={14} aria-hidden="true" />}
-      eyebrow="选择默认模型连接"
-      title="选一个连接作为默认。"
-      body={
-        <>
-          你已经配置了至少一个模型连接，但还没设为默认。请到
-          <strong> 设置 · 模型 </strong>
-          挑一个作为默认连接，再开始对话。
-        </>
-      }
-      setupSteps={getOnboardingSetupSteps({ kind: 'needs_default_connection' })}
-      primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
+      eyebrow={hero.eyebrow}
+      title={hero.title}
+      body={hero.body}
+      setupSteps={getOnboardingSetupSteps({ kind: 'needs_default_connection' }, locale)}
+      primaryCta={{ label: hero.cta.label, onClick: () => props.onOpenSettings(hero.cta.settingsSection) }}
       secondaryCta={
         props.onRefreshConnections
           ? {
-            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经设好了？刷新检测',
+            label: props.refreshConnectionsPending === true ? copy.refresh.pending : copy.refresh.connection,
             onClick: props.onRefreshConnections,
             disabled: props.refreshConnectionsPending === true,
             busy: props.refreshConnectionsPending === true,
@@ -394,33 +357,32 @@ function NeedsConnectionCredentialsHero(props: {
   refreshConnectionsPending?: boolean;
   onSkip?: () => Promise<void> | void;
 }) {
+  const locale = useUiLocale();
+  const copy = getOnboardingCopy(locale);
+  const state = { kind: 'needs_connection_credentials', connectionSlug: props.connectionSlug } as const;
+  const hero = getOnboardingHeroCopy(state, locale)!;
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
       icon={<KeyRound size={14} aria-hidden="true" />}
-      eyebrow="补齐凭据"
-      title="这个连接还缺 API key。"
+      eyebrow={hero.eyebrow}
+      title={hero.title}
       body={
         <>
-          默认连接{' '}
+          {hero.body} {copy.connectionLabel}:{' '}
           {isFallback ? (
             <code className="maka-onboarding-slug">{name}</code>
           ) : (
             <strong>{name}</strong>
           )}
-          {' '}没有可用的凭据 —— 不是模型坏了，是 key 还没填。请到
-          <strong> 设置 · 模型</strong> 打开该连接，把 API key 补上再开始对话。
         </>
       }
-      setupSteps={getOnboardingSetupSteps({
-        kind: 'needs_connection_credentials',
-        connectionSlug: props.connectionSlug,
-      })}
-      primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
+      setupSteps={getOnboardingSetupSteps(state, locale)}
+      primaryCta={{ label: hero.cta.label, onClick: () => props.onOpenSettings(hero.cta.settingsSection) }}
       secondaryCta={
         props.onRefreshConnections
           ? {
-            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经填好了？刷新检测',
+            label: props.refreshConnectionsPending === true ? copy.refresh.pending : copy.refresh.credentials,
             onClick: props.onRefreshConnections,
             disabled: props.refreshConnectionsPending === true,
             busy: props.refreshConnectionsPending === true,
@@ -440,33 +402,32 @@ function NeedsDefaultModelHero(props: {
   refreshConnectionsPending?: boolean;
   onSkip?: () => Promise<void> | void;
 }) {
+  const locale = useUiLocale();
+  const copy = getOnboardingCopy(locale);
+  const state = { kind: 'needs_default_model', connectionSlug: props.connectionSlug } as const;
+  const hero = getOnboardingHeroCopy(state, locale)!;
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
       icon={<Cpu size={14} aria-hidden="true" />}
-      eyebrow="选择默认模型"
-      title="这个连接还没选默认模型。"
+      eyebrow={hero.eyebrow}
+      title={hero.title}
       body={
         <>
-          连接{' '}
+          {hero.body} {copy.connectionLabel}:{' '}
           {isFallback ? (
             <code className="maka-onboarding-slug">{name}</code>
           ) : (
             <strong>{name}</strong>
           )}
-          {' '}已经接好了，但还没绑定可发起对话的默认模型。请到 <strong>设置 · 模型</strong>
-          {' '}给它选一个模型，再回来开始对话。
         </>
       }
-      setupSteps={getOnboardingSetupSteps({
-        kind: 'needs_default_model',
-        connectionSlug: props.connectionSlug,
-      })}
-      primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
+      setupSteps={getOnboardingSetupSteps(state, locale)}
+      primaryCta={{ label: hero.cta.label, onClick: () => props.onOpenSettings(hero.cta.settingsSection) }}
       secondaryCta={
         props.onRefreshConnections
           ? {
-            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经选好了？刷新检测',
+            label: props.refreshConnectionsPending === true ? copy.refresh.pending : copy.refresh.model,
             onClick: props.onRefreshConnections,
             disabled: props.refreshConnectionsPending === true,
             busy: props.refreshConnectionsPending === true,
@@ -488,26 +449,22 @@ function BlockedHero(props: {
   // The reason is destructured to satisfy exhaustive type-checking;
   // when PR-future extends the enum, this branch must update too.
   void props.reason;
+  const locale = useUiLocale();
+  const copy = getOnboardingCopy(locale);
+  const state = { kind: 'blocked', reason: props.reason } as const;
+  const hero = getOnboardingHeroCopy(state, locale)!;
   return (
     <SetupHero
       icon={<AlertCircle size={14} aria-hidden="true" />}
-      eyebrow="等待恢复模型连接"
-      title="当前没有通过验证的模型连接。"
-      body={
-        <>
-          打开 <strong>设置 · 账号</strong> 查看每个连接的状态，
-          重新测试或重新登录后再开始对话。
-        </>
-      }
-      setupSteps={getOnboardingSetupSteps({
-        kind: 'blocked',
-        reason: props.reason,
-      })}
-      primaryCta={{ label: '打开设置 · 账号', onClick: () => props.onOpenSettings('account') }}
+      eyebrow={hero.eyebrow}
+      title={hero.title}
+      body={hero.body}
+      setupSteps={getOnboardingSetupSteps(state, locale)}
+      primaryCta={{ label: hero.cta.label, onClick: () => props.onOpenSettings(hero.cta.settingsSection) }}
       secondaryCta={
         props.onRefreshConnections
           ? {
-            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经修好了？刷新检测',
+            label: props.refreshConnectionsPending === true ? copy.refresh.pending : copy.refresh.blocked,
             onClick: props.onRefreshConnections,
             disabled: props.refreshConnectionsPending === true,
             busy: props.refreshConnectionsPending === true,
@@ -553,13 +510,15 @@ function ReadyEmptyHero(props: {
   }, []);
 
   const locale = useUiLocale();
-  const copy = READY_HERO_COPY_BY_LOCALE[locale];
+  const onboardingCopy = getOnboardingCopy(locale);
+  const copy = onboardingCopy.ready;
+  const suggestions = getFirstRunTaskSuggestions(locale);
   const quickChatBusy = props.quickChatPending || submitPending;
   const importStatusText = pendingImportAction === null
     ? null
     : pendingImportAction === 'folder'
-      ? '正在导入文件夹目录…'
-      : '正在导入文件内容…';
+      ? copy.importFolderPending
+      : copy.importFilesPending;
 
   const submit = useCallback(async () => {
     if (props.quickChatPending || submitPendingRef.current) return;
@@ -749,11 +708,11 @@ function ReadyEmptyHero(props: {
         </div>
         {dragActive && (
           <span className="maka-visually-hidden" role="status" aria-live="polite">
-            松开以导入文件内容
+            {copy.dropFiles}
           </span>
         )}
         {draftMode === 'deep_research' && (
-          <span className="maka-onboarding-quickchat-mode">深度研究 · 只读分析</span>
+          <span className="maka-onboarding-quickchat-mode">{copy.deepResearchMode}</span>
         )}
         <Button
           type="button"
@@ -770,14 +729,14 @@ function ReadyEmptyHero(props: {
         </Button>
       </div>
 
-      {FIRST_RUN_TASK_SUGGESTIONS.length > 0 && (
-        <div className="maka-first-run-task-suggestions" aria-label="试试这些任务">
+      {suggestions.length > 0 && (
+        <div className="maka-first-run-task-suggestions" aria-label={copy.suggestionsLabel}>
           <div className="maka-first-run-task-suggestions-inner">
             <div className="maka-first-run-task-suggestions-header">
-              <strong>试试这些任务</strong>
+              <strong>{copy.suggestionsLabel}</strong>
             </div>
             <div className="maka-first-run-task-suggestion-list">
-              {FIRST_RUN_TASK_SUGGESTIONS.map((suggestion) => (
+              {suggestions.map((suggestion) => (
                 <div key={suggestion.id} className="maka-first-run-task-suggestion-chip">
                   <Button
                     type="button"
@@ -799,6 +758,7 @@ function ReadyEmptyHero(props: {
 }
 
 function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string }) {
+  const copy = getOnboardingCopy(useUiLocale());
   const [pending, setPending] = useState(false);
   const mountedRef = useMountedRef();
   const onClick = useCallback(async () => {
@@ -818,7 +778,7 @@ function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string 
       disabled={pending}
       aria-busy={pending ? 'true' : undefined}
     >
-      {pending ? '跳过中…' : (props.label ?? '跳过，先逛逛')}
+      {pending ? copy.skipping : (props.label ?? copy.skip)}
     </Button>
   );
 }
@@ -896,16 +856,10 @@ function SetupHero(props: SetupHeroProps) {
   );
 }
 
-const SETUP_STEP_STATUS_LABELS: Record<OnboardingSetupStep['state'], string> = {
-  done: '已完成',
-  active: '当前步骤',
-  pending: '待完成',
-  warning: '需要处理',
-};
-
 function SetupProgress(props: { steps: readonly OnboardingSetupStep[] }) {
+  const copy = getOnboardingCopy(useUiLocale());
   return (
-    <ol className="maka-onboarding-setup-steps" aria-label="配置 AI 进度">
+    <ol className="maka-onboarding-setup-steps" aria-label={copy.setupProgressLabel}>
       {props.steps.map((step, index) => (
         <li key={`${step.label}-${index}`} data-state={step.state}>
           <span className="maka-onboarding-setup-step-marker" aria-hidden="true">
@@ -916,7 +870,7 @@ function SetupProgress(props: { steps: readonly OnboardingSetupStep[] }) {
             <small>{step.detail}</small>
           </span>
           <span className="maka-onboarding-setup-step-state">
-            {SETUP_STEP_STATUS_LABELS[step.state]}
+            {copy.setupStatus[step.state]}
           </span>
         </li>
       ))}

@@ -1,5 +1,8 @@
 import type { ChatDefaultPermissionMode, PermissionMode } from '@maka/core';
 import { CHAT_DEFAULT_PERMISSION_MODES } from '@maka/core';
+import type { UiLocale } from '@maka/core';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 import {
   SelectItem,
   SelectPopup,
@@ -32,28 +35,19 @@ export interface PermissionModeMeta {
  * both the composer and Settings → 通用 → 默认权限模式 render from it, so
  * labels/hints/markup can't drift between the two surfaces.
  */
-export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
-  explore: {
-    label: '只读模式',
-    hint: '只读模式：读取、列表、搜索直通，写入或网络仍需明确确认。Deep Research 默认走这档；不再出现在用户切换里。',
-    tone: 'info',
-  },
-  ask: {
-    label: '询问权限',
-    hint: '每次工具调用前都弹出对话框让你确认。最稳健，适合需要盯着 agent 干活的场景。',
-    tone: 'accent',
-  },
-  execute: {
-    label: '自动执行',
-    hint: '常见工具直通，破坏性操作、特权操作和浏览器操作仍会停下来确认。',
-    tone: 'info',
-  },
-  bypass: {
-    label: '跳过确认',
-    hint: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。只在完全信任本轮任务时使用。',
-    tone: 'destructive',
-  },
+const PERMISSION_MODE_TONE: Record<PermissionMode, PermissionModeMeta['tone']> = {
+  explore: 'info', ask: 'accent', execute: 'info', bypass: 'destructive',
 };
+
+export function getPermissionModeMeta(locale: UiLocale): Record<PermissionMode, PermissionModeMeta> {
+  const copy = getConversationCopy(locale).permissions.mode;
+  return {
+    explore: { ...copy.explore, tone: PERMISSION_MODE_TONE.explore },
+    ask: { ...copy.ask, tone: PERMISSION_MODE_TONE.ask },
+    execute: { ...copy.execute, tone: PERMISSION_MODE_TONE.execute },
+    bypass: { ...copy.bypass, tone: PERMISSION_MODE_TONE.bypass },
+  };
+}
 
 /** User-selectable modes, in display order — the canonical non-`explore`
  *  list from @maka/core, aliased under the name the composer historically
@@ -83,12 +77,15 @@ export function PermissionModeSelect(props: {
   className?: string;
   appearance?: PickerTriggerAppearance;
 }) {
+  const locale = useUiLocale();
+  const permissionCopy = getConversationCopy(locale).permissions;
+  const modeMeta = getPermissionModeMeta(locale);
   const displayMode: PermissionMode = props.activeMode === 'explore' ? 'ask' : props.activeMode;
-  const meta = PERMISSION_MODE_META[displayMode];
+  const meta = modeMeta[displayMode];
   return (
     <SelectRoot
       value={displayMode}
-      items={PERMISSION_MODE_ORDER.map((mode) => ({ value: mode, label: PERMISSION_MODE_META[mode].label }))}
+      items={PERMISSION_MODE_ORDER.map((mode) => ({ value: mode, label: modeMeta[mode].label }))}
       disabled={props.disabled}
       onValueChange={(value) => {
         if (value !== null) void props.onSelect(value as ChatDefaultPermissionMode);
@@ -96,19 +93,19 @@ export function PermissionModeSelect(props: {
     >
       <SelectTrigger
         appearance={props.appearance}
-        aria-label={props.ariaLabel ?? `权限模式：${meta.label}`}
+        aria-label={props.ariaLabel ?? permissionCopy.modeAriaLabel(meta.label)}
         title={props.disabledReason ?? meta.hint}
         className={props.className}
       >
         <SelectValue>
-          {(value: string) => PERMISSION_MODE_META[value as PermissionMode]?.label ?? meta.label}
+          {(value: string) => modeMeta[value as PermissionMode]?.label ?? meta.label}
         </SelectValue>
       </SelectTrigger>
       <SelectPortal>
         <SelectPositioner alignItemWithTrigger={false} align={props.align ?? 'start'} sideOffset={6}>
           <SelectPopup className="min-w-[280px] max-w-[320px]">
             {PERMISSION_MODE_ORDER.map((mode) => {
-              const optionMeta = PERMISSION_MODE_META[mode];
+              const optionMeta = modeMeta[mode];
               return (
                 <SelectItem key={mode} value={mode}>
                   <span className="flex flex-col gap-0.5">

@@ -34,9 +34,10 @@ const ALLOW = new Map([
     'apps/desktop/src/renderer/error-boundary.tsx',
     'React error boundary; DevTools-only, surfaces uncaught render errors.',
   ],
+  ['apps/desktop/src/main/main.ts', 'dev-gated by VITE_DEV_SERVER_URL / NODE_ENV (PR100).'],
   [
-    'apps/desktop/src/main/main.ts',
-    'dev-gated by VITE_DEV_SERVER_URL / NODE_ENV (PR100).',
+    'apps/desktop/src/main/app-ipc-main.ts',
+    'visual-smoke capture marker is fixture-gated and stdout-parsed by capture tooling (moved from main.ts, #1084).',
   ],
   [
     'apps/desktop/src/main/daily-review-main.ts',
@@ -78,10 +79,7 @@ const ALLOW = new Map([
     'apps/desktop/src/main/config-file-watcher.ts',
     'Watcher startup failure and runtime error diagnostics; non-fatal, no secrets.',
   ],
-  [
-    'scripts/check-console.mjs',
-    'this script — explicit allow.',
-  ],
+  ['scripts/check-console.mjs', 'this script — explicit allow.'],
   [
     'apps/desktop/src/main/automation-wiring.ts',
     'best-effort sync warning when durable automation persistence fails.',
@@ -146,7 +144,9 @@ async function main() {
     }
   }
   if (offenders.length === 0) {
-    console.log(`[check-console] OK — ${ALLOW.size} files explicitly allow-listed, no other console sites found.`);
+    console.log(
+      `[check-console] OK — ${ALLOW.size} files explicitly allow-listed, no other console sites found.`,
+    );
     return;
   }
   console.error('[check-console] FAILED — new console.* call sites detected:');

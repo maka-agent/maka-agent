@@ -62,7 +62,7 @@ export const WORKSPACE_PRIVACY_CONTEXT_INVALID_REASONS = [
   'incognito_active_invalid',
 ] as const;
 export type WorkspacePrivacyContextInvalidReason =
-  typeof WORKSPACE_PRIVACY_CONTEXT_INVALID_REASONS[number];
+  (typeof WORKSPACE_PRIVACY_CONTEXT_INVALID_REASONS)[number];
 
 // ---------------------------------------------------------------------------
 // Type guard + validator

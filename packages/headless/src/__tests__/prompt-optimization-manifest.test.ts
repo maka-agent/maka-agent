@@ -23,7 +23,11 @@ describe('prompt optimization run manifest', () => {
       await mkdir(join(taskPath, 'tests'), { recursive: true });
       await writeFile(join(taskPath, 'task.toml'), 'agent_timeout_sec = 900\n', 'utf8');
       await writeFile(join(taskPath, 'tests', 'test_outputs.py'), 'expected = 1\n', 'utf8');
-      const task: FixedPromptTask = { id: 'task-a', path: taskPath, metadata: { agentTimeoutSec: 900 } };
+      const task: FixedPromptTask = {
+        id: 'task-a',
+        path: taskPath,
+        metadata: { agentTimeoutSec: 900 },
+      };
 
       const firstTaskSourceFingerprint = await buildPromptOptimizationTaskSourceFingerprint(
         join(dir, 'tasks'),
@@ -77,12 +81,18 @@ describe('prompt optimization run manifest', () => {
       await git(dir, 'add', '.gitignore', 'tracked.txt');
       await git(dir, 'commit', '-q', '-m', 'initial');
 
-      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      assert.equal(
+        await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'),
+        '',
+      );
       const first = await buildPromptOptimizationSubjectFingerprint(dir);
 
       await writeFile(distFile, 'export const value = 2;\n', 'utf8');
 
-      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      assert.equal(
+        await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'),
+        '',
+      );
       const second = await buildPromptOptimizationSubjectFingerprint(dir);
       assert.notEqual(second, first);
     });
@@ -93,7 +103,11 @@ describe('prompt optimization run manifest', () => {
       await makeExecutionRepo(dir);
       const first = await buildPromptOptimizationToolchainFingerprint(dir);
 
-      await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 2;\n', 'utf8');
+      await writeFile(
+        join(dir, 'packages', 'headless', 'src', 'runner.ts'),
+        'export const value = 2;\n',
+        'utf8',
+      );
       await git(dir, 'add', 'packages/headless/src/runner.ts');
       await git(dir, 'commit', '-q', '-m', 'change headless source');
 
@@ -106,12 +120,18 @@ describe('prompt optimization run manifest', () => {
     await withDir(async (dir) => {
       await makeExecutionRepo(dir);
       const distFile = join(dir, 'packages', 'headless', 'dist', 'harbor-cell.js');
-      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      assert.equal(
+        await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'),
+        '',
+      );
       const first = await buildPromptOptimizationToolchainFingerprint(dir);
 
       await writeFile(distFile, 'export const value = 2;\n', 'utf8');
 
-      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      assert.equal(
+        await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'),
+        '',
+      );
       const second = await buildPromptOptimizationToolchainFingerprint(dir);
       assert.notEqual(second, first);
     });
@@ -120,7 +140,11 @@ describe('prompt optimization run manifest', () => {
   test('rejects dirty execution checkouts before building a toolchain fingerprint', async () => {
     await withDir(async (dir) => {
       await makeExecutionRepo(dir);
-      await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 2;\n', 'utf8');
+      await writeFile(
+        join(dir, 'packages', 'headless', 'src', 'runner.ts'),
+        'export const value = 2;\n',
+        'utf8',
+      );
 
       await assert.rejects(
         buildPromptOptimizationToolchainFingerprint(dir),
@@ -243,10 +267,26 @@ async function makeExecutionRepo(dir: string): Promise<void> {
   await mkdir(join(dir, 'packages', 'headless', 'dist'), { recursive: true });
   await writeFile(join(dir, '.gitignore'), 'packages/headless/dist/\n', 'utf8');
   await writeFile(join(dir, 'package-lock.json'), '{"lockfileVersion":3}\n', 'utf8');
-  await writeFile(join(dir, 'packages', 'headless', 'package.json'), '{"name":"@maka/headless"}\n', 'utf8');
-  await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 1;\n', 'utf8');
-  await writeFile(join(dir, 'packages', 'headless', 'harbor', 'run-prompt-optimization.mjs'), 'console.log("runner");\n', 'utf8');
-  await writeFile(join(dir, 'packages', 'headless', 'dist', 'harbor-cell.js'), 'export const value = 1;\n', 'utf8');
+  await writeFile(
+    join(dir, 'packages', 'headless', 'package.json'),
+    '{"name":"@maka/headless"}\n',
+    'utf8',
+  );
+  await writeFile(
+    join(dir, 'packages', 'headless', 'src', 'runner.ts'),
+    'export const value = 1;\n',
+    'utf8',
+  );
+  await writeFile(
+    join(dir, 'packages', 'headless', 'harbor', 'run-prompt-optimization.mjs'),
+    'console.log("runner");\n',
+    'utf8',
+  );
+  await writeFile(
+    join(dir, 'packages', 'headless', 'dist', 'harbor-cell.js'),
+    'export const value = 1;\n',
+    'utf8',
+  );
   await git(dir, 'init', '-q');
   await git(dir, 'config', 'user.email', 'test@example.com');
   await git(dir, 'config', 'user.name', 'Test User');

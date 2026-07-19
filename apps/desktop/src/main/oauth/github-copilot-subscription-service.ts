@@ -114,7 +114,6 @@ export class GitHubCopilotSubscriptionService {
         this.fetchFn,
       );
       if (models.length === 0) throw new Error('GitHub Copilot account returned no usable models.');
-      await this.saveTokens(current);
       this.lastRefreshError = null;
       return { ok: true, models };
     } catch {

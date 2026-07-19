@@ -1,9 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
-import { Button, PageHeader, useMountedRef, useToast } from '@maka/ui';
+import { Button, PageHeader, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsSkeletonStack } from './settings-skeleton';
+import { useActionGuard } from './use-action-guard';
+import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
 
 type AppInfo = Awaited<ReturnType<typeof window.maka.app.info>>;
 
@@ -14,10 +16,12 @@ const PLATFORM_LABEL: Record<string, string> = {
 };
 
 export function AboutSettingsPage() {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).about;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [copyingEnvSummary, setCopyingEnvSummary] = useState(false);
-  const copyingEnvSummaryRef = useRef(false);
+  const envSummaryCopyGuard = useActionGuard<'copy'>();
   const aboutPageMountedRef = useMountedRef();
   const toast = useToast();
   const envSummaryHelpId = useId();
@@ -34,20 +38,19 @@ export function AboutSettingsPage() {
       })
       .catch((error) => {
         if (cancelled) return;
-        const message = settingsActionErrorMessage(error);
+        const message = settingsActionErrorMessage(error, locale);
         setInfoError(message);
-        toast.error('载入关于信息失败', message);
+        toast.error(copy.loadFailed, message);
     });
     return () => {
       cancelled = true;
-      copyingEnvSummaryRef.current = false;
     };
-  }, [toast]);
+  }, [copy.loadFailed, locale, toast]);
 
   if (!info && !infoError) {
     return (
       <SettingsSkeletonStack
-        label="正在加载关于页"
+        label={copy.loading}
         lines={[
           { width: '38%', size: 'lg' },
           { width: '70%' },
@@ -61,7 +64,7 @@ export function AboutSettingsPage() {
     return (
       <div className="settingsStructuredPage">
         <div className="settingsNotice" role="alert">
-          <strong>无法载入关于信息</strong>
+          <strong>{copy.unavailable}</strong>
           <small>{infoError}</small>
         </div>
       </div>
@@ -73,8 +76,7 @@ export function AboutSettingsPage() {
 
   async function copyEnvSummary() {
     if (!info) return;
-    if (copyingEnvSummaryRef.current) return;
-    copyingEnvSummaryRef.current = true;
+    if (!envSummaryCopyGuard.begin('copy')) return;
     setCopyingEnvSummary(true);
     // Markdown block ready to paste into a problem report. Deliberately excludes
     // workspacePath since that can leak the OS username; user can still copy
@@ -96,14 +98,14 @@ export function AboutSettingsPage() {
     try {
       await navigator.clipboard.writeText(summary);
       if (aboutPageMountedRef.current) {
-        toast.success('已复制环境信息', '可直接粘贴到问题报告');
+        toast.success(copy.copied, copy.pasteHint);
       }
     } catch {
       if (aboutPageMountedRef.current) {
-        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+        toast.error(copy.copyFailed, copy.clipboardUnavailable);
       }
     } finally {
-      copyingEnvSummaryRef.current = false;
+      envSummaryCopyGuard.finish();
       if (aboutPageMountedRef.current) {
         setCopyingEnvSummary(false);
       }
@@ -126,54 +128,50 @@ export function AboutSettingsPage() {
             <span className="settingsAboutChannel">
               {info.buildMode === 'dev'
                 ? info.buildCommit
-                  ? `本地开发版 · ${info.buildCommit}`
-                  : '本地开发版'
-                : '正式版'}
+                  ? `${copy.devBuild} · ${info.buildCommit}`
+                  : copy.devBuild
+                : copy.packagedBuild}
             </span>
           </>
         }
-        subtitle="本地优先的 AI 助手 · 桌面端运行环境"
+        subtitle={copy.subtitle}
         subtitleClassName="settingsAboutTagline"
       />
 
-      <section className="settingsAboutPrivacy" aria-label="隐私与安全">
-        <h3>本地优先 · 隐私默认</h3>
-        <ul aria-label="隐私与安全说明">
-          <li>所有会话、设置、凭据和 Skill 指令文件都保留在本机工作区，不上传到 Maka 服务器</li>
-          <li>模型供应商密钥保存在本机凭据文件内，依赖系统账号与文件权限；订阅账号令牌使用系统安全存储</li>
-          <li>Maka 不发送任何使用遥测；只在你显式启用时与所选模型供应商通信</li>
-          <li>权限策略会判断工具调用风险；高危操作需要在对话内明示授权</li>
-          <li>每个会话都会在本机保留消息、工具调用、权限决策与模式变更记录</li>
+      <section className="settingsAboutPrivacy" aria-label={copy.privacyLabel}>
+        <h3>{copy.privacyTitle}</h3>
+        <ul aria-label={copy.privacyLabel}>
+          {copy.privacyPoints.map((point) => <li key={point}>{point}</li>)}
         </ul>
       </section>
 
       <SettingsRows>
         <SettingRow
-          title="运行时"
-          detail="界面层、桌面运行时和本地 Node 版本号一并显示。"
+          title={copy.runtime}
+          detail={copy.runtimeDetail}
           value={`Electron ${info.electronVersion} · Node ${info.nodeVersion} · Chrome ${info.chromeVersion}`}
         />
-        <SettingRow title="平台" detail="操作系统、版本和 CPU 架构。" value={platformLine} />
+        <SettingRow title={copy.platform} detail={copy.platformDetail} value={platformLine} />
         <SettingRow
-          title="工作区"
-          detail="会话、设置和凭据全部留在本地这条路径下。"
+          title={copy.workspace}
+          detail={copy.workspaceDetail}
           value={info.workspacePath}
           mono
         />
         <SettingRow
-          title="存储"
-          detail="会话记录、设置文件、SQLite 使用统计、本机凭据文件和订阅账号安全存储。"
-          value="本地"
+          title={copy.storage}
+          detail={copy.storageDetail}
+          value={copy.local}
         />
       </SettingsRows>
 
       <div className="settingsActionRow">
         <Button type="button" disabled={copyingEnvSummary} aria-describedby={envSummaryHelpId} onClick={() => void copyEnvSummary()}>
-          {copyingEnvSummary ? '复制中…' : '复制环境信息'}
+          {copyingEnvSummary ? copy.copying : copy.copyEnvironment}
         </Button>
       </div>
       <p id={envSummaryHelpId} className="settingsHelpText">
-        如果遇到问题，复制以上信息会同时带上版本号与平台细节，方便定位。复制内容不包含工作区路径（避免泄露用户名）。
+        {copy.copyHelp}
       </p>
     </div>
   );

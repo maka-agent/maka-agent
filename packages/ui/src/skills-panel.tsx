@@ -37,6 +37,7 @@ const MARKET_CATEGORIES: ReadonlyArray<ManagedSkillCategory> = [
 type MarketSort = 'name' | 'recent';
 
 const SKILL_UPDATE_PREVIEW_MAX_LINES = 80;
+const DELETE_CONFIRM_TIMEOUT_MS = 4_000;
 
 function SkillLibraryPanel(props: {
   skills?: SkillEntry[];
@@ -97,7 +98,7 @@ function SkillLibraryPanel(props: {
     if (confirmingDeleteSkillId !== skill.id) {
       clearDeleteConfirmTimer();
       setConfirmingDeleteSkillId(skill.id);
-      deleteConfirmTimerRef.current = setTimeout(() => setConfirmingDeleteSkillId(null), 4000);
+      deleteConfirmTimerRef.current = setTimeout(() => setConfirmingDeleteSkillId(null), DELETE_CONFIRM_TIMEOUT_MS);
       return;
     }
     clearDeleteConfirmTimer();

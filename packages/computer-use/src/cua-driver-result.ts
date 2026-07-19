@@ -4,10 +4,7 @@ import {
   type ComputerUseDispatchTier,
   type ComputerUseEffect,
 } from '@maka/core';
-import type {
-  CuDispatchEvidence,
-  CuDispatchOutcome,
-} from '@maka/runtime';
+import type { CuDispatchEvidence, CuDispatchOutcome } from '@maka/runtime';
 
 export interface JsonRpcToolResult {
   content?: Array<{
@@ -26,16 +23,13 @@ function dispatchEvidence(
   structuredContent: Record<string, unknown> | undefined,
 ): CuDispatchEvidence | undefined {
   if (!structuredContent) return undefined;
-  const path = typeof structuredContent.path === 'string'
-    ? structuredContent.path
-    : undefined;
-  const effect = typeof structuredContent.effect === 'string'
-    && effects.has(structuredContent.effect)
-    ? structuredContent.effect as ComputerUseEffect
-    : undefined;
-  const reason = typeof structuredContent.reason === 'string'
-    ? structuredContent.reason
-    : undefined;
+  const path = typeof structuredContent.path === 'string' ? structuredContent.path : undefined;
+  const effect =
+    typeof structuredContent.effect === 'string' && effects.has(structuredContent.effect)
+      ? (structuredContent.effect as ComputerUseEffect)
+      : undefined;
+  const reason =
+    typeof structuredContent.reason === 'string' ? structuredContent.reason : undefined;
   return path === undefined && effect === undefined && reason === undefined
     ? undefined
     : {
@@ -64,10 +58,12 @@ function verification(
 }
 
 function resultText(result: JsonRpcToolResult | undefined, fallback: string): string {
-  return result?.content?.find(
-    (content): content is typeof content & { text: string } =>
-      content.type === 'text' && typeof content.text === 'string',
-  )?.text ?? fallback;
+  return (
+    result?.content?.find(
+      (content): content is typeof content & { text: string } =>
+        content.type === 'text' && typeof content.text === 'string',
+    )?.text ?? fallback
+  );
 }
 
 export function normalizeCuaDriverOutcome(

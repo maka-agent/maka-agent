@@ -3,9 +3,16 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import type { AgentRunHeader, LlmConnection, SessionHeader } from '@maka/core';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
+import type {
+  AgentRunHeader,
+  AttachmentByteReader,
+  BackendSendInput,
+  LlmConnection,
+  SessionHeader,
+  StorageRef,
+} from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
@@ -28,10 +35,7 @@ import {
 import type { MakaTool } from '../tool-runtime.js';
 import { LOAD_TOOLS_NAME } from '../tool-availability.js';
 import { PermissionEngine } from '../permission-engine.js';
-import {
-  canonicalizeToolSet,
-  computeRequestShapeDiagnostic,
-} from '../request-shape.js';
+import { canonicalizeToolSet, computeRequestShapeDiagnostic } from '../request-shape.js';
 import {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
@@ -40,19 +44,242 @@ import {
   type HistoryCompactBlock,
   type SynthesisCacheBlock,
 } from '../context-budget.js';
-import { buildHistoryCompactCheckpoint, type HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
+import {
+  buildHistoryCompactCheckpoint,
+  type HistoryCompactCheckpoint,
+} from '../history-compact-checkpoint.js';
 import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '../history-compact-artifacts.js';
 import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 import { memoryArtifactStore } from './memory-artifact-store.js';
-import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
+import { buildRuntimeEventModelReplayPlan, buildSteeringEnvelope } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
 import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
 
 describe('AiSdkBackend model history', () => {
+  test('omits an empty system prompt from the provider request', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      systemPrompt: '',
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('sends the selected Kimi model output limit instead of the Anthropic unknown-model default', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'kimi-coding-plan',
+        name: 'Kimi Coding Plan',
+        providerType: 'kimi-coding-plan',
+        defaultModel: 'k3',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'k3',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+      }),
+    );
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 131_072);
+  });
+
+  test('prefers the connection-advertised Kimi output limit over catalog metadata', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'kimi-coding-plan',
+        name: 'Kimi Coding Plan',
+        providerType: 'kimi-coding-plan',
+        defaultModel: 'k3',
+        models: [{ id: 'k3', maxOutputTokens: 65_536 }],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'k3',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+      }),
+    );
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 65_536);
+  });
+
+  test('honors a Copilot account output limit on its Anthropic messages wire', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'github-copilot',
+        name: 'GitHub Copilot',
+        providerType: 'github-copilot',
+        defaultModel: 'future-claude-model',
+        models: [
+          {
+            id: 'future-claude-model',
+            apiProtocol: 'anthropic-messages',
+            maxOutputTokens: 128_000,
+          },
+        ],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'github-account-token',
+      modelId: 'future-claude-model',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+      }),
+    );
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 128_000);
+  });
+
+  test('reserves Kimi fixed thinking inside the provider wire output limit', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'kimi-coding-plan',
+        name: 'Kimi Coding Plan',
+        providerType: 'kimi-coding-plan',
+        defaultModel: 'kimi-for-coding',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'kimi-for-coding',
+      providerOptions: {
+        anthropic: {
+          thinking: { type: 'enabled', budgetTokens: 1_024 },
+          effort: 'max',
+        },
+      },
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+      }),
+    );
+
+    // Anthropic's adapter adds budgetTokens to maxOutputTokens on the wire.
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 32_768 - 1_024);
+  });
+
+  test('leaves OpenAI-compatible output limits to their provider adapter', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'mistral',
+        name: 'Mistral',
+        providerType: 'mistral',
+        defaultModel: 'mistral-large-latest',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'mistral-large-latest',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+      }),
+    );
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, undefined);
+  });
+
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
@@ -69,19 +296,46 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'runtime assistant' }),
-        runtimeTextEvent({ id: 'rt-current', turnId: 'turn-current', role: 'user', author: 'user', text: 'current from runtime' }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'runtime user',
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'runtime assistant',
+          }),
+          runtimeTextEvent({
+            id: 'rt-current',
+            turnId: 'turn-current',
+            role: 'user',
+            author: 'user',
+            text: 'current from runtime',
+          }),
+        ],
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
@@ -106,20 +360,28 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 1,
-      },
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'original user',
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 1,
+        },
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'original user' }] },
@@ -142,29 +404,37 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
-        runtimeEvent({
-          id: 'rt-failed',
-          turnId: 'turn-source',
-          role: 'system',
-          author: 'system',
-          status: 'failed',
-          content: { kind: 'error', reason: 'runtime_error', message: 'previous attempt failed' },
-          actions: { endInvocation: true },
-        }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 2,
-      },
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'original user',
+          }),
+          runtimeEvent({
+            id: 'rt-failed',
+            turnId: 'turn-source',
+            role: 'system',
+            author: 'system',
+            status: 'failed',
+            content: { kind: 'error', reason: 'runtime_error', message: 'previous attempt failed' },
+            actions: { endInvocation: true },
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 2,
+        },
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'original user' }] },
@@ -216,8 +486,13 @@ describe('AiSdkBackend model history', () => {
     }
 
     assert.equal(model.doStreamCalls.length, 0);
-    assert.deepEqual(events.map((event) => event.type), ['error', 'complete']);
-    const error = events.find((event): event is Extract<SessionEvent, { type: 'error' }> => event.type === 'error');
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['error', 'complete'],
+    );
+    const error = events.find(
+      (event): event is Extract<SessionEvent, { type: 'error' }> => event.type === 'error',
+    );
     assert.equal(error?.code, 'continuation_replay_empty');
     const failure = trace.find((event) => event.type === 'model_stream_failed');
     assert.equal(failure?.data?.errorClass, 'continuation_replay_empty');
@@ -244,27 +519,35 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
-        runtimeEvent({
-          id: 'rt-thinking',
-          turnId: 'turn-source',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
-        }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 2,
-      },
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'original user',
+          }),
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-source',
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 2,
+        },
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'original user' }] },
@@ -287,55 +570,78 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-source', ts: 1, text: 'must not replay projection' },
-      ],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
-        runtimeEvent({
-          id: 'rt-call',
-          turnId: 'turn-source',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'printf ok' } },
-        }),
-        runtimeEvent({
-          id: 'rt-invalid-result',
-          turnId: 'turn-source',
-          role: 'tool',
-          author: 'tool',
-          content: {
-            kind: 'function_response',
-            id: 'tool-1',
-            name: 'Bash',
-            result: {
-              kind: 'terminal',
-              cwd: '/workspace',
-              cmd: 'printf ok',
-              status: 'completed',
-              exitCode: 0,
-              stdout: 'ok',
-              stderr: '',
-              stdoutTruncated: false,
-              stderrTruncated: false,
-              output: {
-                mode: 'pipes', stdout: 'ok', stderr: '',
-                stdoutTruncated: false, stderrTruncated: false, redacted: false,
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [
+          {
+            type: 'user',
+            id: 'projection-u',
+            turnId: 'turn-source',
+            ts: 1,
+            text: 'must not replay projection',
+          },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'original user',
+          }),
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-source',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Bash',
+              args: { command: 'printf ok' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-invalid-result',
+            turnId: 'turn-source',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Bash',
+              result: {
+                kind: 'terminal',
+                cwd: '/workspace',
+                cmd: 'printf ok',
+                status: 'completed',
+                exitCode: 0,
+                stdout: 'ok',
+                stderr: '',
+                stdoutTruncated: false,
+                stderrTruncated: false,
+                output: {
+                  mode: 'pipes',
+                  stdout: 'ok',
+                  stderr: '',
+                  stdoutTruncated: false,
+                  stderrTruncated: false,
+                  redacted: false,
+                },
               },
             },
-          },
-        }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 3,
-      },
-    }));
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 3,
+        },
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'original user' }] },
@@ -358,21 +664,35 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-source', role: 'model', author: 'agent', text: 'partial answer' }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 2,
-      },
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'original user',
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-source',
+            role: 'model',
+            author: 'agent',
+            text: 'partial answer',
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 2,
+        },
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'original user' }] },
@@ -396,39 +716,52 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'run the check' }),
-        runtimeEvent({
-          id: 'rt-call',
-          turnId: 'turn-source',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'README.md' } },
-        }),
-        runtimeEvent({
-          id: 'rt-result',
-          turnId: 'turn-source',
-          role: 'tool',
-          author: 'tool',
-          content: {
-            kind: 'function_response',
-            id: 'tool-1',
-            name: 'Read',
-            result: { kind: 'text', text: 'contents' },
-          },
-        }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 3,
-      },
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'run the check',
+          }),
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-source',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'README.md' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-source',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: { kind: 'text', text: 'contents' },
+            },
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 3,
+        },
+      }),
+    );
 
     const prompt = compactPrompt(model) as Array<{ role: string }>;
     assert.equal(prompt[0]?.role, 'user');
@@ -451,29 +784,91 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        {
-          id: 'rt-terminal',
-          invocationId: 'inv-1',
-          runId: 'run-prev',
-          sessionId: 'session-1',
-          turnId: 'turn-prev',
-          ts: 1,
-          partial: false,
-          role: 'model',
-          author: 'agent',
-          status: 'completed',
-          actions: { endInvocation: true },
-        },
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          {
+            id: 'rt-terminal',
+            invocationId: 'inv-1',
+            runId: 'run-prev',
+            sessionId: 'session-1',
+            turnId: 'turn-prev',
+            ts: 1,
+            partial: false,
+            role: 'model',
+            author: 'agent',
+            status: 'completed',
+            actions: { endInvocation: true },
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('stored-message fallback skips empty assistant texts', async () => {
+    // A thinking/tool-only step projects an assistant row with empty text.
+    // The degraded stored-message path must not replay it: an empty text
+    // content block is a hard 400 on Anthropic-protocol providers, which
+    // permanently blocks every later turn of the session.
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-empty',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: '',
+            modelId: 'm',
+          },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 3,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
@@ -498,44 +893,57 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        {
-          type: 'user',
-          id: 'projection-u',
-          turnId: 'turn-prev',
-          ts: 1,
-          text: 'see the attached chart',
-          attachments: [
-            {
-              kind: 'image',
-              name: 'chart.png',
-              mimeType: 'image/png',
-              bytes: 123,
-              ref: { kind: 'session_file', sessionId: 'sess-1', relativePath: 'attachments/chart.png' },
-            },
-          ],
-        },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        {
-          id: 'rt-terminal',
-          invocationId: 'inv-1',
-          runId: 'run-prev',
-          sessionId: 'session-1',
-          turnId: 'turn-prev',
-          ts: 1,
-          partial: false,
-          role: 'model',
-          author: 'agent',
-          status: 'completed',
-          actions: { endInvocation: true },
-        },
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          {
+            type: 'user',
+            id: 'projection-u',
+            turnId: 'turn-prev',
+            ts: 1,
+            text: 'see the attached chart',
+            attachments: [
+              {
+                kind: 'image',
+                name: 'chart.png',
+                mimeType: 'image/png',
+                bytes: 123,
+                ref: {
+                  kind: 'session_file',
+                  sessionId: 'sess-1',
+                  relativePath: 'attachments/chart.png',
+                },
+              },
+            ],
+          },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          {
+            id: 'rt-terminal',
+            invocationId: 'inv-1',
+            runId: 'run-prev',
+            sessionId: 'session-1',
+            turnId: 'turn-prev',
+            ts: 1,
+            partial: false,
+            role: 'model',
+            author: 'agent',
+            status: 'completed',
+            actions: { endInvocation: true },
+          },
+        ],
+      }),
+    );
 
     const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
     const historicalUser = prompt[0];
@@ -567,50 +975,66 @@ describe('AiSdkBackend model history', () => {
       supportsVision: true,
     } as never);
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        {
-          type: 'user',
-          id: 'projection-u',
-          turnId: 'turn-prev',
-          ts: 1,
-          text: 'see the attached chart',
-          attachments: [
-            {
-              kind: 'image',
-              name: 'chart.png',
-              mimeType: 'image/png',
-              bytes: 123,
-              ref: { kind: 'session_file', sessionId: 'sess-1', relativePath: 'attachments/chart.png' },
-            },
-          ],
-        },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        {
-          id: 'rt-terminal',
-          invocationId: 'inv-1',
-          runId: 'run-prev',
-          sessionId: 'session-1',
-          turnId: 'turn-prev',
-          ts: 1,
-          partial: false,
-          role: 'model',
-          author: 'agent',
-          status: 'completed',
-          actions: { endInvocation: true },
-        },
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          {
+            type: 'user',
+            id: 'projection-u',
+            turnId: 'turn-prev',
+            ts: 1,
+            text: 'see the attached chart',
+            attachments: [
+              {
+                kind: 'image',
+                name: 'chart.png',
+                mimeType: 'image/png',
+                bytes: 123,
+                ref: {
+                  kind: 'session_file',
+                  sessionId: 'sess-1',
+                  relativePath: 'attachments/chart.png',
+                },
+              },
+            ],
+          },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          {
+            id: 'rt-terminal',
+            invocationId: 'inv-1',
+            runId: 'run-prev',
+            sessionId: 'session-1',
+            turnId: 'turn-prev',
+            ts: 1,
+            partial: false,
+            role: 'model',
+            author: 'agent',
+            status: 'completed',
+            actions: { endInvocation: true },
+          },
+        ],
+      }),
+    );
 
     const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
     const historicalUser = prompt[0];
     const parts = historicalUser.content as Array<{ type: string; mediaType?: string }>;
     const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
-    assert.ok(imageLike, `expected a historical image/png part in stored-message fallback, got: ${JSON.stringify(parts)}`);
+    assert.ok(
+      imageLike,
+      `expected a historical image/png part in stored-message fallback, got: ${JSON.stringify(parts)}`,
+    );
   });
 
   test('current-turn image attachment becomes a provider image part', async () => {
@@ -632,30 +1056,41 @@ describe('AiSdkBackend model history', () => {
       supportsVision: true,
     } as never);
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'describe this chart',
-      attachments: [
-        {
-          kind: 'image',
-          name: 'chart.png',
-          mimeType: 'image/png',
-          bytes: pngBytes.length,
-          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/chart.png' },
-        },
-      ],
-      context: [],
-      runtimeContext: [],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'describe this chart',
+        attachments: [
+          {
+            kind: 'image',
+            name: 'chart.png',
+            mimeType: 'image/png',
+            bytes: pngBytes.length,
+            ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/chart.png' },
+          },
+        ],
+        context: [],
+        runtimeContext: [],
+      }),
+    );
 
     const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
     const currentUser = prompt[prompt.length - 1];
-    const parts = currentUser.content as Array<{ type: string; image?: unknown; mediaType?: string; text?: string; data?: unknown }>;
-    // ai-sdk LanguageModelV3 normalizes CoreMessage image parts into generic
+    const parts = currentUser.content as Array<{
+      type: string;
+      image?: unknown;
+      mediaType?: string;
+      text?: string;
+      data?: unknown;
+    }>;
+    // AI SDK LanguageModelV4 normalizes ModelMessage file parts into generic
     // file parts at the provider boundary (mediaType carries image/png); the
     // image bytes must reach the provider as a non-text image/png part.
     const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
-    assert.ok(imageLike, `expected an image/png part in current user content, got: ${JSON.stringify(parts)}`);
+    assert.ok(
+      imageLike,
+      `expected an image/png part in current user content, got: ${JSON.stringify(parts)}`,
+    );
   });
 
   test('current-turn image attachment falls back to text unless vision support is explicit', async () => {
@@ -676,31 +1111,356 @@ describe('AiSdkBackend model history', () => {
       readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
     } as never);
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'describe this chart',
-      attachments: [
-        {
-          kind: 'image',
-          name: 'chart.png',
-          mimeType: 'image/png',
-          bytes: pngBytes.length,
-          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/chart.png' },
-        },
-      ],
-      context: [],
-      runtimeContext: [],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'describe this chart',
+        attachments: [
+          {
+            kind: 'image',
+            name: 'chart.png',
+            mimeType: 'image/png',
+            bytes: pngBytes.length,
+            ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/chart.png' },
+          },
+        ],
+        context: [],
+        runtimeContext: [],
+      }),
+    );
 
     const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
     const currentUser = prompt[prompt.length - 1];
     const parts = currentUser.content as Array<{ type: string; mediaType?: string; text?: string }>;
     const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
-    assert.equal(imageLike, undefined, `expected no image/png part without explicit vision support, got: ${JSON.stringify(parts)}`);
+    assert.equal(
+      imageLike,
+      undefined,
+      `expected no image/png part without explicit vision support, got: ${JSON.stringify(parts)}`,
+    );
     const text = parts.map((p) => p.text ?? '').join('\n');
     assert.ok(text.includes('describe this chart'), `expected original text in: ${text}`);
-    assert.ok(text.includes('[attachment: chart.png (image/png)]'), `expected attachment ref in: ${text}`);
-    assert.ok(text.includes('does not support image input'), `expected non-vision fallback note in: ${text}`);
+    assert.ok(
+      text.includes('[attachment: chart.png (image/png)]'),
+      `expected attachment ref in: ${text}`,
+    );
+    assert.ok(
+      text.includes('does not support image input'),
+      `expected non-vision fallback note in: ${text}`,
+    );
+  });
+
+  test('reports unavailable attachment reads without consuming image budget', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async (ref: StorageRef) =>
+        ref.kind === 'session_file' && ref.relativePath === 'missing'
+          ? { ok: false, reason: 'not_found' }
+          : { ok: true, bytes: new Uint8Array(10) },
+    } as never);
+    const attachment = (relativePath: string) => ({
+      kind: 'image' as const,
+      name: `${relativePath}.png`,
+      mimeType: 'image/png',
+      bytes: 10,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath },
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'describe these charts',
+        attachments: [attachment('missing'), attachment('available')],
+        context: [],
+        runtimeContext: [],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const parts = prompt.at(-1)?.content as Array<{
+      type: string;
+      mediaType?: string;
+      text?: string;
+    }>;
+    assert.equal(
+      parts.filter((part) => part.type !== 'text' && part.mediaType === 'image/png').length,
+      1,
+    );
+    assert.match(parts.map((part) => part.text ?? '').join('\n'), /missing\.png.*not_found/);
+  });
+
+  test('charges attachment image budget from the bytes actually read', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async () => ({ ok: true, bytes: new Uint8Array(10) }),
+    } as never);
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'describe this chart',
+        attachments: [
+          {
+            kind: 'image',
+            name: 'chart.png',
+            mimeType: 'image/png',
+            bytes: 20,
+            ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'chart' },
+          },
+        ],
+        context: [],
+        runtimeContext: [],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const parts = prompt.at(-1)?.content as Array<{ type: string; mediaType?: string }>;
+    assert.equal(
+      parts.filter((part) => part.type !== 'text' && part.mediaType === 'image/png').length,
+      1,
+    );
+  });
+
+  test('degrades excess current-turn image attachments once the per-request budget is exceeded', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 25,
+      readAttachmentBytes: async () => ({ ok: true, bytes: new Uint8Array(10) }),
+    } as never);
+
+    const attachment = (relativePath: string) => ({
+      kind: 'image' as const,
+      name: relativePath,
+      mimeType: 'image/png',
+      bytes: 10,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath },
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'describe these charts',
+        attachments: [attachment('img-1'), attachment('img-2'), attachment('img-3')],
+        context: [],
+        runtimeContext: [],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const currentUser = prompt[prompt.length - 1];
+    const parts = currentUser.content as Array<{ type: string; mediaType?: string; text?: string }>;
+    const imageParts = parts.filter((p) => p.type !== 'text' && p.mediaType === 'image/png');
+    assert.equal(imageParts.length, 2, `expected two image parts, got: ${JSON.stringify(parts)}`);
+    const text = parts.map((p) => p.text ?? '').join('\n');
+    assert.match(
+      text,
+      /1 image attachment\(s\) omitted.*image budget/,
+      `expected budget-omitted notice in: ${text}`,
+    );
+  });
+
+  test('counts the same attachment ref separately in replay and the current turn', async () => {
+    const bytes = new Uint8Array(10);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async () => ({ ok: true, bytes }),
+    });
+    const attachment = {
+      kind: 'image' as const,
+      name: 'chart.png',
+      mimeType: 'image/png',
+      bytes: bytes.length,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'artifact-1' },
+    };
+
+    await drain(
+      backend.send({
+        turnId: 'turn-regenerated',
+        text: 'describe this chart',
+        attachments: [attachment],
+        context: [],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-original',
+            turnId: 'turn-original',
+            role: 'user',
+            author: 'user',
+            content: { kind: 'text', text: 'describe this chart', attachments: [attachment] },
+          }),
+          runtimeTextEvent({
+            id: 'rt-answer',
+            turnId: 'turn-original',
+            role: 'model',
+            author: 'agent',
+            text: 'original answer',
+          }),
+        ],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const imageParts = prompt
+      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+      .filter((part: any) => part.type !== 'text' && part.mediaType === 'image/png');
+    assert.equal(
+      imageParts.length,
+      1,
+      `expected the repeated ref to consume budget twice: ${JSON.stringify(prompt)}`,
+    );
+    const currentUser = prompt[prompt.length - 1];
+    const currentText = (currentUser.content as Array<{ text?: string }>)
+      .map((part) => part.text ?? '')
+      .join('\n');
+    assert.match(
+      currentText,
+      /1 image attachment\(s\) omitted.*image budget/,
+      `expected current attachment omission: ${currentText}`,
+    );
+  });
+
+  test('degrades excess replayed image tool results once the per-request budget is exceeded', async () => {
+    const bytes = new Uint8Array(10);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 25,
+      readAttachmentBytes: async () => ({ ok: true, bytes }),
+    });
+
+    const imageResult = (callId: string, relativePath: string) =>
+      runtimeEvent({
+        id: `rt-result-${callId}`,
+        turnId: 'turn-prev',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: callId,
+          name: 'Read',
+          isError: false,
+          result: {
+            kind: 'image',
+            mimeType: 'image/png',
+            ref: { kind: 'session_file', sessionId: 'session-1', relativePath },
+          },
+        },
+      });
+    const call = (callId: string, path: string) =>
+      runtimeEvent({
+        id: `rt-call-${callId}`,
+        turnId: 'turn-prev',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: callId, name: 'Read', args: { path } },
+      });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'read them',
+          }),
+          call('tool-1', 'a.png'),
+          imageResult('tool-1', 'artifact-1'),
+          call('tool-2', 'b.png'),
+          imageResult('tool-2', 'artifact-2'),
+          call('tool-3', 'c.png'),
+          imageResult('tool-3', 'artifact-3'),
+        ],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const toolOutputs = prompt
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content as any[])
+      .map((entry) => entry?.output)
+      .filter((output) => output?.type === 'content');
+    const imageData = toolOutputs.filter((output) =>
+      output.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'),
+    );
+    const degraded = toolOutputs.filter((output) =>
+      output.value.some((part: any) => part.type === 'text' && /image budget/.test(part.text)),
+    );
+    assert.equal(
+      imageData.length,
+      2,
+      `expected two hydrated image tool results, got: ${JSON.stringify(toolOutputs)}`,
+    );
+    assert.equal(
+      degraded.length,
+      1,
+      `expected one budget-degraded tool result, got: ${JSON.stringify(toolOutputs)}`,
+    );
   });
 
   test('RuntimeEvent replay renders historical image attachments as image parts', async () => {
@@ -722,39 +1482,54 @@ describe('AiSdkBackend model history', () => {
       supportsVision: true,
     } as never);
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'follow-up question',
-      context: [],
-      runtimeContext: [
-        runtimeEvent({
-          id: 'rt-img',
-          turnId: 'turn-prev',
-          role: 'user',
-          author: 'user',
-          content: {
-            kind: 'text',
-            text: 'look at this chart',
-            attachments: [
-              {
-                kind: 'image',
-                name: 'pic.png',
-                mimeType: 'image/png',
-                bytes: 11,
-                ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/pic.png' },
-              },
-            ],
-          },
-        }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'noted' }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'follow-up question',
+        context: [],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-img',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            content: {
+              kind: 'text',
+              text: 'look at this chart',
+              attachments: [
+                {
+                  kind: 'image',
+                  name: 'pic.png',
+                  mimeType: 'image/png',
+                  bytes: 11,
+                  ref: {
+                    kind: 'session_file',
+                    sessionId: 'session-1',
+                    relativePath: 'fake/pic.png',
+                  },
+                },
+              ],
+            },
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'noted',
+          }),
+        ],
+      }),
+    );
 
     const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
     const historicalUser = prompt[0];
     const parts = historicalUser.content as Array<{ type: string; mediaType?: string }>;
     const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
-    assert.ok(imageLike, `expected a historical image/png part in replay, got: ${JSON.stringify(parts)}`);
+    assert.ok(
+      imageLike,
+      `expected a historical image/png part in replay, got: ${JSON.stringify(parts)}`,
+    );
   });
 
   test('preserves RuntimeEvent tool calls and results as structured AI SDK parts', async () => {
@@ -773,59 +1548,299 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'projection user' }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'projection assistant' }),
-        runtimeEvent({
-          id: 'rt-call',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
-        }),
-        runtimeEvent({
-          id: 'rt-result',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'contents', isError: false },
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'projection user',
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'projection assistant',
+          }),
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'package.json' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: 'contents',
+              isError: false,
+            },
+          }),
+        ],
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
       { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       {
         role: 'assistant',
-        content: [{
-          type: 'tool-call',
-          toolCallId: 'tool-1',
-          toolName: 'Read',
-          input: { path: 'package.json' },
-          providerExecuted: undefined,
-          providerOptions: undefined,
-        }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'tool-1',
+            toolName: 'Read',
+            input: { path: 'package.json' },
+            providerExecuted: undefined,
+            providerOptions: undefined,
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{
-          type: 'tool-result',
-          toolCallId: 'tool-1',
-          toolName: 'Read',
-          output: { type: 'text', value: 'contents' },
-          providerOptions: undefined,
-        }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tool-1',
+            toolName: 'Read',
+            output: { type: 'text', value: 'contents' },
+            providerOptions: undefined,
+          },
+        ],
       },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
+  });
+
+  test('replays an image tool result as provider image data', async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'read it',
+          }),
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'chart.png' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              isError: false,
+              result: {
+                kind: 'image',
+                mimeType: 'image/png',
+                ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'artifact-1' },
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const result = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.equal(result.type, 'content');
+    assert.ok(
+      result.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'),
+    );
+  });
+
+  test('sends a live image tool result to the next provider step', async () => {
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: (calls === 1
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'tool-1',
+                    toolName: 'Read',
+                    input: JSON.stringify({ path: 'chart.png' }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: emptyUsage(),
+                  },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: emptyUsage(),
+                  },
+                ]) as LanguageModelV4StreamPart[],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [
+        {
+          name: 'Read',
+          description: 'read',
+          parameters: z.object({ path: z.string() }),
+          permissionRequired: false,
+          impl: async () => ({
+            kind: 'image',
+            mimeType: 'image/png',
+            ref: {
+              kind: 'session_file' as const,
+              sessionId: 'session-1',
+              relativePath: 'artifact-1',
+            },
+          }),
+        },
+      ],
+      supportsVision: true,
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'read chart.png', context: [] }));
+
+    const nextPrompt = model.doStreamCalls[1]?.prompt as Array<{ role: string; content: any[] }>;
+    const result = nextPrompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.ok(
+      result.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'),
+    );
+  });
+
+  test('does not read image bytes for a non-vision model', async () => {
+    let reads = 0;
+    const model = completionModel();
+    const backend = imageReplayBackend(model, {
+      supportsVision: false,
+      readAttachmentBytes: async () => {
+        reads += 1;
+        return { ok: true, bytes: new Uint8Array([1]) };
+      },
+    });
+
+    await drain(backend.send(imageReplayInput()));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const output = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.equal(reads, 0);
+    assert.match(output.value[0].text, /does not support image input/);
+  });
+
+  test('explains when a replayed image artifact is missing', async () => {
+    const model = completionModel();
+    const backend = imageReplayBackend(model, {
+      supportsVision: true,
+      readAttachmentBytes: async () => ({ ok: false, reason: 'not_found' }),
+    });
+
+    await drain(backend.send(imageReplayInput()));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const output = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.match(output.value[0].text, /not_found/);
+  });
+
+  test('explains when replayed image storage throws', async () => {
+    const model = completionModel();
+    const backend = imageReplayBackend(model, {
+      supportsVision: true,
+      readAttachmentBytes: async () => {
+        throw new Error('private disk detail');
+      },
+    });
+
+    await drain(backend.send(imageReplayInput()));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const output = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
+    assert.match(output.value[0].text, /read_failed/);
+    assert.doesNotMatch(JSON.stringify(prompt), /private disk detail/);
   });
 
   test('replays interleaved parallel RuntimeEvent tool calls as one provider tool-call block', async () => {
@@ -844,56 +1859,92 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'inspect files' }),
-        runtimeEvent({
-          id: 'rt-call-0',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-0', name: 'Read', args: { path: 'main.cpp' } },
-        }),
-        runtimeEvent({
-          id: 'rt-call-1',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'user.cpp' } },
-        }),
-        runtimeEvent({
-          id: 'rt-result-0',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-0', name: 'Read', result: 'main', isError: false },
-        }),
-        runtimeEvent({
-          id: 'rt-call-2',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-2', name: 'Glob', args: { pattern: '*' } },
-        }),
-        runtimeEvent({
-          id: 'rt-result-1',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'user', isError: false },
-        }),
-        runtimeEvent({
-          id: 'rt-result-2',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-2', name: 'Glob', result: ['main.cpp', 'user.cpp'], isError: false },
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'inspect files',
+          }),
+          runtimeEvent({
+            id: 'rt-call-0',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-0',
+              name: 'Read',
+              args: { path: 'main.cpp' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-call-1',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'user.cpp' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result-0',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-0',
+              name: 'Read',
+              result: 'main',
+              isError: false,
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-call-2',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'function_call', id: 'tool-2', name: 'Glob', args: { pattern: '*' } },
+          }),
+          runtimeEvent({
+            id: 'rt-result-1',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: 'user',
+              isError: false,
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result-2',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-2',
+              name: 'Glob',
+              result: ['main.cpp', 'user.cpp'],
+              isError: false,
+            },
+          }),
+        ],
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'inspect files' }] },
@@ -958,7 +2009,11 @@ describe('AiSdkBackend model history', () => {
 
   test('archives stale RuntimeEvent tool results before replay placeholder rewrite', async () => {
     const model = completionModel();
-    const archiveRequests: Array<{ runtimeEventId: string; serializedResult: string; bodySha256: string }> = [];
+    const archiveRequests: Array<{
+      runtimeEventId: string;
+      serializedResult: string;
+      bodySha256: string;
+    }> = [];
     const oldResult = { body: 'x'.repeat(500) };
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -991,27 +2046,40 @@ describe('AiSdkBackend model history', () => {
       },
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [],
-      runtimeContext: [
-        runtimeEvent({
-          id: 'rt-call',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
-        }),
-        runtimeEvent({
-          id: 'rt-result',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: oldResult, isError: false },
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'package.json' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: oldResult,
+              isError: false,
+            },
+          }),
+        ],
+      }),
+    );
 
     assert.equal(archiveRequests.length, 1);
     assert.equal(archiveRequests[0]?.runtimeEventId, 'rt-result');
@@ -1048,17 +2116,19 @@ describe('AiSdkBackend model history', () => {
           enabled: true,
           maxResultEstimatedTokens: 1,
           minRecentTurnsFull: 0,
-          archiveRefs: [{
-            runtimeEventId: 'rt-result',
-            toolCallId: 'tool-1',
-            toolName: 'Read',
-            artifactId: 'artifact-existing-rt-result',
-            bodySha256: sha256(existingSerialized),
-            originalEstimatedTokens: existingSerialized.length,
-            originalBytes: utf8Bytes(existingSerialized),
-            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-            reason: 'stale_tool_result_pruned_before_compact',
-          }],
+          archiveRefs: [
+            {
+              runtimeEventId: 'rt-result',
+              toolCallId: 'tool-1',
+              toolName: 'Read',
+              artifactId: 'artifact-existing-rt-result',
+              bodySha256: sha256(existingSerialized),
+              originalEstimatedTokens: existingSerialized.length,
+              originalBytes: utf8Bytes(existingSerialized),
+              rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+              reason: 'stale_tool_result_pruned_before_compact',
+            },
+          ],
         },
         charsPerToken: 1,
       },
@@ -1068,41 +2138,65 @@ describe('AiSdkBackend model history', () => {
           : undefined,
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [],
-      runtimeContext: [
-        runtimeEvent({
-          id: 'rt-call',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
-        }),
-        runtimeEvent({
-          id: 'rt-result',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: existingResult, isError: false },
-        }),
-        runtimeEvent({
-          id: 'rt-new-call',
-          turnId: 'turn-new',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'function_call', id: 'tool-2', name: 'Read', args: { path: 'new.txt' } },
-        }),
-        runtimeEvent({
-          id: 'rt-new-result',
-          turnId: 'turn-new',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'tool-2', name: 'Read', result: newResult, isError: false },
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'package.json' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: existingResult,
+              isError: false,
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-new-call',
+            turnId: 'turn-new',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-2',
+              name: 'Read',
+              args: { path: 'new.txt' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-new-result',
+            turnId: 'turn-new',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-2',
+              name: 'Read',
+              result: newResult,
+              isError: false,
+            },
+          }),
+        ],
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /"artifactId":"artifact-existing-rt-result"/);
@@ -1157,14 +2251,25 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-old',
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'secret.txt' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-1',
+            name: 'Read',
+            args: { path: 'secret.txt' },
+          },
         }),
         runtimeEvent({
           id: 'rt-result',
           turnId: 'turn-old',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: oldResult, isError: false },
+          content: {
+            kind: 'function_response',
+            id: 'tool-1',
+            name: 'Read',
+            result: oldResult,
+            isError: false,
+          },
         }),
         runtimeEvent({
           id: 'rt-new',
@@ -1180,8 +2285,9 @@ describe('AiSdkBackend model history', () => {
 
     const prompt = JSON.stringify(compactPrompt(model));
     assert.equal(prompt.includes(oldResult.body), false);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.archivePlaceholders, 1);
     assert.equal(usage?.contextBudget?.historySearchMatches, 0);
@@ -1244,14 +2350,25 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-prev',
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-1',
+            name: 'Read',
+            args: { path: 'package.json' },
+          },
         }),
         runtimeEvent({
           id: 'rt-result',
           turnId: 'turn-prev',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: oldResult, isError: false },
+          content: {
+            kind: 'function_response',
+            id: 'tool-1',
+            name: 'Read',
+            result: oldResult,
+            isError: false,
+          },
         }),
       ],
     })) {
@@ -1261,8 +2378,9 @@ describe('AiSdkBackend model history', () => {
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /retrieved 中文 archived payload/);
     assert.equal(prompt.includes('maka.archived_tool_result'), false);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.retrievedArchiveToolResults, 1);
     assert.equal(usage?.contextBudget?.archiveRetrievalFailures, 0);
@@ -1392,14 +2510,25 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-alpha',
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-alpha',
+            name: 'Read',
+            args: { path: 'key-alpha.txt' },
+          },
         }),
         runtimeEvent({
           id: 'rt-result-alpha',
           turnId: 'turn-alpha',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: oldResult, isError: false },
+          content: {
+            kind: 'function_response',
+            id: 'tool-alpha',
+            name: 'Read',
+            result: oldResult,
+            isError: false,
+          },
         }),
         runtimeTextEvent({
           id: 'rt-new',
@@ -1419,8 +2548,9 @@ describe('AiSdkBackend model history', () => {
     assert.match(prompt, /maka_synthesis_cache_block/);
     assert.match(prompt, /SYNTHESIS_SENTINEL_KEY_ALPHA/);
     assert.equal(prompt.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'), false);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksSelected, 1);
     assert.deepEqual(usage?.contextBudget?.synthesisCacheBlockIds, ['synth-key-alpha']);
@@ -1469,8 +2599,18 @@ describe('AiSdkBackend model history', () => {
           name: 'synthesis-cache-benchmark',
           maxHistoryTurns: 1,
           minRecentTurns: 0,
-          staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 1, minRecentTurnsFull: 0 },
-          archiveRetrieval: { enabled: true, mode: 'history_search_gated', maxResults: 1, maxEstimatedTokens: 8192, maxBytes: 8192 },
+          staleToolResultPrune: {
+            enabled: true,
+            maxResultEstimatedTokens: 1,
+            minRecentTurnsFull: 0,
+          },
+          archiveRetrieval: {
+            enabled: true,
+            mode: 'history_search_gated',
+            maxResults: 1,
+            maxEstimatedTokens: 8192,
+            maxBytes: 8192,
+          },
           historySearch: { enabled: true, maxResults: 1, around: 1, maxEstimatedTokens: 8192 },
           ...(useSynthesisCache
             ? { synthesisCache: { enabled: true, mode: 'read_write', blocks: [block] } }
@@ -1492,9 +2632,38 @@ describe('AiSdkBackend model history', () => {
         text: 'Recover key-alpha',
         context: [],
         runtimeContext: [
-          runtimeEvent({ id: 'rt-call-alpha', turnId: 'turn-alpha', role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } } }),
-          runtimeEvent({ id: 'rt-result-alpha', turnId: 'turn-alpha', role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: archivedResult, isError: false } }),
-          runtimeTextEvent({ id: 'rt-new', turnId: 'turn-new', role: 'user', author: 'user', text: 'newer retained context' }),
+          runtimeEvent({
+            id: 'rt-call-alpha',
+            turnId: 'turn-alpha',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-alpha',
+              name: 'Read',
+              args: { path: 'key-alpha.txt' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result-alpha',
+            turnId: 'turn-alpha',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-alpha',
+              name: 'Read',
+              result: archivedResult,
+              isError: false,
+            },
+          }),
+          runtimeTextEvent({
+            id: 'rt-new',
+            turnId: 'turn-new',
+            role: 'user',
+            author: 'user',
+            text: 'newer retained context',
+          }),
         ],
       })) {
         // drain the stream so the request is issued to the mock model
@@ -1510,13 +2679,22 @@ describe('AiSdkBackend model history', () => {
     const savedPct = (savedTokens / baselineTokens) * 100;
 
     // Ground-truth: baseline hydrates the raw payload; the arm swaps in the block.
-    assert.ok(baseline.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'), 'baseline should hydrate the archived payload');
+    assert.ok(
+      baseline.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'),
+      'baseline should hydrate the archived payload',
+    );
     assert.ok(arm.includes('maka_synthesis_cache_block'), 'arm should inject the synthesis block');
-    assert.equal(arm.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'), false, 'arm must not hydrate the raw payload');
+    assert.equal(
+      arm.includes('RAW_SYNTHESIS_ARCHIVE_PAYLOAD'),
+      false,
+      'arm must not hydrate the raw payload',
+    );
     assert.ok(armTokens < baselineTokens, 'synthesis cache must reduce replay tokens');
     assert.ok(savedPct > 40, `expected >40% replay-token saving, got ${savedPct.toFixed(1)}%`);
 
-    console.log(`[synthesis-cache A/B] replay prompt tokens (charsPerToken=${CHARS_PER_TOKEN}): baseline=${baselineTokens} arm=${armTokens} saved=${savedTokens} (${savedPct.toFixed(1)}%)`);
+    console.log(
+      `[synthesis-cache A/B] replay prompt tokens (charsPerToken=${CHARS_PER_TOKEN}): baseline=${baselineTokens} arm=${armTokens} saved=${savedTokens} (${savedPct.toFixed(1)}%)`,
+    );
   });
 
   test('loads synthesis blocks before archive retrieval', async () => {
@@ -1602,14 +2780,25 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-alpha',
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-alpha',
+            name: 'Read',
+            args: { path: 'key-alpha.txt' },
+          },
         }),
         runtimeEvent({
           id: 'rt-result-alpha',
           turnId: 'turn-alpha',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: oldResult, isError: false },
+          content: {
+            kind: 'function_response',
+            id: 'tool-alpha',
+            name: 'Read',
+            result: oldResult,
+            isError: false,
+          },
         }),
         runtimeTextEvent({
           id: 'rt-new',
@@ -1628,8 +2817,9 @@ describe('AiSdkBackend model history', () => {
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /maka_synthesis_cache_block/);
     assert.equal(prompt.includes('RAW_LOADED_SYNTHESIS_ARCHIVE_PAYLOAD'), false);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksSelected, 1);
@@ -1704,7 +2894,9 @@ describe('AiSdkBackend model history', () => {
       writeSynthesisCache: async (input) => {
         writeInputs.push({
           sourceRefCount: input.source.retrievedArchiveRefs.length,
-          hydratedHasRaw: JSON.stringify(input.source.hydratedRuntimeEvents).includes('RAW_WRITE_SYNTHESIS_ARCHIVE_PAYLOAD'),
+          hydratedHasRaw: JSON.stringify(input.source.hydratedRuntimeEvents).includes(
+            'RAW_WRITE_SYNTHESIS_ARCHIVE_PAYLOAD',
+          ),
         });
         return { blocks: [writtenBlock] };
       },
@@ -1720,14 +2912,25 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-alpha',
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-alpha',
+            name: 'Read',
+            args: { path: 'key-alpha.txt' },
+          },
         }),
         runtimeEvent({
           id: 'rt-result-alpha',
           turnId: 'turn-alpha',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: oldResult, isError: false },
+          content: {
+            kind: 'function_response',
+            id: 'tool-alpha',
+            name: 'Read',
+            result: oldResult,
+            isError: false,
+          },
         }),
         runtimeTextEvent({
           id: 'rt-new',
@@ -1745,8 +2948,9 @@ describe('AiSdkBackend model history', () => {
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /RAW_WRITE_SYNTHESIS_ARCHIVE_PAYLOAD/);
     assert.equal(prompt.includes('SYNTHESIS_SENTINEL_KEY_ALPHA'), false);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.synthesisCacheWritesAttempted, 1);
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksWritten, 1);
@@ -1837,14 +3041,25 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-alpha',
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-alpha',
+            name: 'Read',
+            args: { path: 'key-alpha.txt' },
+          },
         }),
         runtimeEvent({
           id: 'rt-result-alpha',
           turnId: 'turn-alpha',
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: oldResult, isError: false },
+          content: {
+            kind: 'function_response',
+            id: 'tool-alpha',
+            name: 'Read',
+            result: oldResult,
+            isError: false,
+          },
         }),
         runtimeTextEvent({
           id: 'rt-new',
@@ -1863,8 +3078,9 @@ describe('AiSdkBackend model history', () => {
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /RAW_SYNTHESIS_ARCHIVE_PAYLOAD/);
     assert.equal(prompt.includes('maka_synthesis_cache_block'), false);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksSelected, 0);
     assert.deepEqual(usage?.contextBudget?.synthesisCacheSkippedReasonCounts, {
@@ -1919,14 +3135,16 @@ describe('AiSdkBackend model history', () => {
           foldedIds: input.source.foldedRuntimeEvents.map((event) => event.id),
         });
         return {
-          blocks: [buildHistoryCompactBlockFromSummary({
-            sessionId: input.sessionId,
-            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
-            highWaterName: input.source.draftBlock.highWaterName,
-            highWaterSeq: input.source.draftBlock.highWaterSeq,
-            charsPerToken: input.limits.charsPerToken,
-          })],
+          blocks: [
+            buildHistoryCompactBlockFromSummary({
+              sessionId: input.sessionId,
+              foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+              summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+              highWaterName: input.source.draftBlock.highWaterName,
+              highWaterSeq: input.source.draftBlock.highWaterSeq,
+              charsPerToken: input.limits.charsPerToken,
+            }),
+          ],
         };
       },
     });
@@ -1945,10 +3163,12 @@ describe('AiSdkBackend model history', () => {
       ],
     });
 
-    assert.deepEqual(writeInputs, [{
-      turnId: 'turn-compact',
-      foldedIds: ['manual-compact-old-1', 'manual-compact-old-2'],
-    }]);
+    assert.deepEqual(writeInputs, [
+      {
+        turnId: 'turn-compact',
+        foldedIds: ['manual-compact-old-1', 'manual-compact-old-2'],
+      },
+    ]);
     assert.equal(result.contextBudget?.historyCompactWritesAttempted, 1);
     assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
@@ -1976,14 +3196,16 @@ describe('AiSdkBackend model history', () => {
       writeHistoryCompact: async (input) => {
         writeInputs.push(input.source.foldedRuntimeEvents.map((event) => event.id));
         return {
-          blocks: [buildHistoryCompactBlockFromSummary({
-            sessionId: input.sessionId,
-            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-            summary: 'DEFAULT_POLICY_MANUAL_HISTORY_COMPACT_SENTINEL',
-            highWaterName: input.source.draftBlock.highWaterName,
-            highWaterSeq: input.source.draftBlock.highWaterSeq,
-            charsPerToken: input.limits.charsPerToken,
-          })],
+          blocks: [
+            buildHistoryCompactBlockFromSummary({
+              sessionId: input.sessionId,
+              foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+              summary: 'DEFAULT_POLICY_MANUAL_HISTORY_COMPACT_SENTINEL',
+              highWaterName: input.source.draftBlock.highWaterName,
+              highWaterSeq: input.source.draftBlock.highWaterSeq,
+              charsPerToken: input.limits.charsPerToken,
+            }),
+          ],
         };
       },
     });
@@ -2015,10 +3237,7 @@ describe('AiSdkBackend model history', () => {
       ],
     });
 
-    assert.deepEqual(writeInputs, [[
-      'default-policy-manual-old-1',
-      'default-policy-manual-old-2',
-    ]]);
+    assert.deepEqual(writeInputs, [['default-policy-manual-old-1', 'default-policy-manual-old-2']]);
     assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
   });
@@ -2044,7 +3263,9 @@ describe('AiSdkBackend model history', () => {
         charsPerToken: 1,
       },
       summarizeHistoryCompact: async () => 'MANUAL_V2_HISTORY_COMPACT_SENTINEL',
-      recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+      recordHistoryCompactCheckpoint: (checkpoint) => {
+        recorded.push(checkpoint);
+      },
     });
 
     const result = await backend.compactHistory({
@@ -2132,7 +3353,9 @@ describe('AiSdkBackend model history', () => {
         });
         return 'MANUAL_V2_ROLLED_SUMMARY';
       },
-      recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+      recordHistoryCompactCheckpoint: (checkpoint) => {
+        recorded.push(checkpoint);
+      },
     });
 
     await backend.compactHistory({
@@ -2149,10 +3372,12 @@ describe('AiSdkBackend model history', () => {
       ],
     });
 
-    assert.deepEqual(summaryInputs, [{
-      previous: 'MANUAL_V2_PREVIOUS_SUMMARY',
-      newlyFoldedIds: ['manual-v2-roll-old-2'],
-    }]);
+    assert.deepEqual(summaryInputs, [
+      {
+        previous: 'MANUAL_V2_PREVIOUS_SUMMARY',
+        newlyFoldedIds: ['manual-v2-roll-old-2'],
+      },
+    ]);
     assert.equal(recorded[0]?.previousCheckpointId, previous.checkpointId);
     assert.equal(recorded[0]?.coverage.eventCount, 2);
   });
@@ -2289,7 +3514,9 @@ describe('AiSdkBackend model history', () => {
           summarizeCalls += 1;
           return 'REFITTED_SUMMARY';
         },
-        recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+        recordHistoryCompactCheckpoint: (checkpoint) => {
+          recorded.push(checkpoint);
+        },
       });
 
       const result = await backend.compactHistory({
@@ -2315,33 +3542,53 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory does not record a rebuilt checkpoint whose envelope exceeds current limits', async () => {
     let recordCalls = 0;
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => completionModel(), tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        name: 'manual-v2-envelope-budget-test', maxHistoryEstimatedTokens: 10_000,
-        minRecentTurns: 1, charsPerToken: 1,
+        name: 'manual-v2-envelope-budget-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
         historyCompact: { enabled: true, maxBlockEstimatedTokens: 100, maxEstimatedTokens: 10_000 },
       },
       summarizeHistoryCompact: async () => 'TINY_SUMMARY',
-      recordHistoryCompactCheckpoint: () => { recordCalls += 1; },
+      recordHistoryCompactCheckpoint: () => {
+        recordCalls += 1;
+      },
     });
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
         runtimeTextEvent({
-          id: 'manual-v2-envelope-old-1', turnId: 'manual-v2-envelope-turn-1',
-          role: 'user', author: 'user', text: 'old alpha '.repeat(20),
+          id: 'manual-v2-envelope-old-1',
+          turnId: 'manual-v2-envelope-turn-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha '.repeat(20),
         }),
         runtimeTextEvent({
-          id: 'manual-v2-envelope-old-2', turnId: 'manual-v2-envelope-turn-2',
-          role: 'model', author: 'agent', text: 'old beta '.repeat(20),
+          id: 'manual-v2-envelope-old-2',
+          turnId: 'manual-v2-envelope-turn-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta '.repeat(20),
         }),
         runtimeTextEvent({
-          id: 'manual-v2-envelope-recent', turnId: 'manual-v2-envelope-recent-turn',
-          role: 'user', author: 'user', text: 'recent tail',
+          id: 'manual-v2-envelope-recent',
+          turnId: 'manual-v2-envelope-recent-turn',
+          role: 'user',
+          author: 'user',
+          text: 'recent tail',
         }),
       ],
     });
@@ -2353,66 +3600,116 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory rejects a complete summary that makes the full replay larger', async () => {
     let recordCalls = 0;
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => completionModel(), tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        name: 'manual-v2-larger-replacement-test', maxHistoryEstimatedTokens: 10_000,
-        minRecentTurns: 1, charsPerToken: 1,
+        name: 'manual-v2-larger-replacement-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
         historyCompact: { enabled: true },
       },
       summarizeHistoryCompact: async () => 'LARGER_SUMMARY '.repeat(100),
-      recordHistoryCompactCheckpoint: () => { recordCalls += 1; },
+      recordHistoryCompactCheckpoint: () => {
+        recordCalls += 1;
+      },
     });
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
         runtimeTextEvent({
-          id: 'manual-v2-larger-old-1', turnId: 'manual-v2-larger-turn-1',
-          role: 'user', author: 'user', text: 'old alpha',
+          id: 'manual-v2-larger-old-1',
+          turnId: 'manual-v2-larger-turn-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha',
         }),
         runtimeTextEvent({
-          id: 'manual-v2-larger-old-2', turnId: 'manual-v2-larger-turn-2',
-          role: 'model', author: 'agent', text: 'old beta',
+          id: 'manual-v2-larger-old-2',
+          turnId: 'manual-v2-larger-turn-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta',
         }),
         runtimeTextEvent({
-          id: 'manual-v2-larger-recent', turnId: 'manual-v2-larger-recent-turn',
-          role: 'user', author: 'user', text: 'recent tail',
+          id: 'manual-v2-larger-recent',
+          turnId: 'manual-v2-larger-recent-turn',
+          role: 'user',
+          author: 'user',
+          text: 'recent tail',
         }),
       ],
     });
 
     assert.equal(recordCalls, 0);
     assert.equal(result.contextBudget?.historyCompactWriteFailures, 1);
-    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.failOpenReason, 'replacement_not_smaller');
+    assert.equal(
+      result.contextBudget?.compactionDecisions?.[0]?.failOpenReason,
+      'replacement_not_smaller',
+    );
   });
 
   test('manual compactHistory reports output-length exhaustion instead of empty_summary', async () => {
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => completionModel(), tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        name: 'manual-v2-output-length-test', maxHistoryEstimatedTokens: 10_000,
-        charsPerToken: 1, historyCompact: { enabled: true },
+        name: 'manual-v2-output-length-test',
+        maxHistoryEstimatedTokens: 10_000,
+        charsPerToken: 1,
+        historyCompact: { enabled: true },
       },
-      summarizeHistoryCompact: async () => { throw new HistoryCompactSummarizerError('output_length'); },
-      recordHistoryCompactCheckpoint: () => { throw new Error('must not persist'); },
+      summarizeHistoryCompact: async () => {
+        throw new HistoryCompactSummarizerError('output_length');
+      },
+      recordHistoryCompactCheckpoint: () => {
+        throw new Error('must not persist');
+      },
     });
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
-        runtimeTextEvent({ id: 'output-length-old', turnId: 'old', role: 'user', author: 'user', text: 'old '.repeat(100) }),
-        runtimeTextEvent({ id: 'output-length-recent', turnId: 'recent', role: 'user', author: 'user', text: 'recent' }),
+        runtimeTextEvent({
+          id: 'output-length-old',
+          turnId: 'old',
+          role: 'user',
+          author: 'user',
+          text: 'old '.repeat(100),
+        }),
+        runtimeTextEvent({
+          id: 'output-length-recent',
+          turnId: 'recent',
+          role: 'user',
+          author: 'user',
+          text: 'recent',
+        }),
       ],
     });
 
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.failOpenReason, 'output_length');
-    assert.deepEqual(result.contextBudget?.historyCompactWriteSkippedReasonCounts, { output_length: 1 });
+    assert.deepEqual(result.contextBudget?.historyCompactWriteSkippedReasonCounts, {
+      output_length: 1,
+    });
   });
 
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
@@ -2467,14 +3764,16 @@ describe('AiSdkBackend model history', () => {
       writeHistoryCompact: async (input) => {
         writeInputs.push(input.source.foldedRuntimeEvents.map((event) => event.id));
         return {
-          blocks: [buildHistoryCompactBlockFromSummary({
-            sessionId: input.sessionId,
-            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-            summary: 'NEW_MANUAL_HISTORY_COMPACT_SENTINEL',
-            highWaterName: input.source.draftBlock.highWaterName,
-            highWaterSeq: input.source.draftBlock.highWaterSeq,
-            charsPerToken: input.limits.charsPerToken,
-          })],
+          blocks: [
+            buildHistoryCompactBlockFromSummary({
+              sessionId: input.sessionId,
+              foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+              summary: 'NEW_MANUAL_HISTORY_COMPACT_SENTINEL',
+              highWaterName: input.source.draftBlock.highWaterName,
+              highWaterSeq: input.source.draftBlock.highWaterSeq,
+              charsPerToken: input.limits.charsPerToken,
+            }),
+          ],
         };
       },
     });
@@ -2501,11 +3800,9 @@ describe('AiSdkBackend model history', () => {
     });
 
     assert.equal(loadCalls, 0);
-    assert.deepEqual(writeInputs, [[
-      'manual-prefix-old-1',
-      'manual-prefix-old-2',
-      'manual-prefix-former-tail',
-    ]]);
+    assert.deepEqual(writeInputs, [
+      ['manual-prefix-old-1', 'manual-prefix-old-2', 'manual-prefix-former-tail'],
+    ]);
   });
 
   test('manual compactHistory is a no-op when context budget is disabled', async () => {
@@ -2531,8 +3828,20 @@ describe('AiSdkBackend model history', () => {
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
-        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
-        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+        runtimeTextEvent({
+          id: 'old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta '.repeat(20),
+        }),
       ],
     });
 
@@ -2564,8 +3873,20 @@ describe('AiSdkBackend model history', () => {
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
-        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
-        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+        runtimeTextEvent({
+          id: 'old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta '.repeat(20),
+        }),
       ],
     });
 
@@ -2666,14 +3987,16 @@ describe('AiSdkBackend model history', () => {
         writeStarted?.();
         await writeGate.promise;
         return {
-          blocks: [buildHistoryCompactBlockFromSummary({
-            sessionId: input.sessionId,
-            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
-            highWaterName: input.source.draftBlock.highWaterName,
-            highWaterSeq: input.source.draftBlock.highWaterSeq,
-            charsPerToken: input.limits.charsPerToken,
-          })],
+          blocks: [
+            buildHistoryCompactBlockFromSummary({
+              sessionId: input.sessionId,
+              foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+              summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+              highWaterName: input.source.draftBlock.highWaterName,
+              highWaterSeq: input.source.draftBlock.highWaterSeq,
+              charsPerToken: input.limits.charsPerToken,
+            }),
+          ],
         };
       },
     });
@@ -2681,9 +4004,27 @@ describe('AiSdkBackend model history', () => {
     const compactPromise = backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
-        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
-        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
-        runtimeTextEvent({ id: 'recent', turnId: 'turn-recent', role: 'user', author: 'user', text: 'recent' }),
+        runtimeTextEvent({
+          id: 'old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'recent',
+        }),
       ],
     });
     await writeStartedPromise;
@@ -2698,7 +4039,10 @@ describe('AiSdkBackend model history', () => {
       events.push(event);
     }
 
-    assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
+    assert.equal(
+      events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'),
+      true,
+    );
   });
 
   test('stopped manual compactHistory stays suppressed when the next send starts before the writer returns', async () => {
@@ -2729,14 +4073,16 @@ describe('AiSdkBackend model history', () => {
         writeStarted?.();
         await writeGate.promise;
         return {
-          blocks: [buildHistoryCompactBlockFromSummary({
-            sessionId: input.sessionId,
-            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
-            highWaterName: input.source.draftBlock.highWaterName,
-            highWaterSeq: input.source.draftBlock.highWaterSeq,
-            charsPerToken: input.limits.charsPerToken,
-          })],
+          blocks: [
+            buildHistoryCompactBlockFromSummary({
+              sessionId: input.sessionId,
+              foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+              summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+              highWaterName: input.source.draftBlock.highWaterName,
+              highWaterSeq: input.source.draftBlock.highWaterSeq,
+              charsPerToken: input.limits.charsPerToken,
+            }),
+          ],
         };
       },
     });
@@ -2744,9 +4090,27 @@ describe('AiSdkBackend model history', () => {
     const compactPromise = backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
-        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
-        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
-        runtimeTextEvent({ id: 'recent', turnId: 'turn-recent', role: 'user', author: 'user', text: 'recent' }),
+        runtimeTextEvent({
+          id: 'old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'recent',
+        }),
       ],
     });
     await writeStartedPromise;
@@ -2763,7 +4127,10 @@ describe('AiSdkBackend model history', () => {
 
     const [compactResult, events] = await Promise.all([compactPromise, sendEventsPromise]);
     assert.equal(compactResult.contextBudget, undefined);
-    assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
+    assert.equal(
+      events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'),
+      true,
+    );
   });
 
   test('stopping after manual compactHistory returns does not poison the next backend turn', async () => {
@@ -2786,23 +4153,43 @@ describe('AiSdkBackend model history', () => {
         charsPerToken: 1,
       },
       writeHistoryCompact: async (input) => ({
-        blocks: [buildHistoryCompactBlockFromSummary({
-          sessionId: input.sessionId,
-          foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-          summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
-          highWaterName: input.source.draftBlock.highWaterName,
-          highWaterSeq: input.source.draftBlock.highWaterSeq,
-          charsPerToken: input.limits.charsPerToken,
-        })],
+        blocks: [
+          buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          }),
+        ],
       }),
     });
 
     await backend.compactHistory({
       turnId: 'turn-compact',
       runtimeContext: [
-        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
-        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
-        runtimeTextEvent({ id: 'recent', turnId: 'turn-recent', role: 'user', author: 'user', text: 'recent' }),
+        runtimeTextEvent({
+          id: 'old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'old alpha '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'old beta '.repeat(20),
+        }),
+        runtimeTextEvent({
+          id: 'recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'recent',
+        }),
       ],
     });
     await backend.stop('user_stop');
@@ -2812,15 +4199,18 @@ describe('AiSdkBackend model history', () => {
       events.push(event);
     }
 
-    assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
+    assert.equal(
+      events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'),
+      true,
+    );
   });
 
   test('aborting the model stream mid-flight routes to the abort path instead of false success', async () => {
     const gate = makeGate();
     let streamReachedGate = false;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
-        stream: new ReadableStream<LanguageModelV3StreamPart>({
+        stream: new ReadableStream<LanguageModelV4StreamPart>({
           async start(controller) {
             controller.enqueue({ type: 'stream-start', warnings: [] });
             controller.enqueue({ type: 'text-start', id: 'text-1' });
@@ -2875,7 +4265,10 @@ describe('AiSdkBackend model history', () => {
     assert.equal(appended.includes('assistant'), false);
     assert.equal(appended.includes('token_usage'), false);
     // The turn must close as a user_stop, not a false end_turn success.
-    assert.equal(events.some((event) => event.type === 'abort' && event.reason === 'user_stop'), true);
+    assert.equal(
+      events.some((event) => event.type === 'abort' && event.reason === 'user_stop'),
+      true,
+    );
     const completes = events.filter((event) => event.type === 'complete');
     assert.equal(completes.length > 0, true);
     assert.equal(
@@ -2895,10 +4288,9 @@ describe('AiSdkBackend model history', () => {
       permissionRequired: false,
       impl: async () => {
         stopRequested = true;
-        await (backend.stop as unknown as (
-          reason: 'user_stop',
-          mode: 'after_step',
-        ) => Promise<void>)('user_stop', 'after_step');
+        await (
+          backend.stop as unknown as (reason: 'user_stop', mode: 'after_step') => Promise<void>
+        )('user_stop', 'after_step');
         return { ok: true };
       },
     };
@@ -2923,7 +4315,10 @@ describe('AiSdkBackend model history', () => {
 
     assert.equal(stopRequested, true);
     assert.equal(loop.callCount(), 1);
-    assert.equal(events.some((event) => event.type === 'abort'), false);
+    assert.equal(
+      events.some((event) => event.type === 'abort'),
+      false,
+    );
     const usage = events.find((event) => event.type === 'token_usage');
     assert.equal(usage?.type === 'token_usage' ? usage.total : undefined, 2);
   });
@@ -2962,7 +4357,10 @@ describe('AiSdkBackend model history', () => {
     gate.release();
     await sendPromise;
 
-    assert.equal(events.some((event) => event.type === 'abort' && event.reason === 'user_stop'), true);
+    assert.equal(
+      events.some((event) => event.type === 'abort' && event.reason === 'user_stop'),
+      true,
+    );
     assert.equal(
       events.some((event) => event.type === 'complete' && event.stopReason === 'step_limit'),
       false,
@@ -2976,9 +4374,9 @@ describe('AiSdkBackend model history', () => {
     // ledger. The gate releases only after the backend has emitted the partial
     // text_delta, so consumption-before-error is deterministic.
     const gate = makeGate();
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
-        stream: new ReadableStream<LanguageModelV3StreamPart>({
+        stream: new ReadableStream<LanguageModelV4StreamPart>({
           async start(controller) {
             controller.enqueue({ type: 'stream-start', warnings: [] });
             controller.enqueue({ type: 'text-start', id: 'text-1' });
@@ -3016,7 +4414,10 @@ describe('AiSdkBackend model history', () => {
     assert.equal(assistants.length, 1);
     assert.equal(assistants[0]!.text, 'partial answer');
     // And the turn still closes as an error, not a false success.
-    assert.equal(events.some((event) => event.type === 'error'), true);
+    assert.equal(
+      events.some((event) => event.type === 'error'),
+      true,
+    );
     const completes = events.filter((event) => event.type === 'complete');
     assert.equal(completes.length > 0, true);
     assert.equal(
@@ -3080,14 +4481,16 @@ describe('AiSdkBackend model history', () => {
           foldedIds: input.source.foldedRuntimeEvents.map((event) => event.id),
         });
         return {
-          blocks: [buildHistoryCompactBlockFromSummary({
-            sessionId: input.sessionId,
-            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
-            summary: 'HOST_HISTORY_COMPACT_SENTINEL',
-            highWaterName: input.source.draftBlock.highWaterName,
-            highWaterSeq: input.source.draftBlock.highWaterSeq,
-            charsPerToken: input.limits.charsPerToken,
-          })],
+          blocks: [
+            buildHistoryCompactBlockFromSummary({
+              sessionId: input.sessionId,
+              foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+              summary: 'HOST_HISTORY_COMPACT_SENTINEL',
+              highWaterName: input.source.draftBlock.highWaterName,
+              highWaterSeq: input.source.draftBlock.highWaterSeq,
+              charsPerToken: input.limits.charsPerToken,
+            }),
+          ],
         };
       },
     });
@@ -3110,14 +4513,18 @@ describe('AiSdkBackend model history', () => {
       events.push(event);
     }
 
-    assert.deepEqual(writeInputs.map((input) => input.foldedIds), [['compact-old-1', 'compact-old-2']]);
+    assert.deepEqual(
+      writeInputs.map((input) => input.foldedIds),
+      [['compact-old-1', 'compact-old-2']],
+    );
     assert.match(writeInputs[0]?.draftSummary ?? '', /Compacted 2 older turns/);
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /HOST_HISTORY_COMPACT_SENTINEL/);
     assert.equal(prompt.includes('alpha compact source'), false);
     assert.match(prompt, /recent retained context/);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.historyCompactWritesAttempted, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksWritten, 1);
@@ -3129,7 +4536,9 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
     assert.equal(
-      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      storedMessages.some(
+        (message) => message.type === 'system_note' && message.kind === 'context_compacted',
+      ),
       true,
     );
   });
@@ -3137,16 +4546,26 @@ describe('AiSdkBackend model history', () => {
   test('rolls a V2 checkpoint from the prior summary plus only newly evicted events, then reuses it', async () => {
     const oldEvents = [
       runtimeTextEvent({
-        id: 'v2-old-1', turnId: 'v2-turn-1', role: 'user', author: 'user',
+        id: 'v2-old-1',
+        turnId: 'v2-turn-1',
+        role: 'user',
+        author: 'user',
         text: 'V2 old source one '.repeat(20),
       }),
       runtimeTextEvent({
-        id: 'v2-old-2', turnId: 'v2-turn-2', role: 'model', author: 'agent',
+        id: 'v2-old-2',
+        turnId: 'v2-turn-2',
+        role: 'model',
+        author: 'agent',
         text: 'V2 old source two '.repeat(80),
       }),
     ];
     const recent = runtimeTextEvent({
-      id: 'v2-recent', turnId: 'v2-turn-recent', role: 'user', author: 'user', text: 'V2 retained tail',
+      id: 'v2-recent',
+      turnId: 'v2-turn-recent',
+      role: 'user',
+      author: 'user',
+      text: 'V2 retained tail',
     });
     const previous = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -3158,15 +4577,25 @@ describe('AiSdkBackend model history', () => {
     const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
     const firstModel = completionModel();
     const firstBackend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => firstModel, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => firstModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
         maxHistoryEstimatedTokens: 1_500,
         charsPerToken: 1,
         historyCompact: {
-          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 20,
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 20,
           maxSummaryEstimatedTokens: 500,
         },
       },
@@ -3178,14 +4607,23 @@ describe('AiSdkBackend model history', () => {
         });
         return 'V2_ROLLED_SUMMARY';
       },
-      recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+      recordHistoryCompactCheckpoint: (checkpoint) => {
+        recorded.push(checkpoint);
+      },
     });
 
-    await drain(firstBackend.send({
-      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [...oldEvents, recent],
-    }));
+    await drain(
+      firstBackend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [...oldEvents, recent],
+      }),
+    );
 
-    assert.deepEqual(summaryInputs, [{ previous: 'V2_PREVIOUS_SUMMARY', newlyFoldedIds: ['v2-old-2'] }]);
+    assert.deepEqual(summaryInputs, [
+      { previous: 'V2_PREVIOUS_SUMMARY', newlyFoldedIds: ['v2-old-2'] },
+    ]);
     assert.equal(recorded.length, 1);
     assert.equal(recorded[0]?.previousCheckpointId, previous.checkpointId);
     assert.equal(recorded[0]?.coverage.eventCount, 2);
@@ -3197,25 +4635,45 @@ describe('AiSdkBackend model history', () => {
     let reuseSummaryCalls = 0;
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => secondModel, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
         maxHistoryEstimatedTokens: 1_500,
         charsPerToken: 1,
         historyCompact: {
-          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 20,
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 20,
           maxSummaryEstimatedTokens: 500,
         },
       },
       loadHistoryCompactCheckpoint: () => recorded[0],
-      summarizeHistoryCompact: async () => { reuseSummaryCalls += 1; return 'unexpected'; },
-      recordHistoryCompactCheckpoint: () => { throw new Error('must not rewrite a reusable checkpoint'); },
+      summarizeHistoryCompact: async () => {
+        reuseSummaryCalls += 1;
+        return 'unexpected';
+      },
+      recordHistoryCompactCheckpoint: () => {
+        throw new Error('must not rewrite a reusable checkpoint');
+      },
     });
-    await drain(secondBackend.send({
-      turnId: 'turn-next', text: 'continue again', context: [], runtimeContext: [...oldEvents, recent],
-    }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-next',
+        text: 'continue again',
+        context: [],
+        runtimeContext: [...oldEvents, recent],
+      }),
+    );
 
     assert.equal(reuseSummaryCalls, 0);
     assert.match(JSON.stringify(compactPrompt(secondModel)), /V2_ROLLED_SUMMARY/);
@@ -3226,37 +4684,65 @@ describe('AiSdkBackend model history', () => {
     const storedMessages: StoredMessage[] = [];
     let recordCalls = 0;
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async (message) => { storedMessages.push(message); },
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
         maxHistoryEstimatedTokens: 1_500,
         charsPerToken: 1,
         historyCompact: {
-          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 20,
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 20,
           maxSummaryEstimatedTokens: 500,
         },
       },
       summarizeHistoryCompact: async () => '   ',
-      recordHistoryCompactCheckpoint: () => { recordCalls += 1; },
+      recordHistoryCompactCheckpoint: () => {
+        recordCalls += 1;
+      },
     });
-    await drain(backend.send({
-      turnId: 'turn-current', text: 'continue', context: [],
-      runtimeContext: [
-        runtimeTextEvent({
-          id: 'blank-old-1', turnId: 'blank-turn-1', role: 'user', author: 'user',
-          text: 'blank old source one '.repeat(30),
-        }),
-        runtimeTextEvent({
-          id: 'blank-old-2', turnId: 'blank-turn-2', role: 'model', author: 'agent',
-          text: 'blank old source two '.repeat(50),
-        }),
-        runtimeTextEvent({
-          id: 'blank-recent', turnId: 'blank-recent-turn', role: 'user', author: 'user', text: 'BLANK_RETAINED_TAIL',
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'blank-old-1',
+            turnId: 'blank-turn-1',
+            role: 'user',
+            author: 'user',
+            text: 'blank old source one '.repeat(30),
+          }),
+          runtimeTextEvent({
+            id: 'blank-old-2',
+            turnId: 'blank-turn-2',
+            role: 'model',
+            author: 'agent',
+            text: 'blank old source two '.repeat(50),
+          }),
+          runtimeTextEvent({
+            id: 'blank-recent',
+            turnId: 'blank-recent-turn',
+            role: 'user',
+            author: 'user',
+            text: 'BLANK_RETAINED_TAIL',
+          }),
+        ],
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(model));
     assert.equal(prompt.includes('blank old source one'), false);
@@ -3264,8 +4750,9 @@ describe('AiSdkBackend model history', () => {
     assert.match(prompt, /BLANK_RETAINED_TAIL/);
     assert.equal(recordCalls, 0);
     assert.equal(
-      storedMessages.filter((message) =>
-        message.type === 'system_note' && message.kind === 'context_compaction_failed_open'
+      storedMessages.filter(
+        (message) =>
+          message.type === 'system_note' && message.kind === 'context_compaction_failed_open',
       ).length,
       1,
     );
@@ -3274,40 +4761,70 @@ describe('AiSdkBackend model history', () => {
   test('V2 rolling failure keeps the prior checkpoint and the newest complete raw turns that fit', async () => {
     const model = completionModel();
     const old = runtimeTextEvent({
-      id: 'fallback-covered', turnId: 'fallback-turn-1', role: 'user', author: 'user',
+      id: 'fallback-covered',
+      turnId: 'fallback-turn-1',
+      role: 'user',
+      author: 'user',
       text: 'FALLBACK_ALREADY_COVERED_RAW '.repeat(20),
     });
     const evicted = runtimeTextEvent({
-      id: 'fallback-evicted', turnId: 'fallback-turn-2', role: 'model', author: 'agent',
+      id: 'fallback-evicted',
+      turnId: 'fallback-turn-2',
+      role: 'model',
+      author: 'agent',
       text: 'FALLBACK_NEWLY_EVICTED_RAW '.repeat(80),
     });
     const recent = runtimeTextEvent({
-      id: 'fallback-recent', turnId: 'fallback-turn-3', role: 'user', author: 'user',
+      id: 'fallback-recent',
+      turnId: 'fallback-turn-3',
+      role: 'user',
+      author: 'user',
       text: 'FALLBACK_NEWEST_COMPLETE_TURN',
     });
     const previous = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: [old], summary: 'FALLBACK_PRIOR_SUMMARY', charsPerToken: 1,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [old],
+      summary: 'FALLBACK_PRIOR_SUMMARY',
+      charsPerToken: 1,
     });
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        maxHistoryEstimatedTokens: 1_500, charsPerToken: 1,
+        maxHistoryEstimatedTokens: 1_500,
+        charsPerToken: 1,
         historyCompact: {
-          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 40,
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 40,
           maxSummaryEstimatedTokens: 500,
         },
       },
       loadHistoryCompactCheckpoint: () => previous,
       summarizeHistoryCompact: async () => undefined,
-      recordHistoryCompactCheckpoint: () => { throw new Error('failed summary must not be recorded'); },
+      recordHistoryCompactCheckpoint: () => {
+        throw new Error('failed summary must not be recorded');
+      },
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [old, evicted, recent],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [old, evicted, recent],
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /FALLBACK_PRIOR_SUMMARY/);
@@ -3319,19 +4836,31 @@ describe('AiSdkBackend model history', () => {
   test('V2 rolling failure replays a mid-turn checkpoint with its verbatim head anchor', async () => {
     const model = completionModel();
     const old = runtimeTextEvent({
-      id: 'mid-fallback-old', turnId: 'mid-fallback-turn-1', role: 'model', author: 'agent',
+      id: 'mid-fallback-old',
+      turnId: 'mid-fallback-turn-1',
+      role: 'model',
+      author: 'agent',
       text: 'MID_FALLBACK_OLD_RAW '.repeat(40),
     });
     const anchor = runtimeTextEvent({
-      id: 'mid-fallback-anchor', turnId: 'mid-fallback-turn-2', role: 'user', author: 'user',
+      id: 'mid-fallback-anchor',
+      turnId: 'mid-fallback-turn-2',
+      role: 'user',
+      author: 'user',
       text: 'MID_FALLBACK_VERBATIM_ANCHOR',
     });
     const evicted = runtimeTextEvent({
-      id: 'mid-fallback-evicted', turnId: 'mid-fallback-turn-3', role: 'model', author: 'agent',
+      id: 'mid-fallback-evicted',
+      turnId: 'mid-fallback-turn-3',
+      role: 'model',
+      author: 'agent',
       text: 'MID_FALLBACK_NEWLY_EVICTED_RAW '.repeat(80),
     });
     const recent = runtimeTextEvent({
-      id: 'mid-fallback-recent', turnId: 'mid-fallback-turn-4', role: 'user', author: 'user',
+      id: 'mid-fallback-recent',
+      turnId: 'mid-fallback-turn-4',
+      role: 'user',
+      author: 'user',
       text: 'MID_FALLBACK_RECENT_TURN',
     });
     const previous = buildHistoryCompactCheckpoint({
@@ -3343,22 +4872,37 @@ describe('AiSdkBackend model history', () => {
       charsPerToken: 1,
     });
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        maxHistoryEstimatedTokens: 1_500, charsPerToken: 1,
+        maxHistoryEstimatedTokens: 1_500,
+        charsPerToken: 1,
         historyCompact: { enabled: true, mode: 'read_write', highWaterRatio: 0.01 },
       },
       loadHistoryCompactCheckpoint: () => previous,
       summarizeHistoryCompact: async () => undefined,
-      recordHistoryCompactCheckpoint: () => { throw new Error('failed summary must not be recorded'); },
+      recordHistoryCompactCheckpoint: () => {
+        throw new Error('failed summary must not be recorded');
+      },
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [old, anchor, evicted, recent],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [old, anchor, evicted, recent],
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /MID_FALLBACK_PRIOR_SUMMARY/);
@@ -3371,42 +4915,72 @@ describe('AiSdkBackend model history', () => {
   test('V2 rolling failure does not replay a prior checkpoint outside current compact limits', async () => {
     const model = completionModel();
     const old = runtimeTextEvent({
-      id: 'invalid-fallback-covered', turnId: 'invalid-fallback-turn-1', role: 'user', author: 'user',
+      id: 'invalid-fallback-covered',
+      turnId: 'invalid-fallback-turn-1',
+      role: 'user',
+      author: 'user',
       text: 'INVALID_FALLBACK_COVERED_RAW '.repeat(20),
     });
     const evicted = runtimeTextEvent({
-      id: 'invalid-fallback-evicted', turnId: 'invalid-fallback-turn-2', role: 'model', author: 'agent',
+      id: 'invalid-fallback-evicted',
+      turnId: 'invalid-fallback-turn-2',
+      role: 'model',
+      author: 'agent',
       text: 'INVALID_FALLBACK_EVICTED_RAW '.repeat(50),
     });
     const recent = runtimeTextEvent({
-      id: 'invalid-fallback-recent', turnId: 'invalid-fallback-turn-3', role: 'user', author: 'user',
+      id: 'invalid-fallback-recent',
+      turnId: 'invalid-fallback-turn-3',
+      role: 'user',
+      author: 'user',
       text: 'INVALID_FALLBACK_RETAINED_TAIL',
     });
     const previous = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: [old],
-      summary: 'INVALID_FALLBACK_PRIOR_SUMMARY '.repeat(20), charsPerToken: 1,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [old],
+      summary: 'INVALID_FALLBACK_PRIOR_SUMMARY '.repeat(20),
+      charsPerToken: 1,
     });
     assert.ok(previous.estimatedTokens > 100);
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        maxHistoryEstimatedTokens: 1_500, charsPerToken: 1,
+        maxHistoryEstimatedTokens: 1_500,
+        charsPerToken: 1,
         historyCompact: {
-          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 40,
-          maxBlockEstimatedTokens: 10_000, maxEstimatedTokens: 100,
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 40,
+          maxBlockEstimatedTokens: 10_000,
+          maxEstimatedTokens: 100,
         },
       },
       loadHistoryCompactCheckpoint: () => previous,
       summarizeHistoryCompact: async () => undefined,
-      recordHistoryCompactCheckpoint: () => { throw new Error('failed summary must not be recorded'); },
+      recordHistoryCompactCheckpoint: () => {
+        throw new Error('failed summary must not be recorded');
+      },
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [old, evicted, recent],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [old, evicted, recent],
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(model));
     assert.equal(prompt.includes('INVALID_FALLBACK_PRIOR_SUMMARY'), false);
@@ -3489,8 +5063,9 @@ describe('AiSdkBackend model history', () => {
     assert.match(prompt, /fail beta compact source/);
     assert.equal(prompt.includes('Compacted 2 older turns'), false);
     assert.match(prompt, /fail recent retained context/);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.historyCompactWriteFailures, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlockIds, undefined);
@@ -3500,7 +5075,9 @@ describe('AiSdkBackend model history', () => {
       ['failedOpen'],
     );
     assert.equal(
-      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      storedMessages.some(
+        (message) => message.type === 'system_note' && message.kind === 'context_compacted',
+      ),
       false,
     );
   });
@@ -3599,14 +5176,17 @@ describe('AiSdkBackend model history', () => {
     assert.match(prompt, /LOADED_HISTORY_COMPACT_SENTINEL/);
     assert.equal(prompt.includes('load alpha compact source'), false);
     assert.match(prompt, /loaded recent retained context/);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksSelected, 1);
     assert.equal(usage?.contextBudget?.historyCompactWritesAttempted, undefined);
     assert.equal(
-      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      storedMessages.some(
+        (message) => message.type === 'system_note' && message.kind === 'context_compacted',
+      ),
       false,
     );
   });
@@ -3616,11 +5196,17 @@ describe('AiSdkBackend model history', () => {
     const events: SessionEvent[] = [];
     const oldEvents = [
       runtimeTextEvent({
-        id: 'v2-load-fail-old-1', turnId: 'v2-load-fail-turn-1', role: 'user', author: 'user',
+        id: 'v2-load-fail-old-1',
+        turnId: 'v2-load-fail-turn-1',
+        role: 'user',
+        author: 'user',
         text: 'v2 load failure old alpha '.repeat(12),
       }),
       runtimeTextEvent({
-        id: 'v2-load-fail-old-2', turnId: 'v2-load-fail-turn-2', role: 'model', author: 'agent',
+        id: 'v2-load-fail-old-2',
+        turnId: 'v2-load-fail-turn-2',
+        role: 'model',
+        author: 'agent',
         text: 'v2 load failure old beta '.repeat(12),
       }),
     ];
@@ -3634,18 +5220,35 @@ describe('AiSdkBackend model history', () => {
     });
     let v1LoadCalls = 0;
     const backend = new AiSdkBackend({
-      sessionId: 'session-1', header: header(), appendMessage: async () => {},
-      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
       contextBudget: {
-        maxHistoryEstimatedTokens: 10_000, minRecentTurns: 1, charsPerToken: 1,
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
         historyCompact: {
-          enabled: true, mode: 'read_write', highWaterRatio: 0.000001, targetRatio: 0.2,
-          tailEstimatedTokens: 1, minRecentTurns: 1, maxBlocks: 1, maxEstimatedTokens: 4096,
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.000001,
+          targetRatio: 0.2,
+          tailEstimatedTokens: 1,
+          minRecentTurns: 1,
+          maxBlocks: 1,
+          maxEstimatedTokens: 4096,
         },
       },
-      loadHistoryCompactCheckpoint: async () => { throw new Error('checkpoint ledger unavailable'); },
+      loadHistoryCompactCheckpoint: async () => {
+        throw new Error('checkpoint ledger unavailable');
+      },
       loadHistoryCompact: async () => {
         v1LoadCalls += 1;
         return { blocks: [loadedBlock] };
@@ -3653,20 +5256,27 @@ describe('AiSdkBackend model history', () => {
     });
 
     for await (const event of backend.send({
-      turnId: 'turn-current', text: 'continue', context: [],
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [],
       runtimeContext: [
         ...oldEvents,
         runtimeTextEvent({
-          id: 'v2-load-fail-recent', turnId: 'v2-load-fail-recent-turn', role: 'user', author: 'user',
+          id: 'v2-load-fail-recent',
+          turnId: 'v2-load-fail-recent-turn',
+          role: 'user',
+          author: 'user',
           text: 'V2_LOAD_FAIL_RETAINED_TAIL',
         }),
       ],
-    })) events.push(event);
+    }))
+      events.push(event);
 
     assert.equal(v1LoadCalls, 1);
     assert.match(JSON.stringify(compactPrompt(model)), /V1_FALLBACK_AFTER_V2_LOAD_FAILURE/);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.historyCompactLoadFailures, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
@@ -3675,39 +5285,49 @@ describe('AiSdkBackend model history', () => {
   test('replays a persisted compact block whose provenance JSON outgrows the token budget', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
-    const oldEvents = Array.from({ length: 60 }, (_, index) => runtimeTextEvent({
-      id: `compact-large-old-${index}`,
-      turnId: `turn-old-${index}`,
-      role: index % 2 === 0 ? 'user' : 'model',
-      author: index % 2 === 0 ? 'user' : 'agent',
-      text: `large fold source fact ${index}`,
-    }));
+    const oldEvents = Array.from({ length: 60 }, (_, index) =>
+      runtimeTextEvent({
+        id: `compact-large-old-${index}`,
+        turnId: `turn-old-${index}`,
+        role: index % 2 === 0 ? 'user' : 'model',
+        author: index % 2 === 0 ? 'user' : 'agent',
+        text: `large fold source fact ${index}`,
+      }),
+    );
     const artifactStore = memoryArtifactStore();
-    const persisted = await persistHistoryCompactBlocksToArtifacts(artifactStore, {
-      sessionId: 'session-1',
-      turnId: 'turn-persist',
-      source: {
-        draftBlock: buildHistoryCompactBlockFromSummary({
-          sessionId: 'session-1',
+    const persisted = await persistHistoryCompactBlocksToArtifacts(
+      artifactStore,
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-persist',
+        source: {
+          draftBlock: buildHistoryCompactBlockFromSummary({
+            sessionId: 'session-1',
+            foldedRuntimeEvents: oldEvents,
+            summary: 'PERSISTED_LARGE_COMPACT_SENTINEL',
+            highWaterName: 'large-history-compact',
+            highWaterSeq: 2,
+            charsPerToken: 1,
+          }),
           foldedRuntimeEvents: oldEvents,
-          summary: 'PERSISTED_LARGE_COMPACT_SENTINEL',
-          highWaterName: 'large-history-compact',
-          highWaterSeq: 2,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
           charsPerToken: 1,
-        }),
-        foldedRuntimeEvents: oldEvents,
+        },
       },
-      limits: {
-        maxBlocks: 1,
-        maxBlockEstimatedTokens: 1_024,
-        maxEstimatedTokens: 2_048,
-        charsPerToken: 1,
-      },
-    }, { summarize: () => 'PERSISTED_LARGE_COMPACT_SENTINEL' });
+      { summarize: () => 'PERSISTED_LARGE_COMPACT_SENTINEL' },
+    );
     assert.equal(persisted.blocks.length, 1);
-    const blockRecord = (await artifactStore.list('session-1'))
-      .find((record) => record.source === 'history_compact_block');
-    assert.ok((blockRecord?.sizeBytes ?? 0) > 4_096, 'provenance JSON outgrows the token-derived byte cap');
+    const blockRecord = (await artifactStore.list('session-1')).find(
+      (record) => record.source === 'history_compact_block',
+    );
+    assert.ok(
+      (blockRecord?.sizeBytes ?? 0) > 4_096,
+      'provenance JSON outgrows the token-derived byte cap',
+    );
 
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -3758,8 +5378,9 @@ describe('AiSdkBackend model history', () => {
       events.push(event);
     }
 
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksSelected, 1);
@@ -3774,6 +5395,7 @@ describe('AiSdkBackend model history', () => {
     // so the ledger stays on RuntimeEvent replay instead of falling back to
     // StoredMessage projection.
     const model = completionModel();
+    let imageReads = 0;
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -3784,34 +5406,65 @@ describe('AiSdkBackend model history', () => {
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
       tools: [],
+      supportsVision: true,
+      readAttachmentBytes: async () => {
+        imageReads += 1;
+        return { ok: true, bytes: new Uint8Array([1]) };
+      },
       newId: idGenerator(),
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
-        runtimeEvent({
-          id: 'rt-unmatched-result',
-          turnId: 'turn-prev',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'function_response', id: 'missing-call', name: 'Read', result: 'contents', isError: false },
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'runtime user',
+          }),
+          runtimeEvent({
+            id: 'rt-unmatched-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'missing-call',
+              name: 'Read',
+              isError: false,
+              result: {
+                kind: 'image',
+                mimeType: 'image/png',
+                ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'orphan' },
+              },
+            },
+          }),
+        ],
+      }),
+    );
 
     // RuntimeEvent replay (not the StoredMessage projection), orphan gone.
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
+    assert.equal(imageReads, 0);
   });
 
   test('keeps RuntimeEvent replay when a system error fact is diagnostic-only', async () => {
@@ -3830,24 +5483,43 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
-        runtimeEvent({
-          id: 'rt-error',
-          turnId: 'turn-prev',
-          role: 'system',
-          author: 'system',
-          content: { kind: 'error', reason: 'tool_failed', message: 'Tool failed' },
-        }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'runtime user',
+          }),
+          runtimeEvent({
+            id: 'rt-error',
+            turnId: 'turn-prev',
+            role: 'system',
+            author: 'system',
+            content: {
+              kind: 'error',
+              reason: 'tool_failed',
+              message: 'Tool failed',
+            },
+          }),
+        ],
+      }),
+    );
 
     assert.deepEqual(compactPrompt(model), [
       { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
@@ -3872,25 +5544,46 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-current',
-      text: 'current user',
-      context: [
-        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
-        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
-      ],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'projection user' }),
-        runtimeEvent({
-          id: 'rt-thinking',
-          turnId: 'turn-prev',
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'thinking', text: 'private chain of thought', signature: 'sig-1' },
-        }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'projection assistant' }),
-      ],
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'current user',
+        context: [
+          { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+          {
+            type: 'assistant',
+            id: 'projection-a',
+            turnId: 'turn-prev',
+            ts: 2,
+            text: 'projection assistant',
+            modelId: 'm',
+          },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'projection user',
+          }),
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'thinking', text: 'private chain of thought', signature: 'sig-1' },
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'projection assistant',
+          }),
+        ],
+      }),
+    );
 
     const promptJson = JSON.stringify(compactPrompt(model));
     assert.deepEqual(compactPrompt(model), [
@@ -3925,7 +5618,9 @@ describe('AiSdkBackend error surfaces', () => {
       events.push(event);
     }
 
-    const error = events.find((event): event is Extract<SessionEvent, { type: 'error' }> => event.type === 'error');
+    const error = events.find(
+      (event): event is Extract<SessionEvent, { type: 'error' }> => event.type === 'error',
+    );
     assert.equal(error?.message, 'Authentication failed');
     assert.equal(JSON.stringify(events).includes('sk-live-secret-token-value'), false);
   });
@@ -3959,14 +5654,16 @@ describe('AiSdkBackend error surfaces', () => {
       now: () => 1,
     });
 
-    await (backend as unknown as {
-      writeSyntheticToolResult(
-        toolUseId: string,
-        turnId: string,
-        text: string,
-        queue: { push(event: SessionEvent): void },
-      ): Promise<void>;
-    }).writeSyntheticToolResult(
+    await (
+      backend as unknown as {
+        writeSyntheticToolResult(
+          toolUseId: string,
+          turnId: string,
+          text: string,
+          queue: { push(event: SessionEvent): void },
+        ): Promise<void>;
+      }
+    ).writeSyntheticToolResult(
       'tool-1',
       'turn-1',
       'failed with api_key=sk-live-secret-token-value',
@@ -3975,7 +5672,10 @@ describe('AiSdkBackend error surfaces', () => {
 
     assert.equal(JSON.stringify(messages).includes('sk-live-secret-token-value'), false);
     assert.equal(JSON.stringify(events).includes('sk-live-secret-token-value'), false);
-    assert.deepEqual(messages[0]?.content, events.find((event) => event.type === 'tool_result')?.content);
+    assert.deepEqual(
+      messages[0]?.content,
+      events.find((event) => event.type === 'tool_result')?.content,
+    );
   });
 
   test('failed Bash results preserve terminal stdout and stderr as an error card', async () => {
@@ -4010,13 +5710,18 @@ describe('AiSdkBackend error surfaces', () => {
       },
     };
 
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const result = await execute(
       { command: 'printf out; printf err >&2; exit 2' },
@@ -4034,7 +5739,10 @@ describe('AiSdkBackend error surfaces', () => {
       ].join('\n\n'),
     });
     assert.equal(messages[0]?.isError, true);
-    assert.deepEqual(messages[0]?.content, events.find((event) => event.type === 'tool_result')?.content);
+    assert.deepEqual(
+      messages[0]?.content,
+      events.find((event) => event.type === 'tool_result')?.content,
+    );
     assert.deepEqual(messages[0]?.content, {
       kind: 'terminal',
       cwd: '/tmp/maka',
@@ -4067,9 +5775,11 @@ describe('AiSdkBackend error surfaces', () => {
       now: () => 1,
     });
 
-    const event = (backend as unknown as {
-      makeErrorEvent(turnId: string, err: unknown): Extract<SessionEvent, { type: 'error' }>;
-    }).makeErrorEvent('turn-1', new Error('Model stream idle timeout after 120000ms'));
+    const event = (
+      backend as unknown as {
+        makeErrorEvent(turnId: string, err: unknown): Extract<SessionEvent, { type: 'error' }>;
+      }
+    ).makeErrorEvent('turn-1', new Error('Model stream idle timeout after 120000ms'));
 
     assert.equal(event.message, 'Request timed out');
     assert.equal(event.reason, 'timeout');
@@ -4090,12 +5800,13 @@ describe('AiSdkBackend stop', () => {
     });
     assert.equal(verdict.kind, 'prompt');
     assert.equal(permissionEngine.pendingCount('turn-1'), 1);
-    const parked = verdict.kind === 'prompt'
-      ? verdict.parked.then(
-          () => 'resolved',
-          (error: Error) => error.message,
-        )
-      : Promise.resolve('not-prompt');
+    const parked =
+      verdict.kind === 'prompt'
+        ? verdict.parked.then(
+            () => 'resolved',
+            (error: Error) => error.message,
+          )
+        : Promise.resolve('not-prompt');
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -4113,7 +5824,10 @@ describe('AiSdkBackend stop', () => {
     (backend as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
     await backend.stop('user_stop');
 
-    assert.match(await parked, /Turn turn-1 aborted before permission request permission-id was answered/);
+    assert.match(
+      await parked,
+      /Turn turn-1 aborted before permission request permission-id was answered/,
+    );
     assert.equal(permissionEngine.pendingCount('turn-1'), 0);
   });
 });
@@ -4195,9 +5909,14 @@ describe('AiSdkBackend usage telemetry', () => {
   test('reports an explicit step limit without making an auxiliary model call', async () => {
     const appended: StoredMessage[] = [];
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doGenerate: {
-        content: [{ type: 'text', text: 'Completed the edits; verification is still pending. Send continue to resume.' }],
+        content: [
+          {
+            type: 'text',
+            text: 'Completed the edits; verification is still pending. Send continue to resume.',
+          },
+        ],
         finishReason: { unified: 'stop', raw: 'stop' },
         usage: {
           inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
@@ -4223,7 +5942,10 @@ describe('AiSdkBackend usage telemetry', () => {
               {
                 type: 'finish',
                 finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+                usage: {
+                  inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                  outputTokens: { total: 1, text: 1, reasoning: 0 },
+                },
               },
             ],
             initialDelayInMs: null,
@@ -4235,7 +5957,9 @@ describe('AiSdkBackend usage telemetry', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => { appended.push(message); },
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -4248,18 +5972,26 @@ describe('AiSdkBackend usage telemetry', () => {
     });
 
     const events: SessionEvent[] = [];
-    for await (const event of backend.send({ turnId: 'turn-1', text: 'finish the task', context: [] })) {
+    for await (const event of backend.send({
+      turnId: 'turn-1',
+      text: 'finish the task',
+      context: [],
+    })) {
       events.push(event);
     }
 
     assert.equal(streamCalls, 2);
     assert.equal(model.doGenerateCalls.length, 0);
     assert.equal(
-      appended.filter((message): message is AssistantMessage => message.type === 'assistant').at(-1)?.text,
+      appended.filter((message): message is AssistantMessage => message.type === 'assistant').at(-1)
+        ?.text,
       'Still working.',
     );
     assert.equal(events.at(-1)?.type, 'complete');
-    assert.equal((events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string, 'step_limit');
+    assert.equal(
+      (events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string,
+      'step_limit',
+    );
   });
 
   test('records cumulative usage checkpoints across tool-loop steps and turns', async () => {
@@ -4268,59 +6000,60 @@ describe('AiSdkBackend usage telemetry', () => {
     const llmRecords: LlmCallRecord[] = [];
     const usageCheckpoints: Array<{ inputTokens: number; outputTokens: number }> = [];
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-1',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'notes.md' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: {
-                  inputTokens: {
-                    total: 100,
-                    noCache: 70,
-                    cacheRead: 20,
-                    cacheWrite: 10,
-                  },
-                  outputTokens: {
-                    total: 5,
-                    text: 5,
-                    reasoning: 0,
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: {
+                      total: 100,
+                      noCache: 70,
+                      cacheRead: 20,
+                      cacheWrite: 10,
+                    },
+                    outputTokens: {
+                      total: 5,
+                      text: 5,
+                      reasoning: 0,
+                    },
                   },
                 },
-              },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'text-start', id: 'text-1' },
-              { type: 'text-delta', id: 'text-1', delta: 'done' },
-              { type: 'text-end', id: 'text-1' },
-              {
-                type: 'finish',
-                finishReason: { unified: 'stop', raw: 'stop' },
-                usage: {
-                  inputTokens: {
-                    total: 200,
-                    noCache: 100,
-                    cacheRead: 80,
-                    cacheWrite: 20,
-                  },
-                  outputTokens: {
-                    total: 7,
-                    text: 5,
-                    reasoning: 2,
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-1' },
+                { type: 'text-delta', id: 'text-1', delta: 'done' },
+                { type: 'text-end', id: 'text-1' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: {
+                      total: 200,
+                      noCache: 100,
+                      cacheRead: 80,
+                      cacheWrite: 20,
+                    },
+                    outputTokens: {
+                      total: 7,
+                      text: 5,
+                      reasoning: 2,
+                    },
                   },
                 },
-              },
-            ];
+              ];
         return {
           stream: simulateReadableStream({
             chunks,
@@ -4357,21 +6090,23 @@ describe('AiSdkBackend usage telemetry', () => {
     }
     await drain(backend.send({ turnId: 'turn-2', text: 'continue', context: [] }));
 
-    const usageMessage = messages.find((message) =>
-      (message as { type?: string }).type === 'token_usage'
-    ) as {
-      input?: number;
-      output?: number;
-      cacheHitInput?: number;
-      cacheMissInput?: number;
-      cacheMissInputSource?: string;
-      cacheWriteInput?: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-      reasoning?: number;
-      total?: number;
-      rawFinishReason?: string;
-    } | undefined;
+    const usageMessage = messages.find(
+      (message) => (message as { type?: string }).type === 'token_usage',
+    ) as
+      | {
+          input?: number;
+          output?: number;
+          cacheHitInput?: number;
+          cacheMissInput?: number;
+          cacheMissInputSource?: string;
+          cacheWriteInput?: number;
+          cacheRead?: number;
+          cacheCreation?: number;
+          reasoning?: number;
+          total?: number;
+          rawFinishReason?: string;
+        }
+      | undefined;
     const usageEvent = events.find((event) => event.type === 'token_usage') as
       | Extract<SessionEvent, { type: 'token_usage' }>
       | undefined;
@@ -4397,16 +6132,19 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 312);
     assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
-    assert.deepEqual(usageCheckpoints.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })), [
-      { inputTokens: 100, outputTokens: 5 },
-      { inputTokens: 300, outputTokens: 12 },
-      { inputTokens: 500, outputTokens: 19 },
-    ]);
+    assert.deepEqual(
+      usageCheckpoints.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })),
+      [
+        { inputTokens: 100, outputTokens: 5 },
+        { inputTokens: 300, outputTokens: 12 },
+        { inputTokens: 500, outputTokens: 19 },
+      ],
+    );
   });
 
   test('does not record fabricated zero telemetry when provider usage is unavailable', async () => {
     const llmRecords: LlmCallRecord[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks: [
@@ -4415,7 +6153,12 @@ describe('AiSdkBackend usage telemetry', () => {
               type: 'finish',
               finishReason: { unified: 'stop', raw: 'stop' },
               usage: {
-                inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+                inputTokens: {
+                  total: undefined,
+                  noCache: undefined,
+                  cacheRead: undefined,
+                  cacheWrite: undefined,
+                },
                 outputTokens: { total: undefined, text: undefined, reasoning: undefined },
               } as never,
             },
@@ -4437,7 +6180,9 @@ describe('AiSdkBackend usage telemetry', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => { llmRecords.push(record); },
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
     });
 
     await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
@@ -4447,7 +6192,7 @@ describe('AiSdkBackend usage telemetry', () => {
 
   test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
     const usageCheckpoints: Array<{ costUsd?: number }> = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => ({
         stream: simulateReadableStream({
           chunks: [
@@ -4497,45 +6242,61 @@ describe('AiSdkBackend usage telemetry', () => {
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(200);
     let streamCalls = 0;
     const prompts: unknown[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ prompt }) => {
         streamCalls += 1;
         prompts.push(prompt);
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-1',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'notes.md' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : streamCalls === 2
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-2',
-                toolName: 'Bash',
-                input: JSON.stringify({ cmd: 'continue' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-            ];
-        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ]
+            : streamCalls === 2
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'tool-2',
+                    toolName: 'Bash',
+                    input: JSON.stringify({ cmd: 'continue' }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
       },
     });
     const backend = new AiSdkBackend({
@@ -4549,19 +6310,22 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
-      tools: [{
-        name: 'Read',
-        description: 'Read description',
-        parameters: z.object({ path: z.string() }),
-        permissionRequired: false,
-        impl: async () => ({ body: largeBody }),
-      }, {
-        name: 'Bash',
-        description: 'Bash description',
-        parameters: z.object({ cmd: z.string() }),
-        permissionRequired: false,
-        impl: async () => ({ body: 'NEWEST_RESULT_STAYS_VISIBLE' }),
-      }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          permissionRequired: false,
+          impl: async () => ({ body: largeBody }),
+        },
+        {
+          name: 'Bash',
+          description: 'Bash description',
+          parameters: z.object({ cmd: z.string() }),
+          permissionRequired: false,
+          impl: async () => ({ body: 'NEWEST_RESULT_STAYS_VISIBLE' }),
+        },
+      ],
       contextBudget: {
         activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       },
@@ -4577,11 +6341,13 @@ describe('AiSdkBackend usage telemetry', () => {
       events.push(event);
     }
 
-    const usageMessage = messages.find((message) =>
-      (message as { type?: string }).type === 'token_usage'
+    const usageMessage = messages.find(
+      (message) => (message as { type?: string }).type === 'token_usage',
     ) as { contextBudget?: Record<string, unknown> } | undefined;
     const usageEvent = events.find((event) => event.type === 'token_usage') as
-      | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: Record<string, unknown> })
+      | (Extract<SessionEvent, { type: 'token_usage' }> & {
+          contextBudget?: Record<string, unknown>;
+        })
       | undefined;
     const recordContextBudget = llmRecords[0]?.contextBudget as Record<string, unknown> | undefined;
     assert.equal(streamCalls, 3);
@@ -4592,10 +6358,14 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.doesNotMatch(thirdPrompt, /SECRET_PAYLOAD_SHOULD_BE_ARCHIVED/);
     assert.match(thirdPrompt, /artifact-tool-1/);
     assert.match(thirdPrompt, /NEWEST_RESULT_STAYS_VISIBLE/);
-    for (const contextBudget of [usageMessage?.contextBudget, usageEvent?.contextBudget, recordContextBudget]) {
+    for (const contextBudget of [
+      usageMessage?.contextBudget,
+      usageEvent?.contextBudget,
+      recordContextBudget,
+    ]) {
       assert.equal(contextBudget?.activePrunedToolResults, 1);
       assert.equal(contextBudget?.activeArchiveFailures, undefined);
-      assert.ok((contextBudget?.activeEstimatedTokensSaved as number | undefined ?? 0) > 0);
+      assert.ok(((contextBudget?.activeEstimatedTokensSaved as number | undefined) ?? 0) > 0);
     }
   });
 
@@ -4607,32 +6377,45 @@ describe('AiSdkBackend usage telemetry', () => {
     const largeBody = 'ACTIVE_FULL_COMPACT_RAW_TOOL_OUTPUT'.repeat(200);
     let streamCalls = 0;
     let secondProviderRequestSawRecordedBlock = false;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
         if (streamCalls === 2) {
           secondProviderRequestSawRecordedBlock = recordedBlocks.length === 1;
         }
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-1',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'notes.md' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-            ];
-        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
       },
     });
     const backend = new AiSdkBackend({
@@ -4646,13 +6429,15 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
-      tools: [{
-        name: 'Read',
-        description: 'Read description',
-        parameters: z.object({ path: z.string() }),
-        permissionRequired: false,
-        impl: async () => ({ body: largeBody }),
-      }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          permissionRequired: false,
+          impl: async () => ({ body: largeBody }),
+        },
+      ],
       contextBudget: {
         charsPerToken: 1,
         activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
@@ -4689,36 +6474,60 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal((recordedBlocks[0]?.sourceRefs.length ?? 0) > 0, true);
     assert.doesNotMatch(JSON.stringify(recordedBlocks[0]), /artifact-tool-1/);
     const secondPromptMessages = model.doStreamCalls[1]?.prompt ?? [];
-    const secondPrompt = JSON.stringify(model.doStreamCalls[1]?.prompt.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })));
+    const secondPrompt = JSON.stringify(
+      model.doStreamCalls[1]?.prompt.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    );
     assert.match(secondPrompt, /maka_active_full_compact_block/);
-    assert.equal(secondPromptMessages.some((message) =>
-      message.role === 'user' && JSON.stringify(message.content).includes('maka_active_full_compact_block')
-    ), true);
-    assert.equal(secondPromptMessages.some((message) =>
-      message.role === 'system' && JSON.stringify(message.content).includes('maka_active_full_compact_block')
-    ), false);
+    assert.equal(
+      secondPromptMessages.some(
+        (message) =>
+          message.role === 'user' &&
+          JSON.stringify(message.content).includes('maka_active_full_compact_block'),
+      ),
+      true,
+    );
+    assert.equal(
+      secondPromptMessages.some(
+        (message) =>
+          message.role === 'system' &&
+          JSON.stringify(message.content).includes('maka_active_full_compact_block'),
+      ),
+      false,
+    );
     assert.doesNotMatch(secondPrompt, /artifact-tool-1/);
     assert.equal(secondPrompt.includes('ACTIVE_FULL_COMPACT_RAW_TOOL_OUTPUT'), false);
     assert.doesNotMatch(secondPrompt, /providerSourceIds=/);
     assert.doesNotMatch(secondPrompt, /bodySha256=/);
     assert.doesNotMatch(secondPrompt, /source\(kind=/);
 
-    const usageMessage = messages.find((message) =>
-      (message as { type?: string }).type === 'token_usage'
+    const usageMessage = messages.find(
+      (message) => (message as { type?: string }).type === 'token_usage',
     ) as { contextBudget?: Record<string, unknown> } | undefined;
     const usageEvent = events.find((event) => event.type === 'token_usage') as
-      | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: Record<string, unknown> })
+      | (Extract<SessionEvent, { type: 'token_usage' }> & {
+          contextBudget?: Record<string, unknown>;
+        })
       | undefined;
     const recordContextBudget = llmRecords[0]?.contextBudget as Record<string, unknown> | undefined;
-    for (const contextBudget of [usageMessage?.contextBudget, usageEvent?.contextBudget, recordContextBudget]) {
+    for (const contextBudget of [
+      usageMessage?.contextBudget,
+      usageEvent?.contextBudget,
+      recordContextBudget,
+    ]) {
       assert.equal(contextBudget?.activePrunedToolResults, undefined);
-      const decisions = contextBudget?.compactionDecisions as Array<Record<string, unknown>> | undefined;
-      assert.equal(decisions?.some((decision) =>
-        decision.boundaryKind === 'activeFullCompact' && decision.decision === 'replaced'
-      ), true);
+      const decisions = contextBudget?.compactionDecisions as
+        | Array<Record<string, unknown>>
+        | undefined;
+      assert.equal(
+        decisions?.some(
+          (decision) =>
+            decision.boundaryKind === 'activeFullCompact' && decision.decision === 'replaced',
+        ),
+        true,
+      );
       assert.equal(typeof contextBudget?.highWaterRequestShapeHashBefore, 'string');
       assert.equal(typeof contextBudget?.highWaterRequestShapeHashAfter, 'string');
       assert.notEqual(
@@ -4746,9 +6555,11 @@ describe('AiSdkBackend usage telemetry', () => {
         recordedBlocks.push(block);
       },
     });
-    (backend as unknown as {
-      recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void;
-    }).recordActiveFullCompactBlock(activeFullCompactBlockFixture());
+    (
+      backend as unknown as {
+        recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void;
+      }
+    ).recordActiveFullCompactBlock(activeFullCompactBlockFixture());
 
     assert.equal(recordedBlocks.length, 1);
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
@@ -4768,19 +6579,23 @@ describe('AiSdkBackend usage telemetry', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => { llmRecords.push(record); },
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
     });
 
-    (backend as unknown as {
-      recordSemanticCompactSummaryCall(input: {
-        callId: string;
-        turnId: string;
-        modelId: string;
-        startedAt: number;
-        latencyMs: number;
-        status: LlmCallRecord['status'];
-      }): void;
-    }).recordSemanticCompactSummaryCall({
+    (
+      backend as unknown as {
+        recordSemanticCompactSummaryCall(input: {
+          callId: string;
+          turnId: string;
+          modelId: string;
+          startedAt: number;
+          latencyMs: number;
+          status: LlmCallRecord['status'];
+        }): void;
+      }
+    ).recordSemanticCompactSummaryCall({
       callId: 'semantic-1',
       turnId: 'turn-1',
       modelId: 'mock-model-id',
@@ -4801,18 +6616,20 @@ describe('AiSdkBackend usage telemetry', () => {
     const largeBody = 'SEMANTIC_COMPACT_RAW_TOOL_OUTPUT'.repeat(180);
     let streamCalls = 0;
     let archiveCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doGenerate: {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            established_findings: ['Read returned a large raw tool output.'],
-            decisions: [],
-            failed_paths: [],
-            partial_work_product: [],
-            action_in_progress: 'Use the preserved recent execution episode to continue.',
-          }),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              established_findings: ['Read returned a large raw tool output.'],
+              decisions: [],
+              failed_paths: [],
+              partial_work_product: [],
+              action_in_progress: 'Use the preserved recent execution episode to continue.',
+            }),
+          },
+        ],
         finishReason: { unified: 'stop', raw: 'stop' },
         usage: {
           inputTokens: { total: 21, noCache: 19, cacheRead: 2, cacheWrite: 0 },
@@ -4822,41 +6639,57 @@ describe('AiSdkBackend usage telemetry', () => {
       },
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-semantic',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'large.log' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : streamCalls === 2
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-semantic-tail',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'next.log' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-            ];
-        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-semantic',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'large.log' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ]
+            : streamCalls === 2
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'tool-semantic-tail',
+                    toolName: 'Read',
+                    input: JSON.stringify({ path: 'next.log' }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
       },
     });
     const backend = new AiSdkBackend({
@@ -4870,15 +6703,17 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
-      tools: [{
-        name: 'Read',
-        description: 'Read description',
-        parameters: z.object({ path: z.string() }),
-        permissionRequired: false,
-        impl: async ({ path }) => ({
-          body: path === 'large.log' ? largeBody : 'FRESH_SEMANTIC_TAIL_RESULT',
-        }),
-      }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          permissionRequired: false,
+          impl: async ({ path }) => ({
+            body: path === 'large.log' ? largeBody : 'FRESH_SEMANTIC_TAIL_RESULT',
+          }),
+        },
+      ],
       contextBudget: {
         charsPerToken: 1,
         activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
@@ -4932,15 +6767,28 @@ describe('AiSdkBackend usage telemetry', () => {
       /archived-covered-semantic-result/,
       'the summarizer must accept an active-pruned result in an older completed episode',
     );
-    assert.doesNotMatch(JSON.stringify(model.doGenerateCalls[0]?.prompt), /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
-    assert.equal(archiveCalls, 1, 'covered raw results may become archived without invalidating projection lineage');
+    assert.doesNotMatch(
+      JSON.stringify(model.doGenerateCalls[0]?.prompt),
+      /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/,
+    );
+    assert.equal(
+      archiveCalls,
+      1,
+      'covered raw results may become archived without invalidating projection lineage',
+    );
     assert.equal(recordedBlocks.length, 1);
-    assert.equal(recordedActiveFullBlocks.length, 0, 'one step must accept at most one compaction replacement');
+    assert.equal(
+      recordedActiveFullBlocks.length,
+      0,
+      'one step must accept at most one compaction replacement',
+    );
     assert.equal(recordedBlocks[0]?.kind, 'maka.semantic_compact_block');
-    const secondPrompt = JSON.stringify(model.doStreamCalls[1]?.prompt.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })));
+    const secondPrompt = JSON.stringify(
+      model.doStreamCalls[1]?.prompt.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    );
     assert.doesNotMatch(secondPrompt, /maka_semantic_compact_block/);
     assert.match(secondPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
     assert.doesNotMatch(secondPrompt, /archived-covered-semantic-result/);
@@ -4948,7 +6796,7 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(secondPromptMessages[0]?.role, 'user', 'the exact user anchor stays at the head');
     const thirdPromptMessages = model.doStreamCalls[2]?.prompt ?? [];
     const semanticProjection = thirdPromptMessages.find((message) =>
-      JSON.stringify(message.content).includes('maka_semantic_compact_block')
+      JSON.stringify(message.content).includes('maka_semantic_compact_block'),
     );
     assert.equal(
       semanticProjection?.role,
@@ -4960,10 +6808,12 @@ describe('AiSdkBackend usage telemetry', () => {
       1,
       'semantic replacement must not append a second user instruction',
     );
-    const thirdPrompt = JSON.stringify(model.doStreamCalls[2]?.prompt.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })));
+    const thirdPrompt = JSON.stringify(
+      model.doStreamCalls[2]?.prompt.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    );
     assert.match(thirdPrompt, /maka_semantic_compact_block/);
     assert.match(thirdPrompt, /FRESH_SEMANTIC_TAIL_RESULT/);
     assert.doesNotMatch(thirdPrompt, /SEMANTIC_COMPACT_RAW_TOOL_OUTPUT/);
@@ -4983,14 +6833,22 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(semanticRecord.totalTokens, 34);
 
     const usageEvent = events.find((event) => event.type === 'token_usage') as
-      | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: Record<string, unknown> })
+      | (Extract<SessionEvent, { type: 'token_usage' }> & {
+          contextBudget?: Record<string, unknown>;
+        })
       | undefined;
-    const decisions = usageEvent?.contextBudget?.compactionDecisions as Array<Record<string, unknown>> | undefined;
-    assert.equal(decisions?.some((decision) =>
-      decision.boundaryKind === 'semanticCompact'
-        && decision.decision === 'replaced'
-        && decision.compactCallTotalTokens === 34
-    ), true);
+    const decisions = usageEvent?.contextBudget?.compactionDecisions as
+      | Array<Record<string, unknown>>
+      | undefined;
+    assert.equal(
+      decisions?.some(
+        (decision) =>
+          decision.boundaryKind === 'semanticCompact' &&
+          decision.decision === 'replaced' &&
+          decision.compactCallTotalTokens === 34,
+      ),
+      true,
+    );
   });
 
   test('active full compact keeps the accepted boundary projection across later AI SDK steps', async () => {
@@ -4999,44 +6857,60 @@ describe('AiSdkBackend usage telemetry', () => {
     const rawOne = 'ACTIVE_FULL_COMPACT_BOUNDARY_RAW_ONE'.repeat(160);
     const rawTwo = 'ACTIVE_FULL_COMPACT_BOUNDARY_RAW_TWO'.repeat(160);
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-boundary-1',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'one.md' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : streamCalls === 2
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
             ? [
                 { type: 'stream-start', warnings: [] },
                 {
                   type: 'tool-call',
-                  toolCallId: 'tool-boundary-2',
+                  toolCallId: 'tool-boundary-1',
                   toolName: 'Read',
-                  input: JSON.stringify({ path: 'two.md' }),
+                  input: JSON.stringify({ path: 'one.md' }),
                 },
                 {
                   type: 'finish',
                   finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                  usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
                 },
               ]
-            : [
-                { type: 'stream-start', warnings: [] },
-                { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-              ];
-        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+            : streamCalls === 2
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'tool-boundary-2',
+                    toolName: 'Read',
+                    input: JSON.stringify({ path: 'two.md' }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: {
+                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+                    },
+                  },
+                ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
       },
     });
     const backend = new AiSdkBackend({
@@ -5050,13 +6924,15 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
-      tools: [{
-        name: 'Read',
-        description: 'Read description',
-        parameters: z.object({ path: z.string() }),
-        permissionRequired: false,
-        impl: async ({ path }) => ({ body: path === 'one.md' ? rawOne : rawTwo }),
-      }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          permissionRequired: false,
+          impl: async ({ path }) => ({ body: path === 'one.md' ? rawOne : rawTwo }),
+        },
+      ],
       contextBudget: {
         charsPerToken: 1,
         activeFullCompact: {
@@ -5077,14 +6953,18 @@ describe('AiSdkBackend usage telemetry', () => {
     }
 
     assert.equal(streamCalls, 3);
-    const secondPrompt = JSON.stringify(model.doStreamCalls[1]?.prompt.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })));
-    const thirdPrompt = JSON.stringify(model.doStreamCalls[2]?.prompt.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })));
+    const secondPrompt = JSON.stringify(
+      model.doStreamCalls[1]?.prompt.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    );
+    const thirdPrompt = JSON.stringify(
+      model.doStreamCalls[2]?.prompt.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    );
     assert.equal(countActiveFullCompactMarkers(secondPrompt), 1);
     assert.equal(countActiveFullCompactMarkers(thirdPrompt), 2);
     assert.equal(thirdPrompt.includes('ACTIVE_FULL_COMPACT_BOUNDARY_RAW_ONE'), false);
@@ -5097,29 +6977,42 @@ describe('AiSdkBackend usage telemetry', () => {
     const llmRecords: LlmCallRecord[] = [];
     const largeBody = 'VALIDATE_ONLY_RAW_TOOL_OUTPUT'.repeat(80);
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'tool-call',
-                toolCallId: 'tool-validate-only',
-                toolName: 'Read',
-                input: JSON.stringify({ path: 'notes.md' }),
-              },
-              {
-                type: 'finish',
-                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
-              },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-            ];
-        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-validate-only',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
       },
     });
     const backend = new AiSdkBackend({
@@ -5133,13 +7026,15 @@ describe('AiSdkBackend usage telemetry', () => {
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => model,
-      tools: [{
-        name: 'Read',
-        description: 'Read description',
-        parameters: z.object({ path: z.string() }),
-        permissionRequired: false,
-        impl: async () => ({ body: largeBody }),
-      }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          permissionRequired: false,
+          impl: async () => ({ body: largeBody }),
+        },
+      ],
       contextBudget: {
         charsPerToken: 1,
         activeFullCompact: {
@@ -5164,24 +7059,34 @@ describe('AiSdkBackend usage telemetry', () => {
     }
 
     assert.equal(streamCalls, 2);
-    const secondPrompt = JSON.stringify(model.doStreamCalls[1]?.prompt.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })));
+    const secondPrompt = JSON.stringify(
+      model.doStreamCalls[1]?.prompt.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    );
     assert.doesNotMatch(secondPrompt, /maka_active_full_compact_block/);
     assert.match(secondPrompt, /VALIDATE_ONLY_RAW_TOOL_OUTPUT/);
 
     const usageEvent = events.find((event) => event.type === 'token_usage') as
-      | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: Record<string, unknown> })
+      | (Extract<SessionEvent, { type: 'token_usage' }> & {
+          contextBudget?: Record<string, unknown>;
+        })
       | undefined;
     const recordContextBudget = llmRecords[0]?.contextBudget as Record<string, unknown> | undefined;
     for (const contextBudget of [usageEvent?.contextBudget, recordContextBudget]) {
-      const decisions = contextBudget?.compactionDecisions as Array<Record<string, unknown>> | undefined;
-      assert.equal(decisions?.some((decision) =>
-        decision.boundaryKind === 'activeFullCompact'
-          && decision.decision === 'unchanged'
-          && decision.reason === 'validate_only'
-      ), true);
+      const decisions = contextBudget?.compactionDecisions as
+        | Array<Record<string, unknown>>
+        | undefined;
+      assert.equal(
+        decisions?.some(
+          (decision) =>
+            decision.boundaryKind === 'activeFullCompact' &&
+            decision.decision === 'unchanged' &&
+            decision.reason === 'validate_only',
+        ),
+        true,
+      );
       assert.equal(
         contextBudget?.highWaterRequestShapeHashBefore,
         contextBudget?.highWaterRequestShapeHashAfter,
@@ -5202,7 +7107,7 @@ describe('AiSdkBackend usage telemetry', () => {
       cacheReadUsdPer1M: 0.3,
       cacheWriteUsdPer1M: 3.75,
     };
-    const chunks: LanguageModelV3StreamPart[] = [
+    const chunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'text-start', id: 'text-1' },
       { type: 'text-delta', id: 'text-1', delta: 'hello' },
@@ -5225,7 +7130,7 @@ describe('AiSdkBackend usage telemetry', () => {
         },
       },
     ];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks,
@@ -5265,32 +7170,33 @@ describe('AiSdkBackend usage telemetry', () => {
       events.push(event);
     }
 
-    const usageMessage = messages.find((message) =>
-      (message as { type?: string }).type === 'token_usage'
-    ) as {
-      input?: number;
-      output?: number;
-      cacheHitInput?: number;
-      cacheMissInput?: number;
-      cacheMissInputSource?: string;
-      cacheWriteInput?: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-      reasoning?: number;
-      total?: number;
-      rawFinishReason?: string;
-      costUsd?: number;
-      systemPromptHash?: string;
-      prefixHash?: string;
-      prefixChangeReason?: string;
-      requestShapeHash?: string;
-      requestShapeChangeReason?: string;
-    } | undefined;
-    const usageEvent = events.find((event) => event.type === 'token_usage') as
-      | Extract<SessionEvent, { type: 'token_usage' }>
-      & { systemPromptHash?: string }
+    const usageMessage = messages.find(
+      (message) => (message as { type?: string }).type === 'token_usage',
+    ) as
+      | {
+          input?: number;
+          output?: number;
+          cacheHitInput?: number;
+          cacheMissInput?: number;
+          cacheMissInputSource?: string;
+          cacheWriteInput?: number;
+          cacheRead?: number;
+          cacheCreation?: number;
+          reasoning?: number;
+          total?: number;
+          rawFinishReason?: string;
+          costUsd?: number;
+          systemPromptHash?: string;
+          prefixHash?: string;
+          prefixChangeReason?: string;
+          requestShapeHash?: string;
+          requestShapeChangeReason?: string;
+        }
       | undefined;
-    const expectedCostUsd = ((5 * 3) + (3 * 0.3) + (2 * 3.75) + (7 * 15)) / 1_000_000;
+    const usageEvent = events.find((event) => event.type === 'token_usage') as
+      | (Extract<SessionEvent, { type: 'token_usage' }> & { systemPromptHash?: string })
+      | undefined;
+    const expectedCostUsd = (5 * 3 + 3 * 0.3 + 2 * 3.75 + 7 * 15) / 1_000_000;
     const usageTrace = runTraceEvents.find((event) => event.type === 'usage_recorded');
     const startTrace = runTraceEvents.find((event) => event.type === 'model_stream_started');
 
@@ -5356,28 +7262,37 @@ describe('AiSdkBackend usage telemetry', () => {
 
 describe('AiSdkBackend request-shape diagnostics', () => {
   test('identical request shape keeps the same hash and reports stable after first turn', () => {
-    const tools = canonicalizeToolSet([
-      testTool('Read', z.object({ path: z.string() })),
-      testTool('Bash', z.object({ command: z.string() })),
-    ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })));
-    const first = computeRequestShapeDiagnostic({
-      connection: connection(),
-      modelId: 'mock-model-id',
-      systemPrompt: 'durable system',
-      providerOptions: { temperature: 0, nested: { b: 2, a: 1 } },
-      providerTools: tools.providerTools,
-      activeTools: tools.activeTools,
-      priorMessages: [{ role: 'user', content: 'hello' }],
-    }, undefined);
-    const second = computeRequestShapeDiagnostic({
-      connection: connection(),
-      modelId: 'mock-model-id',
-      systemPrompt: 'durable system',
-      providerOptions: { nested: { a: 1, b: 2 }, temperature: 0 },
-      providerTools: tools.providerTools,
-      activeTools: tools.activeTools,
-      priorMessages: [{ role: 'user', content: 'hello' }],
-    }, first);
+    const tools = canonicalizeToolSet(
+      [
+        testTool('Read', z.object({ path: z.string() })),
+        testTool('Bash', z.object({ command: z.string() })),
+      ],
+      testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+    );
+    const first = computeRequestShapeDiagnostic(
+      {
+        connection: connection(),
+        modelId: 'mock-model-id',
+        systemPrompt: 'durable system',
+        providerOptions: { temperature: 0, nested: { b: 2, a: 1 } },
+        providerTools: tools.providerTools,
+        activeTools: tools.activeTools,
+        priorMessages: [{ role: 'user', content: 'hello' }],
+      },
+      undefined,
+    );
+    const second = computeRequestShapeDiagnostic(
+      {
+        connection: connection(),
+        modelId: 'mock-model-id',
+        systemPrompt: 'durable system',
+        providerOptions: { nested: { a: 1, b: 2 }, temperature: 0 },
+        providerTools: tools.providerTools,
+        activeTools: tools.activeTools,
+        priorMessages: [{ role: 'user', content: 'hello' }],
+      },
+      first,
+    );
 
     assert.equal(first.prefixChangeReason, 'first_turn');
     assert.equal(first.requestShapeChangeReason, 'first_turn');
@@ -5388,9 +7303,10 @@ describe('AiSdkBackend request-shape diagnostics', () => {
   });
 
   test('classifies targeted request-shape changes', () => {
-    const tools = canonicalizeToolSet([
-      testTool('Read', z.object({ path: z.string() })),
-    ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })));
+    const tools = canonicalizeToolSet(
+      [testTool('Read', z.object({ path: z.string() }))],
+      testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+    );
     const baseInput = {
       connection: connection(),
       modelId: 'mock-model-id',
@@ -5402,28 +7318,56 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     };
     const base = computeRequestShapeDiagnostic(baseInput, undefined);
 
-    assert.equal(computeRequestShapeDiagnostic({
-      ...baseInput,
-      systemPrompt: 'changed system',
-    }, base).prefixChangeReason, 'system_prompt_changed');
-    assert.equal(computeRequestShapeDiagnostic({
-      ...baseInput,
-      providerTools: canonicalizeToolSet([
-        testTool('Read', z.object({ path: z.string(), offset: z.number().optional() })),
-      ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }))).providerTools,
-    }, base).prefixChangeReason, 'tool_schema_changed');
-    assert.equal(computeRequestShapeDiagnostic({
-      ...baseInput,
-      providerOptions: { temperature: 1 },
-    }, base).prefixChangeReason, 'provider_options_changed');
-    assert.equal(computeRequestShapeDiagnostic({
-      ...baseInput,
-      modelId: 'other-model',
-    }, base).prefixChangeReason, 'model_or_provider_changed');
-    const historyChanged = computeRequestShapeDiagnostic({
-      ...baseInput,
-      priorMessages: [{ role: 'assistant' as const, content: 'hello' }],
-    }, base);
+    assert.equal(
+      computeRequestShapeDiagnostic(
+        {
+          ...baseInput,
+          systemPrompt: 'changed system',
+        },
+        base,
+      ).prefixChangeReason,
+      'system_prompt_changed',
+    );
+    assert.equal(
+      computeRequestShapeDiagnostic(
+        {
+          ...baseInput,
+          providerTools: canonicalizeToolSet(
+            [testTool('Read', z.object({ path: z.string(), offset: z.number().optional() }))],
+            testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+          ).providerTools,
+        },
+        base,
+      ).prefixChangeReason,
+      'tool_schema_changed',
+    );
+    assert.equal(
+      computeRequestShapeDiagnostic(
+        {
+          ...baseInput,
+          providerOptions: { temperature: 1 },
+        },
+        base,
+      ).prefixChangeReason,
+      'provider_options_changed',
+    );
+    assert.equal(
+      computeRequestShapeDiagnostic(
+        {
+          ...baseInput,
+          modelId: 'other-model',
+        },
+        base,
+      ).prefixChangeReason,
+      'model_or_provider_changed',
+    );
+    const historyChanged = computeRequestShapeDiagnostic(
+      {
+        ...baseInput,
+        priorMessages: [{ role: 'assistant' as const, content: 'hello' }],
+      },
+      base,
+    );
     assert.equal(historyChanged.prefixChangeReason, 'stable');
     assert.equal(historyChanged.prefixHash, base.prefixHash);
     assert.equal(historyChanged.requestShapeChangeReason, 'history_projection_changed');
@@ -5431,35 +7375,42 @@ describe('AiSdkBackend request-shape diagnostics', () => {
   });
 
   test('tool-result output hydration changes request shape without changing durable prefix', () => {
-    const tools = canonicalizeToolSet([
-      testTool('Read', z.object({ path: z.string() })),
-    ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })));
+    const tools = canonicalizeToolSet(
+      [testTool('Read', z.object({ path: z.string() }))],
+      testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+    );
     const toolCallMessage: ModelMessage = {
       role: 'assistant',
-      content: [{
-        type: 'tool-call',
-        toolCallId: 'tool-1',
-        toolName: 'Read',
-        input: { path: 'archive.txt' },
-      }],
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          input: { path: 'archive.txt' },
+        },
+      ],
     };
     const placeholderToolResult: ModelMessage = {
       role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'tool-1',
-        toolName: 'Read',
-        output: { type: 'text', value: '[archived placeholder]' },
-      }],
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          output: { type: 'text', value: '[archived placeholder]' },
+        },
+      ],
     };
     const hydratedToolResult: ModelMessage = {
       role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'tool-1',
-        toolName: 'Read',
-        output: { type: 'text', value: 'hydrated archive payload '.repeat(20) },
-      }],
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          output: { type: 'text', value: 'hydrated archive payload '.repeat(20) },
+        },
+      ],
     };
     const baseInput = {
       connection: connection(),
@@ -5471,10 +7422,13 @@ describe('AiSdkBackend request-shape diagnostics', () => {
       priorMessages: [toolCallMessage, placeholderToolResult],
     };
     const placeholder = computeRequestShapeDiagnostic(baseInput, undefined);
-    const hydrated = computeRequestShapeDiagnostic({
-      ...baseInput,
-      priorMessages: [toolCallMessage, hydratedToolResult],
-    }, placeholder);
+    const hydrated = computeRequestShapeDiagnostic(
+      {
+        ...baseInput,
+        priorMessages: [toolCallMessage, hydratedToolResult],
+      },
+      placeholder,
+    );
 
     assert.equal(hydrated.prefixChangeReason, 'stable');
     assert.equal(hydrated.prefixHash, placeholder.prefixHash);
@@ -5484,76 +7438,106 @@ describe('AiSdkBackend request-shape diagnostics', () => {
 
   test('tool canonicalization is independent of registration order and places invalid last', () => {
     const invalid = testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }));
-    const first = canonicalizeToolSet([
-      testTool('Write', z.object({ path: z.string(), content: z.string() })),
-      testTool('Read', z.object({ path: z.string() })),
-    ], invalid);
-    const second = canonicalizeToolSet([
-      testTool('Read', z.object({ path: z.string() })),
-      testTool('Write', z.object({ content: z.string(), path: z.string() })),
-    ], invalid);
+    const first = canonicalizeToolSet(
+      [
+        testTool('Write', z.object({ path: z.string(), content: z.string() })),
+        testTool('Read', z.object({ path: z.string() })),
+      ],
+      invalid,
+    );
+    const second = canonicalizeToolSet(
+      [
+        testTool('Read', z.object({ path: z.string() })),
+        testTool('Write', z.object({ content: z.string(), path: z.string() })),
+      ],
+      invalid,
+    );
 
     assert.deepEqual(first.activeTools, ['Read', 'Write']);
-    assert.deepEqual(first.providerTools.map((tool) => tool.name), ['Read', 'Write', INVALID_TOOL_NAME]);
-    assert.deepEqual(second.providerTools.map((tool) => tool.name), ['Read', 'Write', INVALID_TOOL_NAME]);
+    assert.deepEqual(
+      first.providerTools.map((tool) => tool.name),
+      ['Read', 'Write', INVALID_TOOL_NAME],
+    );
+    assert.deepEqual(
+      second.providerTools.map((tool) => tool.name),
+      ['Read', 'Write', INVALID_TOOL_NAME],
+    );
     assert.equal(
-      computeRequestShapeDiagnostic({
-        connection: connection(),
-        modelId: 'mock-model-id',
-        providerTools: first.providerTools,
-        activeTools: first.activeTools,
-        priorMessages: [],
-      }, undefined).componentHashes.toolSchemaHash,
-      computeRequestShapeDiagnostic({
-        connection: connection(),
-        modelId: 'mock-model-id',
-        providerTools: second.providerTools,
-        activeTools: second.activeTools,
-        priorMessages: [],
-      }, undefined).componentHashes.toolSchemaHash,
+      computeRequestShapeDiagnostic(
+        {
+          connection: connection(),
+          modelId: 'mock-model-id',
+          providerTools: first.providerTools,
+          activeTools: first.activeTools,
+          priorMessages: [],
+        },
+        undefined,
+      ).componentHashes.toolSchemaHash,
+      computeRequestShapeDiagnostic(
+        {
+          connection: connection(),
+          modelId: 'mock-model-id',
+          providerTools: second.providerTools,
+          activeTools: second.activeTools,
+          priorMessages: [],
+        },
+        undefined,
+      ).componentHashes.toolSchemaHash,
     );
   });
 
   test('classifies strict enabled-group expansion as tool_source_enabled', () => {
     const invalid = testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }));
-    const initialTools = canonicalizeToolSet([
-      testTool('Read', z.object({ path: z.string() })),
-      testTool(LOAD_TOOLS_NAME, z.object({ group: z.string() })),
-    ], invalid);
-    const expandedTools = canonicalizeToolSet([
-      testTool('Read', z.object({ path: z.string() })),
-      testTool('WebFetch', z.object({ url: z.string() })),
-      testTool(LOAD_TOOLS_NAME, z.object({ group: z.string() })),
-    ], invalid);
+    const initialTools = canonicalizeToolSet(
+      [
+        testTool('Read', z.object({ path: z.string() })),
+        testTool(LOAD_TOOLS_NAME, z.object({ group: z.string() })),
+      ],
+      invalid,
+    );
+    const expandedTools = canonicalizeToolSet(
+      [
+        testTool('Read', z.object({ path: z.string() })),
+        testTool('WebFetch', z.object({ url: z.string() })),
+        testTool(LOAD_TOOLS_NAME, z.object({ group: z.string() })),
+      ],
+      invalid,
+    );
     const groupCatalog = { web: ['WebFetch'] };
-    const first = computeRequestShapeDiagnostic({
-      connection: connection(),
-      modelId: 'mock-model-id',
-      providerTools: initialTools.providerTools,
-      activeTools: initialTools.activeTools,
-      priorMessages: [],
-      toolAvailability: {
-        mode: 'economy',
-        enabledSourceIds: [],
-        availableSourceIds: ['web'],
-        connectorToolName: LOAD_TOOLS_NAME,
-        visibleToolNamesBySource: groupCatalog,
+    const first = computeRequestShapeDiagnostic(
+      {
+        connection: connection(),
+        modelId: 'mock-model-id',
+        providerTools: initialTools.providerTools,
+        activeTools: initialTools.activeTools,
+        priorMessages: [],
+        toolAvailability: {
+          mode: 'economy',
+          enabledSourceIds: [],
+          availableSourceIds: ['web'],
+          connectorToolName: LOAD_TOOLS_NAME,
+          visibleToolNamesBySource: groupCatalog,
+        },
       },
-    }, undefined);
-    const second = computeRequestShapeDiagnostic({
-      connection: connection(),
-      modelId: 'mock-model-id',
-      providerTools: expandedTools.providerTools,
-      activeTools: expandedTools.activeTools,
-      priorMessages: [],
-      toolAvailability: {
-        mode: 'economy',
-        enabledSourceIds: ['web'],
-        availableSourceIds: [],
-        connectorToolName: LOAD_TOOLS_NAME,
-        visibleToolNamesBySource: groupCatalog,
+      undefined,
+    );
+    const second = computeRequestShapeDiagnostic(
+      {
+        connection: connection(),
+        modelId: 'mock-model-id',
+        providerTools: expandedTools.providerTools,
+        activeTools: expandedTools.activeTools,
+        priorMessages: [],
+        toolAvailability: {
+          mode: 'economy',
+          enabledSourceIds: ['web'],
+          availableSourceIds: [],
+          connectorToolName: LOAD_TOOLS_NAME,
+          visibleToolNamesBySource: groupCatalog,
+        },
       },
-    }, first);
+      first,
+    );
 
     assert.equal(second.prefixChangeReason, 'tool_schema_changed');
     assert.equal(second.requestShapeChangeReason, 'tool_schema_changed');
@@ -5598,7 +7582,7 @@ describe('AiSdkBackend request-shape diagnostics', () => {
   test('volatile turn-tail facts do not churn the durable prefix hash', async () => {
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
-    const models: MockLanguageModelV3[] = [];
+    const models: MockLanguageModelV4[] = [];
     let date = '2026-05-29';
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -5631,8 +7615,9 @@ describe('AiSdkBackend request-shape diagnostics', () => {
       events.push(event);
     }
 
-    const usageEvents = events.filter((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usageEvents = events.filter(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.equal(usageEvents[0]?.prefixChangeReason, 'first_turn');
     assert.equal(usageEvents[1]?.prefixChangeReason, 'stable');
@@ -5652,10 +7637,34 @@ describe('AiSdkBackend request-shape diagnostics', () => {
 describe('AiSdkBackend context budget and prompt attribution', () => {
   test('context budget keeps whole recent turns and drops older turns', () => {
     const events = [
-      runtimeTextEvent({ id: 'old-u', turnId: 'old', role: 'user', author: 'user', text: 'old user text' }),
-      runtimeTextEvent({ id: 'old-a', turnId: 'old', role: 'model', author: 'agent', text: 'old assistant text' }),
-      runtimeTextEvent({ id: 'new-u', turnId: 'new', role: 'user', author: 'user', text: 'new user text' }),
-      runtimeTextEvent({ id: 'new-a', turnId: 'new', role: 'model', author: 'agent', text: 'new assistant text' }),
+      runtimeTextEvent({
+        id: 'old-u',
+        turnId: 'old',
+        role: 'user',
+        author: 'user',
+        text: 'old user text',
+      }),
+      runtimeTextEvent({
+        id: 'old-a',
+        turnId: 'old',
+        role: 'model',
+        author: 'agent',
+        text: 'old assistant text',
+      }),
+      runtimeTextEvent({
+        id: 'new-u',
+        turnId: 'new',
+        role: 'user',
+        author: 'user',
+        text: 'new user text',
+      }),
+      runtimeTextEvent({
+        id: 'new-a',
+        turnId: 'new',
+        role: 'model',
+        author: 'agent',
+        text: 'new assistant text',
+      }),
     ];
 
     const budgeted = applyRuntimeEventContextBudget(events, {
@@ -5726,7 +7735,9 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
     assert.ok(missingArchive);
     assert.equal(missingArchive.diagnostic.prunedToolResults, undefined);
     assert.equal(missingArchive.diagnostic.archiveWriteFailures, 1);
-    const missingArchiveOldResponse = missingArchive.events.find((event) => event.id === 'old-result');
+    const missingArchiveOldResponse = missingArchive.events.find(
+      (event) => event.id === 'old-result',
+    );
     assert.equal(missingArchiveOldResponse?.content?.kind, 'function_response');
     assert.deepEqual(
       missingArchiveOldResponse?.content?.kind === 'function_response'
@@ -5740,17 +7751,19 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
         enabled: true,
         maxResultEstimatedTokens: 1,
         minRecentTurnsFull: 1,
-        archiveRefs: [{
-          runtimeEventId: 'old-result',
-          toolCallId: 'tool-old',
-          toolName: 'Read',
-          artifactId: 'artifact-old-result',
-          bodySha256: sha256(oldSerialized),
-          originalEstimatedTokens: oldSerialized.length,
-          originalBytes: utf8Bytes(oldSerialized),
-          rewriteVersion: 1,
-          reason: 'stale_tool_result_pruned_before_compact',
-        }],
+        archiveRefs: [
+          {
+            runtimeEventId: 'old-result',
+            toolCallId: 'tool-old',
+            toolName: 'Read',
+            artifactId: 'artifact-old-result',
+            bodySha256: sha256(oldSerialized),
+            originalEstimatedTokens: oldSerialized.length,
+            originalBytes: utf8Bytes(oldSerialized),
+            rewriteVersion: 1,
+            reason: 'stale_tool_result_pruned_before_compact',
+          },
+        ],
       },
       minRecentTurns: 1,
       charsPerToken: 1,
@@ -5767,17 +7780,18 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
     assert.equal(oldResponse?.content?.kind, 'function_response');
     const oldResponseContent = oldResponse?.content;
     assert.equal(oldResponseContent?.kind, 'function_response');
-    const placeholder = oldResponseContent?.kind === 'function_response'
-      ? oldResponseContent.result as {
-        kind?: string;
-        rewriteVersion?: number;
-        artifactId?: string;
-        runtimeEventId?: string;
-        toolCallId?: string;
-        toolName?: string;
-        bodySha256?: string;
-      }
-      : undefined;
+    const placeholder =
+      oldResponseContent?.kind === 'function_response'
+        ? (oldResponseContent.result as {
+            kind?: string;
+            rewriteVersion?: number;
+            artifactId?: string;
+            runtimeEventId?: string;
+            toolCallId?: string;
+            toolName?: string;
+            bodySha256?: string;
+          })
+        : undefined;
     assert.equal(placeholder?.kind, ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND);
     assert.equal(placeholder?.rewriteVersion, 1);
     assert.equal(placeholder?.artifactId, 'artifact-old-result');
@@ -5795,17 +7809,21 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
 
     const replayPlan = buildRuntimeEventModelReplayPlan(budgeted.events);
     assert.deepEqual(
-      replayPlan.diagnostics.filter((diagnostic) =>
-        diagnostic.code === 'unmatched_tool_result' || diagnostic.code === 'tool_id_mismatch'
+      replayPlan.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === 'unmatched_tool_result' || diagnostic.code === 'tool_id_mismatch',
       ),
       [],
     );
-    const oldReplayResult = replayPlan.items.find((item) =>
-      item.kind === 'tool_result' && item.toolCallId === 'tool-old'
+    const oldReplayResult = replayPlan.items.find(
+      (item) => item.kind === 'tool_result' && item.toolCallId === 'tool-old',
     );
     assert.equal(oldReplayResult?.kind, 'tool_result');
     assert.equal(oldReplayResult?.eventId, 'old-result');
-    assert.equal(oldReplayResult?.kind === 'tool_result' ? oldReplayResult.toolName : undefined, 'Read');
+    assert.equal(
+      oldReplayResult?.kind === 'tool_result' ? oldReplayResult.toolName : undefined,
+      'Read',
+    );
   });
 
   test('usage events include prompt segments and context budget diagnostics', async () => {
@@ -5838,10 +7856,34 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
       text: 'current user',
       context: [],
       runtimeContext: [
-        runtimeTextEvent({ id: 'old-u', turnId: 'old', role: 'user', author: 'user', text: 'old user text' }),
-        runtimeTextEvent({ id: 'old-a', turnId: 'old', role: 'model', author: 'agent', text: 'old assistant text' }),
-        runtimeTextEvent({ id: 'new-u', turnId: 'new', role: 'user', author: 'user', text: 'new user text' }),
-        runtimeTextEvent({ id: 'new-a', turnId: 'new', role: 'model', author: 'agent', text: 'new assistant text' }),
+        runtimeTextEvent({
+          id: 'old-u',
+          turnId: 'old',
+          role: 'user',
+          author: 'user',
+          text: 'old user text',
+        }),
+        runtimeTextEvent({
+          id: 'old-a',
+          turnId: 'old',
+          role: 'model',
+          author: 'agent',
+          text: 'old assistant text',
+        }),
+        runtimeTextEvent({
+          id: 'new-u',
+          turnId: 'new',
+          role: 'user',
+          author: 'user',
+          text: 'new user text',
+        }),
+        runtimeTextEvent({
+          id: 'new-a',
+          turnId: 'new',
+          role: 'model',
+          author: 'agent',
+          text: 'new assistant text',
+        }),
       ],
     })) {
       events.push(event);
@@ -5853,22 +7895,32 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
       { role: 'assistant', content: [{ type: 'text', text: 'new assistant text' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user\n\nvolatile tail' }] },
     ]);
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
     assert.ok(usage);
     assert.equal(usage.contextBudget?.policyName, 'test-budget');
     assert.equal(usage.contextBudget?.droppedTurns, 1);
-    assert.equal(usage.promptSegments?.some((segment) => segment.kind === 'prior_history'), true);
-    assert.equal(usage.promptSegments?.some((segment) => segment.kind === 'tool_schema'), true);
-    assert.equal(usage.promptSegments?.some((segment) => segment.kind === 'turn_tail'), true);
+    assert.equal(
+      usage.promptSegments?.some((segment) => segment.kind === 'prior_history'),
+      true,
+    );
+    assert.equal(
+      usage.promptSegments?.some((segment) => segment.kind === 'tool_schema'),
+      true,
+    );
+    assert.equal(
+      usage.promptSegments?.some((segment) => segment.kind === 'turn_tail'),
+      true,
+    );
   });
 });
 
 describe('AiSdkBackend RunTrace', () => {
   test('records the continuation replay gate and blocking diagnostics on stream failure', async () => {
     const trace: RunTraceEvent[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         throw new Error('provider failed');
       },
@@ -5888,27 +7940,35 @@ describe('AiSdkBackend RunTrace', () => {
       recordRunTrace: (event) => trace.push(event),
     });
 
-    await drain(backend.send({
-      turnId: 'turn-resume',
-      text: '',
-      context: [],
-      runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
-        runtimeEvent({
-          id: 'rt-invalid-role',
-          turnId: 'turn-source',
-          role: 'tool',
-          author: 'tool',
-          content: { kind: 'text', text: 'invalid text lane' },
-        }),
-      ],
-      continuation: {
-        sourceInvocationId: 'invocation-source',
-        sourceRunId: 'run-source',
-        sourceTurnId: 'turn-source',
-        sourceRuntimeEventHighWater: 2,
-      },
-    }));
+    await drain(
+      backend.send({
+        turnId: 'turn-resume',
+        text: '',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-source',
+            role: 'user',
+            author: 'user',
+            text: 'original user',
+          }),
+          runtimeEvent({
+            id: 'rt-invalid-role',
+            turnId: 'turn-source',
+            role: 'tool',
+            author: 'tool',
+            content: { kind: 'text', text: 'invalid text lane' },
+          }),
+        ],
+        continuation: {
+          sourceInvocationId: 'invocation-source',
+          sourceRunId: 'run-source',
+          sourceTurnId: 'turn-source',
+          sourceRuntimeEventHighWater: 2,
+        },
+      }),
+    );
 
     const failure = trace.find((event) => event.type === 'model_stream_failed');
     assert.equal(failure?.data?.priorReplayGate, 'runtime_replay_text_only');
@@ -5918,7 +7978,7 @@ describe('AiSdkBackend RunTrace', () => {
   test('records turn, model, usage, and completion trace events without changing SessionEvents', async () => {
     const trace: RunTraceEvent[] = [];
     const events: SessionEvent[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks: [
@@ -5972,7 +8032,13 @@ describe('AiSdkBackend RunTrace', () => {
 
     assert.deepEqual(
       trace.map((event) => event.type),
-      ['turn_started', 'model_resolved', 'model_stream_started', 'usage_recorded', 'model_stream_completed'],
+      [
+        'turn_started',
+        'model_resolved',
+        'model_stream_started',
+        'usage_recorded',
+        'model_stream_completed',
+      ],
     );
     assert.deepEqual(
       trace.map((event) => event.phase),
@@ -5983,14 +8049,16 @@ describe('AiSdkBackend RunTrace', () => {
     assert.equal(trace.find((event) => event.type === 'usage_recorded')?.data?.inputTokens, 4);
     assert.equal(trace.find((event) => event.type === 'usage_recorded')?.data?.reasoningTokens, 1);
     assert.deepEqual(
-      events.map((event) => event.type).filter((type) => type === 'text_delta' || type === 'token_usage' || type === 'complete'),
+      events
+        .map((event) => event.type)
+        .filter((type) => type === 'text_delta' || type === 'token_usage' || type === 'complete'),
       ['text_delta', 'token_usage', 'complete'],
     );
   });
 
   test('trace recorder failures are best-effort and do not change model execution', async () => {
     const events: SessionEvent[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks: [
@@ -6043,11 +8111,12 @@ describe('AiSdkBackend RunTrace', () => {
     }
 
     assert.deepEqual(
-      events.map((event) => event.type).filter((type) => type === 'text_delta' || type === 'token_usage' || type === 'complete'),
+      events
+        .map((event) => event.type)
+        .filter((type) => type === 'text_delta' || type === 'token_usage' || type === 'complete'),
       ['text_delta', 'token_usage', 'complete'],
     );
   });
-
 
   test('records permission and tool trace events for denied tools', async () => {
     const trace: RunTraceEvent[] = [];
@@ -6067,10 +8136,19 @@ describe('AiSdkBackend RunTrace', () => {
       now: monotonicClock(),
       permissionTimeoutMs: 1_000,
     });
-    (backend as unknown as {
-      currentRunTrace: { emit(eventPhase: string, eventType: string, message: string, data?: Record<string, unknown>): void };
-      currentWatchdog: { pause(): void; resume(): void };
-    }).currentRunTrace = {
+    (
+      backend as unknown as {
+        currentRunTrace: {
+          emit(
+            eventPhase: string,
+            eventType: string,
+            message: string,
+            data?: Record<string, unknown>,
+          ): void;
+        };
+        currentWatchdog: { pause(): void; resume(): void };
+      }
+    ).currentRunTrace = {
       emit: (phase, type, message, data) => {
         trace.push({
           id: `trace-${trace.length + 1}`,
@@ -6084,9 +8162,11 @@ describe('AiSdkBackend RunTrace', () => {
         });
       },
     };
-    (backend as unknown as {
-      currentWatchdog: { pause(): void; resume(): void };
-    }).currentWatchdog = { pause() {}, resume() {} };
+    (
+      backend as unknown as {
+        currentWatchdog: { pause(): void; resume(): void };
+      }
+    ).currentWatchdog = { pause() {}, resume() {} };
     const tool: MakaTool = {
       name: 'Write',
       description: 'write file',
@@ -6094,13 +8174,18 @@ describe('AiSdkBackend RunTrace', () => {
       permissionRequired: true,
       impl: async () => ({ ok: true }),
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const pending = execute(
       { path: 'notes.md', content: 'hello' },
@@ -6119,14 +8204,26 @@ describe('AiSdkBackend RunTrace', () => {
 
     assert.deepEqual(
       trace.map((event) => event.type),
-      ['tool_started', 'approval_routed', 'permission_requested', 'permission_decided', 'tool_failed'],
+      [
+        'tool_started',
+        'approval_routed',
+        'permission_requested',
+        'permission_decided',
+        'tool_failed',
+      ],
     );
     assert.deepEqual(
       trace.map((event) => event.phase),
       ['tool', 'permission', 'permission', 'permission', 'tool'],
     );
-    assert.equal(trace.find((event) => event.type === 'permission_decided')?.data?.decision, 'deny');
-    assert.equal(trace.find((event) => event.type === 'tool_failed')?.data?.errorClass, 'Permission');
+    assert.equal(
+      trace.find((event) => event.type === 'permission_decided')?.data?.decision,
+      'deny',
+    );
+    assert.equal(
+      trace.find((event) => event.type === 'tool_failed')?.data?.errorClass,
+      'Permission',
+    );
   });
 
   test('records abort trace when stop is requested', async () => {
@@ -6142,12 +8239,13 @@ describe('AiSdkBackend RunTrace', () => {
       mode: 'ask',
     });
     assert.equal(verdict.kind, 'prompt');
-    const parked = verdict.kind === 'prompt'
-      ? verdict.parked.then(
-          () => 'resolved',
-          (error: Error) => error.message,
-        )
-      : Promise.resolve('not-prompt');
+    const parked =
+      verdict.kind === 'prompt'
+        ? verdict.parked.then(
+            () => 'resolved',
+            (error: Error) => error.message,
+          )
+        : Promise.resolve('not-prompt');
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -6161,13 +8259,17 @@ describe('AiSdkBackend RunTrace', () => {
       newId: idGenerator(),
       now: monotonicClock(),
     });
-    (backend as unknown as {
-      currentTurnId: string;
-      currentRunTrace: { abortRequested(reason: string): void };
-    }).currentTurnId = 'turn-1';
-    (backend as unknown as {
-      currentRunTrace: { abortRequested(reason: string): void };
-    }).currentRunTrace = {
+    (
+      backend as unknown as {
+        currentTurnId: string;
+        currentRunTrace: { abortRequested(reason: string): void };
+      }
+    ).currentTurnId = 'turn-1';
+    (
+      backend as unknown as {
+        currentRunTrace: { abortRequested(reason: string): void };
+      }
+    ).currentRunTrace = {
       abortRequested: (reason) => {
         trace.push({
           id: 'trace-1',
@@ -6187,7 +8289,10 @@ describe('AiSdkBackend RunTrace', () => {
     assert.equal(trace.length, 1);
     assert.equal(trace[0]?.type, 'abort_requested');
     assert.equal(trace[0]?.data?.reason, 'redirect');
-    assert.match(await parked, /Turn turn-1 aborted before permission request permission-id was answered/);
+    assert.match(
+      await parked,
+      /Turn turn-1 aborted before permission request permission-id was answered/,
+    );
     assert.equal(permissionEngine.pendingCount('turn-1'), 0);
   });
 });
@@ -6213,7 +8318,11 @@ describe('AiSdkBackend tool permission category hints', () => {
       newId: idGenerator(),
       now: monotonicClock(),
       recordToolInvocation: (record) => {
-        telemetry.push({ status: record.status, toolCallId: record.toolCallId, argsSummary: record.argsSummary });
+        telemetry.push({
+          status: record.status,
+          toolCallId: record.toolCallId,
+          argsSummary: record.argsSummary,
+        });
       },
     });
     const tool: MakaTool = {
@@ -6226,13 +8335,18 @@ describe('AiSdkBackend tool permission category hints', () => {
         return { kind: 'text', text: 'hello' };
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const result = await execute(
       {
@@ -6258,12 +8372,16 @@ describe('AiSdkBackend tool permission category hints', () => {
         .filter((type) => type === 'tool_start' || type === 'tool_result'),
       ['tool_start', 'tool_result'],
     );
-    assert.equal(events.some((event) => event.type === 'permission_request'), false);
+    assert.equal(
+      events.some((event) => event.type === 'permission_request'),
+      false,
+    );
     assert.deepEqual(telemetry, [
       {
         status: 'success',
         toolCallId: 'tool-1',
-        argsSummary: '{"path":"notes.md","authorization":"[redacted]","apiKey":"[redacted]","password":"[redacted]"}',
+        argsSummary:
+          '{"path":"notes.md","authorization":"[redacted]","apiKey":"[redacted]","password":"[redacted]"}',
       },
     ]);
     assert.equal(JSON.stringify(telemetry).includes('opaque-session-value'), false);
@@ -6278,7 +8396,9 @@ describe('AiSdkBackend tool permission category hints', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header('bypass'),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'claude-sonnet-4-5-20250929',
@@ -6299,13 +8419,18 @@ describe('AiSdkBackend tool permission category hints', () => {
         return { kind: 'text', text: 'should not run' };
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     await execute(
       { path: 'notes.md' },
@@ -6313,16 +8438,14 @@ describe('AiSdkBackend tool permission category hints', () => {
     );
 
     assert.equal(implCalled, false);
-    assert.deepEqual(messages.map((message) => (message as { type?: string }).type), [
-      'tool_call',
-      'permission_decision',
-      'tool_result',
-    ]);
-    assert.deepEqual(events.map((event) => event.type), [
-      'tool_start',
-      'permission_decision_ack',
-      'tool_result',
-    ]);
+    assert.deepEqual(
+      messages.map((message) => (message as { type?: string }).type),
+      ['tool_call', 'permission_decision', 'tool_result'],
+    );
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['tool_start', 'permission_decision_ack', 'tool_result'],
+    );
     const decision = events.find((event) => event.type === 'permission_decision_ack');
     assert.equal(decision?.decision, 'deny');
   });
@@ -6360,9 +8483,11 @@ describe('AiSdkBackend tool permission category hints', () => {
         return { ok: true };
       },
     };
-    (backend as unknown as {
-      currentWatchdog: { pause(): void; resume(): void };
-    }).currentWatchdog = {
+    (
+      backend as unknown as {
+        currentWatchdog: { pause(): void; resume(): void };
+      }
+    ).currentWatchdog = {
       pause: () => {
         pauseCount += 1;
       },
@@ -6371,13 +8496,18 @@ describe('AiSdkBackend tool permission category hints', () => {
       },
     };
 
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const result = await execute(
       { path: 'notes.md', content: 'hello' },
@@ -6394,18 +8524,23 @@ describe('AiSdkBackend tool permission category hints', () => {
     assert.equal(pauseCount, 1);
     assert.equal(resumeCount, 1);
     assert.equal(permissionEngine.pendingCount('turn-1'), 0);
-    assert.equal(permissionEngine.recordResponse('turn-1', {
-      requestId: permissionRequest?.requestId ?? 'missing',
-      decision: 'allow',
-    }), null);
+    assert.equal(
+      permissionEngine.recordResponse('turn-1', {
+        requestId: permissionRequest?.requestId ?? 'missing',
+        decision: 'allow',
+      }),
+      null,
+    );
     assert.match((result as { error?: string }).error ?? '', /Permission flow aborted/);
     assert.match((result as { error?: string }).error ?? '', /timed out/);
     assert.equal(toolResult?.isError, true);
     assert.equal(
-      messages.some((message) =>
-        (message as { type?: string; toolUseId?: string; isError?: boolean }).type === 'tool_result' &&
-        (message as { toolUseId?: string }).toolUseId === 'tool-1' &&
-        (message as { isError?: boolean }).isError === true,
+      messages.some(
+        (message) =>
+          (message as { type?: string; toolUseId?: string; isError?: boolean }).type ===
+            'tool_result' &&
+          (message as { toolUseId?: string }).toolUseId === 'tool-1' &&
+          (message as { isError?: boolean }).isError === true,
       ),
       true,
     );
@@ -6444,9 +8579,11 @@ describe('AiSdkBackend tool permission category hints', () => {
         return { ok: true };
       },
     };
-    (backend as unknown as {
-      currentWatchdog: { pause(): void; resume(): void };
-    }).currentWatchdog = {
+    (
+      backend as unknown as {
+        currentWatchdog: { pause(): void; resume(): void };
+      }
+    ).currentWatchdog = {
       pause: () => {
         pauseCount += 1;
       },
@@ -6454,13 +8591,18 @@ describe('AiSdkBackend tool permission category hints', () => {
         resumeCount += 1;
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const pending = execute(
       { path: 'notes.md', content: 'hello' },
@@ -6484,25 +8626,34 @@ describe('AiSdkBackend tool permission category hints', () => {
     assert.equal(pauseCount, 1);
     assert.equal(resumeCount, 1);
     assert.deepEqual(result, { error: '用户已拒绝权限请求' });
-    assert.equal(messages.some((message) => (message as { type?: string }).type === 'tool_call'), true);
     assert.equal(
-      messages.some((message) =>
-        (message as { type?: string; decision?: string; rememberForTurn?: boolean }).type === 'permission_decision' &&
-        (message as { decision?: string }).decision === 'deny' &&
-        (message as { rememberForTurn?: boolean }).rememberForTurn === true,
+      messages.some((message) => (message as { type?: string }).type === 'tool_call'),
+      true,
+    );
+    assert.equal(
+      messages.some(
+        (message) =>
+          (message as { type?: string; decision?: string; rememberForTurn?: boolean }).type ===
+            'permission_decision' &&
+          (message as { decision?: string }).decision === 'deny' &&
+          (message as { rememberForTurn?: boolean }).rememberForTurn === true,
       ),
       true,
     );
     assert.equal(
-      events.some((event) =>
-        event.type === 'permission_decision_ack' &&
-        event.decision === 'deny' &&
-        event.rememberForTurn === true,
+      events.some(
+        (event) =>
+          event.type === 'permission_decision_ack' &&
+          event.decision === 'deny' &&
+          event.rememberForTurn === true,
       ),
       true,
     );
     assert.equal(
-      events.some((event) => event.type === 'tool_result' && event.toolUseId === 'tool-1' && event.isError === true),
+      events.some(
+        (event) =>
+          event.type === 'tool_result' && event.toolUseId === 'tool-1' && event.isError === true,
+      ),
       true,
     );
   });
@@ -6544,13 +8695,18 @@ describe('AiSdkBackend tool permission category hints', () => {
         throw error;
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const result = await execute(
       { path: 'notes.md', content: 'hello' },
@@ -6562,12 +8718,13 @@ describe('AiSdkBackend tool permission category hints', () => {
     assert.match(resultText, /Authorization: Bearer \[redacted\]/);
     assert.equal(serialized.includes('sk-live-secret-token-value'), false);
     assert.equal(
-      events.some((event) => event.type === 'tool_result' && event.toolUseId === 'tool-1' && event.isError === true),
+      events.some(
+        (event) =>
+          event.type === 'tool_result' && event.toolUseId === 'tool-1' && event.isError === true,
+      ),
       true,
     );
-    assert.deepEqual(telemetry, [
-      { status: 'error', errorClass: 'Auth', bytesOut: 0 },
-    ]);
+    assert.deepEqual(telemetry, [{ status: 'error', errorClass: 'Auth', bytesOut: 0 }]);
   });
 
   test('flushes output deltas before successful and failed tool results', async () => {
@@ -6605,32 +8762,46 @@ describe('AiSdkBackend tool permission category hints', () => {
         throw new Error('tool failed');
       },
     };
-    const wrap = (tool: MakaTool) => (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const wrap = (tool: MakaTool) =>
+      (
+        backend as unknown as {
+          wrapToolExecute(
+            tool: MakaTool,
+            turnId: string,
+            queue: { push(event: SessionEvent): void },
+          ): (
+            args: unknown,
+            ctx: { toolCallId: string; abortSignal: AbortSignal },
+          ) => Promise<unknown>;
+        }
+      ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
-    await wrap(successTool)({}, {
-      toolCallId: 'tool-success',
-      abortSignal: new AbortController().signal,
-    });
-    await wrap(failureTool)({}, {
-      toolCallId: 'tool-failure',
-      abortSignal: new AbortController().signal,
-    });
-    const eventKeys = events.map((event) => `${event.type}:${'toolUseId' in event ? event.toolUseId : ''}`);
+    await wrap(successTool)(
+      {},
+      {
+        toolCallId: 'tool-success',
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await wrap(failureTool)(
+      {},
+      {
+        toolCallId: 'tool-failure',
+        abortSignal: new AbortController().signal,
+      },
+    );
+    const eventKeys = events.map(
+      (event) => `${event.type}:${'toolUseId' in event ? event.toolUseId : ''}`,
+    );
 
     assert.ok(
       eventKeys.indexOf('tool_output_delta:tool-success') <
-      eventKeys.indexOf('tool_result:tool-success'),
+        eventKeys.indexOf('tool_result:tool-success'),
       'successful tool output must flush before its result event',
     );
     assert.ok(
       eventKeys.indexOf('tool_output_delta:tool-failure') <
-      eventKeys.indexOf('tool_result:tool-failure'),
+        eventKeys.indexOf('tool_result:tool-failure'),
       'failed tool output must flush before its result event',
     );
   });
@@ -6662,28 +8833,47 @@ describe('AiSdkBackend tool permission category hints', () => {
       impl: async () => ({ ok: true }),
     };
 
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
-    const result = await execute({ objective: 'map PawWork subagent lifecycle' }, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+    const result = await execute(
+      { objective: 'map PawWork subagent lifecycle' },
+      {
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+      },
+    );
 
     assert.deepEqual(result, { ok: true });
-    assert.equal(events.some((event) => event.type === 'permission_request'), false);
-    assert.equal(messages.some((message) => (message as { type?: string }).type === 'tool_result'), true);
     assert.equal(
-      (messages.find((message) => (message as { type?: string }).type === 'tool_call') as { intent?: string } | undefined)?.intent,
+      events.some((event) => event.type === 'permission_request'),
+      false,
+    );
+    assert.equal(
+      messages.some((message) => (message as { type?: string }).type === 'tool_result'),
+      true,
+    );
+    assert.equal(
+      (
+        messages.find((message) => (message as { type?: string }).type === 'tool_call') as
+          | { intent?: string }
+          | undefined
+      )?.intent,
       '只读探索：map PawWork subagent lifecycle',
     );
     assert.equal(
-      (events.find((event) => event.type === 'tool_start') as { intent?: string } | undefined)?.intent,
+      (events.find((event) => event.type === 'tool_start') as { intent?: string } | undefined)
+        ?.intent,
       '只读探索：map PawWork subagent lifecycle',
     );
   });
@@ -6704,9 +8894,11 @@ describe('AiSdkBackend tool permission category hints', () => {
     });
     let pauseCount = 0;
     let resumeCount = 0;
-    (backend as unknown as {
-      currentWatchdog: { pause(): void; resume(): void };
-    }).currentWatchdog = {
+    (
+      backend as unknown as {
+        currentWatchdog: { pause(): void; resume(): void };
+      }
+    ).currentWatchdog = {
       pause: () => {
         pauseCount += 1;
       },
@@ -6721,22 +8913,40 @@ describe('AiSdkBackend tool permission category hints', () => {
       parameters: {},
       permissionRequired: true,
       categoryHint: 'subagent',
-      impl: async () => new Promise((resolve) => {
-        release = () => resolve({ kind: 'subagent', agentName: 'Researcher', turnId: 'child-turn', status: 'completed', permissionMode: 'explore', summary: 'done', artifactIds: [] });
-      }),
+      impl: async () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              kind: 'subagent',
+              agentName: 'Researcher',
+              turnId: 'child-turn',
+              status: 'completed',
+              permissionMode: 'explore',
+              summary: 'done',
+              artifactIds: [],
+            });
+        }),
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
 
-    const pending = execute({}, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+    const pending = execute(
+      {},
+      {
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+      },
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.equal(pauseCount, 1);
@@ -6764,9 +8974,11 @@ describe('AiSdkBackend tool permission category hints', () => {
     });
     let pauseCount = 0;
     let resumeCount = 0;
-    (backend as unknown as {
-      currentWatchdog: { pause(): void; resume(): void };
-    }).currentWatchdog = {
+    (
+      backend as unknown as {
+        currentWatchdog: { pause(): void; resume(): void };
+      }
+    ).currentWatchdog = {
       pause: () => {
         pauseCount += 1;
       },
@@ -6780,36 +8992,46 @@ describe('AiSdkBackend tool permission category hints', () => {
       description: 'run a shell command',
       parameters: {},
       permissionRequired: false,
-      impl: async () => new Promise((resolve) => {
-        release = () => resolve({
-          kind: 'terminal',
-          cwd: '/app',
-          cmd: 'sleep 300',
-          status: 'completed',
-          exitCode: 0,
-          output: {
-            mode: 'pipes',
-            stdout: '',
-            stderr: '',
-            stdoutTruncated: false,
-            stderrTruncated: false,
-            redacted: false,
-          },
-        });
-      }),
+      impl: async () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              kind: 'terminal',
+              cwd: '/app',
+              cmd: 'sleep 300',
+              status: 'completed',
+              exitCode: 0,
+              output: {
+                mode: 'pipes',
+                stdout: '',
+                stderr: '',
+                stdoutTruncated: false,
+                stderrTruncated: false,
+                redacted: false,
+              },
+            });
+        }),
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
 
-    const pending = execute({}, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+    const pending = execute(
+      {},
+      {
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+      },
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.equal(pauseCount, 1);
@@ -6852,18 +9074,25 @@ describe('AiSdkBackend tool permission category hints', () => {
         });
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
-    const pending = Array.from({ length: MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN }, (_, index) => execute(
-      { objective: `research ${index}` },
-      { toolCallId: `tool-${index}`, abortSignal: new AbortController().signal },
-    ));
+    const pending = Array.from({ length: MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN }, (_, index) =>
+      execute(
+        { objective: `research ${index}` },
+        { toolCallId: `tool-${index}`, abortSignal: new AbortController().signal },
+      ),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(implStarted, MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN);
 
@@ -6875,7 +9104,13 @@ describe('AiSdkBackend tool permission category hints', () => {
       error: '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。',
     });
     assert.equal(implStarted, MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN);
-    assert.equal(events.some((event) => event.type === 'tool_result' && event.toolUseId === 'tool-overflow' && event.isError), true);
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === 'tool_result' && event.toolUseId === 'tool-overflow' && event.isError,
+      ),
+      true,
+    );
     assert.equal(JSON.stringify(messages).includes('tool-overflow'), true);
 
     release.forEach((resume) => resume());
@@ -6913,50 +9148,68 @@ describe('AiSdkBackend tool permission category hints', () => {
       impl: async (args: unknown) => {
         const input = args as { reason?: string };
         return {
-        kind: 'explore_agent',
-        ok: false,
-        mode: 'read_only',
-        objective: 'bad scope',
-        roots: [],
-        queries: [],
-        filesInspected: 0,
-        filesSkipped: 0,
-        bytesRead: 0,
-        progress: [],
-        candidateFiles: [],
-        matches: [],
-        notes: [],
+          kind: 'explore_agent',
+          ok: false,
+          mode: 'read_only',
+          objective: 'bad scope',
+          roots: [],
+          queries: [],
+          filesInspected: 0,
+          filesSkipped: 0,
+          bytesRead: 0,
+          progress: [],
+          candidateFiles: [],
+          matches: [],
+          notes: [],
           reason: input.reason === 'aborted' ? 'aborted' : 'invalid_root',
           message: input.reason === 'aborted' ? '只读探索已取消。' : '范围无效。',
         };
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
-    await execute({ objective: 'bad scope' }, {
-      toolCallId: 'tool-failed',
-      abortSignal: new AbortController().signal,
-    });
-    await execute({ objective: 'cancelled', reason: 'aborted' }, {
-      toolCallId: 'tool-aborted',
-      abortSignal: new AbortController().signal,
-    });
+    await execute(
+      { objective: 'bad scope' },
+      {
+        toolCallId: 'tool-failed',
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await execute(
+      { objective: 'cancelled', reason: 'aborted' },
+      {
+        toolCallId: 'tool-aborted',
+        abortSignal: new AbortController().signal,
+      },
+    );
 
     assert.equal(
-      (messages.find((message) =>
-        (message as { type?: string; toolUseId?: string }).type === 'tool_result' &&
-        (message as { toolUseId?: string }).toolUseId === 'tool-failed',
-      ) as { isError?: boolean } | undefined)?.isError,
+      (
+        messages.find(
+          (message) =>
+            (message as { type?: string; toolUseId?: string }).type === 'tool_result' &&
+            (message as { toolUseId?: string }).toolUseId === 'tool-failed',
+        ) as { isError?: boolean } | undefined
+      )?.isError,
       true,
     );
     assert.equal(
-      (events.find((event) => event.type === 'tool_result' && event.toolUseId === 'tool-aborted') as { isError?: boolean } | undefined)?.isError,
+      (
+        events.find(
+          (event) => event.type === 'tool_result' && event.toolUseId === 'tool-aborted',
+        ) as { isError?: boolean } | undefined
+      )?.isError,
       true,
     );
     assert.deepEqual(telemetry, [
@@ -7006,40 +9259,65 @@ describe('AiSdkBackend tool permission category hints', () => {
         };
       },
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
-    await execute({ status: 'failed' }, {
-      toolCallId: 'tool-failed',
-      abortSignal: new AbortController().signal,
-    });
-    await execute({ status: 'cancelled' }, {
-      toolCallId: 'tool-cancelled',
-      abortSignal: new AbortController().signal,
-    });
-    await execute({ status: 'completed' }, {
-      toolCallId: 'tool-completed',
-      abortSignal: new AbortController().signal,
-    });
+    await execute(
+      { status: 'failed' },
+      {
+        toolCallId: 'tool-failed',
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await execute(
+      { status: 'cancelled' },
+      {
+        toolCallId: 'tool-cancelled',
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await execute(
+      { status: 'completed' },
+      {
+        toolCallId: 'tool-completed',
+        abortSignal: new AbortController().signal,
+      },
+    );
 
     assert.equal(
-      (messages.find((message) =>
-        (message as { type?: string; toolUseId?: string }).type === 'tool_result' &&
-        (message as { toolUseId?: string }).toolUseId === 'tool-failed'
-      ) as { isError?: boolean } | undefined)?.isError,
+      (
+        messages.find(
+          (message) =>
+            (message as { type?: string; toolUseId?: string }).type === 'tool_result' &&
+            (message as { toolUseId?: string }).toolUseId === 'tool-failed',
+        ) as { isError?: boolean } | undefined
+      )?.isError,
       true,
     );
     assert.equal(
-      (events.find((event) => event.type === 'tool_result' && event.toolUseId === 'tool-cancelled') as { isError?: boolean } | undefined)?.isError,
+      (
+        events.find(
+          (event) => event.type === 'tool_result' && event.toolUseId === 'tool-cancelled',
+        ) as { isError?: boolean } | undefined
+      )?.isError,
       true,
     );
     assert.equal(
-      (events.find((event) => event.type === 'tool_result' && event.toolUseId === 'tool-completed') as { isError?: boolean } | undefined)?.isError,
+      (
+        events.find(
+          (event) => event.type === 'tool_result' && event.toolUseId === 'tool-completed',
+        ) as { isError?: boolean } | undefined
+      )?.isError,
       false,
     );
     assert.deepEqual(telemetry, [
@@ -7083,26 +9361,33 @@ describe('AiSdkBackend tool permission category hints', () => {
         message: 'officecli 操作已取消。',
       }),
     };
-    const execute = (backend as unknown as {
-      wrapToolExecute(
-        tool: MakaTool,
-        turnId: string,
-        queue: { push(event: SessionEvent): void },
-      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
-    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
-    await execute({ path: 'slides.pptx', operation: 'view' }, {
-      toolCallId: 'tool-office-aborted',
-      abortSignal: new AbortController().signal,
-    });
+    await execute(
+      { path: 'slides.pptx', operation: 'view' },
+      {
+        toolCallId: 'tool-office-aborted',
+        abortSignal: new AbortController().signal,
+      },
+    );
 
     assert.equal(
-      (events.find((event) => event.type === 'tool_result') as { isError?: boolean } | undefined)?.isError,
+      (events.find((event) => event.type === 'tool_result') as { isError?: boolean } | undefined)
+        ?.isError,
       true,
     );
-    assert.deepEqual(telemetry, [
-      { status: 'aborted', toolCallId: 'tool-office-aborted' },
-    ]);
+    assert.deepEqual(telemetry, [{ status: 'aborted', toolCallId: 'tool-office-aborted' }]);
   });
 });
 
@@ -7174,10 +9459,14 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
 
     // Spy on the real ToolRuntime the backend already constructed, counting how
     // many times send() resets it during one completed turn.
-    const runtime = (backend as unknown as { toolRuntime: { resetTurnState: () => void } }).toolRuntime;
+    const runtime = (backend as unknown as { toolRuntime: { resetTurnState: () => void } })
+      .toolRuntime;
     const original = runtime.resetTurnState.bind(runtime);
     let resets = 0;
-    runtime.resetTurnState = () => { resets += 1; original(); };
+    runtime.resetTurnState = () => {
+      resets += 1;
+      original();
+    };
 
     await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
 
@@ -7193,13 +9482,18 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
 
 describe('AiSdkBackend thinking persistence', () => {
   test('emits a non-partial thinking_complete that survives read-model projection and materialization', async () => {
-    const chunks: LanguageModelV3StreamPart[] = [
+    const chunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', delta: 'Let me ' },
       { type: 'reasoning-delta', id: 'r1', delta: 'reason.' },
       // Anthropic delivers the signed signature on a standalone empty delta.
-      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-123' } } },
+      {
+        type: 'reasoning-delta',
+        id: 'r1',
+        delta: '',
+        providerMetadata: { anthropic: { signature: 'sig-123' } },
+      },
       { type: 'reasoning-end', id: 'r1' },
       { type: 'text-start', id: 't1' },
       { type: 'text-delta', id: 't1', delta: 'Final answer.' },
@@ -7213,7 +9507,7 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
       },
@@ -7276,7 +9570,9 @@ describe('AiSdkBackend thinking persistence', () => {
       createdAt: 1,
       updatedAt: 2,
     };
-    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, { runHeaders: [runHeader] });
+    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, {
+      runHeaders: [runHeader],
+    });
     const assistant = projection.messages.find((message) => message.type === 'assistant');
     assert.ok(assistant && assistant.type === 'assistant');
     assert.equal(assistant.text, 'Final answer.');
@@ -7292,7 +9588,7 @@ describe('AiSdkBackend thinking persistence', () => {
   });
 
   test('persists reasoning for a thinking-only turn that produces no final text', async () => {
-    const chunks: LanguageModelV3StreamPart[] = [
+    const chunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', delta: 'silent ' },
@@ -7308,7 +9604,7 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
       },
@@ -7317,7 +9613,9 @@ describe('AiSdkBackend thinking persistence', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => { appended.push(message); },
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -7374,7 +9672,9 @@ describe('AiSdkBackend thinking persistence', () => {
       createdAt: 1,
       updatedAt: 2,
     };
-    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, { runHeaders: [runHeader] });
+    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, {
+      runHeaders: [runHeader],
+    });
     const assistant = projection.messages.find((message) => message.type === 'assistant');
     assert.ok(assistant && assistant.type === 'assistant');
     assert.equal(assistant.text, '');
@@ -7397,11 +9697,16 @@ describe('AiSdkBackend thinking persistence', () => {
       updatedAt: 1,
     };
     // Turn 1: produce a signed thinking + text turn through the real backend.
-    const firstChunks: LanguageModelV3StreamPart[] = [
+    const firstChunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', delta: 'deep thought' },
-      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-replay' } } },
+      {
+        type: 'reasoning-delta',
+        id: 'r1',
+        delta: '',
+        providerMetadata: { anthropic: { signature: 'sig-replay' } },
+      },
       { type: 'reasoning-end', id: 'r1' },
       { type: 'text-start', id: 't1' },
       { type: 'text-delta', id: 't1', delta: 'the answer' },
@@ -7415,9 +9720,13 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const firstModel = new MockLanguageModelV3({
+    const firstModel = new MockLanguageModelV4({
       doStream: {
-        stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        stream: simulateReadableStream({
+          chunks: firstChunks,
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
       },
     });
     const firstBackend = new AiSdkBackend({
@@ -7449,7 +9758,9 @@ describe('AiSdkBackend thinking persistence', () => {
       newId: idGenerator(),
     } as unknown as InvocationContext;
     const memory = createSessionEventMapMemory();
-    const runtimeContext = firstEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runtimeContext = firstEvents.map((event) =>
+      mapSessionEventToRuntimeEvent(event, ctx, memory),
+    );
 
     // Turn 2: replay the prior ledger and capture the outgoing provider request.
     const secondModel = completionModel();
@@ -7467,7 +9778,14 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
 
-    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-current',
+        text: 'follow up',
+        context: [],
+        runtimeContext,
+      }),
+    );
 
     // The reasoning block + text + Anthropic signature must reach the AI SDK
     // request. This fails if signature forwarding regresses or replay degrades
@@ -7493,12 +9811,46 @@ describe('AiSdkBackend thinking persistence', () => {
     } as unknown as InvocationContext;
     const memory = createSessionEventMapMemory();
     const priorEvents: SessionEvent[] = [
-      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' }, stepId: 'm1' },
-      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
-      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 3, messageId: 'm1', text: 'reasoning about the tool result', signature: 'sig-tool' },
-      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: 'the answer' },
+      {
+        type: 'tool_start',
+        id: 'e1',
+        turnId: 'turn-prev',
+        ts: 1,
+        toolUseId: 'tool-1',
+        toolName: 'Read',
+        args: { path: 'package.json' },
+        stepId: 'm1',
+      },
+      {
+        type: 'tool_result',
+        id: 'e2',
+        turnId: 'turn-prev',
+        ts: 2,
+        toolUseId: 'tool-1',
+        isError: false,
+        content: { kind: 'text', text: 'file contents' },
+      },
+      {
+        type: 'thinking_complete',
+        id: 'e3',
+        turnId: 'turn-prev',
+        ts: 3,
+        messageId: 'm1',
+        text: 'reasoning about the tool result',
+        signature: 'sig-tool',
+      },
+      {
+        type: 'text_complete',
+        id: 'e4',
+        turnId: 'turn-prev',
+        ts: 4,
+        messageId: 'm1',
+        text: 'the answer',
+      },
     ];
-    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runtimeContext = priorEvents.map((event) =>
+      mapSessionEventToRuntimeEvent(event, ctx, memory),
+    );
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
@@ -7515,7 +9867,14 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
 
-    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-current',
+        text: 'follow up',
+        context: [],
+        runtimeContext,
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(secondModel));
     // Reasoning (with signature), text, and the tool call all reach the request.
@@ -7545,12 +9904,39 @@ describe('AiSdkBackend thinking persistence', () => {
     } as unknown as InvocationContext;
     const memory = createSessionEventMapMemory();
     const priorEvents: SessionEvent[] = [
-      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' }, stepId: 'm1' },
-      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
-      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 3, messageId: 'm1', text: 'plan the read', signature: 'sig-interleaved' },
+      {
+        type: 'tool_start',
+        id: 'e1',
+        turnId: 'turn-prev',
+        ts: 1,
+        toolUseId: 'tool-1',
+        toolName: 'Read',
+        args: { path: 'package.json' },
+        stepId: 'm1',
+      },
+      {
+        type: 'tool_result',
+        id: 'e2',
+        turnId: 'turn-prev',
+        ts: 2,
+        toolUseId: 'tool-1',
+        isError: false,
+        content: { kind: 'text', text: 'file contents' },
+      },
+      {
+        type: 'thinking_complete',
+        id: 'e3',
+        turnId: 'turn-prev',
+        ts: 3,
+        messageId: 'm1',
+        text: 'plan the read',
+        signature: 'sig-interleaved',
+      },
       { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: '' },
     ];
-    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runtimeContext = priorEvents.map((event) =>
+      mapSessionEventToRuntimeEvent(event, ctx, memory),
+    );
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
@@ -7567,14 +9953,28 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
 
-    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-current',
+        text: 'follow up',
+        context: [],
+        runtimeContext,
+      }),
+    );
 
     const prompt = compactPrompt(secondModel) as Array<{ role: string; content: unknown }>;
     const assistantMessages = prompt.filter((message) => message.role === 'assistant');
-    assert.equal(assistantMessages.length, 1, 'reasoning and tool call must merge into one assistant message');
+    assert.equal(
+      assistantMessages.length,
+      1,
+      'reasoning and tool call must merge into one assistant message',
+    );
     const parts = assistantMessages[0]!.content as Array<{ type: string; text?: string }>;
     // Reasoning leads the tool call; no text part at all (not even an empty one).
-    assert.deepEqual(parts.map((part) => part.type), ['reasoning', 'tool-call']);
+    assert.deepEqual(
+      parts.map((part) => part.type),
+      ['reasoning', 'tool-call'],
+    );
     assert.equal(parts[0]!.text, 'plan the read');
     const promptJson = JSON.stringify(prompt);
     assert.match(promptJson, /sig-interleaved/);
@@ -7598,14 +9998,56 @@ describe('AiSdkBackend thinking persistence', () => {
     const memory = createSessionEventMapMemory();
     const priorEvents: SessionEvent[] = [
       // Orphan: result with no prior tool_start (its call was sliced away).
-      { type: 'tool_result', id: 'e0', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-orphan', isError: false, content: { kind: 'text', text: 'orphan payload' } },
+      {
+        type: 'tool_result',
+        id: 'e0',
+        turnId: 'turn-prev',
+        ts: 1,
+        toolUseId: 'tool-orphan',
+        isError: false,
+        content: { kind: 'text', text: 'orphan payload' },
+      },
       // Paired per-step tool call + result + signed reasoning + text.
-      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' }, stepId: 'm1' },
-      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 3, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
-      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: 'plan the read', signature: 'sig-paired' },
-      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 5, messageId: 'm1', text: 'the answer' },
+      {
+        type: 'tool_start',
+        id: 'e1',
+        turnId: 'turn-prev',
+        ts: 2,
+        toolUseId: 'tool-1',
+        toolName: 'Read',
+        args: { path: 'package.json' },
+        stepId: 'm1',
+      },
+      {
+        type: 'tool_result',
+        id: 'e2',
+        turnId: 'turn-prev',
+        ts: 3,
+        toolUseId: 'tool-1',
+        isError: false,
+        content: { kind: 'text', text: 'file contents' },
+      },
+      {
+        type: 'thinking_complete',
+        id: 'e3',
+        turnId: 'turn-prev',
+        ts: 4,
+        messageId: 'm1',
+        text: 'plan the read',
+        signature: 'sig-paired',
+      },
+      {
+        type: 'text_complete',
+        id: 'e4',
+        turnId: 'turn-prev',
+        ts: 5,
+        messageId: 'm1',
+        text: 'the answer',
+      },
     ];
-    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runtimeContext = priorEvents.map((event) =>
+      mapSessionEventToRuntimeEvent(event, ctx, memory),
+    );
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
@@ -7622,7 +10064,14 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
 
-    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-current',
+        text: 'follow up',
+        context: [],
+        runtimeContext,
+      }),
+    );
 
     const prompt = compactPrompt(secondModel) as Array<{ role: string; content: unknown }>;
     const promptJson = JSON.stringify(prompt);
@@ -7650,12 +10099,45 @@ describe('AiSdkBackend thinking persistence', () => {
     } as unknown as InvocationContext;
     const memory = createSessionEventMapMemory();
     const priorEvents: SessionEvent[] = [
-      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' } },
-      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
-      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 3, messageId: 'm1', text: 'reasoning about the tool result', signature: 'sig-tool' },
-      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: 'the answer' },
+      {
+        type: 'tool_start',
+        id: 'e1',
+        turnId: 'turn-prev',
+        ts: 1,
+        toolUseId: 'tool-1',
+        toolName: 'Read',
+        args: { path: 'package.json' },
+      },
+      {
+        type: 'tool_result',
+        id: 'e2',
+        turnId: 'turn-prev',
+        ts: 2,
+        toolUseId: 'tool-1',
+        isError: false,
+        content: { kind: 'text', text: 'file contents' },
+      },
+      {
+        type: 'thinking_complete',
+        id: 'e3',
+        turnId: 'turn-prev',
+        ts: 3,
+        messageId: 'm1',
+        text: 'reasoning about the tool result',
+        signature: 'sig-tool',
+      },
+      {
+        type: 'text_complete',
+        id: 'e4',
+        turnId: 'turn-prev',
+        ts: 4,
+        messageId: 'm1',
+        text: 'the answer',
+      },
     ];
-    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runtimeContext = priorEvents.map((event) =>
+      mapSessionEventToRuntimeEvent(event, ctx, memory),
+    );
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
@@ -7672,7 +10154,14 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
 
-    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-current',
+        text: 'follow up',
+        context: [],
+        runtimeContext,
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(secondModel));
     // Tool call/result survive; the thinking block and its signature do not.
@@ -7687,11 +10176,16 @@ describe('AiSdkBackend thinking persistence', () => {
     // is empty (only a standalone signature-carrier delta, no reasoning-delta
     // with text). The block must still persist + replay so the signature
     // round-trips; gating on thinking text alone would silently drop it.
-    const firstChunks: LanguageModelV3StreamPart[] = [
+    const firstChunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       // No text delta — only the signature carrier.
-      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-omitted' } } },
+      {
+        type: 'reasoning-delta',
+        id: 'r1',
+        delta: '',
+        providerMetadata: { anthropic: { signature: 'sig-omitted' } },
+      },
       { type: 'reasoning-end', id: 'r1' },
       { type: 'text-start', id: 't1' },
       { type: 'text-delta', id: 't1', delta: 'omitted-answer' },
@@ -7705,16 +10199,22 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const firstModel = new MockLanguageModelV3({
+    const firstModel = new MockLanguageModelV4({
       doStream: {
-        stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        stream: simulateReadableStream({
+          chunks: firstChunks,
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
       },
     });
     const persisted: AssistantMessage[] = [];
     const firstBackend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (m) => { if (m.type === 'assistant') persisted.push(m); },
+      appendMessage: async (m) => {
+        if (m.type === 'assistant') persisted.push(m);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -7752,7 +10252,9 @@ describe('AiSdkBackend thinking persistence', () => {
       newId: idGenerator(),
     } as unknown as InvocationContext;
     const memory = createSessionEventMapMemory();
-    const runtimeContext = firstEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runtimeContext = firstEvents.map((event) =>
+      mapSessionEventToRuntimeEvent(event, ctx, memory),
+    );
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
@@ -7769,7 +10271,14 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
 
-    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+    await drain(
+      secondBackend.send({
+        turnId: 'turn-current',
+        text: 'follow up',
+        context: [],
+        runtimeContext,
+      }),
+    );
 
     const prompt = JSON.stringify(compactPrompt(secondModel));
     assert.match(prompt, /"type":"reasoning"/);
@@ -7786,7 +10295,9 @@ describe('AiSdkBackend thinking persistence', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (message) => { appended.push(message); },
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -7798,23 +10309,40 @@ describe('AiSdkBackend thinking persistence', () => {
       now: monotonicClock(),
     });
     type FakeStreamInput = {
-      tools: Record<string, { execute: (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown> }>;
+      tools: Record<
+        string,
+        {
+          execute: (
+            args: unknown,
+            ctx: { toolCallId: string; abortSignal: AbortSignal },
+          ) => Promise<unknown>;
+        }
+      >;
       abortSignal: AbortSignal;
     };
-    (backend as unknown as {
-      modelAdapter: { startStream: (input: FakeStreamInput) => Promise<unknown> };
-    }).modelAdapter.startStream = async (input: FakeStreamInput) => ({
-      fullStream: (async function* () {
+    (
+      backend as unknown as {
+        modelAdapter: { startStream: (input: FakeStreamInput) => Promise<unknown> };
+      }
+    ).modelAdapter.startStream = async (input: FakeStreamInput) => ({
+      stream: (async function* () {
         // Step 1 (pure tool): execute mid-step, then close the step.
-        await input.tools['Read']!.execute({ path: 'a.md' }, { toolCallId: 'tool-1', abortSignal: input.abortSignal });
+        await input.tools['Read']!.execute(
+          { path: 'a.md' },
+          { toolCallId: 'tool-1', abortSignal: input.abortSignal },
+        );
         yield { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } };
         // Step 2 (thinking-only): signed reasoning, then the stream ends with
         // NO trailing finish-step and NO finish chunk.
         yield { type: 'reasoning-delta', delta: 'final thoughts' };
-        yield { type: 'reasoning-delta', delta: '', providerMetadata: { anthropic: { signature: 'sig-last' } } };
+        yield {
+          type: 'reasoning-delta',
+          delta: '',
+          providerMetadata: { anthropic: { signature: 'sig-last' } },
+        };
       })(),
       usage: Promise.resolve(undefined),
-      totalUsage: Promise.resolve(undefined),
+      finalStep: Promise.resolve(undefined),
       finishReason: Promise.resolve('tool-calls'),
     });
 
@@ -7839,33 +10367,63 @@ describe('AiSdkBackend thinking persistence', () => {
     // Each step must persist its own AssistantMessage with its own signature, and
     // the step-1 tool_start must carry the step-1 assistant id.
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              { type: 'reasoning-start', id: 'r1' },
-              { type: 'reasoning-delta', id: 'r1', delta: 'think one' },
-              { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-step-1' } } },
-              { type: 'reasoning-end', id: 'r1' },
-              { type: 'text-start', id: 't1' },
-              { type: 'text-delta', id: 't1', delta: 'calling the tool' },
-              { type: 'text-end', id: 't1' },
-              { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({ path: 'a.md' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'reasoning-start', id: 'r2' },
-              { type: 'reasoning-delta', id: 'r2', delta: 'think two' },
-              { type: 'reasoning-delta', id: 'r2', delta: '', providerMetadata: { anthropic: { signature: 'sig-step-2' } } },
-              { type: 'reasoning-end', id: 'r2' },
-              { type: 'text-start', id: 't2' },
-              { type: 'text-delta', id: 't2', delta: 'final answer' },
-              { type: 'text-end', id: 't2' },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
-            ];
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                { type: 'reasoning-start', id: 'r1' },
+                { type: 'reasoning-delta', id: 'r1', delta: 'think one' },
+                {
+                  type: 'reasoning-delta',
+                  id: 'r1',
+                  delta: '',
+                  providerMetadata: { anthropic: { signature: 'sig-step-1' } },
+                },
+                { type: 'reasoning-end', id: 'r1' },
+                { type: 'text-start', id: 't1' },
+                { type: 'text-delta', id: 't1', delta: 'calling the tool' },
+                { type: 'text-end', id: 't1' },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'a.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                { type: 'reasoning-start', id: 'r2' },
+                { type: 'reasoning-delta', id: 'r2', delta: 'think two' },
+                {
+                  type: 'reasoning-delta',
+                  id: 'r2',
+                  delta: '',
+                  providerMetadata: { anthropic: { signature: 'sig-step-2' } },
+                },
+                { type: 'reasoning-end', id: 'r2' },
+                { type: 'text-start', id: 't2' },
+                { type: 'text-delta', id: 't2', delta: 'final answer' },
+                { type: 'text-end', id: 't2' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ];
         return {
           stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
         };
@@ -7877,7 +10435,9 @@ describe('AiSdkBackend thinking persistence', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async (m) => { if (m.type === 'assistant') assistants.push(m); },
+      appendMessage: async (m) => {
+        if (m.type === 'assistant') assistants.push(m);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -7904,18 +10464,23 @@ describe('AiSdkBackend thinking persistence', () => {
 
     // The tool_start of step 1 carries the step-1 assistant id.
     const toolStart = events.find(
-      (event): event is Extract<SessionEvent, { type: 'tool_start' }> => event.type === 'tool_start',
+      (event): event is Extract<SessionEvent, { type: 'tool_start' }> =>
+        event.type === 'tool_start',
     );
     assert.ok(toolStart, 'expected a tool_start event');
     assert.equal(toolStart.stepId, assistants[0]!.id);
 
     // Each step emits its own thinking_complete/text_complete pointing at its row.
     const textCompletes = events.filter(
-      (event): event is Extract<SessionEvent, { type: 'text_complete' }> => event.type === 'text_complete',
+      (event): event is Extract<SessionEvent, { type: 'text_complete' }> =>
+        event.type === 'text_complete',
     );
     assert.deepEqual(
       textCompletes.map((event) => [event.messageId, event.text]),
-      [[assistants[0]!.id, 'calling the tool'], [assistants[1]!.id, 'final answer']],
+      [
+        [assistants[0]!.id, 'calling the tool'],
+        [assistants[1]!.id, 'final answer'],
+      ],
     );
   });
 });
@@ -7986,7 +10551,11 @@ async function runArchiveGatedReplay(input: {
     },
   });
   const selectedEvents = archiveGatedTurnEvents('a', input.selectedPath, input.selectedResult);
-  const unselectedEvents = archiveGatedTurnEvents('b', input.unselectedPath, input.unselectedResult);
+  const unselectedEvents = archiveGatedTurnEvents(
+    'b',
+    input.unselectedPath,
+    input.unselectedResult,
+  );
   const runtimeContext = [
     ...(input.selectedAfterUnselected ? unselectedEvents : selectedEvents),
     ...(input.selectedAfterUnselected ? selectedEvents : unselectedEvents),
@@ -8010,17 +10579,14 @@ async function runArchiveGatedReplay(input: {
 
   const prompt = JSON.stringify(compactPrompt(model));
   if (typeof prompt !== 'string') assert.fail('model prompt was not captured');
-  const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-    event.type === 'token_usage'
+  const usage = events.find(
+    (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage',
   );
   return { prompt, readRuntimeEventIds, usage };
 }
 
-function archiveGatedTurnEvents(
-  suffix: 'a' | 'b',
-  path: string,
-  result: unknown,
-): RuntimeEvent[] {
+function archiveGatedTurnEvents(suffix: 'a' | 'b', path: string, result: unknown): RuntimeEvent[] {
   return [
     runtimeEvent({
       id: `rt-call-${suffix}`,
@@ -8034,13 +10600,438 @@ function archiveGatedTurnEvents(
       turnId: `turn-${suffix}`,
       role: 'tool',
       author: 'tool',
-      content: { kind: 'function_response', id: `tool-${suffix}`, name: 'Read', result, isError: false },
+      content: {
+        kind: 'function_response',
+        id: `tool-${suffix}`,
+        name: 'Read',
+        result,
+        isError: false,
+      },
     }),
   ];
 }
 
-function textCompletionModel(text: string): MockLanguageModelV3 {
-  const chunks: LanguageModelV3StreamPart[] = [
+describe('AiSdkBackend steering durability and identity', () => {
+  const steeringBackend = (model: MockLanguageModelV4): AiSdkBackend =>
+    new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+  const pullOnce = (text: string): (() => Array<{ id: string; text: string }>) => {
+    let pulled = false;
+    return () => {
+      if (pulled) return [];
+      pulled = true;
+      return [{ id: `lease-${text}`, text }];
+    };
+  };
+
+  const nextSteeringEvent = async (
+    iterator: AsyncIterator<SessionEvent>,
+  ): Promise<SessionEvent> => {
+    for (;;) {
+      const next = await iterator.next();
+      assert.equal(next.done, false, 'stream ended before the steering echo');
+      const event = next.value as SessionEvent;
+      if (event.type === 'steering_message') return event;
+    }
+  };
+
+  test('holds the provider request until the steering event is durably consumed', async () => {
+    // Persist-before-include: the initial user message is durable before the
+    // backend is invoked, and a steered message holds the same line via the
+    // seq-ack boundary — the consumer's pull is the ack, and AgentRun persists
+    // each event before pulling the next.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const iterator = backend
+      .send({
+        turnId: 'turn-1',
+        text: 'start',
+        context: [],
+        pullSteering: pullOnce('persist me first'),
+      })
+      [Symbol.asyncIterator]();
+
+    // The generator suspends at the steering yield: the event is delivered
+    // but not yet acked, so the persist boundary has not been crossed.
+    await nextSteeringEvent(iterator);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(model.doStreamCalls.length, 0);
+
+    // Resuming consumption acks the steering event; only now may the provider
+    // request start, and it carries the steered directive.
+    const events: SessionEvent[] = [];
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next()) {
+      events.push(next.value as SessionEvent);
+    }
+    assert.equal(model.doStreamCalls.length, 1);
+    assert.equal(JSON.stringify(model.doStreamCalls[0]?.prompt).includes('persist me first'), true);
+    assert.equal(
+      events.some((event) => event.type === 'complete' && event.stopReason === 'end_turn'),
+      true,
+    );
+  });
+
+  test('a steering message never reaches the provider when the consumer detaches before the ack', async () => {
+    // The persist path failed or the turn is being torn down: the consumer
+    // walks away without acking the steering event. The dying request must
+    // never be sent carrying a directive the ledger does not have, and the
+    // lease is nacked so the queue reclaims the message.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const acked: string[] = [];
+    const nacked: string[] = [];
+    const iterator = backend
+      .send({
+        turnId: 'turn-1',
+        text: 'start',
+        context: [],
+        pullSteering: pullOnce('abandoned steer'),
+        ackSteering: (leaseIds) => acked.push(...leaseIds),
+        nackSteering: (leaseIds) => nacked.push(...leaseIds),
+      })
+      [Symbol.asyncIterator]();
+
+    await nextSteeringEvent(iterator);
+    await iterator.return?.(undefined);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.deepEqual(acked, []);
+    assert.deepEqual(nacked, ['lease-abandoned steer']);
+  });
+
+  test('a user prompt that equals the envelope text never cancels a real steer', async () => {
+    // Identity, not text: the dedupe key is the structured steering marker,
+    // so a user message that happens to BE the envelope text verbatim cannot
+    // forge (or absorb) a steering message.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const forged = buildSteeringEnvelope('fake');
+    await drain(
+      backend.send({
+        turnId: 'turn-1',
+        text: forged,
+        context: [],
+        pullSteering: pullOnce('fake'),
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: forged }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('fake') }] },
+    ]);
+  });
+
+  test('a degraded stored-message projection presents prior steering exactly once, in envelope form', async () => {
+    // A blocking replay diagnostic (here: a tool-role text event) degrades the
+    // whole ledger to the StoredMessage projection, which cannot carry the
+    // RuntimeEvent steering marker. The sidecar (keyed by the projection's
+    // stable ids) restores the canonical envelope + structured identity, so
+    // the steering appears exactly once and dedupe still works by id.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    const degradingEvent = runtimeTextEvent({
+      id: 'rt-bad',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'boom',
+    });
+    (degradingEvent as { role: string }).role = 'tool';
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [
+          { type: 'user', id: 'rt-u', turnId: 'turn-prev', ts: 1, text: 'original ask' },
+          { type: 'user', id: 'rt-steer', turnId: 'turn-prev', ts: 2, text: 'steered earlier' },
+          { type: 'assistant', id: 'rt-a', turnId: 'turn-prev', ts: 3, text: 'ok', modelId: 'm' },
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'original ask',
+          }),
+          steeredEvent,
+          degradingEvent,
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'ok',
+          }),
+        ],
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original ask' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
+  test('the degraded-projection sidecar restores steering keyed by providerEventId', async () => {
+    // A StoredMessage projection may carry the provider's event id, not the
+    // runtime event id, as the message's stable id. The sidecar must match on
+    // that key too, or the degraded replay silently loses the steering
+    // identity (bare text, no envelope, no dedupe id).
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    steeredEvent.refs = { providerEventId: 'prov-steer' };
+    const degradingEvent = runtimeTextEvent({
+      id: 'rt-bad',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'boom',
+    });
+    (degradingEvent as { role: string }).role = 'tool';
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [
+          { type: 'user', id: 'prov-steer', turnId: 'turn-prev', ts: 1, text: 'steered earlier' },
+          { type: 'assistant', id: 'prov-a', turnId: 'turn-prev', ts: 2, text: 'ok', modelId: 'm' },
+        ],
+        runtimeContext: [
+          steeredEvent,
+          degradingEvent,
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'ok',
+          }),
+        ],
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
+  test('the degraded-projection sidecar restores steering keyed by storedMessageId', async () => {
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    steeredEvent.refs = { storedMessageId: 'sm-steer' };
+    const degradingEvent = runtimeTextEvent({
+      id: 'rt-bad',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'boom',
+    });
+    (degradingEvent as { role: string }).role = 'tool';
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [
+          { type: 'user', id: 'sm-steer', turnId: 'turn-prev', ts: 1, text: 'steered earlier' },
+          { type: 'assistant', id: 'sm-a', turnId: 'turn-prev', ts: 2, text: 'ok', modelId: 'm' },
+        ],
+        runtimeContext: [
+          steeredEvent,
+          degradingEvent,
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'ok',
+          }),
+        ],
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
+  test('a steer that equals the current prompt still injects its envelope', async () => {
+    // Bare text is not an identity: deducting the steer against the verbatim
+    // user prompt would drop the directive from the provider request entirely
+    // while the ledger still records a steering_message. The envelope is the
+    // identity, and it never collides with plain user text.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    await drain(
+      backend.send({
+        turnId: 'turn-1',
+        text: 'repeat this',
+        context: [],
+        pullSteering: pullOnce('repeat this'),
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'repeat this' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('repeat this') }] },
+    ]);
+  });
+
+  test('a steer that equals a historical user message still injects its envelope', async () => {
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'now do something else',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'repeat this',
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'done before',
+          }),
+        ],
+        pullSteering: pullOnce('repeat this'),
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'repeat this' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'done before' }] },
+      { role: 'user', content: [{ type: 'text', text: 'now do something else' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('repeat this') }] },
+    ]);
+  });
+
+  test('two identical steers inject two envelopes', async () => {
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    let pulled = false;
+    await drain(
+      backend.send({
+        turnId: 'turn-1',
+        text: 'start',
+        context: [],
+        pullSteering: () => {
+          if (pulled) return [];
+          pulled = true;
+          return [
+            { id: 'lease-1', text: 'do it' },
+            { id: 'lease-2', text: 'do it' },
+          ];
+        },
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'start' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('do it') }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('do it') }] },
+    ]);
+  });
+
+  test('a prior-turn steering event replays in its canonical envelope form', async () => {
+    // The persisted steering event carries raw text for the UI; every model
+    // projection wraps it. A future turn's history must show the model the
+    // same form the original request used — one canonical provider projection.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer',
+      turnId: 'turn-prev',
+      role: 'user',
+      author: 'user',
+      text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'original ask',
+          }),
+          steeredEvent,
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'ok',
+          }),
+        ],
+      }),
+    );
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original ask' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+});
+
+function textCompletionModel(text: string): MockLanguageModelV4 {
+  const chunks: LanguageModelV4StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'text-1' },
     { type: 'text-delta', id: 'text-1', delta: text },
@@ -8063,7 +11054,7 @@ function textCompletionModel(text: string): MockLanguageModelV3 {
       },
     },
   ];
-  return new MockLanguageModelV3({
+  return new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
         chunks,
@@ -8074,8 +11065,8 @@ function textCompletionModel(text: string): MockLanguageModelV3 {
   });
 }
 
-function completionModel(): MockLanguageModelV3 {
-  const chunks: LanguageModelV3StreamPart[] = [
+function completionModel(): MockLanguageModelV4 {
+  const chunks: LanguageModelV4StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     {
       type: 'finish',
@@ -8095,7 +11086,7 @@ function completionModel(): MockLanguageModelV3 {
       },
     },
   ];
-  return new MockLanguageModelV3({
+  return new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
         chunks,
@@ -8106,16 +11097,84 @@ function completionModel(): MockLanguageModelV3 {
   });
 }
 
+function emptyUsage() {
+  return {
+    inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 0, text: 0, reasoning: 0 },
+  };
+}
+
+function imageReplayBackend(
+  model: MockLanguageModelV4,
+  options: { supportsVision: boolean; readAttachmentBytes: AttachmentByteReader },
+): AiSdkBackend {
+  return new AiSdkBackend({
+    sessionId: 'session-1',
+    header: header(),
+    appendMessage: async () => {},
+    connection: connection(),
+    apiKey: 'sk-test',
+    modelId: 'mock-model-id',
+    permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+    modelFactory: () => model,
+    tools: [],
+    newId: idGenerator(),
+    now: monotonicClock(),
+    ...options,
+  });
+}
+
+function imageReplayInput(): BackendSendInput {
+  return {
+    turnId: 'turn-current',
+    text: 'continue',
+    context: [],
+    runtimeContext: [
+      runtimeTextEvent({
+        id: 'rt-u',
+        turnId: 'turn-prev',
+        role: 'user',
+        author: 'user',
+        text: 'read it',
+      }),
+      runtimeEvent({
+        id: 'rt-call',
+        turnId: 'turn-prev',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'chart.png' } },
+      }),
+      runtimeEvent({
+        id: 'rt-result',
+        turnId: 'turn-prev',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-1',
+          name: 'Read',
+          isError: false,
+          result: {
+            kind: 'image',
+            mimeType: 'image/png',
+            ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'artifact-1' },
+          },
+        },
+      }),
+    ],
+  };
+}
+
 function countingToolLoopModel(toolCallsBeforeStop?: number): {
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   callCount: () => number;
 } {
   let calls = 0;
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     doStream: async () => {
       calls += 1;
       const shouldStop = toolCallsBeforeStop !== undefined && calls > toolCallsBeforeStop;
-      const chunks: LanguageModelV3StreamPart[] = shouldStop
+      const chunks: LanguageModelV4StreamPart[] = shouldStop
         ? [
             { type: 'stream-start', warnings: [] },
             { type: 'text-start', id: 'text-final' },
@@ -8124,7 +11183,10 @@ function countingToolLoopModel(toolCallsBeforeStop?: number): {
             {
               type: 'finish',
               finishReason: { unified: 'stop', raw: 'stop' },
-              usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              usage: {
+                inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                outputTokens: { total: 1, text: 1, reasoning: 0 },
+              },
             },
           ]
         : [
@@ -8138,10 +11200,15 @@ function countingToolLoopModel(toolCallsBeforeStop?: number): {
             {
               type: 'finish',
               finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-              usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              usage: {
+                inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                outputTokens: { total: 1, text: 1, reasoning: 0 },
+              },
             },
           ];
-      return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+      return {
+        stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      };
     },
   });
   return { model, callCount: () => calls };
@@ -8222,24 +11289,26 @@ function synthesisBlock(input: {
     },
     summary: 'SYNTHESIS_SENTINEL_KEY_ALPHA',
     limitations: ['Does not include raw tool output.'],
-    sourceRefs: [{
-      kind: 'archived_tool_result',
-      sessionId: 'session-1',
-      turnId: input.turnId,
-      runtimeEventId: input.runtimeEventId,
-      toolCallId: input.toolCallId,
-      toolName: 'Read',
-      artifactId: input.artifactId,
-      bodySha256: input.bodySha256,
-      originalEstimatedTokens: input.originalEstimatedTokens,
-      originalBytes: input.originalBytes,
-      placeholderReason: 'stale_tool_result_pruned_before_compact',
-    }],
+    sourceRefs: [
+      {
+        kind: 'archived_tool_result',
+        sessionId: 'session-1',
+        turnId: input.turnId,
+        runtimeEventId: input.runtimeEventId,
+        toolCallId: input.toolCallId,
+        toolName: 'Read',
+        artifactId: input.artifactId,
+        bodySha256: input.bodySha256,
+        originalEstimatedTokens: input.originalEstimatedTokens,
+        originalBytes: input.originalBytes,
+        placeholderReason: 'stale_tool_result_pruned_before_compact',
+      },
+    ],
     createdFrom: 'gated_archive_retrieval',
   };
 }
 
-function compactPrompt(model: MockLanguageModelV3): unknown {
+function compactPrompt(model: MockLanguageModelV4): unknown {
   return model.doStreamCalls[0]?.prompt.map((message) => ({
     role: message.role,
     content: message.content,
@@ -8275,16 +11344,18 @@ function activeFullCompactBlockFixture(): ActiveFullCompactBlock {
       text: 'persist synchronously before the next provider request',
     },
     limitations: [],
-    sourceRefs: [{
-      kind: 'provider_message',
-      sourceId: 'provider-message:0',
-      messageIndex: 0,
-      sessionId: 'session-1',
-      turnId: 'turn-1',
-      runtimeEventId: 'runtime-event-1',
-      contentKind: 'text',
-      bodySha256: 'sha256-sync-test',
-    }],
+    sourceRefs: [
+      {
+        kind: 'provider_message',
+        sourceId: 'provider-message:0',
+        messageIndex: 0,
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        runtimeEventId: 'runtime-event-1',
+        contentKind: 'text',
+        bodySha256: 'sha256-sync-test',
+      },
+    ],
   };
 }
 
@@ -8292,18 +11363,18 @@ function countActiveFullCompactMarkers(text: string): number {
   return text.match(/<maka_active_full_compact_block/g)?.length ?? 0;
 }
 
-function modelCallSettings(model: MockLanguageModelV3): unknown {
+function modelCallSettings(model: MockLanguageModelV4): unknown {
   const call = model.doStreamCalls[0] as unknown as Record<string, unknown> | undefined;
   if (!call) return {};
   const { prompt: _prompt, ...rest } = call;
   return rest;
 }
 
-function modelToolNames(model: MockLanguageModelV3): string[] {
+function modelToolNames(model: MockLanguageModelV4): string[] {
   return sortedModelToolNames(Object.keys(modelTools(model)));
 }
 
-function modelTools(model: MockLanguageModelV3): Record<string, unknown> {
+function modelTools(model: MockLanguageModelV4): Record<string, unknown> {
   const call = model.doStreamCalls[0] as unknown as Record<string, unknown> | undefined;
   const tools = call?.tools;
   if (!tools) return {};
@@ -8312,11 +11383,12 @@ function modelTools(model: MockLanguageModelV3): Record<string, unknown> {
     for (const tool of tools) {
       if (tool && typeof tool === 'object') {
         const record = tool as Record<string, unknown>;
-        const name = typeof record.name === 'string'
-          ? record.name
-          : typeof record.toolName === 'string'
-            ? record.toolName
-            : undefined;
+        const name =
+          typeof record.name === 'string'
+            ? record.name
+            : typeof record.toolName === 'string'
+              ? record.toolName
+              : undefined;
         if (name) out[name] = tool;
       }
     }
@@ -8334,7 +11406,9 @@ function sortedModelToolNames(toolNames: readonly string[]): string[] {
   });
 }
 
-function toolSchemaPromptSegment(record: LlmCallRecord | undefined): { toolCount?: number } | undefined {
+function toolSchemaPromptSegment(
+  record: LlmCallRecord | undefined,
+): { toolCount?: number } | undefined {
   return record?.promptSegments?.find((segment) => segment.kind === 'tool_schema');
 }
 
@@ -8378,6 +11452,7 @@ function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): Sessio
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

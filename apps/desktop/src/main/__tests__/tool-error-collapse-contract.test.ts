@@ -30,7 +30,7 @@ const TAIL_MARKER = 'TAIL_MARKER_SCHEMA_DETAILS';
 
 function renderWithLocale(child: ReactNode): string {
   return renderToStaticMarkup(
-    createElement(LocaleProvider, { preference: 'zh', children: child }),
+    createElement(LocaleProvider, { locale: 'zh', children: child }),
   );
 }
 
@@ -108,12 +108,12 @@ describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
     // #741 P3: the collapsed-default tests above prove the tail is hidden; this
     // proves the disclosure actually mounts the raw when open, so "reachable"
     // is verified, not just "hidden by default".
-    const markup = renderToStaticMarkup(createElement(ToolErrorDetails, { open: true, children: TAIL_MARKER }));
+    const markup = renderWithLocale(createElement(ToolErrorDetails, { open: true, children: TAIL_MARKER }));
     assert.match(markup, new RegExp(TAIL_MARKER), 'an expanded disclosure must render the raw payload');
   });
 
   it('hides the raw payload when the disclosure is collapsed (open=false)', () => {
-    const markup = renderToStaticMarkup(createElement(ToolErrorDetails, { open: false, children: TAIL_MARKER }));
+    const markup = renderWithLocale(createElement(ToolErrorDetails, { open: false, children: TAIL_MARKER }));
     assert.doesNotMatch(markup, new RegExp(TAIL_MARKER), 'a collapsed disclosure must not render the raw payload');
   });
 

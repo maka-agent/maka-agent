@@ -24,6 +24,7 @@
     "./user-question": "./dist/user-question.js",
     "./connections": "./dist/connections.js",
     "./workspace": "./dist/workspace.js",
+    "./attachments": "./dist/attachments.js",
     "./artifacts": "./dist/artifacts.js",
     "./runtime-inputs": "./dist/runtime-inputs.js",
     "./visual-smoke": "./dist/visual-smoke.js",
@@ -34,7 +35,9 @@
     "./bot-events": "./dist/bot-events.js",
     "./bot-platform-hints": "./dist/bot-platform-hints.js",
     "./plan-reminders": "./dist/plan-reminders.js",
+    "./agent-mailbox": "./dist/agent-mailbox.js",
     "./task-ledger": "./dist/task-ledger.js",
+    "./foreign-session": "./dist/foreign-session.js",
     "./memory": "./dist/memory.js",
     "./voice": "./dist/voice.js",
     "./incognito": "./dist/incognito.js",
@@ -50,6 +53,7 @@
     "./redaction": "./dist/redaction.js",
     "./display-redaction": "./dist/display-redaction.js",
     "./settings": "./dist/settings.js",
+    "./mcp": "./dist/mcp.js",
     "./settings/network-settings": "./dist/settings/network-settings.js",
     "./settings/result": "./dist/settings/result.js",
     "./usage-stats/types": "./dist/usage-stats/types.js",
@@ -60,6 +64,7 @@
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run clean && npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run clean && npm run build && npm run test:dist",
+    "test:dist": "node --test \"dist/**/*.test.js\""
   }
 }

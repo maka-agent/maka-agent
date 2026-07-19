@@ -119,10 +119,13 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   }
 
   // Injects the active goal so the model stays aware it is working autonomously.
-  // Only active/paused goals are shown (settled goals inject nothing).
+  // Only nonterminal, user-visible goals are shown (settled goals inject nothing).
   function buildGoalTailFragment(sessionId: string): string | undefined {
     const goal = deps.goalManager?.get(sessionId);
-    if (!goal || (goal.status !== 'active' && goal.status !== 'paused')) return undefined;
+    if (
+      !goal
+      || (goal.status !== 'active' && goal.status !== 'waiting' && goal.status !== 'paused')
+    ) return undefined;
     const spent = Math.max(0, goal.tokensNow - goal.tokensAtStart);
     const lines = [
       '当前自主执行目标（current-turn tail；系统每轮用外部评估器判断进度并自动续行；'
@@ -133,7 +136,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
         + `no_progress=${goal.consecutiveNoProgress}/${goal.blockCap}`
         + `${goal.tokenBudget ? ` tokens=${spent}/${goal.tokenBudget}` : ''}`,
     ];
-    if (goal.lastReason) lines.push(`last_evaluation="${redactSecrets(goal.lastReason)}"`);
+    if (goal.lastReason) lines.push(`last_reason="${redactSecrets(goal.lastReason)}"`);
     lines.push('</goal-execution>');
     return lines.join('\n');
   }

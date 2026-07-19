@@ -33,7 +33,11 @@ function realConnection(overrides: Partial<LlmConnection> = {}): LlmConnection {
     defaultModel: overrides.defaultModel ?? 'claude-sonnet-4-5-20250929',
     enabled: overrides.enabled ?? true,
     models: overrides.models ?? [
-      { id: 'claude-sonnet-4-5-20250929', capabilities: { vision: true, reasoning: true, functionCalling: true }, contextWindow: 200_000 },
+      {
+        id: 'claude-sonnet-4-5-20250929',
+        capabilities: { vision: true, reasoning: true, functionCalling: true },
+        contextWindow: 200_000,
+      },
     ],
     modelSource: overrides.modelSource ?? 'fetched',
     createdAt: overrides.createdAt ?? 1,
@@ -107,7 +111,11 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
   it('case 3: 1 real ready, defaultSlug=real, 0 sessions → ready_empty', () => {
     const conn = realConnection({ slug: 'anthropic-live' });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'anthropic-live',
+        secrets: { 'anthropic-live': true },
+      }),
       {
         kind: 'ready_empty',
         defaultConnectionSlug: 'anthropic-live',
@@ -155,16 +163,19 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
 
   it('case 7: 1 real, defaultSlug unset → needs_default_connection', () => {
     const conn = realConnection({ slug: 'anthropic-live' });
-    assert.deepEqual(
-      derive({ connections: [conn], secrets: { 'anthropic-live': true } }),
-      { kind: 'needs_default_connection' },
-    );
+    assert.deepEqual(derive({ connections: [conn], secrets: { 'anthropic-live': true } }), {
+      kind: 'needs_default_connection',
+    });
   });
 
   it('case 8: 1 real ready, defaultSlug points to deleted conn → needs_default_connection', () => {
     const conn = realConnection({ slug: 'anthropic-live' });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'deleted-slug', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'deleted-slug',
+        secrets: { 'anthropic-live': true },
+      }),
       { kind: 'needs_default_connection' },
     );
   });
@@ -184,10 +195,10 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
 
   it('case 10: 1 real, defaultSlug=real, missing API key → needs_connection_credentials', () => {
     const conn = realConnection({ slug: 'anthropic-live' });
-    assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: {} }),
-      { kind: 'needs_connection_credentials', connectionSlug: 'anthropic-live' },
-    );
+    assert.deepEqual(derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: {} }), {
+      kind: 'needs_connection_credentials',
+      connectionSlug: 'anthropic-live',
+    });
   });
 
   it('case 11: 1 real, has key, no defaultModel → needs_default_model', () => {
@@ -197,7 +208,11 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
       models: undefined, // no enumerated list — falls through to missing_model
     });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'anthropic-live',
+        secrets: { 'anthropic-live': true },
+      }),
       { kind: 'needs_default_model', connectionSlug: 'anthropic-live' },
     );
   });
@@ -209,7 +224,11 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
       models: [{ id: 'claude-sonnet-4-5-20250929', capabilities: {}, contextWindow: 200_000 }],
     });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'anthropic-live',
+        secrets: { 'anthropic-live': true },
+      }),
       { kind: 'needs_default_model', connectionSlug: 'anthropic-live' },
     );
   });
@@ -217,7 +236,11 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
   it('case 13: 1 real, has key, empty_model_list → needs_default_model', () => {
     const conn = realConnection({ slug: 'anthropic-live', defaultModel: 'something', models: [] });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'anthropic-live',
+        secrets: { 'anthropic-live': true },
+      }),
       { kind: 'needs_default_model', connectionSlug: 'anthropic-live' },
     );
   });
@@ -229,7 +252,11 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
       models: [{ id: 'image-only', capabilities: { chat: false, imageGeneration: true } }],
     });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'anthropic-live',
+        secrets: { 'anthropic-live': true },
+      }),
       { kind: 'needs_default_model', connectionSlug: 'anthropic-live' },
     );
   });
@@ -237,7 +264,11 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
   it('case 14: 1 real disabled, no ready alt → blocked: all_connections_unhealthy', () => {
     const conn = realConnection({ slug: 'anthropic-live', enabled: false });
     assert.deepEqual(
-      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      derive({
+        connections: [conn],
+        defaultSlug: 'anthropic-live',
+        secrets: { 'anthropic-live': true },
+      }),
       { kind: 'blocked', reason: 'all_connections_unhealthy' },
     );
   });
@@ -301,7 +332,10 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
       defaultSlug: 'conn-default',
       secrets: { 'conn-alt': true }, // alt has key; default doesn't
     });
-    assert.deepEqual(result, { kind: 'needs_connection_credentials', connectionSlug: 'conn-default' });
+    assert.deepEqual(result, {
+      kind: 'needs_connection_credentials',
+      connectionSlug: 'conn-default',
+    });
     // The alt is also broken (empty_model_list); we MUST NOT route the
     // user to fix that one. The default's missing_api_key wins.
     if (result.kind === 'needs_connection_credentials') {
@@ -310,8 +344,16 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
   });
 
   it('case 19: needs_default_model slug is the CURRENT default, not an alt with the same issue', () => {
-    const a = realConnection({ slug: 'conn-default', defaultModel: 'stale', models: [{ id: 'fresh' }] });
-    const b = realConnection({ slug: 'conn-alt', defaultModel: 'also-stale', models: [{ id: 'something' }] });
+    const a = realConnection({
+      slug: 'conn-default',
+      defaultModel: 'stale',
+      models: [{ id: 'fresh' }],
+    });
+    const b = realConnection({
+      slug: 'conn-alt',
+      defaultModel: 'also-stale',
+      models: [{ id: 'something' }],
+    });
     const result = derive({
       connections: [a, b],
       defaultSlug: 'conn-default',
@@ -331,7 +373,11 @@ describe('deriveOnboardingState invariants', () => {
     // send-path/readiness reason codes; onboarding derive never emits
     // it because the actionable fix path is `needs_connection`.
     const fake = fakeConnection({ slug: 'fake-only' });
-    const result = derive({ connections: [fake], defaultSlug: 'fake-only', secrets: { 'fake-only': true } });
+    const result = derive({
+      connections: [fake],
+      defaultSlug: 'fake-only',
+      secrets: { 'fake-only': true },
+    });
     assert.notDeepEqual(result, { kind: 'blocked', reason: 'no_real_connection' });
     assert.deepEqual(result, { kind: 'needs_connection' });
   });
@@ -343,7 +389,11 @@ describe('deriveOnboardingState invariants', () => {
     const conn = realConnection({ slug: 'shared-slug' });
     const ready = isConnectionReady({ connection: conn, hasSecret: true });
     assert.equal(ready.ready, true);
-    const result = derive({ connections: [conn], defaultSlug: 'shared-slug', secrets: { 'shared-slug': true } });
+    const result = derive({
+      connections: [conn],
+      defaultSlug: 'shared-slug',
+      secrets: { 'shared-slug': true },
+    });
     assert.equal(result.kind, 'ready_empty');
 
     // Flipping hasSecret to false flips both helpers consistently.
@@ -448,11 +498,17 @@ describe('isOnboardingMilestone', () => {
   });
 
   it('accepts {id, completedAt}', () => {
-    assert.equal(isOnboardingMilestone({ id: 'first_chat_sent', completedAt: 1_700_000_000_000 }), true);
+    assert.equal(
+      isOnboardingMilestone({ id: 'first_chat_sent', completedAt: 1_700_000_000_000 }),
+      true,
+    );
   });
 
   it('accepts {id, skippedAt}', () => {
-    assert.equal(isOnboardingMilestone({ id: 'first_chat_sent', skippedAt: 1_700_000_000_000 }), true);
+    assert.equal(
+      isOnboardingMilestone({ id: 'first_chat_sent', skippedAt: 1_700_000_000_000 }),
+      true,
+    );
   });
 
   it('rejects entries with BOTH completedAt and skippedAt (at-most-one terminal)', () => {
@@ -501,12 +557,27 @@ describe('isOnboardingMilestone', () => {
 
   it('rejects string / boolean timestamps', () => {
     for (const ts of ['1700000000000', '0', '', true, false]) {
-      assert.equal(isOnboardingMilestone({ id: 'first_chat_sent', completedAt: ts } as unknown), false);
+      assert.equal(
+        isOnboardingMilestone({ id: 'first_chat_sent', completedAt: ts } as unknown),
+        false,
+      );
     }
   });
 
   it('rejects null / undefined / primitives / arrays / Date / Map / Set', () => {
-    for (const value of [null, undefined, 1, 'string', true, false, [], [{ id: 'first_chat_sent' }], new Date(), new Map(), new Set()]) {
+    for (const value of [
+      null,
+      undefined,
+      1,
+      'string',
+      true,
+      false,
+      [],
+      [{ id: 'first_chat_sent' }],
+      new Date(),
+      new Map(),
+      new Set(),
+    ]) {
       assert.equal(isOnboardingMilestone(value), false, `should reject ${String(value)}`);
     }
   });
@@ -521,7 +592,16 @@ describe('isOnboardingMilestone', () => {
 
 describe('sanitizeOnboardingMilestones', () => {
   it('returns [] for non-array input (no value-digging)', () => {
-    for (const value of [null, undefined, {}, { foo: { id: 'first_chat_sent' } }, 'string', 42, true, false]) {
+    for (const value of [
+      null,
+      undefined,
+      {},
+      { foo: { id: 'first_chat_sent' } },
+      'string',
+      42,
+      true,
+      false,
+    ]) {
       assert.deepEqual(sanitizeOnboardingMilestones(value), []);
     }
   });
@@ -574,7 +654,7 @@ describe('sanitizeOnboardingMilestones', () => {
     assert.deepEqual<OnboardingMilestone[]>(result, [{ id: 'first_chat_sent', skippedAt: 2 }]);
   });
 
-  it('output array position is the milestone\'s first-seen index', () => {
+  it("output array position is the milestone's first-seen index", () => {
     // Stable ordering across rewrites: ids appear in the order they
     // first showed up, regardless of where the last-wins value came
     // from.
@@ -610,31 +690,19 @@ describe('hasSettledInitialOnboarding', () => {
   });
 
   it('returns false when initial_onboarding is absent', () => {
-    assert.equal(
-      hasSettledInitialOnboarding([{ id: 'first_chat_sent', completedAt: 1 }]),
-      false,
-    );
+    assert.equal(hasSettledInitialOnboarding([{ id: 'first_chat_sent', completedAt: 1 }]), false);
   });
 
   it('returns false for a bare placeholder {id} without terminal timestamp', () => {
-    assert.equal(
-      hasSettledInitialOnboarding([{ id: 'initial_onboarding' }]),
-      false,
-    );
+    assert.equal(hasSettledInitialOnboarding([{ id: 'initial_onboarding' }]), false);
   });
 
   it('returns true when initial_onboarding has completedAt', () => {
-    assert.equal(
-      hasSettledInitialOnboarding([{ id: 'initial_onboarding', completedAt: 1 }]),
-      true,
-    );
+    assert.equal(hasSettledInitialOnboarding([{ id: 'initial_onboarding', completedAt: 1 }]), true);
   });
 
   it('returns true when initial_onboarding has skippedAt', () => {
-    assert.equal(
-      hasSettledInitialOnboarding([{ id: 'initial_onboarding', skippedAt: 1 }]),
-      true,
-    );
+    assert.equal(hasSettledInitialOnboarding([{ id: 'initial_onboarding', skippedAt: 1 }]), true);
   });
 
   it('returns true alongside other milestones', () => {

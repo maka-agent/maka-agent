@@ -16,7 +16,8 @@ import {
   type RuntimePolicyAbComparisonSummary,
 } from './runtime-policy-ab-run.js';
 
-export interface RunRuntimePolicyAbLifecycleInput extends Omit<RunRuntimePolicyAbComparisonInput, 'evaluationTasks' | 'reps' | 'roundIdPrefix'> {
+export interface RunRuntimePolicyAbLifecycleInput
+  extends Omit<RunRuntimePolicyAbComparisonInput, 'evaluationTasks' | 'reps' | 'roundIdPrefix'> {
   manifestFingerprint: string;
   pilotTasks: RunRuntimePolicyAbComparisonInput['evaluationTasks'];
   evaluationTasks: RunRuntimePolicyAbComparisonInput['evaluationTasks'];
@@ -51,7 +52,12 @@ export async function runRuntimePolicyAbLifecycle(
       state = await rebuildLegacyState(input, state);
       await writeState(statePath, state);
     }
-    if (state.status === 'full_completed' || state.status === 'invalid' || state.status === 'pilot_not_cleared') return state;
+    if (
+      state.status === 'full_completed' ||
+      state.status === 'invalid' ||
+      state.status === 'pilot_not_cleared'
+    )
+      return state;
 
     if (state.status === 'pilot_pending') {
       const pilotResult = await runRuntimePolicyAbComparisonUnlocked({
@@ -78,7 +84,8 @@ export async function runRuntimePolicyAbLifecycle(
       await writeState(statePath, state);
       return state;
     }
-    const pilotCost = (state.pilot?.baseline.totalCostUsd ?? 0) + (state.pilot?.candidate.totalCostUsd ?? 0);
+    const pilotCost =
+      (state.pilot?.baseline.totalCostUsd ?? 0) + (state.pilot?.candidate.totalCostUsd ?? 0);
     const remainingCostUsd = input.executionProfile.observedCostStopUsd - pilotCost;
     if (remainingCostUsd <= 0) {
       state = { ...state, status: 'invalid', reason: 'observed_cost_stop_reached_during_pilot' };
@@ -92,7 +99,8 @@ export async function runRuntimePolicyAbLifecycle(
       roundIdPrefix: 'full',
       executionProfile: { ...input.executionProfile, observedCostStopUsd: remainingCostUsd },
     });
-    const invalidReason = full.stopReason ?? (full.decision === 'invalid' ? full.reason : undefined);
+    const invalidReason =
+      full.stopReason ?? (full.decision === 'invalid' ? full.reason : undefined);
     state = {
       ...state,
       status: invalidReason ? 'invalid' : 'full_completed',
@@ -106,10 +114,14 @@ export async function runRuntimePolicyAbLifecycle(
 
 function pilotClearanceFailure(summary: RuntimePolicyAbComparisonSummary): string | undefined {
   if (summary.stopReason) return summary.stopReason;
-  if (summary.baseline.infraFailed + summary.candidate.infraFailed > 0) return 'pilot_infra_failure';
-  if (summary.baseline.plumbingFailed + summary.candidate.plumbingFailed > 0) return 'pilot_plumbing_failure';
-  if (summary.baseline.coverageRate !== 1 || summary.candidate.coverageRate !== 1) return 'pilot_incomplete';
-  if ((summary.candidate.contextBudget?.activatedAttempts ?? 0) === 0) return 'pilot_candidate_not_activated';
+  if (summary.baseline.infraFailed + summary.candidate.infraFailed > 0)
+    return 'pilot_infra_failure';
+  if (summary.baseline.plumbingFailed + summary.candidate.plumbingFailed > 0)
+    return 'pilot_plumbing_failure';
+  if (summary.baseline.coverageRate !== 1 || summary.candidate.coverageRate !== 1)
+    return 'pilot_incomplete';
+  if ((summary.candidate.contextBudget?.activatedAttempts ?? 0) === 0)
+    return 'pilot_candidate_not_activated';
   return undefined;
 }
 
@@ -118,12 +130,16 @@ async function readState(
   manifestFingerprint: string,
 ): Promise<RuntimePolicyAbLifecycleState | LegacyRuntimePolicyAbLifecycleState> {
   try {
-    const state = JSON.parse(await readFile(path, 'utf8')) as RuntimePolicyAbLifecycleState | LegacyRuntimePolicyAbLifecycleState;
+    const state = JSON.parse(await readFile(path, 'utf8')) as
+      | RuntimePolicyAbLifecycleState
+      | LegacyRuntimePolicyAbLifecycleState;
     if (
-      state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v1'
-      && state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v2'
-    ) throw new Error('unsupported runtime policy A/B lifecycle state');
-    if (state.manifestFingerprint !== manifestFingerprint) throw new Error('runtime policy A/B lifecycle state does not match manifest');
+      state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v1' &&
+      state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v2'
+    )
+      throw new Error('unsupported runtime policy A/B lifecycle state');
+    if (state.manifestFingerprint !== manifestFingerprint)
+      throw new Error('runtime policy A/B lifecycle state does not match manifest');
     return state;
   } catch (error) {
     if (!isNotFound(error)) throw error;
@@ -141,20 +157,37 @@ async function rebuildLegacyState(
 ): Promise<RuntimePolicyAbLifecycleState> {
   const events = (await readFixedPromptWal(input.resultsJsonlPath)).filter(
     (event): event is FixedPromptTaskWalEvent =>
-      event.type === 'task_completed'
-      || event.type === 'task_budget_exhausted'
-      || event.type === 'task_infra_failed'
-      || event.type === 'task_plumbing_failed',
+      event.type === 'task_completed' ||
+      event.type === 'task_budget_exhausted' ||
+      event.type === 'task_infra_failed' ||
+      event.type === 'task_plumbing_failed',
   );
   const expectedPromptHash = hashSystemPrompt(await readFile(input.systemPromptPath, 'utf8'));
   const pilot = legacy.pilot
-    ? summarizeRecordedRound(input, events, expectedPromptHash, 'pilot', input.pilotTasks, 1, legacy.pilot.stopReason)
+    ? summarizeRecordedRound(
+        input,
+        events,
+        expectedPromptHash,
+        'pilot',
+        input.pilotTasks,
+        1,
+        legacy.pilot.stopReason,
+      )
     : undefined;
   const full = legacy.full
-    ? summarizeRecordedRound(input, events, expectedPromptHash, 'full', input.evaluationTasks, input.fullReps, legacy.full.stopReason)
+    ? summarizeRecordedRound(
+        input,
+        events,
+        expectedPromptHash,
+        'full',
+        input.evaluationTasks,
+        input.fullReps,
+        legacy.full.stopReason,
+      )
     : undefined;
   if (full) {
-    const invalidReason = full.stopReason ?? (full.decision === 'invalid' ? full.reason : undefined);
+    const invalidReason =
+      full.stopReason ?? (full.decision === 'invalid' ? full.reason : undefined);
     return {
       schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2',
       manifestFingerprint: input.manifestFingerprint,
@@ -190,24 +223,39 @@ function summarizeRecordedRound(
   reps: number,
   stopReason: RuntimePolicyAbComparisonSummary['stopReason'],
 ): RuntimePolicyAbComparisonSummary {
-  const runsFor = (arm: RunRuntimePolicyAbComparisonInput['arms'][number]): FixedPromptTaskWalEvent[][] => {
+  const runsFor = (
+    arm: RunRuntimePolicyAbComparisonInput['arms'][number],
+  ): FixedPromptTaskWalEvent[][] => {
     const resumeFingerprint = runtimePolicyArmResumeFingerprint(input, arm);
-    const runs = Array.from({ length: reps }, (_, rep) => tasks.flatMap((task) => {
-      const roundId = buildAbRoundId(prefix, arm.id, rep, task.id);
-      const event = selectFixedPromptRoundTaskEvents(
-        events,
-        input.runId,
-        roundId,
-        expectedPromptHash,
-        resumeFingerprint,
-      ).get(task.id);
-      if (!event && !stopReason) throw new Error(`cannot rebuild runtime policy A/B state: missing WAL event for ${roundId}`);
-      if (event?.type === 'task_plumbing_failed' && event.errorClass === 'missing_execution_identity') {
-        throw new Error(`cannot rebuild runtime policy A/B state: legacy missing-identity event ${event.id} has no authoritative outcome`);
-      }
-      return event ? [event] : [];
-    }));
-    if (runs.every((run) => run.length === 0)) throw new Error(`cannot rebuild runtime policy A/B state: no WAL evidence for ${prefix} round`);
+    const runs = Array.from({ length: reps }, (_, rep) =>
+      tasks.flatMap((task) => {
+        const roundId = buildAbRoundId(prefix, arm.id, rep, task.id);
+        const event = selectFixedPromptRoundTaskEvents(
+          events,
+          input.runId,
+          roundId,
+          expectedPromptHash,
+          resumeFingerprint,
+        ).get(task.id);
+        if (!event && !stopReason)
+          throw new Error(
+            `cannot rebuild runtime policy A/B state: missing WAL event for ${roundId}`,
+          );
+        if (
+          event?.type === 'task_plumbing_failed' &&
+          event.errorClass === 'missing_execution_identity'
+        ) {
+          throw new Error(
+            `cannot rebuild runtime policy A/B state: legacy missing-identity event ${event.id} has no authoritative outcome`,
+          );
+        }
+        return event ? [event] : [];
+      }),
+    );
+    if (runs.every((run) => run.length === 0))
+      throw new Error(
+        `cannot rebuild runtime policy A/B state: no WAL evidence for ${prefix} round`,
+      );
     return runs;
   };
   const summary = summarizeAbComparison({
@@ -219,7 +267,9 @@ function summarizeRecordedRound(
     baselineRuns: runsFor(input.arms[0]),
     candidateRuns: runsFor(input.arms[1]),
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
-    ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
+    ...(input.nonInferiorityMargin !== undefined
+      ? { nonInferiorityMargin: input.nonInferiorityMargin }
+      : {}),
   });
   return stopReason ? { ...summary, stopReason } : summary;
 }
@@ -231,5 +281,10 @@ async function writeState(path: string, state: RuntimePolicyAbLifecycleState): P
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
 }

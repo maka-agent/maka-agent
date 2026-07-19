@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { redactSecrets } from '@maka/core/redaction';
-import type { MakaTool } from '@maka/runtime';
+import { isPathInside, toRelative, type MakaTool } from '@maka/runtime';
 import { buildOfficeCliEnv } from './officecli-env.js';
 
 export const OFFICE_DOCUMENT_TOOL_NAME = 'OfficeDocument';
@@ -409,7 +409,7 @@ async function resolveOfficeDocumentPath(cwd: string, inputPath: unknown): Promi
 
   const workspaceRoot = await realpath(cwd);
   const abs = resolve(workspaceRoot, inputPath);
-  if (!isInside(workspaceRoot, abs)) {
+  if (!isPathInside(workspaceRoot, abs)) {
     return { ok: false, reason: 'invalid_path', message: 'Office 文档路径不能离开工作目录。' };
   }
   const ext = extname(abs).toLowerCase();
@@ -431,7 +431,7 @@ async function resolveOfficeDocumentPath(cwd: string, inputPath: unknown): Promi
   }
 
   const actual = await realpath(abs);
-  if (!isInside(workspaceRoot, actual)) {
+  if (!isPathInside(workspaceRoot, actual)) {
     return { ok: false, reason: 'symlink_escape', message: 'Office 文档路径不能通过符号链接离开工作目录。' };
   }
   return { ok: true, workspaceRoot, abs: actual, rel: toRelative(workspaceRoot, actual) };
@@ -451,7 +451,7 @@ async function resolveNewOfficeDocumentPath(cwd: string, inputPath: unknown): Pr
 
   const workspaceRoot = await realpath(cwd);
   const abs = resolve(workspaceRoot, inputPath);
-  if (!isInside(workspaceRoot, abs)) {
+  if (!isPathInside(workspaceRoot, abs)) {
     return { ok: false, reason: 'invalid_path', message: 'Office 文档路径不能离开工作目录。' };
   }
   const ext = extname(abs).toLowerCase();
@@ -481,7 +481,7 @@ async function resolveNewOfficeDocumentPath(cwd: string, inputPath: unknown): Pr
     return { ok: false, reason: 'not_file', message: 'Office 文档所在路径必须是文件夹。' };
   }
   const actualParent = await realpath(parent);
-  if (!isInside(workspaceRoot, actualParent)) {
+  if (!isPathInside(workspaceRoot, actualParent)) {
     return { ok: false, reason: 'symlink_escape', message: 'Office 文档路径不能通过符号链接离开工作目录。' };
   }
   return { ok: true, workspaceRoot, abs, rel: toRelative(workspaceRoot, abs) };
@@ -659,14 +659,4 @@ function capOutput(text: string): { text: string; truncated: boolean } {
 
 function displayArgs(args: string[], abs: string, rel: string): string[] {
   return args.map((arg) => arg === abs ? rel : arg);
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-function toRelative(root: string, target: string): string {
-  const rel = relative(root, target);
-  return rel === '' ? '.' : rel.split(sep).join('/');
 }

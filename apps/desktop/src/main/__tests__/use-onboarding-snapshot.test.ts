@@ -19,8 +19,9 @@ import {
   createOnboardingSnapshotPoller,
   createOnboardingSnapshotState,
   isSetupRequired,
+  onboardingSnapshotErrorMessage,
 } from '../../renderer/use-onboarding-snapshot.js';
-import type { OnboardingSnapshot } from '../../global.js';
+import type { OnboardingSnapshot } from '../../preload/bridge-contract.js';
 
 const READY_SNAPSHOT: OnboardingSnapshot = {
   state: {
@@ -51,6 +52,7 @@ describe('createOnboardingSnapshotPoller', () => {
         onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
         onError: (m) => events.push({ type: 'err', payload: m }),
       },
+      () => 'zh',
     );
     await poller.pull();
     assert.deepEqual(events, [{ type: 'snap', payload: READY_SNAPSHOT }]);
@@ -68,6 +70,7 @@ describe('createOnboardingSnapshotPoller', () => {
         onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
         onError: (m) => events.push({ type: 'err', payload: m }),
       },
+      () => 'zh',
     );
     await poller.pull();
     assert.deepEqual(events, [{ type: 'err', payload: '鉴权失败' }]);
@@ -95,6 +98,7 @@ describe('createOnboardingSnapshotPoller', () => {
           /* not expected */
         },
       },
+      () => 'zh',
     );
     // Fire two overlapping pulls.
     const pull1 = poller.pull();
@@ -132,6 +136,7 @@ describe('createOnboardingSnapshotPoller', () => {
         onSnapshot: (s) => snaps.push(s),
         onError: (m) => errs.push(m),
       },
+      () => 'zh',
     );
     const pull1 = poller.pull();
     const pull2 = poller.pull();
@@ -157,6 +162,7 @@ describe('createOnboardingSnapshotPoller', () => {
         onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
         onError: (m) => events.push({ type: 'err', payload: m }),
       },
+      () => 'zh',
     );
 
     const pull = poller.pull();
@@ -181,6 +187,7 @@ describe('createOnboardingSnapshotPoller', () => {
         onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
         onError: (m) => events.push({ type: 'err', payload: m }),
       },
+      () => 'zh',
     );
 
     const pull = poller.pull();
@@ -199,6 +206,7 @@ describe('createOnboardingSnapshotPoller', () => {
         onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
         onError: (m) => events.push({ type: 'err', payload: m }),
       },
+      () => 'zh',
     );
 
     poller.dispose();
@@ -226,12 +234,12 @@ describe('onboarding mounted snapshot handoff', () => {
 });
 
 describe('first-run error boundaries', () => {
-  it('keeps onboarding and checklist probe errors on the shared Chinese scrubber', async () => {
+  it('keeps onboarding and checklist probe errors localized and scrubbed', async () => {
     const onboarding = await readFile(join(process.cwd(), 'src/renderer/use-onboarding-snapshot.ts'), 'utf8');
     const checklist = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
 
-    assert.match(onboarding, /function onboardingSnapshotErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '首次使用状态暂时不可用，请稍后重试。'\)/);
-    assert.match(onboarding, /emitError\(onboardingSnapshotErrorMessage\(err\)\)/);
+    assert.match(onboarding, /function onboardingSnapshotErrorMessage\(error: unknown, locale: UiLocale\): string \{[\s\S]*locale === 'zh' \? generalizedErrorMessageChinese\(error, fallback\) : generalizedErrorMessage\(error, fallback\)/);
+    assert.match(onboarding, /emitError\(onboardingSnapshotErrorMessage\(err, getLocale\(\)\)\)/);
     assert.doesNotMatch(onboarding, /callbacks\.onError\(err instanceof Error \? err\.message : String\(err\)\)/);
     assert.match(onboarding, /export interface OnboardingSnapshotPoller \{[\s\S]*activate\(\): void;[\s\S]*pull\(\): Promise<void>;[\s\S]*dispose\(\): void;/);
     assert.match(onboarding, /poller\.activate\(\);[\s\S]*void poller\.pull\(\);[\s\S]*unsubscribe\(\);[\s\S]*poller\.dispose\(\);/);
@@ -239,8 +247,9 @@ describe('first-run error boundaries', () => {
     assert.match(onboarding, /if \(!active \|\| ticket !== inflightTicket\) return/);
     assert.match(onboarding, /dispose\(\): void \{[\s\S]*active = false;[\s\S]*inflightTicket \+= 1;/);
 
-    assert.match(checklist, /function firstRunChecklistErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '状态服务暂时不可用，请稍后重试。'\)/);
+    assert.match(checklist, /function firstRunChecklistErrorMessage\(error: unknown, locale: UiLocale\): string \{[\s\S]*locale === 'zh' \? generalizedErrorMessageChinese\(error, fallback\) : generalizedErrorMessage\(error, fallback\)/);
     assert.doesNotMatch(checklist, /error instanceof Error[\s\S]*error\.message[\s\S]*String\(error\)/);
+    assert.doesNotMatch(onboardingSnapshotErrorMessage(new Error('IPC failed'), 'en'), /[\u3400-\u9fff]/);
   });
 });
 

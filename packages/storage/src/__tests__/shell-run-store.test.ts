@@ -22,12 +22,23 @@ describe('ShellRunStore', () => {
 
       assert.equal(updated.status, 'completed');
       assert.equal(updated.output.mode === 'pipes' ? updated.output.stdout : '', 'done');
-      assert.equal(updated.output.mode === 'pipes' ? updated.output.latestStream : undefined, 'stdout');
+      assert.equal(
+        updated.output.mode === 'pipes' ? updated.output.latestStream : undefined,
+        'stdout',
+      );
       assert.equal(updated.revision, 2);
-      assert.deepEqual((await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId), ['shell-1', 'shell-2']);
+      assert.deepEqual(
+        (await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId),
+        ['shell-1', 'shell-2'],
+      );
       assert.equal((await store.readShellRun('session-1', 'shell-1')).completedAt, 10);
       assert.equal(
-        JSON.parse(await readFile(join(root, 'sessions', 'session-1', 'shell-runs', 'shell-1', 'shell-run.json'), 'utf8')).shellRunId,
+        JSON.parse(
+          await readFile(
+            join(root, 'sessions', 'session-1', 'shell-runs', 'shell-1', 'shell-run.json'),
+            'utf8',
+          ),
+        ).shellRunId,
         'shell-1',
       );
     });
@@ -42,7 +53,10 @@ describe('ShellRunStore', () => {
         /ShellRun already exists: shell-1/,
       );
 
-      const raw = await readFile(join(root, 'sessions', 'session-1', 'shell-runs', 'shell-1', 'shell-run.json'), 'utf8');
+      const raw = await readFile(
+        join(root, 'sessions', 'session-1', 'shell-runs', 'shell-1', 'shell-run.json'),
+        'utf8',
+      );
       assert.equal(JSON.parse(raw).command, 'first');
     });
   });
@@ -70,18 +84,20 @@ describe('ShellRunStore', () => {
   it('rejects inconsistent sandbox execution audit facts', async () => {
     await withStore(async (store) => {
       await assert.rejects(
-        () => store.createShellRun({
-          ...record({ shellRunId: 'shell-invalid-enforcement' }),
-          sandboxExecution: { type: 'macos-seatbelt', enforced: false },
-        }),
+        () =>
+          store.createShellRun({
+            ...record({ shellRunId: 'shell-invalid-enforcement' }),
+            sandboxExecution: { type: 'macos-seatbelt', enforced: false },
+          }),
         /malformed fields/,
       );
       await assert.rejects(
-        () => store.createShellRun({
-          ...record({ shellRunId: 'shell-invalid-escalation' }),
-          sandboxExecution: { type: 'macos-seatbelt', enforced: true },
-          sandboxEscalation: { commandHash: 'command-hash', unsandboxed: true },
-        }),
+        () =>
+          store.createShellRun({
+            ...record({ shellRunId: 'shell-invalid-escalation' }),
+            sandboxExecution: { type: 'macos-seatbelt', enforced: true },
+            sandboxEscalation: { commandHash: 'command-hash', unsandboxed: true },
+          }),
         /malformed fields/,
       );
     });
@@ -107,12 +123,14 @@ describe('ShellRunStore', () => {
 
   it('records only the first terminal observation under concurrent updates', async () => {
     await withStore(async (store) => {
-      await store.createShellRun(record({
-        shellRunId: 'shell-1',
-        status: 'completed',
-        completedAt: 2,
-        exitCode: 0,
-      }));
+      await store.createShellRun(
+        record({
+          shellRunId: 'shell-1',
+          status: 'completed',
+          completedAt: 2,
+          exitCode: 0,
+        }),
+      );
 
       const [first, second] = await Promise.all([
         store.updateShellRun('session-1', 'shell-1', { observedAt: 10 }),
@@ -131,32 +149,35 @@ describe('ShellRunStore', () => {
       await store.createShellRun(record({ shellRunId: 'shell-1' }));
 
       await assert.rejects(
-        () => store.updateShellRun('session-1', 'shell-1', {
-          command: 'replacement',
-        } as unknown as ShellRunPatch),
+        () =>
+          store.updateShellRun('session-1', 'shell-1', {
+            command: 'replacement',
+          } as unknown as ShellRunPatch),
         /ShellRun field is immutable: command/,
       );
       await assert.rejects(
-        () => store.updateShellRun('session-1', 'shell-1', {
-          output: {
-            mode: 'pty',
-            screen: '',
-            scrollback: '',
-            cols: 80,
-            rows: 24,
-            cursor: { x: 0, y: 0, visible: true },
-            alternateScreen: false,
-            truncated: false,
-            redacted: false,
-          },
-        }),
+        () =>
+          store.updateShellRun('session-1', 'shell-1', {
+            output: {
+              mode: 'pty',
+              screen: '',
+              scrollback: '',
+              cols: 80,
+              rows: 24,
+              cursor: { x: 0, y: 0, visible: true },
+              alternateScreen: false,
+              truncated: false,
+              redacted: false,
+            },
+          }),
         /ShellRun output mode is immutable: pipes/,
       );
       await assert.rejects(
-        () => store.createShellRun({
-          ...record({ shellRunId: 'shell-with-operation' }),
-          operation: { kind: 'stop', applied: true },
-        } as unknown as ShellRunRecord),
+        () =>
+          store.createShellRun({
+            ...record({ shellRunId: 'shell-with-operation' }),
+            operation: { kind: 'stop', applied: true },
+          } as unknown as ShellRunRecord),
         /malformed fields/,
       );
     });
@@ -165,19 +186,35 @@ describe('ShellRunStore', () => {
   it('rejects malformed records and ignores malformed folders while listing', async () => {
     await withStore(async (store, root) => {
       await store.createShellRun(record({ shellRunId: 'shell-good' }));
-      const badPath = join(root, 'sessions', 'session-1', 'shell-runs', 'shell-bad', 'shell-run.json');
-      await mkdir(join(root, 'sessions', 'session-1', 'shell-runs', 'shell-bad'), { recursive: true });
-      await writeFile(badPath, JSON.stringify({
-        shellRunId: 'shell-bad',
-        sessionId: 'session-1',
-        status: 'mystery',
-      }) + '\n', 'utf8');
+      const badPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'shell-runs',
+        'shell-bad',
+        'shell-run.json',
+      );
+      await mkdir(join(root, 'sessions', 'session-1', 'shell-runs', 'shell-bad'), {
+        recursive: true,
+      });
+      await writeFile(
+        badPath,
+        JSON.stringify({
+          shellRunId: 'shell-bad',
+          sessionId: 'session-1',
+          status: 'mystery',
+        }) + '\n',
+        'utf8',
+      );
 
       await assert.rejects(
         () => store.readShellRun('session-1', 'shell-bad'),
         /Invalid ShellRun record for shell-bad: malformed fields/,
       );
-      assert.deepEqual((await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId), ['shell-good']);
+      assert.deepEqual(
+        (await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId),
+        ['shell-good'],
+      );
     });
   });
 
@@ -186,31 +223,40 @@ describe('ShellRunStore', () => {
       const dir = join(root, 'sessions', 'session-1', 'shell-runs', 'shell-legacy');
       const path = join(dir, 'shell-run.json');
       await mkdir(dir, { recursive: true });
-      await writeFile(path, JSON.stringify({
-        shellRunId: 'shell-legacy',
-        sessionId: 'session-1',
-        sourceRunId: 'run-1',
-        sourceTurnId: 'turn-1',
-        sourceToolCallId: 'tool-1',
-        cwd: '/workspace',
-        command: 'printf ready; sleep 30',
-        status: 'running',
-        startedAt: 1,
-        updatedAt: 1,
-        timeoutMs: 30_000,
-        stdoutTail: 'ready',
-        stderrTail: '',
-        latestOutputStream: 'stdout',
-        stdoutTruncated: false,
-        stderrTruncated: false,
-        pid: 123,
-      }) + '\n', 'utf8');
+      await writeFile(
+        path,
+        JSON.stringify({
+          shellRunId: 'shell-legacy',
+          sessionId: 'session-1',
+          sourceRunId: 'run-1',
+          sourceTurnId: 'turn-1',
+          sourceToolCallId: 'tool-1',
+          cwd: '/workspace',
+          command: 'printf ready; sleep 30',
+          status: 'running',
+          startedAt: 1,
+          updatedAt: 1,
+          timeoutMs: 30_000,
+          stdoutTail: 'ready',
+          stderrTail: '',
+          latestOutputStream: 'stdout',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          pid: 123,
+        }) + '\n',
+        'utf8',
+      );
 
       const restored = await store.readShellRun('session-1', 'shell-legacy');
       assert.equal(restored.revision, 1);
       assert.deepEqual(restored.output, {
-        mode: 'pipes', stdout: 'ready', stderr: '', latestStream: 'stdout',
-        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        mode: 'pipes',
+        stdout: 'ready',
+        stderr: '',
+        latestStream: 'stdout',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
       });
 
       await store.updateShellRun('session-1', 'shell-legacy', {
@@ -222,8 +268,13 @@ describe('ShellRunStore', () => {
       assert.equal(Object.hasOwn(written, 'stdoutTail'), false);
       assert.equal(Object.hasOwn(written, 'pid'), false);
       assert.deepEqual(written.output, {
-        mode: 'pipes', stdout: 'ready\nnext', stderr: '', latestStream: 'stdout',
-        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        mode: 'pipes',
+        stdout: 'ready\nnext',
+        stderr: '',
+        latestStream: 'stdout',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
       });
     });
   });
@@ -233,32 +284,41 @@ describe('ShellRunStore', () => {
       const cases = [
         {
           shellRunId: 'legacy-completed-with-orphan-reason',
-          status: 'completed', completedAt: 2, exitCode: 0, orphanedReason: 'contradictory',
+          status: 'completed',
+          completedAt: 2,
+          exitCode: 0,
+          orphanedReason: 'contradictory',
         },
         {
           shellRunId: 'legacy-failed-without-exit',
-          status: 'failed', completedAt: 2, failureMessage: 'old store required a non-zero exit code',
+          status: 'failed',
+          completedAt: 2,
+          failureMessage: 'old store required a non-zero exit code',
         },
       ] as const;
       for (const invalid of cases) {
         const dir = join(root, 'sessions', 'session-1', 'shell-runs', invalid.shellRunId);
         await mkdir(dir, { recursive: true });
-        await writeFile(join(dir, 'shell-run.json'), JSON.stringify({
-          sessionId: 'session-1',
-          sourceRunId: 'run-1',
-          sourceTurnId: 'turn-1',
-          sourceToolCallId: 'tool-1',
-          cwd: '/workspace',
-          command: 'printf ready',
-          ...invalid,
-          startedAt: 1,
-          updatedAt: 2,
-          stdoutTail: 'ready',
-          stderrTail: '',
-          latestOutputStream: 'stdout',
-          stdoutTruncated: false,
-          stderrTruncated: false,
-        }) + '\n', 'utf8');
+        await writeFile(
+          join(dir, 'shell-run.json'),
+          JSON.stringify({
+            sessionId: 'session-1',
+            sourceRunId: 'run-1',
+            sourceTurnId: 'turn-1',
+            sourceToolCallId: 'tool-1',
+            cwd: '/workspace',
+            command: 'printf ready',
+            ...invalid,
+            startedAt: 1,
+            updatedAt: 2,
+            stdoutTail: 'ready',
+            stderrTail: '',
+            latestOutputStream: 'stdout',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          }) + '\n',
+          'utf8',
+        );
         await assert.rejects(
           () => store.readShellRun('session-1', invalid.shellRunId),
           /Invalid ShellRun record/,
@@ -276,17 +336,19 @@ describe('ShellRunStore', () => {
 
       await store.createShellRun(record({ shellRunId: 'running-1' }));
       await assert.rejects(
-        () => store.updateShellRun('session-1', 'running-1', {
-          exitCode: 0,
-          updatedAt: 2,
-        }),
+        () =>
+          store.updateShellRun('session-1', 'running-1', {
+            exitCode: 0,
+            updatedAt: 2,
+          }),
         /inconsistent state fields/,
       );
       await assert.rejects(
-        () => store.updateShellRun('session-1', 'running-1', {
-          status: 'completed',
-          updatedAt: 3,
-        }),
+        () =>
+          store.updateShellRun('session-1', 'running-1', {
+            status: 'completed',
+            updatedAt: 3,
+          }),
         /inconsistent state fields/,
       );
     });
@@ -306,7 +368,9 @@ describe('ShellRunStore', () => {
   });
 });
 
-async function withStore(fn: (store: ReturnType<typeof createShellRunStore>, root: string) => Promise<void>): Promise<void> {
+async function withStore(
+  fn: (store: ReturnType<typeof createShellRunStore>, root: string) => Promise<void>,
+): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'maka-shell-run-store-'));
   try {
     await fn(createShellRunStore(root), root);

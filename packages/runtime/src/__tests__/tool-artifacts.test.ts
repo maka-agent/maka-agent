@@ -40,8 +40,12 @@ describe('deriveToolArtifactCandidates', () => {
     expect(candidate?.kind).toBe('diff');
     expect(candidate?.name).toBe('main.ts.diff');
     expect(candidate?.mimeType).toBe('text/x-diff');
-    expect(typeof candidate?.content === 'string' && candidate.content.includes('-const a = 1;')).toBe(true);
-    expect(typeof candidate?.content === 'string' && candidate.content.includes('+const a = 2;')).toBe(true);
+    expect(
+      typeof candidate?.content === 'string' && candidate.content.includes('-const a = 1;'),
+    ).toBe(true);
+    expect(
+      typeof candidate?.content === 'string' && candidate.content.includes('+const a = 2;'),
+    ).toBe(true);
   });
 
   test('Bash derives only explicit stdout redirects and does not scan stdout/stderr text', () => {
@@ -55,12 +59,14 @@ describe('deriveToolArtifactCandidates', () => {
     expect(candidate?.sourcePath).toBe('/workspace/maka/reports/build.log');
     expect(candidate?.kind).toBe('file');
 
-    expect(deriveToolArtifactCandidates({
-      toolName: 'Bash',
-      cwd: '/workspace/maka',
-      args: { command: 'echo "wrote reports/build.log"' },
-      result: { stdout: 'reports/build.log' },
-    })).toEqual([]);
+    expect(
+      deriveToolArtifactCandidates({
+        toolName: 'Bash',
+        cwd: '/workspace/maka',
+        args: { command: 'echo "wrote reports/build.log"' },
+        result: { stdout: 'reports/build.log' },
+      }),
+    ).toEqual([]);
   });
 
   test('extractStdoutRedirectPath ignores stderr and fd redirects', () => {
@@ -110,21 +116,28 @@ describe('ToolRuntime artifact recorder scheduling', () => {
     });
 
     const outcome = await Promise.race([
-      execute({ path: 'notes.md', content: 'hello' }, {
-        toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal,
-      }).then(() => 'done' as const),
+      execute(
+        { path: 'notes.md', content: 'hello' },
+        {
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+        },
+      ).then(() => 'done' as const),
       delay(20).then(() => 'timeout' as const),
     ]);
 
     expect(outcome).toBe('done');
     expect(calls.length).toBe(1);
-    expect(events.some((event) => event.type === 'tool_result' && event.toolUseId === 'tool-1')).toBe(true);
+    expect(
+      events.some((event) => event.type === 'tool_result' && event.toolUseId === 'tool-1'),
+    ).toBe(true);
   });
-
 });
 
-function makeToolRuntime(overrides: Partial<ToolRuntimeInput> = {}): { runtime: ToolRuntime; events: SessionEvent[] } {
+function makeToolRuntime(overrides: Partial<ToolRuntimeInput> = {}): {
+  runtime: ToolRuntime;
+  events: SessionEvent[];
+} {
   const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
   permissionEngine.beginTurn('turn-1');
   const events: SessionEvent[] = [];
@@ -150,9 +163,10 @@ function writeArtifactTool(): MakaTool {
     parameters: {},
     permissionRequired: false,
     impl: async (args) => {
-      const path = typeof (args as { path?: unknown }).path === 'string'
-        ? (args as { path: string }).path
-        : 'notes.md';
+      const path =
+        typeof (args as { path?: unknown }).path === 'string'
+          ? (args as { path: string }).path
+          : 'notes.md';
       return { ok: true, path: `/workspace/maka/${path}`, bytes: 5 };
     },
   };
@@ -166,6 +180,7 @@ function testHeader(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

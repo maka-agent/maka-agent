@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { isShellOutput, type ToolResultContent, type UiLocale } from '@maka/core';
+import type { ToolResultContent } from '@maka/core';
 import {
   AlertOctagon,
   Check,
@@ -35,13 +35,26 @@ import {
   syncToolDisclosureState,
   type ToolActivityPresentation,
 } from './tool-activity/presentation.js';
+import {
+  extractErrorText,
+  isAutomationTool,
+  isCancelledToolResult,
+  isPermissionDeniedToolResult,
+  resultOwnsOwnPanel,
+  toolStatusLabel,
+  withLiveStreamFallback,
+} from './tool-activity/result-projection.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { previewVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatToolIntent } from './tool-format.js';
-import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
+import {
+  formatDuration,
+  formatUserVisibleToolText,
+  summarizeErrorText,
+} from './tool-activity/preview-utils.js';
 import {
   formatQuietJsonValue,
   formatToolInvocationLine,
@@ -53,6 +66,7 @@ import {
   TOOL_OUTPUT_PANEL_CLASS,
   ToolResultPreview,
 } from './tool-activity/tool-result-preview.js';
+import { getToolActivityCopy } from './tool-activity/copy.js';
 
 /** Friendly card for a `load_tools` result; falls back to JSON on unexpected shapes. */
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
@@ -73,14 +87,7 @@ function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
 
 // ── Automation result preview ───────────────────────────────────────────────
 
-// Mirror of runtime's AUTOMATION_TOOL_NAME. @maka/ui must not depend on
-// @maka/runtime, so the unified Automation tool's name is duplicated here as
-// the single hook for its friendly card (same pattern as CONNECTOR_TOOL_NAMES).
-const AUTOMATION_TOOL_NAME = 'Automation';
-
-function isAutomationTool(name: string): boolean {
-  return name === AUTOMATION_TOOL_NAME;
-}
+const AUTOMATION_RESULT_ICON_CLASS = 'inline align-text-bottom mr-1';
 
 /** Icon for one automation description: recurring schedules cycle, one-shots tick. */
 function automationScheduleIcon(text: string): ComponentType<LucideProps> {
@@ -94,6 +101,7 @@ function automationScheduleIcon(text: string): ComponentType<LucideProps> {
  * errors) falls back to the generic text preview.
  */
 function AutomationResultPreview(props: { text: string }) {
+  const copy = getToolActivityCopy(useUiLocale()).automation;
   const text = props.text;
 
   // mode:create success — "Automation created: "NAME" (kind[, durable])\nID: …\nSchedule: …\nNext fire: …"
@@ -105,11 +113,11 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_create">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Icon size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          自动化任务已创建：{redactSecrets(created[1] ?? '')}
+          <Icon size={14} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
+          {copy.created(redactSecrets(created[1] ?? ''))}
         </p>
         {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{redactSecrets(schedule)}</p>}
-        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>下次触发：{redactSecrets(nextFire)}</p>}
+        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>{copy.nextFire(redactSecrets(nextFire))}</p>}
         <p className={previewVariants({ part: 'load-tool-footer' })}>{redactSecrets(created[2] ?? '')}</p>
       </div>
     );
@@ -122,8 +130,8 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_delete">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Check size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          {ok ? '自动化任务已删除' : '未找到该任务（可能已完成或已删除）'}
+          <Check size={14} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
+          {ok ? copy.deleted : copy.notFound}
         </p>
       </div>
     );
@@ -136,16 +144,16 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_list">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Clock size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          自动化任务列表 ({blocks.length})
+          <Clock size={14} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
+          {copy.list(blocks.length)}
         </p>
-        {blocks.length === 0 && <p className={previewVariants({ part: 'load-tool-count' })}>当前会话暂无自动化任务</p>}
+        {blocks.length === 0 && <p className={previewVariants({ part: 'load-tool-count' })}>{copy.empty}</p>}
         {blocks.slice(0, 5).map((block, i) => {
           const head = block.split('\n')[0] ?? '';
           const BlockIcon = automationScheduleIcon(block);
           return (
             <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
-              <BlockIcon size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
+              <BlockIcon size={12} aria-hidden="true" className={AUTOMATION_RESULT_ICON_CLASS} />
               {redactSecrets(head)}
             </p>
           );
@@ -158,15 +166,6 @@ function AutomationResultPreview(props: { text: string }) {
   return <ToolResultPreview content={{ kind: 'text', text }} />;
 }
 
-const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
-  pending: '排队中',
-  waiting_permission: '等待权限',
-  running: '运行中',
-  completed: '已完成',
-  errored: '失败',
-  interrupted: '已中断',
-};
-
 function useToolDisclosure(presentation: ToolActivityPresentation) {
   const [disclosure, setDisclosure] = useState(() => createToolDisclosureState(presentation));
   useEffect(() => {
@@ -178,149 +177,6 @@ function useToolDisclosure(presentation: ToolActivityPresentation) {
   };
 }
 
-function extractErrorText(result: ToolActivityItem['result'], locale: UiLocale): string {
-  if (!result) return '';
-  switch (result.kind) {
-    case 'text':
-      return result.text;
-    case 'json': {
-      // Same quiet formatter as the panel — never dump escaped JSON braces.
-      const quiet = formatQuietJsonValue(result.value, locale);
-      return quiet.headline ? `${quiet.headline}\n${quiet.body}` : quiet.body;
-    }
-    case 'terminal': {
-      const output = isShellOutput(result.output) ? result.output : undefined;
-      return result.failureMessage
-        || (output?.mode === 'pipes'
-          ? output.stderr || output.stdout
-          : output?.screen || output?.scrollback)
-        || (result.exitCode === undefined ? result.status : `exit ${result.exitCode}`);
-    }
-    case 'file_diff':
-      return result.diff;
-    case 'rive_workflow':
-      return result.error
-        ? [result.summary, result.error.reason, result.error.message].filter(Boolean).join('\n')
-        : result.summary;
-    default:
-      return result.kind;
-  }
-}
-
-function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boolean {
-  return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
-}
-
-/**
- * Result kinds (or tool-specific cards) that already paint their own chrome —
- * never nest them inside the shared quiet well.
- */
-function resultOwnsOwnPanel(item: ToolActivityItem): boolean {
-  const result = item.result;
-  if (!result) return false;
-  if (isAutomationTool(item.toolName) && result.kind === 'text') return true;
-  if (isConnectorTool(item.toolName) && result.kind === 'json') return true;
-  switch (result.kind) {
-    case 'terminal':
-    case 'shell_run':
-    case 'subagent':
-    case 'explore_agent':
-    case 'web_search':
-    case 'web_search_error':
-    case 'file_diff':
-    case 'office_document':
-    case 'rive_workflow':
-      return true;
-    default:
-      return false;
-  }
-}
-
-function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
-  if (!result) return false;
-  if (result.kind === 'terminal' || result.kind === 'shell_run') {
-    return result.status === 'cancelled';
-  }
-  return false;
-}
-
-function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
-  if (!result) return false;
-  if (result.kind === 'terminal' || result.kind === 'shell_run') {
-    const output = isShellOutput(result.output) ? result.output : undefined;
-    if (output === undefined) return false;
-    return output.mode === 'pty'
-      ? output.screen.length > 0 || output.scrollback.length > 0 || Boolean(output.lastAlternateScreen)
-      : output.stdout.length > 0 || output.stderr.length > 0;
-  }
-  return true;
-}
-
-/**
- * Background Bash returns an empty shell_run body; keep the live chunks the
- * user already saw by filling empty stdout/stderr from outputChunks. Also
- * forward truncation / redaction hints so settled preview matches live.
- */
-function withLiveStreamFallback(
-  result: NonNullable<ToolActivityItem['result']>,
-  chunks: ToolActivityItem['outputChunks'] | undefined,
-  options?: { truncated?: boolean },
-): NonNullable<ToolActivityItem['result']> {
-  if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
-  if (resultHasCapturedStreams(result)) return result;
-  const existing = isShellOutput(result.output) ? result.output : undefined;
-  if (result.kind === 'terminal') {
-    if (existing?.mode !== 'pipes') return result;
-  } else if (result.mode !== 'pipes') {
-    return result;
-  }
-
-  let stdout = '';
-  let stderr = '';
-  let anyRedacted = false;
-  for (const chunk of chunks ?? []) {
-    if (chunk.redacted) anyRedacted = true;
-    if (chunk.stream === 'stderr') stderr += chunk.text;
-    else stdout += chunk.text;
-  }
-  const truncated = existing?.mode === 'pipes' && existing.stdoutTruncated === true
-    || options?.truncated === true;
-  // Empty redacted/truncated live buffer still carries diagnosis — do not
-  // early-return and drop "已脱敏" / "输出已截断".
-  if (!stdout && !stderr && !anyRedacted && !truncated) return result;
-
-  // Match live stream's "[已脱敏]" marker when a chunk was redacted
-  // (including empty bodies that only suppressed secrets).
-  if (anyRedacted) {
-    if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else stdout = '[已脱敏]';
-  }
-  const output = {
-    mode: 'pipes' as const,
-    stdout,
-    stderr,
-    stdoutTruncated: truncated,
-    stderrTruncated: existing?.mode === 'pipes' && existing.stderrTruncated === true,
-    redacted: anyRedacted || (existing?.mode === 'pipes' && existing.redacted),
-  };
-  if (result.kind === 'shell_run') return { ...result, output };
-  return { ...result, output };
-}
-
-function toolStatusLabel(item: ToolActivityItem): string {
-  // Outer label follows call status. Panel notes still show task cancel state.
-  if (item.status === 'interrupted' && isCancelledToolResult(item.result)) return '已取消';
-  if (
-    (item.result?.kind === 'terminal' || item.result?.kind === 'shell_run')
-    && item.result.status === 'timed_out'
-    && item.status !== 'completed'
-  ) {
-    return '已超时';
-  }
-  return STATUS_LABEL[item.status];
-}
-
 export function ToolActivity(props: {
   items: ToolActivityItem[];
   /** Controlled open state applied to every card. When omitted each card
@@ -329,11 +185,12 @@ export function ToolActivity(props: {
    *  markup; production callers leave it uncontrolled. */
   open?: boolean;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).group;
   return (
-    <section className={toolVariants({ part: 'container' })} aria-label="工具调用记录">
+    <section className={toolVariants({ part: 'container' })} aria-label={copy.ariaLabel}>
       <header className={toolVariants({ part: 'container-header' })}>
-        <strong>工具调用</strong>
-        <span className={toolVariants({ part: 'count' })} aria-label={`${props.items.length} 次调用`}>{props.items.length}</span>
+        <strong>{copy.title}</strong>
+        <span className={toolVariants({ part: 'count' })} aria-label={copy.callCount(props.items.length)}>{props.items.length}</span>
       </header>
       {props.items.map((item) => (
         <ToolActivityCard key={item.toolUseId} item={item} open={props.open} />
@@ -366,7 +223,7 @@ function ToolActivityCard({ item, open: openProp }: { item: ToolActivityItem; op
         <span className={toolVariants({ part: 'name' })}>{resolveToolDisplayName(item, locale)}</span>
         <span className={toolVariants({ part: 'meta' })}>
           {duration && <span className={toolVariants({ part: 'duration' })}>{duration}</span>}
-          <span className={toolVariants({ part: 'status-label' })}>{toolStatusLabel(item)}</span>
+          <span className={toolVariants({ part: 'status-label' })}>{toolStatusLabel(item, locale)}</span>
         </span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
@@ -411,6 +268,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const displayResult = showResult && item.result
     ? withLiveStreamFallback(item.result, item.outputChunks, {
       truncated: item.outputTruncated === true,
+      locale,
     })
     : undefined;
   const quietJson =
@@ -569,8 +427,8 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   // description — the "what exactly is running" signal is useful when there is
   // only one, and it is locked by existing tests.
   const summary = running
-    ? (items.length > 1 ? summarizeTrowTools(items, { live: true }) : firstPresentation.summary)
-    : summarizeTrowTools(items);
+    ? (items.length > 1 ? summarizeTrowTools(items, { live: true, locale }) : firstPresentation.summary)
+    : summarizeTrowTools(items, { locale });
   return (
     <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
@@ -640,7 +498,7 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
         {running ? (
           <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{presentation.summary}</TextShimmer>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{errored ? `${rowLabel} · 失败` : rowLabel}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{errored ? `${rowLabel} · ${getToolActivityCopy(locale).group.failedSuffix}` : rowLabel}</span>
         )}
         {/* Quiet meta sits right after the label (near the text, not pinned to
             the far edge): duration + chevron ride in on hover / open, matching
@@ -678,6 +536,7 @@ function ToolOutputStream(props: {
   live: boolean;
   truncated: boolean;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).output;
   const preRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (!props.live) return;
@@ -702,32 +561,18 @@ function ToolOutputStream(props: {
           >
             {chunk.text}
             {chunk.redacted && (
-              <span className="inline ml-0.5 text-[color:var(--warning-text,var(--info-text))]" aria-label="已脱敏">
-                {' '}[已脱敏]
+              <span className="inline ml-0.5 text-[color:var(--warning-text,var(--info-text))]" aria-label={copy.redactedAriaLabel}>
+                {' '}{copy.redacted}
               </span>
             )}
           </span>
         ))}
       </pre>
       {props.truncated && (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>输出已截断</p>
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.truncated}</p>
       )}
     </>
   );
-}
-
-/** One concise default summary of a tool failure: cap both characters and
- *  logical lines so a multi-line validation error cannot grow the banner to
- *  the ~2631px the issue tracked (a 240-char slice kept newlines, so 180 lines
- *  still rendered ~161 lines). The full redacted text stays in the disclosure
- *  for copy. */
-function summarizeErrorText(text: string): string {
-  const MAX_CHARS = 240;
-  const MAX_LINES = 4;
-  const lines = text.split('\n');
-  if (text.length <= MAX_CHARS && lines.length <= MAX_LINES) return text;
-  const trimmed = lines.slice(0, MAX_LINES).join('\n').slice(0, MAX_CHARS);
-  return `${trimmed}…`;
 }
 
 // Preserve the retired `.maka-tool-error*` leaf utilities onto Alert (#332 PR3c) —
@@ -735,21 +580,22 @@ function summarizeErrorText(text: string): string {
 // so they map 1:1 to the old CSS (`[align-self:start]`, not Tailwind's `flex-start`).
 function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
   const locale = useUiLocale();
+  const copyText = getToolActivityCopy(locale);
   // Tool stderr / raw provider errors occasionally slip credential paths,
   // bearer tokens, or API keys through main-side redaction. Apply a
   // defensive UI-level mask before display *and* before clipboard copy so
   // the user can't accidentally paste a credential into a bug report.
-  const errorText = formatUserVisibleToolText(redactSecrets(extractErrorText(props.result, locale)));
+  const errorText = formatUserVisibleToolText(redactSecrets(extractErrorText(props.result, locale)), locale);
   const copyFeedback = useClipboardCopyFeedback();
   const copyPhase = copyFeedback.phaseFor('tool-error');
   const copyPending = copyPhase === 'pending';
   const copyLabel = copyPhase === 'pending'
-    ? '复制中…'
+    ? copyText.copy.pending
     : copyPhase === 'copied'
-      ? '已复制'
+      ? copyText.copy.copied
       : copyPhase === 'failed'
-        ? '复制失败'
-        : '复制';
+        ? copyText.copy.failed
+        : copyText.copy.idle;
 
   async function copy() {
     if (!errorText) return;
@@ -759,7 +605,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
   return (
     <Alert variant="error" className="mb-2.5">
       <AlertOctagon size={16} aria-hidden="true" />
-      <AlertTitle>工具调用失败</AlertTitle>
+      <AlertTitle>{copyText.error.title}</AlertTitle>
       {errorText && (
         <AlertDescription className="[font-family:var(--font-mono)] text-xs leading-normal whitespace-pre-wrap [word-break:break-word]">
           {summarizeErrorText(errorText)}
@@ -774,7 +620,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
             className="[align-self:start] data-[pending=true]:cursor-progress data-[copy-feedback=copied]:text-[color:var(--link)] data-[copy-feedback=copied]:border-[oklch(from_var(--link)_l_c_h_/_0.35)] data-[copy-feedback=failed]:text-[color:var(--destructive)] data-[copy-feedback=failed]:border-[oklch(from_var(--destructive)_l_c_h_/_0.35)]"
             data-pending={copyPending ? 'true' : undefined}
             data-copy-feedback={copyPhase ?? undefined}
-            aria-label={`${copyLabel}错误信息`}
+            aria-label={copyText.error.copyAriaLabel(copyLabel)}
             aria-busy={copyPending ? 'true' : undefined}
             disabled={copyPending}
             onClick={() => void copy()}
@@ -805,6 +651,7 @@ export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).output;
   const [internalOpen, setInternalOpen] = useState(false);
   const open = openProp ?? internalOpen;
   // Always update internalOpen so an onOpenChange-only caller still sees the
@@ -822,7 +669,7 @@ export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
           aria-hidden="true"
           className={cn('shrink-0 transition-transform duration-[var(--duration-quick)] [transition-timing-function:var(--ease-out-strong)]', open && 'rotate-90')}
         />
-        <span>{open ? '隐藏原始诊断' : '显示原始诊断'}</span>
+        <span>{open ? copy.hideRaw : copy.showRaw}</span>
       </CollapsibleTrigger>
       <CollapsiblePanel className="mt-1">
         {children}
@@ -832,6 +679,7 @@ export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
 }
 
 export function OverlayHost(props: { content?: ToolResultContent; onClose(): void }) {
+  const copy = getToolActivityCopy(useUiLocale()).output;
   if (!props.content) return null;
   return (
     <div className="maka-modal-backdrop overlay">
@@ -841,10 +689,10 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
         variant="ghost"
         size="sm"
         onClick={props.onClose}
-        aria-label="关闭预览"
+        aria-label={copy.closeAriaLabel}
       >
         <X size={14} aria-hidden="true" />
-        <span>关闭</span>
+        <span>{copy.close}</span>
       </UiButton>
       <ToolResultPreview content={props.content} />
     </div>

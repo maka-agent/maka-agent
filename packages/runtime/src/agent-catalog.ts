@@ -24,12 +24,16 @@ export const AGENT_WORKSPACE_WORKTREE = 'worktree';
 export const AGENT_WRITE_BACK_SUMMARY = 'summary';
 export const AGENT_WRITE_BACK_PATCH = 'patch';
 
-export type AgentProfile = typeof BUILTIN_AGENT_PROFILES[number];
+export type AgentProfile = (typeof BUILTIN_AGENT_PROFILES)[number];
 export type AgentCapability = AgentProfile;
 export type AgentInvocationMode = typeof AGENT_INVOCATION_FOREGROUND;
 export type AgentContextMode = typeof AGENT_CONTEXT_ISOLATED;
 export type AgentWorkspaceMode = typeof AGENT_WORKSPACE_SAME_WORKSPACE | 'worktree' | 'sandbox';
-export type AgentWriteBackMode = typeof AGENT_WRITE_BACK_SUMMARY | 'decision' | 'artifact' | 'patch';
+export type AgentWriteBackMode =
+  | typeof AGENT_WRITE_BACK_SUMMARY
+  | 'decision'
+  | 'artifact'
+  | 'patch';
 
 export interface AgentProfileContract {
   capability: AgentCapability;
@@ -189,20 +193,23 @@ const modeRank: Record<PermissionMode, number> = {
   bypass: 3,
 };
 
-export function listBuiltinAgentDefinitions(options: AgentDefinitionListOptions = {}): AgentDefinitionListItem[] {
+export function listBuiltinAgentDefinitions(
+  options: AgentDefinitionListOptions = {},
+): AgentDefinitionListItem[] {
   return BUILTIN_AGENT_DEFINITIONS.map((definition) => ({
     id: definition.id,
     profile: definition.profile,
     name: definition.name,
     description: definition.description,
     contract: definition.contract,
-    availability: options.parentPermissionMode && options.tools
-      ? evaluateAgentDefinitionAvailability({
-          parentPermissionMode: options.parentPermissionMode,
-          definition,
-          tools: options.tools,
-        })
-      : { status: 'unknown' },
+    availability:
+      options.parentPermissionMode && options.tools
+        ? evaluateAgentDefinitionAvailability({
+            parentPermissionMode: options.parentPermissionMode,
+            definition,
+            tools: options.tools,
+          })
+        : { status: 'unknown' },
     permissionMode: definition.permissionMode,
     tools: [...definition.tools],
   }));
@@ -281,8 +288,9 @@ export function evaluateAgentDefinitionAvailability(input: {
       const tool = byName.get(name);
       return tool ? { name, ...evaluateAgentDefinitionToolAccess(definition, tool) } : undefined;
     })
-    .filter((item): item is { name: string; category: ToolCategory; decision: PolicyDecision } =>
-      item !== undefined && item.decision !== 'allow'
+    .filter(
+      (item): item is { name: string; category: ToolCategory; decision: PolicyDecision } =>
+        item !== undefined && item.decision !== 'allow',
     );
   if (blockedTools.length > 0) {
     return { status: 'unavailable', reason: 'non_allow_tool_policy', blockedTools };
@@ -313,7 +321,11 @@ export function assertAgentDefinitionRunnable(input: {
   tools: readonly MakaTool[];
 }): void {
   const { parentPermissionMode, definition, tools } = input;
-  const availability = evaluateAgentDefinitionAvailability({ parentPermissionMode, definition, tools });
+  const availability = evaluateAgentDefinitionAvailability({
+    parentPermissionMode,
+    definition,
+    tools,
+  });
   if (availability.status !== 'unavailable') return;
 
   if (availability.reason === 'parent_permission_mode') {
@@ -322,10 +334,14 @@ export function assertAgentDefinitionRunnable(input: {
     );
   }
   if (availability.reason === 'missing_tools') {
-    throw new Error(`Agent "${definition.id}" is unavailable: missing tools: ${availability.missingTools.join(', ')}`);
+    throw new Error(
+      `Agent "${definition.id}" is unavailable: missing tools: ${availability.missingTools.join(', ')}`,
+    );
   }
   if (availability.reason === 'non_allow_tool_policy') {
-    const details = availability.blockedTools.map((item) => `${item.name}:${item.decision}`).join(', ');
+    const details = availability.blockedTools
+      .map((item) => `${item.name}:${item.decision}`)
+      .join(', ');
     throw new Error(`Agent "${definition.id}" is unavailable: non-allow tool policy: ${details}`);
   }
   if (availability.reason === 'workspace_isolation_unavailable') {

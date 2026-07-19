@@ -21,7 +21,9 @@ export interface ToolOutputDeltaEmitter {
   flush(): void;
 }
 
-export function createToolOutputDeltaEmitter(input: ToolOutputDeltaEmitterInput): ToolOutputDeltaEmitter {
+export function createToolOutputDeltaEmitter(
+  input: ToolOutputDeltaEmitterInput,
+): ToolOutputDeltaEmitter {
   let seq = 0;
   const buffers: Record<ToolOutputStream, string> = {
     stdout: '',

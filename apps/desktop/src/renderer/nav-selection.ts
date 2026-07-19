@@ -15,6 +15,7 @@ export function readNavSelection(): NavSelection {
     // app stuck on an invalid section. Reject anything that is not
     // in the current closed-enum.
     if (parsed.section === 'skills') return { section: 'skills' };
+    if (parsed.section === 'mcp') return { section: 'mcp' };
     if (parsed.section === 'automations') return { section: 'automations' };
     if (parsed.section === 'daily-review') return { section: 'daily-review' };
     if (
@@ -40,4 +41,3 @@ export function filterSessions(sessions: SessionSummary[], selection: NavSelecti
       return sessions.filter((session) => !session.isArchived && session.lastMessageAt);
   }
 }
-

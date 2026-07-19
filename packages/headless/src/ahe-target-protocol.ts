@@ -69,20 +69,17 @@ const FORBIDDEN_PATCH_PATH_PREFIXES = [
   'apps/desktop/dist/',
 ] as const;
 
-const FORBIDDEN_PATCH_PATH_PARTS = [
-  '/.git/',
-  '/node_modules/',
-  '/dist/',
-] as const;
+const FORBIDDEN_PATCH_PATH_PARTS = ['/.git/', '/node_modules/', '/dist/'] as const;
 
-export type MakaAheTargetProtocolVersion = typeof MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS[number];
+export type MakaAheTargetProtocolVersion =
+  (typeof MAKA_AHE_SUPPORTED_TARGET_PROTOCOL_VERSIONS)[number];
 export type MakaAheCurrentTargetProtocolVersion = typeof MAKA_AHE_TARGET_PROTOCOL_VERSION;
 export type MakaAheLegacyTargetProtocolVersion = typeof MAKA_AHE_TARGET_PROTOCOL_VERSION_V1;
 export type MakaAheTargetSourceLabel = typeof MAKA_AHE_TARGET_SOURCE_LABEL;
-export type MakaAheComponentCategory = typeof MAKA_AHE_COMPONENT_CATEGORIES[number];
-export type MakaAheResultStatus = typeof MAKA_AHE_RESULT_STATUSES[number];
-export type MakaAheScoreAuthority = typeof MAKA_AHE_SCORE_AUTHORITIES[number];
-export type MakaAheTransitionStatus = typeof MAKA_AHE_TRANSITION_STATUSES[number];
+export type MakaAheComponentCategory = (typeof MAKA_AHE_COMPONENT_CATEGORIES)[number];
+export type MakaAheResultStatus = (typeof MAKA_AHE_RESULT_STATUSES)[number];
+export type MakaAheScoreAuthority = (typeof MAKA_AHE_SCORE_AUTHORITIES)[number];
+export type MakaAheTransitionStatus = (typeof MAKA_AHE_TRANSITION_STATUSES)[number];
 
 export interface MakaAheSourceRef {
   path: string;
@@ -260,12 +257,13 @@ export interface MakaAheEvidenceCase {
   summary: string;
 }
 
-export interface MakaAheChangeManifest extends MakaChangeAuditRecord<
-  MakaAheComponentCategory,
-  MakaAheEvidenceCase,
-  MakaAheEvidenceCase,
-  MakaAheEvidenceCase
-> {
+export interface MakaAheChangeManifest
+  extends MakaChangeAuditRecord<
+    MakaAheComponentCategory,
+    MakaAheEvidenceCase,
+    MakaAheEvidenceCase,
+    MakaAheEvidenceCase
+  > {
   protocolVersion: MakaAheTargetProtocolVersion;
   manifestId: string;
   sourceLabel: MakaAheTargetSourceLabel | string;
@@ -321,7 +319,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-system-prompt',
     category: 'system_prompt',
     label: 'Maka desktop system prompt',
-    description: 'Desktop main-process prompt and workspace context that shape every interactive Maka turn.',
+    description:
+      'Desktop main-process prompt and workspace context that shape every interactive Maka turn.',
     editable: true,
     sourceRefs: [
       { path: 'apps/desktop/src/main/system-prompt-main.ts' },
@@ -333,7 +332,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-heavy-task-policy',
     category: 'heavy_task_policy',
     label: 'Heavy-task policy',
-    description: 'Policy text and benchmark wrapper expectations for long-running and evidence-heavy tasks.',
+    description:
+      'Policy text and benchmark wrapper expectations for long-running and evidence-heavy tasks.',
     editable: true,
     sourceRefs: [
       { path: 'packages/headless/src/heavy-task-policy.ts' },
@@ -347,7 +347,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-tool-contracts',
     category: 'tool_contract',
     label: 'Tool descriptions and schemas',
-    description: 'Maka tool names, descriptions, input schemas, gating, and selected desktop tool wrappers.',
+    description:
+      'Maka tool names, descriptions, input schemas, gating, and selected desktop tool wrappers.',
     editable: true,
     sourceRefs: [
       { path: 'packages/runtime/src/tool-runtime.ts', exportName: 'MakaTool' },
@@ -360,7 +361,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-context-management',
     category: 'context_management_policy',
     label: 'Context budget and compaction',
-    description: 'Runtime context-budget, active tool-result pruning, and semantic compaction behavior.',
+    description:
+      'Runtime context-budget, active tool-result pruning, and semantic compaction behavior.',
     editable: true,
     sourceRefs: [
       { path: 'packages/runtime/src/context-budget.ts' },
@@ -373,7 +375,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-permission-policy',
     category: 'permission_policy',
     label: 'Permission and tool availability policy',
-    description: 'Permission modes, pre-tool-use policy, runtime permission enforcement, and dynamic tool availability.',
+    description:
+      'Permission modes, pre-tool-use policy, runtime permission enforcement, and dynamic tool availability.',
     editable: true,
     sourceRefs: [
       { path: 'packages/core/src/permission.ts' },
@@ -385,7 +388,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-runtime-evidence',
     category: 'runtime_evidence',
     label: 'Runtime evidence ledger',
-    description: 'Canonical runtime events, agent-run records, and runner output used as AHE trace evidence.',
+    description:
+      'Canonical runtime events, agent-run records, and runner output used as AHE trace evidence.',
     editable: false,
     sourceRefs: [
       { path: 'packages/core/src/runtime-event.ts', exportName: 'RuntimeEvent' },
@@ -397,7 +401,8 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     id: 'maka-headless-evaluation',
     category: 'headless_evaluation_policy',
     label: 'Headless and benchmark evaluation',
-    description: 'Headless result format, official verifier accounting, and Terminal-Bench smoke runner protocol.',
+    description:
+      'Headless result format, official verifier accounting, and Terminal-Bench smoke runner protocol.',
     editable: true,
     sourceRefs: [
       { path: 'packages/headless/README.md' },
@@ -447,7 +452,9 @@ export function validateMakaAheTargetComponents(
     validateSourceRefs(component.sourceRefs, `${path}.sourceRefs`, errors);
   });
 
-  return errors.length === 0 ? { ok: true, value: value as readonly MakaAheTargetComponent[] } : { ok: false, errors };
+  return errors.length === 0
+    ? { ok: true, value: value as readonly MakaAheTargetComponent[] }
+    : { ok: false, errors };
 }
 
 export function validateMakaAheTargetSnapshot(
@@ -476,11 +483,20 @@ export function validateMakaAheTargetSnapshot(
     if (componentResult.ok && isSourceManifest(value.sourceManifest)) {
       const expectedId = makaAheTargetSnapshotId(componentResult.value, value.sourceManifest);
       if (value.snapshotId !== expectedId) {
-        errors.push({ path: 'snapshotId', message: `does not match content-addressed target identity "${expectedId}"` });
+        errors.push({
+          path: 'snapshotId',
+          message: `does not match content-addressed target identity "${expectedId}"`,
+        });
       }
     }
-  } else if (value.protocolVersion === MAKA_AHE_TARGET_PROTOCOL_VERSION_V1 && typeof value.sourceManifest !== 'undefined') {
-    errors.push({ path: 'sourceManifest', message: 'legacy v1 snapshots are not content-addressed' });
+  } else if (
+    value.protocolVersion === MAKA_AHE_TARGET_PROTOCOL_VERSION_V1 &&
+    typeof value.sourceManifest !== 'undefined'
+  ) {
+    errors.push({
+      path: 'sourceManifest',
+      message: 'legacy v1 snapshots are not content-addressed',
+    });
   }
 
   return errors.length === 0
@@ -488,7 +504,9 @@ export function validateMakaAheTargetSnapshot(
     : { ok: false, errors };
 }
 
-export function makaAheSourceManifestDigest(entries: readonly MakaAheSourceManifestEntry[]): string {
+export function makaAheSourceManifestDigest(
+  entries: readonly MakaAheSourceManifestEntry[],
+): string {
   return contentHash({
     algorithm: 'sha256',
     entries: canonicalSourceManifestEntries(entries),
@@ -516,7 +534,10 @@ export function validateMakaAheExecutionLineage(
   const errors: MakaAheValidationIssue[] = [];
   if (!isRecord(value)) return invalid('lineage', 'expected an object');
   if (value.schemaVersion !== MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION) {
-    errors.push({ path: 'schemaVersion', message: `expected "${MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION}"` });
+    errors.push({
+      path: 'schemaVersion',
+      message: `expected "${MAKA_AHE_EXECUTION_LINEAGE_SCHEMA_VERSION}"`,
+    });
   }
   if (!isRecord(value.target)) {
     errors.push({ path: 'target', message: 'expected an object' });
@@ -538,13 +559,20 @@ export function validateMakaAheExecutionLineage(
       ...(isRecord(value.target) ? { target: value.target } : {}),
     });
     if (!taskRef.ok) {
-      errors.push(...taskRef.errors.map((issue) => ({ path: `task.${issue.path}`, message: issue.message })));
+      errors.push(
+        ...taskRef.errors.map((issue) => ({ path: `task.${issue.path}`, message: issue.message })),
+      );
     }
   }
-  if (value.rawRuntimeEvents !== 'included'
-    && value.rawRuntimeEvents !== 'omitted_by_policy'
-    && value.rawRuntimeEvents !== 'requested_with_gaps') {
-    errors.push({ path: 'rawRuntimeEvents', message: 'expected "included", "omitted_by_policy", or "requested_with_gaps"' });
+  if (
+    value.rawRuntimeEvents !== 'included' &&
+    value.rawRuntimeEvents !== 'omitted_by_policy' &&
+    value.rawRuntimeEvents !== 'requested_with_gaps'
+  ) {
+    errors.push({
+      path: 'rawRuntimeEvents',
+      message: 'expected "included", "omitted_by_policy", or "requested_with_gaps"',
+    });
   }
   if (!Array.isArray(value.attempts)) {
     errors.push({ path: 'attempts', message: 'expected an array' });
@@ -557,8 +585,10 @@ export function validateMakaAheExecutionLineage(
         return;
       }
       const attemptId = readString(attempt.attemptId);
-      if (!attemptId) errors.push({ path: `${path}.attemptId`, message: 'expected a non-empty string' });
-      else if (attemptIds.has(attemptId)) errors.push({ path: `${path}.attemptId`, message: `duplicate attempt id "${attemptId}"` });
+      if (!attemptId)
+        errors.push({ path: `${path}.attemptId`, message: 'expected a non-empty string' });
+      else if (attemptIds.has(attemptId))
+        errors.push({ path: `${path}.attemptId`, message: `duplicate attempt id "${attemptId}"` });
       else attemptIds.add(attemptId);
       requireNonEmptyString(attempt.status, `${path}.status`, errors);
       validateLineageGaps(attempt.gaps, `${path}.gaps`, errors);
@@ -574,20 +604,43 @@ export function validateMakaAheExecutionLineage(
         }
         const validation = validateExecutionEvidenceRef(execution.evidence);
         if (!validation.ok) {
-          errors.push(...validation.errors.map((issue) => ({ path: `${executionPath}.evidence.${issue.path}`, message: issue.message })));
+          errors.push(
+            ...validation.errors.map((issue) => ({
+              path: `${executionPath}.evidence.${issue.path}`,
+              message: issue.message,
+            })),
+          );
         } else {
           if (isRecord(value.task) && validation.value.task?.taskRunId !== value.task.taskRunId) {
-            errors.push({ path: `${executionPath}.evidence.task.taskRunId`, message: 'expected owning taskRunId' });
+            errors.push({
+              path: `${executionPath}.evidence.task.taskRunId`,
+              message: 'expected owning taskRunId',
+            });
           }
           if (attemptId && validation.value.task?.attemptId !== attemptId) {
-            errors.push({ path: `${executionPath}.evidence.task.attemptId`, message: 'expected owning attemptId' });
+            errors.push({
+              path: `${executionPath}.evidence.task.attemptId`,
+              message: 'expected owning attemptId',
+            });
           }
-          if (isRecord(value.target) && validation.value.target?.snapshotId !== value.target.snapshotId) {
-            errors.push({ path: `${executionPath}.evidence.target.snapshotId`, message: 'expected owning target snapshotId' });
+          if (
+            isRecord(value.target) &&
+            validation.value.target?.snapshotId !== value.target.snapshotId
+          ) {
+            errors.push({
+              path: `${executionPath}.evidence.target.snapshotId`,
+              message: 'expected owning target snapshotId',
+            });
           }
         }
-        if (typeof execution.inspectRef !== 'undefined') validateArtifactRef(execution.inspectRef, `${executionPath}.inspectRef`, errors);
-        if (typeof execution.runtimeEventsRef !== 'undefined') validateArtifactRef(execution.runtimeEventsRef, `${executionPath}.runtimeEventsRef`, errors);
+        if (typeof execution.inspectRef !== 'undefined')
+          validateArtifactRef(execution.inspectRef, `${executionPath}.inspectRef`, errors);
+        if (typeof execution.runtimeEventsRef !== 'undefined')
+          validateArtifactRef(
+            execution.runtimeEventsRef,
+            `${executionPath}.runtimeEventsRef`,
+            errors,
+          );
         validateLineageGaps(execution.gaps, `${executionPath}.gaps`, errors);
       });
     });
@@ -622,14 +675,22 @@ export function validateMakaAheChangeManifest(
   }
 
   const componentIds = new Set(components.map((component) => component.id));
-  validateStringArray(value.changedComponents, 'changedComponents', errors, { minItems: 1, allowedValues: componentIds });
+  validateStringArray(value.changedComponents, 'changedComponents', errors, {
+    minItems: 1,
+    allowedValues: componentIds,
+  });
   const changedComponentIds = stringArray(value.changedComponents);
-  const changedComponents = components.filter((component) => changedComponentIds.includes(component.id));
+  const changedComponents = components.filter((component) =>
+    changedComponentIds.includes(component.id),
+  );
   if (
-    isOneOf(value.editedSurface, MAKA_AHE_COMPONENT_CATEGORIES)
-    && changedComponents.some((component) => component.category !== value.editedSurface)
+    isOneOf(value.editedSurface, MAKA_AHE_COMPONENT_CATEGORIES) &&
+    changedComponents.some((component) => component.category !== value.editedSurface)
   ) {
-    errors.push({ path: 'editedSurface', message: 'expected every changed component to match the declared surface' });
+    errors.push({
+      path: 'editedSurface',
+      message: 'expected every changed component to match the declared surface',
+    });
   }
   for (const componentId of changedComponentIds) {
     const component = components.find((candidate) => candidate.id === componentId);
@@ -647,10 +708,14 @@ export function validateMakaAheChangeManifest(
   validatePatch(value.patch, errors, changedComponents);
   validateStringArray(value.rollbackCriteria, 'rollbackCriteria', errors, { minItems: 1 });
 
-  return errors.length === 0 ? { ok: true, value: value as unknown as MakaAheChangeManifest } : { ok: false, errors };
+  return errors.length === 0
+    ? { ok: true, value: value as unknown as MakaAheChangeManifest }
+    : { ok: false, errors };
 }
 
-export function validateMakaAheRunResult(value: unknown): MakaAheValidationResult<MakaAheRunResultDocument> {
+export function validateMakaAheRunResult(
+  value: unknown,
+): MakaAheValidationResult<MakaAheRunResultDocument> {
   const errors: MakaAheValidationIssue[] = [];
   if (!isRecord(value)) {
     return invalid('result', 'expected an object');
@@ -663,7 +728,10 @@ export function validateMakaAheRunResult(value: unknown): MakaAheValidationResul
 
   if (typeof value.schemaVersion !== 'undefined') {
     if (value.schemaVersion !== MAKA_AHE_RUN_RESULT_SCHEMA_VERSION) {
-      errors.push({ path: 'schemaVersion', message: `expected "${MAKA_AHE_RUN_RESULT_SCHEMA_VERSION}"` });
+      errors.push({
+        path: 'schemaVersion',
+        message: `expected "${MAKA_AHE_RUN_RESULT_SCHEMA_VERSION}"`,
+      });
     }
     requireNonEmptyString(value.taskRunId, 'taskRunId', errors);
     validateArtifactRef(value.executionLineageRef, 'executionLineageRef', errors);
@@ -676,9 +744,9 @@ export function validateMakaAheRunResult(value: unknown): MakaAheValidationResul
     errors.push({ path: 'scoreAuthority', message: 'expected a known score authority' });
   }
   if (
-    (value.status === 'official_pass' || value.status === 'official_fail')
-    && value.scoreAuthority !== 'official_verifier'
-    && value.scoreAuthority !== 'official_scorer'
+    (value.status === 'official_pass' || value.status === 'official_fail') &&
+    value.scoreAuthority !== 'official_verifier' &&
+    value.scoreAuthority !== 'official_scorer'
   ) {
     errors.push({
       path: 'status',
@@ -696,7 +764,9 @@ export function validateMakaAheRunResult(value: unknown): MakaAheValidationResul
     if (typeof ref !== 'undefined') validateArtifactRef(ref, field, errors);
   }
 
-  return errors.length === 0 ? { ok: true, value: value as unknown as MakaAheRunResultDocument } : { ok: false, errors };
+  return errors.length === 0
+    ? { ok: true, value: value as unknown as MakaAheRunResultDocument }
+    : { ok: false, errors };
 }
 
 function validateSourceRefs(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
@@ -713,10 +783,16 @@ function validateSourceRefs(value: unknown, path: string, errors: MakaAheValidat
     }
     requireNonEmptyString(sourceRef.path, `${sourcePath}.path`, errors);
     if (typeof sourceRef.exportName !== 'undefined' && !readString(sourceRef.exportName)) {
-      errors.push({ path: `${sourcePath}.exportName`, message: 'expected a non-empty string when present' });
+      errors.push({
+        path: `${sourcePath}.exportName`,
+        message: 'expected a non-empty string when present',
+      });
     }
     if (typeof sourceRef.description !== 'undefined' && !readString(sourceRef.description)) {
-      errors.push({ path: `${sourcePath}.description`, message: 'expected a non-empty string when present' });
+      errors.push({
+        path: `${sourcePath}.description`,
+        message: 'expected a non-empty string when present',
+      });
     }
     if (readString(sourceRef.path)) {
       const identity = `${sourceRef.path}\u0000${readString(sourceRef.exportName) ?? ''}`;
@@ -742,7 +818,10 @@ function validateSourceManifest(
   }
   requireSha256(value.digest, 'sourceManifest.digest', errors);
   if (!Array.isArray(value.entries) || value.entries.length === 0) {
-    errors.push({ path: 'sourceManifest.entries', message: 'expected at least one source manifest entry' });
+    errors.push({
+      path: 'sourceManifest.entries',
+      message: 'expected at least one source manifest entry',
+    });
     return;
   }
 
@@ -756,10 +835,17 @@ function validateSourceManifest(
     requireNonEmptyString(entry.componentId, `${path}.componentId`, errors);
     requireNonEmptyString(entry.path, `${path}.path`, errors);
     if (typeof entry.exportName !== 'undefined' && !readString(entry.exportName)) {
-      errors.push({ path: `${path}.exportName`, message: 'expected a non-empty string when present' });
+      errors.push({
+        path: `${path}.exportName`,
+        message: 'expected a non-empty string when present',
+      });
     }
     requireSha256(entry.digest, `${path}.digest`, errors);
-    if (typeof entry.sizeBytes !== 'number' || !Number.isSafeInteger(entry.sizeBytes) || entry.sizeBytes < 0) {
+    if (
+      typeof entry.sizeBytes !== 'number' ||
+      !Number.isSafeInteger(entry.sizeBytes) ||
+      entry.sizeBytes < 0
+    ) {
       errors.push({ path: `${path}.sizeBytes`, message: 'expected a non-negative safe integer' });
     }
     const identity = sourceManifestEntryIdentity(entry);
@@ -772,21 +858,36 @@ function validateSourceManifest(
   if (isSourceManifest(value)) {
     const expectedDigest = makaAheSourceManifestDigest(value.entries);
     if (value.digest !== expectedDigest) {
-      errors.push({ path: 'sourceManifest.digest', message: `does not match manifest entries "${expectedDigest}"` });
+      errors.push({
+        path: 'sourceManifest.digest',
+        message: `does not match manifest entries "${expectedDigest}"`,
+      });
     }
   }
 
   if (Array.isArray(components)) {
-    const expected = components.flatMap((component) => {
-      if (!isRecord(component) || !readString(component.id) || !Array.isArray(component.sourceRefs)) return [];
-      return component.sourceRefs.flatMap((sourceRef) => {
-        if (!isRecord(sourceRef) || !readString(sourceRef.path)) return [];
-        return [`${component.id}\u0000${sourceRef.path}\u0000${readString(sourceRef.exportName) ?? ''}`];
-      });
-    }).sort();
+    const expected = components
+      .flatMap((component) => {
+        if (
+          !isRecord(component) ||
+          !readString(component.id) ||
+          !Array.isArray(component.sourceRefs)
+        )
+          return [];
+        return component.sourceRefs.flatMap((sourceRef) => {
+          if (!isRecord(sourceRef) || !readString(sourceRef.path)) return [];
+          return [
+            `${component.id}\u0000${sourceRef.path}\u0000${readString(sourceRef.exportName) ?? ''}`,
+          ];
+        });
+      })
+      .sort();
     const actual = [...identities].sort();
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      errors.push({ path: 'sourceManifest.entries', message: 'entries must exactly cover component source refs' });
+      errors.push({
+        path: 'sourceManifest.entries',
+        message: 'entries must exactly cover component source refs',
+      });
     }
   }
 }
@@ -808,11 +909,7 @@ function validateGitIdentity(value: unknown, errors: MakaAheValidationIssue[]): 
   }
 }
 
-function validateArtifactRef(
-  value: unknown,
-  path: string,
-  errors: MakaAheValidationIssue[],
-): void {
+function validateArtifactRef(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
   if (!isRecord(value)) {
     errors.push({ path, message: 'expected an artifact ref object' });
     return;
@@ -821,20 +918,25 @@ function validateArtifactRef(
     errors.push({ path: `${path}.kind`, message: 'expected a known artifact ref kind' });
   }
   requireNonEmptyString(value.ref, `${path}.ref`, errors);
-  if (typeof value.mediaType !== 'undefined') requireNonEmptyString(value.mediaType, `${path}.mediaType`, errors);
-  if (typeof value.description !== 'undefined') requireNonEmptyString(value.description, `${path}.description`, errors);
+  if (typeof value.mediaType !== 'undefined')
+    requireNonEmptyString(value.mediaType, `${path}.mediaType`, errors);
+  if (typeof value.description !== 'undefined')
+    requireNonEmptyString(value.description, `${path}.description`, errors);
   if (typeof value.digest !== 'undefined') requireSha256(value.digest, `${path}.digest`, errors);
-  if (typeof value.sizeBytes !== 'undefined'
-    && (typeof value.sizeBytes !== 'number' || !Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 0)) {
-    errors.push({ path: `${path}.sizeBytes`, message: 'expected a non-negative safe integer when present' });
+  if (
+    typeof value.sizeBytes !== 'undefined' &&
+    (typeof value.sizeBytes !== 'number' ||
+      !Number.isSafeInteger(value.sizeBytes) ||
+      value.sizeBytes < 0)
+  ) {
+    errors.push({
+      path: `${path}.sizeBytes`,
+      message: 'expected a non-negative safe integer when present',
+    });
   }
 }
 
-function validateLineageGaps(
-  value: unknown,
-  path: string,
-  errors: MakaAheValidationIssue[],
-): void {
+function validateLineageGaps(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
   if (!Array.isArray(value)) {
     errors.push({ path, message: 'expected an array' });
     return;
@@ -853,7 +955,8 @@ function validateLineageGaps(
       errors.push({ path: gapPath, message: 'expected an object' });
       return;
     }
-    if (!allowed.has(String(gap.code))) errors.push({ path: `${gapPath}.code`, message: 'expected a known lineage gap code' });
+    if (!allowed.has(String(gap.code)))
+      errors.push({ path: `${gapPath}.code`, message: 'expected a known lineage gap code' });
     requireNonEmptyString(gap.message, `${gapPath}.message`, errors);
   });
 }
@@ -876,7 +979,10 @@ function validateEvidenceCases(
     }
     requireNonEmptyString(item.taskId, `${itemPath}.taskId`, errors);
     requireNonEmptyString(item.summary, `${itemPath}.summary`, errors);
-    if (typeof item.resultStatus !== 'undefined' && !isOneOf(item.resultStatus, MAKA_AHE_RESULT_STATUSES)) {
+    if (
+      typeof item.resultStatus !== 'undefined' &&
+      !isOneOf(item.resultStatus, MAKA_AHE_RESULT_STATUSES)
+    ) {
       errors.push({ path: `${itemPath}.resultStatus`, message: 'expected a known result status' });
     }
   });
@@ -980,7 +1086,11 @@ function requireSha256(value: unknown, path: string, errors: MakaAheValidationIs
   }
 }
 
-function requireNonEmptyString(value: unknown, path: string, errors: MakaAheValidationIssue[]): void {
+function requireNonEmptyString(
+  value: unknown,
+  path: string,
+  errors: MakaAheValidationIssue[],
+): void {
   if (!readString(value)) {
     errors.push({ path, message: 'expected a non-empty string' });
   }
@@ -991,7 +1101,9 @@ function readString(value: unknown): string | undefined {
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1003,16 +1115,21 @@ function isOneOf<T extends readonly string[]>(value: unknown, allowed: T): value
 }
 
 function isSourceManifest(value: unknown): value is MakaAheSourceManifest {
-  return isRecord(value)
-    && value.algorithm === 'sha256'
-    && typeof value.digest === 'string'
-    && Array.isArray(value.entries)
-    && value.entries.every((entry) => isRecord(entry)
-      && typeof entry.componentId === 'string'
-      && typeof entry.path === 'string'
-      && (typeof entry.exportName === 'undefined' || typeof entry.exportName === 'string')
-      && typeof entry.digest === 'string'
-      && typeof entry.sizeBytes === 'number');
+  return (
+    isRecord(value) &&
+    value.algorithm === 'sha256' &&
+    typeof value.digest === 'string' &&
+    Array.isArray(value.entries) &&
+    value.entries.every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.componentId === 'string' &&
+        typeof entry.path === 'string' &&
+        (typeof entry.exportName === 'undefined' || typeof entry.exportName === 'string') &&
+        typeof entry.digest === 'string' &&
+        typeof entry.sizeBytes === 'number',
+    )
+  );
 }
 
 function sourceManifestEntryIdentity(value: Record<string, unknown>): string | undefined {
@@ -1026,9 +1143,12 @@ function canonicalSourceManifestEntries(
   entries: readonly MakaAheSourceManifestEntry[],
 ): Array<Record<string, unknown>> {
   return [...entries]
-    .sort((a, b) => a.componentId.localeCompare(b.componentId)
-      || a.path.localeCompare(b.path)
-      || (a.exportName ?? '').localeCompare(b.exportName ?? ''))
+    .sort(
+      (a, b) =>
+        a.componentId.localeCompare(b.componentId) ||
+        a.path.localeCompare(b.path) ||
+        (a.exportName ?? '').localeCompare(b.exportName ?? ''),
+    )
     .map((entry) => ({
       componentId: entry.componentId,
       path: entry.path,
@@ -1050,8 +1170,10 @@ function canonicalTargetComponents(
       description: component.description,
       editable: component.editable,
       sourceRefs: [...component.sourceRefs]
-        .sort((a, b) => a.path.localeCompare(b.path)
-          || (a.exportName ?? '').localeCompare(b.exportName ?? ''))
+        .sort(
+          (a, b) =>
+            a.path.localeCompare(b.path) || (a.exportName ?? '').localeCompare(b.exportName ?? ''),
+        )
         .map((sourceRef) => ({
           path: sourceRef.path,
           ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),

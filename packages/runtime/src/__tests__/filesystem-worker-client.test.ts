@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, test } from 'node:test';
+import { MAX_READ_IMAGE_BYTES } from '@maka/core';
 import {
   canWritePath,
   createReadOnlyPermissionProfile,
@@ -19,6 +20,10 @@ import {
   FilesystemWorkerClientError,
 } from '../filesystem-worker/client.js';
 import {
+  FILESYSTEM_WORKER_MAX_RESPONSE_BYTES,
+  type FilesystemWorkerProcessRunInput,
+} from '../filesystem-worker/process-runner.js';
+import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   FilesystemWorkerRequestSchema,
   type FilesystemWorkerRequest,
@@ -32,6 +37,11 @@ const cleanup: string[] = [];
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+test('Read image payloads fit within the filesystem worker response limit', () => {
+  const base64Bytes = 4 * Math.ceil(MAX_READ_IMAGE_BYTES / 3);
+  assert.ok(base64Bytes + 1024 < FILESYSTEM_WORKER_MAX_RESPONSE_BYTES);
 });
 
 describe('filesystem worker client permission snapshots', () => {
@@ -97,7 +107,11 @@ describe('filesystem worker client permission snapshots', () => {
     const { client, requests } = fakeClient();
 
     await assert.rejects(
-      client.execute({ operation: { kind: 'read', path: target }, cwd: workspace, mode: 'explore' }),
+      client.execute({
+        operation: { kind: 'read', path: target },
+        cwd: workspace,
+        mode: 'explore',
+      }),
       isPathDenied,
     );
     const result = await client.execute({
@@ -109,9 +123,13 @@ describe('filesystem worker client permission snapshots', () => {
 
     assert.deepEqual(result, { kind: 'read', content: 'worker-content' });
     assert.equal(requests.length, 1);
-    assert.deepEqual(requests[0]?.operationPermission.fileSystem?.entries, [{
-      path: target, access: 'read', scope: 'exact',
-    }]);
+    assert.deepEqual(requests[0]?.operationPermission.fileSystem?.entries, [
+      {
+        path: target,
+        access: 'read',
+        scope: 'exact',
+      },
+    ]);
   });
 });
 
@@ -149,9 +167,13 @@ describe('filesystem worker client Grep target scope', () => {
     });
 
     assert.equal(requests[0]?.expectedTarget.scope, 'exact');
-    assert.deepEqual(requests[0]?.operationPermission.fileSystem?.entries, [{
-      path: target, access: 'read', scope: 'exact',
-    }]);
+    assert.deepEqual(requests[0]?.operationPermission.fileSystem?.entries, [
+      {
+        path: target,
+        access: 'read',
+        scope: 'exact',
+      },
+    ]);
   });
 
   test('uses subtree scope for a directory search', async () => {
@@ -167,9 +189,13 @@ describe('filesystem worker client Grep target scope', () => {
     });
 
     assert.equal(requests[0]?.expectedTarget.scope, 'subtree');
-    assert.deepEqual(requests[0]?.operationPermission.fileSystem?.entries, [{
-      path: directory, access: 'read', scope: 'subtree',
-    }]);
+    assert.deepEqual(requests[0]?.operationPermission.fileSystem?.entries, [
+      {
+        path: directory,
+        access: 'read',
+        scope: 'subtree',
+      },
+    ]);
   });
 });
 
@@ -188,19 +214,17 @@ describe('filesystem worker operation-scoped Seatbelt profile', () => {
 
     const transform = transforms[0];
     assert.ok(transform);
-    assert.equal(canWritePath(
-      transform.command.profile,
-      target,
-      transform.command.pathContext,
-    ), true);
-    assert.equal(canWritePath(
-      transform.command.profile,
-      sibling,
-      transform.command.pathContext,
-    ), false);
+    assert.equal(
+      canWritePath(transform.command.profile, target, transform.command.pathContext),
+      true,
+    );
+    assert.equal(
+      canWritePath(transform.command.profile, sibling, transform.command.pathContext),
+      false,
+    );
     assert.deepEqual(
-      transform.command.profile.type === 'managed'
-        && transform.command.profile.fileSystem.kind === 'restricted'
+      transform.command.profile.type === 'managed' &&
+        transform.command.profile.fileSystem.kind === 'restricted'
         ? transform.command.profile.fileSystem.protectedMetadata?.names
         : undefined,
       ['.git', '.agents', '.codex'],
@@ -212,10 +236,12 @@ function fakeClient(): {
   client: FilesystemWorkerClient;
   requests: FilesystemWorkerRequest[];
   transforms: SandboxTransformRequest[];
+  processInputs: FilesystemWorkerProcessRunInput[];
 } {
   const requests: FilesystemWorkerRequest[] = [];
   const transforms: SandboxTransformRequest[] = [];
   const sandboxManager = new SandboxManager([new MacosSeatbeltBackend()]);
+  const processInputs: FilesystemWorkerProcessRunInput[] = [];
   const client = new FilesystemWorkerClient({
     sandboxManager: Object.assign(Object.create(sandboxManager), {
       transform(request: SandboxTransformRequest): SandboxTransformResult {
@@ -236,6 +262,7 @@ function fakeClient(): {
       },
     }),
     runProcess: async (input) => {
+      processInputs.push(input);
       const request = FilesystemWorkerRequestSchema.parse(JSON.parse(input.stdin));
       requests.push(request);
       return {
@@ -253,18 +280,26 @@ function fakeClient(): {
       };
     },
   });
-  return { client, requests, transforms };
+  return { client, requests, transforms, processInputs };
 }
 
 function fakeResult(request: FilesystemWorkerRequest): FilesystemWorkerResult {
   switch (request.operation.kind) {
-    case 'read': return { kind: 'read', content: 'worker-content' };
-    case 'write': return {
-      kind: 'write', ok: true, path: request.operation.path,
-      bytes: Buffer.byteLength(request.operation.content, 'utf8'),
-    };
-    case 'grep': return { kind: 'grep', matches: ['file.ts:1:value'] };
-    default: throw new Error(`Unexpected fake worker operation: ${request.operation.kind}`);
+    case 'read':
+      return request.operation.path.endsWith('.png')
+        ? { kind: 'read_image', base64: 'iVBORw==', mimeType: 'image/png' }
+        : { kind: 'read', content: 'worker-content' };
+    case 'write':
+      return {
+        kind: 'write',
+        ok: true,
+        path: request.operation.path,
+        bytes: Buffer.byteLength(request.operation.content, 'utf8'),
+      };
+    case 'grep':
+      return { kind: 'grep', matches: ['file.ts:1:value'] };
+    default:
+      throw new Error(`Unexpected fake worker operation: ${request.operation.kind}`);
   }
 }
 

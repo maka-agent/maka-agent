@@ -1,11 +1,11 @@
-# Expert Teams (star orchestrator→worker)
+# Expert Teams (lead/member collaboration)
 
 Expert teams let a **lead** persona fan a task out to specialist **member** experts,
-each running as a tool-scoped child agent, then synthesize their results. It is the
-star topology reverse-engineered from WorkBuddy's `team` experts and QoderWork's
-sub-agent pipelines (see [expert-team-implementation.md](archive/expert-team-implementation.md)),
-rebuilt entirely on Maka's existing child-agent machinery — no new orchestration
-engine, no mesh mailbox, no shared task board.
+each running as a tool-scoped child agent, then synthesize their results. The runtime
+keeps the lead as the final adjudicator while adding a bounded, durable mailbox and
+atomic self-claim over Maka's existing Task Ledger. It is rebuilt on Maka's existing
+child-agent machinery rather than introducing a second orchestration engine (see
+[expert-team-implementation.md](archive/expert-team-implementation.md)).
 
 ## Model
 
@@ -17,8 +17,9 @@ engine, no mesh mailbox, no shared task board.
   exceed the policy of the archetype it runs under — this is stricter than either
   competitor and keeps Maka's permission-safety invariant.
 - **Expert team** (`ExpertTeamDefinition`) — a lead persona (runs as the main session)
-  plus N dispatchable members. Members never talk to each other; all coordination goes
-  through the lead.
+  plus N dispatchable members. Members can exchange bounded direct messages and
+  broadcasts within one team run. They may claim one eligible shared Task Ledger item
+  atomically, but the lead retains completion and result-adjudication authority.
 
 Definitions live in [`expert-catalog.ts`](../packages/runtime/src/expert-catalog.ts).
 Each member materializes into an ordinary `AgentDefinition` with a deterministic id
@@ -40,13 +41,39 @@ statelessly from the id alone.
    (distinct child turns, no shared mutex; bounded by `MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN`).
 3. Each dispatch resolves the member's materialized `AgentDefinition` and spawns it via
    the same `spawnChildAgent` capability `agent_spawn` uses. The child gets the member's
-   scoped tools + composed system prompt; a read-only archetype means the member
-   physically cannot write.
-4. **Fan-in** is the child result's bounded `summary` plus `artifactIds` pointers —
+   scoped capability tools plus `team_message`, `team_inbox`, `team_task_list`, and
+   `team_task_claim`; a read-only archetype still cannot write files or use the network.
+4. Messages are appended to `sessions/<sessionId>/agent-mailbox.jsonl`, scoped by team
+   and parent lead `AgentRun`. Sender `AgentRun`/turn attribution comes from trusted
+   runtime context; named recipients resolve through the trusted team roster to stable
+   role addresses. Cursor reads make polling bounded and deterministic.
+5. A member may use `team_task_claim` to atomically claim one pending/blocked task
+   owned by the current parent lead `AgentRun`. Tasks from ordinary or older lead runs
+   are not discoverable or claimable. Conflicting claims fail closed; members receive
+   no general task mutation or completion tool.
+6. **Fan-in** is the child result's bounded `summary` plus `artifactIds` pointers —
    members return digests, not raw payloads. The lead synthesizes one ranked result.
+   A completed child outcome leaves its claimed task `in_progress` as evidence for lead
+   review; failed, cancelled, and permission-waiting outcomes settle through the existing
+   Task Ledger outcome contract.
 
 Members never receive `expert_dispatch` (child turns are gated in the backend factory),
 so there are no nested teams.
+
+### Role mailbox and cursor semantics
+
+Direct-message recipients are role addresses within one parent lead `AgentRun`, not
+individual child invocations. The lead uses the stable `lead` address; each member uses
+its deterministic `expert:<teamId>:<memberId>` agent id. Repeated or concurrent
+dispatches of the same member therefore share one role mailbox. This supports durable
+handoff between invocations, but it is not an invocation-private channel.
+
+`team_inbox` cursors are caller-owned. The store does not persist a read cursor for a
+role or child invocation: callers pass the last observed `nextSeq` back as `after_seq`.
+A fresh invocation that omits `after_seq` reads the role's available history from the
+start of the current lead run, including direct messages observed by an earlier
+invocation of that member. A new parent lead `AgentRun` starts a separate mailbox scope.
+Use distinct expert member roles when work requires separate direct-message inboxes.
 
 ## Definition resolution
 
@@ -89,7 +116,14 @@ Shipped: the runtime engine (catalog, resolver, dispatch tool, lead fragment), d
 prompt + tool wiring, the start/list IPC + preload + typings, and unit tests across
 core / runtime / desktop-main.
 
-Deliberately deferred (documented, not built): a renderer team-picker panel; mesh
-"Agent Teams" (member↔member `SendMessage`, shared self-claiming task board);
-worktree-isolated writing members (fail-closed today); a remote expert marketplace;
+Shipped in the collaboration slice: a durable per-session/team-run mailbox, bounded
+role-addressed direct messages and broadcasts, trusted sender AgentRun/Turn
+attribution, caller-owned inbox cursors, and atomic
+self-claim of one eligible shared Task Ledger item per child turn. Mailbox history is
+reloaded from its append-only log after process restart; corruption fails closed, and
+new lead runs do not silently inherit messages from an older run.
+
+Deliberately deferred (documented, not built): automatic message wake/injection (members
+poll `team_inbox`); detached or cross-machine member lifecycles; a renderer team-picker
+panel; worktree-isolated writing members (fail-closed today); a remote expert marketplace;
 and the digital-colleague / IM / cloud layer.

@@ -25,7 +25,8 @@ function resolveRepoRoot(): string {
   const cwd = resolve(process.cwd());
   if (existsSync(join(cwd, 'packages', 'runtime', 'src', 'ai-sdk-backend.ts'))) return cwd;
   const fromWorkspace = resolve(cwd, '..', '..');
-  if (existsSync(join(fromWorkspace, 'packages', 'runtime', 'src', 'ai-sdk-backend.ts'))) return fromWorkspace;
+  if (existsSync(join(fromWorkspace, 'packages', 'runtime', 'src', 'ai-sdk-backend.ts')))
+    return fromWorkspace;
   return cwd;
 }
 
@@ -85,7 +86,10 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(backend, /this\.modelAdapter\.resolveModel\(\)/);
     assert.match(backend, /this\.modelAdapter\.startStream\(/);
     assert.match(backend, /this\.modelAdapter\.handleStreamChunk\(/);
-    assert.match(backend, /normalizeAiSdkUsage\(await \(result\.totalUsage \?\? result\.usage\),[\s\S]*?rawFinishReason[\s\S]*?\)/);
+    assert.match(
+      backend,
+      /normalizeAiSdkUsage\(await result\.usage,[\s\S]*?rawFinishReason[\s\S]*?\)/,
+    );
     assert.match(backend, /this\.modelAdapter\.classifyError\(/);
     assert.match(
       backend,
@@ -99,7 +103,7 @@ describe('ModelAdapter extraction contract', () => {
     );
 
     assert.doesNotMatch(backend, /await import\('ai'\)/);
-    assert.doesNotMatch(backend, /const \{ streamText, stepCountIs \}/);
+    assert.doesNotMatch(backend, /const \{ streamText, isStepCount \}/);
     assert.doesNotMatch(backend, /switch \(chunk\.type\)/);
     assert.doesNotMatch(backend, /case 'reasoning-delta'/);
     assert.doesNotMatch(backend, /function finiteToken/);
@@ -116,7 +120,7 @@ describe('ModelAdapter extraction contract', () => {
     // The step budget stays adapter-owned, with a per-call override so the
     // backend's reactive overflow retry passes only the remaining budget.
     assert.match(adapter, /input\.maxSteps \?\? this\.input\.maxSteps/);
-    assert.match(adapter, /stepCountIs\(maxSteps\)/);
+    assert.match(adapter, /isStepCount\(maxSteps\)/);
     assert.match(adapter, /handleStreamChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);
@@ -124,6 +128,36 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(adapter, /mapFinishReason\(/);
     assert.match(adapter, /export function normalizeAiSdkUsage/);
     assert.match(adapter, /function finiteToken/);
+  });
+});
+
+describe('Provider error classification extraction contract', () => {
+  test('ToolRuntime and ModelAdapter depend on a dedicated classification leaf', async () => {
+    const classifier = await readRepo('packages/runtime/src/provider-error-classification.ts');
+    const runtime = await readRepo('packages/runtime/src/tool-runtime.ts');
+    const adapter = await readRepo('packages/runtime/src/model-adapter.ts');
+
+    assert.match(classifier, /export function isContextOverflowErrorText/);
+    assert.match(classifier, /export function classifyError/);
+    assert.match(classifier, /export function errorPresentationFromClass/);
+    assert.match(classifier, /interface ProviderErrorEvidence/);
+    assert.match(classifier, /CONTEXT_OVERFLOW_PROVIDER_CODES/);
+    assert.match(classifier, /CONTEXT_OVERFLOW_PATTERNS/);
+    assert.match(classifier, /NON_CONTEXT_OVERFLOW_PATTERNS/);
+    assert.doesNotMatch(classifier, /from '\.\/(?:tool-runtime|model-adapter)\.js'/);
+
+    assert.match(
+      runtime,
+      /import \{ classifyError \} from '\.\/provider-error-classification\.js'/,
+    );
+    assert.doesNotMatch(runtime, /interface ProviderErrorEvidence/);
+    assert.doesNotMatch(runtime, /CONTEXT_OVERFLOW_PROVIDER_CODES/);
+    assert.doesNotMatch(runtime, /export function isContextOverflowErrorText/);
+    assert.doesNotMatch(runtime, /export function classifyError/);
+    assert.doesNotMatch(runtime, /export function errorPresentationFromClass/);
+
+    assert.match(adapter, /from '\.\/provider-error-classification\.js'/);
+    assert.doesNotMatch(adapter, /from '\.\/tool-runtime\.js'/);
   });
 });
 
@@ -168,7 +202,12 @@ describe('RunTrace extraction contract', () => {
 
     assert.match(trace, /export class RunTrace/);
     assert.match(trace, /export interface RunTraceEvent/);
-    assert.match(trace, /type RunTracePhase = 'turn' \| 'model' \| 'tool' \| 'permission' \| 'sandbox' \| 'abort' \| 'usage'/);
+    assert.match(
+      trace,
+      // Whitespace-tolerant: the formatter may lay the union out on one line
+      // or one variant per line; the contract is the variant set, not layout.
+      /type RunTracePhase =\s*\|?\s*'turn'\s*\|\s*'model'\s*\|\s*'tool'\s*\|\s*'permission'\s*\|\s*'sandbox'\s*\|\s*'abort'\s*\|\s*'usage'/,
+    );
     assert.doesNotMatch(events, /RunTrace/);
     assert.doesNotMatch(events, /trace_/);
     assert.doesNotMatch(adapter, /RunTrace|recordRunTrace/);

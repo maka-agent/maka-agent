@@ -316,7 +316,7 @@
 
 .maka-onboarding-setup-steps > li[data-state="active"] .maka-onboarding-setup-step-marker {
   background: var(--nav-active);
-  color: var(--accent-contrast, var(--background));
+  color: var(--control-foreground);
 }
 
 .maka-onboarding-setup-steps > li[data-state="warning"] .maka-onboarding-setup-step-marker {

@@ -21,20 +21,8 @@ import {
   parseModelChoiceValue,
 } from './chat-model-helpers.js';
 import { type ProviderType, type SessionSummary, type ThinkingLevel } from '@maka/core';
-
-const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  off: '关',
-  minimal: '最小',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '超高',
-  max: '最高',
-};
-
-function thinkingLevelLabel(level: ThinkingLevel | undefined): string {
-  return level ? THINKING_LEVEL_LABELS[level] : '默认';
-}
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 /**
  * Static footer row for per-model thinking levels. The flyout uses the shared
@@ -48,9 +36,10 @@ function ThinkingLevelSection(props: {
   onCommit?(): void;
   onChange?(level: ThinkingLevel | undefined): void | Promise<void>;
 }) {
+  const copy = getConversationCopy(useUiLocale()).model;
   const [open, setOpen] = useState(false);
   const hasVariants = props.levels.length > 0 && Boolean(props.onChange);
-  const currentLabel = thinkingLevelLabel(props.current);
+  const currentLabel = props.current ? copy.level[props.current] : copy.defaultLevel;
 
   useEffect(() => {
     if (!props.parentOpen) setOpen(false);
@@ -76,9 +65,9 @@ function ThinkingLevelSection(props: {
               aria-haspopup={hasVariants ? 'menu' : undefined}
               className="maka-thinking-section-row"
               data-disabled={!hasVariants || undefined}
-              title={hasVariants ? '切换当前模型的思考级别' : '当前模型不支持思考级别切换'}
+              title={hasVariants ? copy.changeThinkingLevel : copy.thinkingUnsupported}
             >
-              <span className="maka-thinking-section-label">思考级别</span>
+              <span className="maka-thinking-section-label">{copy.thinkingLevel}</span>
               <span className="maka-thinking-section-value">
                 {currentLabel}
                 {hasVariants && <span className="maka-thinking-section-chev" aria-hidden="true">▸</span>}
@@ -99,7 +88,7 @@ function ThinkingLevelSection(props: {
               className="maka-thinking-flyout-item"
               data-selected={!props.current || undefined}
             >
-              <span>默认</span>
+              <span>{copy.defaultLevel}</span>
               {!props.current && <span className="maka-thinking-flyout-check" aria-hidden="true">✓</span>}
             </MenuItem>
             {props.levels.map((level) => (
@@ -109,7 +98,7 @@ function ThinkingLevelSection(props: {
                 className="maka-thinking-flyout-item"
                 data-selected={props.current === level || undefined}
               >
-                <span>{THINKING_LEVEL_LABELS[level]}</span>
+                <span>{copy.level[level]}</span>
                 {props.current === level && <span className="maka-thinking-flyout-check" aria-hidden="true">✓</span>}
               </MenuItem>
             ))}
@@ -135,6 +124,7 @@ export function ChatModelSwitcher(props: {
   thinkingLevel?: ThinkingLevel;
   onThinkingLevelChange?(level: ThinkingLevel | undefined): void | Promise<void>;
 }) {
+  const copy = getConversationCopy(useUiLocale()).model;
   const [localPending, setLocalPending] = useState(false);
   const pendingRef = useRef(false);
   const modelSwitcherMountedRef = useMountedRef();
@@ -148,11 +138,11 @@ export function ChatModelSwitcher(props: {
   const currentKnownChoice = props.choices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue);
   const displayLabel = props.activeModelLabel ?? currentModel;
   const currentSessionModelTitle = props.activeConnectionLabel && props.activeModelLabel
-    ? `本会话固定模型：${props.activeConnectionLabel} · ${props.activeModelLabel}`
-    : '切换当前会话使用的模型';
+    ? copy.pinnedSession(props.activeConnectionLabel, props.activeModelLabel)
+    : copy.switchSession;
   const title = pending
-    ? '正在切换当前会话模型…'
-    : props.disabledReason ?? `${currentSessionModelTitle}。设置里的默认模型只影响新建会话；这里会更新当前会话。`;
+    ? `${copy.switching}…`
+    : props.disabledReason ?? copy.switchTitle(currentSessionModelTitle);
 
   useEffect(() => {
     return () => {
@@ -184,7 +174,7 @@ export function ChatModelSwitcher(props: {
         value={currentValue}
         disabled={disabled}
         renderProviderMark={props.renderProviderMark}
-        ariaLabel="切换当前会话模型"
+        ariaLabel={copy.switchAriaLabel}
         title={title}
         triggerClassName="maka-model-switcher-trigger"
         pinnedItem={!currentKnownChoice ? { value: currentValue, label: currentModel } : undefined}
@@ -234,10 +224,10 @@ export function ChatModelSwitcher(props: {
             {props.renderProviderMark(props.currentProviderType)}
           </span>
         )}
-        <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
+        <span className="maka-model-switcher-label">{pending ? copy.switching : copy.model}</span>
         <span className="maka-model-switcher-value">
           {displayLabel}
-          {props.thinkingLevel && <span className="maka-thinking-level-tag">{thinkingLevelLabel(props.thinkingLevel)}</span>}
+          {props.thinkingLevel && <span className="maka-thinking-level-tag">{copy.level[props.thinkingLevel]}</span>}
         </span>
       </ModelPicker>
     </div>
@@ -265,6 +255,7 @@ export function NewChatModelPicker(props: {
   thinkingLevel?: ThinkingLevel;
   onThinkingLevelChange?(level: ThinkingLevel | undefined): void | Promise<void>;
 }) {
+  const copy = getConversationCopy(useUiLocale()).model;
   const grouped = modelMenuGroups(props.choices);
   return (
     <ModelPicker
@@ -272,8 +263,8 @@ export function NewChatModelPicker(props: {
       groups={grouped}
       value={props.currentValue ?? ''}
       renderProviderMark={props.renderProviderMark}
-      ariaLabel={`选择新对话模型，当前 ${props.label}`}
-      title={`新对话使用的模型：${props.label}`}
+      ariaLabel={copy.newChatAriaLabel(props.label)}
+      title={copy.newChatTitle(props.label)}
       triggerClassName="maka-composer-model-chip"
       onValueChange={(value) => {
         const next = parseModelChoiceValue(value);
@@ -295,7 +286,7 @@ export function NewChatModelPicker(props: {
         </span>
       )}
       <span className="maka-composer-model-chip-text">{props.label}</span>
-      {props.thinkingLevel && <span className="maka-thinking-level-tag">{thinkingLevelLabel(props.thinkingLevel)}</span>}
+      {props.thinkingLevel && <span className="maka-thinking-level-tag">{copy.level[props.thinkingLevel]}</span>}
       {/* ModelPicker's trigger already renders a chevron — no manual one. */}
     </ModelPicker>
   );
@@ -310,6 +301,7 @@ export function NewChatModelPicker(props: {
  * look with `NewChatModelPicker` so the chip reads identically across states.
  */
 export function ModelChipStatic(props: { label: string; onOpenSettings?: () => void }) {
+  const copy = getConversationCopy(useUiLocale()).model;
   if (props.onOpenSettings) {
     return (
       <UiButton
@@ -317,8 +309,8 @@ export function ModelChipStatic(props: { label: string; onOpenSettings?: () => v
         variant="quiet"
         size="sm"
         onClick={props.onOpenSettings}
-        aria-label={`配置模型连接，当前 ${props.label}`}
-        title="配置模型连接"
+        aria-label={copy.configureAriaLabel(props.label)}
+        title={copy.configureTitle}
       >
         <Settings size={12} aria-hidden="true" />
         <span className="maka-composer-model-chip-text">{props.label}</span>
@@ -326,7 +318,7 @@ export function ModelChipStatic(props: { label: string; onOpenSettings?: () => v
     );
   }
   return (
-    <span className="maka-composer-model-chip" aria-label={`当前模型：${props.label}`} title={props.label}>
+    <span className="maka-composer-model-chip" aria-label={copy.currentAriaLabel(props.label)} title={props.label}>
       <span className="maka-composer-model-chip-text">{props.label}</span>
       <span className="maka-composer-model-status" aria-hidden="true" />
     </span>

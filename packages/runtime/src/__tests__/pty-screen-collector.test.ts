@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import {
-  PTY_SCROLLBACK_ROWS,
-  PtyScreenCollector,
-} from '../pty-screen-collector.js';
+import { PTY_SCROLLBACK_ROWS, PtyScreenCollector } from '../pty-screen-collector.js';
 import { loadPtyStack } from '../pty-stack.js';
 
 describe('PtyScreenCollector', () => {
@@ -30,10 +27,11 @@ describe('PtyScreenCollector', () => {
       assert.equal(cleared.screen, 'AFTER');
       assert.equal(cleared.truncated, false);
 
-      collector.accept(Array.from(
-        { length: PTY_SCROLLBACK_ROWS + 23 },
-        (_, index) => `line-${index}\r\n`,
-      ).join(''));
+      collector.accept(
+        Array.from({ length: PTY_SCROLLBACK_ROWS + 23 }, (_, index) => `line-${index}\r\n`).join(
+          '',
+        ),
+      );
       assert.equal((await collector.snapshotAtCut()).output.truncated, false);
 
       collector.accept('\u001b[?1049hALT\u001b[?1049l');

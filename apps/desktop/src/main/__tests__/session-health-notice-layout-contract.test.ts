@@ -28,26 +28,27 @@ describe('session health notice layout contract (#1032)', () => {
 
   it('mounts the hard-only health notice above the composer interaction slot', async () => {
     const shell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
-    const noticeIndex = shell.indexOf('className="maka-session-health-notice"');
-    const slotIndex = shell.indexOf('className="maka-composer-interaction-slot"');
-    const composerIndex = shell.indexOf('<Composer\n                ref={composerRef}');
-    assert.ok(noticeIndex >= 0, 'session health notice should render in app-shell');
-    assert.ok(slotIndex >= 0, 'composer interaction slot should remain');
-    assert.ok(composerIndex >= 0, 'composer mount should remain');
+    const surface = await readRepo('apps/desktop/src/renderer/chat-message-surface.tsx');
+    const composerRegion = await readRepo('apps/desktop/src/renderer/chat-composer-region.tsx');
+    const surfaceIndex = shell.indexOf('<ChatMessageSurface');
+    const composerRegionIndex = shell.indexOf('<ChatComposerRegion');
+    assert.ok(surfaceIndex >= 0, 'ChatMessageSurface should render in app-shell');
+    assert.ok(composerRegionIndex >= 0, 'ChatComposerRegion should render in app-shell');
     assert.ok(
-      noticeIndex < slotIndex && slotIndex < composerIndex,
-      'notice must sit above the interaction slot and composer',
+      surfaceIndex < composerRegionIndex,
+      'the message surface (with its health notice) must sit above the composer region',
     );
     assert.match(
       shell,
-      /navSelection\.section === 'sessions' && sessionHealthNotice &&/,
-      'health notice must stay on the conversation surface, not Skills/Automations/Daily Review',
+      /navSelection\.section === 'daily-review' \?[\s\S]*<ChatMessageSurface/,
+      'the message surface must stay on the conversation surface, not Skills/Automations/Daily Review',
     );
     assert.match(
-      shell,
+      surface,
       /className="maka-session-health-notice"[\s\S]*?role="status"/,
     );
-    assert.match(shell, /sessionHealthNotice\.onClickTarget === 'account' \? '去账号' : '去模型'/);
+    assert.match(surface, /sessionHealthNotice\.onClickTarget === 'account' \? copy\.goToAccount : copy\.goToModels/);
+    assert.match(composerRegion, /className="maka-composer-interaction-slot"/);
   });
 
   it('does not surface routine running or event-stream recovery badges', async () => {

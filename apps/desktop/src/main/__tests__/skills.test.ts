@@ -1361,7 +1361,7 @@ description: Exercise workspace-contained open paths.
     );
     assert.match(
       refreshBlock,
-      /if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新技能失败', generalizedErrorMessageChinese\(error, '刷新技能失败，请稍后重试。'\)\);[\s\S]*\}/,
+      /if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\(\s*copy\.refreshSkillsFailedTitle,\s*localizedShellErrorMessage\(error, copy\.refreshSkillsFallback, uiLocale\),?\s*\);[\s\S]*\}/,
       'startup/subscription Skills refresh failures must remain visible by default',
     );
     assert.match(
@@ -1371,12 +1371,12 @@ description: Exercise workspace-contained open paths.
     );
     assert.match(createBlock, /if \(!isSkillsSurfaceActive\(\)\) return;/, 'create must not auto-open a starter Skill after the user leaves Skills');
     assert.doesNotMatch(createBlock, /await refreshSkills\(\);\s*toastApi\.success/, 'create success feedback must not be unconditional after refresh');
-    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法创建示例技能'/);
-    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开示例技能'/);
+    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\)\s*toastApi\.error\(copy\.createTemplateFailedTitle/);
+    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\)\s*toastApi\.error\(copy\.openTemplateFailedTitle/);
     // Idempotent seeding: created:false reuses the existing 示例技能 and says so
     // rather than claiming a fresh create; created:true keeps the create copy.
-    assert.match(createBlock, /if \(result\.created\) \{[\s\S]*'已创建示例技能'[\s\S]*\} else \{[\s\S]*'已打开现有示例技能', '示例技能已存在，直接打开了 SKILL\.md（不会重复创建）。'/);
-    assert.match(openBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开 Skill'/);
+    assert.match(createBlock, /if \(result\.created\) \{[\s\S]*copy\.createdTemplateTitle[\s\S]*\} else \{[\s\S]*copy\.openedExistingTemplateTitle, copy\.openedExistingTemplateDescription/);
+    assert.match(openBlock, /if \(isSkillsSurfaceActive\(\)\)\s*toastApi\.error\(copy\.openFailedTitle/);
     assert.doesNotMatch(openBlock, /if \(!result\.ok\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill structured failures must not toast unconditionally after leaving Skills');
     assert.doesNotMatch(openBlock, /catch \(error\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill thrown failures must not toast unconditionally after leaving Skills');
   });
@@ -1393,16 +1393,16 @@ description: Exercise workspace-contained open paths.
     assert.match(createBlock, /try \{[\s\S]*window\.maka\.skills\.createStarter\(\)/);
     assert.match(
       createBlock,
-      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('无法创建示例技能', generalizedErrorMessageChinese\(error, '无法创建示例技能，请稍后重试。'\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\(\s*copy\.createTemplateFailedTitle,\s*localizedShellErrorMessage\(error, copy\.createTemplateFallback, uiLocale\),?\s*\);[\s\S]*\}/,
     );
     assert.doesNotMatch(createBlock, /toastApi\.error\('无法创建示例技能', cleanErrorMessage\(error\)\)/);
     assert.match(folderBlock, /try \{[\s\S]*window\.maka\.app\.openPath\('skills'\)/);
-    assert.match(folderBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('skills'\)\}`, openPathActionErrorMessage\(error, 'skills'\)\)/);
+    assert.match(folderBlock, /catch \(error\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.openFailedTitle\(openPathActionLabel\('skills', uiLocale\)\)[\s\S]*openPathActionErrorMessage\(error, 'skills', uiLocale\)/);
     assert.doesNotMatch(folderBlock, /cleanErrorMessage\(error\)/, 'Skills folder thrown openPath failures must not expose raw IPC/path details');
     assert.match(openBlock, /try \{[\s\S]*window\.maka\.skills\.open\(skillId, 'file'\)/);
     assert.match(
       openBlock,
-      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('无法打开 Skill', generalizedErrorMessageChinese\(error, '无法打开 Skill，请稍后重试。'\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\(copy\.openFailedTitle, localizedShellErrorMessage\(error, copy\.openFallback, uiLocale\)\);[\s\S]*\}/,
     );
     assert.doesNotMatch(openBlock, /toastApi\.error\('无法打开 Skill', cleanErrorMessage\(error\)\)/);
   });

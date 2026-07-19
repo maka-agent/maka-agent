@@ -1,9 +1,6 @@
 import { BOT_PROVIDERS, type BotProvider } from './settings.js';
 
-export type BotFormattingProfile =
-  | 'plain_text'
-  | 'chat_markdown'
-  | 'enterprise_chat';
+export type BotFormattingProfile = 'plain_text' | 'chat_markdown' | 'enterprise_chat';
 
 export interface BotPlatformPromptHint {
   platform: BotProvider;
@@ -22,7 +19,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'plain_text',
     deliveryFormat: 'short chat messages delivered through Telegram sendMessage without parse_mode',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'Telegram replies are sent as plain text and may be split by the runtime to fit platform length limits.',
+    capabilityCaveat:
+      'Telegram replies are sent as plain text and may be split by the runtime to fit platform length limits.',
     systemPromptBullets: [
       'Reply in concise plain text. Do not rely on Markdown tables, HTML tags, or desktop-only UI affordances.',
       'Keep URLs as plain URLs and keep code snippets short enough to read in a mobile chat.',
@@ -35,7 +33,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'enterprise_chat',
     deliveryFormat: 'enterprise chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'Feishu context is enterprise-chat oriented; favor clear status, owners, and next actions.',
+    capabilityCaveat:
+      'Feishu context is enterprise-chat oriented; favor clear status, owners, and next actions.',
     systemPromptBullets: [
       'Use concise enterprise-chat formatting with clear bullets or numbered steps when useful.',
       'Avoid assuming the reader is inside the desktop app; include the actionable result directly in the reply.',
@@ -48,7 +47,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'enterprise_chat',
     deliveryFormat: 'enterprise chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'WeCom-specific actions are unavailable unless the current runtime explicitly exposes them.',
+    capabilityCaveat:
+      'WeCom-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Use concise enterprise-chat formatting with clear next actions.',
       'Do not mention unavailable platform-specific actions unless the runtime explicitly exposes them.',
@@ -60,7 +60,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'plain_text',
     deliveryFormat: 'mobile chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'WeChat-specific actions are unavailable unless the current runtime explicitly exposes them.',
+    capabilityCaveat:
+      'WeChat-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Reply in short plain-text paragraphs suitable for a mobile chat.',
       'Do not assume rich cards, desktop panes, or unavailable platform actions.',
@@ -72,7 +73,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'chat_markdown',
     deliveryFormat: 'Discord chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'Discord-specific actions are unavailable unless the current runtime explicitly exposes them.',
+    capabilityCaveat:
+      'Discord-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Markdown is acceptable, but keep replies scan-friendly and avoid oversized blocks.',
       'Do not assume slash commands, reactions, threads, or moderation actions unless tools expose them.',
@@ -84,7 +86,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'enterprise_chat',
     deliveryFormat: 'enterprise chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'DingTalk-specific actions are unavailable unless the current runtime explicitly exposes them.',
+    capabilityCaveat:
+      'DingTalk-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Use concise enterprise-chat formatting with clear status and next actions.',
       'Do not assume approvals, DING messages, or workbench actions unless tools expose them.',
@@ -96,7 +99,8 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'plain_text',
     deliveryFormat: 'chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'QQ-specific actions are unavailable unless the current runtime explicitly exposes them.',
+    capabilityCaveat:
+      'QQ-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Reply in short plain-text paragraphs suitable for a chat window.',
       'Do not assume rich cards or unavailable platform-specific actions.',
@@ -108,7 +112,9 @@ export function getBotPlatformPromptHint(platform: BotProvider): BotPlatformProm
   return BOT_PLATFORM_PROMPT_HINTS[platform];
 }
 
-export function botPlatformFromSessionLabels(labels: readonly string[] | undefined): BotProvider | undefined {
+export function botPlatformFromSessionLabels(
+  labels: readonly string[] | undefined,
+): BotProvider | undefined {
   if (!labels?.includes('bot')) return undefined;
   return BOT_PROVIDERS.find((provider) => labels.includes(provider));
 }

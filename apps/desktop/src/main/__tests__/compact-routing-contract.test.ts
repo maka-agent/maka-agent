@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererShellSource } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -18,7 +19,14 @@ describe('/compact routing contract', () => {
     // exact /compact (after trim) is the only trigger
     assert.match(send, /if \(text\.trim\(\) === '\/compact'\) \{/);
     // routes to compact only when an active session exists — the no-active-session guard
-    assert.match(send, /if \(activeId\) await window\.maka\.sessions\.compact\(activeId\);/);
+    assert.match(send, /const sessionId = activeIdRef\.current;/);
+    assert.match(send, /if \(!sessionId\) return true;/);
+    assert.match(send, /await window\.maka\.sessions\.compact\(sessionId\);/);
+    assert.match(
+      send,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return false;[\s\S]*isSessionWorkspaceUnavailableError\(error\)[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi, uiLocale\)[\s\S]*return false;/,
+      'compact failures must be consumed by the shell and preserve workspace recovery copy',
+    );
     // returns early so /compact never falls through to the normal send path
     assert.match(send, /return true;/);
     // non-compact text still goes through the normal send path
@@ -26,7 +34,7 @@ describe('/compact routing contract', () => {
   });
 
   it('main sessions:compact IPC drives runtime.compactSession via streamEvents', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const handler = main.match(/ipcMain\.handle\('sessions:compact'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
     assert.match(handler, /await ensureSessionCanSend\(sessionId\);/);

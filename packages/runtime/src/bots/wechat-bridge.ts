@@ -4,7 +4,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { BaseBotAdapter, botReadinessFromSettings } from './base-adapter.js';
 import { proxiedFetch } from './proxied-fetch.js';
-import type { BotIncomingMessage, BotSendOptions, BotStatus, BotTestResult, SendCapable } from './types.js';
+import type {
+  BotIncomingMessage,
+  BotSendOptions,
+  BotStatus,
+  BotTestResult,
+  SendCapable,
+} from './types.js';
 
 const DEFAULT_WECHAT_BRIDGE_URL = 'http://127.0.0.1:18400';
 const WECHAT_BRIDGE_TIMEOUT_MS = 5_000;
@@ -13,12 +19,7 @@ const WECHAT_BRIDGE_QR_PATHS = ['/api/weixin/qrcode', '/qrcode'];
 const WECHAT_ILINK_BASE_INFO = { channel_version: '0.1.0' } as const;
 const require = createRequire(import.meta.url);
 
-const LOCAL_WECHAT_BRIDGE_HOSTS = new Set([
-  '127.0.0.1',
-  'localhost',
-  '[::1]',
-  '::1',
-]);
+const LOCAL_WECHAT_BRIDGE_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
 export function normalizeWechatBridgeUrl(input: string | undefined): string | null {
   const raw = input?.trim() || DEFAULT_WECHAT_BRIDGE_URL;
@@ -116,7 +117,11 @@ export class WechatBridge extends BaseBotAdapter implements SendCapable {
     this.emitStatusChange();
   }
 
-  async sendMessage(chatId: string, text: string, _options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    _options?: BotSendOptions,
+  ): Promise<string | null> {
     if (!this.running) return null;
     const targetId = normalizeWechatSendTarget(chatId);
     if (!targetId) return null;
@@ -131,7 +136,8 @@ export class WechatBridge extends BaseBotAdapter implements SendCapable {
       const status = typeof response.status === 'string' ? response.status : '';
       if (status === 'failed') {
         this.readiness = 'degraded';
-        this.reason = typeof response.diagnostic === 'string' ? response.diagnostic : 'wechat-send-failed';
+        this.reason =
+          typeof response.diagnostic === 'string' ? response.diagnostic : 'wechat-send-failed';
         this.emitStatusChange();
         return null;
       }
@@ -159,13 +165,17 @@ export class WechatBridge extends BaseBotAdapter implements SendCapable {
     while (this.running) {
       this.abortController = new AbortController();
       try {
-        const response = await proxiedFetch(`${baseUrl}/messages/stream?since=${sinceEpochSeconds}`, {
-          method: 'GET',
-          headers: wechatBridgeHeaders(this.settings),
-          signal: this.abortController.signal,
-          timeoutMs: 0,
-        });
-        if (!response.ok || !response.body) throw new Error(`WeChat stream HTTP ${response.status}`);
+        const response = await proxiedFetch(
+          `${baseUrl}/messages/stream?since=${sinceEpochSeconds}`,
+          {
+            method: 'GET',
+            headers: wechatBridgeHeaders(this.settings),
+            signal: this.abortController.signal,
+            timeoutMs: 0,
+          },
+        );
+        if (!response.ok || !response.body)
+          throw new Error(`WeChat stream HTTP ${response.status}`);
         for await (const raw of readSseJsonObjects(response.body)) {
           const messages = Array.isArray(raw) ? raw : [raw];
           for (const message of messages) {
@@ -182,7 +192,8 @@ export class WechatBridge extends BaseBotAdapter implements SendCapable {
       } catch (error) {
         if (!this.running) return;
         if (error instanceof Error && error.name === 'AbortError') return;
-        this.readiness = this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
+        this.readiness =
+          this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
         this.reason = generalizedErrorMessage(error);
         this.emitStatusChange();
         await sleep(3_000);
@@ -198,10 +209,16 @@ export class WechatBridge extends BaseBotAdapter implements SendCapable {
     while (this.running) {
       this.abortController = new AbortController();
       try {
-        const response = await wechatIlinkPost(baseUrl, '/ilink/bot/getupdates', {
-          get_updates_buf: cursor,
-          base_info: WECHAT_ILINK_BASE_INFO,
-        }, token, this.abortController.signal);
+        const response = await wechatIlinkPost(
+          baseUrl,
+          '/ilink/bot/getupdates',
+          {
+            get_updates_buf: cursor,
+            base_info: WECHAT_ILINK_BASE_INFO,
+          },
+          token,
+          this.abortController.signal,
+        );
         consecutiveErrors = 0;
         const errcode = typeof response.errcode === 'number' ? response.errcode : 0;
         if (errcode === -14) continue;
@@ -243,18 +260,23 @@ export class WechatBridge extends BaseBotAdapter implements SendCapable {
     const token = this.settings.token.trim();
     if (!baseUrl || !token) return null;
     const clientId = randomUUID();
-    await wechatIlinkPost(baseUrl, '/ilink/bot/sendmessage', {
-      msg: {
-        to_user_id: chatId,
-        from_user_id: '',
-        client_id: clientId,
-        message_type: 2,
-        message_state: 2,
-        context_token: '',
-        item_list: [{ type: 1, text_item: { text: stripMarkdownForWechat(text) } }],
+    await wechatIlinkPost(
+      baseUrl,
+      '/ilink/bot/sendmessage',
+      {
+        msg: {
+          to_user_id: chatId,
+          from_user_id: '',
+          client_id: clientId,
+          message_type: 2,
+          message_state: 2,
+          context_token: '',
+          item_list: [{ type: 1, text_item: { text: stripMarkdownForWechat(text) } }],
+        },
+        base_info: WECHAT_ILINK_BASE_INFO,
       },
-      base_info: WECHAT_ILINK_BASE_INFO,
-    }, token);
+      token,
+    );
     this.readiness = 'operational';
     this.reason = undefined;
     this.lastEventAt = Date.now();
@@ -312,10 +334,10 @@ export function mapWechatBridgeMessage(raw: unknown): BotIncomingMessage | null 
   const message = raw as Record<string, unknown>;
   if (message.fromSelf === true || message.isSelf === true) return null;
   const chatId = firstStringField(message, ['chatId', 'roomId', 'toWxid', 'talker']);
-  const isGroup = message.isGroup === true ||
-    message.is_group === true ||
-    chatId?.endsWith('@chatroom') === true;
-  const isMentioned = message.isMentioned === true || message.isAt === true || message.atMe === true;
+  const isGroup =
+    message.isGroup === true || message.is_group === true || chatId?.endsWith('@chatroom') === true;
+  const isMentioned =
+    message.isMentioned === true || message.isAt === true || message.atMe === true;
   if (isGroup && !isMentioned) return null;
   const senderId = firstStringField(message, ['senderId', 'fromWxid', 'sender', 'wxid']) ?? chatId;
   const messageId = firstStringField(message, ['messageId', 'msgId', 'id', 'svrId']);
@@ -362,7 +384,8 @@ export function mapWechatIlinkMessage(raw: unknown): BotIncomingMessage | null {
   if (!text && !hasMedia) return null;
   const userId = firstStringField(message, ['from_user_id', 'fromUserId', 'fromWxid']);
   if (!userId) return null;
-  const messageId = firstStringField(message, ['msg_id', 'message_id', 'client_id', 'id']) ?? randomUUID();
+  const messageId =
+    firstStringField(message, ['msg_id', 'message_id', 'client_id', 'id']) ?? randomUUID();
   const timestamp = firstNumberField(message, ['create_time', 'timestamp', 'createdAt']);
   return {
     platform: 'wechat',
@@ -377,7 +400,9 @@ export function mapWechatIlinkMessage(raw: unknown): BotIncomingMessage | null {
   };
 }
 
-export async function* readSseJsonObjects(body: AsyncIterable<Uint8Array>): AsyncGenerator<unknown> {
+export async function* readSseJsonObjects(
+  body: AsyncIterable<Uint8Array>,
+): AsyncGenerator<unknown> {
   const decoder = new TextDecoder();
   let buffer = '';
   for await (const chunk of body) {
@@ -398,9 +423,7 @@ export async function* readSseJsonObjects(body: AsyncIterable<Uint8Array>): Asyn
   }
 }
 
-export async function testWechatBridge(
-  channel: BotChannelSettings,
-): Promise<BotTestResult> {
+export async function testWechatBridge(channel: BotChannelSettings): Promise<BotTestResult> {
   const baseUrl = normalizeWechatBridgeUrl(channel.webhookUrl);
   if (!baseUrl) {
     return {
@@ -411,14 +434,16 @@ export async function testWechatBridge(
   }
   try {
     const health = await wechatBridgeJson(channel, '/health', { method: 'GET' });
-    const self = typeof health.self === 'object' && health.self !== null
-      ? health.self as Record<string, unknown>
-      : {};
-    const sendStatus = typeof health.send_status === 'string'
-      ? health.send_status
-      : typeof health.sendStatus === 'string'
-        ? health.sendStatus
-        : undefined;
+    const self =
+      typeof health.self === 'object' && health.self !== null
+        ? (health.self as Record<string, unknown>)
+        : {};
+    const sendStatus =
+      typeof health.send_status === 'string'
+        ? health.send_status
+        : typeof health.sendStatus === 'string'
+          ? health.sendStatus
+          : undefined;
     return {
       ok: true,
       identity: {
@@ -455,15 +480,18 @@ async function wechatBridgeJson(
     body: init.body,
     timeoutMs: WECHAT_BRIDGE_TIMEOUT_MS,
   });
-  const json = await response.json().catch(() => ({})) as Record<string, unknown>;
+  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
-    const message = stringField(json.error) ?? stringField(json.message) ?? `HTTP ${response.status}`;
+    const message =
+      stringField(json.error) ?? stringField(json.message) ?? `HTTP ${response.status}`;
     throw new Error(message);
   }
   return json;
 }
 
-export async function testWechatIlinkCredentials(channel: BotChannelSettings): Promise<BotTestResult> {
+export async function testWechatIlinkCredentials(
+  channel: BotChannelSettings,
+): Promise<BotTestResult> {
   const baseUrl = normalizeWechatIlinkBaseUrl(channel.webhookUrl);
   const token = channel.token.trim();
   if (!baseUrl || !token) {
@@ -518,10 +546,13 @@ function randomWechatUinHeader(): string {
   return Buffer.from(String(randomBytes(4).readUInt32LE(0)), 'utf8').toString('base64');
 }
 
-async function normalizeWechatQrPayload(payload: Record<string, unknown>): Promise<WechatBridgeQrCodeResult> {
+async function normalizeWechatQrPayload(
+  payload: Record<string, unknown>,
+): Promise<WechatBridgeQrCodeResult> {
   const loggedIn = payload.loggedIn === true || payload.logged_in === true;
   const expired = payload.expired === true || payload.status === 'expired';
-  const rawQr = stringField(payload.qrcode) ??
+  const rawQr =
+    stringField(payload.qrcode) ??
     stringField(payload.qrCode) ??
     stringField(payload.qrcode_img_content) ??
     stringField(payload.qrUrl) ??
@@ -568,7 +599,11 @@ function looksLikeBase64Png(value: string): boolean {
 
 function isNotFoundLikeError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes('HTTP 404') || /Cannot\s+(GET|POST)/i.test(message) || /not found/i.test(message);
+  return (
+    message.includes('HTTP 404') ||
+    /Cannot\s+(GET|POST)/i.test(message) ||
+    /not found/i.test(message)
+  );
 }
 
 function wechatBridgeHeaders(channel: BotChannelSettings): Record<string, string> {
@@ -608,7 +643,9 @@ function normalizeBridgeTimestamp(timestamp: number): number {
   return timestamp > 10_000_000_000 ? timestamp : timestamp * 1_000;
 }
 
-function wechatAttachmentKind(message: Record<string, unknown>): BotIncomingMessage['attachmentKind'] | undefined {
+function wechatAttachmentKind(
+  message: Record<string, unknown>,
+): BotIncomingMessage['attachmentKind'] | undefined {
   const kind = firstStringField(message, ['messageKind', 'mediaType', 'type']);
   switch (kind) {
     case 'image':

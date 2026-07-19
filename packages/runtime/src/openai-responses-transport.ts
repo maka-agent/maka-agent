@@ -51,8 +51,8 @@ export class OpenAIResponsesTransport implements OpenAIComputerTransport {
       const detail = safeErrorDetail(body, this.#secrets);
       const statusText = safeErrorDetail(response.statusText, this.#secrets);
       throw new Error(
-        `openai_responses_http_error: ${response.status}${statusText ? ` ${statusText}` : ''}`
-        + (detail ? `: ${detail}` : ''),
+        `openai_responses_http_error: ${response.status}${statusText ? ` ${statusText}` : ''}` +
+          (detail ? `: ${detail}` : ''),
       );
     }
 
@@ -64,10 +64,7 @@ export class OpenAIResponsesTransport implements OpenAIComputerTransport {
   }
 }
 
-async function readBoundedResponseText(
-  response: Response,
-  maxBytes: number,
-): Promise<string> {
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
     throw new Error('openai_responses_body_too_large');
@@ -111,9 +108,7 @@ function responsesUrl(
 ): URL {
   const url = new URL(baseUrl);
   const basePath = url.pathname.replace(/\/+$/, '').replace(/\/responses$/i, '');
-  url.pathname = basePath.endsWith('/v1')
-    ? `${basePath}/responses`
-    : `${basePath}/v1/responses`;
+  url.pathname = basePath.endsWith('/v1') ? `${basePath}/responses` : `${basePath}/v1/responses`;
   for (const [key, value] of Object.entries(queryParams ?? {})) {
     if (value !== undefined) url.searchParams.set(key, String(value));
   }

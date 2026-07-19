@@ -116,13 +116,11 @@ export type QQSendClassification =
   | { kind: 'retry'; delayMs: number }
   | { kind: 'fatal'; description: string };
 
-export function classifyQQSendResponse(
-  status: number,
-  bodyJson: unknown,
-): QQSendClassification {
+export function classifyQQSendResponse(status: number, bodyJson: unknown): QQSendClassification {
   if (status >= 200 && status < 300) {
-    const id = (bodyJson as { id?: unknown; msg_id?: unknown } | null)?.id
-      ?? (bodyJson as { msg_id?: unknown } | null)?.msg_id;
+    const id =
+      (bodyJson as { id?: unknown; msg_id?: unknown } | null)?.id ??
+      (bodyJson as { msg_id?: unknown } | null)?.msg_id;
     return {
       kind: 'ok',
       messageId: typeof id === 'string' || typeof id === 'number' ? String(id) : null,
@@ -230,7 +228,11 @@ export function qqC2CMessageToEvent(
  * Pure helper: route a send to the right QQ REST endpoint based on the
  * chatId prefix that the receive-side helpers stamp.
  */
-export function pickQQSendRoute(chatId: string, text: string, options?: BotSendOptions): {
+export function pickQQSendRoute(
+  chatId: string,
+  text: string,
+  options?: BotSendOptions,
+): {
   path: string;
   body: Record<string, unknown>;
 } | null {
@@ -328,7 +330,11 @@ export class QQBotBridge extends BaseBotAdapter implements SendCapable {
     this.clearHeartbeat();
     this.clearReconnect();
     if (this.ws) {
-      try { this.ws.close(1000); } catch { /* swallow */ }
+      try {
+        this.ws.close(1000);
+      } catch {
+        /* swallow */
+      }
       this.ws = null;
     }
     this.reason = 'stopped';
@@ -336,7 +342,11 @@ export class QQBotBridge extends BaseBotAdapter implements SendCapable {
     this.emitStatusChange();
   }
 
-  async sendMessage(chatId: string, text: string, options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    options?: BotSendOptions,
+  ): Promise<string | null> {
     if (this.platform !== 'qq' || !this.running) return null;
     const route = pickQQSendRoute(chatId, text, options);
     if (!route) return null;
@@ -350,8 +360,7 @@ export class QQBotBridge extends BaseBotAdapter implements SendCapable {
     }
     if (classification.kind !== 'ok') {
       this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
-      this.reason =
-        classification.kind === 'retry' ? 'rate-limited' : classification.description;
+      this.reason = classification.kind === 'retry' ? 'rate-limited' : classification.description;
       this.emitStatusChange();
       return null;
     }
@@ -429,7 +438,7 @@ export class QQBotBridge extends BaseBotAdapter implements SendCapable {
         body: JSON.stringify({ appId, clientSecret }),
         timeoutMs: 10_000,
       });
-      const json = await response.json().catch(() => null) as {
+      const json = (await response.json().catch(() => null)) as {
         access_token?: unknown;
         expires_in?: unknown;
       } | null;
@@ -466,7 +475,7 @@ export class QQBotBridge extends BaseBotAdapter implements SendCapable {
         headers: { Authorization: `QQBot ${token}` },
         timeoutMs: 10_000,
       });
-      const json = await response.json().catch(() => null) as { url?: unknown } | null;
+      const json = (await response.json().catch(() => null)) as { url?: unknown } | null;
       if (!response.ok || !json || typeof json.url !== 'string') {
         this.reason = `gateway-bot-${response.status}`;
         this.readiness = 'configured';
@@ -695,7 +704,11 @@ export class QQBotBridge extends BaseBotAdapter implements SendCapable {
       this.seq = null;
     }
     if (this.ws) {
-      try { this.ws.close(); } catch { /* swallow */ }
+      try {
+        this.ws.close();
+      } catch {
+        /* swallow */
+      }
       this.ws = null;
     }
     this.clearHeartbeat();

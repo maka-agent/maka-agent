@@ -1,11 +1,18 @@
 import { botDisplayLabel, type BotChannelSettings, type BotProvider } from '@maka/core';
 import type { BotTestResult } from './types.js';
 import { proxiedFetch } from './proxied-fetch.js';
-import { normalizeWechatIlinkBaseUrl, testWechatBridge, testWechatIlinkCredentials } from './wechat-bridge.js';
+import {
+  normalizeWechatIlinkBaseUrl,
+  testWechatBridge,
+  testWechatIlinkCredentials,
+} from './wechat-bridge.js';
 
 const BOT_TEST_TIMEOUT_MS = 10_000;
 
-export async function testBotChannel(provider: BotProvider, channel: BotChannelSettings): Promise<BotTestResult> {
+export async function testBotChannel(
+  provider: BotProvider,
+  channel: BotChannelSettings,
+): Promise<BotTestResult> {
   if (
     provider !== 'feishu' &&
     provider !== 'wecom' &&
@@ -17,13 +24,20 @@ export async function testBotChannel(provider: BotProvider, channel: BotChannelS
     return { ok: false, error: 'Bot token is required' };
   }
   switch (provider) {
-    case 'telegram': return testTelegram(channel);
-    case 'discord': return testDiscord(channel);
-    case 'feishu': return testFeishu(channel);
-    case 'wecom': return testWeCom(channel);
-    case 'dingtalk': return testDingTalk(channel);
-    case 'wechat': return testWechat(channel);
-    case 'qq': return testQQ(channel);
+    case 'telegram':
+      return testTelegram(channel);
+    case 'discord':
+      return testDiscord(channel);
+    case 'feishu':
+      return testFeishu(channel);
+    case 'wecom':
+      return testWeCom(channel);
+    case 'dingtalk':
+      return testDingTalk(channel);
+    case 'wechat':
+      return testWechat(channel);
+    case 'qq':
+      return testQQ(channel);
   }
 }
 
@@ -63,11 +77,17 @@ async function testWechat(channel: BotChannelSettings): Promise<BotTestResult> {
 async function testTelegram(channel: BotChannelSettings): Promise<BotTestResult> {
   const base = `https://api.telegram.org/bot${channel.token}`;
   try {
-    const me = await (await proxiedFetch(`${base}/getMe`, { method: 'GET', timeoutMs: BOT_TEST_TIMEOUT_MS })).json();
+    const me = await (
+      await proxiedFetch(`${base}/getMe`, { method: 'GET', timeoutMs: BOT_TEST_TIMEOUT_MS })
+    ).json();
     if (!me.ok) return { ok: false, error: me.description ?? 'Invalid bot token' };
     return {
       ok: true,
-      identity: { id: String(me.result.id), username: me.result.username, displayName: me.result.first_name },
+      identity: {
+        id: String(me.result.id),
+        username: me.result.username,
+        displayName: me.result.first_name,
+      },
       messageSent: false,
       hint: '发送 /start 给机器人后可在运行态接收消息。',
     };
@@ -85,7 +105,10 @@ async function testDiscord(channel: BotChannelSettings): Promise<BotTestResult> 
     });
     const json = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: json.message ?? `HTTP ${response.status}` };
-    return { ok: true, identity: { id: json.id, username: json.username, displayName: json.global_name } };
+    return {
+      ok: true,
+      identity: { id: json.id, username: json.username, displayName: json.global_name },
+    };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -250,12 +273,15 @@ async function testFeishu(channel: BotChannelSettings): Promise<BotTestResult> {
   const appSecret = channel.appSecret || channel.token;
   if (!appId || !appSecret) return { ok: false, error: 'Feishu appId and appSecret are required' };
   try {
-    const response = await proxiedFetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-      timeoutMs: BOT_TEST_TIMEOUT_MS,
-    });
+    const response = await proxiedFetch(
+      'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+        timeoutMs: BOT_TEST_TIMEOUT_MS,
+      },
+    );
     const json = await response.json();
     if (json.code !== 0 || !json.tenant_access_token) {
       return { ok: false, error: json.msg ?? 'Failed to issue tenant_access_token' };

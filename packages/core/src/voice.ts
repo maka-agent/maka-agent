@@ -161,7 +161,12 @@ export function normalizeVoiceTtsPolicy(input: unknown): VoiceNormalizeResult<Vo
   if (input === undefined || input === null || input === '') {
     return { ok: true, value: 'off' };
   }
-  if (input === 'off' || input === 'manual_preview' || input === 'inbound_disabled' || input === 'smart_disabled') {
+  if (
+    input === 'off' ||
+    input === 'manual_preview' ||
+    input === 'inbound_disabled' ||
+    input === 'smart_disabled'
+  ) {
     return { ok: true, value: input };
   }
   return { ok: false, reason: 'voice_disabled', error: 'Voice TTS policy is not supported' };
@@ -171,7 +176,11 @@ export function normalizeVoiceTranscriptText(input: unknown): VoiceNormalizeResu
   if (typeof input !== 'string') {
     return { ok: false, reason: 'transcript_empty', error: 'Transcript must be a string' };
   }
-  const value = input.normalize('NFC').replace(CONTROL_CHARS_REGEX, ' ').replace(WHITESPACE_REGEX, ' ').trim();
+  const value = input
+    .normalize('NFC')
+    .replace(CONTROL_CHARS_REGEX, ' ')
+    .replace(WHITESPACE_REGEX, ' ')
+    .trim();
   if (value.length === 0) {
     return { ok: false, reason: 'transcript_empty', error: 'Transcript cannot be empty' };
   }
@@ -182,7 +191,9 @@ export function normalizeVoiceTranscriptText(input: unknown): VoiceNormalizeResu
   return { ok: true, value };
 }
 
-export function validateVoiceCaptureRequest(input: unknown): VoiceNormalizeResult<VoiceCaptureCaps> {
+export function validateVoiceCaptureRequest(
+  input: unknown,
+): VoiceNormalizeResult<VoiceCaptureCaps> {
   const request = asRecord(input);
   if (!request.ok) return request;
 
@@ -193,43 +204,93 @@ export function validateVoiceCaptureRequest(input: unknown): VoiceNormalizeResul
   }
 
   if (request.value.permission === 'denied') {
-    return { ok: false, reason: 'permission_not_granted', error: 'Microphone permission is denied' };
+    return {
+      ok: false,
+      reason: 'permission_not_granted',
+      error: 'Microphone permission is denied',
+    };
   }
   if (request.value.permission === 'restricted') {
-    return { ok: false, reason: 'permission_restricted', error: 'Microphone permission is restricted' };
+    return {
+      ok: false,
+      reason: 'permission_restricted',
+      error: 'Microphone permission is restricted',
+    };
   }
   if (request.value.permission !== 'granted') {
-    return { ok: false, reason: 'permission_not_granted', error: 'Microphone permission is not granted' };
+    return {
+      ok: false,
+      reason: 'permission_not_granted',
+      error: 'Microphone permission is not granted',
+    };
   }
 
-  const duration = finiteNumber(request.value.durationMs, 'duration_exceeded', 'Capture duration must be a finite number');
+  const duration = finiteNumber(
+    request.value.durationMs,
+    'duration_exceeded',
+    'Capture duration must be a finite number',
+  );
   if (!duration.ok) return duration;
   if (duration.value > VOICE_MAX_CAPTURE_DURATION_MS) {
-    return { ok: false, reason: 'duration_exceeded', error: 'Voice capture duration exceeds the configured cap' };
+    return {
+      ok: false,
+      reason: 'duration_exceeded',
+      error: 'Voice capture duration exceeds the configured cap',
+    };
   }
 
-  const bytes = finiteNumber(request.value.audioBytes, 'audio_too_large', 'Audio size must be a finite number');
+  const bytes = finiteNumber(
+    request.value.audioBytes,
+    'audio_too_large',
+    'Audio size must be a finite number',
+  );
   if (!bytes.ok) return bytes;
   if (bytes.value > VOICE_MAX_AUDIO_BYTES) {
-    return { ok: false, reason: 'audio_too_large', error: 'Voice capture audio exceeds the configured cap' };
+    return {
+      ok: false,
+      reason: 'audio_too_large',
+      error: 'Voice capture audio exceeds the configured cap',
+    };
   }
 
-  const sampleRate = finiteNumber(request.value.sampleRate, 'invalid_audio_shape', 'Sample rate must be a finite number');
+  const sampleRate = finiteNumber(
+    request.value.sampleRate,
+    'invalid_audio_shape',
+    'Sample rate must be a finite number',
+  );
   if (!sampleRate.ok) return sampleRate;
   if (sampleRate.value <= 0 || sampleRate.value > VOICE_MAX_SAMPLE_RATE) {
-    return { ok: false, reason: 'invalid_audio_shape', error: 'Sample rate is outside the supported range' };
+    return {
+      ok: false,
+      reason: 'invalid_audio_shape',
+      error: 'Sample rate is outside the supported range',
+    };
   }
 
-  const channels = finiteNumber(request.value.channels, 'invalid_audio_shape', 'Channel count must be a finite number');
+  const channels = finiteNumber(
+    request.value.channels,
+    'invalid_audio_shape',
+    'Channel count must be a finite number',
+  );
   if (!channels.ok) return channels;
-  if (!Number.isInteger(channels.value) || channels.value < 1 || channels.value > VOICE_MAX_CHANNELS) {
-    return { ok: false, reason: 'invalid_audio_shape', error: 'Channel count is outside the supported range' };
+  if (
+    !Number.isInteger(channels.value) ||
+    channels.value < 1 ||
+    channels.value > VOICE_MAX_CHANNELS
+  ) {
+    return {
+      ok: false,
+      reason: 'invalid_audio_shape',
+      error: 'Channel count is outside the supported range',
+    };
   }
 
   return { ok: true, value: defaultVoiceCaptureCaps() };
 }
 
-export function validateVoiceTranscriptResult(input: unknown): VoiceNormalizeResult<VoiceTranscriptResult> {
+export function validateVoiceTranscriptResult(
+  input: unknown,
+): VoiceNormalizeResult<VoiceTranscriptResult> {
   const request = asRecord(input);
   if (!request.ok) return request;
 
@@ -239,36 +300,84 @@ export function validateVoiceTranscriptResult(input: unknown): VoiceNormalizeRes
     return { ok: false, reason: 'provider_not_ready', error: 'Transcript source is not supported' };
   }
   if (request.value.source === 'cloud_provider') {
-    return { ok: false, reason: 'cloud_not_enabled', error: 'Cloud transcription is disabled by default' };
+    return {
+      ok: false,
+      reason: 'cloud_not_enabled',
+      error: 'Cloud transcription is disabled by default',
+    };
   }
   if (request.value.editableBeforeSend !== true) {
-    return { ok: false, reason: 'transcript_empty', error: 'Transcript must be editable before send' };
+    return {
+      ok: false,
+      reason: 'transcript_empty',
+      error: 'Transcript must be editable before send',
+    };
   }
   if (request.value.persistence !== 'composer_only' && request.value.persistence !== 'discarded') {
-    return { ok: false, reason: 'raw_audio_persistence_forbidden', error: 'Transcript persistence is not supported' };
+    return {
+      ok: false,
+      reason: 'raw_audio_persistence_forbidden',
+      error: 'Transcript persistence is not supported',
+    };
   }
 
-  const duration = finiteNumber(request.value.durationMs, 'duration_exceeded', 'Transcript duration must be a finite number');
+  const duration = finiteNumber(
+    request.value.durationMs,
+    'duration_exceeded',
+    'Transcript duration must be a finite number',
+  );
   if (!duration.ok) return duration;
   if (duration.value > VOICE_MAX_CAPTURE_DURATION_MS) {
-    return { ok: false, reason: 'duration_exceeded', error: 'Transcript duration exceeds the configured cap' };
+    return {
+      ok: false,
+      reason: 'duration_exceeded',
+      error: 'Transcript duration exceeds the configured cap',
+    };
   }
-  const sampleRate = finiteNumber(request.value.sampleRate, 'invalid_audio_shape', 'Sample rate must be a finite number');
+  const sampleRate = finiteNumber(
+    request.value.sampleRate,
+    'invalid_audio_shape',
+    'Sample rate must be a finite number',
+  );
   if (!sampleRate.ok) return sampleRate;
   if (sampleRate.value <= 0 || sampleRate.value > VOICE_MAX_SAMPLE_RATE) {
-    return { ok: false, reason: 'invalid_audio_shape', error: 'Transcript sample rate is outside the supported range' };
+    return {
+      ok: false,
+      reason: 'invalid_audio_shape',
+      error: 'Transcript sample rate is outside the supported range',
+    };
   }
-  const channels = finiteNumber(request.value.channels, 'invalid_audio_shape', 'Channel count must be a finite number');
+  const channels = finiteNumber(
+    request.value.channels,
+    'invalid_audio_shape',
+    'Channel count must be a finite number',
+  );
   if (!channels.ok) return channels;
-  if (!Number.isInteger(channels.value) || channels.value < 1 || channels.value > VOICE_MAX_CHANNELS) {
-    return { ok: false, reason: 'invalid_audio_shape', error: 'Transcript channel count is outside the supported range' };
+  if (
+    !Number.isInteger(channels.value) ||
+    channels.value < 1 ||
+    channels.value > VOICE_MAX_CHANNELS
+  ) {
+    return {
+      ok: false,
+      reason: 'invalid_audio_shape',
+      error: 'Transcript channel count is outside the supported range',
+    };
   }
 
   if (request.value.confidence !== undefined) {
-    const confidence = finiteNumber(request.value.confidence, 'invalid_audio_shape', 'Confidence must be a finite number');
+    const confidence = finiteNumber(
+      request.value.confidence,
+      'invalid_audio_shape',
+      'Confidence must be a finite number',
+    );
     if (!confidence.ok) return confidence;
     if (confidence.value < 0 || confidence.value > 1) {
-      return { ok: false, reason: 'invalid_audio_shape', error: 'Confidence must be between 0 and 1' };
+      return {
+        ok: false,
+        reason: 'invalid_audio_shape',
+        error: 'Confidence must be between 0 and 1',
+      };
     }
   }
 
@@ -280,24 +389,35 @@ export function validateVoiceTranscriptResult(input: unknown): VoiceNormalizeRes
       durationMs: duration.value,
       sampleRate: sampleRate.value,
       channels: channels.value,
-      confidence: typeof request.value.confidence === 'number' ? request.value.confidence : undefined,
+      confidence:
+        typeof request.value.confidence === 'number' ? request.value.confidence : undefined,
       editableBeforeSend: true,
       persistence: request.value.persistence,
     },
   };
 }
 
-export function validateVoiceTtsRequest(input: unknown): VoiceNormalizeResult<{ text: string; provider: VoiceTtsProvider; policy: VoiceTtsPolicy }> {
+export function validateVoiceTtsRequest(
+  input: unknown,
+): VoiceNormalizeResult<{ text: string; provider: VoiceTtsProvider; policy: VoiceTtsPolicy }> {
   const request = asRecord(input);
   if (!request.ok) return request;
 
   const policy = normalizeVoiceTtsPolicy(request.value.policy);
   if (!policy.ok) return policy;
   if (policy.value !== 'manual_preview') {
-    return { ok: false, reason: 'voice_disabled', error: 'Automatic voice output is disabled by contract' };
+    return {
+      ok: false,
+      reason: 'voice_disabled',
+      error: 'Automatic voice output is disabled by contract',
+    };
   }
 
-  if (request.value.provider !== 'local' && request.value.provider !== 'openai' && request.value.provider !== 'elevenlabs') {
+  if (
+    request.value.provider !== 'local' &&
+    request.value.provider !== 'openai' &&
+    request.value.provider !== 'elevenlabs'
+  ) {
     return { ok: false, reason: 'provider_not_ready', error: 'TTS provider is not ready' };
   }
 
@@ -321,7 +441,11 @@ function asRecord(input: unknown): VoiceNormalizeResult<Record<string, unknown>>
   return { ok: true, value: input as Record<string, unknown> };
 }
 
-function finiteNumber(input: unknown, reason: VoiceReadinessReason, error: string): VoiceNormalizeResult<number> {
+function finiteNumber(
+  input: unknown,
+  reason: VoiceReadinessReason,
+  error: string,
+): VoiceNormalizeResult<number> {
   if (typeof input !== 'number' || !Number.isFinite(input)) {
     return { ok: false, reason, error };
   }

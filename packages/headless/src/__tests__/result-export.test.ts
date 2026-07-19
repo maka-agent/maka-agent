@@ -3,15 +3,34 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { renderTaskRunMarkdown, taskRunExportFromProjection, writeTaskRunExport } from '../result-export.js';
+import {
+  renderTaskRunMarkdown,
+  taskRunExportFromProjection,
+  writeTaskRunExport,
+} from '../result-export.js';
 import type { HeavyTaskTodoItem, TaskEvent } from '../task-contracts.js';
 import { projectTaskRun } from '../task-run-store.js';
 
 describe('task run export', () => {
   test('projects runtime, verifier, score, budget, isolation, inbox, and taxonomy', async () => {
     const events: TaskEvent[] = [
-      { type: 'task_run_created', id: 'e1', taskRunId: 'run-1', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
-      { type: 'task_run_started', id: 'e2', taskRunId: 'run-1', ts: 2, startedAt: 2, sessionId: 'session-1', agentRunId: 'agent-1' },
+      {
+        type: 'task_run_created',
+        id: 'e1',
+        taskRunId: 'run-1',
+        ts: 1,
+        taskId: 'task-1',
+        configId: 'cfg-1',
+      },
+      {
+        type: 'task_run_started',
+        id: 'e2',
+        taskRunId: 'run-1',
+        ts: 2,
+        startedAt: 2,
+        sessionId: 'session-1',
+        agentRunId: 'agent-1',
+      },
       {
         type: 'isolation_policy_recorded',
         id: 'e3',
@@ -37,7 +56,10 @@ describe('task run export', () => {
           ts: 3,
           source: 'runtime',
           summary: 'runtime invocation completed',
-          details: { runtimeRefs: { runtimeEventIds: ['runtime-1'] }, budget: { totals: { total: 3 } } },
+          details: {
+            runtimeRefs: { runtimeEventIds: ['runtime-1'] },
+            budget: { totals: { total: 3 } },
+          },
         },
       },
       {
@@ -148,17 +170,25 @@ describe('task run export', () => {
       { type: 'task_run_completed', id: 'e7', taskRunId: 'run-1', ts: 6, finishedAt: 6 },
     ];
     const projection = projectTaskRun(events, 'run-1');
-    const exported = taskRunExportFromProjection(projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
+    const exported = taskRunExportFromProjection(projection, {
+      exportedAt: '2026-06-19T00:00:00.000Z',
+    });
 
     assert.equal(exported.schemaVersion, 'maka.task_run_export.v1');
     assert.equal(exported.taskRun.taskRunId, 'run-1');
     assert.deepEqual(exported.runtime.trajectoryRefs.runtimeEventIds, ['runtime-1']);
-    assert.deepEqual(exported.workspace.submittedSnapshot, { id: 'snapshot-1', manifestHash: 'sha256:abc' });
+    assert.deepEqual(exported.workspace.submittedSnapshot, {
+      id: 'snapshot-1',
+      manifestHash: 'sha256:abc',
+    });
     assert.equal(exported.workspace.primaryWorkspacePath, '/app');
     assert.equal(exported.workspace.diff.status, 'present');
     assert.equal(exported.workspace.diff.path, '/logs/artifacts/submission.diff');
     assert.equal(exported.artifacts.primaryWorkspacePath, '/app');
-    assert.equal(exported.artifacts.byKind.workspace_diff?.[0]?.path, '/logs/artifacts/submission.diff');
+    assert.equal(
+      exported.artifacts.byKind.workspace_diff?.[0]?.path,
+      '/logs/artifacts/submission.diff',
+    );
     assert.equal(exported.verifier?.benchmark?.instanceId, 'tb-1');
     assert.deepEqual(exported.budget, { totals: { total: 3 } });
     assert.deepEqual(exported.economy, {
@@ -186,194 +216,231 @@ describe('task run export', () => {
   });
 
   test('omits default-off task policy metadata from compact exports', () => {
-    const exported = taskRunExportFromProjection(projectTaskRun([
-      { type: 'task_run_created', id: 'e1', taskRunId: 'run-default', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
-      {
-        type: 'heavy_task_mode_recorded',
-        id: 'e2',
-        taskRunId: 'run-default',
-        ts: 2,
-        facts: {
-          schemaVersion: 1,
-          enabled: false,
-          triggerSource: 'default',
-          triggerReason: 'heavy-task mode was not explicitly enabled',
-          policyVersion: 'maka-heavy-task-policy.v1',
-        },
-      },
-      {
-        type: 'economy_task_mode_recorded',
-        id: 'e3',
-        taskRunId: 'run-default',
-        ts: 2,
-        facts: {
-          schemaVersion: 1,
-          enabled: false,
-          triggerSource: 'default',
-          triggerReason: 'economy-task mode was not explicitly enabled',
-          policyVersion: 'maka-economy-task-policy.v1',
-        },
-      },
-    ], 'run-default'));
+    const exported = taskRunExportFromProjection(
+      projectTaskRun(
+        [
+          {
+            type: 'task_run_created',
+            id: 'e1',
+            taskRunId: 'run-default',
+            ts: 1,
+            taskId: 'task-1',
+            configId: 'cfg-1',
+          },
+          {
+            type: 'heavy_task_mode_recorded',
+            id: 'e2',
+            taskRunId: 'run-default',
+            ts: 2,
+            facts: {
+              schemaVersion: 1,
+              enabled: false,
+              triggerSource: 'default',
+              triggerReason: 'heavy-task mode was not explicitly enabled',
+              policyVersion: 'maka-heavy-task-policy.v1',
+            },
+          },
+          {
+            type: 'economy_task_mode_recorded',
+            id: 'e3',
+            taskRunId: 'run-default',
+            ts: 2,
+            facts: {
+              schemaVersion: 1,
+              enabled: false,
+              triggerSource: 'default',
+              triggerReason: 'economy-task mode was not explicitly enabled',
+              policyVersion: 'maka-economy-task-policy.v1',
+            },
+          },
+        ],
+        'run-default',
+      ),
+    );
 
     assert.equal(exported.policy, undefined);
     assert.equal(exported.progress, undefined);
   });
 
   test('exports heavy-task progress snapshots and compact result progress', async () => {
-    const projection = projectTaskRun([
-      { type: 'task_run_created', id: 'e1', taskRunId: 'run-progress', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
-      {
-        type: 'heavy_task_inventory_recorded',
-        id: 'e2',
-        taskRunId: 'run-progress',
-        ts: 2,
-        inventory: {
-          schemaVersion: 1,
-          inventoryId: 'inventory-1',
+    const projection = projectTaskRun(
+      [
+        {
+          type: 'task_run_created',
+          id: 'e1',
+          taskRunId: 'run-progress',
+          ts: 1,
+          taskId: 'task-1',
+          configId: 'cfg-1',
+        },
+        {
+          type: 'heavy_task_inventory_recorded',
+          id: 'e2',
           taskRunId: 'run-progress',
           ts: 2,
-          summary: 'Inspected public files',
-          items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
-          source: { kind: 'model_tool', toolCallId: 'tool-1' },
+          inventory: {
+            schemaVersion: 1,
+            inventoryId: 'inventory-1',
+            taskRunId: 'run-progress',
+            ts: 2,
+            summary: 'Inspected public files',
+            items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
+            source: { kind: 'model_tool', toolCallId: 'tool-1' },
+          },
         },
-      },
-      {
-        type: 'heavy_task_todos_recorded',
-        id: 'e3',
-        taskRunId: 'run-progress',
-        ts: 3,
-        todos: {
-          schemaVersion: 1,
-          todoSetId: 'todos-1',
+        {
+          type: 'heavy_task_todos_recorded',
+          id: 'e3',
           taskRunId: 'run-progress',
           ts: 3,
-          items: [{ id: 'edit', content: 'Patch implementation', status: 'in_progress', priority: 'high' }],
-          source: { kind: 'model_tool', toolCallId: 'tool-2' },
+          todos: {
+            schemaVersion: 1,
+            todoSetId: 'todos-1',
+            taskRunId: 'run-progress',
+            ts: 3,
+            items: [
+              {
+                id: 'edit',
+                content: 'Patch implementation',
+                status: 'in_progress',
+                priority: 'high',
+              },
+            ],
+            source: { kind: 'model_tool', toolCallId: 'tool-2' },
+          },
         },
-      },
-      {
-        type: 'heavy_task_self_check_plan_recorded',
-        id: 'e3-plan',
-        taskRunId: 'run-progress',
-        ts: 3.5,
-        plan: {
-          schemaVersion: 1,
-          planId: 'plan-1',
+        {
+          type: 'heavy_task_self_check_plan_recorded',
+          id: 'e3-plan',
           taskRunId: 'run-progress',
           ts: 3.5,
-          finalArtifacts: [{
-            path: 'build-output.log',
-            purpose: 'public self-check artifact',
-            publicReason: 'visible public check creates this artifact',
-          }],
-          selfCheckScratch: {
-            root: '/tmp/maka-self-check/run-progress',
-            expectedGeneratedPaths: ['/tmp/maka-self-check/run-progress/check.log'],
-            publicReason: 'public check outputs stay under scratch',
-          },
-          workspaceGuardPlan: {
-            checkedPaths: ['/app'],
-            expectedAddedPaths: ['build-output.log'],
-            expectedGeneratedPathsOutsideScratch: [],
-            publicReason: 'public guard checks visible workspace paths',
-          },
-          publicReason: 'plan is derived from visible public task evidence',
-          guard: {
-            status: 'accepted',
-            checkedAt: 3.5,
-            categories: [],
-            publicReason: 'Accepted as public, task-derived advisory self-check plan.',
-          },
-          source: { kind: 'model_tool', toolCallId: 'tool-plan' },
-        },
-      },
-      {
-        type: 'heavy_task_self_check_recorded',
-        id: 'e4',
-        taskRunId: 'run-progress',
-        ts: 4,
-        selfCheck: {
-          schemaVersion: 1,
-          selfCheckId: 'self-check-1',
-          taskRunId: 'run-progress',
-          ts: 4,
-          status: 'pass',
-          publicReason: 'npm test passed against public files.',
-          commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
-          artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
-          guard: {
-            status: 'accepted',
-            checkedAt: 4,
-            categories: [],
-            publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
-          },
-          source: { kind: 'model_tool', toolCallId: 'tool-3' },
-        },
-      },
-      {
-        type: 'heavy_task_evidence_recorded',
-        id: 'e4a',
-        taskRunId: 'run-progress',
-        ts: 4,
-        evidence: {
-          schemaVersion: 1,
-          evidenceId: 'evidence-bash-1',
-          taskRunId: 'run-progress',
-          ts: 4,
-          kind: 'tool',
-          public: true,
-          source: { kind: 'model_tool', toolCallId: 'tool-5', toolName: 'Bash' },
-          tool: {
-            name: 'Bash',
-            inputSummary: { command: 'npm test' },
-            exitCode: 1,
-            ok: false,
-            outputs: [{
-              stream: 'stdout',
-              excerpt: 'public failure summary',
-              byteCount: 5_500,
-              lineCount: 20,
-              truncated: true,
-              truncationRef: {
-                truncated: true,
-                originalBytes: 5_500,
-                visibleBytes: 22,
-                omittedBytes: 5_478,
-                ref: 'runtime-event-1',
-                refKind: 'runtime_event',
+          plan: {
+            schemaVersion: 1,
+            planId: 'plan-1',
+            taskRunId: 'run-progress',
+            ts: 3.5,
+            finalArtifacts: [
+              {
+                path: 'build-output.log',
+                purpose: 'public self-check artifact',
+                publicReason: 'visible public check creates this artifact',
               },
-            }],
-            diff: { status: 'not_applicable' },
+            ],
+            selfCheckScratch: {
+              root: '/tmp/maka-self-check/run-progress',
+              expectedGeneratedPaths: ['/tmp/maka-self-check/run-progress/check.log'],
+              publicReason: 'public check outputs stay under scratch',
+            },
+            workspaceGuardPlan: {
+              checkedPaths: ['/app'],
+              expectedAddedPaths: ['build-output.log'],
+              expectedGeneratedPathsOutsideScratch: [],
+              publicReason: 'public guard checks visible workspace paths',
+            },
+            publicReason: 'plan is derived from visible public task evidence',
+            guard: {
+              status: 'accepted',
+              checkedAt: 3.5,
+              categories: [],
+              publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+            },
+            source: { kind: 'model_tool', toolCallId: 'tool-plan' },
           },
-          links: { runtimeEventIds: ['runtime-event-1'] },
         },
-      },
-      {
-        type: 'heavy_task_self_check_recorded',
-        id: 'e5',
-        taskRunId: 'run-progress',
-        ts: 5,
-        selfCheck: {
-          schemaVersion: 1,
-          selfCheckId: 'self-check-private',
+        {
+          type: 'heavy_task_self_check_recorded',
+          id: 'e4',
+          taskRunId: 'run-progress',
+          ts: 4,
+          selfCheck: {
+            schemaVersion: 1,
+            selfCheckId: 'self-check-1',
+            taskRunId: 'run-progress',
+            ts: 4,
+            status: 'pass',
+            publicReason: 'npm test passed against public files.',
+            commandEvidence: [
+              { command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' },
+            ],
+            artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
+            guard: {
+              status: 'accepted',
+              checkedAt: 4,
+              categories: [],
+              publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+            },
+            source: { kind: 'model_tool', toolCallId: 'tool-3' },
+          },
+        },
+        {
+          type: 'heavy_task_evidence_recorded',
+          id: 'e4a',
+          taskRunId: 'run-progress',
+          ts: 4,
+          evidence: {
+            schemaVersion: 1,
+            evidenceId: 'evidence-bash-1',
+            taskRunId: 'run-progress',
+            ts: 4,
+            kind: 'tool',
+            public: true,
+            source: { kind: 'model_tool', toolCallId: 'tool-5', toolName: 'Bash' },
+            tool: {
+              name: 'Bash',
+              inputSummary: { command: 'npm test' },
+              exitCode: 1,
+              ok: false,
+              outputs: [
+                {
+                  stream: 'stdout',
+                  excerpt: 'public failure summary',
+                  byteCount: 5_500,
+                  lineCount: 20,
+                  truncated: true,
+                  truncationRef: {
+                    truncated: true,
+                    originalBytes: 5_500,
+                    visibleBytes: 22,
+                    omittedBytes: 5_478,
+                    ref: 'runtime-event-1',
+                    refKind: 'runtime_event',
+                  },
+                },
+              ],
+              diff: { status: 'not_applicable' },
+            },
+            links: { runtimeEventIds: ['runtime-event-1'] },
+          },
+        },
+        {
+          type: 'heavy_task_self_check_recorded',
+          id: 'e5',
           taskRunId: 'run-progress',
           ts: 5,
-          status: 'fail',
-          publicReason: 'hidden/tests/private_case.py revealed a failure',
-          commandEvidence: [{ command: 'cat hidden/tests/private_case.py' }],
-          artifactEvidence: [{ path: 'official-verifier-output.json', kind: 'file' }],
-          guard: {
-            status: 'accepted',
-            checkedAt: 5,
-            categories: [],
-            publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+          selfCheck: {
+            schemaVersion: 1,
+            selfCheckId: 'self-check-private',
+            taskRunId: 'run-progress',
+            ts: 5,
+            status: 'fail',
+            publicReason: 'hidden/tests/private_case.py revealed a failure',
+            commandEvidence: [{ command: 'cat hidden/tests/private_case.py' }],
+            artifactEvidence: [{ path: 'official-verifier-output.json', kind: 'file' }],
+            guard: {
+              status: 'accepted',
+              checkedAt: 5,
+              categories: [],
+              publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+            },
+            source: { kind: 'model_tool', toolCallId: 'tool-4' },
           },
-          source: { kind: 'model_tool', toolCallId: 'tool-4' },
         },
-      },
-    ], 'run-progress');
-    const exported = taskRunExportFromProjection(projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
+      ],
+      'run-progress',
+    );
+    const exported = taskRunExportFromProjection(projection, {
+      exportedAt: '2026-06-19T00:00:00.000Z',
+    });
 
     assert.equal(exported.progress?.inventory?.latest.inventoryId, 'inventory-1');
     assert.equal(exported.progress?.inventory?.historyCount, 1);
@@ -385,9 +452,19 @@ describe('task run export', () => {
     assert.equal(exported.progress?.selfCheckPlans?.audit?.status, 'pass');
     assert.equal(exported.progress?.evidence?.latest.evidenceId, 'evidence-bash-1');
     assert.equal(exported.progress?.evidence?.historyCount, 4);
-    assert.ok(exported.progress?.evidence?.recent.some((item) => item.check?.linkedSelfCheckId === 'self-check-1'));
-    assert.ok(exported.progress?.evidence?.recent.some((item) => item.artifact?.path === 'build-output.log'));
-    const bashEvidence = exported.progress?.evidence?.recent.find((item) => item.evidenceId === 'evidence-bash-1');
+    assert.ok(
+      exported.progress?.evidence?.recent.some(
+        (item) => item.check?.linkedSelfCheckId === 'self-check-1',
+      ),
+    );
+    assert.ok(
+      exported.progress?.evidence?.recent.some(
+        (item) => item.artifact?.path === 'build-output.log',
+      ),
+    );
+    const bashEvidence = exported.progress?.evidence?.recent.find(
+      (item) => item.evidenceId === 'evidence-bash-1',
+    );
     assert.equal(bashEvidence?.tool?.outputs[0]?.truncationRef?.ref, 'runtime-event-1');
 
     const outDir = await mkdtemp(join(tmpdir(), 'maka-progress-export-'));
@@ -396,7 +473,9 @@ describe('task run export', () => {
         exportedAt: '2026-06-19T00:00:00.000Z',
         includeEvents: true,
       });
-      const compact = JSON.parse(await readFile(written.files.resultJson, 'utf8')) as { progress?: unknown };
+      const compact = JSON.parse(await readFile(written.files.resultJson, 'utf8')) as {
+        progress?: unknown;
+      };
       assert.deepEqual(compact.progress, exported.progress);
       const taskRunJson = await readFile(written.files.taskRunJson, 'utf8');
       const compactJson = await readFile(written.files.resultJson, 'utf8');
@@ -416,7 +495,9 @@ describe('task run export', () => {
 
   test('exports heavy-task dual runtime and semantic completion status in full and compact views', async () => {
     const projection = projectTaskRun(heavyTaskCompletionEvents(), 'run-heavy-complete');
-    const exported = taskRunExportFromProjection(projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
+    const exported = taskRunExportFromProjection(projection, {
+      exportedAt: '2026-06-19T00:00:00.000Z',
+    });
 
     assert.equal(exported.taskRun.status, 'budget_exhausted');
     assert.equal(exported.taxonomy.value, 'verification_failed');
@@ -431,7 +512,9 @@ describe('task run export', () => {
     assert.equal(exported.heavyTask?.selfCheckPlan?.latest?.planId, 'plan-1');
     assert.equal(exported.heavyTask?.selfCheckPlan?.audit?.status, 'pass');
     assert.deepEqual(exported.heavyTask?.completion.semantic.unresolvedTodoIds, []);
-    assert.deepEqual(exported.heavyTask?.completion.semantic.nonblockingTodoIds, ['optional-polish']);
+    assert.deepEqual(exported.heavyTask?.completion.semantic.nonblockingTodoIds, [
+      'optional-polish',
+    ]);
     assert.equal(exported.heavyTask?.completion.finalization.eligible, true);
     assert.equal(exported.score?.taxonomy, 'verification_failed');
     assert.equal(exported.verifier?.passed, false);
@@ -482,33 +565,43 @@ describe('task run export', () => {
   });
 
   test('exports latest heavy-task self-check gate state in full and compact views', async () => {
-    const projection = projectTaskRun([
-      ...heavyTaskCompletionEvents(),
-      {
-        type: 'heavy_task_self_check_gate_recorded',
-        id: 'gate-1',
-        taskRunId: 'run-heavy-complete',
-        ts: 7,
-        gate: {
-          schemaVersion: 1,
-          action: 'allow_official_verifier_after_bounded_attempt',
-          reason: 'latest self-check status is inconclusive',
-          attempt: 1,
-          maxAttempts: 1,
-          checklist: [{
-            id: 'check-1',
-            kind: 'required_artifact',
-            source: 'task_instruction',
-            description: 'Visible task instruction requires artifact /app/report.jsonl',
-            evidenceRequired: 'command_or_artifact',
-            path: '/app/report.jsonl',
-          }],
-        },
-      } satisfies TaskEvent,
-    ], 'run-heavy-complete');
-    const exported = taskRunExportFromProjection(projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
+    const projection = projectTaskRun(
+      [
+        ...heavyTaskCompletionEvents(),
+        {
+          type: 'heavy_task_self_check_gate_recorded',
+          id: 'gate-1',
+          taskRunId: 'run-heavy-complete',
+          ts: 7,
+          gate: {
+            schemaVersion: 1,
+            action: 'allow_official_verifier_after_bounded_attempt',
+            reason: 'latest self-check status is inconclusive',
+            attempt: 1,
+            maxAttempts: 1,
+            checklist: [
+              {
+                id: 'check-1',
+                kind: 'required_artifact',
+                source: 'task_instruction',
+                description: 'Visible task instruction requires artifact /app/report.jsonl',
+                evidenceRequired: 'command_or_artifact',
+                path: '/app/report.jsonl',
+              },
+            ],
+          },
+        } satisfies TaskEvent,
+      ],
+      'run-heavy-complete',
+    );
+    const exported = taskRunExportFromProjection(projection, {
+      exportedAt: '2026-06-19T00:00:00.000Z',
+    });
 
-    assert.equal(exported.heavyTask?.selfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
+    assert.equal(
+      exported.heavyTask?.selfCheckGate?.action,
+      'allow_official_verifier_after_bounded_attempt',
+    );
     assert.equal(exported.progress?.selfCheckGates?.historyCount, 1);
     assert.equal(exported.progress?.selfCheckGates?.latest.checklist[0]?.path, '/app/report.jsonl');
 
@@ -520,7 +613,10 @@ describe('task run export', () => {
       });
       const compact = JSON.parse(await readFile(written.files.resultJson, 'utf8'));
       assert.deepEqual(compact.heavyTask.selfCheckGate, exported.heavyTask?.selfCheckGate);
-      assert.match(await readFile(written.files.eventsJsonl!, 'utf8'), /heavy_task_self_check_gate_recorded/);
+      assert.match(
+        await readFile(written.files.eventsJsonl!, 'utf8'),
+        /heavy_task_self_check_gate_recorded/,
+      );
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }
@@ -528,7 +624,14 @@ describe('task run export', () => {
 
   test('exports official verifier truth over a non-authoritative placeholder result', async () => {
     const events: TaskEvent[] = [
-      { type: 'task_run_created', id: 'e1', taskRunId: 'run-official', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'task_run_created',
+        id: 'e1',
+        taskRunId: 'run-official',
+        ts: 1,
+        taskId: 'task-1',
+        configId: 'cfg-1',
+      },
       {
         type: 'verifier_result_recorded',
         id: 'e2',
@@ -608,7 +711,10 @@ describe('task run export', () => {
     assert.equal(exported.verifier?.id, 'official-verifier');
     assert.equal(exported.verifier?.authority?.source, 'official_harbor_verifier');
     assert.equal(exported.legacyResultRecord.passed, true);
-    assert.equal(projectTaskRun(events, 'run-official').verifierResults[0]?.authority?.authoritative, false);
+    assert.equal(
+      projectTaskRun(events, 'run-official').verifierResults[0]?.authority?.authoritative,
+      false,
+    );
 
     const dir = await mkdtemp(join(tmpdir(), 'maka-task-export-official-'));
     try {
@@ -626,7 +732,14 @@ describe('task run export', () => {
 
   test('does not pair an official verifier with a stale placeholder score', () => {
     const events: TaskEvent[] = [
-      { type: 'task_run_created', id: 'e1', taskRunId: 'run-verifier-only', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'task_run_created',
+        id: 'e1',
+        taskRunId: 'run-verifier-only',
+        ts: 1,
+        taskId: 'task-1',
+        configId: 'cfg-1',
+      },
       {
         type: 'score_result_recorded',
         id: 'e2',
@@ -644,7 +757,13 @@ describe('task run export', () => {
           authority: { source: 'self_check', authoritative: false },
         },
       },
-      { type: 'task_run_completed', id: 'e3', taskRunId: 'run-verifier-only', ts: 3, finishedAt: 3 },
+      {
+        type: 'task_run_completed',
+        id: 'e3',
+        taskRunId: 'run-verifier-only',
+        ts: 3,
+        finishedAt: 3,
+      },
       {
         type: 'verifier_result_recorded',
         id: 'e4',
@@ -678,7 +797,14 @@ describe('task run export', () => {
 
   test('keeps official verifier truth when a later placeholder is recorded', () => {
     const events: TaskEvent[] = [
-      { type: 'task_run_created', id: 'e1', taskRunId: 'run-reverse', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'task_run_created',
+        id: 'e1',
+        taskRunId: 'run-reverse',
+        ts: 1,
+        taskId: 'task-1',
+        configId: 'cfg-1',
+      },
       {
         type: 'verifier_result_recorded',
         id: 'e2',
@@ -778,9 +904,19 @@ describe('task run export', () => {
   test('writes deterministic export files and optional events', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-task-export-'));
     try {
-      const projection = projectTaskRun([
-        { type: 'task_run_created', id: 'e1', taskRunId: 'run-1', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
-      ], 'run-1');
+      const projection = projectTaskRun(
+        [
+          {
+            type: 'task_run_created',
+            id: 'e1',
+            taskRunId: 'run-1',
+            ts: 1,
+            taskId: 'task-1',
+            configId: 'cfg-1',
+          },
+        ],
+        'run-1',
+      );
       const result = await writeTaskRunExport(dir, projection, {
         includeEvents: true,
         exportedAt: '2026-06-19T00:00:00.000Z',
@@ -788,39 +924,44 @@ describe('task run export', () => {
 
       assert.match(await readFile(result.files.taskRunJson, 'utf8'), /maka.task_run_export.v1/);
       assert.match(await readFile(result.files.resultMd, 'utf8'), /# Task Run run-1/);
-      assert.equal(await readFile(result.files.eventsJsonl!, 'utf8'), '{"type":"task_run_created","id":"e1","taskRunId":"run-1","ts":1,"taskId":"task-1","configId":"cfg-1"}\n');
+      assert.equal(
+        await readFile(result.files.eventsJsonl!, 'utf8'),
+        '{"type":"task_run_created","id":"e1","taskRunId":"run-1","ts":1,"taskId":"task-1","configId":"cfg-1"}\n',
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 });
 
-function heavyTaskCompletionEvents(todos: HeavyTaskTodoItem[] = [
-  { id: 'edit', content: 'Patch implementation', status: 'completed', priority: 'high' },
-  {
-    id: 'artifact',
-    kind: 'runnable_artifact',
-    content: 'Create first runnable artifact',
-    status: 'completed',
-    priority: 'high',
-    evidence: 'Runnable artifact exists in public workspace.',
-  },
-  {
-    id: 'check',
-    kind: 'public_check',
-    content: 'Run public check',
-    status: 'completed',
-    priority: 'high',
-    evidence: 'Public check passed.',
-  },
-  {
-    id: 'optional-polish',
-    content: 'Optional polish',
-    status: 'cancelled',
-    priority: 'low',
-    evidence: 'Not required by public task.',
-  },
-]): TaskEvent[] {
+function heavyTaskCompletionEvents(
+  todos: HeavyTaskTodoItem[] = [
+    { id: 'edit', content: 'Patch implementation', status: 'completed', priority: 'high' },
+    {
+      id: 'artifact',
+      kind: 'runnable_artifact',
+      content: 'Create first runnable artifact',
+      status: 'completed',
+      priority: 'high',
+      evidence: 'Runnable artifact exists in public workspace.',
+    },
+    {
+      id: 'check',
+      kind: 'public_check',
+      content: 'Run public check',
+      status: 'completed',
+      priority: 'high',
+      evidence: 'Public check passed.',
+    },
+    {
+      id: 'optional-polish',
+      content: 'Optional polish',
+      status: 'cancelled',
+      priority: 'low',
+      evidence: 'Not required by public task.',
+    },
+  ],
+): TaskEvent[] {
   const taskRunId = 'run-heavy-complete';
   return [
     { type: 'task_run_created', id: 'hc1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
@@ -861,11 +1002,13 @@ function heavyTaskCompletionEvents(todos: HeavyTaskTodoItem[] = [
         planId: 'plan-1',
         taskRunId,
         ts: 3.5,
-        finalArtifacts: [{
-          path: 'build-output.log',
-          purpose: 'public self-check artifact',
-          publicReason: 'visible public check creates this artifact',
-        }],
+        finalArtifacts: [
+          {
+            path: 'build-output.log',
+            purpose: 'public self-check artifact',
+            publicReason: 'visible public check creates this artifact',
+          },
+        ],
         selfCheckScratch: {
           root: '/tmp/maka-self-check/run-heavy-complete',
           expectedGeneratedPaths: ['/tmp/maka-self-check/run-heavy-complete/check.log'],
@@ -899,7 +1042,9 @@ function heavyTaskCompletionEvents(todos: HeavyTaskTodoItem[] = [
         ts: 4,
         status: 'pass',
         publicReason: 'npm test passed against public files.',
-        commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
+        commandEvidence: [
+          { command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' },
+        ],
         artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
         executionHygiene: {
           sandbox: {

@@ -20,37 +20,53 @@ describe('task ledger experiment tools', () => {
     const store = createInMemoryTaskLedgerExperimentStore();
     const tools = buildTaskLedgerExperimentTools({ store });
 
-    assert.deepEqual(tools.map((tool) => tool.name), ['todo_write']);
+    assert.deepEqual(
+      tools.map((tool) => tool.name),
+      ['todo_write'],
+    );
   });
 
   test('builds a todo_write task tool that replaces the session todo list', async () => {
-    const store = createInMemoryTaskLedgerExperimentStore({ now: idNumberFactory(), newId: idFactory() });
+    const store = createInMemoryTaskLedgerExperimentStore({
+      now: idNumberFactory(),
+      newId: idFactory(),
+    });
     const tools = buildTaskLedgerExperimentTools({ store });
-    assert.deepEqual(tools.map((tool) => tool.name), ['todo_write']);
+    assert.deepEqual(
+      tools.map((tool) => tool.name),
+      ['todo_write'],
+    );
 
     const todoWrite = tools.find((tool) => tool.name === 'todo_write');
     assert.ok(todoWrite);
 
-    const result = await todoWrite.impl({
-      todos: [
-        { content: 'Inspect failing parser test', status: 'in_progress' },
-        { content: 'Run narrow regression test', status: 'pending' },
-      ],
-    }, toolContext);
+    const result = await todoWrite.impl(
+      {
+        todos: [
+          { content: 'Inspect failing parser test', status: 'in_progress' },
+          { content: 'Run narrow regression test', status: 'pending' },
+        ],
+      },
+      toolContext,
+    );
 
     assert.match(String(result), /Inspect failing parser test/);
     assert.match(String(result), /Run narrow regression test/);
     assert.match(String(result), /status=in_progress/);
     assert.match(String(result), /key=T1/);
 
-    await todoWrite.impl({
-      todos: [
-        { content: 'Run narrow regression test', status: 'completed' },
-      ],
-    }, toolContext);
+    await todoWrite.impl(
+      {
+        todos: [{ content: 'Run narrow regression test', status: 'completed' }],
+      },
+      toolContext,
+    );
 
     const emptyReplay = renderTaskLedgerExperimentReplay([], { maxChars: 600 });
-    assert.match(emptyReplay ?? '', /Use todo_write at the start of long-running, multi-step tasks/);
+    assert.match(
+      emptyReplay ?? '',
+      /Use todo_write at the start of long-running, multi-step tasks/,
+    );
 
     const replay = renderTaskLedgerExperimentReplay(await store.list('session-1'), {
       maxChars: 600,
@@ -62,19 +78,27 @@ describe('task ledger experiment tools', () => {
   });
 
   test('renders a capped replay of active pending and recently completed tasks', async () => {
-    const store = createInMemoryTaskLedgerExperimentStore({ now: idNumberFactory(), newId: idFactory() });
+    const store = createInMemoryTaskLedgerExperimentStore({
+      now: idNumberFactory(),
+      newId: idFactory(),
+    });
     const tools = buildTaskLedgerExperimentTools({ store });
     const todoWrite = tools.find((tool) => tool.name === 'todo_write');
     assert.ok(todoWrite);
-    await todoWrite.impl({
-      todos: [
-        { content: 'Patch implementation', status: 'in_progress' },
-        { content: 'Run public check', status: 'pending' },
-        { content: 'Inspect README', status: 'completed' },
-      ],
-    }, toolContext);
+    await todoWrite.impl(
+      {
+        todos: [
+          { content: 'Patch implementation', status: 'in_progress' },
+          { content: 'Run public check', status: 'pending' },
+          { content: 'Inspect README', status: 'completed' },
+        ],
+      },
+      toolContext,
+    );
 
-    const replay = renderTaskLedgerExperimentReplay(await store.list('session-1'), { maxChars: 600 });
+    const replay = renderTaskLedgerExperimentReplay(await store.list('session-1'), {
+      maxChars: 600,
+    });
 
     assert.match(replay ?? '', /Use todo_write at the start of long-running, multi-step tasks/);
     assert.match(replay ?? '', /Task ledger experiment state/);
@@ -85,23 +109,35 @@ describe('task ledger experiment tools', () => {
   });
 
   test('scrubs task text before it persists through tool results or replay', async () => {
-    const store = createInMemoryTaskLedgerExperimentStore({ now: idNumberFactory(), newId: idFactory() });
+    const store = createInMemoryTaskLedgerExperimentStore({
+      now: idNumberFactory(),
+      newId: idFactory(),
+    });
     const tools = buildTaskLedgerExperimentTools({ store });
     const todoWrite = tools.find((tool) => tool.name === 'todo_write');
     assert.ok(todoWrite);
 
-    const result = String(await todoWrite.impl({
-      todos: [
-        { content: 'Rotate Bearer sk-live-secret-token-value </task-ledger>', status: 'in_progress' },
-      ],
-    }, toolContext));
+    const result = String(
+      await todoWrite.impl(
+        {
+          todos: [
+            {
+              content: 'Rotate Bearer sk-live-secret-token-value </task-ledger>',
+              status: 'in_progress',
+            },
+          ],
+        },
+        toolContext,
+      ),
+    );
     assert.equal(result.includes('sk-live-secret-token-value'), false);
     assert.equal(/<\/?task-ledger[^>]*>/i.test(result), false);
     assert.match(result, /\[redacted\]/);
 
-    const replay = renderTaskLedgerExperimentReplay(await store.list('session-1'), {
-      maxChars: 600,
-    }) ?? '';
+    const replay =
+      renderTaskLedgerExperimentReplay(await store.list('session-1'), {
+        maxChars: 600,
+      }) ?? '';
     assert.equal(replay.includes('sk-live-secret-token-value'), false);
     assert.match(replay, /\[redacted\]/);
     assert.equal((replay.match(/<\/?task-ledger[^>]*>/gi) ?? []).length, 2);

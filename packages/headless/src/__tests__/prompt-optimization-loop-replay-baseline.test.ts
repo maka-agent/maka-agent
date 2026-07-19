@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { hashSystemPrompt, readFixedPromptWal } from '../fixed-prompt-controller.js';
-import { execFileAsync, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness } from './helpers/prompt-optimization-loop-harness.js';
+import {
+  execFileAsync,
+  fakeMetaAgent,
+  makeTasks,
+  runLoop,
+  taskIndex,
+  withHarness,
+} from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop replay baseline guards', () => {
   test('fails closed instead of rerunning baseline when later WAL history exists', async () => {
@@ -24,8 +31,14 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const missingBaseline = events.filter((event) =>
-        !(event.type === 'task_completed' && event.roundId === 'baseline-0' && event.taskId === 'hin-0'));
+      const missingBaseline = events.filter(
+        (event) =>
+          !(
+            event.type === 'task_completed' &&
+            event.roundId === 'baseline-0' &&
+            event.taskId === 'hin-0'
+          ),
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${missingBaseline.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -67,15 +80,21 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const commitIndex = events.findIndex((event) =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const commitIndex = events.findIndex(
+        (event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(commitIndex > -1);
       await writeFile(
         harness.resultsJsonlPath,
-        `${events.slice(0, commitIndex + 1).map((event) => JSON.stringify(event)).join('\n')}\n`,
+        `${events
+          .slice(0, commitIndex + 1)
+          .map((event) => JSON.stringify(event))
+          .join('\n')}\n`,
         'utf8',
       );
-      await execFileAsync('git', ['reset', '--hard', harness.originalCommitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', harness.originalCommitSha], {
+        cwd: harness.repoDir,
+      });
 
       const taskRuns: string[] = [];
       await assert.rejects(
@@ -115,16 +134,23 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const committed = events.find((event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const committed = events.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(committed);
       const commitIndex = events.indexOf(committed);
       await writeFile(
         harness.resultsJsonlPath,
-        `${events.slice(0, commitIndex + 1).map((event) => JSON.stringify(event)).join('\n')}\n`,
+        `${events
+          .slice(0, commitIndex + 1)
+          .map((event) => JSON.stringify(event))
+          .join('\n')}\n`,
         'utf8',
       );
-      await execFileAsync('git', ['reset', '--hard', committed.commitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', committed.commitSha], {
+        cwd: harness.repoDir,
+      });
 
       const taskRuns: string[] = [];
       await assert.rejects(
@@ -163,21 +189,27 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const committed = events.find((event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const committed = events.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(committed);
       const commitIndex = events.indexOf(committed);
-      const gappedEvents = events.slice(0, commitIndex + 1).map((event) => (
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0'
-          ? { ...event, roundId: 'round-1' }
-          : event
-      ));
+      const gappedEvents = events
+        .slice(0, commitIndex + 1)
+        .map((event) =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0'
+            ? { ...event, roundId: 'round-1' }
+            : event,
+        );
       await writeFile(
         harness.resultsJsonlPath,
         `${gappedEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
         'utf8',
       );
-      await execFileAsync('git', ['reset', '--hard', committed.commitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', committed.commitSha], {
+        cwd: harness.repoDir,
+      });
 
       const taskRuns: string[] = [];
       await assert.rejects(
@@ -214,16 +246,22 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const firstCandidate = events.find((event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const firstCandidate = events.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(firstCandidate);
 
       const sidePrompt = 'side candidate prompt\n';
-      await execFileAsync('git', ['reset', '--hard', harness.originalCommitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', harness.originalCommitSha], {
+        cwd: harness.repoDir,
+      });
       await writeFile(harness.systemPromptPath, sidePrompt, 'utf8');
       await execFileAsync('git', ['add', 'system_prompt.md'], { cwd: harness.repoDir });
       await execFileAsync('git', ['commit', '-m', 'side candidate'], { cwd: harness.repoDir });
-      const sideCommit = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const sideCommit = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       const wrongParentCandidate = {
         ...firstCandidate,
         id: 'wrong-parent-candidate',
@@ -273,31 +311,39 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const committed = events.find((event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const committed = events.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(committed);
-      const candidatePrompt = (await execFileAsync(
-        'git',
-        ['show', `${committed.commitSha}:system_prompt.md`],
-        { cwd: harness.repoDir },
-      )).stdout;
+      const candidatePrompt = (
+        await execFileAsync('git', ['show', `${committed.commitSha}:system_prompt.md`], {
+          cwd: harness.repoDir,
+        })
+      ).stdout;
 
-      await execFileAsync('git', ['reset', '--hard', harness.originalCommitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', harness.originalCommitSha], {
+        cwd: harness.repoDir,
+      });
       await writeFile(harness.systemPromptPath, candidatePrompt, 'utf8');
       await writeFile(harness.programPath, 'mutated program\n', 'utf8');
-      await execFileAsync('git', ['add', 'system_prompt.md', 'program.md'], { cwd: harness.repoDir });
+      await execFileAsync('git', ['add', 'system_prompt.md', 'program.md'], {
+        cwd: harness.repoDir,
+      });
       await execFileAsync('git', ['commit', '-m', 'bad candidate'], { cwd: harness.repoDir });
-      const badCommit = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const badCommit = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       const commitIndex = events.indexOf(committed);
-      const badCandidateEvents = events.slice(0, commitIndex + 1).map((event) => (
+      const badCandidateEvents = events.slice(0, commitIndex + 1).map((event) =>
         event.type === 'prompt_candidate_committed' && event.roundId === 'round-0'
           ? {
               ...event,
               commitSha: badCommit,
               promptHash: hashSystemPrompt(candidatePrompt),
             }
-          : event
-      ));
+          : event,
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${badCandidateEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -340,5 +386,4 @@ describe('runPromptOptimizationLoop replay baseline guards', () => {
       assert.deepEqual(taskRuns, []);
     });
   });
-
 });

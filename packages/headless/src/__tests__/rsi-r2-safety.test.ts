@@ -45,40 +45,50 @@ describe('RSI R2 safety primitives', () => {
     );
 
     assert.throws(
-      () => validateRsiPromptText('held_out_regressed on hidden task', {
-        fieldName: 'hypothesis',
-        maxChars: 80,
-      }),
-      /hypothesis contains forbidden held_out/i,
-    );
-    assert.throws(
-      () => validateRsiPromptText('```raw trace```', {
-        fieldName: 'hypothesis',
-        maxChars: 80,
-      }),
-      /hypothesis contains forbidden code_fence/i,
-    );
-    for (const unsafe of ['/app/tests/test.sh', 'runtime-events.jsonl', 'resultsJsonlPath', 'results.tsv']) {
-      assert.throws(
-        () => validateRsiPromptText(unsafe, {
+      () =>
+        validateRsiPromptText('held_out_regressed on hidden task', {
           fieldName: 'hypothesis',
           maxChars: 80,
         }),
+      /hypothesis contains forbidden held_out/i,
+    );
+    assert.throws(
+      () =>
+        validateRsiPromptText('```raw trace```', {
+          fieldName: 'hypothesis',
+          maxChars: 80,
+        }),
+      /hypothesis contains forbidden code_fence/i,
+    );
+    for (const unsafe of [
+      '/app/tests/test.sh',
+      'runtime-events.jsonl',
+      'resultsJsonlPath',
+      'results.tsv',
+    ]) {
+      assert.throws(
+        () =>
+          validateRsiPromptText(unsafe, {
+            fieldName: 'hypothesis',
+            maxChars: 80,
+          }),
         /hypothesis contains forbidden/i,
       );
     }
     assert.throws(
-      () => validateRsiPromptText('line one\nline two', {
-        fieldName: 'hypothesis',
-        maxChars: 80,
-      }),
+      () =>
+        validateRsiPromptText('line one\nline two', {
+          fieldName: 'hypothesis',
+          maxChars: 80,
+        }),
       /hypothesis must be single-line/i,
     );
     assert.throws(
-      () => validateRsiPromptText('x'.repeat(81), {
-        fieldName: 'hypothesis',
-        maxChars: 80,
-      }),
+      () =>
+        validateRsiPromptText('x'.repeat(81), {
+          fieldName: 'hypothesis',
+          maxChars: 80,
+        }),
       /hypothesis exceeds 80 chars/i,
     );
   });
@@ -100,32 +110,36 @@ describe('RSI R2 safety primitives', () => {
     );
 
     assert.throws(
-      () => canonicalRsiTokenList(['task-a', 'task-b', 'task-c'], {
-        fieldName: 'riskTasks',
-        maxItems: 2,
-      }),
+      () =>
+        canonicalRsiTokenList(['task-a', 'task-b', 'task-c'], {
+          fieldName: 'riskTasks',
+          maxItems: 2,
+        }),
       /riskTasks exceeds 2 items/i,
     );
     assert.throws(
-      () => canonicalRsiTokenList(Array(100).fill('task-a'), {
-        fieldName: 'riskTasks',
-        maxItems: 2,
-      }),
+      () =>
+        canonicalRsiTokenList(Array(100).fill('task-a'), {
+          fieldName: 'riskTasks',
+          maxItems: 2,
+        }),
       /riskTasks exceeds 2 items/i,
     );
     assert.throws(
-      () => canonicalRsiTokenList(['task a'], {
-        fieldName: 'evidenceRefs',
-        maxItems: 4,
-      }),
+      () =>
+        canonicalRsiTokenList(['task a'], {
+          fieldName: 'evidenceRefs',
+          maxItems: 4,
+        }),
       /evidenceRefs\[0\] must be prompt-safe/i,
     );
     for (const unsafe of [123, true, {}]) {
       assert.throws(
-        () => canonicalRsiTokenList([unsafe as unknown as string], {
-          fieldName: 'evidenceRefs',
-          maxItems: 4,
-        }),
+        () =>
+          canonicalRsiTokenList([unsafe as unknown as string], {
+            fieldName: 'evidenceRefs',
+            maxItems: 4,
+          }),
         /evidenceRefs\[0\] must be prompt-safe/i,
       );
     }

@@ -24,7 +24,9 @@ describe('PermissionProfile factories', () => {
     expect(canReadPath(profile, '/workspace/project/src/index.ts', WORKSPACE_CONTEXT)).toBe(true);
     expect(canWritePath(profile, '/workspace/project/src/index.ts', WORKSPACE_CONTEXT)).toBe(false);
     expect(canReadPath(profile, '/workspace/project2/src/index.ts', WORKSPACE_CONTEXT)).toBe(false);
-    expect(canWritePath(profile, '/workspace/project2/src/index.ts', WORKSPACE_CONTEXT)).toBe(false);
+    expect(canWritePath(profile, '/workspace/project2/src/index.ts', WORKSPACE_CONTEXT)).toBe(
+      false,
+    );
   });
 
   test('workspace-write profile allows ordinary workspace writes and blocks outside writes', () => {
@@ -32,7 +34,9 @@ describe('PermissionProfile factories', () => {
 
     expect(canReadPath(profile, '/workspace/project/src/index.ts', WORKSPACE_CONTEXT)).toBe(true);
     expect(canWritePath(profile, '/workspace/project/src/index.ts', WORKSPACE_CONTEXT)).toBe(true);
-    expect(canWritePath(profile, '/workspace/project2/src/index.ts', WORKSPACE_CONTEXT)).toBe(false);
+    expect(canWritePath(profile, '/workspace/project2/src/index.ts', WORKSPACE_CONTEXT)).toBe(
+      false,
+    );
   });
 
   test('workspace-write profile allows tmp writes when tmp context is provided', () => {
@@ -56,7 +60,9 @@ describe('PermissionProfile factories', () => {
       expect(canWritePath(profile, path, WORKSPACE_CONTEXT)).toBe(false);
     }
 
-    expect(isProtectedMetadataPath('/workspace/project/.gitignore', WORKSPACE_CONTEXT.workspaceRoots)).toBe(false);
+    expect(
+      isProtectedMetadataPath('/workspace/project/.gitignore', WORKSPACE_CONTEXT.workspaceRoots),
+    ).toBe(false);
     expect(canWritePath(profile, '/workspace/project/.gitignore', WORKSPACE_CONTEXT)).toBe(true);
   });
 

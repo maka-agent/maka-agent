@@ -44,9 +44,15 @@ describe('history compact checkpoint', () => {
       },
       eventCount: 10_000,
     });
-    const prefixMatch = matchHistoryCompactCheckpointPrefix(checkpoint, [...events, textEvent(10_000)]);
+    const prefixMatch = matchHistoryCompactCheckpointPrefix(checkpoint, [
+      ...events,
+      textEvent(10_000),
+    ]);
     assert.equal(prefixMatch.coveredEventCount, 10_000);
-    assert.deepEqual(prefixMatch.successorRuntimeEvents.map((event) => event.id), ['event-10000']);
+    assert.deepEqual(
+      prefixMatch.successorRuntimeEvents.map((event) => event.id),
+      ['event-10000'],
+    );
     const replay = applyRuntimeEventHistoryCompact([...events, textEvent(10_000)], {
       maxHistoryEstimatedTokens: 1_000_000,
       charsPerToken: 1,
@@ -66,19 +72,27 @@ describe('history compact checkpoint', () => {
       ...changed[4_999]!,
       content: { kind: 'text', text: 'changed source fact' },
     };
-    assert.equal(matchHistoryCompactCheckpointPrefix(checkpoint, changed).reason, 'source_hash_mismatch');
     assert.equal(
-      matchHistoryCompactCheckpointPrefix(checkpoint, [events[1]!, events[0]!, ...events.slice(2)]).reason,
+      matchHistoryCompactCheckpointPrefix(checkpoint, changed).reason,
+      'source_hash_mismatch',
+    );
+    assert.equal(
+      matchHistoryCompactCheckpointPrefix(checkpoint, [events[1]!, events[0]!, ...events.slice(2)])
+        .reason,
       'coverage_miss',
     );
   });
 
   test('rejects blank summaries instead of persisting an unusable checkpoint', () => {
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1',
-      coveredRuntimeEvents: [textEvent(0)],
-      summary: '   ',
-    }), /non-empty summary/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: [textEvent(0)],
+          summary: '   ',
+        }),
+      /non-empty summary/,
+    );
   });
 
   test('preserves the complete model-produced summary instead of truncating it after generation', () => {
@@ -87,7 +101,9 @@ describe('history compact checkpoint', () => {
       'Keep every section intact.',
       '## Critical Context',
       'LAST_REQUIRED_FACT',
-    ].join('\n').repeat(80);
+    ]
+      .join('\n')
+      .repeat(80);
 
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -100,17 +116,23 @@ describe('history compact checkpoint', () => {
   });
 
   test('rejects a source projection assembled from more than one session', () => {
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1',
-      coveredRuntimeEvents: [textEvent(0), { ...textEvent(1), sessionId: 'session-2' }],
-      summary: 'mixed source',
-    }), /one session/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: [textEvent(0), { ...textEvent(1), sessionId: 'session-2' }],
+          summary: 'mixed source',
+        }),
+      /one session/,
+    );
   });
 
   test('keeps legacy V2 checkpoints readable but rejects inconsistent projection cursors', () => {
     const events = [textEvent(0), textEvent(1)];
     const checkpoint = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'source-bound',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events,
+      summary: 'source-bound',
     });
     const { source: _source, ...legacy } = checkpoint;
     assert.equal(validateHistoryCompactCheckpointShape(legacy, 'session-1'), true);
@@ -136,18 +158,26 @@ describe('history compact checkpoint', () => {
   test('only accepts an equal-coverage checkpoint as an explicit successor of the same source', () => {
     const source = [textEvent(0), textEvent(1)];
     const current = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'current',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: source,
+      summary: 'current',
     });
     const successor = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'smaller replacement',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: source,
+      summary: 'smaller replacement',
       previousCheckpointId: current.checkpointId,
     });
     const stale = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'stale replacement',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: source,
+      summary: 'stale replacement',
       previousCheckpointId: 'another-checkpoint',
     });
     const differentSource = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: [textEvent(2), textEvent(3)], summary: 'different source',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(2), textEvent(3)],
+      summary: 'different source',
       previousCheckpointId: current.checkpointId,
     });
 
@@ -155,7 +185,10 @@ describe('history compact checkpoint', () => {
     assert.equal(canReplaceHistoryCompactCheckpoint(current, stale), false);
     assert.equal(canReplaceHistoryCompactCheckpoint(current, differentSource), false);
     const { source: _source, ...legacySuccessor } = successor;
-    assert.equal(canReplaceHistoryCompactCheckpoint(current, legacySuccessor as typeof successor), false);
+    assert.equal(
+      canReplaceHistoryCompactCheckpoint(current, legacySuccessor as typeof successor),
+      false,
+    );
   });
 
   test('loads the latest valid checkpoint from the run ledger', async () => {
@@ -172,15 +205,22 @@ describe('history compact checkpoint', () => {
       previousCheckpointId: first.checkpointId,
       now: 20,
     });
-    const store = new StubAgentRunStore([
-      run('run-1', 10),
-      run('run-2', 20),
-      run('run-3', 30),
-    ], new Map([
-      ['run-1', [checkpointEvent('ledger-1', 'run-1', first, 10)]],
-      ['run-2', [checkpointEvent('ledger-2', 'run-2', latest, 20)]],
-      ['run-3', [{ ...checkpointEvent('ledger-3', 'run-3', latest, 30), data: { checkpoint: { ...latest, summary: ' ' } } }]],
-    ]));
+    const store = new StubAgentRunStore(
+      [run('run-1', 10), run('run-2', 20), run('run-3', 30)],
+      new Map([
+        ['run-1', [checkpointEvent('ledger-1', 'run-1', first, 10)]],
+        ['run-2', [checkpointEvent('ledger-2', 'run-2', latest, 20)]],
+        [
+          'run-3',
+          [
+            {
+              ...checkpointEvent('ledger-3', 'run-3', latest, 30),
+              data: { checkpoint: { ...latest, summary: ' ' } },
+            },
+          ],
+        ],
+      ]),
+    );
 
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
 
@@ -198,13 +238,13 @@ describe('history compact checkpoint', () => {
       coveredRuntimeEvents: [textEvent(0), textEvent(1)],
       summary: 'stale coverage',
     });
-    const store = new StubAgentRunStore([
-      run('run-furthest', 10),
-      run('run-stale', 20),
-    ], new Map([
-      ['run-furthest', [checkpointEvent('ledger-furthest', 'run-furthest', furthest, 30)]],
-      ['run-stale', [checkpointEvent('ledger-stale', 'run-stale', stale, 40)]],
-    ]));
+    const store = new StubAgentRunStore(
+      [run('run-furthest', 10), run('run-stale', 20)],
+      new Map([
+        ['run-furthest', [checkpointEvent('ledger-furthest', 'run-furthest', furthest, 30)]],
+        ['run-stale', [checkpointEvent('ledger-stale', 'run-stale', stale, 40)]],
+      ]),
+    );
 
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
 
@@ -213,19 +253,26 @@ describe('history compact checkpoint', () => {
 
   test('prefers source-bound recovery over a legacy checkpoint that cannot prove cursor ordering', async () => {
     const sourceBound = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: [textEvent(0), textEvent(1)], summary: 'bound',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0), textEvent(1)],
+      summary: 'bound',
     });
     const legacyBuilt = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: [textEvent(0), textEvent(1), textEvent(2)], summary: 'legacy',
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0), textEvent(1), textEvent(2)],
+      summary: 'legacy',
     });
     const { source: _source, ...legacy } = legacyBuilt;
-    const store = new StubAgentRunStore([
-      run('run-bound', 10),
-      run('run-legacy', 20),
-    ], new Map([
-      ['run-bound', [checkpointEvent('ledger-bound', 'run-bound', sourceBound, 10)]],
-      ['run-legacy', [checkpointEvent('ledger-legacy', 'run-legacy', legacy as typeof legacyBuilt, 20)]],
-    ]));
+    const store = new StubAgentRunStore(
+      [run('run-bound', 10), run('run-legacy', 20)],
+      new Map([
+        ['run-bound', [checkpointEvent('ledger-bound', 'run-bound', sourceBound, 10)]],
+        [
+          'run-legacy',
+          [checkpointEvent('ledger-legacy', 'run-legacy', legacy as typeof legacyBuilt, 20)],
+        ],
+      ]),
+    );
 
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
 
@@ -235,26 +282,41 @@ describe('history compact checkpoint', () => {
   test('recovers the tip of an out-of-order same-coverage successor chain across runs', async () => {
     const source = [textEvent(0), textEvent(1)];
     const first = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'first', now: 10,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: source,
+      summary: 'first',
+      now: 10,
     });
     const second = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'second',
-      previousCheckpointId: first.checkpointId, now: 20,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: source,
+      summary: 'second',
+      previousCheckpointId: first.checkpointId,
+      now: 20,
     });
     const tip = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'tip',
-      previousCheckpointId: second.checkpointId, now: 30,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: source,
+      summary: 'tip',
+      previousCheckpointId: second.checkpointId,
+      now: 30,
     });
-    const store = new StubAgentRunStore([
-      run('parent-created-first', 10),
-      run('child-created-later', 20),
-    ], new Map([
-      ['parent-created-first', [
-        checkpointEvent('ledger-second', 'parent-created-first', second, 20),
-        checkpointEvent('ledger-tip', 'parent-created-first', tip, 30),
-      ]],
-      ['child-created-later', [checkpointEvent('ledger-first', 'child-created-later', first, 10)]],
-    ]));
+    const store = new StubAgentRunStore(
+      [run('parent-created-first', 10), run('child-created-later', 20)],
+      new Map([
+        [
+          'parent-created-first',
+          [
+            checkpointEvent('ledger-second', 'parent-created-first', second, 20),
+            checkpointEvent('ledger-tip', 'parent-created-first', tip, 30),
+          ],
+        ],
+        [
+          'child-created-later',
+          [checkpointEvent('ledger-first', 'child-created-later', first, 10)],
+        ],
+      ]),
+    );
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
 
     assert.equal(loaded?.checkpointId, tip.checkpointId);
@@ -269,8 +331,12 @@ describe('history compact checkpoint', () => {
     const projectedEvent = checkpointEvent('projection-event', 'run-projection', checkpoint, 20);
     const store = {
       readEventProjection: async () => projectedEvent,
-      listSessionRuns: async () => { throw new Error('run enumeration must stay cold'); },
-      readEvents: async () => { throw new Error('run ledger reads must stay cold'); },
+      listSessionRuns: async () => {
+        throw new Error('run enumeration must stay cold');
+      },
+      readEvents: async () => {
+        throw new Error('run ledger reads must stay cold');
+      },
     };
 
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
@@ -281,8 +347,12 @@ describe('history compact checkpoint', () => {
   test('uses an empty bounded projection without enumerating run ledgers', async () => {
     const store = {
       readEventProjection: async () => null,
-      listSessionRuns: async () => { throw new Error('run enumeration must stay cold'); },
-      readEvents: async () => { throw new Error('run ledger reads must stay cold'); },
+      listSessionRuns: async () => {
+        throw new Error('run enumeration must stay cold');
+      },
+      readEvents: async () => {
+        throw new Error('run ledger reads must stay cold');
+      },
     };
 
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
@@ -304,7 +374,9 @@ describe('history compact checkpoint', () => {
         _sessionId: string,
         _type: AgentRunEvent['type'],
         repairedEvent: AgentRunEvent | null,
-      ) => { repaired.push(repairedEvent); },
+      ) => {
+        repaired.push(repairedEvent);
+      },
       listSessionRuns: async () => [run('run-recovered', 10)],
       readEvents: async () => [event],
     };
@@ -335,7 +407,9 @@ describe('history compact checkpoint', () => {
         _type: AgentRunEvent['type'],
         _event: AgentRunEvent | null,
         options?: { replaceEventId?: string },
-      ) => { replacedEventIds.push(options?.replaceEventId); },
+      ) => {
+        replacedEventIds.push(options?.replaceEventId);
+      },
       listSessionRuns: async () => [run('run-canonical', 10)],
       readEvents: async () => [canonicalEvent],
     };
@@ -348,8 +422,12 @@ describe('history compact checkpoint', () => {
 
   test('propagates recovery failure from a damaged bounded projection', async () => {
     const store = {
-      readEventProjection: async () => { throw new Error('damaged projection'); },
-      listSessionRuns: async () => { throw new Error('ledger recovery failed'); },
+      readEventProjection: async () => {
+        throw new Error('damaged projection');
+      },
+      listSessionRuns: async () => {
+        throw new Error('ledger recovery failed');
+      },
       readEvents: async () => [],
     };
 
@@ -362,7 +440,10 @@ describe('history compact checkpoint', () => {
   test('replays a matching checkpoint with only the uncovered raw tail', () => {
     const events = Array.from({ length: 8 }, (_, index) => ({
       ...textEvent(index),
-      content: { kind: 'text' as const, text: `source-payload-${index} `.repeat(index < 4 ? 40 : 1) },
+      content: {
+        kind: 'text' as const,
+        text: `source-payload-${index} `.repeat(index < 4 ? 40 : 1),
+      },
     }));
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -387,14 +468,20 @@ describe('history compact checkpoint', () => {
       replay.events[0]?.content?.kind === 'text' ? replay.events[0].content.text : '',
       /checkpoint summary/,
     );
-    assert.deepEqual(replay.events.slice(1).map((event) => event.id), events.slice(4).map((event) => event.id));
+    assert.deepEqual(
+      replay.events.slice(1).map((event) => event.id),
+      events.slice(4).map((event) => event.id),
+    );
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
   });
 
   test('accepts a complete checkpoint above legacy block limits when the full replay fits', () => {
     const events = Array.from({ length: 8 }, (_, index) => ({
       ...textEvent(index),
-      content: { kind: 'text' as const, text: `source-payload-${index} `.repeat(index < 4 ? 80 : 1) },
+      content: {
+        kind: 'text' as const,
+        text: `source-payload-${index} `.repeat(index < 4 ? 80 : 1),
+      },
     }));
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -419,7 +506,10 @@ describe('history compact checkpoint', () => {
     });
 
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
-    assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), true);
+    assert.equal(
+      replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`),
+      true,
+    );
   });
 
   test('applies max-history overrides to checkpoint replay validation', () => {
@@ -428,27 +518,37 @@ describe('history compact checkpoint', () => {
       content: { kind: 'text' as const, text: `payload-${index} `.repeat(20) },
     }));
     const checkpoint = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events.slice(0, 6), summary: 'short checkpoint', charsPerToken: 1,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events.slice(0, 6),
+      summary: 'short checkpoint',
+      charsPerToken: 1,
     });
-    const checkpointTokens = estimateRuntimeEventsTokens([
-      historyCompactCheckpointToRuntimeEvent(checkpoint),
-    ], 1);
+    const checkpointTokens = estimateRuntimeEventsTokens(
+      [historyCompactCheckpointToRuntimeEvent(checkpoint)],
+      1,
+    );
     const overrideMax = checkpointTokens + 1;
 
-    const replay = applyRuntimeEventHistoryCompact(events, {
-      maxHistoryEstimatedTokens: 10_000,
-      charsPerToken: 1,
-      historyCompact: {
-        enabled: true, mode: 'read_write', checkpoint,
-        maxBlockEstimatedTokens: 10_000, maxEstimatedTokens: 10_000,
-        highWaterRatio: 0.000001, tailEstimatedTokens: 1,
+    const replay = applyRuntimeEventHistoryCompact(
+      events,
+      {
+        maxHistoryEstimatedTokens: 10_000,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'read_write',
+          checkpoint,
+          maxBlockEstimatedTokens: 10_000,
+          maxEstimatedTokens: 10_000,
+          highWaterRatio: 0.000001,
+          tailEstimatedTokens: 1,
+        },
       },
-    }, { maxHistoryEstimatedTokens: overrideMax });
+      { maxHistoryEstimatedTokens: overrideMax },
+    );
 
     assert.equal(replay.checkpoint, undefined);
   });
-
-
 });
 
 function textEvent(index: number): RuntimeEvent {
@@ -513,8 +613,16 @@ class StubAgentRunStore implements AgentRunStore {
     return this.events.get(runId) ?? [];
   }
 
-  async createRun(): Promise<AgentRunHeader> { throw new Error('not implemented'); }
-  async updateRun(): Promise<AgentRunHeader> { throw new Error('not implemented'); }
-  async readRun(): Promise<AgentRunHeader> { throw new Error('not implemented'); }
-  async appendEvent(): Promise<void> { throw new Error('not implemented'); }
+  async createRun(): Promise<AgentRunHeader> {
+    throw new Error('not implemented');
+  }
+  async updateRun(): Promise<AgentRunHeader> {
+    throw new Error('not implemented');
+  }
+  async readRun(): Promise<AgentRunHeader> {
+    throw new Error('not implemented');
+  }
+  async appendEvent(): Promise<void> {
+    throw new Error('not implemented');
+  }
 }

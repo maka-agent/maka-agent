@@ -13,7 +13,7 @@ const REPO_ROOT = process.cwd().endsWith('apps/desktop')
 
 function renderWithLocale(child: ReactNode): string {
   return renderToStaticMarkup(
-    createElement(LocaleProvider, { preference: 'zh', children: child }),
+    createElement(LocaleProvider, { locale: 'zh', children: child }),
   );
 }
 
@@ -47,6 +47,7 @@ describe('attachment frontend contract', () => {
   it('dragged/pasted blobs are sent as bytes and never round-trip a renderer path', async () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globals = await readRepo('apps/desktop/src/global.d.ts');
+    const bridge = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
     // No webUtils.getPathForFile: a renderer-supplied path is untrustworthy.
@@ -54,7 +55,8 @@ describe('attachment frontend contract', () => {
     // preload encodes File blobs to bytes via the shared encoder before IPC.
     assert.match(preload, /encodeIngestItems/);
     // sessions.send carries attachmentItems (File or approvalId), not pre-ingested refs.
-    assert.match(globals, /attachmentItems\?: RendererIngestInput\[\]/);
+    assert.match(globals, /maka: MakaBridge/);
+    assert.match(bridge, /attachmentItems\?: RendererIngestInput\[\]/);
     // renderer maps pending attachments to ingest items at send time.
     assert.match(chatActions, /toIngestItems\(pending\)/);
     assert.match(chatActions, /sessions\.send[\s\S]*attachmentItems/);
@@ -62,7 +64,7 @@ describe('attachment frontend contract', () => {
 
   it('new-chat composer stages attachments via opaque approval tokens and ingests at send time', async () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globals = await readRepo('apps/desktop/src/global.d.ts');
+    const globals = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
@@ -101,6 +103,16 @@ describe('attachment frontend contract', () => {
       /\bsupportsVision,\s*\n/,
       'AiSdkBackend must always receive the resolved vision support (true = send image parts, false = fallback notice)',
     );
+  });
+
+  it('snapshots Read images and notifies the existing artifact preview flow', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const artifactAttachments = await readRepo('packages/storage/src/artifact-attachments.ts');
+
+    assert.match(main, /snapshotImage: snapshotReadImage/);
+    assert.match(main, /const storeReadImage = createReadImageSnapshotter\(artifactStore\)/);
+    assert.match(artifactAttachments, /kind: 'image'[\s\S]*source: 'tool_result'/);
+    assert.match(main, /async function snapshotReadImage[\s\S]*safeSendToRenderer\('artifacts:changed'/);
   });
 
   it('renders user image attachments inside the chat turn stream', () => {

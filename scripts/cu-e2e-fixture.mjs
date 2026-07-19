@@ -59,19 +59,20 @@ function windowBody(spec) {
 }
 
 function windowScript(spec) {
-  const initialState = spec.kind === 'observe'
-    ? `{ verificationCode: ${JSON.stringify(spec.verificationCode)}, interactions: 0 }`
-    : spec.kind === 'single-click'
-      ? '{ primaryClicks: 0, primaryOverClicks: 0, dangerClicks: 0 }'
-      : spec.kind === 'multi-control'
-        ? `{ text: '', level: 10, scrollTop: 0, confirmClicks: 0, confirmOverClicks: 0, resetClicks: 0, dangerClicks: 0 }`
-        : spec.kind === 'click-target'
-          ? '{ clicks: 0, overClicks: 0 }'
-          : spec.kind === 'sentinel'
-            ? '{ agentViolations: 0 }'
-            : spec.kind === 'provider-matrix'
-              ? '{ invalidReports: 0, executedUiActions: 0 }'
-              : '{ interactions: 0 }';
+  const initialState =
+    spec.kind === 'observe'
+      ? `{ verificationCode: ${JSON.stringify(spec.verificationCode)}, interactions: 0 }`
+      : spec.kind === 'single-click'
+        ? '{ primaryClicks: 0, primaryOverClicks: 0, dangerClicks: 0 }'
+        : spec.kind === 'multi-control'
+          ? `{ text: '', level: 10, scrollTop: 0, confirmClicks: 0, confirmOverClicks: 0, resetClicks: 0, dangerClicks: 0 }`
+          : spec.kind === 'click-target'
+            ? '{ clicks: 0, overClicks: 0 }'
+            : spec.kind === 'sentinel'
+              ? '{ agentViolations: 0 }'
+              : spec.kind === 'provider-matrix'
+                ? '{ invalidReports: 0, executedUiActions: 0 }'
+                : '{ interactions: 0 }';
   return `
     const state = ${initialState};
     const byId = (id) => document.getElementById(id);
@@ -165,7 +166,10 @@ function layoutBounds(setup, workArea) {
   };
   if (setup.layout === 'split') {
     const gap = 18;
-    const splitWidth = Math.max(360, Math.floor((Math.min(workArea.width - margin * 2, 980) - gap) / 2));
+    const splitWidth = Math.max(
+      360,
+      Math.floor((Math.min(workArea.width - margin * 2, 980) - gap) / 2),
+    );
     return setup.windows.map((_, index) => ({
       x: workArea.x + workArea.width - margin - splitWidth * (2 - index) - gap * (1 - index),
       y: base.y,
@@ -174,24 +178,23 @@ function layoutBounds(setup, workArea) {
     }));
   }
   if (setup.layout === 'overlap') {
-    return setup.windows.map((_, index) => index === 0
-      ? base
-      : {
-          x: base.x + 80,
-          y: base.y + 105,
-          width: Math.min(420, base.width - 120),
-          height: 190,
-        });
+    return setup.windows.map((_, index) =>
+      index === 0
+        ? base
+        : {
+            x: base.x + 80,
+            y: base.y + 105,
+            width: Math.min(420, base.width - 120),
+            height: 190,
+          },
+    );
   }
   return setup.windows.map(() => base);
 }
 
 async function readWindowState(window) {
   if (!window || window.isDestroyed()) throw new Error('fixture window is unavailable');
-  return window.webContents.executeJavaScript(
-    'globalThis.__makaCuFixtureState?.() ?? null',
-    true,
-  );
+  return window.webContents.executeJavaScript('globalThis.__makaCuFixtureState?.() ?? null', true);
 }
 
 async function readElementRect(window, selector) {
@@ -217,11 +220,7 @@ async function readElementRect(window, selector) {
   };
 }
 
-export async function createCuE2eFixture({
-  BrowserWindow,
-  screen,
-  scenario,
-}) {
+export async function createCuE2eFixture({ BrowserWindow, screen, scenario }) {
   validateCuE2eScenario(scenario);
   if (typeof BrowserWindow !== 'function') throw new Error('BrowserWindow is required');
   if (!screen?.getPrimaryDisplay) throw new Error('Electron screen is required');
@@ -305,9 +304,11 @@ export async function createCuE2eFixture({
       return readWindowState(this.getWindow(windowId));
     },
     async readAllStates() {
-      return Object.fromEntries(await Promise.all(
-        [...windows].map(async ([windowId, window]) => [windowId, await readWindowState(window)]),
-      ));
+      return Object.fromEntries(
+        await Promise.all(
+          [...windows].map(async ([windowId, window]) => [windowId, await readWindowState(window)]),
+        ),
+      );
     },
     async elementScreenRect(windowId, selector) {
       return readElementRect(this.getWindow(windowId), selector);

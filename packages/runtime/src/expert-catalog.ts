@@ -1,10 +1,12 @@
 /**
- * Expert teams — data-driven star orchestrator→worker personas.
+ * Expert teams — data-driven lead/member personas with bounded collaboration.
  *
  * An expert team is a lead persona (runs as the main session) plus a set of
  * member "experts" the lead dispatches as read/tool-scoped child agents. This
- * is the star topology: the lead fans work out to members and synthesizes their
- * results; members never talk to each other.
+ * keeps the lead responsible for fan-out, final synthesis, and task completion.
+ * Members may exchange bounded, durable messages and atomically self-claim one
+ * eligible shared task, but they cannot widen their capabilities or complete
+ * shared work without lead review.
  *
  * Experts do not invent new tool scopes. Every expert declares a capability
  * `archetype` — one of the built-in {@link AgentProfile}s — and inherits that
@@ -26,6 +28,7 @@ import {
   requireBuiltinAgentDefinition,
   requireBuiltinAgentDefinitionByProfile,
 } from './agent-catalog.js';
+import { AGENT_TEAM_CHILD_TOOL_NAMES } from './agent-team-tool-names.js';
 
 export const EXPERT_AGENT_ID_PREFIX = 'expert';
 
@@ -98,7 +101,7 @@ export function isExpertAgentId(id: string): boolean {
 /**
  * Compose a member's full system prompt: the archetype's base guardrails
  * (e.g. read-only discipline) followed by the expert's identity, lens, and the
- * shared worker protocol (star topology + pointer fan-in).
+ * shared worker protocol (bounded mailbox + shared task ownership + pointer fan-in).
  */
 function composeExpertSystemPrompt(
   archetype: AgentDefinition,
@@ -112,9 +115,11 @@ function composeExpertSystemPrompt(
     expert.persona,
     '',
     'Worker protocol:',
-    '- You are a spawned worker in a star topology. You do not talk to other members; you report only to the lead.',
+    '- You are a spawned member of one expert-team run. Your context and tool permissions remain isolated from every other member.',
+    '- Use team_task_list and atomically claim at most one eligible shared task when it matches your assignment. A claim grants ownership, never completion authority.',
+    '- Use team_message for a concrete cross-lens finding or blocker and team_inbox to poll for replies before your final answer. Keep messages bounded and evidence-backed; do not create acknowledgement loops.',
     '- Do exactly the task the lead assigned and stay within your lens. Do not expand scope.',
-    '- Persist any large output as an artifact and return a concise, structured summary the lead can merge. Do not dump raw file contents into your reply.',
+    '- Persist any large output as an artifact and return a concise, structured summary the lead can merge. The lead alone decides whether a shared task is complete.',
     '- Ground every finding in concrete evidence: name files, symbols, and line references.',
   ].join('\n');
 }
@@ -130,8 +135,8 @@ export function materializeExpertAgentDefinition(
 ): AgentDefinition {
   const archetype = requireBuiltinAgentDefinitionByProfile(expert.archetype);
   const archetypeTools = new Set(archetype.tools);
-  const tools = expert.tools ?? archetype.tools;
-  const widened = tools.filter((name) => !archetypeTools.has(name));
+  const capabilityTools = expert.tools ?? archetype.tools;
+  const widened = capabilityTools.filter((name) => !archetypeTools.has(name));
   if (widened.length > 0) {
     throw new Error(
       `Expert "${team.id}:${expert.id}" cannot use tools outside its "${expert.archetype}" archetype: ${widened.join(', ')}. ` +
@@ -145,7 +150,10 @@ export function materializeExpertAgentDefinition(
     description: expert.description,
     contract: archetype.contract,
     permissionMode: archetype.permissionMode,
-    tools: [...tools],
+    // Collaboration controls do not widen filesystem/network capability. They
+    // are runtime-owned, session/team-scoped tools whose trusted identity is
+    // injected by RuntimeKernel and whose durable stores enforce ownership.
+    tools: [...capabilityTools, ...AGENT_TEAM_CHILD_TOOL_NAMES],
     categoryPolicy: archetype.categoryPolicy,
     systemPrompt: composeExpertSystemPrompt(archetype, team, expert),
   };
@@ -204,7 +212,8 @@ const CODE_REVIEW_TEAM: ExpertTeamDefinition = {
     {
       id: 'correctness-reviewer',
       name: 'Correctness Reviewer',
-      description: 'Hunts logic errors, edge cases, race conditions, and broken invariants in the change.',
+      description:
+        'Hunts logic errors, edge cases, race conditions, and broken invariants in the change.',
       archetype: 'local_read',
       persona: [
         'Your lens is correctness. Find defects that make the code produce wrong results or crash: off-by-one, null/undefined, unhandled errors, async races, broken invariants, incorrect conditionals, and mishandled edge cases.',
@@ -215,7 +224,8 @@ const CODE_REVIEW_TEAM: ExpertTeamDefinition = {
     {
       id: 'simplification-reviewer',
       name: 'Simplification Reviewer',
-      description: 'Finds duplication, dead code, and needlessly complex constructs that could reuse existing code.',
+      description:
+        'Finds duplication, dead code, and needlessly complex constructs that could reuse existing code.',
       archetype: 'local_read',
       persona: [
         'Your lens is simplification and reuse. Find duplicated logic, dead code, over-abstraction, and places that reinvent something the codebase already provides.',
@@ -300,7 +310,9 @@ export function requireResolvedAgentDefinition(id: string): AgentDefinition {
 export function buildExpertTeamMemberRoster(team: ExpertTeamDefinition): string {
   return team.members
     .map((member) => {
-      const tools = (member.tools ?? requireBuiltinAgentDefinitionByProfile(member.archetype).tools).join(', ');
+      const tools = (
+        member.tools ?? requireBuiltinAgentDefinitionByProfile(member.archetype).tools
+      ).join(', ');
       const when = member.whenToUse ? ` — dispatch when: ${member.whenToUse}` : '';
       return `- ${member.id}: ${member.description} (tools: ${tools})${when}`;
     })
@@ -329,9 +341,10 @@ export function buildExpertTeamLeadSystemPromptFragment(teamId: string): string 
     '- To run members concurrently, emit several expert_dispatch calls in a single turn. Independent members should always be dispatched together, not one after another.',
     '- Never ask a member to work outside its lens, and never dispatch the same task to two members.',
     '',
-    'Fan-in discipline:',
-    '- Each member returns a concise summary (and artifact ids for anything large). Members never talk to each other; all coordination goes through you.',
-    "- After members return, synthesize a single result: dedupe overlapping points, drop anything a member could not ground in evidence, and rank by importance. Speak as the lead — do not attribute output to \"the members\".",
+    'Shared work + fan-in discipline:',
+    '- For work that benefits from shared ownership, create bounded Task Ledger items before dispatch and tell members to inspect team_task_list. Claims are atomic; child success remains evidence until you review and complete the task.',
+    '- Each member returns a concise summary (and artifact ids for anything large). Members may exchange bounded, durable messages; use team_inbox after fan-in to inspect messages addressed to the lead.',
+    '- After members return, synthesize a single result: dedupe overlapping points, drop anything a member could not ground in evidence, and rank by importance. Speak as the lead — do not attribute output to "the members".',
     '- If a member fails or returns nothing useful, say so plainly rather than inventing its result.',
   ].join('\n');
 }

@@ -1,5 +1,8 @@
 import type { MakaToolContext } from '@maka/runtime';
-import { isAcceptedHeavyTaskSelfCheck, validateHeavyTaskPublicSelfCheck } from './heavy-task-self-check.js';
+import {
+  isAcceptedHeavyTaskSelfCheck,
+  validateHeavyTaskPublicSelfCheck,
+} from './heavy-task-self-check.js';
 import type {
   HeavyTaskArtifactEvidence,
   HeavyTaskCommandEvidence,
@@ -84,16 +87,26 @@ export type HeavyTaskToolEvidenceInput =
     };
 
 export interface HeavyTaskEvidenceRecorder {
-  recordToolEvidence(input: HeavyTaskToolEvidenceInput, ctx: MakaToolContext): Promise<HeavyTaskCompactEvidenceEnvelope>;
-  recordArtifactEvidence(artifact: TaskRunArtifact, ctx?: Partial<MakaToolContext>): Promise<HeavyTaskCompactEvidenceEnvelope>;
+  recordToolEvidence(
+    input: HeavyTaskToolEvidenceInput,
+    ctx: MakaToolContext,
+  ): Promise<HeavyTaskCompactEvidenceEnvelope>;
+  recordArtifactEvidence(
+    artifact: TaskRunArtifact,
+    ctx?: Partial<MakaToolContext>,
+  ): Promise<HeavyTaskCompactEvidenceEnvelope>;
 }
 
-export function compactTextEvidence(value: string, options: CompactTextEvidenceOptions): HeavyTaskOutputSummary {
+export function compactTextEvidence(
+  value: string,
+  options: CompactTextEvidenceOptions,
+): HeavyTaskOutputSummary {
   const limitChars = options.limitChars ?? DEFAULT_TEXT_EVIDENCE_LIMIT_CHARS;
   const originalBytes = Buffer.byteLength(value, 'utf8');
   const lineCount = value.length === 0 ? 0 : value.split(/\r?\n/).length;
   const truncatedByLength = value.length > limitChars;
-  const rawExcerpt = value.length === 0 ? undefined : oneLine(value.slice(0, limitChars), limitChars);
+  const rawExcerpt =
+    value.length === 0 ? undefined : oneLine(value.slice(0, limitChars), limitChars);
   const redactedBySourceGuard = rawExcerpt !== undefined && !isPublicEvidenceString(rawExcerpt);
   const truncated = Boolean(options.forceTruncated || truncatedByLength || redactedBySourceGuard);
   const excerpt = redactedBySourceGuard ? NON_PUBLIC_EVIDENCE_PLACEHOLDER : rawExcerpt;
@@ -135,8 +148,14 @@ export function compactToolEvidence(
           timedOut: input.result.timedOut ?? false,
           ok: input.result.exitCode === 0,
           outputs: [
-            compactTextEvidence(input.result.stdout, { stream: 'stdout', refKind: 'future_storage' }),
-            compactTextEvidence(input.result.stderr, { stream: 'stderr', refKind: 'future_storage' }),
+            compactTextEvidence(input.result.stdout, {
+              stream: 'stdout',
+              refKind: 'future_storage',
+            }),
+            compactTextEvidence(input.result.stderr, {
+              stream: 'stderr',
+              refKind: 'future_storage',
+            }),
           ],
           diff: { status: 'not_applicable' },
         },
@@ -226,7 +245,9 @@ export function compactToolEvidence(
           name: 'Glob',
           inputSummary: {
             pattern: compactPublicString(input.input.pattern, 240),
-            searchCwd: input.input.searchCwd ? compactPublicString(input.input.searchCwd, 500) : undefined,
+            searchCwd: input.input.searchCwd
+              ? compactPublicString(input.input.searchCwd, 500)
+              : undefined,
             fileCount: input.result.files.length,
           },
           ok: true,
@@ -244,7 +265,10 @@ export function compactToolEvidence(
 }
 
 export function compactArtifactEvidence(
-  input: HeavyTaskCompactEvidenceInput & { artifact: TaskRunArtifact | HeavyTaskArtifactEvidence; source?: HeavyTaskProgressSource },
+  input: HeavyTaskCompactEvidenceInput & {
+    artifact: TaskRunArtifact | HeavyTaskArtifactEvidence;
+    source?: HeavyTaskProgressSource;
+  },
 ): HeavyTaskCompactEvidenceEnvelope {
   const artifact = input.artifact;
   const isTaskRunArtifact = 'schemaVersion' in artifact && 'artifactId' in artifact;
@@ -254,17 +278,29 @@ export function compactArtifactEvidence(
     artifact: {
       ...(isTaskRunArtifact ? { artifactId: compactPublicString(artifact.artifactId, 500) } : {}),
       ...(artifact.path ? { path: compactPublicString(artifact.path, 500) } : {}),
-      ...('workspacePath' in artifact && artifact.workspacePath ? { workspacePath: compactPublicString(artifact.workspacePath, 500) } : {}),
-      ...('artifactRef' in artifact && artifact.artifactRef ? { artifactRef: compactPublicString(artifact.artifactRef, 500) } : {}),
+      ...('workspacePath' in artifact && artifact.workspacePath
+        ? { workspacePath: compactPublicString(artifact.workspacePath, 500) }
+        : {}),
+      ...('artifactRef' in artifact && artifact.artifactRef
+        ? { artifactRef: compactPublicString(artifact.artifactRef, 500) }
+        : {}),
       kind: compactPublicString(artifact.kind, 200),
       ...('exists' in artifact && artifact.exists !== undefined ? { exists: artifact.exists } : {}),
-      ...('sizeBytes' in artifact && artifact.sizeBytes !== undefined ? { sizeBytes: artifact.sizeBytes } : {}),
+      ...('sizeBytes' in artifact && artifact.sizeBytes !== undefined
+        ? { sizeBytes: artifact.sizeBytes }
+        : {}),
       ...(artifact.hash ? { hash: compactPublicString(artifact.hash, 200) } : {}),
-      ...('mimeType' in artifact && artifact.mimeType ? { mimeType: compactPublicString(artifact.mimeType, 200) } : {}),
+      ...('mimeType' in artifact && artifact.mimeType
+        ? { mimeType: compactPublicString(artifact.mimeType, 200) }
+        : {}),
       ...(artifact.metadata ? { metadata: sanitizeMetadata(artifact.metadata) } : {}),
-      ...(isTaskRunArtifact ? { authority: compactAuthority(artifact.authority) } : compactAuthorityFromSource(source)),
+      ...(isTaskRunArtifact
+        ? { authority: compactAuthority(artifact.authority) }
+        : compactAuthorityFromSource(source)),
     },
-    links: isTaskRunArtifact ? { artifactIds: [compactPublicString(artifact.artifactId, 500)] } : undefined,
+    links: isTaskRunArtifact
+      ? { artifactIds: [compactPublicString(artifact.artifactId, 500)] }
+      : undefined,
   };
 }
 
@@ -281,7 +317,11 @@ export function compactSelfCheckEvidence(input: {
     source: selfCheck.source,
   };
   const checkEnvelope: HeavyTaskCompactEvidenceEnvelope = {
-    ...envelopeBase({ ...base, evidenceId: input.newId(), source: selfCheck.source }, 'check', selfCheck.source),
+    ...envelopeBase(
+      { ...base, evidenceId: input.newId(), source: selfCheck.source },
+      'check',
+      selfCheck.source,
+    ),
     check: {
       status: selfCheck.status,
       linkedSelfCheckId: selfCheck.selfCheckId,
@@ -367,47 +407,73 @@ export function renderHeavyTaskEvidenceForPrompt(projection: {
   for (const item of recent) {
     if (item.tool) {
       const status = toolStatus(item.tool);
-      lines.push(`- ${item.evidenceId} tool:${item.tool.name} ${status} ${inputSummary(item.tool.inputSummary)}`);
+      lines.push(
+        `- ${item.evidenceId} tool:${item.tool.name} ${status} ${inputSummary(item.tool.inputSummary)}`,
+      );
       for (const output of item.tool.outputs.slice(0, 2)) {
-        lines.push(`  - ${output.stream}: ${output.excerpt ? oneLine(output.excerpt, 180) : '[omitted]'}${truncationSuffix(output)}`);
+        lines.push(
+          `  - ${output.stream}: ${output.excerpt ? oneLine(output.excerpt, 180) : '[omitted]'}${truncationSuffix(output)}`,
+        );
       }
       if (item.tool.diff && item.tool.diff.status !== 'not_applicable') {
-        lines.push(`  - diff: ${item.tool.diff.status}${item.tool.diff.truncationRef?.ref ? ` ref=${item.tool.diff.truncationRef.ref}` : ''}`);
+        lines.push(
+          `  - diff: ${item.tool.diff.status}${item.tool.diff.truncationRef?.ref ? ` ref=${item.tool.diff.truncationRef.ref}` : ''}`,
+        );
       }
     } else if (item.artifact) {
-      lines.push(`- ${item.evidenceId} artifact:${item.artifact.kind ?? 'unknown'} ${oneLine(item.artifact.path ?? item.artifact.workspacePath ?? item.artifact.artifactRef ?? item.artifact.artifactId ?? 'unknown', 180)}`);
+      lines.push(
+        `- ${item.evidenceId} artifact:${item.artifact.kind ?? 'unknown'} ${oneLine(item.artifact.path ?? item.artifact.workspacePath ?? item.artifact.artifactRef ?? item.artifact.artifactId ?? 'unknown', 180)}`,
+      );
     } else if (item.check) {
-      lines.push(`- ${item.evidenceId} check:${item.check.status ?? 'unknown'} selfCheck=${item.check.linkedSelfCheckId ?? 'none'}`);
+      lines.push(
+        `- ${item.evidenceId} check:${item.check.status ?? 'unknown'} selfCheck=${item.check.linkedSelfCheckId ?? 'none'}`,
+      );
     }
   }
   if (evidence.length > recent.length) {
     lines.push(`- ${evidence.length - recent.length} older compact evidence item(s) omitted`);
   }
-  lines.push('Use these summaries and refs only; do not assume omitted raw stdout, stderr, file content, or diffs are available.');
+  lines.push(
+    'Use these summaries and refs only; do not assume omitted raw stdout, stderr, file content, or diffs are available.',
+  );
   return lines.join('\n');
 }
 
-function compactSelfCheckCommandEvidence(input: HeavyTaskCompactEvidenceInput & {
-  command: HeavyTaskCommandEvidence;
-  selfCheckId: string;
-}): HeavyTaskCompactEvidenceEnvelope {
+function compactSelfCheckCommandEvidence(
+  input: HeavyTaskCompactEvidenceInput & {
+    command: HeavyTaskCommandEvidence;
+    selfCheckId: string;
+  },
+): HeavyTaskCompactEvidenceEnvelope {
   return {
     ...envelopeBase(input, 'tool', input.source),
     tool: {
       name: 'self_check_submit',
       inputSummary: {
         command: compactPublicString(input.command.command, 500),
-        artifactRefs: (input.command.artifactRefs ?? []).map((ref) => compactPublicString(ref, 500)),
+        artifactRefs: (input.command.artifactRefs ?? []).map((ref) =>
+          compactPublicString(ref, 500),
+        ),
       },
       exitCode: input.command.exitCode,
       ...(input.command.timedOut !== undefined ? { timedOut: input.command.timedOut } : {}),
-      ...(input.command.exitCode === undefined || input.command.exitCode === null ? {} : { ok: input.command.exitCode === 0 }),
+      ...(input.command.exitCode === undefined || input.command.exitCode === null
+        ? {}
+        : { ok: input.command.exitCode === 0 }),
       outputs: input.command.outputExcerpt
-        ? [compactTextEvidence(input.command.outputExcerpt, { stream: 'output', refKind: 'future_storage' })]
+        ? [
+            compactTextEvidence(input.command.outputExcerpt, {
+              stream: 'output',
+              refKind: 'future_storage',
+            }),
+          ]
         : [],
       diff: { status: 'not_applicable' },
     },
-    links: { checkIds: [input.selfCheckId], artifactIds: (input.command.artifactRefs ?? []).map((ref) => compactPublicString(ref, 500)) },
+    links: {
+      checkIds: [input.selfCheckId],
+      artifactIds: (input.command.artifactRefs ?? []).map((ref) => compactPublicString(ref, 500)),
+    },
   };
 }
 
@@ -428,7 +494,10 @@ function envelopeBase(
   };
 }
 
-function sourceFromContext(ctx: MakaToolContext, toolName: HeavyTaskToolEvidenceName): HeavyTaskCompactEvidenceEnvelope['source'] {
+function sourceFromContext(
+  ctx: MakaToolContext,
+  toolName: HeavyTaskToolEvidenceName,
+): HeavyTaskCompactEvidenceEnvelope['source'] {
   return {
     kind: 'model_tool',
     toolCallId: ctx.toolCallId,
@@ -439,7 +508,9 @@ function sourceFromContext(ctx: MakaToolContext, toolName: HeavyTaskToolEvidence
   };
 }
 
-function sourceFromPartialContext(ctx: Partial<MakaToolContext> | undefined): HeavyTaskCompactEvidenceEnvelope['source'] {
+function sourceFromPartialContext(
+  ctx: Partial<MakaToolContext> | undefined,
+): HeavyTaskCompactEvidenceEnvelope['source'] {
   return {
     kind: 'model_tool',
     toolCallId: ctx?.toolCallId ?? 'system-artifact',
@@ -449,7 +520,10 @@ function sourceFromPartialContext(ctx: Partial<MakaToolContext> | undefined): He
   };
 }
 
-function omittedOutput(stream: HeavyTaskOutputSummary['stream'], byteCount = 0): HeavyTaskOutputSummary {
+function omittedOutput(
+  stream: HeavyTaskOutputSummary['stream'],
+  byteCount = 0,
+): HeavyTaskOutputSummary {
   return {
     stream,
     byteCount,
@@ -492,7 +566,11 @@ function sanitizeMetadataValue(value: unknown, depth: number): unknown {
   }
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'boolean' || value === null) return value;
-  if (Array.isArray(value)) return value.slice(0, 30).map((item) => sanitizeMetadataValue(item, depth + 1)).filter((item) => item !== undefined);
+  if (Array.isArray(value))
+    return value
+      .slice(0, 30)
+      .map((item) => sanitizeMetadataValue(item, depth + 1))
+      .filter((item) => item !== undefined);
   if (recordValue(value)) {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value).slice(0, 30)) {
@@ -523,8 +601,12 @@ function inputSummary(input: Record<string, unknown>): string {
 
 function truncationSuffix(output: HeavyTaskOutputSummary): string {
   const ref = output.truncationRef?.ref ? ` ref=${output.truncationRef.ref}` : '';
-  const omitted = output.truncationRef?.omittedBytes ? ` omittedBytes=${output.truncationRef.omittedBytes}` : '';
-  return output.truncated || ref || omitted ? ` [truncated=${output.truncated}${omitted}${ref}]` : '';
+  const omitted = output.truncationRef?.omittedBytes
+    ? ` omittedBytes=${output.truncationRef.omittedBytes}`
+    : '';
+  return output.truncated || ref || omitted
+    ? ` [truncated=${output.truncated}${omitted}${ref}]`
+    : '';
 }
 
 function oneLine(value: string, maxChars: number): string {
@@ -537,7 +619,9 @@ function compactPublicString(value: string, maxChars: number): string {
   return isPublicEvidenceString(clean) ? clean : NON_PUBLIC_EVIDENCE_PLACEHOLDER;
 }
 
-function compactAuthority(authority: TaskRunArtifact['authority']): NonNullable<HeavyTaskCompactEvidenceEnvelope['artifact']>['authority'] {
+function compactAuthority(
+  authority: TaskRunArtifact['authority'],
+): NonNullable<HeavyTaskCompactEvidenceEnvelope['artifact']>['authority'] {
   return {
     source: compactPublicString(authority.source, 200),
     authoritative: authority.authoritative,

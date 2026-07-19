@@ -34,6 +34,7 @@ const RENDERER_FILES = [
   'apps/desktop/src/renderer/settings/provider-connection-detail.tsx',
   'apps/desktop/src/renderer/settings/provider-display.tsx',
   'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
+  'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',
   'apps/desktop/src/renderer/settings/provider-panel-shared.ts',
   'apps/desktop/src/preload/preload.ts',
 ];
@@ -177,11 +178,12 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
 
     assert.ok(page, 'Web search settings page block must exist');
     assert.match(page![0], /const \[pendingWebSearchEnabled, setPendingWebSearchEnabled\] = useState\(false\)/);
-    assert.match(page![0], /const pendingWebSearchEnabledRef = useRef\(false\)/);
     assert.match(page![0], /const \[pendingCredentialAction, setPendingCredentialAction\] = useState<'save' \| 'clear' \| null>\(null\)/);
-    assert.match(page![0], /const pendingCredentialActionRef = useRef<'save' \| 'clear' \| null>\(null\)/);
-    assert.match(page![0], /const testingRef = useRef\(false\)/);
-    assert.match(page![0], /const liveQueryRunningRef = useRef\(false\)/);
+    assert.match(
+      page![0],
+      /const webSearchActionGuard = useKeyedActionGuard<'set-enabled' \| 'credential' \| 'test' \| 'live-query'>\(\)/,
+      'Web search pending owners must come from the shared keyed action guard instead of hand-rolled refs',
+    );
     assert.match(page![0], /const liveQueryInputRef = useRef\(liveQuery\)/);
     assert.match(
       page![0],
@@ -195,25 +197,25 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /async function runCredentialAction\([\s\S]*if \(pendingCredentialActionRef\.current !== null \|\| testingRef\.current\) return;[\s\S]*pendingCredentialActionRef\.current = action;[\s\S]*setPendingCredentialAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*setPendingCredentialAction\(null\);/,
+      /async function runCredentialAction\([\s\S]*if \(webSearchActionGuard\.has\('credential'\) \|\| webSearchActionGuard\.has\('test'\)\) return;[\s\S]*webSearchActionGuard\.begin\('credential'\);[\s\S]*setPendingCredentialAction\(action\);[\s\S]*await run\(\);[\s\S]*releaseCredential\(\);[\s\S]*setPendingCredentialAction\(null\);/,
       'Saving or clearing Tavily credentials must reject duplicate clicks synchronously and expose pending state.',
     );
     assert.match(
       page![0],
-      /async function setEnabled\(enabled: boolean\) \{[\s\S]*if \(pendingWebSearchEnabledRef\.current\) return;[\s\S]*pendingWebSearchEnabledRef\.current = true;[\s\S]*setPendingWebSearchEnabled\(true\);[\s\S]*await updateWebSearch\(\{ enabled \}\);[\s\S]*pendingWebSearchEnabledRef\.current = false;[\s\S]*setPendingWebSearchEnabled\(false\);/,
+      /async function setEnabled\(enabled: boolean\) \{[\s\S]*const releaseEnabled = webSearchActionGuard\.begin\('set-enabled'\);[\s\S]*if \(!releaseEnabled\) return;[\s\S]*setPendingWebSearchEnabled\(true\);[\s\S]*await updateWebSearch\(\{ enabled \}\);[\s\S]*releaseEnabled\(\);[\s\S]*setPendingWebSearchEnabled\(false\);/,
       'The web-search enable switch must reject duplicate same-frame toggles and expose local pending state.',
     );
     assert.match(page![0], /runCredentialAction\('save', async \(\) => \{/);
     assert.match(page![0], /runCredentialAction\('clear', async \(\) => \{/);
     assert.match(
       page![0],
-      /if \(testingRef\.current \|\| pendingCredentialActionRef\.current !== null\) return;[\s\S]*testingRef\.current = true;[\s\S]*setTesting\(true\);[\s\S]*testingRef\.current = false;[\s\S]*setTesting\(false\);/,
-      'Credential tests must also have a ref-backed duplicate-click guard.',
+      /if \(webSearchActionGuard\.has\('test'\) \|\| webSearchActionGuard\.has\('credential'\)\) return;[\s\S]*const releaseTest = webSearchActionGuard\.begin\('test'\);[\s\S]*if \(!releaseTest\) return;[\s\S]*setTesting\(true\);[\s\S]*releaseTest\(\);[\s\S]*setTesting\(false\);/,
+      'Credential tests must also have a guard-backed duplicate-click guard.',
     );
     assert.match(
       page![0],
-      /if \(liveQueryRunningRef\.current\) return;[\s\S]*const queryOwner = liveQueryInputRef\.current;[\s\S]*liveQueryRunningRef\.current = true;[\s\S]*setLiveQueryRunning\(true\);[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*setLiveQueryRunning\(false\);/,
-      'Live query verification must have a ref-backed duplicate-submit guard.',
+      /if \(webSearchActionGuard\.has\('live-query'\)\) return;[\s\S]*const queryOwner = liveQueryInputRef\.current;[\s\S]*webSearchActionGuard\.begin\('live-query'\);[\s\S]*setLiveQueryRunning\(true\);[\s\S]*releaseLiveQuery\(\);[\s\S]*setLiveQueryRunning\(false\);/,
+      'Live query verification must have a guard-backed duplicate-submit guard.',
     );
     assert.match(page![0], /const credentialActionBusy = pendingCredentialAction !== null \|\| testing/);
     assert.match(page![0], /disabled=\{usingEnvKey \|\| credentialActionBusy\}/, 'Credential input should freeze while save, clear, or test is pending.');
@@ -237,17 +239,17 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingWebSearchEnabledRef\.current = false;[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*testingRef\.current = false;[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
-      'Unmount must mark the page inactive and release synchronous pending owners',
+      /const webSearchActionGuard = useKeyedActionGuard<'set-enabled' \| 'credential' \| 'test' \| 'live-query'>\(\)/,
+      'Unmount must release synchronous pending owners (the shared keyed guard hook resets every key on unmount)',
     );
     assert.match(
       page![0],
-      /finally \{[\s\S]*pendingWebSearchEnabledRef\.current = false;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setPendingWebSearchEnabled\(false\);[\s\S]*\}/,
+      /finally \{[\s\S]*releaseEnabled\(\);[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setPendingWebSearchEnabled\(false\);[\s\S]*\}/,
       'Web-search enable completion must not set pending switch state after unmount',
     );
     assert.match(
       page![0],
-      /finally \{[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setPendingCredentialAction\(null\);[\s\S]*\}/,
+      /finally \{[\s\S]*releaseCredential\(\);[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setPendingCredentialAction\(null\);[\s\S]*\}/,
       'Credential save/clear completion must not set state after unmount',
     );
     assert.match(
@@ -262,7 +264,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /finally \{[\s\S]*testingRef\.current = false;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setTesting\(false\);[\s\S]*\}/,
+      /finally \{[\s\S]*releaseTest\(\);[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setTesting\(false\);[\s\S]*\}/,
       'Credential test completion must not set testing state after unmount',
     );
     assert.match(
@@ -277,7 +279,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /finally \{[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryRunning\(false\);[\s\S]*\}/,
+      /finally \{[\s\S]*releaseLiveQuery\(\);[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryRunning\(false\);[\s\S]*\}/,
       'Live-query completion must not clear running state after unmount',
     );
   });
@@ -450,8 +452,8 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(toolResultPreview, 'ToolResultPreview block must exist');
     assert.match(toolResultPreview![0], /content\.kind === 'web_search_error'/);
     assert.ok(errorPreview, 'WebSearchErrorPreview block must exist');
-    assert.match(errorPreview![0], /环境变量/);
-    assert.match(errorPreview![0], /设置 · 联网搜索/);
+    assert.match(errorPreview![0], /copy\.credentialSource\.env/);
+    assert.match(errorPreview![0], /copy\.webGuidance\.settings/);
     assert.doesNotMatch(errorPreview![0], /JSON\.stringify|<pre/);
   });
 });

@@ -30,11 +30,13 @@ const backend = {
     }));
   },
   async observeApp(input) {
-    const result = scenario.execute(canonicalizeSyntheticComputerArgs({
-      action: 'observe',
-      app: input.app,
-      window_id: input.windowId,
-    }));
+    const result = scenario.execute(
+      canonicalizeSyntheticComputerArgs({
+        action: 'observe',
+        app: input.app,
+        window_id: input.windowId,
+      }),
+    );
     return toRuntimeObservation(result);
   },
   async runSemantic(action) {
@@ -59,12 +61,14 @@ const backend = {
     };
   },
   async captureObservation(input) {
-    return toRuntimeObservation(scenario.execute({
-      action: 'observe',
-      app: input.app,
-      window_id: input.windowId,
-      include_screenshot: true,
-    }));
+    return toRuntimeObservation(
+      scenario.execute({
+        action: 'observe',
+        app: input.app,
+        window_id: input.windowId,
+        include_screenshot: true,
+      }),
+    );
   },
   async run(action) {
     return {
@@ -72,8 +76,8 @@ const backend = {
         ok: false,
         error: 'unsupported_action',
         message:
-          `background '${action.type}' is disabled because the compatibility `
-          + 'event backend can interfere with physical user input',
+          `background '${action.type}' is disabled because the compatibility ` +
+          'event backend can interfere with physical user input',
       },
     };
   },
@@ -115,7 +119,9 @@ const runtime = new AiSdkBackend({
     permissionMode: 'bypass',
     schemaVersion: 1,
   },
-  appendMessage: async (message) => { messages.push(message); },
+  appendMessage: async (message) => {
+    messages.push(message);
+  },
   connection,
   apiKey: 'bridge-managed',
   modelId,
@@ -141,32 +147,40 @@ const events = [];
 for await (const event of runtime.send({
   turnId: 'turn-real-model',
   text:
-    'Use Maka Computer to set "CUA Lab Set Value Field" in "Codex CUA Lab" '
-    + 'to "model-e2e". Start with list_apps, observe the exact app/window, '
-    + 'use set_value with IDs from the observation, verify the fresh observation, '
-    + 'and then finish.',
+    'Use Maka Computer to set "CUA Lab Set Value Field" in "Codex CUA Lab" ' +
+    'to "model-e2e". Start with list_apps, observe the exact app/window, ' +
+    'use set_value with IDs from the observation, verify the fresh observation, ' +
+    'and then finish.',
   context: [],
 })) {
   events.push(event.type);
 }
 
 if (scenario.state.value !== 'model-e2e') {
-  throw new Error(`real Runtime model loop did not mutate the semantic fixture: ${scenario.state.value}`);
+  throw new Error(
+    `real Runtime model loop did not mutate the semantic fixture: ${scenario.state.value}`,
+  );
 }
 if (events.at(-1) !== 'complete') {
   throw new Error(`real Runtime model loop did not complete: ${events.at(-1)}`);
 }
 
-process.stdout.write(`${JSON.stringify({
-  ok: true,
-  provider: 'openai-responses-via-azure-bridge',
-  model: modelId,
-  events,
-  calls: scenario.calls,
-  telemetry,
-  persistedTypes: messages.map((message) => message.type),
-  finalValue: scenario.state.value,
-}, null, 2)}\n`);
+process.stdout.write(
+  `${JSON.stringify(
+    {
+      ok: true,
+      provider: 'openai-responses-via-azure-bridge',
+      model: modelId,
+      events,
+      calls: scenario.calls,
+      telemetry,
+      persistedTypes: messages.map((message) => message.type),
+      finalValue: scenario.state.value,
+    },
+    null,
+    2,
+  )}\n`,
+);
 
 function toRuntimeObservation(input) {
   return {
@@ -188,7 +202,8 @@ function toRuntimeObservation(input) {
       },
     })),
     screenshot: {
-      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      base64:
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       mimeType: 'image/png',
       widthPx: 1,
       heightPx: 1,

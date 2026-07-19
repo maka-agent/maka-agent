@@ -31,7 +31,10 @@ export interface ArtifactStore {
   append(record: ArtifactRecord): Promise<ArtifactRecord>;
   list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
   get(artifactId: string): Promise<ArtifactRecord | null>;
-  readText(artifactId: string, opts?: { maxBytes?: number; includeDeleted?: boolean }): Promise<ArtifactTextReadResult>;
+  readText(
+    artifactId: string,
+    opts?: { maxBytes?: number; includeDeleted?: boolean },
+  ): Promise<ArtifactTextReadResult>;
   readBinary(artifactId: string, opts?: { maxBytes?: number }): Promise<ArtifactBinaryReadResult>;
   delete(artifactId: string): Promise<void>;
   purge(artifactIds: readonly string[]): Promise<void>;
@@ -90,19 +93,24 @@ class FileArtifactStore implements ArtifactStore {
     return record;
   }
 
-  async list(sessionId: string, opts: { includeDeleted?: boolean } = {}): Promise<ArtifactRecord[]> {
+  async list(
+    sessionId: string,
+    opts: { includeDeleted?: boolean } = {},
+  ): Promise<ArtifactRecord[]> {
     await this.load();
-    return this.records
-      .filter((record) => record.sessionId === sessionId)
-      .filter((record) => opts.includeDeleted || record.status !== 'deleted')
-      // Secondary `id` sort for determinism when fixture artifacts share
-      // a frozen createdAt (PR108k-yj visual-smoke determinism).
-      .sort((a, b) => {
-        const tsDelta = b.createdAt - a.createdAt;
-        if (tsDelta !== 0) return tsDelta;
-        return a.id.localeCompare(b.id);
-      })
-      .map((record) => ({ ...record }));
+    return (
+      this.records
+        .filter((record) => record.sessionId === sessionId)
+        .filter((record) => opts.includeDeleted || record.status !== 'deleted')
+        // Secondary `id` sort for determinism when fixture artifacts share
+        // a frozen createdAt (PR108k-yj visual-smoke determinism).
+        .sort((a, b) => {
+          const tsDelta = b.createdAt - a.createdAt;
+          if (tsDelta !== 0) return tsDelta;
+          return a.id.localeCompare(b.id);
+        })
+        .map((record) => ({ ...record }))
+    );
   }
 
   async get(artifactId: string): Promise<ArtifactRecord | null> {
@@ -128,8 +136,14 @@ class FileArtifactStore implements ArtifactStore {
     }
   }
 
-  async readBinary(artifactId: string, opts: { maxBytes?: number } = {}): Promise<ArtifactBinaryReadResult> {
-    const prepared = await this.prepareRead(artifactId, opts.maxBytes ?? ARTIFACT_BINARY_PREVIEW_LIMIT_BYTES);
+  async readBinary(
+    artifactId: string,
+    opts: { maxBytes?: number } = {},
+  ): Promise<ArtifactBinaryReadResult> {
+    const prepared = await this.prepareRead(
+      artifactId,
+      opts.maxBytes ?? ARTIFACT_BINARY_PREVIEW_LIMIT_BYTES,
+    );
     if (!prepared.ok) return prepared;
     try {
       const bytes = await readFile(prepared.path);
@@ -159,7 +173,9 @@ class FileArtifactStore implements ArtifactStore {
       if (records.length === 0) return;
       const root = await ensureRealDirectory(this.artifactRoot);
       const paths = new Map<string, ArtifactRecord>();
-      const relativePaths = new Map(records.map((record) => [record.relativePath, record] as const));
+      const relativePaths = new Map(
+        records.map((record) => [record.relativePath, record] as const),
+      );
       for (const record of records) {
         validateRelativeArtifactPath(record.relativePath);
         const path = await resolveArtifactRemovalEntry(this.artifactRoot, record.relativePath);
@@ -180,7 +196,9 @@ class FileArtifactStore implements ArtifactStore {
         const path = await resolveArtifactRemovalEntry(this.artifactRoot, record.relativePath);
         const target = path ? paths.get(path) : undefined;
         if (target) {
-          throw new Error(`Artifact ${target.id} path is still referenced by artifact ${record.id}`);
+          throw new Error(
+            `Artifact ${target.id} path is still referenced by artifact ${record.id}`,
+          );
         }
       }
       for (const path of paths.keys()) await rm(path, { force: true });
@@ -260,8 +278,7 @@ export async function resolveArtifactPath(input: {
   artifactRoot: string;
   relativePath: string;
 }): Promise<
-  | { ok: true; path: string }
-  | { ok: false; reason: 'not_found' | 'not_allowed' | 'read_failed' }
+  { ok: true; path: string } | { ok: false; reason: 'not_found' | 'not_allowed' | 'read_failed' }
 > {
   if (!isSafeRelativeArtifactPath(input.relativePath)) return { ok: false, reason: 'not_allowed' };
   const target = join(input.artifactRoot, input.relativePath);
@@ -348,14 +365,17 @@ async function resolveArtifactRemovalEntry(
 function isInsideOrSamePath(root: string, target: string): boolean {
   if (target === root) return true;
   const rel = relative(root, target);
-  return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
+  return (
+    rel !== '' &&
+    !rel.startsWith('..') &&
+    rel !== '..' &&
+    !rel.includes(`..${sep}`) &&
+    !rel.startsWith(sep)
+  );
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === 'ENOENT';
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 function sniffAllowedBinaryMime(bytes: Uint8Array): string | null {
@@ -370,8 +390,11 @@ function sniffAllowedBinaryMime(bytes: Uint8Array): string | null {
     return 'image/webp';
   }
   if (asciiStartsWith(bytes, '%PDF-')) return 'application/pdf';
-  const leading = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, Math.min(bytes.length, 512))).trimStart();
-  if (/^<svg[\s>]/i.test(leading) || /^<\?xml[\s\S]*<svg[\s>]/i.test(leading)) return 'image/svg+xml';
+  const leading = new TextDecoder('utf-8', { fatal: false })
+    .decode(bytes.slice(0, Math.min(bytes.length, 512)))
+    .trimStart();
+  if (/^<svg[\s>]/i.test(leading) || /^<\?xml[\s\S]*<svg[\s>]/i.test(leading))
+    return 'image/svg+xml';
   return null;
 }
 

@@ -24,17 +24,30 @@ export interface AutomationToolDeps {
 const scheduleSchema = z.union([
   z.object({
     type: z.literal('cron'),
-    expression: z.string().min(9).max(100)
-      .describe('5-field cron expression: "minute hour day-of-month month day-of-week". Example: "*/5 * * * *" = every 5 min, "0 9 * * 1-5" = weekdays at 9am.'),
+    expression: z
+      .string()
+      .min(9)
+      .max(100)
+      .describe(
+        '5-field cron expression: "minute hour day-of-month month day-of-week". Example: "*/5 * * * *" = every 5 min, "0 9 * * 1-5" = weekdays at 9am.',
+      ),
   }),
   z.object({
     type: z.literal('interval'),
-    seconds: z.number().int().min(10).max(86400)
+    seconds: z
+      .number()
+      .int()
+      .min(10)
+      .max(86400)
       .describe('Repeat interval in seconds (10s to 24h).'),
   }),
   z.object({
     type: z.literal('once'),
-    delay_seconds: z.number().int().min(5).max(86400)
+    delay_seconds: z
+      .number()
+      .int()
+      .min(5)
+      .max(86400)
       .describe('One-shot delay in seconds (5s to 24h). Fires once then auto-completes.'),
   }),
 ]);
@@ -45,31 +58,63 @@ const scheduleSchema = z.union([
 // impl(). mode selects the operation.
 function makeAutomationSchema(kindSchema: z.ZodType) {
   return z.object({
-    mode: z.enum(['create', 'delete', 'list', 'pause', 'resume'])
-      .describe('Operation: create a new automation, delete/pause/resume one by id, or list this session\'s automations.'),
+    mode: z
+      .enum(['create', 'delete', 'list', 'pause', 'resume'])
+      .describe(
+        "Operation: create a new automation, delete/pause/resume one by id, or list this session's automations.",
+      ),
     kind: kindSchema.optional(),
-    name: z.string().trim().min(1).max(100).optional()
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .optional()
       .describe('[create] Short human-readable name.'),
-    prompt: z.string().trim().min(1).max(2000).optional()
+    prompt: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2000)
+      .optional()
       .describe('[create] The prompt to execute on each fire.'),
-    schedule: scheduleSchema.optional()
-      .describe('[create] When to fire. Use "interval" for simple repeats, "cron" for complex schedules, "once" for one-shot.'),
-    max_fires: z.number().int().min(1).max(10000).optional()
-      .describe('[create] Maximum fires before auto-completing. Omit for unlimited (7-day expiry still applies).'),
-    durable: z.boolean().optional()
-      .describe('[create] When true, persists across app restarts. Cron defaults to true (standalone scheduled task); heartbeat defaults to false (bound to this session).'),
-    id: z.string().min(1).max(64).optional()
-      .describe('[delete/pause/resume] Automation id.'),
+    schedule: scheduleSchema
+      .optional()
+      .describe(
+        '[create] When to fire. Use "interval" for simple repeats, "cron" for complex schedules, "once" for one-shot.',
+      ),
+    max_fires: z
+      .number()
+      .int()
+      .min(1)
+      .max(10000)
+      .optional()
+      .describe(
+        '[create] Maximum fires before auto-completing. Omit for unlimited (7-day expiry still applies).',
+      ),
+    durable: z
+      .boolean()
+      .optional()
+      .describe(
+        '[create] When true, persists across app restarts. Cron defaults to true (standalone scheduled task); heartbeat defaults to false (bound to this session).',
+      ),
+    id: z.string().min(1).max(64).optional().describe('[delete/pause/resume] Automation id.'),
   });
 }
 
 const AUTOMATION_SCHEMA_WITH_CRON = makeAutomationSchema(
-  z.enum(['heartbeat', 'cron'])
-    .describe('[create] heartbeat = resume into current session (polling/monitoring). cron = create fresh session each run (standalone scheduled tasks).'),
+  z
+    .enum(['heartbeat', 'cron'])
+    .describe(
+      '[create] heartbeat = resume into current session (polling/monitoring). cron = create fresh session each run (standalone scheduled tasks).',
+    ),
 );
 const AUTOMATION_SCHEMA_HEARTBEAT_ONLY = makeAutomationSchema(
-  z.enum(['heartbeat'])
-    .describe('[create] heartbeat = resume into current session. This host supports heartbeat only.'),
+  z
+    .enum(['heartbeat'])
+    .describe(
+      '[create] heartbeat = resume into current session. This host supports heartbeat only.',
+    ),
 );
 
 // Type from the broadest (cron-enabled) schema so kind can be 'heartbeat'|'cron'.
@@ -81,10 +126,12 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
     name: AUTOMATION_TOOL_NAME,
     displayName: 'Automation',
     description:
-      'Create, manage, and list recurring automations. '
-      + 'Use kind "heartbeat" for session-internal polling (resumes into this conversation). '
-      + (cronEnabled ? 'Use kind "cron" for standalone scheduled tasks (creates a fresh session each run). ' : '')
-      + 'Automations auto-expire after 7 days unless deleted earlier.',
+      'Create, manage, and list recurring automations. ' +
+      'Use kind "heartbeat" for session-internal polling (resumes into this conversation). ' +
+      (cronEnabled
+        ? 'Use kind "cron" for standalone scheduled tasks (creates a fresh session each run). '
+        : '') +
+      'Automations auto-expire after 7 days unless deleted earlier.',
     parameters: cronEnabled ? AUTOMATION_SCHEMA_WITH_CRON : AUTOMATION_SCHEMA_HEARTBEAT_ONLY,
     permissionRequired: false,
     impl: (input, ctx) => {
@@ -94,16 +141,19 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
           result = handleCreate(deps, input, ctx.sessionId, cronEnabled);
           break;
         case 'delete':
-          result = handleById(input, (id) => deps.automationManager.delete(id, ctx.sessionId)
-            ? `Automation "${id}" deleted.`
-            : `Automation "${id}" not found or not owned by this session.`);
+          result = handleById(input, (id) =>
+            deps.automationManager.delete(id, ctx.sessionId)
+              ? `Automation "${id}" deleted.`
+              : `Automation "${id}" not found or not owned by this session.`,
+          );
           break;
         case 'list':
           return handleList(deps, ctx.sessionId);
         case 'pause': {
           result = handleById(input, (id) => {
             const r = deps.automationManager.pause(id, ctx.sessionId);
-            return r ? `Automation "${r.name}" paused. Use mode "resume" to reactivate.`
+            return r
+              ? `Automation "${r.name}" paused. Use mode "resume" to reactivate.`
               : `Cannot pause "${id}": not found, not owned, or not active.`;
           });
           break;
@@ -118,8 +168,9 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
             // agent doesn't keep retrying a cap that can never be revived.
             const existing = deps.automationManager.get(id);
             if (existing && existing.status === 'paused') {
-              const spent = (existing.maxFires != null && existing.fireCount >= existing.maxFires)
-                || (existing.schedule.type === 'once' && existing.fireCount > 0);
+              const spent =
+                (existing.maxFires != null && existing.fireCount >= existing.maxFires) ||
+                (existing.schedule.type === 'once' && existing.fireCount > 0);
               if (spent) {
                 return `Cannot resume "${id}": its fire budget is exhausted (fired ${existing.fireCount}${existing.maxFires != null ? `/${existing.maxFires}` : ''} time(s)). Create a new automation instead.`;
               }
@@ -153,9 +204,10 @@ function handleCreate(
   if (input.kind === 'cron' && !cronEnabled) {
     return 'Error: cron automations are not supported on this host. Use kind "heartbeat".';
   }
-  const schedule = input.schedule.type === 'once'
-    ? { type: 'once' as const, delaySeconds: input.schedule.delay_seconds }
-    : input.schedule;
+  const schedule =
+    input.schedule.type === 'once'
+      ? { type: 'once' as const, delaySeconds: input.schedule.delay_seconds }
+      : input.schedule;
 
   const result = deps.automationManager.create({
     kind: input.kind as 'heartbeat' | 'cron',
@@ -190,7 +242,7 @@ function handleList(deps: AutomationToolDeps, sessionId: string): string {
   const automations = deps.automationManager.listVisibleForSession(sessionId);
   if (automations.length === 0) return 'No automations for this session.';
 
-  return automations.map(a => formatAutomation(a)).join('\n---\n');
+  return automations.map((a) => formatAutomation(a)).join('\n---\n');
 }
 
 function formatAutomation(a: AutomationDefinition): string {
@@ -212,8 +264,11 @@ function formatAutomation(a: AutomationDefinition): string {
 
 function describeSchedule(schedule: AutomationDefinition['schedule']): string {
   switch (schedule.type) {
-    case 'cron': return `cron "${schedule.expression}"`;
-    case 'interval': return `every ${schedule.seconds}s`;
-    case 'once': return `once after ${schedule.delaySeconds}s`;
+    case 'cron':
+      return `cron "${schedule.expression}"`;
+    case 'interval':
+      return `every ${schedule.seconds}s`;
+    case 'once':
+      return `once after ${schedule.delaySeconds}s`;
   }
 }

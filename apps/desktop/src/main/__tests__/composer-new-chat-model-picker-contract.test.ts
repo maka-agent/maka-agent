@@ -115,7 +115,7 @@ describe('home composer new-chat model picker', () => {
     // keeps the backend default behavior unchanged.
     assert.match(
       renderer,
-      /\.\.\.\(validPendingNewChatModel\s*\?\s*\{ llmConnectionSlug: validPendingNewChatModel\.llmConnectionSlug, model: validPendingNewChatModel\.model \}/,
+      /\.\.\.\(validPendingNewChatModel\s*\?\s*\{\s*llmConnectionSlug: validPendingNewChatModel\.llmConnectionSlug,\s*model: validPendingNewChatModel\.model,?\s*\}/,
       'send() must forward the validated picked model to sessions.create when one was chosen',
     );
   });
@@ -166,7 +166,7 @@ describe('home composer new-chat model picker', () => {
     );
     assert.match(
       setPermissionModeBlock,
-      /window\.maka\.settings\.update\(\{ chatDefaults: \{ permissionMode: mode \} \}\)/,
+      /window\.maka\.settings\.update\(\{\s*chatDefaults: \{ permissionMode: mode \},?\s*\}\)/,
       'every composer permission-mode pick must persist the global chat default',
     );
     assert.doesNotMatch(
@@ -201,7 +201,7 @@ describe('home composer new-chat model picker', () => {
     );
     assert.match(
       sendBlock,
-      /await window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*\}\);[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*await refreshMessagesUntilTurn\(session\.id, turnId\);[\s\S]*\}[\s\S]*await refreshSessions\(\);/,
+      /await window\.maka\.sessions\.send\(session\.id, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*\}\);[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*await refreshMessagesUntilTurn\(session\.id, turnId\);[\s\S]*\}[\s\S]*await refreshSessions\(\);/,
       'background new-chat sends should continue and refresh the list, but must not poll messages unless the created session is active',
     );
   });

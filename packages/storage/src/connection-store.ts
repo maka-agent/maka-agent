@@ -95,46 +95,61 @@ class FileConnectionStore implements ConnectionStore {
       if (index < 0) throw new Error(`No such connection: ${slug}`);
       const current = file.connections[index]!;
       const updatesTestStatus =
-        Object.prototype.hasOwnProperty.call(patch, 'lastTestStatus')
-        || Object.prototype.hasOwnProperty.call(patch, 'lastTestAt')
-        || Object.prototype.hasOwnProperty.call(patch, 'lastTestMessage');
+        Object.prototype.hasOwnProperty.call(patch, 'lastTestStatus') ||
+        Object.prototype.hasOwnProperty.call(patch, 'lastTestAt') ||
+        Object.prototype.hasOwnProperty.call(patch, 'lastTestMessage');
       const updatesModelCache =
-        Object.prototype.hasOwnProperty.call(patch, 'models')
-        || Object.prototype.hasOwnProperty.call(patch, 'modelSource')
-        || Object.prototype.hasOwnProperty.call(patch, 'modelsFetchedAt');
+        Object.prototype.hasOwnProperty.call(patch, 'models') ||
+        Object.prototype.hasOwnProperty.call(patch, 'modelSource') ||
+        Object.prototype.hasOwnProperty.call(patch, 'modelsFetchedAt');
       const clearsModelCache =
-        !updatesModelCache
-        && (
-          patch.apiKey !== undefined
-          || patch.baseUrl !== undefined
-        );
+        !updatesModelCache && (patch.apiKey !== undefined || patch.baseUrl !== undefined);
       const clearsTestStatus =
-        !updatesTestStatus
-        && (
-          patch.apiKey !== undefined
-          || patch.baseUrl !== undefined
-          || patch.defaultModel !== undefined
-          || patch.models !== undefined
-        );
+        !updatesTestStatus &&
+        (patch.apiKey !== undefined ||
+          patch.baseUrl !== undefined ||
+          patch.defaultModel !== undefined ||
+          patch.models !== undefined);
       const defaultModel = patch.defaultModel ?? current.defaultModel;
       const next: LlmConnection = {
         ...current,
         name: patch.name ?? current.name,
-        baseUrl: patch.baseUrl !== undefined
-          ? persistedBaseUrl(current.providerType, patch.baseUrl)
-          : current.baseUrl,
+        baseUrl:
+          patch.baseUrl !== undefined
+            ? persistedBaseUrl(current.providerType, patch.baseUrl)
+            : current.baseUrl,
         defaultModel,
         enabled: patch.enabled ?? current.enabled,
         enabledModelIds: connectionEnabledModelIds({
           defaultModel,
           enabledModelIds: patch.enabledModelIds ?? current.enabledModelIds,
         }),
-        models: updatesModelCache ? patch.models : (clearsModelCache ? undefined : current.models),
-        modelSource: updatesModelCache ? patch.modelSource : (clearsModelCache ? undefined : current.modelSource),
-        modelsFetchedAt: updatesModelCache ? patch.modelsFetchedAt : (clearsModelCache ? undefined : current.modelsFetchedAt),
-        lastTestStatus: updatesTestStatus ? patch.lastTestStatus : (clearsTestStatus ? undefined : current.lastTestStatus),
-        lastTestAt: updatesTestStatus ? patch.lastTestAt : (clearsTestStatus ? undefined : current.lastTestAt),
-        lastTestMessage: updatesTestStatus ? patch.lastTestMessage : (clearsTestStatus ? undefined : current.lastTestMessage),
+        models: updatesModelCache ? patch.models : clearsModelCache ? undefined : current.models,
+        modelSource: updatesModelCache
+          ? patch.modelSource
+          : clearsModelCache
+            ? undefined
+            : current.modelSource,
+        modelsFetchedAt: updatesModelCache
+          ? patch.modelsFetchedAt
+          : clearsModelCache
+            ? undefined
+            : current.modelsFetchedAt,
+        lastTestStatus: updatesTestStatus
+          ? patch.lastTestStatus
+          : clearsTestStatus
+            ? undefined
+            : current.lastTestStatus,
+        lastTestAt: updatesTestStatus
+          ? patch.lastTestAt
+          : clearsTestStatus
+            ? undefined
+            : current.lastTestAt,
+        lastTestMessage: updatesTestStatus
+          ? patch.lastTestMessage
+          : clearsTestStatus
+            ? undefined
+            : current.lastTestMessage,
         updatedAt: Date.now(),
       };
       file.connections[index] = next;
@@ -218,7 +233,9 @@ class FileConnectionStore implements ConnectionStore {
     try {
       const raw = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       const parsed = normalizeConnectionsFile(raw);
-      const connections = parsed.connections.map((connection) => migrateConnectionV1ToV2(connection));
+      const connections = parsed.connections.map((connection) =>
+        migrateConnectionV1ToV2(connection),
+      );
       return {
         defaultSlug: normalizeDefaultSlug(parsed.defaultSlug, connections),
         connections,
@@ -264,7 +281,10 @@ function normalizeConnectionsFile(value: unknown): ConnectionsFile {
   };
 }
 
-function normalizeDefaultSlug(defaultSlug: string | null | undefined, connections: LlmConnection[]): string | null {
+function normalizeDefaultSlug(
+  defaultSlug: string | null | undefined,
+  connections: LlmConnection[],
+): string | null {
   if (!defaultSlug) return null;
   const connection = connections.find((item) => item.slug === defaultSlug);
   return connection && connection.enabled !== false ? connection.slug : null;

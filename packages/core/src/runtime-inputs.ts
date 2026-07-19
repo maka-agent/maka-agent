@@ -30,7 +30,19 @@ export interface UserMessageInput {
   /** Caller-generated uuid. Same id used in the UserMessage.turnId and in
    *  every event emitted by this turn. */
   turnId: string;
+  /**
+   * Model-facing turn text (and the default human-facing text). When the
+   * client wraps the user's typed input — e.g. explicit skill invocation
+   * injects `<invoked-skill>` blocks — put the composed envelope here and
+   * the original typed text in `displayText`.
+   */
   text: string;
+  /**
+   * Human-facing text when it differs from `text`. Session title derivation,
+   * transcript restore, rewind refill, and sidebar previews should prefer
+   * this over `text`. Omit when the two are identical.
+   */
+  displayText?: string;
   attachments?: AttachmentRef[];
   parentRunId?: string;
   agentId?: string;

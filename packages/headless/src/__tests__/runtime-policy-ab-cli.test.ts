@@ -18,20 +18,27 @@ test('runtime policy A/B CLI dry-run builds one executable Flash manifest withou
       await writeFile(join(taskDir, 'task.toml'), '[metadata]\ndifficulty = "medium"\n', 'utf8');
     }
     const specPath = join(dir, 'spec.json');
-    await writeFile(specPath, JSON.stringify({
-      schemaVersion: 1,
-      id: 'stale-prune',
-      arms: [
-        { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
-        { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
-      ],
-      sharedAgentEnv: {},
-      pilotTaskIds: ['pilot-task'],
-      evaluationTaskIds: ['full-task'],
-      fullReps: 2,
-      nonInferiorityMargin: 0.1,
-    }), 'utf8');
-    const profilePath = new URL('../../harbor/runtime-policy-ab-profiles/deepseek-v4-flash.json', import.meta.url);
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        id: 'stale-prune',
+        arms: [
+          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+        ],
+        sharedAgentEnv: {},
+        pilotTaskIds: ['pilot-task'],
+        evaluationTaskIds: ['full-task'],
+        fullReps: 2,
+        nonInferiorityMargin: 0.1,
+      }),
+      'utf8',
+    );
+    const profilePath = new URL(
+      '../../harbor/runtime-policy-ab-profiles/deepseek-v4-flash.json',
+      import.meta.url,
+    );
     const scriptPath = new URL('../../harbor/run-runtime-policy-ab.mjs', import.meta.url);
     const outDir = join(dir, 'out');
     const { stdout } = await execFileAsync(process.execPath, [scriptPath.pathname], {
@@ -50,7 +57,9 @@ test('runtime policy A/B CLI dry-run builds one executable Flash manifest withou
     });
 
     assert.match(stdout, /dry-run: executable manifest validated/);
-    const manifest = JSON.parse(await readFile(join(outDir, 'dry-run', 'runtime-policy-ab-manifest.json'), 'utf8'));
+    const manifest = JSON.parse(
+      await readFile(join(outDir, 'dry-run', 'runtime-policy-ab-manifest.json'), 'utf8'),
+    );
     assert.equal(manifest.arms[0].metadata.executionProfile.model, 'deepseek/deepseek-v4-flash');
     assert.equal(manifest.maxConcurrentAttempts, 2);
     assert.deepEqual(manifest.pilotTaskIds, ['pilot-task']);

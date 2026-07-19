@@ -98,7 +98,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /function focusMemoryEntryInDraft/);
     assert.match(pageBlock, /findLocalMemoryEntryDraftRange\(draft, entry\.id\)/);
     assert.match(pageBlock, /editorRef\.current\?\.setSelectionRange\(range\.start, range\.end\)/);
-    assert.match(pageBlock, /editorRef\.current\?\.scrollIntoView\(\{ block: 'center', behavior: 'smooth' \}\)/);
+    assert.match(pageBlock, /editorRef\.current\?\.scrollIntoView\(\{\s*block: 'center',\s*behavior: 'smooth',?\s*\}\)/);
     assert.match(pageBlock, /无法定位记忆/);
     assert.match(listBlock, /onFocusDraft/);
     assert.match(listBlock, /定位草稿/);
@@ -226,11 +226,11 @@ describe('local MEMORY.md Settings UI contract', () => {
     const src = await readSettingsCombinedSource();
     const memoryPage = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
-    assert.match(memoryPage, /pendingMemoryActionKeysRef = useRef<Set<string>>\(new Set\(\)\)/);
+    assert.match(memoryPage, /const memoryActionGuard = useKeyedActionGuard<string>\(\)/);
     assert.match(memoryPage, /async function runMemoryAction<T>\([\s\S]*key: string,[\s\S]*action: \(isCurrent: \(\) => boolean\) => Promise<T>,/);
-    assert.match(memoryPage, /if \(pendingMemoryActionKeysRef\.current\.has\(key\)\) return undefined/);
-    assert.match(memoryPage, /pendingMemoryActionKeysRef\.current\.add\(key\)/);
-    assert.match(memoryPage, /pendingMemoryActionKeysRef\.current\.delete\(key\)/);
+    assert.match(memoryPage, /const release = memoryActionGuard\.begin\(key\);/);
+    assert.match(memoryPage, /if \(!release\) return undefined;/);
+    assert.match(memoryPage, /finally \{[\s\S]*release\(\);/);
     assert.match(memoryPage, /const isMemoryActionPending = \(key: string\) => pendingMemoryActions\.has\(key\)/);
 
     assert.match(memoryPage, /runAction\(`instruction:\$\{file\}:open`/);
@@ -262,15 +262,15 @@ describe('local MEMORY.md Settings UI contract', () => {
 
     assert.match(memoryPage, /type MemoryWriteAction =[\s\S]*'save'[\s\S]*'reset'[\s\S]*'restore'[\s\S]*'entry-status'/);
     assert.match(memoryPage, /const \[pendingMemoryWriteAction, setPendingMemoryWriteAction\] = useState<MemoryWriteAction \| null>\(null\)/);
-    assert.match(memoryPage, /const memoryWriteBusyRef = useRef\(false\)/);
+    assert.match(memoryPage, /const memoryActionGuard = useKeyedActionGuard<string>\(\)/);
     assert.match(
       memoryPage,
-      /async function runMemoryWriteAction<T>\([\s\S]*action: MemoryWriteAction,[\s\S]*run: \(isCurrent: \(\) => boolean\) => Promise<T>,[\s\S]*if \(memoryWriteBusyRef\.current\) return undefined;[\s\S]*memoryWriteBusyRef\.current = true;[\s\S]*setPendingMemoryWriteAction\(action\);[\s\S]*setBusy\(true\);/,
+      /async function runMemoryWriteAction<T>\([\s\S]*action: MemoryWriteAction,[\s\S]*run: \(isCurrent: \(\) => boolean\) => Promise<T>,[\s\S]*const releaseWrite = memoryActionGuard\.begin\('write'\);[\s\S]*if \(!releaseWrite\) return undefined;[\s\S]*setPendingMemoryWriteAction\(action\);[\s\S]*setBusy\(true\);/,
       'local memory writes must set a synchronous busy guard before awaiting file/settings writes',
     );
     assert.match(
       memoryPage,
-      /finally \{[\s\S]*memoryWriteBusyRef\.current = false;[\s\S]*setPendingMemoryWriteAction\(null\);[\s\S]*setBusy\(false\);[\s\S]*\}/,
+      /finally \{[\s\S]*releaseWrite\(\);[\s\S]*setPendingMemoryWriteAction\(null\);[\s\S]*setBusy\(false\);[\s\S]*\}/,
       'local memory write guard must always release after success or failure',
     );
     assert.match(memoryPage, /await runMemoryWriteAction\('reload'/);
@@ -315,8 +315,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(memoryPage, /const memoryReloadTicketRef = useRef\(0\)/);
     assert.match(
       memoryPage,
-      /useEffect\(\(\) => \{[\s\S]*memoryPageLifecycleRef\.current \+= 1;[\s\S]*memoryPageMountedRef\.current = true;[\s\S]*const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*return \(\) => \{[\s\S]*memoryPageMountedRef\.current = false;[\s\S]*memoryReloadTicketRef\.current \+= 1;[\s\S]*memoryWriteBusyRef\.current = false;[\s\S]*pendingMemoryActionKeysRef\.current\.clear\(\);/,
-      'Memory page cleanup must invalidate reloads and release pending owners',
+      /useEffect\(\(\) => \{[\s\S]*memoryPageLifecycleRef\.current \+= 1;[\s\S]*memoryPageMountedRef\.current = true;[\s\S]*const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*return \(\) => \{[\s\S]*memoryPageMountedRef\.current = false;[\s\S]*memoryReloadTicketRef\.current \+= 1;/,
+      'Memory page cleanup must invalidate reloads (the shared keyed guard hook releases pending owners on unmount)',
     );
     assert.match(
       memoryPage,
@@ -340,8 +340,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     );
     assert.match(
       writeActionBlock,
-      /const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*return await run\(\(\) => isMemoryPageCurrent\(lifecycle\)\);[\s\S]*catch \(error\) \{[\s\S]*if \(!isMemoryPageCurrent\(lifecycle\)\) return undefined;[\s\S]*finally \{[\s\S]*memoryWriteBusyRef\.current = false;[\s\S]*if \(isMemoryPageCurrent\(lifecycle\)\) \{[\s\S]*setPendingMemoryWriteAction\(null\);[\s\S]*setBusy\(false\);/,
-      'Memory write wrapper must release refs but not write pending state after unmount',
+      /const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*return await run\(\(\) => isMemoryPageCurrent\(lifecycle\)\);[\s\S]*catch \(error\) \{[\s\S]*if \(!isMemoryPageCurrent\(lifecycle\)\) return undefined;[\s\S]*finally \{[\s\S]*releaseWrite\(\);[\s\S]*if \(isMemoryPageCurrent\(lifecycle\)\) \{[\s\S]*setPendingMemoryWriteAction\(null\);[\s\S]*setBusy\(false\);/,
+      'Memory write wrapper must release the guard but not write pending state after unmount',
     );
     assert.match(enableBlock, /await runMemoryWriteAction\('enable', async \(isCurrent\) => \{[\s\S]*await props\.onReloadSettings\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
     assert.match(agentReadBlock, /await runMemoryWriteAction\('agent-read', async \(isCurrent\) => \{[\s\S]*await props\.onReloadSettings\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
@@ -353,8 +353,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(updateStatusBlock, /await runMemoryWriteAction\('entry-status', async \(isCurrent\) => \{[\s\S]*const next = await window\.maka\.memory\.save\(result\.draft\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*setState\(next\);/);
     assert.match(
       actionBlock,
-      /action: \(isCurrent: \(\) => boolean\) => Promise<T>,[\s\S]*const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*return await action\(\(\) => isMemoryPageCurrent\(lifecycle\)\);[\s\S]*catch \(error\) \{[\s\S]*if \(!isMemoryPageCurrent\(lifecycle\)\) return undefined;[\s\S]*finally \{[\s\S]*pendingMemoryActionKeysRef\.current\.delete\(key\);[\s\S]*if \(isMemoryPageCurrent\(lifecycle\)\) \{[\s\S]*setPendingMemoryActions/,
-      'Memory file-action wrapper must release refs but not write pending state after unmount',
+      /action: \(isCurrent: \(\) => boolean\) => Promise<T>,[\s\S]*const lifecycle = memoryPageLifecycleRef\.current;[\s\S]*return await action\(\(\) => isMemoryPageCurrent\(lifecycle\)\);[\s\S]*catch \(error\) \{[\s\S]*if \(!isMemoryPageCurrent\(lifecycle\)\) return undefined;[\s\S]*finally \{[\s\S]*release\(\);[\s\S]*if \(isMemoryPageCurrent\(lifecycle\)\) \{[\s\S]*setPendingMemoryActions/,
+      'Memory file-action wrapper must release the guard but not write pending state after unmount',
     );
     assert.match(openFileBlock, /await runMemoryAction\('memory:file:open', async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.memory\.openFile\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(!result\.ok\) toast\.error/);
     assert.match(openLatestBlock, /await runMemoryAction\('backup:latest:open', async \(isCurrent\) => \{[\s\S]*const result = await window\.maka\.memory\.openLatestBackup\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(!result\.ok\) toast\.error/);
@@ -456,7 +456,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(saveBlock, /已保存并遮蔽敏感字段/);
     assert.match(saveBlock, /savedAt: Date\.now\(\)/);
     assert.match(pageBlock, /lastSaveSummary/);
-    assert.match(pageBlock, /setLastSaveSummary\(\{ title: '已保存 MEMORY\.md', detail, savedAt: Date\.now\(\) \}\)/);
+    assert.match(pageBlock, /setLastSaveSummary\(\{\s*title: '已保存 MEMORY\.md',\s*detail,\s*savedAt: Date\.now\(\),?\s*\}\)/);
     assert.match(pageBlock, /settingsMemorySaveSummary/);
     assert.match(pageBlock, /settingsMemorySaveSummaryTime/);
     assert.match(pageBlock, /保存于 <RelativeTime ts=\{lastSaveSummary\.savedAt\}/);
@@ -548,7 +548,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const createInstructionBlock = pageBlock.match(/async function createFile[\s\S]*?return \{/)?.[0] ?? '';
     const updateStatusBlock = pageBlock.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const viewModel =/)?.[0] ?? '';
 
-    assert.match(src, /function settingsActionErrorMessage\(error: unknown\)/);
+    assert.match(src, /function settingsActionErrorMessage\(error: unknown, locale: UiLocale = 'zh'\)/);
     assert.match(reloadBlock, /catch \(error\) \{[\s\S]*toast\.error\('载入本地记忆失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(saveBlock, /catch \(error\) \{[\s\S]*toast\.error\('保存 MEMORY\.md 失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(resetBlock, /catch \(error\) \{[\s\S]*toast\.error\('重置 MEMORY\.md 失败', settingsActionErrorMessage\(error\)\)/);
@@ -557,7 +557,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(openFileBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(openLatestBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开上一版失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(openCandidateBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{localMemoryBackupKindLabel\(backup\.kind\)\}失败`, settingsActionErrorMessage\(error\)\)/);
-    assert.match(openFolderBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{openPathActionLabel\('memory'\)\}失败`, settingsActionErrorMessage\(error\)\)/);
+    assert.match(openFolderBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{openPathActionLabel\('memory', locale\)\}失败`, settingsActionErrorMessage\(error\)\)/);
     assert.match(openInstructionBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开项目指令失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(createInstructionBlock, /catch \(error\) \{[\s\S]*toast\.error\('创建项目指令失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(updateStatusBlock, /catch \(error\) \{[\s\S]*toast\.error\(status === 'archived' \? '归档记忆失败' : '恢复记忆失败', settingsActionErrorMessage\(error\)\)/);
@@ -602,7 +602,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   it('can restore the latest MEMORY.md backup through an explicit reversible action', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
     const src = await readSettingsCombinedSource();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
@@ -700,7 +700,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   it('opens the latest MEMORY.md backup only through a main-process validated path', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
     const src = await readSettingsCombinedSource();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
@@ -725,7 +725,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   it('opens a specific MEMORY.md backup candidate by kind without renderer-supplied paths', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
     const src = await readSettingsCombinedSource();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
@@ -750,7 +750,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   it('restores a specific MEMORY.md backup candidate by kind without renderer-supplied paths', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
     const src = await readSettingsCombinedSource();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';

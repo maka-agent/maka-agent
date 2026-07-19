@@ -9,7 +9,10 @@ import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import type { RuntimeEvent, RuntimeEventContent } from '@maka/core/runtime-event';
 import type { HistoryCompactSummaryInput } from '../ai-sdk-backend.js';
-import { buildLlmHistorySummarizer, type AiSdkGenerateTextLike } from '../history-compact-summarizer.js';
+import {
+  buildLlmHistorySummarizer,
+  type AiSdkGenerateTextLike,
+} from '../history-compact-summarizer.js';
 import { buildHistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 
 const ts = 1_700_000_000_000;
@@ -39,7 +42,7 @@ function inputWith(events: RuntimeEvent[], abortSignal?: AbortSignal): HistoryCo
 
 describe('buildLlmHistorySummarizer', () => {
   test('returns the LLM summary and sends the tool-bearing conversation to generateText', async () => {
-    const seen: Array<{ system: string; messages: unknown[] }> = [];
+    const seen: Array<{ instructions: string; messages: unknown[] }> = [];
     const generateText: AiSdkGenerateTextLike = async (opts) => {
       seen.push(opts);
       return { text: '## Goal\n做到 X' };
@@ -84,9 +87,9 @@ describe('buildLlmHistorySummarizer', () => {
       },
     });
 
-    await summarize(inputWith([
-      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } }),
-    ]));
+    await summarize(
+      inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+    );
 
     expect(seen?.providerOptions).toBe(providerOptions);
     expect(seen?.maxOutputTokens).toBe(undefined);
@@ -124,7 +127,7 @@ describe('buildLlmHistorySummarizer', () => {
     }>;
     const toolPart = messages.find((m) => m.role === 'tool')!.content[0]!;
     expect(toolPart.type).toBe('tool-result');
-    // toolName must be present (AI SDK v6 tool-result content requires it)
+    // toolName must be present in AI SDK tool-result content.
     expect(toolPart.toolName).toBe('read');
     // output must be the {type, value} wrapper, not the raw result object
     expect(toolPart.output).toEqual({ type: 'json', value: { name: 'maka' } });
@@ -136,9 +139,12 @@ describe('buildLlmHistorySummarizer', () => {
     };
     const summarize = buildLlmHistorySummarizer({ resolveModel: () => 'fake-model', generateText });
 
-    await assert.rejects(summarize(
-      inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
-    ), /provider_error/);
+    await assert.rejects(
+      summarize(
+        inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+      ),
+      /provider_error/,
+    );
   });
 
   test('surfaces an exhausted output budget instead of reporting a generic empty summary', async () => {
@@ -147,9 +153,12 @@ describe('buildLlmHistorySummarizer', () => {
       generateText: async () => ({ text: '', finishReason: 'length' }),
     });
 
-    await assert.rejects(summarize(
-      inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
-    ), /output_length/);
+    await assert.rejects(
+      summarize(
+        inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+      ),
+      /output_length/,
+    );
   });
 
   test('rejects non-empty partial text when the provider exhausted its output budget', async () => {
@@ -158,9 +167,12 @@ describe('buildLlmHistorySummarizer', () => {
       generateText: async () => ({ text: '## Goal\npartial summary', finishReason: 'length' }),
     });
 
-    await assert.rejects(summarize(
-      inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
-    ), /output_length/);
+    await assert.rejects(
+      summarize(
+        inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+      ),
+      /output_length/,
+    );
   });
 
   test('returns undefined without calling generateText when there are no events to summarize', async () => {
@@ -186,10 +198,20 @@ describe('buildLlmHistorySummarizer', () => {
         return { text: 'rolled' };
       },
     });
-    const old = ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'ALREADY_SUMMARIZED_RAW' } });
-    const newer = ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'NEWLY_EVICTED_RAW' } });
+    const old = ev({
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'ALREADY_SUMMARIZED_RAW' },
+    });
+    const newer = ev({
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: 'NEWLY_EVICTED_RAW' },
+    });
     const previousCheckpoint = buildHistoryCompactCheckpoint({
-      sessionId: 'sess-1', coveredRuntimeEvents: [old], summary: 'PRIOR_SUMMARY',
+      sessionId: 'sess-1',
+      coveredRuntimeEvents: [old],
+      summary: 'PRIOR_SUMMARY',
     });
     const input = inputWith([old, newer]);
 

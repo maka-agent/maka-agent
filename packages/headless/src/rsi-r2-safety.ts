@@ -9,7 +9,7 @@ export const RSI_R2_FAILURE_PATTERNS = [
   'other',
 ] as const;
 
-export type RsiR2FailurePattern = typeof RSI_R2_FAILURE_PATTERNS[number];
+export type RsiR2FailurePattern = (typeof RSI_R2_FAILURE_PATTERNS)[number];
 
 export interface ValidateRsiPromptTextOptions {
   fieldName: string;
@@ -29,12 +29,16 @@ const FORBIDDEN_TEXT_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'expected_output', pattern: /expected[-_ ]?output/i },
   { name: 'verifier', pattern: /\bverifier\b/i },
   { name: 'test_path', pattern: /(?:^|[\s"'`])(?:\.\/|\/app\/)?tests\//i },
-  { name: 'controller_artifact', pattern: /\b(?:runtime-events|results)\.(?:jsonl|tsv)\b|\bresultsJsonlPath\b/i },
+  {
+    name: 'controller_artifact',
+    pattern: /\b(?:runtime-events|results)\.(?:jsonl|tsv)\b|\bresultsJsonlPath\b/i,
+  },
 ];
 
 export function isRsiR2FailurePattern(value: unknown): value is RsiR2FailurePattern {
-  return typeof value === 'string'
-    && (RSI_R2_FAILURE_PATTERNS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (RSI_R2_FAILURE_PATTERNS as readonly string[]).includes(value)
+  );
 }
 
 export function promptSafeToken(value: string, fallback: string): string {
@@ -47,7 +51,10 @@ export function promptSafeToken(value: string, fallback: string): string {
   return PROMPT_SAFE_TOKEN_RE.test(value) ? value : fallback;
 }
 
-export function validateRsiPromptText(value: string, options: ValidateRsiPromptTextOptions): string {
+export function validateRsiPromptText(
+  value: string,
+  options: ValidateRsiPromptTextOptions,
+): string {
   const text = value.trim();
   if (text.length === 0) throw new Error(`${options.fieldName} must be non-empty`);
   if (text.length > options.maxChars) {
@@ -88,8 +95,6 @@ export function hashRsiHeldInTaskSet(taskIds: readonly string[]): string {
     fieldName: 'heldInTaskIds',
     maxItems: Number.MAX_SAFE_INTEGER,
   });
-  const digest = createHash('sha256')
-    .update(JSON.stringify(canonical))
-    .digest('hex');
+  const digest = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
   return `sha256:${digest}`;
 }

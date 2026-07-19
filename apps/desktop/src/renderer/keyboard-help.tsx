@@ -8,61 +8,8 @@
 
 import { useEffect, useState } from 'react';
 import { Keyboard } from '@maka/ui/icons';
-import { DialogContent, DialogHeader, DialogRoot, Kbd } from '@maka/ui';
-
-type Section = {
-  heading: string;
-  rows: Array<{ keys: string[]; description: string }>;
-};
-
-const SHORTCUTS: Section[] = [
-  {
-    heading: '通用',
-    rows: [
-      { keys: ['⌘', 'K'], description: '打开命令面板（跳会话 / 设置 / 主题等）' },
-      { keys: ['?'], description: '打开 / 关闭此快捷键面板' },
-      { keys: ['⌘', 'N'], description: '新建任务' },
-      { keys: ['⌘', ','], description: '打开设置' },
-      { keys: ['Esc'], description: '关闭当前模态框' },
-    ],
-  },
-  {
-    heading: 'Composer 输入',
-    rows: [
-      { keys: ['Enter'], description: '发送消息' },
-      { keys: ['Shift', 'Enter'], description: '插入换行' },
-      { keys: ['Alt', 'Enter'], description: '插入换行（备用）' },
-    ],
-  },
-  {
-    heading: '会话列表',
-    rows: [
-      { keys: ['Tab'], description: '在会话与导航之间移动焦点' },
-      { keys: ['↑', '↓'], description: '上下移动聚焦的会话' },
-      { keys: ['Home', 'End'], description: '跳到列表顶部 / 底部' },
-      { keys: ['←', '→'], description: 'Chats / 已标记 / 已归档 之间循环切换' },
-      { keys: ['Enter'], description: '打开聚焦的会话' },
-      { keys: ['Delete'], description: '弹出删除确认（永远不静默删除）' },
-      { keys: ['F'], description: '聚焦会话列表搜索框（按 Esc 清空）' },
-    ],
-  },
-  {
-    heading: '聊天区',
-    rows: [
-      { keys: ['Tab'], description: '聚焦工具活动 / Copy 按钮' },
-      { keys: ['Space', 'Enter'], description: '展开 / 折叠工具调用' },
-    ],
-  },
-  {
-    heading: '面板调整',
-    rows: [
-      { keys: ['Tab'], description: '聚焦左右分割条' },
-      { keys: ['←', '→'], description: '微调会话列表宽度（±10 px）' },
-      { keys: ['Shift', '←', '→'], description: '快速调整（±50 px）' },
-      { keys: ['Home', 'End'], description: '直接拉到最小 / 最大宽度' },
-    ],
-  },
-];
+import { DialogContent, DialogHeader, DialogRoot, Kbd, useUiLocale } from '@maka/ui';
+import { getShellCopy } from './locales/shell-copy';
 
 /**
  * Manages the global key listener that opens and closes the help modal.
@@ -94,12 +41,7 @@ export function useKeyboardHelp(): [boolean, () => void, () => void] {
       if (event.key !== '?') return;
       // Skip if the user is typing in a text field so `?` still types.
       const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
-      ) {
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
       }
       event.preventDefault();
@@ -113,6 +55,8 @@ export function useKeyboardHelp(): [boolean, () => void, () => void] {
 }
 
 export function KeyboardHelpModal(props: { onClose(): void }) {
+  const locale = useUiLocale();
+  const copy = getShellCopy(locale).keyboardHelp;
   return (
     <DialogRoot
       open
@@ -120,19 +64,15 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
         if (!open) props.onClose();
       }}
     >
-      <DialogContent
-        className="maka-modal maka-help-modal"
-        aria-labelledby="maka-help-title"
-        showClose={false}
-      >
+      <DialogContent className="maka-modal maka-help-modal" aria-labelledby="maka-help-title" showClose={false}>
         <DialogHeader
           icon={<Keyboard aria-hidden="true" />}
-          title="键盘快捷键"
+          title={copy.title}
           titleId="maka-help-title"
           onClose={props.onClose}
         />
         <div className="maka-modal-body maka-help-body">
-          {SHORTCUTS.map((section) => (
+          {copy.sections.map((section) => (
             <section key={section.heading} className="maka-help-section">
               <h3>{section.heading}</h3>
               <dl>
@@ -142,7 +82,11 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
                     <dd>
                       {row.keys.map((key, index) => (
                         <span key={`${row.description}:${key}:${index}`}>
-                          {index > 0 && <span className="maka-help-plus" aria-hidden="true">+</span>}
+                          {index > 0 && (
+                            <span className="maka-help-plus" aria-hidden="true">
+                              +
+                            </span>
+                          )}
                           <Kbd>{key}</Kbd>
                         </span>
                       ))}

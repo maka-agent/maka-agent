@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import {
-  Editor,
   Key,
   ProcessTerminal,
   SelectList,
@@ -14,36 +14,66 @@ import {
   type Terminal,
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
-import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
-import type { ProviderType } from '@maka/core/llm-connections';
+import {
+  isThinkingLevel,
+  thinkingVariantsForModel,
+  type ThinkingLevel,
+} from '@maka/core/model-thinking';
+import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
 import {
   ShellRunUpdateBuffer,
   mergeShellRunUpdate,
   projectShellRunUpdateForSession,
   type ShellRunUpdate,
 } from '@maka/core';
+import {
+  buildForeignSessionHandoffMessage,
+  foreignSessionHandoffDisplayText,
+  foreignSourceLabel,
+  type ForeignSessionSummary,
+} from '@maka/core/foreign-session';
+import type { ForeignSessionStore } from '@maka/storage';
+import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
+import { listApiKeyOnboardableProviders, type MakaOnboardingSurface } from './onboarding.js';
+import type { MakaCliSkillSurface, SessionRecapGenerator } from './runtime-bootstrap.js';
+import { AUTO_RECAP_DISPLAY_LIMIT_BYTES, shouldAutoRecap } from './session-recap.js';
+import {
+  composeSkillInvocationMessage,
+  listInvocableSkills,
+  resolveSkillInvocations,
+  type InvocableSkillEntry,
+  type LoadedSkillInstructions,
+} from '@maka/runtime';
+import { MakaSkillHighlightEditor } from './skill-highlight-editor.js';
+import { parseSkillInvocationTokens, stripSkillInvocationTokens } from './skill-token.js';
+import type { CliGoalTurnHost } from './cli-goal-continuation.js';
 import {
   inspectSessionResumeAvailability,
   type MakaSessionDriver,
   type MakaSessionSwitchResult,
 } from './session-driver.js';
 import {
+  appendTurnFailureToTranscript,
+  appendUserPrompt,
+  applyMakaSessionEventToTranscript,
   createMakaPiTranscriptState,
   activePermissionRequest,
   activeUserQuestionRequest,
   completePendingInteraction,
-  applyMakaSessionEventToTranscript,
   applyShellRunViewUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
-  submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
   togglePendingPermissionDetails,
   type MakaPiTranscriptMetadata,
-  type TurnOutcome,
 } from './pi-transcript.js';
+import {
+  runMakaPiTuiTurn,
+  type MakaPiTuiTurnLifecycle,
+  type MakaPiTuiTurnRequest,
+} from './pi-tui-turn.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
 import { createShellRunElapsedTicker } from './shell-run-elapsed-ticker.js';
@@ -56,20 +86,28 @@ import {
 } from './tui-attention.js';
 import {
   MakaActivityStripComponent,
+  MakaPendingQueueComponent,
   MakaPiLayoutComponent,
   MakaStatusLineComponent,
   MakaTranscriptComponent,
 } from './pi-tui-layout.js';
 import {
   MakaAutocompleteProvider,
+  DirectoryPickerOverlay,
+  OnboardingWizard,
   PickerOverlay,
   UserQuestionOverlay,
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
+  skillPickerItems,
   thinkingLevelPickerItems,
   type MakaSlashCommand,
 } from './pi-tui-pickers.js';
+
+export interface MakaPiTuiGoalLifecycle extends MakaPiTuiTurnLifecycle {
+  bindHost: (host: CliGoalTurnHost) => () => void;
+}
 
 export interface MakaPiTuiInput {
   title: string;
@@ -98,14 +136,45 @@ export interface MakaPiTuiInput {
    * without waiting real seconds; defaults to the attention layer's own value.
    */
   attentionLongTurnThresholdMs?: number;
+  subscribeSessionTitleChanges?: (listener: (sessionId: string) => void) => () => void;
   subscribeShellRunUpdates?: (listener: (update: ShellRunUpdate) => void) => () => void;
   listShellRunUpdates?: (sessionId: string) => Promise<ShellRunUpdate[]>;
   /**
-   * Called after each agent turn settles. Receives an `injectTurn` that runs a
-   * new turn rendered in the transcript — used for goal auto-continuation so
-   * continuation turns are visible and chain correctly.
+   * Explicit skill invocation surface (issue #1148). When present, `/skill:<name>`
+   * tokens are highlighted in the editor, completed by autocomplete, listed by
+   * `/skill`, and resolved + injected by the CLI at submit time. Omitting it
+   * disables the whole feature (tests, minimal hosts).
    */
-  onTurnComplete?: (turnId: string, injectTurn: (text: string) => void) => void;
+  skills?: MakaCliSkillSurface;
+  /** Mandatory turn ownership shared with CLI Automation and Goal continuation. */
+  goalLifecycle: MakaPiTuiGoalLifecycle;
+  /** API-key onboarding surface (#1098). When present, /setup runs the wizard
+   *  and calls setup() with the chosen provider + key; the host owns the stores. */
+  onboarding?: MakaOnboardingSurface;
+  /** First-run mode: auto-open the onboarding wizard on launch instead of
+   *  waiting for /setup (used when the CLI starts with no configured connection). */
+  firstRun?: boolean;
+  /**
+   * One-sentence session recap generator (issue #1055). Powers `/recap` and
+   * the idle-return auto-recap. Omitting it disables both — `/recap` reports
+   * unavailability and no auto-recap is ever scheduled.
+   */
+  recap?: SessionRecapGenerator;
+  /**
+   * When present, the runner switches onto this session as its first action
+   * (before entering the interactive loop), reusing the same `switchSession`
+   * path as `/session <id>`. A failed switch (missing session, stale cwd)
+   * surfaces as a transcript notice and the runner falls back to the fresh
+   * session the driver was created with.
+   */
+  resumeSessionId?: string;
+  /**
+   * Read-only store of sessions from other coding agents (Claude Code,
+   * Codex). When present, the session picker lists foreign sessions for the
+   * current cwd; selecting one distills it into a handoff digest and opens a
+   * fresh Maka session seeded with it. Omitting it hides the feature.
+   */
+  foreignSessions?: ForeignSessionStore;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -127,20 +196,53 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let sessionListScope: 'current' | 'all' = 'current';
   let busy = false;
   let closed = false;
+  let currentActivityCompletion: Promise<void> | undefined;
   let permissionResponseInFlightRequestId: string | null = null;
+  // Session recap (issue #1055): an in-flight lock shared by manual and
+  // automatic recap calls, an activity clock for idle-return detection, a
+  // watermark so auto-recap fires at most once per newly reached main turn,
+  // and a sequence counter bumped once per submitted prompt so an idle recap
+  // can detect it was superseded by a later prompt while it was generating.
+  let recapInFlight = false;
+  let lastActivityAt = Date.now();
+  // Session-scoped watermark: null (or a stale sessionId) is equivalent to a
+  // fresh session that has never had a recap (count 0). Prevents a recap
+  // triggered in session A from suppressing the first eligible recap in a
+  // later session B that happens to reach the same main-turn count.
+  let recapWatermark: { sessionId: string; mainTurnCount: number } | null = null;
+  let promptSeq = 0;
+  const beginActivity = () => {
+    let finish!: () => void;
+    const completion = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    currentActivityCompletion = completion;
+    let finished = false;
+    return {
+      finish: () => {
+        if (finished) return;
+        finished = true;
+        if (currentActivityCompletion === completion) currentActivityCompletion = undefined;
+        finish();
+      },
+    };
+  };
   let userQuestionInFlight = false;
   let userQuestionOverlay: OverlayHandle | undefined;
-  let userQuestionProgress: {
-    requestId: string;
-    index: number;
-    answers: Array<string | null>;
-  } | undefined;
+  let userQuestionProgress:
+    | {
+        requestId: string;
+        index: number;
+        answers: Array<string | null>;
+      }
+    | undefined;
   let turnRunning = false;
   let turnStartedAt: number | undefined;
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
+  let unbindGoalHost: (() => void) | undefined;
   let resolveClosed: () => void;
   let rejectClosed: (error: Error) => void;
   const closedPromise = new Promise<void>((resolve, reject) => {
@@ -165,28 +267,169 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const transcript = new MakaTranscriptComponent(state, metadata);
   const activityStrip = new MakaActivityStripComponent(metadata);
+  const pendingQueue = new MakaPendingQueueComponent(state);
   const statusLine = new MakaStatusLineComponent(metadata);
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
-  const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
+  const editor = new MakaSkillHighlightEditor(tui, editorTheme(), {
+    paddingX: 1,
+    autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE,
+  });
   let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
-  const layout = new MakaPiLayoutComponent(transcript, activityStrip, editorSurface, statusLine, terminal);
+  const layout = new MakaPiLayoutComponent(
+    state,
+    transcript,
+    activityStrip,
+    pendingQueue,
+    editorSurface,
+    statusLine,
+    terminal,
+  );
   const attention = new AttentionController(terminal, {
     baseTitle: input.title,
     ...(input.attentionLongTurnThresholdMs !== undefined
       ? { longTurnThresholdMs: input.attentionLongTurnThresholdMs }
       : {}),
   });
+  let sessionTitleVersion = 0;
+  const setSessionTitle = (title: string) => {
+    sessionTitleVersion += 1;
+    attention.setBaseTitle(`${title} (${input.title})`);
+  };
 
   const requestRender = () => {
     transcript.invalidate();
     tui.requestRender();
   };
+  const unsubscribeSessionTitleChanges =
+    input.subscribeSessionTitleChanges?.((sessionId) => {
+      const refreshVersion = ++sessionTitleVersion;
+      void input.driver
+        .listSessions()
+        .then((sessions) => {
+          if (
+            closed ||
+            input.driver.getSessionId() !== sessionId ||
+            sessionTitleVersion !== refreshVersion
+          )
+            return;
+          const session = sessions.find((candidate) => candidate.id === sessionId);
+          if (!session) return;
+          setSessionTitle(session.name);
+        })
+        .catch(() => {});
+    }) ?? (() => {});
   const shellRunElapsedTicker = createShellRunElapsedTicker({
     state,
     onTick: requestRender,
   });
+
+  // ── Explicit skill invocation (#1148) ────────────────────────────────────
+  // One cached list feeds autocomplete, the `/skill` picker, and the editor's
+  // sync highlight validator. The cache is keyed by cwd (project-level skill
+  // paths move with it) and short-lived; submit-time injection never uses it —
+  // it does an authoritative scan via prepareSkillInvocation.
+  const SKILL_LIST_CACHE_MS = 5_000;
+  let skillListCache: { cacheCwd: string; at: number; entries: InvocableSkillEntry[] } | undefined;
+  const listSkillsCached = async (
+    forceRefresh = false,
+  ): Promise<readonly InvocableSkillEntry[]> => {
+    if (!input.skills) return [];
+    if (
+      !forceRefresh &&
+      skillListCache &&
+      skillListCache.cacheCwd === cwd &&
+      Date.now() - skillListCache.at < SKILL_LIST_CACHE_MS
+    ) {
+      return skillListCache.entries;
+    }
+    try {
+      const entries = await listInvocableSkills(input.skills.source(cwd), input.skills.host);
+      skillListCache = { cacheCwd: cwd, at: Date.now(), entries };
+      // The highlight validator must be sync and cheap (one lookup per token
+      // per render): a flat Set over lowercase ids AND display names, since a
+      // token resolves by either.
+      const invocable = new Set<string>();
+      for (const entry of entries) {
+        invocable.add(entry.id.toLowerCase());
+        invocable.add(entry.name.toLowerCase());
+      }
+      editor.setSkillTokenValidator((name) => invocable.has(name.toLowerCase()));
+      requestRender();
+      return entries;
+    } catch {
+      // Listing is best-effort: autocomplete/picker/highlight degrade to
+      // nothing, and submit-time resolution does its own authoritative scan.
+      return skillListCache?.cacheCwd === cwd ? skillListCache.entries : [];
+    }
+  };
+  // Warm the highlight validator so tokens light up before the first
+  // autocomplete or picker open.
+  void listSkillsCached(true);
+
+  const SKILL_INVOCATION_FAILURE_REASON_LABEL: Record<string, string> = {
+    not_found: '未找到',
+    disabled: '已禁用',
+    host_incompatible: '当前主机缺少其依赖的工具',
+    invalid_name: '名称无效',
+  };
+
+  interface PreparedSkillPrompt {
+    sendText: string;
+    loadedNames: string[];
+    warnings: string[];
+  }
+
+  // Resolve `/skill:<name>` tokens and compose the injectable message. Fully
+  // fail-soft: zero resolved tokens or any thrown error returns the untouched
+  // prompt — skill resolution must never block a send (issue decision: warn at
+  // most; failed tokens stay as literal text).
+  const prepareSkillInvocation = async (prompt: string): Promise<PreparedSkillPrompt> => {
+    const passthrough: PreparedSkillPrompt = { sendText: prompt, loadedNames: [], warnings: [] };
+    if (!input.skills) return passthrough;
+    const tokens = parseSkillInvocationTokens(prompt);
+    if (tokens.length === 0) return passthrough;
+    try {
+      const resolved = await resolveSkillInvocations(
+        input.skills.source(cwd),
+        input.skills.host,
+        tokens.map((token) => token.name),
+      );
+      const loaded: LoadedSkillInstructions[] = [];
+      const okRequests: string[] = [];
+      const failed: Array<{ request: string; reason: string }> = [];
+      for (const entry of resolved) {
+        if (entry.result.ok) {
+          loaded.push(entry.result.skill);
+          okRequests.push(entry.request);
+        } else {
+          failed.push({ request: entry.request, reason: entry.result.reason });
+        }
+      }
+      const warnings =
+        failed.length > 0
+          ? [
+              `未能加载技能 ${failed.map((entry) => `/skill:${entry.request}（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason] ?? entry.reason}）`).join('、')}，已按原文发送。`,
+            ]
+          : [];
+      if (loaded.length === 0) {
+        return { ...passthrough, warnings };
+      }
+      const stripped = stripSkillInvocationTokens(
+        prompt,
+        new Set(okRequests.map((request) => request.toLowerCase())),
+      );
+      return {
+        sendText: composeSkillInvocationMessage({ userText: stripped, skills: loaded }),
+        loadedNames: loaded.map((skill) => skill.name),
+        warnings,
+      };
+    } catch {
+      return passthrough;
+    }
+  };
+
   // 1-second heartbeat that re-renders the activity strip's elapsed counter
   // while a turn runs. Stopped on turn end and disposed on teardown.
   let turnElapsedInterval: ReturnType<typeof setInterval> | undefined;
@@ -206,22 +449,26 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let shellRunHydrationEpoch = 0;
   let shellRunHydrationRetryTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingShellRunUpdates = new ShellRunUpdateBuffer('cli.pi-tui-hydration-buffer');
-  const applyShellRunViewUpdate = (candidate: ShellRunUpdate): boolean => {
-    const index = shellRunOwnerMappings.findIndex((update) => (
-      update.sessionId === candidate.sessionId
-      && update.sourceToolCallId === candidate.sourceToolCallId
-    ));
+  const applyShellRunViewUpdate = (
+    candidate: ShellRunUpdate,
+    options?: { announceSettle?: boolean },
+  ): boolean => {
+    const index = shellRunOwnerMappings.findIndex(
+      (update) =>
+        update.sessionId === candidate.sessionId &&
+        update.sourceToolCallId === candidate.sourceToolCallId,
+    );
     const merged = mergeShellRunUpdate(
       index >= 0 ? shellRunOwnerMappings[index] : undefined,
       candidate,
       'cli.pi-tui-runner',
     );
-    const retainOwnerMapping = merged.update.ownership.kind === 'source_owned'
-      && merged.update.result.status === 'running';
+    const retainOwnerMapping =
+      merged.update.ownership.kind === 'source_owned' && merged.update.result.status === 'running';
     if (index >= 0 && retainOwnerMapping) shellRunOwnerMappings[index] = merged.update;
     else if (index >= 0) shellRunOwnerMappings.splice(index, 1);
     else if (retainOwnerMapping) shellRunOwnerMappings.push(merged.update);
-    return applyShellRunViewUpdateToTranscript(state, merged.update);
+    return applyShellRunViewUpdateToTranscript(state, merged.update, options);
   };
   const replayPendingShellRunUpdates = (sessionId: string): boolean => {
     const buffered = pendingShellRunUpdates.drain();
@@ -246,8 +493,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   ): Promise<void> => {
     try {
       const updates = await input.listShellRunUpdates?.(sessionId);
-      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId) return;
-      for (const update of updates ?? []) applyShellRunViewUpdate(update);
+      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId)
+        return;
+      // Catch-up replays durable state, not a live event: flip cards silently.
+      // Updates buffered from the live subscription during the await are
+      // genuinely live and stay announceable in the drain below.
+      for (const update of updates ?? [])
+        applyShellRunViewUpdate(update, { announceSettle: false });
       const overflowed = replayPendingShellRunUpdates(sessionId);
       shellRunElapsedTicker.sync();
       requestRender();
@@ -257,7 +509,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
       hydratingShellRunsFor = undefined;
     } catch {
-      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId) return;
+      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId)
+        return;
       shellRunHydrationRetryTimer = setTimeout(() => {
         shellRunHydrationRetryTimer = undefined;
         void hydrateShellRuns(sessionId, epoch, Math.min(retryDelayMs * 2, 5_000));
@@ -300,16 +553,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // so without this guard a switch could start while a prompt is still running.
     if (busy) return;
     busy = true;
+    const activity = beginActivity();
     editor.disableSubmit = true;
     terminal.setProgress(true);
     attention.controlStarted();
     requestRender();
+    let sessionActivity: SessionActivityLease | undefined;
     try {
+      const sessionId = input.driver.getSessionId();
+      if (sessionId) sessionActivity = await input.goalLifecycle.activities.acquire(sessionId);
+      if (closed) return;
       await action();
     } catch (error) {
       reportError(error);
     } finally {
+      sessionActivity?.release();
       busy = false;
+      activity.finish();
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.controlEnded();
@@ -327,10 +587,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const restoreTerminal = () => {
     removeProcessHandlers();
+    unbindGoalHost?.();
+    unbindGoalHost = undefined;
+    unsubscribeSessionTitleChanges();
     unsubscribeShellRunUpdates?.();
     resetShellRunSessionState();
     shellRunElapsedTicker.dispose();
     stopTurnElapsedTicker();
+    stopFallbackRetry();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
     // the shell still marked busy when the session exits.
@@ -395,13 +659,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Keep the prompt visible until the driver accepts the response. If it
     // rejects, the user can retry with y/n instead of being stuck. A resolved
     // call only means the response was submitted; the event stream owns dequeue.
-    void input.driver.respondToPermission({
-      requestId: request.requestId,
-      decision,
-      ...(decision === 'allow' && request.rememberForTurnAllowed
-        ? { rememberForTurn }
-        : {}),
-    })
+    void input.driver
+      .respondToPermission({
+        requestId: request.requestId,
+        decision,
+        ...(decision === 'allow' && request.rememberForTurnAllowed ? { rememberForTurn } : {}),
+      })
       .catch((error) => {
         if (permissionResponseInFlightRequestId === request.requestId) {
           permissionResponseInFlightRequestId = null;
@@ -411,53 +674,317 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return true;
   };
 
+  // Refill the editor from a retract result, prepended to any current draft.
+  // Shared by the interrupt path and the alt+↑ path. The text always comes
+  // from `driver.retractQueued()` — a synchronous in-process read of the
+  // runtime's authoritative queues — never from the render mirror, which can
+  // lag a step-boundary consumption and would resurrect an already-consumed
+  // steering message for a double execution. Clears the local mirror.
+  const refillEditorFromQueues = (joined: string) => {
+    state.steering = [];
+    state.followup = [];
+    if (!joined) return;
+    const draft = editor.getText();
+    editor.setText(draft ? `${joined}\n\n${draft}` : joined);
+  };
+
   const requestTurnInterrupt = () => {
     if (interruptRequested) return;
     interruptRequested = true;
+    // The convergence window (stop issued, turn not yet terminal) accepts no
+    // new input: submits would race the abort and could open work the user
+    // just cancelled. The normal turn finally restores submit; a rejected
+    // stop restores it here.
+    editor.disableSubmit = true;
+    // Retract synchronously from the authoritative queue before stop() clears
+    // it: only messages still queued come back for re-editing; anything the
+    // turn already consumed stays consumed (it is in the transcript/ledger).
+    // CLI-held fallback texts (never reached the runtime) come back too.
+    refillEditorFromQueues(
+      [takePendingFallback(), input.driver.retractQueued?.() ?? ''].filter(Boolean).join('\n\n'),
+    );
+    requestRender();
     void input.driver.stop().catch((error) => {
       interruptRequested = false;
+      editor.disableSubmit = false;
       reportError(error);
     });
   };
 
-  editor.onSubmit = (prompt) => {
+  // Open a fresh turn from a submitted prompt (idle path). Control actions hold
+  // `busy`, so a prompt typed mid-switch is ignored rather than racing it.
+  const submitPrompt = (prompt: string) => {
     if (busy || !prompt.trim()) {
       requestRender();
       return;
     }
+    if (isExitPrompt(prompt)) {
+      beginGracefulClose();
+      return;
+    }
+    // Captured BEFORE lastActivityAt is refreshed, so the idle gap measures up
+    // to (not including) this very submission.
+    const idleMs = Date.now() - lastActivityAt;
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
-
-    runAgentTurn(prompt);
+    // First-run has no connection, so the wizard is the only surface. This is
+    // the single choke point for idle submits (Enter, Alt+Enter, steer
+    // fallback): reopen the wizard instead of opening a turn against a
+    // connection-less driver. Slash commands above already routed to the
+    // command layer (/exit still exits, /help still shows help).
+    if (input.firstRun) {
+      showSetupWizard();
+      return;
+    }
+    // Refreshed only for a prompt that actually opens a turn: a slash command
+    // (e.g. /help) typed on the way back from idle must not consume the idle
+    // gap the next real prompt is measuring.
+    lastActivityAt = Date.now();
+    // This prompt is about to open a turn, so it counts toward the sequence
+    // an in-flight idle recap is watching — including when this very prompt
+    // is the idle-return submission that triggers the recap below.
+    promptSeq += 1;
+    maybeTriggerAutoRecap(idleMs);
+    if (!input.skills || parseSkillInvocationTokens(prompt).length === 0) {
+      void runAgentTurn({
+        kind: 'external',
+        prompt,
+        sessionId: input.driver.getSessionId(),
+      });
+      return;
+    }
+    void submitPreparedUserPrompt(prompt);
   };
 
-  // Runs one agent turn rendered in the transcript, then lets the host decide
-  // whether to auto-continue (goal). Shared by user submits and goal injections.
-  function runAgentTurn(prompt: string): void {
+  // Resolve skill-invocation tokens, then open the turn. Hold both `busy` and
+  // `editor.disableSubmit` for the async prep window: pi-tui clears the draft
+  // before onSubmit, so a second Enter during prep must not be accepted (it
+  // would be dropped by the busy guard with the draft already gone).
+  // runAgentTurn re-asserts busy for the turn itself and re-enables submit so
+  // mid-turn Enter can still steer.
+  const submitPreparedUserPrompt = async (prompt: string) => {
     busy = true;
+    const preparationActivity = beginActivity();
+    editor.disableSubmit = true;
+    let handedOff = false;
+    try {
+      const prepared = await prepareSkillInvocation(prompt);
+      // Prep is async (skill scan). If the TUI closed mid-scan (double Ctrl-C /
+      // SIGTERM), do not open a turn after the shell is gone.
+      if (closed) return;
+      for (const warning of prepared.warnings) {
+        state.entries.push({ kind: 'notice', level: 'info', text: warning });
+      }
+      if (prepared.loadedNames.length > 0) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `已加载技能：${prepared.loadedNames.join('、')}`,
+        });
+      }
+      // Hand off to the turn: runAgentTurn re-asserts busy and re-enables
+      // submit so mid-turn Enter can steer. Clearing disableSubmit only there
+      // keeps the prep window closed until the turn owns the flags.
+      void runAgentTurn({
+        kind: 'external',
+        prompt,
+        sessionId: input.driver.getSessionId(),
+        ...(prepared.sendText !== prompt ? { sendText: prepared.sendText } : {}),
+      });
+      handedOff = true;
+    } catch (error) {
+      if (closed) return;
+      reportError(error);
+    } finally {
+      if (!handedOff) {
+        busy = false;
+        editor.disableSubmit = false;
+        requestRender();
+      }
+      // A successful handoff already installed the turn's activity as current;
+      // releasing preparation now wakes observers into that new busy period.
+      preparationActivity.finish();
+    }
+  };
+
+  // Fallback handoff owner. A `fallback` outcome while the turn is running
+  // means the runtime has no live steering owner YET (the begin window) or
+  // just lost it; the runtime keeps no record of the text, so the CLI owns
+  // delivery: retry the SAME enqueue until the owner appears, and flush any
+  // remainder into the next turn at the turn boundary. Never a bounded wait —
+  // a normal turn outlives any fixed budget and the text must not vanish.
+  const FALLBACK_RETRY_MS = 100;
+  let fallbackRetryTimer: ReturnType<typeof setInterval> | null = null;
+
+  const stopFallbackRetry = () => {
+    if (fallbackRetryTimer === null) return;
+    clearInterval(fallbackRetryTimer);
+    fallbackRetryTimer = null;
+  };
+
+  const retryPendingFallback = () => {
+    if (closed || !turnRunning || state.pendingFallback.length === 0) {
+      stopFallbackRetry();
+      return;
+    }
+    const remaining: typeof state.pendingFallback = [];
+    for (const entry of state.pendingFallback) {
+      const outcome =
+        entry.enqueue === 'steer'
+          ? input.driver.steer?.(entry.text)
+          : input.driver.queueMessage?.(entry.text);
+      if (outcome?.kind !== 'queued') remaining.push(entry);
+    }
+    if (remaining.length === state.pendingFallback.length) return;
+    state.pendingFallback = remaining;
+    if (remaining.length === 0) stopFallbackRetry();
+    // The queue mirror updates only from `queue_update` events (single path);
+    // this render just drops the delivered entries from the fallback list.
+    requestRender();
+  };
+
+  const deferFallback = (text: string, enqueue: 'steer' | 'queue') => {
+    state.pendingFallback.push({ text, enqueue });
+    fallbackRetryTimer ??= setInterval(retryPendingFallback, FALLBACK_RETRY_MS);
+    requestRender();
+  };
+
+  /** Drain the CLI-held fallback texts (delivery order), stopping the retry loop. */
+  const takePendingFallback = (): string => {
+    stopFallbackRetry();
+    if (state.pendingFallback.length === 0) return '';
+    const joined = state.pendingFallback.map((entry) => entry.text).join('\n\n');
+    state.pendingFallback = [];
+    return joined;
+  };
+
+  // Enter during a turn steers it (inject at the next step boundary); the
+  // runtime falls back to a fresh turn if the run already ended.
+  const steerRunningTurn = (text: string) => {
+    if (!text.trim()) {
+      requestRender();
+      return;
+    }
+    editor.addToHistory(text);
+    const outcome = input.driver.steer?.(text);
+    if (!outcome || outcome.kind === 'fallback') {
+      if (turnRunning) deferFallback(text, 'steer');
+      else submitPrompt(text);
+      return;
+    }
+    // Queued: the runtime's `queue_update` event refreshes the mirror.
+    requestRender();
+  };
+
+  // Alt+Enter: during a turn, queue the text to open the next turn; when idle,
+  // it submits like Enter.
+  const handleAltEnter = () => {
+    // Mirror Enter's control-busy guard BEFORE touching the editor: during a
+    // control action (busy without a running turn) submitPrompt would drop the
+    // prompt, so keep the draft in place instead of clearing it into the void.
+    if (busy && !turnRunning) return;
+    // Interrupt convergence window: the turn is being stopped, so nothing may
+    // be queued onto it and no fresh turn may open — keep the draft.
+    if (interruptRequested) return;
+    const text = editor.getExpandedText().trim();
+    if (!text) return;
+    editor.setText('');
+    if (!turnRunning) {
+      submitPrompt(text);
+      return;
+    }
+    editor.addToHistory(text);
+    const outcome = input.driver.queueMessage?.(text);
+    if (!outcome || outcome.kind === 'fallback') {
+      if (turnRunning) deferFallback(text, 'queue');
+      else submitPrompt(text);
+      return;
+    }
+    // Queued: the runtime's `queue_update` event refreshes the mirror.
+    requestRender();
+  };
+
+  // Alt+↑: take back every queued message (both queues plus CLI-held fallback
+  // texts), joined and prepended to the current draft for re-editing.
+  const retractQueuedMessages = () => {
+    refillEditorFromQueues(
+      [takePendingFallback(), input.driver.retractQueued?.() ?? ''].filter(Boolean).join('\n\n'),
+    );
+    requestRender();
+  };
+
+  // Onboarding wizard (#1098 UX redesign): one overlay spans provider search
+  // → API key entry, keeping every prompt/verifying/failure notice beside the
+  // input field instead of the transcript entry flow.
+  let wizardOverlay: OverlayHandle | undefined;
+  let wizard: OnboardingWizard | undefined;
+  let wizardProviderType: ProviderType | undefined;
+  // Monotonic attempt id: each setup submit captures one, and any transition
+  // that abandons the in-flight attempt (back, re-pick, close) increments it so
+  // a late probe settlement cannot clobber a newer attempt.
+  let wizardAttempt = 0;
+
+  editor.onSubmit = (prompt) => {
+    if (turnRunning) {
+      // A quit/exit form typed while a turn is running must close the TUI, not
+      // steer it into the model as prompt text (review finding on turnRunning
+      // input routing): check it before handing off to steering.
+      if (isExitPrompt(prompt)) {
+        beginGracefulClose();
+        return;
+      }
+      steerRunningTurn(prompt);
+      return;
+    }
+    submitPrompt(prompt);
+  };
+
+  // Runs one agent turn through the shared activity/drain lifecycle. Shared by
+  // user submits, queued follow-ups, and coordinator-owned goal injections.
+  function runAgentTurn(request: MakaPiTuiTurnRequest): Promise<GoalTurnOutcome> {
+    busy = true;
+    const activity = beginActivity();
     turnRunning = true;
     turnStartedAt = Date.now();
     startTurnElapsedTicker();
     interruptRequested = false;
     lastTurnEscapeAt = 0;
-    editor.disableSubmit = true;
+    // Re-enable submit after skill-prep's disableSubmit hold: Enter must steer
+    // a running turn (see editor.onSubmit) instead of being swallowed.
+    editor.disableSubmit = false;
     terminal.setProgress(true);
     attention.promptTurnStarted();
     requestRender();
 
     let permissionAlerted = false;
-    let turnOutcome: TurnOutcome | undefined;
-    void submitPromptToTranscript({
-      state,
+    const finishTurnUi = () => {
+      turnRunning = false;
+      turnStartedAt = undefined;
+      stopTurnElapsedTicker();
+      interruptRequested = false;
+      editor.disableSubmit = false;
+      terminal.setProgress(false);
+      attention.promptTurnEnded();
+      // A turn ending is activity too — resets the idle clock the next
+      // submission's auto-recap check measures against.
+      lastActivityAt = Date.now();
+    };
+
+    return runMakaPiTuiTurn({
       driver: input.driver,
-      prompt,
-      // A turn failing is worth pulling the user back, regardless of how long it
-      // ran — a quick failure in a background tab would otherwise stay silent.
-      onError: () => attention.attentionNeeded(),
-      onChange: () => {
+      lifecycle: input.goalLifecycle,
+      request,
+      shouldAbort: () => closed || interruptRequested,
+      onStart: () => {
+        appendUserPrompt(state, request.prompt);
+        requestRender();
+      },
+      onEvent: (event) => {
+        applyMakaSessionEventToTranscript(state, event);
+        if (event.type === 'error') attention.attentionNeeded();
         if (
-          permissionResponseInFlightRequestId !== null
-          && activePermissionRequest(state)?.requestId !== permissionResponseInFlightRequestId
+          permissionResponseInFlightRequestId !== null &&
+          activePermissionRequest(state)?.requestId !== permissionResponseInFlightRequestId
         ) {
           permissionResponseInFlightRequestId = null;
         }
@@ -476,27 +1003,102 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         syncUserQuestionOverlay();
         requestRender();
       },
-    }).then((outcome) => {
-      turnOutcome = outcome;
-    }).finally(() => {
-      busy = false;
-      turnRunning = false;
-      turnStartedAt = undefined;
-      stopTurnElapsedTicker();
-      interruptRequested = false;
-      editor.disableSubmit = false;
-      terminal.setProgress(false);
-      attention.promptTurnEnded();
-      requestRender();
-      // Do not auto-continue (goal) if teardown began (`closed`), the user
-      // interrupted the turn (double-Escape → driver.stop() → user_stop/abort),
-      // or it ended in error. An autonomous loop MUST halt on the Stop
-      // affordance and must not hammer a failing turn — mirrors the desktop
-      // `turnAborted` guard.
-      if (!closed && turnOutcome?.kind === 'completed') {
-        input.onTurnComplete?.(turnOutcome.turnId, (text) => runAgentTurn(text));
-      }
+      // A turn failing is worth pulling the user back, regardless of how long it
+      // ran — a quick failure in a background tab would otherwise stay silent.
+      onFailure: (error) => {
+        appendTurnFailureToTranscript(state, error);
+        attention.attentionNeeded();
+        shellRunElapsedTicker.sync();
+        syncUserQuestionOverlay();
+        requestRender();
+      },
+    }).then(
+      (outcome) => {
+        finishTurnUi();
+        if (closed) {
+          busy = false;
+          activity.finish();
+          return outcome;
+        }
+
+        // Turn boundary flush: CLI-held fallback texts that never reached the
+        // runtime (the enqueue retry never found a live owner) are delivered
+        // FIRST, then queued followups (alt+Enter) — both open the next turn
+        // before any goal auto-continuation. Consumed here outside the turn
+        // stream, so clear the local mirror explicitly.
+        const fallbackText = takePendingFallback();
+        const followup = input.driver.takePendingFollowup?.();
+        const nextPrompt = [fallbackText, followup ?? ''].filter(Boolean).join('\n\n');
+        if (nextPrompt) {
+          state.steering = [];
+          state.followup = [];
+          if (outcome.kind !== 'completed') {
+            // The turn was aborted or errored: auto-opening a turn would defeat
+            // the interrupt (or hammer a failure). Keep the undelivered text as
+            // an editable draft instead, merged ahead of any current draft.
+            refillEditorFromQueues(nextPrompt);
+          } else {
+            // Install the next local activity before resolving the previous one.
+            // A Goal admission woken by the old activity therefore observes the
+            // user follow-up as busy instead of racing it for the session.
+            void runAgentTurn({
+              kind: 'external',
+              prompt: nextPrompt,
+              sessionId: input.driver.getSessionId(),
+            });
+            activity.finish();
+            return outcome;
+          }
+        }
+
+        busy = false;
+        activity.finish();
+        requestRender();
+        return outcome;
+      },
+      (error) => {
+        finishTurnUi();
+        busy = false;
+        activity.finish();
+        requestRender();
+        throw error;
+      },
+    );
+  }
+
+  try {
+    unbindGoalHost = input.goalLifecycle.bindHost({
+      admitTurn: (sessionId, text) => {
+        if (input.driver.getSessionId() !== sessionId) {
+          return { kind: 'unavailable', reason: 'TUI is attached to a different session.' };
+        }
+        if (busy) {
+          return { kind: 'busy', whenIdle: currentActivityCompletion! };
+        }
+        const sessionActivity = input.goalLifecycle.activities.reserveIfIdle(sessionId)!;
+        const turnId = randomUUID();
+        return {
+          kind: 'prepared',
+          turnId,
+          start: () => {
+            try {
+              return runAgentTurn({
+                kind: 'coordinator',
+                prompt: text,
+                turnId,
+                activity: sessionActivity,
+              });
+            } catch (error) {
+              sessionActivity.release();
+              throw error;
+            }
+          },
+        };
+      },
     });
+  } catch (error) {
+    beginClose(error instanceof Error ? error : new Error(String(error)));
+    return closedPromise;
   }
 
   const setModel = async (nextModel: string) => {
@@ -546,14 +1148,43 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Adopt a switch/rewind result: the active session is now `summary` with
   // `messages`. Shared by switchSession and rewindToTurn so both land the same
   // runner state (model/connection/thinking/transcript/scroll).
-  const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
+  const applySwitchResult = async ({
+    summary,
+    messages,
+  }: MakaSessionSwitchResult): Promise<void> => {
     cwd = summary.cwd ?? cwd;
+    setSessionTitle(summary.name);
+    const previousModel = model;
     model = summary.model;
     const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
-    providerType = input.modelChoices?.find((choice) => (
-      choice.connectionSlug === summary.llmConnectionSlug
-    ))?.providerType ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
+    const matchingChoice = input.modelChoices?.find(
+      (choice) => choice.connectionSlug === summary.llmConnectionSlug,
+    );
+    providerType =
+      matchingChoice?.providerType ??
+      (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
+    // Statusline ctx total for the now-active session (review finding: a
+    // switch/rewind onto a different connection or model left the previous
+    // session's window in place). Mirrors setModel/setModelChoice's own
+    // lookup above. An exact match (connection + model) updates the window;
+    // no match with the target actually changed means the resumed model was
+    // curated out of modelChoices (a legitimate state for old sessions) —
+    // clear the window rather than keep showing the previous session's ctx
+    // total under a different model. No match but the target didn't change
+    // (e.g. rewind within the same session) leaves the window untouched.
+    const contextWindowMatch = input.modelChoices?.find(
+      (choice) =>
+        choice.connectionSlug === summary.llmConnectionSlug && choice.model === summary.model,
+    );
+    if (contextWindowMatch) {
+      modelContextWindow = contextWindowMatch.contextWindow;
+    } else if (
+      previousConnectionSlug !== summary.llmConnectionSlug ||
+      previousModel !== summary.model
+    ) {
+      modelContextWindow = undefined;
+    }
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
@@ -605,12 +1236,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  const showBottomPicker = (picker: Component): OverlayHandle => tui.showOverlay(picker, {
-    anchor: 'bottom-left',
-    width: '100%',
-    maxHeight: Math.max(1, terminal.rows - BOTTOM_PICKER_MARGIN_ROWS),
-    margin: { bottom: BOTTOM_PICKER_MARGIN_ROWS },
-  });
+  const showBottomPicker = (picker: Component): OverlayHandle =>
+    tui.showOverlay(picker, {
+      anchor: 'bottom-left',
+      width: '100%',
+      maxHeight: Math.max(1, terminal.rows - BOTTOM_PICKER_MARGIN_ROWS),
+      margin: { bottom: BOTTOM_PICKER_MARGIN_ROWS },
+    });
 
   const closeUserQuestionOverlay = (): void => {
     userQuestionOverlay?.hide();
@@ -626,7 +1258,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
     userQuestionInFlight = true;
     closeUserQuestionOverlay();
-    void respond.call(input.driver, { requestId, answers })
+    void respond
+      .call(input.driver, { requestId, answers })
       .then(() => {
         userQuestionInFlight = false;
         if (activeUserQuestionRequest(state)?.requestId === requestId) {
@@ -658,16 +1291,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       progress.index += 1;
       showUserQuestion();
     };
-    userQuestionOverlay = showBottomPicker(new UserQuestionOverlay(tui, {
-      title: question.question,
-      rightLabel: `${progress.index + 1} / ${request.questions.length}`,
-      hint: '↑↓ move · type to answer · Enter select · Esc unanswered · Ctrl+C stop',
-      placeholder: 'Other: type your answer…',
-      options: question.options,
-      onSelectOption: (index) => advance(question.options[index]?.label ?? null),
-      onSubmitText: (value) => advance(value),
-      onSkip: () => advance(null),
-    }));
+    userQuestionOverlay = showBottomPicker(
+      new UserQuestionOverlay(tui, {
+        title: question.question,
+        rightLabel: `${progress.index + 1} / ${request.questions.length}`,
+        hint: '↑↓ move · type to answer · Enter select · Esc unanswered · Ctrl+C stop',
+        placeholder: 'Other: type your answer…',
+        options: question.options,
+        onSelectOption: (index) => advance(question.options[index]?.label ?? null),
+        onSubmitText: (value) => advance(value),
+        onSkip: () => advance(null),
+      }),
+    );
   };
 
   const syncUserQuestionOverlay = (): void => {
@@ -693,7 +1328,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     rightLabel: string,
     items: SelectItem[],
     onSelect: (item: SelectItem) => void,
-    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number; hint?: string },
+    options: {
+      minPrimaryColumnWidth: number;
+      maxPrimaryColumnWidth: number;
+      selectedIndex?: number;
+      hint?: string;
+      onCancel?: () => void;
+    },
   ): void => {
     const list = new SelectList(items, 10, selectListTheme(), {
       minPrimaryColumnWidth: options.minPrimaryColumnWidth,
@@ -708,8 +1349,227 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     };
     list.onCancel = () => {
       overlay?.hide();
+      options.onCancel?.();
     };
     overlay = showBottomPicker(picker);
+  };
+
+  const closeWizard = (): void => {
+    wizardAttempt += 1; // drop any in-flight setup before clearing the slots
+    wizardOverlay?.hide();
+    wizardOverlay = undefined;
+    wizard = undefined;
+    wizardProviderType = undefined;
+  };
+
+  // Key submit from the wizard. Slash commands route as commands (so /exit
+  // still escapes the wizard) instead of being stored as an API key; every
+  // in-flight state stays inside the wizard overlay, never the transcript.
+  const submitWizardKey = (apiKey: string): void => {
+    const providerType = wizardProviderType;
+    if (!providerType || !wizard) return;
+    if (apiKey.startsWith('/')) {
+      closeWizard();
+      handleSlashCommand(apiKey);
+      return;
+    }
+    if (!input.onboarding) {
+      wizard.setResult({ kind: 'error', text: 'Onboarding 不可用：当前运行环境未提供配置入口。' });
+      requestRender();
+      return;
+    }
+    const targetWizard = wizard;
+    const attempt = ++wizardAttempt;
+    targetWizard.setVerifying();
+    requestRender();
+    void input.onboarding.setup({ providerType, apiKey }).then(
+      (result) => {
+        if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+        if (result.testError) {
+          // Probe failed: re-arm the key field in place — the upsert rotates
+          // the key, so retrying does not throw "slug already exists".
+          wizard.setResult({
+            kind: 'error',
+            text: `API key 验证失败：${result.testError}。请检查后重新输入。`,
+          });
+          requestRender();
+          return;
+        }
+        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
+        if (input.firstRun) {
+          beginClose();
+          return;
+        }
+        // The wizard's in-flight notices never reached the transcript; only the
+        // completed configuration is recorded as an event for the next launch.
+        closeWizard();
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `已配置 ${label}。新连接将在下次启动 maka 时生效。`,
+        });
+        requestRender();
+      },
+      (error) => {
+        if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+        wizard.setResult({
+          kind: 'error',
+          text: `配置失败：${error instanceof Error ? error.message : String(error)}`,
+        });
+        requestRender();
+      },
+    );
+  };
+
+  const showSetupWizard = (): void => {
+    const providers = listApiKeyOnboardableProviders();
+    if (providers.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: '没有可配置的 API key 类供应商。',
+      });
+      requestRender();
+      return;
+    }
+    wizardOverlay?.hide();
+    wizard = new OnboardingWizard(tui, {
+      providers,
+      onPickProvider: (providerType) => {
+        wizardProviderType = providerType;
+        wizardAttempt += 1; // a new pick supersedes any in-flight attempt
+        requestRender();
+      },
+      onSubmitKey: submitWizardKey,
+      onCancel: () => {
+        closeWizard();
+        // First-run has no connection to fall back to: cancelling the wizard
+        // closes the TUI so the host surfaces its missing-default guidance.
+        if (input.firstRun) beginClose();
+      },
+      onBack: () => {
+        wizardProviderType = undefined;
+        wizardAttempt += 1; // abandoning the key field invalidates its probe
+        requestRender();
+      },
+    });
+    wizardOverlay = showBottomPicker(wizard);
+  };
+
+  // One-sentence session recap (issue #1055). Shared by the manual /recap
+  // command and idle-return auto-recap; both paths route through the same
+  // in-flight lock so at most one recap call runs at a time.
+  const runRecap = async (reason: 'manual' | 'idle'): Promise<void> => {
+    // Captured synchronously on entry, so for the idle path this already
+    // includes the seq bump from the very prompt that triggered this call
+    // (submitPrompt bumps promptSeq before invoking maybeTriggerAutoRecap).
+    // Only a prompt submitted *after* this point — i.e. later than the one
+    // that triggered the recap — should make the result stale.
+    const seqAtStart = promptSeq;
+    // Captured synchronously on entry, before any await: /session, /new, and
+    // rewind never bump promptSeq, so a session switch mid-generate must be
+    // caught by comparing sessionIds directly rather than relying on seq.
+    const sessionIdAtStart = input.driver.getSessionId();
+    if (!input.recap) {
+      if (reason === 'manual') {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Recap is not available in this environment.',
+        });
+        requestRender();
+      }
+      return;
+    }
+    if (recapInFlight) {
+      if (reason === 'manual') {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Recap already running.',
+        });
+        requestRender();
+      }
+      return;
+    }
+    // Locked synchronously, before any await: two /recap invocations
+    // submitted back-to-back must not both pass the recapInFlight check above
+    // before either sets it. The rest of the body is one try/finally so every
+    // early return (including "Nothing to recap yet" and a null session)
+    // releases the lock.
+    recapInFlight = true;
+    try {
+      const mainTurnCount = (await input.driver.listRewindTargets()).length;
+      if (reason === 'manual' && mainTurnCount < 1) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: 'Nothing to recap yet.',
+        });
+        requestRender();
+        return;
+      }
+      if (!sessionIdAtStart) return;
+
+      const result = await input.recap.generate(sessionIdAtStart, reason);
+
+      // The active session must still be the one this recap started for —
+      // checked before ANY display (success notice or manual failure notice).
+      // /session, /new, or a rewind switched the active session while
+      // generate() was in flight: the session this result belongs to is gone
+      // from view, so surfacing it (success or error) would land on the wrong
+      // session. Drop it silently regardless of manual/idle.
+      if (input.driver.getSessionId() !== sessionIdAtStart) return;
+
+      if (!result.ok) {
+        if (reason === 'manual') {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: `Recap failed: ${result.error}`,
+          });
+          requestRender();
+        }
+        return;
+      }
+
+      if (reason === 'idle') {
+        // Below the display threshold suppresses the notice (still persisted by
+        // the generator); a prompt submitted after seqAtStart while the call
+        // was in flight means a later prompt has superseded this recap — drop
+        // it silently either way.
+        if (Buffer.byteLength(result.raw, 'utf8') > AUTO_RECAP_DISPLAY_LIMIT_BYTES) return;
+        if (promptSeq !== seqAtStart) return;
+      }
+
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: `Recap: ${result.text}`,
+      });
+      requestRender();
+    } finally {
+      recapInFlight = false;
+    }
+  };
+
+  // Fire-and-forget idle-return check: a normal prompt submitted after a long
+  // enough gap auto-triggers a recap, without blocking the turn it opens.
+  const maybeTriggerAutoRecap = (idleMs: number): void => {
+    if (!input.recap) return;
+    void (async () => {
+      try {
+        const sessionId = input.driver.getSessionId();
+        const mainTurnCount = (await input.driver.listRewindTargets()).length;
+        const lastRecapMainTurnCount =
+          sessionId && recapWatermark?.sessionId === sessionId ? recapWatermark.mainTurnCount : 0;
+        if (!shouldAutoRecap({ idleMs, mainTurnCount, lastRecapMainTurnCount })) return;
+        if (sessionId) recapWatermark = { sessionId, mainTurnCount };
+        void runRecap('idle');
+      } catch {
+        // Best-effort: auto-recap must never surface an error to the user.
+      }
+    })();
   };
 
   const compactSession = async () => {
@@ -746,51 +1606,103 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const availability = new Map(await Promise.all(sessions.map(async (session) => {
-      return [
-        session.id,
-        await input.driver.getSessionResumeAvailability?.(session)
-          ?? await inspectSessionResumeAvailability(session),
-      ] as const;
-    })));
+    // Maka-session availability and the foreign scan are independent I/O; run
+    // them concurrently so the picker's open latency is the slower of the two,
+    // not their sum.
+    const [availabilityEntries, foreignScan] = await Promise.all([
+      Promise.all(
+        sessions.map(async (session) => {
+          return [
+            session.id,
+            (await input.driver.getSessionResumeAvailability?.(session)) ??
+              (await inspectSessionResumeAvailability(session)),
+          ] as const;
+        }),
+      ),
+      input.foreignSessions
+        ? input.foreignSessions.listSessions({ cwd }).then(
+            (summaries) => ({ summaries }),
+            (error: unknown) => ({ error }),
+          )
+        : Promise.resolve({ summaries: [] as ForeignSessionSummary[] }),
+    ]);
+    const availability = new Map(availabilityEntries);
+    // Foreign (Claude Code / Codex) sessions for the current cwd, keyed by a
+    // prefixed select value so they never collide with Maka session ids. A scan
+    // error is surfaced (not silently swallowed): degrade to no rows but tell
+    // the user why, so a real store bug isn't mistaken for "no sessions".
+    const foreignByValue = new Map<string, ForeignSessionSummary>();
+    if ('error' in foreignScan) {
+      const detail =
+        foreignScan.error instanceof Error ? foreignScan.error.message : String(foreignScan.error);
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: `读取外部会话失败：${detail}`,
+      });
+    } else {
+      for (const summary of foreignScan.summaries) {
+        foreignByValue.set(`foreign:${summary.source}:${summary.id}`, summary);
+      }
+    }
     const renderScope = (): void => {
-      const visibleSessions = sessionListScope === 'current'
-        ? sessions.filter((session) => session.cwd === cwd)
-        : sessions;
+      const visibleSessions =
+        sessionListScope === 'current'
+          ? sessions.filter((session) => session.cwd === cwd)
+          : sessions;
       const items: SelectItem[] = visibleSessions.map((session) => {
         const state = availability.get(session.id);
-        const location = sessionListScope === 'all' && session.cwd ? ` ${basename(session.cwd)}` : '';
+        const location =
+          sessionListScope === 'all' && session.cwd ? ` ${basename(session.cwd)}` : '';
         return {
           value: session.id,
           label: session.name || session.id,
-          description: state?.available === false
-            ? `${shortSessionId(session.id)} ${state.reason}`
-            : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
+          description:
+            state?.available === false
+              ? `${shortSessionId(session.id)} ${state.reason}`
+              : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
         };
       });
+      // Foreign sessions are cwd-scoped; show them in both scope views (they
+      // belong to this project) so a Tab toggle never makes them vanish.
+      for (const [value, summary] of foreignByValue) {
+        items.push({
+          value,
+          label: summary.title,
+          description: `↩ resume from ${foreignSourceLabel(summary.source)}`,
+        });
+      }
       const list = new SelectList(items, 10, selectListTheme(), {
         minPrimaryColumnWidth: 20,
         maxPrimaryColumnWidth: Math.max(20, terminal.columns - 30),
       });
       let overlay: OverlayHandle | undefined;
       list.onSelect = (item) => {
+        const foreign = foreignByValue.get(item.value);
+        if (foreign) {
+          overlay?.hide();
+          void importForeignSession(foreign);
+          return;
+        }
         if (availability.get(item.value)?.available === false) return;
         overlay?.hide();
         void runControl(() => switchSession(item.value));
       };
       list.onCancel = () => overlay?.hide();
-      overlay = showBottomPicker(new PickerOverlay(list, {
-        title: 'Resume Session',
-        rightLabel: sessionListScope === 'current' ? 'Current' : 'All',
-        hint: 'Tab scope · ↑↓ move · Enter select · Esc close',
-        onInput: (data) => {
-          if (!matchesKey(data, Key.tab) || isKeyRelease(data) || isKeyRepeat(data)) return false;
-          sessionListScope = sessionListScope === 'current' ? 'all' : 'current';
-          overlay?.hide();
-          renderScope();
-          return true;
-        },
-      }));
+      overlay = showBottomPicker(
+        new PickerOverlay(list, {
+          title: 'Resume Session',
+          rightLabel: sessionListScope === 'current' ? 'Current' : 'All',
+          hint: 'Tab scope · ↑↓ move · Enter select · Esc close',
+          onInput: (data) => {
+            if (!matchesKey(data, Key.tab) || isKeyRelease(data) || isKeyRepeat(data)) return false;
+            sessionListScope = sessionListScope === 'current' ? 'all' : 'current';
+            overlay?.hide();
+            renderScope();
+            return true;
+          },
+        }),
+      );
     };
     renderScope();
   };
@@ -817,12 +1729,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       (item) => {
         void runControl(() => rewindToTurn(item.value));
       },
-      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48, hint: '回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框） · enter 选择 / esc 取消' },
+      {
+        minPrimaryColumnWidth: 24,
+        maxPrimaryColumnWidth: 48,
+        hint: '回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框） · enter 选择 / esc 取消',
+      },
     );
   };
 
   const newSession = () => {
     input.driver.startNewSession();
+    attention.setBaseTitle(input.title);
     resetShellRunSessionState();
     // Fresh transcript for the fresh session; the next prompt creates it on disk.
     // Leave the transcript empty (no confirmation notice) so /new opens on the
@@ -834,16 +1751,63 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  // Import a foreign (Claude Code / Codex) session: read its digest, open a
+  // fresh Maka session, and seed the first turn with an untrusted handoff
+  // envelope. Mirrors submitPreparedUserPrompt: claim `busy` + an activity lease
+  // SYNCHRONOUSLY before the async read so no other turn (a Goal auto-
+  // continuation, or a user Enter) can start during it and make the import a
+  // silent no-op. runAgentTurn re-asserts busy for the turn; on any failure the
+  // finally releases the lease. The handoff is the model-facing `sendText`; a
+  // short line shows in the transcript.
+  const importForeignSession = async (summary: ForeignSessionSummary): Promise<void> => {
+    if (busy || input.foreignSessions === undefined) return;
+    busy = true;
+    const activity = beginActivity();
+    editor.disableSubmit = true;
+    let handedOff = false;
+    try {
+      const digest = await input.foreignSessions.readDigest(summary);
+      if (closed) return;
+      newSession();
+      void runAgentTurn({
+        kind: 'external',
+        prompt: foreignSessionHandoffDisplayText(digest),
+        sessionId: input.driver.getSessionId(),
+        sendText: buildForeignSessionHandoffMessage(digest),
+      });
+      handedOff = true;
+    } catch (error) {
+      if (closed) return;
+      reportError(error);
+    } finally {
+      if (!handedOff) {
+        busy = false;
+        editor.disableSubmit = false;
+        requestRender();
+      }
+      activity.finish();
+    }
+  };
+
   const showHelp = () => {
     // Derive the command list from the registry so /help never drifts from the
     // real commands. Keybindings are not commands, so they are listed by hand.
     const commands = slashCommands
-      .map((command) => `  /${command.name} — ${command.description}`)
+      .map((command) => {
+        const aliasSuffix =
+          command.aliases && command.aliases.length > 0
+            ? ` (${command.aliases.map((alias) => `/${alias}`).join(', ')})`
+            : '';
+        return `  /${command.name}${aliasSuffix} — ${command.description}`;
+      })
       .join('\n');
     const keybindings = [
       '  Ctrl+O — expand or collapse all tool output',
       '  Ctrl+T — expand or collapse the latest thinking block',
       '  Scroll the transcript with your terminal or trackpad',
+      '  Enter (during a turn) — steer: inject a message into the running turn',
+      '  Alt+Enter (during a turn) — queue a message for the next turn',
+      '  Alt+↑ — take queued messages back into the editor to re-edit',
       '  Esc Esc (during a turn) — interrupt the turn',
       '  Esc Esc (when idle) — rewind to an earlier turn',
       '  Ctrl+C — stop the turn, clear input, or press twice to exit',
@@ -893,6 +1857,33 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     );
   };
 
+  // `/skill` with no arguments: pick from everything the host can invoke right
+  // now. Picking only inserts the token into the draft — never sends — so the
+  // user keeps composing (and can add more tokens) before submitting.
+  const showSkillList = async () => {
+    const entries = await listSkillsCached(true);
+    if (closed) return;
+    if (entries.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: '当前没有可调用的技能。',
+      });
+      requestRender();
+      return;
+    }
+    showSelectPicker(
+      'Invoke Skill',
+      String(entries.length),
+      skillPickerItems(entries),
+      (item) => {
+        editor.insertTextAtCursor(`/skill:${item.value} `);
+        requestRender();
+      },
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 40 },
+    );
+  };
+
   const showThinkingLevelList = () => {
     const items = thinkingLevelPickerItems(thinkingLevels, thinkingLevel);
     showSelectPicker(
@@ -921,6 +1912,63 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       text: `Permission mode: ${mode}`,
     });
     requestRender();
+  };
+
+  const moveSession = async (targetCwd: string): Promise<void> => {
+    if (!input.driver.moveSession) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: 'Moving sessions is not available in this environment.',
+      });
+      requestRender();
+      return;
+    }
+    const result = await input.driver.moveSession(targetCwd);
+    if (!result.changed) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: `Session is already at "${result.cwd}".`,
+      });
+      requestRender();
+      return;
+    }
+    cwd = result.cwd;
+    refreshEditorCwd?.(cwd);
+    const warning =
+      result.oldCwdDirty === true
+        ? ` Warning: the old directory "${result.previousCwd}" has uncommitted changes.`
+        : '';
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Session moved to "${result.cwd}".${warning}`,
+    });
+    requestRender();
+  };
+
+  const showMovePicker = (): void => {
+    if (!input.driver.moveSession) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: 'Moving sessions is not available in this environment.',
+      });
+      requestRender();
+      return;
+    }
+    let overlay: OverlayHandle | undefined;
+    const picker = new DirectoryPickerOverlay(tui, {
+      currentCwd: cwd,
+      basePath: cwd,
+      onSubmit: (targetCwd) => {
+        overlay?.hide();
+        void runControl(() => moveSession(targetCwd));
+      },
+      onCancel: () => overlay?.hide(),
+    });
+    overlay = showBottomPicker(picker);
   };
 
   const showPermissionModeList = () => {
@@ -962,6 +2010,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     {
       name: 'exit',
       description: 'Exit Maka',
+      aliases: ['quit'],
       run: () => {
         beginGracefulClose();
       },
@@ -978,6 +2027,38 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       description: 'Start a new session',
       run: () => {
         void runControl(async () => newSession());
+      },
+    },
+    {
+      name: 'skill',
+      description: 'Invoke a skill (or type /skill:<name> inline)',
+      run: (parts: string[]) => {
+        if (parts.length !== 1) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /skill，或直接在消息中输入 /skill:<name>',
+          });
+          requestRender();
+          return;
+        }
+        void showSkillList();
+      },
+    },
+    {
+      name: 'setup',
+      description: 'Set up a model provider (API key)',
+      run: (parts: string[]) => {
+        if (parts.length !== 1) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /setup',
+          });
+          requestRender();
+          return;
+        }
+        showSetupWizard();
       },
     },
     {
@@ -999,6 +2080,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           return;
         }
         void runControl(() => setModel(nextModel));
+      },
+    },
+    {
+      name: 'move',
+      description: 'Move current session to another directory',
+      run: (parts: string[], rawTail?: string) => {
+        const targetCwd = (rawTail ?? parts.slice(1).join(' ')).trim();
+        if (targetCwd) {
+          void runControl(() => moveSession(targetCwd));
+          return;
+        }
+        showMovePicker();
       },
     },
     {
@@ -1029,9 +2122,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           state.entries.push({
             kind: 'notice',
             level: 'error',
-            text: thinkingLevels.length === 0
-              ? '当前模型不支持思考级别切换。'
-              : `Usage: /thinking ${['default', ...thinkingLevels].join('|')}`,
+            text:
+              thinkingLevels.length === 0
+                ? '当前模型不支持思考级别切换。'
+                : `Usage: /thinking ${['default', ...thinkingLevels].join('|')}`,
           });
           requestRender();
           return;
@@ -1061,6 +2155,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
     },
     {
+      name: 'recap',
+      description: 'One-sentence recap of the session so far',
+      run: () => {
+        void runRecap('manual');
+      },
+    },
+    {
       name: 'rename',
       description: 'Rename current session',
       run: (parts: string[]) => {
@@ -1075,11 +2176,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           return;
         }
         void runControl(async () => {
-          await input.driver.renameSession(name);
+          const renamedName = (await input.driver.renameSession(name)) ?? name;
+          setSessionTitle(renamedName);
           state.entries.push({
             kind: 'notice',
             level: 'info',
-            text: `Session renamed to "${name}"`,
+            text: `Session renamed to "${renamedName}"`,
           });
           requestRender();
         });
@@ -1132,15 +2234,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   ].sort((left, right) => left.name.localeCompare(right.name));
 
   const handleSlashCommand = (prompt: string): boolean => {
-    const parts = prompt.trim().split(/\s+/);
-    const command = slashCommands.find((candidate) => `/${candidate.name}` === parts[0]);
+    const trimmed = prompt.trim();
+    const commandToken = trimmed.split(/\s+/, 1)[0] ?? '';
+    const command = slashCommands.find(
+      (candidate) =>
+        `/${candidate.name}` === commandToken ||
+        candidate.aliases?.some((alias) => `/${alias}` === commandToken),
+    );
     if (!command) return false;
-    command.run(parts);
+    const rawTail = trimmed.slice(commandToken.length).trimStart();
+    command.run(trimmed.split(/\s+/), rawTail);
     return true;
   };
 
   refreshEditorCwd = (nextCwd) => {
-    editor.setAutocompleteProvider(new MakaAutocompleteProvider(nextCwd, slashCommands));
+    editor.setAutocompleteProvider(
+      new MakaAutocompleteProvider(nextCwd, slashCommands, () => listSkillsCached()),
+    );
   };
   refreshEditorCwd(cwd);
 
@@ -1166,16 +2276,33 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // releases here; returning undefined lets the TUI apply its own filtering.
     if (isKeyRelease(data)) return undefined;
     if (
-      activeUserQuestionRequest(state)
-      && turnRunning
-      && matchesKey(data, Key.ctrl('c'))
-      && !isKeyRepeat(data)
+      activeUserQuestionRequest(state) &&
+      turnRunning &&
+      matchesKey(data, Key.ctrl('c')) &&
+      !isKeyRepeat(data)
     ) {
       if (interruptRequested) handleProcessExit(0);
       else requestTurnInterrupt();
       return { consume: true };
     }
     if (tui.hasOverlay()) return undefined;
+    // Alt+Enter: queue a followup (during a turn) or submit (when idle). Alt+↑:
+    // take back the queued messages to re-edit. Neither is an editor binding
+    // (newline is shift+enter/ctrl+j; history is plain up), so intercepting
+    // here does not collide with the editor's own keys.
+    if (matchesKey(data, Key.alt('enter')) && !isKeyRepeat(data)) {
+      handleAltEnter();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.alt('up')) && !isKeyRepeat(data)) {
+      // Always retract from the authority: the render mirror lags the
+      // queue_update event, so an enqueue followed by Alt+Up in the same
+      // tick would see an empty mirror while the runtime holds the message.
+      // Alt+Up is not an editor binding, and an empty retract refill is a
+      // no-op, so consuming unconditionally loses nothing.
+      retractQueuedMessages();
+      return { consume: true };
+    }
     if (matchesKey(data, Key.ctrl('c')) && isKeyRepeat(data)) return { consume: true };
     if (!matchesKey(data, Key.ctrl('c'))) lastIdleCtrlCAt = 0;
     // The idle rewind gesture requires two *consecutive* Escapes. Any other key
@@ -1204,10 +2331,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         respondToPendingPermission('allow', false);
         return { consume: true };
       }
-      if (
-        matchesKey(data, 'a')
-        && pendingPermission.rememberForTurnAllowed
-      ) {
+      if (matchesKey(data, 'a') && pendingPermission.rememberForTurnAllowed) {
         respondToPendingPermission('allow', true);
         return { consume: true };
       }
@@ -1294,14 +2418,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // re-wrapping) a full clear would wipe the scrollback the user scrolls through.
   // Differential rendering clears the vacated rows without the wipe.
   //
-  // Known limit: a global Ctrl+O / Ctrl+T toggle that resizes a block sitting
-  // *above* the live viewport top makes pi-tui's differential renderer fall back
-  // to a full redraw (its `firstChanged < viewportTop` path), which does emit a
-  // scrollback-clearing sequence. That path re-emits the whole transcript, so no
-  // transcript content is lost — the tail is rebuilt into fresh scrollback — but
-  // the scroll position resets and any pre-Maka scrollback is cleared. Fully
-  // avoiding it would require a preserve-scrollback render path inside pi-tui,
-  // which we do not own; setClearOnShrink only governs the shrink path above.
+  // The Ctrl+O / Ctrl+T toggles are viewport-anchored for the same reason: an
+  // entry above the live viewport lives in terminal scrollback, which cannot
+  // be rewritten, so resizing it would push pi-tui's differential renderer
+  // into a scrollback-clearing full redraw (its `firstChanged < viewportTop`
+  // path). The toggles therefore retarget only entries inside the viewport;
+  // see entryInLiveViewport in pi-transcript.ts (#1097). A block whose own
+  // expansion pushed its head above the viewport can consequently never be
+  // collapsed in place (#1134): the toggles still flip the default and append
+  // a notice, and the expanded content stays readable in scrollback.
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
@@ -1314,8 +2439,24 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
     // line discipline and leaks onto the screen as a stray `^[[I` on launch.
     terminal.write(ENABLE_FOCUS_REPORTING);
+    if (input.firstRun) showSetupWizard();
   } catch (error) {
     beginClose(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  if (input.resumeSessionId) {
+    void runControl(async () => {
+      try {
+        await switchSession(input.resumeSessionId!);
+      } catch (error) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: `Could not resume session ${input.resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Starting fresh.`,
+        });
+        requestRender();
+      }
+    });
   }
 
   return closedPromise;
@@ -1323,15 +2464,24 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
 
-// The editor's autocomplete window height. Sized to fit the whole slash-command
-// menu (10 today) with headroom, so a bare `/` shows every command rather than
-// scrolling a subset.
-const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 12;
+// The editor's autocomplete window height. Keep it at least as large as the
+// full slash-command menu, so a bare `/` shows every command rather than
+// silently clipping the last command.
+const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 14;
 
 // A short, stable slice of a session id — enough to tell two same-named
 // sessions apart in the picker without showing the full unreadable uuid.
 function shortSessionId(id: string): string {
   return id.slice(0, 8);
+}
+
+// Matches only the four exact "close the TUI" spellings — bare `quit`/`exit`
+// and their slash forms — never a prefix or a phrase merely containing one, so
+// it can gate both the idle submit path and mid-turn input without swallowing
+// an in-turn steering message that happens to mention "quit".
+function isExitPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  return trimmed === 'quit' || trimmed === 'exit' || trimmed === '/quit' || trimmed === '/exit';
 }
 
 // Two Escapes this close together read as one deliberate "stop the turn".

@@ -14,7 +14,7 @@ import { Composer, LocaleProvider } from '@maka/ui';
 
 function renderWithLocale(child: ReactNode): string {
   return renderToStaticMarkup(
-    createElement(LocaleProvider, { preference: 'zh', children: child }),
+    createElement(LocaleProvider, { locale: 'zh', children: child }),
   );
 }
 

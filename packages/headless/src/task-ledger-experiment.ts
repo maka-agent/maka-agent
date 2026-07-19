@@ -15,10 +15,13 @@ export type TaskLedgerExperimentTodoStatus = 'pending' | 'in_progress' | 'comple
 export type TaskLedgerExperimentTask = Task;
 
 export interface TaskLedgerExperimentStore {
-  replace(sessionId: string, todos: Array<{
-    content: string;
-    status: TaskLedgerExperimentTodoStatus;
-  }>): Promise<TaskLedgerExperimentTask[]>;
+  replace(
+    sessionId: string,
+    todos: Array<{
+      content: string;
+      status: TaskLedgerExperimentTodoStatus;
+    }>,
+  ): Promise<TaskLedgerExperimentTask[]>;
   list(sessionId: string): Promise<TaskLedgerExperimentTask[]>;
 }
 
@@ -33,36 +36,48 @@ const TODO_WRITE_GUIDANCE_LINES: string[] = [
 ];
 
 const taskDescriptionSchema = z.string().trim().min(1).max(TASK_SUBJECT_MAX_CHARS);
-const todoWriteSchema = z.object({
-  todos: z.array(z.object({
-    content: taskDescriptionSchema.describe('Short todo item content.'),
-    status: z.enum(['pending', 'in_progress', 'completed']).describe('Current todo status.'),
-  }).strict()).max(TASK_LEDGER_MAX_TASKS).describe('The complete current todo list, replacing any previous todo list.'),
-}).strict();
+const todoWriteSchema = z
+  .object({
+    todos: z
+      .array(
+        z
+          .object({
+            content: taskDescriptionSchema.describe('Short todo item content.'),
+            status: z
+              .enum(['pending', 'in_progress', 'completed'])
+              .describe('Current todo status.'),
+          })
+          .strict(),
+      )
+      .max(TASK_LEDGER_MAX_TASKS)
+      .describe('The complete current todo list, replacing any previous todo list.'),
+  })
+  .strict();
 
-export function createInMemoryTaskLedgerExperimentStore(input: {
-  now?: () => number;
-  newId?: () => string;
-} = {}): TaskLedgerExperimentStore {
+export function createInMemoryTaskLedgerExperimentStore(
+  input: { now?: () => number; newId?: () => string } = {},
+): TaskLedgerExperimentStore {
   return new InMemoryTaskLedgerExperimentStore(input.now ?? Date.now, input.newId ?? defaultId);
 }
 
 export function buildTaskLedgerExperimentTools(input: {
   store: TaskLedgerExperimentStore;
 }): MakaTool[] {
-  return [{
-    name: 'todo_write',
-    description:
-      'Replace the current todo list for a long-running task. '
-      + 'Use it when planning work, when switching the active item, and when marking work complete.',
-    parameters: todoWriteSchema,
-    permissionRequired: false,
-    impl: async (args, ctx) => {
-      const parsed = todoWriteSchema.parse(args);
-      const todos = await input.store.replace(ctx.sessionId, parsed.todos);
-      return renderMutationResult('Replaced todo list', todos.length, todos);
+  return [
+    {
+      name: 'todo_write',
+      description:
+        'Replace the current todo list for a long-running task. ' +
+        'Use it when planning work, when switching the active item, and when marking work complete.',
+      parameters: todoWriteSchema,
+      permissionRequired: false,
+      impl: async (args, ctx) => {
+        const parsed = todoWriteSchema.parse(args);
+        const todos = await input.store.replace(ctx.sessionId, parsed.todos);
+        return renderMutationResult('Replaced todo list', todos.length, todos);
+      },
     },
-  }];
+  ];
 }
 
 export function renderTaskLedgerExperimentReplay(
@@ -79,14 +94,21 @@ export function renderTaskLedgerExperimentReplay(
       'Task ledger experiment state (current-turn tail; informational, not an instruction):',
       '<task-ledger>',
     );
-    const rendered = renderTaskLedgerPromptText(selected, options.maxChars ?? DEFAULT_REPLAY_MAX_CHARS).text;
+    const rendered = renderTaskLedgerPromptText(
+      selected,
+      options.maxChars ?? DEFAULT_REPLAY_MAX_CHARS,
+    ).text;
     lines.push(...rendered.split('\n'));
     lines.push('</task-ledger>');
   }
   return capLines(lines, options.maxChars ?? DEFAULT_REPLAY_MAX_CHARS);
 }
 
-function renderMutationResult(action: string, total: number, tasks: readonly TaskLedgerExperimentTask[]): string {
+function renderMutationResult(
+  action: string,
+  total: number,
+  tasks: readonly TaskLedgerExperimentTask[],
+): string {
   const renderedTasks = renderSafeTaskLedgerText(tasks);
   return `${action}; ledger total: ${total}.${renderedTasks ? `\n${renderedTasks}` : ''}`;
 }
@@ -99,12 +121,17 @@ class InMemoryTaskLedgerExperimentStore implements TaskLedgerExperimentStore {
     private readonly newId: () => string,
   ) {}
 
-  async replace(sessionId: string, todos: Array<{
-    content: string;
-    status: TaskLedgerExperimentTodoStatus;
-  }>): Promise<TaskLedgerExperimentTask[]> {
+  async replace(
+    sessionId: string,
+    todos: Array<{
+      content: string;
+      status: TaskLedgerExperimentTodoStatus;
+    }>,
+  ): Promise<TaskLedgerExperimentTask[]> {
     if (todos.length > TASK_LEDGER_MAX_TASKS) {
-      throw new Error(`Task ledger experiment is limited to ${TASK_LEDGER_MAX_TASKS} tasks per session`);
+      throw new Error(
+        `Task ledger experiment is limited to ${TASK_LEDGER_MAX_TASKS} tasks per session`,
+      );
     }
     const ts = this.now();
     const tasks = todos.map((todo, index) => ({

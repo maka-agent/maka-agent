@@ -7,7 +7,7 @@ import { readMainProcessCombinedSource } from './main-process-contract-source-he
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 const PRELOAD_SOURCE = join(REPO_ROOT, 'apps', 'desktop', 'src', 'preload', 'preload.ts');
-const GLOBAL_DTS = join(REPO_ROOT, 'apps', 'desktop', 'src', 'global.d.ts');
+const GLOBAL_DTS = join(REPO_ROOT, 'apps', 'desktop', 'src', 'preload', 'bridge-contract.d.ts');
 
 /**
  * PR-GENERAL-DEFAULTS-CONFIGURABLE-0 (WAWQAQ msg `d3ea9a33` 2026-06-26).
@@ -65,7 +65,7 @@ describe('General settings configurable contract', () => {
     // catalog choices, with '未设置' as the pinned empty row.
     assert.match(
       src,
-      /<ModelPicker[\s\S]*pinnedItem=\{\{ value: '', label: '未设置' \}\}[\s\S]*ariaLabel="默认模型"[\s\S]*onValueChange=/,
+      /<ModelPicker[\s\S]*pinnedItem=\{\{ value: '', label: copy\.notSet \}\}[\s\S]*ariaLabel=\{copy\.defaultModel\}[\s\S]*onValueChange=/,
       'GeneralDefaultsCard must use the shared <ModelPicker> (same popup as the composer model switcher) so the two surfaces cannot drift',
     );
     assert.match(
@@ -85,7 +85,7 @@ describe('General settings configurable contract', () => {
     );
   });
 
-  it('guards GeneralDefaultsCard with the same mounted-ref + savingRef ownership pattern used elsewhere in SettingsModal', async () => {
+  it('guards GeneralDefaultsCard with the same mounted-ref + shared action-guard ownership pattern used elsewhere in SettingsModal', async () => {
     const src = await readSettingsCombinedSource();
     // Capture the function's body up to the next top-level `function`
     // declaration so per-card guards are checked inside the component.
@@ -99,19 +99,21 @@ describe('General settings configurable contract', () => {
     );
     assert.match(
       cardBlock,
-      /const savingRef = useRef\(false\);/,
-      'GeneralDefaultsCard must use a synchronous savingRef so rapid duplicate selects do not race a previous in-flight save',
+      /const persistGuard = useKeyedActionGuard<'default-model' \| 'permission-mode'>\(\)/,
+      'GeneralDefaultsCard must use a synchronous guard from the shared hook so rapid duplicate selects do not race a previous in-flight save',
     );
     assert.match(
       cardBlock,
-      /if \(savingRef\.current\) return;[\s\S]*savingRef\.current = true;[\s\S]*setSaving\(true\);[\s\S]*await window\.maka\.connections\.setDefaultModel/,
-      'GeneralDefaultsCard must take the synchronous savingRef lock before awaiting the IPC; React state alone is not enough to block double-clicks',
+      /const releaseSave = persistGuard\.begin\('default-model'\);[\s\S]*if \(!releaseSave\) return;[\s\S]*setSaving\(true\);[\s\S]*await window\.maka\.connections\.setDefaultModel/,
+      'GeneralDefaultsCard must take the synchronous guard lock before awaiting the IPC; React state alone is not enough to block double-clicks',
     );
     assert.match(
       cardBlock,
-      /catch \(error\)[\s\S]*if \(mountedRef\.current\) \{[\s\S]*toast\.error\('保存默认模型失败'/,
+      /catch \(error\)[\s\S]*if \(mountedRef\.current\) \{[\s\S]*toast\.error\(copy\.saveDefaultModelFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'GeneralDefaultsCard failures must surface a localized toast and only while still mounted — silent unhandled rejection regressed the page before',
     );
+    assert.match(src, /saveDefaultModelFailed: '保存默认模型失败'/);
+    assert.match(src, /saveDefaultModelFailed: 'Could not save the default model'/);
   });
 
   it('exposes a default-model IPC that validates the model against chat-selectable catalog entries', async () => {

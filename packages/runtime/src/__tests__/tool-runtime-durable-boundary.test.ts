@@ -13,63 +13,99 @@ describe('ToolRuntime durable boundary', () => {
   it('does not invoke the tool or publish a result when T1 fails', async () => {
     let implementationCalls = 0;
     const harness = makeHarness({
-      commitToolPrepared: async () => { throw new Error('T1 unavailable'); },
-      commitToolOutcome: async () => { throw new Error('must not reach T2'); },
+      commitToolPrepared: async () => {
+        throw new Error('T1 unavailable');
+      },
+      commitToolOutcome: async () => {
+        throw new Error('must not reach T2');
+      },
     });
 
     await assert.rejects(
-      harness.execute(tool(() => { implementationCalls += 1; return { ok: true }; })),
+      harness.execute(
+        tool(() => {
+          implementationCalls += 1;
+          return { ok: true };
+        }),
+      ),
       /T1 unavailable/,
     );
 
     assert.equal(implementationCalls, 0);
-    assert.equal(harness.events.some((event) => event.type === 'tool_result'), false);
-    assert.equal(harness.messages.some((message) => message.type === 'tool_result'), false);
+    assert.equal(
+      harness.events.some((event) => event.type === 'tool_result'),
+      false,
+    );
+    assert.equal(
+      harness.messages.some((message) => message.type === 'tool_result'),
+      false,
+    );
   });
 
   it('does not invoke a tool when another local dispatcher already owns its operation', async () => {
     let implementationCalls = 0;
     const harness = makeHarness({
       commitToolPrepared: async () => ({ created: false, runtimeEventSeq: 1 }),
-      commitToolOutcome: async () => { throw new Error('must not reach T2'); },
+      commitToolOutcome: async () => {
+        throw new Error('must not reach T2');
+      },
     });
 
     await assert.rejects(
-      harness.execute(tool(() => { implementationCalls += 1; return { ok: true }; })),
+      harness.execute(
+        tool(() => {
+          implementationCalls += 1;
+          return { ok: true };
+        }),
+      ),
       /already claimed/,
     );
 
     assert.equal(implementationCalls, 0);
-    assert.deepEqual(harness.events.map((event) => event.type), ['tool_start']);
-    assert.deepEqual(harness.messages.map((message) => message.type), ['tool_call']);
+    assert.deepEqual(
+      harness.events.map((event) => event.type),
+      ['tool_start'],
+    );
+    assert.deepEqual(
+      harness.messages.map((message) => message.type),
+      ['tool_call'],
+    );
   });
 
   it('commits T1 before implementation and T2 before publishing the result', async () => {
     const order: string[] = [];
     const prepared: ToolPreparedCommit[] = [];
     const outcomes: ToolOutcomeCommit[] = [];
-    const harness = makeHarness({
-      commitToolPrepared: async (input) => {
-        prepared.push(input);
-        order.push('t1');
-        return { created: true, runtimeEventSeq: 1 };
+    const harness = makeHarness(
+      {
+        commitToolPrepared: async (input) => {
+          prepared.push(input);
+          order.push('t1');
+          return { created: true, runtimeEventSeq: 1 };
+        },
+        commitToolOutcome: async (input) => {
+          outcomes.push(input);
+          order.push('t2');
+          return { created: true, runtimeEventSeq: 2 };
+        },
       },
-      commitToolOutcome: async (input) => {
-        outcomes.push(input);
-        order.push('t2');
-        return { created: true, runtimeEventSeq: 2 };
-      },
-    }, order);
+      order,
+    );
 
-    const result = await harness.execute(tool(() => {
-      order.push('impl');
-      return { ok: true, text: 'done' };
-    }));
+    const result = await harness.execute(
+      tool(() => {
+        order.push('impl');
+        return { ok: true, text: 'done' };
+      }),
+    );
 
     assert.deepEqual(result, { ok: true, text: 'done' });
     assert.deepEqual(order, ['t1', 'impl', 't2', 'published-result']);
     assert.equal(prepared[0]?.runtimeEvent.content?.kind, 'function_call');
-    assert.equal(prepared[0]?.dispatchRuntimeEvent.actions?.toolDispatch?.protocol, 't1_after_preflight_v1');
+    assert.equal(
+      prepared[0]?.dispatchRuntimeEvent.actions?.toolDispatch?.protocol,
+      't1_after_preflight_v1',
+    );
     assert.equal(prepared[0]?.dispatchRuntimeEvent.content, undefined);
     assert.equal(outcomes[0]?.runtimeEvent.content?.kind, 'function_response');
     assert.equal(prepared[0]?.operationId, outcomes[0]?.operationId);
@@ -86,10 +122,15 @@ describe('ToolRuntime durable boundary', () => {
         preparedCalls += 1;
         return { created: true, runtimeEventSeq: 1 };
       },
-      commitToolOutcome: async () => { throw new Error('must not reach T2'); },
+      commitToolOutcome: async () => {
+        throw new Error('must not reach T2');
+      },
     });
     const execution = harness.execute({
-      ...tool(() => { implementationCalls += 1; return { ok: true }; }),
+      ...tool(() => {
+        implementationCalls += 1;
+        return { ok: true };
+      }),
       name: 'Bash',
       permissionRequired: true,
     });
@@ -97,7 +138,8 @@ describe('ToolRuntime durable boundary', () => {
       await Promise.resolve();
     }
     const request = harness.events.find((event) => event.type === 'permission_request');
-    if (!request || request.type !== 'permission_request') throw new Error('expected permission request');
+    if (!request || request.type !== 'permission_request')
+      throw new Error('expected permission request');
     harness.permissionEngine.recordResponse('turn-1', {
       requestId: request.requestId,
       decision: 'deny',
@@ -113,20 +155,30 @@ describe('ToolRuntime durable boundary', () => {
     let implementationCalls = 0;
     const harness = makeHarness({
       commitToolPrepared: async () => ({ created: true, runtimeEventSeq: 1 }),
-      commitToolOutcome: async () => { throw new Error('T2 unavailable'); },
+      commitToolOutcome: async () => {
+        throw new Error('T2 unavailable');
+      },
     });
 
     await assert.rejects(
-      harness.execute(tool(() => {
-        implementationCalls += 1;
-        return { ok: true };
-      })),
+      harness.execute(
+        tool(() => {
+          implementationCalls += 1;
+          return { ok: true };
+        }),
+      ),
       /T2 unavailable/,
     );
 
     assert.equal(implementationCalls, 1);
-    assert.equal(harness.events.some((event) => event.type === 'tool_result'), false);
-    assert.equal(harness.messages.some((message) => message.type === 'tool_result'), false);
+    assert.equal(
+      harness.events.some((event) => event.type === 'tool_result'),
+      false,
+    );
+    assert.equal(
+      harness.messages.some((message) => message.type === 'tool_result'),
+      false,
+    );
   });
 
   it('commits a normalized error outcome before returning a thrown tool failure to the model', async () => {
@@ -139,12 +191,19 @@ describe('ToolRuntime durable boundary', () => {
       },
     });
 
-    await harness.execute(tool(() => { throw new Error('tool exploded'); }));
+    await harness.execute(
+      tool(() => {
+        throw new Error('tool exploded');
+      }),
+    );
 
     const response = outcomes[0]?.runtimeEvent.content;
     assert.equal(response?.kind, 'function_response');
     assert.equal(response?.kind === 'function_response' && response.isError, true);
-    assert.equal(harness.events.some((event) => event.type === 'tool_result' && event.isError), true);
+    assert.equal(
+      harness.events.some((event) => event.type === 'tool_result' && event.isError),
+      true,
+    );
   });
 });
 
@@ -158,7 +217,9 @@ function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
     header: header(),
     connection: connection(),
     modelId: 'model-1',
-    appendMessage: async (message) => { messages.push(message); },
+    appendMessage: async (message) => {
+      messages.push(message);
+    },
     permissionEngine,
     newId: nextId(),
     now: nextNow(),
@@ -170,15 +231,19 @@ function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
     messages,
     events,
     permissionEngine,
-    execute: async (target: MakaTool) => runtime.wrapToolExecute(target, 'turn-1', {
-      push: (event) => {
-        events.push(event);
-        if (event.type === 'tool_result') order?.push('published-result');
-      },
-    })({}, {
-      toolCallId: 'provider-call-1',
-      abortSignal: new AbortController().signal,
-    }),
+    execute: async (target: MakaTool) =>
+      runtime.wrapToolExecute(target, 'turn-1', {
+        push: (event) => {
+          events.push(event);
+          if (event.type === 'tool_result') order?.push('published-result');
+        },
+      })(
+        {},
+        {
+          toolCallId: 'provider-call-1',
+          abortSignal: new AbortController().signal,
+        },
+      ),
   };
 }
 
@@ -201,6 +266,7 @@ function header(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'test',
+    titleIsManual: false,
     isFlagged: false,
     labels: [],
     isArchived: false,

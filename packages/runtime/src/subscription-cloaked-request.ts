@@ -20,11 +20,13 @@ export interface CloakedRequestOutput {
   headers: Record<string, string>;
 }
 
-export async function buildCloakedRequest(input: CloakedRequestInput): Promise<CloakedRequestOutput> {
+export async function buildCloakedRequest(
+  input: CloakedRequestInput,
+): Promise<CloakedRequestOutput> {
   const body: Record<string, unknown> = { ...input.body };
   const rawSystem = body.system;
   const systemBlocks: Array<Record<string, unknown>> = Array.isArray(rawSystem)
-    ? [...rawSystem as Array<Record<string, unknown>>]
+    ? [...(rawSystem as Array<Record<string, unknown>>)]
     : typeof rawSystem === 'string' && rawSystem
       ? [{ type: 'text', text: rawSystem }]
       : [];
@@ -75,7 +77,11 @@ export async function buildCloakedRequest(input: CloakedRequestInput): Promise<C
 }
 
 function getStainlessHeaders(timeoutMs: number): Record<string, string> {
-  const platformMap: Record<string, string> = { darwin: 'MacOS', win32: 'Windows', freebsd: 'FreeBSD' };
+  const platformMap: Record<string, string> = {
+    darwin: 'MacOS',
+    win32: 'Windows',
+    freebsd: 'FreeBSD',
+  };
   const archMap: Record<string, string> = { arm64: 'arm64', x64: 'x64' };
   const platform = platformMap[process.platform] ?? 'Linux';
   const arch = archMap[process.arch] ?? 'x86';

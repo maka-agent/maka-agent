@@ -19,6 +19,7 @@ export type ProviderRuntimeAdapter =
   | {
       kind: 'openai-compatible';
       name: 'provider' | 'connection';
+      includeUsage?: boolean;
       passFetch?: boolean;
       requireBaseUrl?: boolean;
       replayAssistantReasoningAs?: 'reasoning';
@@ -74,7 +75,9 @@ const siliconflowModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.siliconflow,
   ['moonshotai/Kimi-K2.6'],
 );
-const minimaxPlanModelIds = toolCallingModelIds('MiniMax', GENERATED_MODELS_DEV_METADATA.MiniMax, ['MiniMax-M3']);
+const minimaxPlanModelIds = toolCallingModelIds('MiniMax', GENERATED_MODELS_DEV_METADATA.MiniMax, [
+  'MiniMax-M3',
+]);
 
 const xai = GENERATED_MODELS_DEV_PROVIDER_FACTS.xai;
 if (xai.id !== 'xai') throw new Error('models.dev xAI provider facts are missing stable id xai');
@@ -83,7 +86,9 @@ const xiaomi = GENERATED_MODELS_DEV_PROVIDER_FACTS.xiaomi;
 if (xiaomi.id !== 'xiaomi' || !xiaomi.api) {
   throw new Error('models.dev Xiaomi provider facts are missing stable id xiaomi or api');
 }
-const xiaomiModelIds = toolCallingModelIds('Xiaomi', GENERATED_MODELS_DEV_METADATA.xiaomi, ['mimo-v2.5']);
+const xiaomiModelIds = toolCallingModelIds('Xiaomi', GENERATED_MODELS_DEV_METADATA.xiaomi, [
+  'mimo-v2.5',
+]);
 // Xiaomi MiMo Token Plan is a coding-only subscription whose /v1 endpoint publishes no
 // /models discovery contract, so this checked-in allowlist is authoritative. models.dev's
 // snapshot still carries the deprecated mimo-v2-pro and the speech-only mimo-v2-tts, which
@@ -91,20 +96,32 @@ const xiaomiModelIds = toolCallingModelIds('Xiaomi', GENERATED_MODELS_DEV_METADA
 const xiaomiTokenPlanModelIds = ['mimo-v2.5-pro', 'mimo-v2.5'] as const;
 const xiaomiTokenPlanCn = GENERATED_MODELS_DEV_PROVIDER_FACTS['xiaomi-token-plan-cn'];
 if (xiaomiTokenPlanCn.id !== 'xiaomi-token-plan-cn' || !xiaomiTokenPlanCn.api) {
-  throw new Error('models.dev Xiaomi Token Plan (China) provider facts are missing stable id or api');
+  throw new Error(
+    'models.dev Xiaomi Token Plan (China) provider facts are missing stable id or api',
+  );
 }
 const xiaomiTokenPlanSgp = GENERATED_MODELS_DEV_PROVIDER_FACTS['xiaomi-token-plan-sgp'];
 if (xiaomiTokenPlanSgp.id !== 'xiaomi-token-plan-sgp' || !xiaomiTokenPlanSgp.api) {
-  throw new Error('models.dev Xiaomi Token Plan (Singapore) provider facts are missing stable id or api');
+  throw new Error(
+    'models.dev Xiaomi Token Plan (Singapore) provider facts are missing stable id or api',
+  );
 }
 const xiaomiTokenPlanAms = GENERATED_MODELS_DEV_PROVIDER_FACTS['xiaomi-token-plan-ams'];
 if (xiaomiTokenPlanAms.id !== 'xiaomi-token-plan-ams' || !xiaomiTokenPlanAms.api) {
-  throw new Error('models.dev Xiaomi Token Plan (Europe) provider facts are missing stable id or api');
+  throw new Error(
+    'models.dev Xiaomi Token Plan (Europe) provider facts are missing stable id or api',
+  );
 }
-for (const region of ['xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'] as const) {
+for (const region of [
+  'xiaomi-token-plan-cn',
+  'xiaomi-token-plan-sgp',
+  'xiaomi-token-plan-ams',
+] as const) {
   for (const id of xiaomiTokenPlanModelIds) {
     if (!GENERATED_MODELS_DEV_METADATA[region][id]?.capabilities?.functionCalling) {
-      throw new Error(`models.dev Xiaomi Token Plan snapshot ${region} is missing tool-capable model ${id}`);
+      throw new Error(
+        `models.dev Xiaomi Token Plan snapshot ${region} is missing tool-capable model ${id}`,
+      );
     }
   }
 }
@@ -114,21 +131,31 @@ if (zai.id !== 'zai' || !zai.api) {
 }
 const zaiModelIds = toolCallingModelIds('Z.AI', GENERATED_MODELS_DEV_METADATA.zai, ['glm-5.2']);
 const cerebras = GENERATED_MODELS_DEV_PROVIDER_FACTS.cerebras;
-if (cerebras.id !== 'cerebras') throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
-const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, ['gpt-oss-120b']);
+if (cerebras.id !== 'cerebras')
+  throw new Error('models.dev Cerebras provider facts are missing stable id cerebras');
+const cerebrasModelIds = toolCallingModelIds('Cerebras', GENERATED_MODELS_DEV_METADATA.cerebras, [
+  'gpt-oss-120b',
+]);
 const nvidia = GENERATED_MODELS_DEV_PROVIDER_FACTS.nvidia;
-if (nvidia.id !== 'nvidia') throw new Error('models.dev NVIDIA provider facts are missing stable id nvidia');
+if (nvidia.id !== 'nvidia')
+  throw new Error('models.dev NVIDIA provider facts are missing stable id nvidia');
 if (!nvidia.api) throw new Error('models.dev NVIDIA provider facts are missing api');
 const nvidiaModelIds = toolCallingModelIds('NVIDIA', GENERATED_MODELS_DEV_METADATA.nvidia, [
   'nvidia/nemotron-3-super-120b-a12b',
 ]);
 
 const mistral = GENERATED_MODELS_DEV_PROVIDER_FACTS.mistral;
-if (mistral.id !== 'mistral') throw new Error('models.dev Mistral provider facts are missing stable id mistral');
-const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_METADATA.mistral, ['mistral-large-latest']);
+if (mistral.id !== 'mistral')
+  throw new Error('models.dev Mistral provider facts are missing stable id mistral');
+const mistralModelIds = toolCallingModelIds('Mistral', GENERATED_MODELS_DEV_METADATA.mistral, [
+  'mistral-large-latest',
+]);
 const cohere = GENERATED_MODELS_DEV_PROVIDER_FACTS.cohere;
-if (cohere.id !== 'cohere') throw new Error('models.dev Cohere provider facts are missing stable id cohere');
-const cohereModelIds = toolCallingModelIds('Cohere', GENERATED_MODELS_DEV_METADATA.cohere, ['command-a-plus-05-2026']);
+if (cohere.id !== 'cohere')
+  throw new Error('models.dev Cohere provider facts are missing stable id cohere');
+const cohereModelIds = toolCallingModelIds('Cohere', GENERATED_MODELS_DEV_METADATA.cohere, [
+  'command-a-plus-05-2026',
+]);
 const huggingface = GENERATED_MODELS_DEV_PROVIDER_FACTS.huggingface;
 if (huggingface.id !== 'huggingface') {
   throw new Error('models.dev Hugging Face provider facts are missing stable id huggingface');
@@ -145,36 +172,45 @@ if (ollamaCloud.id !== 'ollama-cloud') {
 }
 if (!ollamaCloud.api) throw new Error('models.dev Ollama Cloud provider facts are missing api');
 const ollamaCloudActiveMetadata = Object.fromEntries(
-  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud'])
-    .filter(([, model]) => model.lifecycle !== 'deprecated'),
+  Object.entries(GENERATED_MODELS_DEV_METADATA['ollama-cloud']).filter(
+    ([, model]) => model.lifecycle !== 'deprecated',
+  ),
 );
-const ollamaCloudModelIds = toolCallingModelIds(
-  'Ollama Cloud',
-  ollamaCloudActiveMetadata,
-  ['qwen3.5:397b', 'gpt-oss:120b'],
-);
+const ollamaCloudModelIds = toolCallingModelIds('Ollama Cloud', ollamaCloudActiveMetadata, [
+  'qwen3.5:397b',
+  'gpt-oss:120b',
+]);
 const zenmux = GENERATED_MODELS_DEV_PROVIDER_FACTS.zenmux;
-if (zenmux.id !== 'zenmux') throw new Error('models.dev ZenMux provider facts are missing stable id zenmux');
+if (zenmux.id !== 'zenmux')
+  throw new Error('models.dev ZenMux provider facts are missing stable id zenmux');
 if (zenmux.api !== 'https://zenmux.ai/api/v1') {
-  throw new Error('models.dev ZenMux provider facts are missing the official OpenAI-compatible API');
+  throw new Error(
+    'models.dev ZenMux provider facts are missing the official OpenAI-compatible API',
+  );
 }
 const zenmuxModelProviderOverrides = GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES.zenmux;
-if (zenmuxModelProviderOverrides['anthropic/claude-sonnet-4.6']?.npm !== '@ai-sdk/anthropic'
-  || zenmuxModelProviderOverrides['anthropic/claude-sonnet-4.6']?.api !== 'https://zenmux.ai/api/anthropic/v1') {
-  throw new Error('models.dev ZenMux snapshot is missing its Anthropic model-level protocol override');
+if (
+  zenmuxModelProviderOverrides['anthropic/claude-sonnet-4.6']?.npm !== '@ai-sdk/anthropic' ||
+  zenmuxModelProviderOverrides['anthropic/claude-sonnet-4.6']?.api !==
+    'https://zenmux.ai/api/anthropic/v1'
+) {
+  throw new Error(
+    'models.dev ZenMux snapshot is missing its Anthropic model-level protocol override',
+  );
 }
 if (zenmuxModelProviderOverrides['openai/gpt-5.4']?.npm !== '@ai-sdk/openai') {
-  throw new Error('models.dev ZenMux snapshot is missing its native OpenAI model-level protocol override');
+  throw new Error(
+    'models.dev ZenMux snapshot is missing its native OpenAI model-level protocol override',
+  );
 }
 const zenmuxOpenAICompatibleMetadata = Object.fromEntries(
-  Object.entries(GENERATED_MODELS_DEV_METADATA.zenmux)
-    .filter(([id]) => zenmuxModelProviderOverrides[id] === undefined),
+  Object.entries(GENERATED_MODELS_DEV_METADATA.zenmux).filter(
+    ([id]) => zenmuxModelProviderOverrides[id] === undefined,
+  ),
 );
-const zenmuxModelIds = toolCallingModelIds(
-  'ZenMux',
-  zenmuxOpenAICompatibleMetadata,
-  ['moonshotai/kimi-k2.5'],
-);
+const zenmuxModelIds = toolCallingModelIds('ZenMux', zenmuxOpenAICompatibleMetadata, [
+  'moonshotai/kimi-k2.5',
+]);
 const fireworks = GENERATED_MODELS_DEV_PROVIDER_FACTS['fireworks-ai'];
 if (fireworks.id !== 'fireworks-ai') {
   throw new Error('models.dev Fireworks AI provider facts are missing stable id fireworks-ai');
@@ -187,9 +223,12 @@ const fireworksModelIds = toolCallingModelIds(
 );
 const tencentTokenHub = GENERATED_MODELS_DEV_PROVIDER_FACTS['tencent-tokenhub'];
 if (tencentTokenHub.id !== 'tencent-tokenhub') {
-  throw new Error('models.dev Tencent TokenHub provider facts are missing stable id tencent-tokenhub');
+  throw new Error(
+    'models.dev Tencent TokenHub provider facts are missing stable id tencent-tokenhub',
+  );
 }
-if (!tencentTokenHub.api) throw new Error('models.dev Tencent TokenHub provider facts are missing api');
+if (!tencentTokenHub.api)
+  throw new Error('models.dev Tencent TokenHub provider facts are missing api');
 const tencentTokenHubModelIds = toolCallingModelIds(
   'Tencent TokenHub',
   GENERATED_MODELS_DEV_METADATA['tencent-tokenhub'],
@@ -197,15 +236,13 @@ const tencentTokenHubModelIds = toolCallingModelIds(
 );
 const tencentCodingPlan = GENERATED_MODELS_DEV_PROVIDER_FACTS['tencent-coding-plan'];
 if (tencentCodingPlan.id !== 'tencent-coding-plan') {
-  throw new Error('models.dev Tencent Coding Plan provider facts are missing stable id tencent-coding-plan');
+  throw new Error(
+    'models.dev Tencent Coding Plan provider facts are missing stable id tencent-coding-plan',
+  );
 }
-if (!tencentCodingPlan.api) throw new Error('models.dev Tencent Coding Plan provider facts are missing api');
-const tencentCodingPlanModelIds = [
-  'tc-code-latest',
-  'glm-5',
-  'minimax-m2.5',
-  'kimi-k2.5',
-] as const;
+if (!tencentCodingPlan.api)
+  throw new Error('models.dev Tencent Coding Plan provider facts are missing api');
+const tencentCodingPlanModelIds = ['tc-code-latest', 'glm-5', 'minimax-m2.5', 'kimi-k2.5'] as const;
 for (const id of tencentCodingPlanModelIds) {
   if (!GENERATED_MODELS_DEV_METADATA['tencent-coding-plan'][id]?.capabilities?.functionCalling) {
     throw new Error(`models.dev Tencent Coding Plan snapshot is missing tool-capable model ${id}`);
@@ -227,9 +264,12 @@ const volcengineCodingPlanModelIds = [
 ] as const;
 const tencentTokenPlan = GENERATED_MODELS_DEV_PROVIDER_FACTS['tencent-token-plan'];
 if (tencentTokenPlan.id !== 'tencent-token-plan') {
-  throw new Error('models.dev Tencent Token Plan provider facts are missing stable id tencent-token-plan');
+  throw new Error(
+    'models.dev Tencent Token Plan provider facts are missing stable id tencent-token-plan',
+  );
 }
-if (!tencentTokenPlan.api) throw new Error('models.dev Tencent Token Plan provider facts are missing api');
+if (!tencentTokenPlan.api)
+  throw new Error('models.dev Tencent Token Plan provider facts are missing api');
 if (!GENERATED_MODELS_DEV_METADATA['tencent-token-plan'].hy3?.capabilities?.functionCalling) {
   throw new Error('models.dev Tencent Token Plan snapshot is missing tool-capable model hy3');
 }
@@ -248,13 +288,14 @@ const tencentTokenPlanModelIds = [
   'hy3-preview',
 ] as const;
 const stepfun = GENERATED_MODELS_DEV_PROVIDER_FACTS.stepfun;
-if (stepfun.id !== 'stepfun') throw new Error('models.dev StepFun provider facts are missing stable id stepfun');
+if (stepfun.id !== 'stepfun')
+  throw new Error('models.dev StepFun provider facts are missing stable id stepfun');
 if (!stepfun.api) throw new Error('models.dev StepFun provider facts are missing api');
-const stepfunModelIds = toolCallingModelIds(
-  'StepFun',
-  GENERATED_MODELS_DEV_METADATA.stepfun,
-  ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
-);
+const stepfunModelIds = toolCallingModelIds('StepFun', GENERATED_MODELS_DEV_METADATA.stepfun, [
+  'step-3.7-flash',
+  'step-3.5-flash-2603',
+  'step-3.5-flash',
+]);
 const stepfunStepPlanModelIds = [
   'step-3.7-flash',
   'step-3.5-flash-2603',
@@ -271,19 +312,19 @@ if (stepfunGlobal.id !== 'stepfun-ai') {
   throw new Error('models.dev StepFun Global provider facts are missing stable id stepfun-ai');
 }
 if (!stepfunGlobal.api) throw new Error('models.dev StepFun Global provider facts are missing api');
-const stepfunGlobalModelIds = [
-  'step-3.7-flash',
-  'step-3.5-flash-2603',
-  'step-3.5-flash',
-];
+const stepfunGlobalModelIds = ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'];
 for (const id of stepfunGlobalModelIds) {
   if (!GENERATED_MODELS_DEV_METADATA['stepfun-ai'][id]?.capabilities?.functionCalling) {
-    throw new Error(`models.dev StepFun Global snapshot is missing documented tool-capable model ${id}`);
+    throw new Error(
+      `models.dev StepFun Global snapshot is missing documented tool-capable model ${id}`,
+    );
   }
 }
 const stepfunGlobalStepPlan = GENERATED_MODELS_DEV_PROVIDER_FACTS['stepfun-ai-step-plan'];
 if (stepfunGlobalStepPlan.id !== 'stepfun-ai-step-plan') {
-  throw new Error('models.dev StepFun Global Step Plan provider facts are missing stable id stepfun-ai-step-plan');
+  throw new Error(
+    'models.dev StepFun Global Step Plan provider facts are missing stable id stepfun-ai-step-plan',
+  );
 }
 if (!stepfunGlobalStepPlan.api) {
   throw new Error('models.dev StepFun Global Step Plan provider facts are missing api');
@@ -295,7 +336,9 @@ const stepfunGlobalStepPlanModelIds = [
 ] as const;
 for (const id of stepfunGlobalStepPlanModelIds) {
   if (!GENERATED_MODELS_DEV_METADATA['stepfun-ai-step-plan'][id]?.capabilities?.functionCalling) {
-    throw new Error(`models.dev StepFun Global Step Plan snapshot is missing documented tool-capable model ${id}`);
+    throw new Error(
+      `models.dev StepFun Global Step Plan snapshot is missing documented tool-capable model ${id}`,
+    );
   }
 }
 
@@ -321,11 +364,9 @@ const groq = GENERATED_MODELS_DEV_PROVIDER_FACTS.groq;
 if (groq.id !== 'groq') {
   throw new Error('models.dev Groq provider facts are missing stable id groq');
 }
-const groqModelIds = toolCallingModelIds(
-  'Groq',
-  GENERATED_MODELS_DEV_METADATA.groq,
-  ['llama-3.3-70b-versatile'],
-);
+const groqModelIds = toolCallingModelIds('Groq', GENERATED_MODELS_DEV_METADATA.groq, [
+  'llama-3.3-70b-versatile',
+]);
 const openrouter = GENERATED_MODELS_DEV_PROVIDER_FACTS.openrouter;
 if (openrouter.id !== 'openrouter' || openrouter.api !== 'https://openrouter.ai/api/v1') {
   throw new Error('models.dev OpenRouter provider facts are missing the stable id or API');
@@ -336,20 +377,29 @@ const openrouterModelIds = toolCallingModelIds(
   ['anthropic/claude-sonnet-5', 'openai/gpt-5.6-sol', 'x-ai/grok-4.5', 'deepseek/deepseek-v4-pro'],
 ).filter((id) => GENERATED_MODELS_DEV_METADATA.openrouter[id]?.lifecycle !== 'deprecated');
 const alibaba = GENERATED_MODELS_DEV_PROVIDER_FACTS.alibaba;
-if (alibaba.id !== 'alibaba' || alibaba.api !== 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1') {
+if (
+  alibaba.id !== 'alibaba' ||
+  alibaba.api !== 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
+) {
   throw new Error('models.dev Alibaba provider facts are missing the stable id or API');
 }
-const alibabaModelIds = toolCallingModelIds(
-  'Alibaba',
-  GENERATED_MODELS_DEV_METADATA.alibaba,
-  ['qwen3.7-plus'],
-);
+const alibabaModelIds = toolCallingModelIds('Alibaba', GENERATED_MODELS_DEV_METADATA.alibaba, [
+  'qwen3.7-plus',
+]);
 const alibabaCodingPlanCn = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-coding-plan-cn'];
-if (alibabaCodingPlanCn.id !== 'alibaba-coding-plan-cn' || alibabaCodingPlanCn.api !== 'https://coding.dashscope.aliyuncs.com/v1') {
-  throw new Error('models.dev Alibaba Coding Plan (China) provider facts are missing the stable id or API');
+if (
+  alibabaCodingPlanCn.id !== 'alibaba-coding-plan-cn' ||
+  alibabaCodingPlanCn.api !== 'https://coding.dashscope.aliyuncs.com/v1'
+) {
+  throw new Error(
+    'models.dev Alibaba Coding Plan (China) provider facts are missing the stable id or API',
+  );
 }
 const alibabaCodingPlanGlobal = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-coding-plan'];
-if (alibabaCodingPlanGlobal.id !== 'alibaba-coding-plan' || alibabaCodingPlanGlobal.api !== 'https://coding-intl.dashscope.aliyuncs.com/v1') {
+if (
+  alibabaCodingPlanGlobal.id !== 'alibaba-coding-plan' ||
+  alibabaCodingPlanGlobal.api !== 'https://coding-intl.dashscope.aliyuncs.com/v1'
+) {
   throw new Error('models.dev Alibaba Coding Plan provider facts are missing the stable id or API');
 }
 // Alibaba's Coding Plan docs are authoritative for this subscription allowlist; the
@@ -371,7 +421,9 @@ const alibabaCodingPlanModelIds = [
 ] as const;
 for (const id of alibabaCodingPlanModelIds) {
   if (!GENERATED_MODELS_DEV_METADATA['alibaba-coding-plan-cn'][id]?.capabilities?.functionCalling) {
-    throw new Error(`models.dev Alibaba Coding Plan (China) snapshot is missing tool-capable model ${id}`);
+    throw new Error(
+      `models.dev Alibaba Coding Plan (China) snapshot is missing tool-capable model ${id}`,
+    );
   }
   if (!GENERATED_MODELS_DEV_METADATA['alibaba-coding-plan'][id]?.capabilities?.functionCalling) {
     throw new Error(`models.dev Alibaba Coding Plan snapshot is missing tool-capable model ${id}`);
@@ -379,14 +431,18 @@ for (const id of alibabaCodingPlanModelIds) {
 }
 const alibabaTokenPlanCn = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-token-plan-cn'];
 if (alibabaTokenPlanCn.id !== 'alibaba-token-plan-cn') {
-  throw new Error('models.dev Alibaba Token Plan (China) provider facts are missing stable id alibaba-token-plan-cn');
+  throw new Error(
+    'models.dev Alibaba Token Plan (China) provider facts are missing stable id alibaba-token-plan-cn',
+  );
 }
 if (!alibabaTokenPlanCn.api) {
   throw new Error('models.dev Alibaba Token Plan (China) provider facts are missing api');
 }
 const alibabaTokenPlanGlobal = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-token-plan'];
 if (alibabaTokenPlanGlobal.id !== 'alibaba-token-plan') {
-  throw new Error('models.dev Alibaba Token Plan provider facts are missing stable id alibaba-token-plan');
+  throw new Error(
+    'models.dev Alibaba Token Plan provider facts are missing stable id alibaba-token-plan',
+  );
 }
 if (!alibabaTokenPlanGlobal.api) {
   throw new Error('models.dev Alibaba Token Plan provider facts are missing api');
@@ -413,7 +469,9 @@ const alibabaTokenPlanModelIds = [
 ] as const;
 for (const id of alibabaTokenPlanModelIds) {
   if (!GENERATED_MODELS_DEV_METADATA['alibaba-token-plan-cn'][id]?.capabilities?.functionCalling) {
-    throw new Error(`models.dev Alibaba Token Plan (China) snapshot is missing tool-capable model ${id}`);
+    throw new Error(
+      `models.dev Alibaba Token Plan (China) snapshot is missing tool-capable model ${id}`,
+    );
   }
   if (!GENERATED_MODELS_DEV_METADATA['alibaba-token-plan'][id]?.capabilities?.functionCalling) {
     throw new Error(`models.dev Alibaba Token Plan snapshot is missing tool-capable model ${id}`);
@@ -430,13 +488,17 @@ const vercelModelIds = toolCallingModelIds(
 ).filter((id) => GENERATED_MODELS_DEV_METADATA.vercel[id]?.lifecycle !== 'deprecated');
 const cloudflareWorkersAi = GENERATED_MODELS_DEV_PROVIDER_FACTS['cloudflare-workers-ai'];
 if (cloudflareWorkersAi.id !== 'cloudflare-workers-ai') {
-  throw new Error('models.dev Cloudflare Workers AI provider facts are missing stable id cloudflare-workers-ai');
+  throw new Error(
+    'models.dev Cloudflare Workers AI provider facts are missing stable id cloudflare-workers-ai',
+  );
 }
 if (
-  cloudflareWorkersAi.api
-  !== 'https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1'
+  cloudflareWorkersAi.api !==
+  'https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1'
 ) {
-  throw new Error('models.dev Cloudflare Workers AI provider facts are missing the account-scoped API');
+  throw new Error(
+    'models.dev Cloudflare Workers AI provider facts are missing the account-scoped API',
+  );
 }
 const cloudflareWorkersAiModelIds = toolCallingModelIds(
   'Cloudflare Workers AI',
@@ -466,7 +528,9 @@ if (githubCopilot.id !== 'github-copilot') {
   throw new Error('models.dev GitHub Copilot provider facts are missing stable id github-copilot');
 }
 if (githubCopilot.api !== 'https://api.githubcopilot.com') {
-  throw new Error('models.dev GitHub Copilot provider facts are missing the Copilot subscription API');
+  throw new Error(
+    'models.dev GitHub Copilot provider facts are missing the Copilot subscription API',
+  );
 }
 const githubCopilotModelIds = toolCallingModelIds(
   'GitHub Copilot',
@@ -484,7 +548,8 @@ function toolCallingModelIds(
   return [
     ...recommendedIds.map((id) => {
       const model = modelsById.get(id);
-      if (!model) throw new Error(`models.dev ${providerLabel} snapshot is missing recommended model ${id}`);
+      if (!model)
+        throw new Error(`models.dev ${providerLabel} snapshot is missing recommended model ${id}`);
       return [id, model] as const;
     }),
     ...entries.filter(([id]) => !recommendedIds.includes(id)),
@@ -524,7 +589,7 @@ const providerRegistry = {
     baseUrl: 'https://api.kimi.com/coding/v1',
     authKind: 'api_key',
     backendKind: 'ai-sdk',
-    fallbackModels: ['kimi-for-coding'],
+    fallbackModels: ['k3', 'kimi-for-coding'],
     status: 'ready',
     protocol: 'anthropic',
     runtimeAdapter: { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true },
@@ -839,7 +904,8 @@ const providerRegistry = {
   },
   'xiaomi-token-plan-cn': {
     label: xiaomiTokenPlanCn.name,
-    description: 'Xiaomi MiMo Token Plan (China) subscription for interactive coding agents and tools.',
+    description:
+      'Xiaomi MiMo Token Plan (China) subscription for interactive coding agents and tools.',
     baseUrl: xiaomiTokenPlanCn.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -858,7 +924,8 @@ const providerRegistry = {
   },
   'xiaomi-token-plan-sgp': {
     label: xiaomiTokenPlanSgp.name,
-    description: 'Xiaomi MiMo Token Plan (Singapore) subscription for interactive coding agents and tools.',
+    description:
+      'Xiaomi MiMo Token Plan (Singapore) subscription for interactive coding agents and tools.',
     baseUrl: xiaomiTokenPlanSgp.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -877,7 +944,8 @@ const providerRegistry = {
   },
   'xiaomi-token-plan-ams': {
     label: xiaomiTokenPlanAms.name,
-    description: 'Xiaomi MiMo Token Plan (Europe) subscription for interactive coding agents and tools.',
+    description:
+      'Xiaomi MiMo Token Plan (Europe) subscription for interactive coding agents and tools.',
     baseUrl: xiaomiTokenPlanAms.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -953,7 +1021,8 @@ const providerRegistry = {
   },
   huggingface: {
     label: huggingface.name,
-    description: 'Inference Providers router for chat, reasoning, and tool use across hosted models.',
+    description:
+      'Inference Providers router for chat, reasoning, and tool use across hosted models.',
     baseUrl: huggingface.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -1323,7 +1392,8 @@ const providerRegistry = {
   },
   'alibaba-token-plan-cn': {
     label: alibabaTokenPlanCn.name,
-    description: 'Alibaba Cloud Model Studio Token Plan (Team Edition) for interactive agents and coding tools, Beijing region.',
+    description:
+      'Alibaba Cloud Model Studio Token Plan (Team Edition) for interactive agents and coding tools, Beijing region.',
     baseUrl: alibabaTokenPlanCn.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -1342,7 +1412,8 @@ const providerRegistry = {
   },
   'alibaba-token-plan': {
     label: alibabaTokenPlanGlobal.name,
-    description: 'Alibaba Cloud Model Studio Token Plan (Team Edition) for interactive agents and coding tools, Singapore region.',
+    description:
+      'Alibaba Cloud Model Studio Token Plan (Team Edition) for interactive agents and coding tools, Singapore region.',
     baseUrl: alibabaTokenPlanGlobal.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -1396,6 +1467,7 @@ const providerRegistry = {
     runtimeAdapter: {
       kind: 'openai-compatible',
       name: 'provider',
+      includeUsage: true,
       replayAssistantReasoningAs: 'reasoning',
     },
     modelDiscovery: { kind: 'protocol' },
@@ -1543,7 +1615,9 @@ const providerRegistry = {
 export type ProviderType = keyof typeof providerRegistry;
 export const PROVIDER_REGISTRY: Readonly<Record<ProviderType, ProviderDefaults>> = providerRegistry;
 
-function providerTypesByOrder(field: 'readyOrder' | 'catalogOrder' | 'recommendedOrder'): ProviderType[] {
+function providerTypesByOrder(
+  field: 'readyOrder' | 'catalogOrder' | 'recommendedOrder',
+): ProviderType[] {
   return (Object.entries(PROVIDER_REGISTRY) as Array<[ProviderType, ProviderDefaults]>)
     .filter(([, provider]) => provider[field] !== undefined)
     .sort(([, left], [, right]) => left[field]! - right[field]!)

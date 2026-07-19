@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererShellSource, readRendererShellSources } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -40,14 +41,14 @@ describe('session open routing contract', () => {
     assert.match(handlerBlock, /const sessionId = activeIdRef\.current;/);
     assert.match(
       handlerBlock,
-      /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{ sourceTurnId: turnId \}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.info\('已发起重新生成'/,
+      /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{\s*sourceTurnId: turnId,?\s*\}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) \{[\s\S]*?toastApi\.info\(copy\.regenerateStartedTitle, copy\.regenerateStartedDescription\)/,
       'regenerate feedback must stay owned by the source session',
     );
     assert.match(branchBlock, /const newSession = await window\.maka\.sessions\.branchFromTurn/);
     assert.match(branchBlock, /upsertSessionSummary\(newSession\);/);
     assert.match(
       branchBlock,
-      /if \(activeIdRef\.current === sessionId\) \{[\s\S]*openSessionInChat\(newSession\.id\);[\s\S]*setMessages\(\[\]\);[\s\S]*await refreshMessages\(newSession\.id\);[\s\S]*toastApi\.success\('已创建分支', `新会话 \$\{newSession\.name\}`\);[\s\S]*\}/,
+      /if \(activeIdRef\.current === sessionId\) \{[\s\S]*openSessionInChat\(newSession\.id\);[\s\S]*setMessages\(\[\]\);[\s\S]*await refreshMessages\(newSession\.id\);[\s\S]*toastApi\.success\(copy\.branchCreatedTitle, copy\.branchCreatedDescription\(newSession\.name\)\);[\s\S]*\}/,
       'branch completion must not navigate or toast after the user leaves the source session',
     );
     assert.match(branchBlock, /await refreshSessions\(\);/);
@@ -58,8 +59,8 @@ describe('session open routing contract', () => {
     );
     assert.match(
       handlerBlock,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
-      'turn footer failures must not toast after the user leaves the source session',
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return;[\s\S]*if \(isSessionWorkspaceUnavailableError\(error\)\) \{[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi, uiLocale\);[\s\S]*\} else \{[\s\S]*toastApi\.error\([\s\S]*copy\.operationFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.operationFailedFallback, uiLocale\)[\s\S]*\);[\s\S]*\}[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
+      'turn footer failures must stay owned by the source session and preserve workspace recovery copy',
     );
     assert.doesNotMatch(
       handlerBlock,
@@ -96,7 +97,7 @@ describe('session open routing contract', () => {
   });
 
   it('keeps persisted mark-read at the renderer message-read IPC boundary', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const readMessagesHandler = main.match(/ipcMain\.handle\('sessions:readMessages'[\s\S]*?\n  \}\);/)?.[0] ?? '';
     const searchHandler = main.match(/ipcMain\.handle\('search:thread'[\s\S]*?\n  \}\);/)?.[0] ?? '';
     const gatewayDeps = main.match(/const openGateway = new OpenGatewayService\(\{[\s\S]*?\n\}\);/)?.[0] ?? '';

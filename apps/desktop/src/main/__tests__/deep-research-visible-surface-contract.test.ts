@@ -21,12 +21,12 @@ describe('deep research visible surface contract', () => {
     );
     assert.match(
       ui,
-      /className="maka-chat-header-mode-pill"[\s\S]*深度研究/,
+      /className="maka-chat-header-mode-pill"[\s\S]*\{copy\.deepResearch\}/,
       'deep research sessions need a visible header pill so the mode is not hidden behind the permission switcher',
     );
     assert.match(
       ui,
-      /aria-label="深度研究，只读探索"/,
+      /aria-label=\{copy\.deepResearchAriaLabel\}/,
       'the header mode pill must expose the read-only meaning to assistive tech',
     );
   });
@@ -47,23 +47,22 @@ describe('deep research visible surface contract', () => {
       /deepResearchActive\s*\?\s*\(\s*<DeepResearchEmptyHero/,
       'an empty deep-research session must not fall back to the generic blank chat hero',
     );
-    assert.match(hero, /DEEP_RESEARCH_STARTER_PROMPTS\.map/);
+    assert.match(hero, /copy\.starters\.map/);
     assert.doesNotMatch(hero, /DEEP_RESEARCH_PROMPT_SUGGESTIONS/);
-    assert.match(hero, /固定在只读权限/);
-    assert.match(hero, /DEEP_RESEARCH_WORKFLOW_STEPS\.map/);
-    assert.match(hero, /aria-label="深度研究流程"/);
-    assert.match(hero, /DEEP_RESEARCH_REPORT_SECTIONS\.map/);
-    assert.match(hero, /aria-label="深度研究输出结构"/);
-    assert.match(hero, /输出必须能直接落地/);
-    assert.match(hero, /DEEP_RESEARCH_SCOPE_OPTIONS\.map/);
-    assert.match(hero, /aria-label="深度研究范围"/);
-    assert.match(hero, /默认按标准深度研究/);
-    assert.match(hero, /DEEP_RESEARCH_EVIDENCE_CHECKLIST\.map/);
-    assert.match(hero, /aria-label="深度研究证据清单"/);
-    assert.match(hero, /每次研究都要留证据/);
-    assert.match(hero, /DEEP_RESEARCH_PROGRESS_CHECKPOINTS\.map/);
-    assert.match(hero, /aria-label="深度研究检查点"/);
-    assert.match(hero, /多步研究要按检查点推进/);
+    assert.match(hero, /copy\.workflow\.map/);
+    assert.match(hero, /aria-label=\{copy\.workflowAriaLabel\}/);
+    assert.match(hero, /copy\.report\.map/);
+    assert.match(hero, /aria-label=\{copy\.reportAriaLabel\}/);
+    assert.match(hero, /\{copy\.reportTitle\}/);
+    assert.match(hero, /copy\.scope\.map/);
+    assert.match(hero, /aria-label=\{copy\.scopeAriaLabel\}/);
+    assert.match(hero, /\{copy\.scopeTitle\}/);
+    assert.match(hero, /copy\.evidence\.map/);
+    assert.match(hero, /aria-label=\{copy\.evidenceAriaLabel\}/);
+    assert.match(hero, /\{copy\.evidenceTitle\}/);
+    assert.match(hero, /copy\.progress\.map/);
+    assert.match(hero, /aria-label=\{copy\.progressAriaLabel\}/);
+    assert.match(hero, /\{copy\.progressTitle\}/);
   });
 
   it('pins deep research starter prompts in the shared core contract', async () => {

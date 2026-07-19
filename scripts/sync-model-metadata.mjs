@@ -51,12 +51,14 @@ const PROVIDERS = {
 
 const inputPath = option('--input');
 const outputPath = option('--output') ?? DEFAULT_OUTPUT;
-const catalog = JSON.parse(inputPath
-  ? await readFile(inputPath, 'utf8')
-  : await fetch(SOURCE_URL, { signal: AbortSignal.timeout(10_000) }).then((response) => {
-      if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`);
-      return response.text();
-    }));
+const catalog = JSON.parse(
+  inputPath
+    ? await readFile(inputPath, 'utf8')
+    : await fetch(SOURCE_URL, { signal: AbortSignal.timeout(10_000) }).then((response) => {
+        if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`);
+        return response.text();
+      }),
+);
 
 const generated = {};
 const generatedProviders = {};
@@ -69,9 +71,11 @@ for (const [providerType, sourceId] of Object.entries(PROVIDERS)) {
   if (!provider.models || typeof provider.models !== 'object') {
     throw new Error(`models.dev provider ${sourceId} has no models object`);
   }
-  if (typeof provider.id !== 'string'
-    || typeof provider.name !== 'string'
-    || typeof provider.doc !== 'string') {
+  if (
+    typeof provider.id !== 'string' ||
+    typeof provider.name !== 'string' ||
+    typeof provider.doc !== 'string'
+  ) {
     throw new Error(`models.dev provider ${sourceId} has an unsupported shape`);
   }
   generatedProviders[providerType] = {
@@ -94,11 +98,15 @@ for (const [providerType, sourceId] of Object.entries(PROVIDERS)) {
 }
 
 function toModelProviderOverride(providerId, modelId, override) {
-  if (!override
-    || typeof override !== 'object'
-    || typeof override.npm !== 'string'
-    || (override.api !== undefined && typeof override.api !== 'string')) {
-    throw new Error(`models.dev model ${providerId}/${modelId} has an unsupported provider override`);
+  if (
+    !override ||
+    typeof override !== 'object' ||
+    typeof override.npm !== 'string' ||
+    (override.api !== undefined && typeof override.api !== 'string')
+  ) {
+    throw new Error(
+      `models.dev model ${providerId}/${modelId} has an unsupported provider override`,
+    );
   }
   return {
     npm: override.npm,
@@ -107,27 +115,29 @@ function toModelProviderOverride(providerId, modelId, override) {
 }
 
 function toMetadata(providerId, modelId, provider, model) {
-  if (typeof provider.doc !== 'string'
-    || typeof model?.name !== 'string'
-    || (model.modalities !== undefined && !Array.isArray(model.modalities?.input))
-    || typeof model.limit?.context !== 'number'
-    || typeof model.limit?.output !== 'number'
-    || typeof model.reasoning !== 'boolean'
-    || typeof model.tool_call !== 'boolean') {
+  if (
+    typeof provider.doc !== 'string' ||
+    typeof model?.name !== 'string' ||
+    (model.modalities !== undefined && !Array.isArray(model.modalities?.input)) ||
+    typeof model.limit?.context !== 'number' ||
+    typeof model.limit?.output !== 'number' ||
+    typeof model.reasoning !== 'boolean' ||
+    typeof model.tool_call !== 'boolean'
+  ) {
     throw new Error(`models.dev model ${providerId}/${modelId} has an unsupported shape`);
   }
   return {
-        displayName: model.name,
-        lifecycle: model.status === 'deprecated' ? 'deprecated' : 'active',
-        docsUrl: provider.doc,
-        contextWindow: model.limit?.context,
-        maxOutputTokens: model.limit?.output,
-        capabilities: {
-          ...(model.modalities ? { vision: model.modalities.input.includes('image') } : {}),
-          reasoning: model.reasoning === true,
-          functionCalling: model.tool_call === true,
-        },
-      };
+    displayName: model.name,
+    lifecycle: model.status === 'deprecated' ? 'deprecated' : 'active',
+    docsUrl: provider.doc,
+    contextWindow: model.limit?.context,
+    maxOutputTokens: model.limit?.output,
+    capabilities: {
+      ...(model.modalities ? { vision: model.modalities.input.includes('image') } : {}),
+      reasoning: model.reasoning === true,
+      functionCalling: model.tool_call === true,
+    },
+  };
 }
 
 const providerTypeUnion = Object.keys(PROVIDERS).map(JSON.stringify).join(' | ');
@@ -146,12 +156,16 @@ for (const [provider, models] of Object.entries(generated)) {
   lines.push('  },');
 }
 lines.push('};', '');
-lines.push(`export const GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES: Record<${providerTypeUnion}, Record<string, { npm: string; api?: string }>> = {`);
+lines.push(
+  `export const GENERATED_MODELS_DEV_MODEL_PROVIDER_OVERRIDES: Record<${providerTypeUnion}, Record<string, { npm: string; api?: string }>> = {`,
+);
 for (const [provider, overrides] of Object.entries(generatedModelProviderOverrides)) {
   lines.push(`  ${JSON.stringify(provider)}: ${JSON.stringify(overrides)},`);
 }
 lines.push('};', '');
-lines.push(`export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<${providerTypeUnion}, { id: string; name: string; api?: string; doc: string }> = {`);
+lines.push(
+  `export const GENERATED_MODELS_DEV_PROVIDER_FACTS: Record<${providerTypeUnion}, { id: string; name: string; api?: string; doc: string }> = {`,
+);
 for (const [provider, facts] of Object.entries(generatedProviders)) {
   lines.push(`  ${JSON.stringify(provider)}: ${JSON.stringify(facts)},`);
 }

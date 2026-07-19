@@ -9,7 +9,10 @@ import {
   type HarborTaskRunInput,
   type HarborTaskRunOutput,
 } from '../fixed-prompt-controller.js';
-import { buildRuntimePolicyAbRunManifest, runRuntimePolicyAbComparison } from '../runtime-policy-ab-run.js';
+import {
+  buildRuntimePolicyAbRunManifest,
+  runRuntimePolicyAbComparison,
+} from '../runtime-policy-ab-run.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import type { RuntimePolicyAbExecutionProfile } from '../runtime-policy-ab-profile.js';
 
@@ -27,7 +30,13 @@ const executionProfile: RuntimePolicyAbExecutionProfile = {
   provider: 'deepseek',
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek/deepseek-v4-flash',
-  pricing: { inputUsdPer1M: 1, outputUsdPer1M: 1, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, source: 'test-profile' },
+  pricing: {
+    inputUsdPer1M: 1,
+    outputUsdPer1M: 1,
+    cacheReadUsdPer1M: 0,
+    cacheWriteUsdPer1M: 0,
+    source: 'test-profile',
+  },
   taskBudgetSec: 1800,
   harborTimeoutMs: 2_100_000,
   observedCostStopUsd: 20,
@@ -62,20 +71,34 @@ describe('runRuntimePolicyAbComparison', () => {
     assert.equal(manifest.maxConcurrency, 2);
     assert.equal(manifest.toolchainFingerprint, sha256('c'));
     assert.deepEqual(manifest.evaluationTaskIds, ['t1', 't2']);
-    assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.promptHash), [sha256('p'), sha256('p')]);
-    assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.model), [
-      'deepseek/deepseek-v4-flash',
-      'deepseek/deepseek-v4-flash',
-    ]);
-    assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.sharedAgentEnv), [
-      { MAKA_HARBOR_CONTINUATION: 'on', MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3', MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150' },
-      { MAKA_HARBOR_CONTINUATION: 'on', MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3', MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150' },
-    ]);
+    assert.deepEqual(
+      manifest.arms.map((arm) => arm.metadata?.promptHash),
+      [sha256('p'), sha256('p')],
+    );
+    assert.deepEqual(
+      manifest.arms.map((arm) => arm.metadata?.model),
+      ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-flash'],
+    );
+    assert.deepEqual(
+      manifest.arms.map((arm) => arm.metadata?.sharedAgentEnv),
+      [
+        {
+          MAKA_HARBOR_CONTINUATION: 'on',
+          MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+          MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150',
+        },
+        {
+          MAKA_HARBOR_CONTINUATION: 'on',
+          MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+          MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150',
+        },
+      ],
+    );
     assert.notEqual(manifest.arms[0].fingerprint, manifest.arms[1].fingerprint);
-    assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.contextEnv), [
-      { MAKA_CONTEXT_BUDGET: 'off' },
-      { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' },
-    ]);
+    assert.deepEqual(
+      manifest.arms.map((arm) => arm.metadata?.contextEnv),
+      [{ MAKA_CONTEXT_BUDGET: 'off' }, { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' }],
+    );
   });
 
   test('builds and runs task-tool runtime-policy arms with arm-local context env', async () => {
@@ -137,41 +160,49 @@ describe('runRuntimePolicyAbComparison', () => {
 
   test('rejects unsupported context env keys before fingerprinting runtime-policy arms', () => {
     assert.throws(
-      () => buildRuntimePolicyAbRunManifest({
-        arms: [
-          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
-          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on', MAKA_CONTEXT_FOO: '1' } as never },
-        ],
-        promptHash: sha256('p'),
-        executionProfile,
-        subjectFingerprint: sha256('s'),
-        taskSourceFingerprint: sha256('t'),
-        toolchainFingerprint: sha256('c'),
-        evaluationTaskIds: ['t1'],
-        reps: 1,
-        candidateLimit: null,
-      }),
+      () =>
+        buildRuntimePolicyAbRunManifest({
+          arms: [
+            { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+            {
+              id: 'prune-on',
+              contextEnv: {
+                MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+                MAKA_CONTEXT_FOO: '1',
+              } as never,
+            },
+          ],
+          promptHash: sha256('p'),
+          executionProfile,
+          subjectFingerprint: sha256('s'),
+          taskSourceFingerprint: sha256('t'),
+          toolchainFingerprint: sha256('c'),
+          evaluationTaskIds: ['t1'],
+          reps: 1,
+          candidateLimit: null,
+        }),
       /unsupported Harbor context env key: MAKA_CONTEXT_FOO/,
     );
   });
 
   test('rejects unsupported shared agent env keys before fingerprinting runtime-policy arms', () => {
     assert.throws(
-      () => buildRuntimePolicyAbRunManifest({
-        arms: [
-          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
-          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
-        ],
-        sharedAgentEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } as never,
-        promptHash: sha256('p'),
-        executionProfile,
-        subjectFingerprint: sha256('s'),
-        taskSourceFingerprint: sha256('t'),
-        toolchainFingerprint: sha256('c'),
-        evaluationTaskIds: ['t1'],
-        reps: 1,
-        candidateLimit: null,
-      }),
+      () =>
+        buildRuntimePolicyAbRunManifest({
+          arms: [
+            { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+            { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+          ],
+          sharedAgentEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } as never,
+          promptHash: sha256('p'),
+          executionProfile,
+          subjectFingerprint: sha256('s'),
+          taskSourceFingerprint: sha256('t'),
+          toolchainFingerprint: sha256('c'),
+          evaluationTaskIds: ['t1'],
+          reps: 1,
+          candidateLimit: null,
+        }),
       /unsupported runtime policy shared agent env key: MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE/,
     );
   });
@@ -217,23 +248,38 @@ describe('runRuntimePolicyAbComparison', () => {
       assert.equal(result.baselineArmId, 'prune-off');
       assert.equal(result.candidateArmId, 'prune-on');
       assert.deepEqual(result.baseline.contextBudgetPolicy?.snapshots, [{ enabled: false }]);
-      assert.deepEqual(result.candidate.contextBudgetPolicy?.snapshots, [{
-        enabled: true,
-        name: 'harbor-cell-context-budget',
-        staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 2048, minRecentTurnsFull: 2 },
-        archiveRetrieval: {
+      assert.deepEqual(result.candidate.contextBudgetPolicy?.snapshots, [
+        {
           enabled: true,
-          maxResults: 3,
-          maxEstimatedTokens: 8192,
-          maxBytes: 1024 * 1024,
-          order: 'newest_first',
+          name: 'harbor-cell-context-budget',
+          staleToolResultPrune: {
+            enabled: true,
+            maxResultEstimatedTokens: 2048,
+            minRecentTurnsFull: 2,
+          },
+          archiveRetrieval: {
+            enabled: true,
+            maxResults: 3,
+            maxEstimatedTokens: 8192,
+            maxBytes: 1024 * 1024,
+            order: 'newest_first',
+          },
+          minRecentTurns: 2,
         },
-        minRecentTurns: 2,
-      }]);
+      ]);
       assert.equal(calls.length, 2);
-      assert.deepEqual(calls.map((call) => call.systemPrompt), ['shared prompt\n', 'shared prompt\n']);
-      assert.deepEqual(calls.map((call) => call.config.model), [config.model, config.model]);
-      assert.deepEqual(calls.map((call) => call.task.id), ['t1', 't1']);
+      assert.deepEqual(
+        calls.map((call) => call.systemPrompt),
+        ['shared prompt\n', 'shared prompt\n'],
+      );
+      assert.deepEqual(
+        calls.map((call) => call.config.model),
+        [config.model, config.model],
+      );
+      assert.deepEqual(
+        calls.map((call) => call.task.id),
+        ['t1', 't1'],
+      );
       const agentEnvByRoundId = new Map(calls.map((call) => [call.roundId, call.agentEnv]));
       assert.deepEqual(agentEnvByRoundId.get('ab-prune-off-r0-t1'), {
         MAKA_HARBOR_CONTINUATION: 'on',
@@ -335,6 +381,45 @@ describe('runRuntimePolicyAbComparison', () => {
       ]);
     });
   });
+
+  test('does not reuse runtime-policy outcomes after billing semantics change', async () => {
+    await withDir(async (dir) => {
+      const promptPath = join(dir, 'system-prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(promptPath, 'shared prompt\n', 'utf8');
+      const common = {
+        runId: 'runtime-ab-run',
+        runRoot: dir,
+        config,
+        systemPromptPath: promptPath,
+        resultsJsonlPath,
+        evaluationTasks: [{ id: 't1', path: '/tasks/t1' }],
+        reps: 1,
+        arms: [
+          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+        ] as const,
+        now: () => 100,
+        newId: idFactory(),
+      };
+      let calls = 0;
+      const harborRunner = async (input: HarborTaskRunInput) => {
+        calls += 1;
+        return harborOutput(input);
+      };
+
+      await runRuntimePolicyAbComparison({ ...common, executionProfile, harborRunner });
+      assert.equal(calls, 2);
+
+      calls = 0;
+      await runRuntimePolicyAbComparison({
+        ...common,
+        executionProfile: { ...executionProfile, billingMode: 'account-plan' },
+        harborRunner,
+      });
+      assert.equal(calls, 2);
+    });
+  });
 });
 
 function harborOutput(input: HarborTaskRunInput): HarborTaskRunOutput {
@@ -354,18 +439,22 @@ function harborOutput(input: HarborTaskRunInput): HarborTaskRunOutput {
       tokenSummary: tokenSummary({ input: 4, output: 6, reasoning: 0, total: 10, costUsd: 0.01 }),
       contextBudgetPolicy: pruneOn
         ? {
-          enabled: true,
-          name: 'harbor-cell-context-budget',
-          staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 2048, minRecentTurnsFull: 2 },
-          archiveRetrieval: {
             enabled: true,
-            maxResults: 3,
-            maxEstimatedTokens: 8192,
-            maxBytes: 1024 * 1024,
-            order: 'newest_first',
-          },
-          minRecentTurns: 2,
-        }
+            name: 'harbor-cell-context-budget',
+            staleToolResultPrune: {
+              enabled: true,
+              maxResultEstimatedTokens: 2048,
+              minRecentTurnsFull: 2,
+            },
+            archiveRetrieval: {
+              enabled: true,
+              maxResults: 3,
+              maxEstimatedTokens: 8192,
+              maxBytes: 1024 * 1024,
+              order: 'newest_first',
+            },
+            minRecentTurns: 2,
+          }
         : { enabled: false },
       toolSummary: {
         providerVisibleToolCount: 1,

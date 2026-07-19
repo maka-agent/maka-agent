@@ -1,0 +1,174 @@
+// Tool executors and subprocess helpers for the Harbor cell. This leaf owns the
+// isolated tool execution surface: the HTTP bridge executor, the local subprocess
+// executor (bounded-tail shell + secret-stripped child env), and the ai-sdk tool
+// list. Splitting it out of the orchestration module keeps node:child_process and
+// the shell plumbing in one place.
+import { exec as nodeExec } from 'node:child_process';
+import { promisify } from 'node:util';
+import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/runtime';
+import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
+import type { IsolatedToolExecutor } from './isolation.js';
+import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
+import { buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
+
+const execAsync = promisify(nodeExec);
+const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+
+export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
+
+export function buildHarborCellAiSdkTools(
+  executor: IsolatedToolExecutor,
+  options: BuildIsolatedHeadlessToolsOptions = {},
+): MakaTool[] {
+  const nonInteractiveToolNames = new Set<string>(ISOLATED_HEADLESS_TOOL_NAMES);
+  return buildIsolatedHeadlessTools(executor, options).map((tool) =>
+    nonInteractiveToolNames.has(tool.name) ? { ...tool, permissionRequired: false } : tool,
+  );
+}
+
+export function createHarborHttpToolExecutor(
+  env: RunHarborCellEnv = process.env,
+): IsolatedToolExecutor {
+  const baseUrl = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
+  const token = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
+  return {
+    exec: async (input, control) => {
+      const timeoutSec =
+        input.timeoutMs === undefined ? undefined : Math.max(1, Math.ceil(input.timeoutMs / 1000));
+      const response = await fetch(new URL('/exec', baseUrl), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...input,
+          ...(timeoutSec !== undefined ? { timeoutSec } : {}),
+        }),
+        signal: control?.abortSignal,
+      });
+      const body = await response.text();
+      if (!response.ok) return { exitCode: 1, stdout: '', stderr: body };
+      const parsed: unknown = JSON.parse(body);
+      if (!isRecord(parsed))
+        return { exitCode: 1, stdout: '', stderr: 'Harbor bridge returned a non-object response' };
+      const exitCode = parsed.exitCode ?? parsed.returnCode;
+      return {
+        exitCode: typeof exitCode === 'number' && Number.isInteger(exitCode) ? exitCode : 1,
+        stdout: typeof parsed.stdout === 'string' ? parsed.stdout : '',
+        stderr: typeof parsed.stderr === 'string' ? parsed.stderr : '',
+      };
+    },
+  };
+}
+
+export function createHarborCellLocalToolExecutor(
+  env: RunHarborCellEnv = process.env,
+): IsolatedToolExecutor {
+  const childEnv = childProcessEnv(env);
+  // A command that does not request its own timeout falls back to this. Some
+  // Terminal-Bench tasks build or test for longer than the 2-minute default, so
+  // the floor is operator-configurable instead of a hard-coded failure source.
+  const defaultTimeoutMs =
+    numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
+  // The shell this executor spawns in (PowerShell on Windows). Exposed as
+  // `shell` so buildIsolatedBashTool DECLARES the dialect to the model, and
+  // passed to runShellWithBoundedTail so the declaration matches execution —
+  // selection without declaration is the original Windows bug (shell-detect.ts).
+  const shell = defaultShellPlan();
+  return {
+    shell,
+    exec: async ({ command, cwd, timeoutMs, boundedTail }, control) => {
+      if (boundedTail) {
+        // Bash opted in: stream into a bounded tail (shared with the in-process
+        // builtin Bash) instead of execAsync({ maxBuffer }). A command whose
+        // output passes 10MB is no longer KILLED with only its head returned —
+        // it runs to completion and we keep the last ~1MB (the recoverable tail).
+        try {
+          const result = await runShellWithBoundedTail(command, {
+            cwd,
+            env: childEnv,
+            timeoutMs: timeoutMs ?? defaultTimeoutMs,
+            abortSignal: control?.abortSignal,
+            shell,
+          });
+          return {
+            exitCode: result.timedOut ? 124 : result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            stdoutTruncated: result.stdoutTruncated,
+            stderrTruncated: result.stderrTruncated,
+          };
+        } catch (error) {
+          // runShellWithBoundedTail only rejects when the process cannot be
+          // spawned at all (e.g. the shell binary is missing).
+          return {
+            exitCode: shellErrorExitCode(error),
+            stdout: shellErrorText(error, 'stdout'),
+            stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
+          };
+        }
+      }
+      // Default (Read/Glob/Grep/Edit fallbacks): FULL output up to the buffer
+      // cap. These must return complete, head-first content — a bounded tail
+      // would silently drop the head of a file or search result and the model
+      // would edit code from a partial view.
+      try {
+        const result = await execAsync(command, {
+          cwd,
+          env: childEnv,
+          timeout: timeoutMs ?? defaultTimeoutMs,
+          maxBuffer: HARBOR_CELL_TOOL_MAX_BUFFER_BYTES,
+          signal: control?.abortSignal,
+        });
+        return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
+      } catch (error) {
+        return {
+          exitCode: shellErrorExitCode(error),
+          stdout: shellErrorText(error, 'stdout'),
+          stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
+        };
+      }
+    },
+  };
+}
+
+function requiredHarborEnv(env: RunHarborCellEnv, name: string): string {
+  const value = env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+/** Provider secrets the LLM backend already captured; task tool subprocesses must
+ * never see them, or a candidate prompt could `cat $..._API_KEY_FILE` and exfiltrate. */
+const TOOL_CHILD_SECRET_ENV = /_API_KEY(_FILE)?$/;
+
+function childProcessEnv(env: RunHarborCellEnv): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined) childEnv[key] = value;
+  }
+  for (const key of Object.keys(childEnv)) {
+    if (TOOL_CHILD_SECRET_ENV.test(key)) delete childEnv[key];
+  }
+  return childEnv;
+}
+
+function shellErrorExitCode(error: unknown): number {
+  if (isRecord(error) && typeof error.code === 'number') return error.code;
+  if (isRecord(error) && typeof error.signal === 'string') return 124;
+  return 1;
+}
+
+function shellErrorText(error: unknown, field: 'stdout' | 'stderr'): string {
+  if (isRecord(error) && typeof error[field] === 'string') return error[field];
+  return '';
+}
+
+function shellErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}

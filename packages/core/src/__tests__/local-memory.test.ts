@@ -38,16 +38,18 @@ describe('local MEMORY.md contract', () => {
   });
 
   it('parses heading entries and best-effort metadata comments', () => {
-    const parsed = parseLocalMemoryMarkdown([
-      '# Maka Memory',
-      '',
-      '## 偏好',
-      '<!-- maka-memory: id=pref-1 origin=manual createdAt=1700000000000 -->',
-      '喜欢简洁回答。',
-      '',
-      '## 手写条目',
-      '没有 metadata 也要显示。',
-    ].join('\n'));
+    const parsed = parseLocalMemoryMarkdown(
+      [
+        '# Maka Memory',
+        '',
+        '## 偏好',
+        '<!-- maka-memory: id=pref-1 origin=manual createdAt=1700000000000 -->',
+        '喜欢简洁回答。',
+        '',
+        '## 手写条目',
+        '没有 metadata 也要显示。',
+      ].join('\n'),
+    );
     assert.equal(parsed.safeMode, false);
     assert.equal(parsed.entries.length, 2);
     assert.equal(parsed.activeEntries.length, 2);
@@ -62,17 +64,19 @@ describe('local MEMORY.md contract', () => {
   });
 
   it('parses V0.2 metadata fail-open and splits archived entries', () => {
-    const parsed = parseLocalMemoryMarkdown([
-      '# Maka Memory',
-      '',
-      '## Active preference',
-      '<!-- maka-memory: id=pref-active origin=imported createdAt=1700000000000 updatedAt=1700000001000 status=active tags=work,AI,work decayTtlMs=86400000 unknownField=ok -->',
-      'Keep answers concise.',
-      '',
-      '## Archived preference',
-      '<!-- maka-memory: id=pref-old origin=extracted status=archived tags=old -->',
-      'Do not use this anymore.',
-    ].join('\n'));
+    const parsed = parseLocalMemoryMarkdown(
+      [
+        '# Maka Memory',
+        '',
+        '## Active preference',
+        '<!-- maka-memory: id=pref-active origin=imported createdAt=1700000000000 updatedAt=1700000001000 status=active tags=work,AI,work decayTtlMs=86400000 unknownField=ok -->',
+        'Keep answers concise.',
+        '',
+        '## Archived preference',
+        '<!-- maka-memory: id=pref-old origin=extracted status=archived tags=old -->',
+        'Do not use this anymore.',
+      ].join('\n'),
+    );
 
     assert.equal(parsed.safeMode, false);
     assert.equal(parsed.entries.length, 2);
@@ -87,17 +91,19 @@ describe('local MEMORY.md contract', () => {
   });
 
   it('builds prompt body from active entries only and omits metadata comments', () => {
-    const body = buildLocalMemoryPromptBody([
-      '# Maka Memory',
-      '',
-      '## Keep',
-      '<!-- maka-memory: id=keep origin=manual status=active tags=style -->',
-      'Prefer direct answers.',
-      '',
-      '## Archived',
-      '<!-- maka-memory: id=old origin=manual status=archived -->',
-      'This should not enter the model context.',
-    ].join('\n'));
+    const body = buildLocalMemoryPromptBody(
+      [
+        '# Maka Memory',
+        '',
+        '## Keep',
+        '<!-- maka-memory: id=keep origin=manual status=active tags=style -->',
+        'Prefer direct answers.',
+        '',
+        '## Archived',
+        '<!-- maka-memory: id=old origin=manual status=archived -->',
+        'This should not enter the model context.',
+      ].join('\n'),
+    );
 
     assert.ok(body);
     assert.match(body, /## Keep/);
@@ -138,14 +144,16 @@ describe('local MEMORY.md contract', () => {
   });
 
   it('redacts legacy secrets before building the prompt body', () => {
-    const body = buildLocalMemoryPromptBody([
-      '# Maka Memory',
-      '',
-      '## Legacy pasted credential',
-      '<!-- maka-memory: id=legacy-secret origin=manual status=active -->',
-      'Authorization: Bearer sk-ant-api03-abc123def456ghi789jkl0mn1opq',
-      'Endpoint: https://api.example.test/models?api_key=raw-secret-value&timeout=30',
-    ].join('\n'));
+    const body = buildLocalMemoryPromptBody(
+      [
+        '# Maka Memory',
+        '',
+        '## Legacy pasted credential',
+        '<!-- maka-memory: id=legacy-secret origin=manual status=active -->',
+        'Authorization: Bearer sk-ant-api03-abc123def456ghi789jkl0mn1opq',
+        'Endpoint: https://api.example.test/models?api_key=raw-secret-value&timeout=30',
+      ].join('\n'),
+    );
 
     assert.ok(body);
     assert.doesNotMatch(body, /sk-ant-api03|raw-secret-value/);
@@ -155,13 +163,15 @@ describe('local MEMORY.md contract', () => {
 
   it('does not apply UI preview truncation to the prompt body', () => {
     const longPreference = `${'a'.repeat(520)}tail-marker`;
-    const body = buildLocalMemoryPromptBody([
-      '# Maka Memory',
-      '',
-      '## Long preference',
-      '<!-- maka-memory: id=long origin=manual status=active -->',
-      longPreference,
-    ].join('\n'));
+    const body = buildLocalMemoryPromptBody(
+      [
+        '# Maka Memory',
+        '',
+        '## Long preference',
+        '<!-- maka-memory: id=long origin=manual status=active -->',
+        longPreference,
+      ].join('\n'),
+    );
 
     assert.ok(body);
     assert.match(body, /tail-marker/);
@@ -224,7 +234,10 @@ describe('local MEMORY.md contract', () => {
     assert.match(approved.memoryDraft, /source=chat_extracted/);
     assert.match(approved.memoryDraft, /confirmedAt=1700000001000/);
     assert.doesNotMatch(approved.pendingDraft, /proposal-approved123|Theme preference|dark mode/);
-    assert.match(buildLocalMemoryPromptBody(approved.memoryDraft) ?? '', /Remember dark mode preference/);
+    assert.match(
+      buildLocalMemoryPromptBody(approved.memoryDraft) ?? '',
+      /Remember dark mode preference/,
+    );
   });
 
   it('rejects pending proposals without creating active memory', () => {
@@ -310,8 +323,14 @@ describe('local MEMORY.md contract', () => {
     });
     assert.equal(archived.ok, true);
     if (!archived.ok) return;
-    assert.match(archived.draft, /id=manual-1700000000000 origin=manual createdAt=1700000000000 updatedAt=1700000001000 status=archived/);
-    assert.equal(parseLocalMemoryMarkdown(archived.draft).archivedEntries[0]?.id, 'manual-1700000000000');
+    assert.match(
+      archived.draft,
+      /id=manual-1700000000000 origin=manual createdAt=1700000000000 updatedAt=1700000001000 status=archived/,
+    );
+    assert.equal(
+      parseLocalMemoryMarkdown(archived.draft).archivedEntries[0]?.id,
+      'manual-1700000000000',
+    );
   });
 
   it('archives and restores a memory entry by updating visible metadata', () => {
@@ -366,48 +385,53 @@ describe('local MEMORY.md contract', () => {
 
     const first = findLocalMemoryEntryDraftRange(source, 'first');
     assert.ok(first);
-    assert.equal(source.slice(first.start, first.end), [
-      '## First',
-      '<!-- maka-memory: id=first origin=manual status=active -->',
-      'First content.',
-      '',
-      '',
-    ].join('\n'));
+    assert.equal(
+      source.slice(first.start, first.end),
+      [
+        '## First',
+        '<!-- maka-memory: id=first origin=manual status=active -->',
+        'First content.',
+        '',
+        '',
+      ].join('\n'),
+    );
 
     const legacy = findLocalMemoryEntryDraftRange(source, 'legacy-title');
     assert.ok(legacy);
-    assert.equal(source.slice(legacy.start, legacy.end), [
-      '## Legacy Title',
-      'Legacy content.',
-      '',
-      '',
-    ].join('\n'));
+    assert.equal(
+      source.slice(legacy.start, legacy.end),
+      ['## Legacy Title', 'Legacy content.', '', ''].join('\n'),
+    );
 
     const last = findLocalMemoryEntryDraftRange(source, 'last');
     assert.ok(last);
-    assert.equal(source.slice(last.start, last.end), [
-      '## Last',
-      '<!-- maka-memory: id=last origin=manual status=archived -->',
-      'Last content.',
-    ].join('\n'));
+    assert.equal(
+      source.slice(last.start, last.end),
+      [
+        '## Last',
+        '<!-- maka-memory: id=last origin=manual status=archived -->',
+        'Last content.',
+      ].join('\n'),
+    );
     assert.equal(findLocalMemoryEntryDraftRange(source, 'missing'), null);
   });
 
   it('can archive legacy entries without metadata by inserting a visible comment', () => {
-    const result = setLocalMemoryEntryStatusDraft([
-      '# Maka Memory',
-      '',
-      '## 手写偏好',
-      '旧格式内容。',
-    ].join('\n'), {
-      id: '手写偏好',
-      status: 'archived',
-      now: 1700000000000,
-    });
+    const result = setLocalMemoryEntryStatusDraft(
+      ['# Maka Memory', '', '## 手写偏好', '旧格式内容。'].join('\n'),
+      {
+        id: '手写偏好',
+        status: 'archived',
+        now: 1700000000000,
+      },
+    );
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.match(result.draft, /## 手写偏好\n<!-- maka-memory: id=手写偏好 updatedAt=1700000000000 status=archived -->\n旧格式内容。/);
+    assert.match(
+      result.draft,
+      /## 手写偏好\n<!-- maka-memory: id=手写偏好 updatedAt=1700000000000 status=archived -->\n旧格式内容。/,
+    );
     assert.equal(parseLocalMemoryMarkdown(result.draft).archivedEntries[0]?.id, '手写偏好');
   });
 
@@ -416,21 +440,30 @@ describe('local MEMORY.md contract', () => {
       ok: false,
       reason: 'invalid_id',
     });
-    assert.deepEqual(setLocalMemoryEntryStatusDraft('## One\nBody', { id: 'missing', status: 'archived', now: 1 }), {
-      ok: false,
-      reason: 'not_found',
-    });
+    assert.deepEqual(
+      setLocalMemoryEntryStatusDraft('## One\nBody', { id: 'missing', status: 'archived', now: 1 }),
+      {
+        ok: false,
+        reason: 'not_found',
+      },
+    );
   });
 
   it('rejects blank manual draft entries and oversized resulting drafts', () => {
-    assert.deepEqual(appendManualLocalMemoryEntryDraft('', { title: ' ', content: 'body', now: 1 }), {
-      ok: false,
-      reason: 'empty_title',
-    });
-    assert.deepEqual(appendManualLocalMemoryEntryDraft('', { title: 'title', content: ' ', now: 1 }), {
-      ok: false,
-      reason: 'empty_content',
-    });
+    assert.deepEqual(
+      appendManualLocalMemoryEntryDraft('', { title: ' ', content: 'body', now: 1 }),
+      {
+        ok: false,
+        reason: 'empty_title',
+      },
+    );
+    assert.deepEqual(
+      appendManualLocalMemoryEntryDraft('', { title: 'title', content: ' ', now: 1 }),
+      {
+        ok: false,
+        reason: 'empty_content',
+      },
+    );
     const oversized = appendManualLocalMemoryEntryDraft('x'.repeat(LOCAL_MEMORY_MAX_BYTES), {
       title: 'title',
       content: 'body',

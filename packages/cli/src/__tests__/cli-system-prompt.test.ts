@@ -9,21 +9,29 @@ import type { HostCapabilities } from '@maka/runtime';
 describe('CLI system prompt', () => {
   test('injects the skill catalog from workspaceRoot, gated by host capabilities (Office skills auto-filter on the CLI host)', async () => {
     await withCwdAndWorkspace(async ({ cwd, workspaceRoot, homeDir }) => {
-      await writeSkill(workspaceRoot, 'plain-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'plain-helper',
+        `---
 name: Plain Helper
 description: Plain work.
 allowed-tools: [Read]
 ---
 # Plain Helper
-Plain work.`);
-      await writeSkill(workspaceRoot, 'office-helper', `---
+Plain work.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
 name: Office Helper
 description: Office document work.
 allowed-tools: [Read]
 required-tools: [OfficeDocument]
 ---
 # Office Helper
-Use Office tools.`);
+Use Office tools.`,
+      );
 
       // CLI host without OfficeDocument: office-helper is hard-hidden, plain-helper shown.
       // workspaceRoot is separate from cwd so the project directory is never scanned.
@@ -57,28 +65,44 @@ Use Office tools.`);
   test('discovers skills from .agents/skills and .maka/skills at project and user level', async () => {
     await withCwdAndWorkspace(async ({ cwd, workspaceRoot, homeDir }) => {
       // Project-level cross-client skill
-      await writeSkillAt(cwd, '.agents', 'skills', 'cross-client-skill', `---
+      await writeSkillAt(
+        cwd,
+        '.agents',
+        'skills',
+        'cross-client-skill',
+        `---
 name: Cross Client Skill
 description: From .agents/skills at project level.
 ---
 # Cross Client Skill
-Body.`);
+Body.`,
+      );
 
       // User-level maka skill
-      await writeSkillAt(homeDir, '.maka', 'skills', 'user-skill', `---
+      await writeSkillAt(
+        homeDir,
+        '.maka',
+        'skills',
+        'user-skill',
+        `---
 name: User Skill
 description: From ~/.maka/skills at user level.
 ---
 # User Skill
-Body.`);
+Body.`,
+      );
 
       // Workspace-level skill (existing path)
-      await writeSkill(workspaceRoot, 'ws-skill', `---
+      await writeSkill(
+        workspaceRoot,
+        'ws-skill',
+        `---
 name: Workspace Skill
 description: From workspaceRoot/skills.
 ---
 # Workspace Skill
-Body.`);
+Body.`,
+      );
 
       const out = await buildCliSystemPrompt({
         settings: { personalization: {}, workspaceInstructions: { enabled: false } },
@@ -97,20 +121,32 @@ Body.`);
   test('project-level skill overrides user-level skill with the same id', async () => {
     await withCwdAndWorkspace(async ({ cwd, workspaceRoot, homeDir }) => {
       // User-level skill (lower precedence)
-      await writeSkillAt(homeDir, '.agents', 'skills', 'shared-skill', `---
+      await writeSkillAt(
+        homeDir,
+        '.agents',
+        'skills',
+        'shared-skill',
+        `---
 name: Shared Skill
 description: User-level copy.
 ---
 # Shared Skill
-User body.`);
+User body.`,
+      );
 
       // Project-level skill with the same id (higher precedence)
-      await writeSkillAt(cwd, '.agents', 'skills', 'shared-skill', `---
+      await writeSkillAt(
+        cwd,
+        '.agents',
+        'skills',
+        'shared-skill',
+        `---
 name: Shared Skill
 description: Project-level copy.
 ---
 # Shared Skill
-Project body.`);
+Project body.`,
+      );
 
       const out = await buildCliSystemPrompt({
         settings: { personalization: {}, workspaceInstructions: { enabled: false } },
@@ -150,14 +186,21 @@ Project body.`);
         workspaceRoot: cwd,
         homeDir,
       });
-      assert.equal(out, undefined, 'gate must suppress AGENTS.md when workspaceInstructions is disabled');
+      assert.equal(
+        out,
+        undefined,
+        'gate must suppress AGENTS.md when workspaceInstructions is disabled',
+      );
     });
   });
 
   test('includes the personalization addressing hint when a displayName is set', async () => {
     await withCwd(async (cwd, homeDir) => {
       const out = await buildCliSystemPrompt({
-        settings: { personalization: { displayName: 'Yuhan' }, workspaceInstructions: { enabled: false } },
+        settings: {
+          personalization: { displayName: 'Yuhan' },
+          workspaceInstructions: { enabled: false },
+        },
         cwd,
         workspaceRoot: cwd,
         homeDir,
@@ -183,7 +226,10 @@ Project body.`);
     await withCwd(async (cwd, homeDir) => {
       await writeFile(join(cwd, 'AGENTS.md'), '- commit one reason');
       const out = await buildCliSystemPrompt({
-        settings: { personalization: { displayName: 'Alice' }, workspaceInstructions: { enabled: true } },
+        settings: {
+          personalization: { displayName: 'Alice' },
+          workspaceInstructions: { enabled: true },
+        },
         cwd,
         workspaceRoot: cwd,
         homeDir,
@@ -218,7 +264,9 @@ async function withCwd(fn: (cwd: string, homeDir: string) => Promise<void>): Pro
   }
 }
 
-async function withCwdAndWorkspace(fn: (dirs: { cwd: string; workspaceRoot: string; homeDir: string }) => Promise<void>): Promise<void> {
+async function withCwdAndWorkspace(
+  fn: (dirs: { cwd: string; workspaceRoot: string; homeDir: string }) => Promise<void>,
+): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), 'maka-cli-sysprompt-cwd-'));
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-cli-sysprompt-ws-'));
   const homeDir = await mkdtemp(join(tmpdir(), 'maka-cli-sysprompt-home-'));

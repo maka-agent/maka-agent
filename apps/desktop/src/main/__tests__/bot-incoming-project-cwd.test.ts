@@ -13,13 +13,12 @@ describe('bot incoming new-session cwd', () => {
     const service = createBotIncomingMainService({
       // createSession captures the cwd it was given, signals the test, then
       // throws to short-circuit before the streaming / typing path runs.
-      runtime: {
-        async createSession(input: { cwd?: unknown }) {
-          capturedCwd = input.cwd;
-          resolveCreated();
-          throw new Error('__short_circuit_after_create__');
-        },
-      } as unknown as SessionManager,
+      runtime: {} as SessionManager,
+      async createSession(input) {
+        capturedCwd = input.cwd;
+        resolveCreated();
+        throw new Error('__short_circuit_after_create__');
+      },
       botRegistry: {
         async sendMessage() {},
         async sendTypingIndicator() {
@@ -32,15 +31,11 @@ describe('bot incoming new-session cwd', () => {
       getCurrentProjectRoot: async () => '/custom/project/root',
       getDefaultConnectionSlug: async () => 'slug',
       getReadyConnection: async () => ({ connection: { slug: 'slug' }, model: 'm' }),
-      readSessionHeader: async () => ({ permissionMode: 'ask' }),
+      readSessionHeader: async () => ({ permissionMode: 'ask', isArchived: false, status: 'active' }),
       ensureSessionCanSend: async () => {},
       emitSessionsChanged() {},
-      sendToRenderer() {},
-      isStatusChangingSessionEvent() {
-        return false;
-      },
-      isTurnStatusChangingSessionEvent() {
-        return false;
+      async runAgentTurn() {
+        throw new Error('runAgentTurn must not be reached');
       },
     });
 

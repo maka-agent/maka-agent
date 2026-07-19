@@ -142,15 +142,20 @@ class MakaOpenCodeAgent(OpenCode):
             raise ValueError("Model name must be in the format provider/model_name")
 
         provider, _ = self.model_name.split("/", 1)
-        if provider != "zai-coding-plan":
+        provider_env_names = {
+            "zai-coding-plan": ("ZAI_BASE_URL", "ZAI_API_KEY"),
+            "kimi-coding-plan": ("KIMI_BASE_URL", "KIMI_API_KEY"),
+        }
+        if provider not in provider_env_names:
             raise ValueError(f"Unsupported Maka OpenCode benchmark provider: {provider}")
-        proxy_url = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_URL")
-        proxy_token = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_TOKEN")
+        proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
+        proxy_token = self._get_env("MAKA_PROVIDER_PROXY_TOKEN")
         if not proxy_url or not proxy_token:
-            raise ValueError("zai-coding-plan requires the host provider proxy")
+            raise ValueError(f"{provider} requires the host provider proxy")
         env = self._provider_env(provider)
-        env["ZAI_BASE_URL"] = proxy_url
-        env["ZAI_API_KEY"] = proxy_token
+        base_url_env, api_key_env = provider_env_names[provider]
+        env[base_url_env] = proxy_url
+        env[api_key_env] = proxy_token
         env["OPENCODE_CONFIG"] = self._opencode_config_path()
         env["OPENCODE_FAKE_VCS"] = "git"
 

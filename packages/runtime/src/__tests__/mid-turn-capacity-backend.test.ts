@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { setImmediate as flushMacrotask } from 'node:timers/promises';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -10,10 +10,17 @@ import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import { z } from 'zod';
 import { AiSdkBackend } from '../ai-sdk-backend.js';
 import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
-import { AiSdkFlow, createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
+import {
+  AiSdkFlow,
+  createSessionEventMapMemory,
+  mapSessionEventToRuntimeEvent,
+} from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
-import { applyRuntimeEventContextBudget, evaluateHistoryCompactCheckpointReplay } from '../context-budget.js';
+import {
+  applyRuntimeEventContextBudget,
+  evaluateHistoryCompactCheckpointReplay,
+} from '../context-budget.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import { HistoryCompactSummarizerError } from '../history-compact-error.js';
@@ -27,7 +34,7 @@ const ANCHOR_TEXT = 'compact this very long turn but keep my exact words';
 
 interface MidTurnFixture {
   backend: AiSdkBackend;
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   recorded: HistoryCompactCheckpoint[];
   recordedBeforeThirdRequest: () => boolean;
   toolExecutions: string[];
@@ -129,11 +136,13 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     // A usage object the SDK accepts but whose token counts are absent — the
     // adapter's normalization fails closed (undefined) and the capacity hook's
     // usability check must fall back to cold start (the finding-1 shape).
-    if (options.firstStepUsage === 'missing') return { inputTokens: {}, outputTokens: {} } as ReturnType<typeof usage>;
-    if (options.firstStepUsage) return usage(options.firstStepUsage.input, options.firstStepUsage.output);
+    if (options.firstStepUsage === 'missing')
+      return { inputTokens: {}, outputTokens: {} } as ReturnType<typeof usage>;
+    if (options.firstStepUsage)
+      return usage(options.firstStepUsage.input, options.firstStepUsage.output);
     return usage(100, 20);
   };
-  const toolCallChunks = (id: string, name: string, args: object): LanguageModelV3StreamPart[] => [
+  const toolCallChunks = (id: string, name: string, args: object): LanguageModelV4StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'tool-call', toolCallId: id, toolName: name, input: JSON.stringify(args) },
     {
@@ -142,14 +151,14 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       usage: id === 'tool-1' ? firstStepUsage() : usage(150, 30),
     },
   ];
-  const doneChunks = (): LanguageModelV3StreamPart[] => [
+  const doneChunks = (): LanguageModelV4StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'text-1' },
     { type: 'text-delta', id: 'text-1', delta: 'done' },
     { type: 'text-end', id: 'text-1' },
     { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage(120, 10) },
   ];
-  const chunksForCall = (call: number): LanguageModelV3StreamPart[] => {
+  const chunksForCall = (call: number): LanguageModelV4StreamPart[] => {
     if (options.bigToolGroup) {
       return call === 1 ? toolCallChunks('tool-1', 'load_tools', { group: 'big' }) : doneChunks();
     }
@@ -166,10 +175,11 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     }
     if (options.finalAtSecondCall) return doneChunks();
     if (call === 2) return toolCallChunks('tool-2', 'Read', { path: 'two.md' });
-    if (options.rollingOverflow && call === 3) return toolCallChunks('tool-3', 'Read', { path: 'three.md' });
+    if (options.rollingOverflow && call === 3)
+      return toolCallChunks('tool-3', 'Read', { path: 'three.md' });
     return doneChunks();
   };
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     doStream: async (streamOptions: { abortSignal?: AbortSignal }) => {
       // A real transport rejects immediately on an already-aborted signal; the
       // mock must mirror that so an exhausted turn never streams the
@@ -180,14 +190,28 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       const call = model.doStreamCalls.length;
       if (call === 3) recordedAtThirdRequest = recorded.length > 0;
       const chunks = chunksForCall(call);
-      return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+      return {
+        stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      };
     },
   });
   const priorChars = options.giantPriors ? 10_000 : options.bigPriors ? 2_000 : 120;
-  const priorEvents: RuntimeEvent[] = options.withoutPriorTurns ? [] : [
-    runtimeTextEvent('prior-user', 'turn-0', 'user', `PRIOR_FACT question ${'p'.repeat(priorChars)}`),
-    runtimeTextEvent('prior-model', 'turn-0', 'model', `PRIOR_FACT answer ${'q'.repeat(priorChars)}`),
-  ];
+  const priorEvents: RuntimeEvent[] = options.withoutPriorTurns
+    ? []
+    : [
+        runtimeTextEvent(
+          'prior-user',
+          'turn-0',
+          'user',
+          `PRIOR_FACT question ${'p'.repeat(priorChars)}`,
+        ),
+        runtimeTextEvent(
+          'prior-model',
+          'turn-0',
+          'model',
+          `PRIOR_FACT answer ${'q'.repeat(priorChars)}`,
+        ),
+      ];
   const anchor: RuntimeEvent = {
     ...runtimeTextEvent('anchor-1', 'turn-1', 'user', ANCHOR_TEXT),
     ...(options.branch !== undefined ? { branch: options.branch } : {}),
@@ -223,7 +247,9 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   const backend = new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
-    appendMessage: async (message) => { messages.push(message); },
+    appendMessage: async (message) => {
+      messages.push(message);
+    },
     connection: {
       ...connection(),
       models: [{ id: 'mock-model-id', ...(options.withoutContextWindow ? {} : { contextWindow }) }],
@@ -240,21 +266,24 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
         permissionRequired: false,
         impl: async (args: { path: string }) => {
           toolExecutions.push(args.path);
-          if (args.path === 'one.md') return { body: options.hugeFirstResult ? HUGE_RESULT : RAW_SPAN_ONE };
+          if (args.path === 'one.md')
+            return { body: options.hugeFirstResult ? HUGE_RESULT : RAW_SPAN_ONE };
           if (args.path === 'three.md') return { body: ROLLING_TAIL };
           return { body: RAW_SPAN_TWO };
         },
       },
       ...(options.bigToolGroup
-        ? [{
-            name: 'Big',
-            // A same-turn load_tools activation adds this schema to every later
-            // request; the trigger must count it (finding D).
-            description: `BIG_SCHEMA ${'D'.repeat(12_000)}`,
-            parameters: z.object({ q: z.string() }),
-            permissionRequired: false,
-            impl: async () => ({ ok: true }),
-          }]
+        ? [
+            {
+              name: 'Big',
+              // A same-turn load_tools activation adds this schema to every later
+              // request; the trigger must count it (finding D).
+              description: `BIG_SCHEMA ${'D'.repeat(12_000)}`,
+              parameters: z.object({ q: z.string() }),
+              permissionRequired: false,
+              impl: async () => ({ ok: true }),
+            },
+          ]
         : []),
     ],
     ...(options.bigToolGroup
@@ -263,9 +292,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     ...(options.volatileTurnTail
       ? { turnTailPrompt: 'VOLATILE_TAIL_SENTINEL cwd=/tmp/maka task=keep-going' }
       : {}),
-    ...(options.bigSystemPrompt
-      ? { systemPrompt: 'SYSTEM_CONTEXT '.repeat(400) }
-      : {}),
+    ...(options.bigSystemPrompt ? { systemPrompt: 'SYSTEM_CONTEXT '.repeat(400) } : {}),
     contextBudget: options.useRuntimeDefaultPolicy
       ? buildDefaultContextBudgetPolicy(
           { ...connection(), models: [{ id: 'mock-model-id', contextWindow }] },
@@ -276,34 +303,35 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
             // default-on midTurn derivation and the window-bounded reserve
             // under test); a test may still size the reserve to its toy window
             // through the first-class env knob by passing reserveTokens.
-            env: options.reserveTokens !== undefined
-              ? { MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS: String(options.reserveTokens) }
-              : {},
+            env:
+              options.reserveTokens !== undefined
+                ? { MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS: String(options.reserveTokens) }
+                : {},
           },
         )
       : {
-      name: 'mid-turn-test',
-      maxHistoryEstimatedTokens: 100_000,
-      minRecentTurns: 1,
-      historyCompact: {
-        enabled: true,
-        mode: 'read_write',
-        midTurn: { enabled: true, reserveTokens },
-      },
-      ...(options.activeToolResultPrune
-        ? { activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 30 } }
-        : {}),
-      ...(options.semanticCompact
-        ? {
-            semanticCompact: {
-              enabled: true,
-              mode: 'replace' as const,
-              minStepNumber: 2,
-              maxActiveEstimatedTokens: 1,
-            },
-          }
-        : {}),
-    },
+          name: 'mid-turn-test',
+          maxHistoryEstimatedTokens: 100_000,
+          minRecentTurns: 1,
+          historyCompact: {
+            enabled: true,
+            mode: 'read_write',
+            midTurn: { enabled: true, reserveTokens },
+          },
+          ...(options.activeToolResultPrune
+            ? { activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 30 } }
+            : {}),
+          ...(options.semanticCompact
+            ? {
+                semanticCompact: {
+                  enabled: true,
+                  mode: 'replace' as const,
+                  minStepNumber: 2,
+                  maxActiveEstimatedTokens: 1,
+                },
+              }
+            : {}),
+        },
     ...(options.activeToolResultPrune
       ? { archiveToolResult: () => ({ artifactId: 'artifact-archived-1' }) }
       : {}),
@@ -324,7 +352,9 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       await flushMacrotask();
       return ledger.filter((event) => event.turnId === turnId);
     },
-    recordLlmCall: (record) => { llmCalls.push(record as (typeof llmCalls)[number]); },
+    recordLlmCall: (record) => {
+      llmCalls.push(record as (typeof llmCalls)[number]);
+    },
     newId: idGenerator(),
     now: monotonicClock(),
   });
@@ -334,8 +364,12 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     recorded,
     recordedBeforeThirdRequest: () => recordedAtThirdRequest,
     toolExecutions,
-    get summarizerCalls() { return fixture.summarizerCalls; },
-    get ledgerReads() { return fixture.ledgerReads; },
+    get summarizerCalls() {
+      return fixture.summarizerCalls;
+    },
+    get ledgerReads() {
+      return fixture.ledgerReads;
+    },
     priorEvents,
     anchor,
     ledger,
@@ -347,7 +381,10 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   };
 }
 
-async function runFixtureTurn(fixture: MidTurnFixture, consumer: ConsumerMode = 'immediate'): Promise<void> {
+async function runFixtureTurn(
+  fixture: MidTurnFixture,
+  consumer: ConsumerMode = 'immediate',
+): Promise<void> {
   for await (const event of fixture.backend.send({
     runId: 'run-1',
     turnId: 'turn-1',
@@ -370,10 +407,12 @@ async function runFixtureTurn(fixture: MidTurnFixture, consumer: ConsumerMode = 
 }
 
 function promptJson(fixture: MidTurnFixture, call: number): string {
-  return JSON.stringify(fixture.model.doStreamCalls[call]?.prompt.map((message) => ({
-    role: message.role,
-    content: message.content,
-  })));
+  return JSON.stringify(
+    fixture.model.doStreamCalls[call]?.prompt.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  );
 }
 
 function compactionDecisions(
@@ -424,7 +463,9 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.deepEqual(fixture.toolExecutions, ['one.md', 'two.md']);
 
     // The compaction decision lands in the usage diagnostics with phase mid_turn.
-    const midTurnDecision = compactionDecisions(fixture).find((decision) => decision.phase === 'mid_turn');
+    const midTurnDecision = compactionDecisions(fixture).find(
+      (decision) => decision.phase === 'mid_turn',
+    );
     assert.equal(midTurnDecision?.decision, 'replaced');
     assert.equal(midTurnDecision?.reason, 'context_limit');
     assert.deepEqual(midTurnDecision?.boundaryIds, [checkpoint.checkpointId]);
@@ -477,7 +518,11 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
   test('ends the turn with context_budget_exhausted when over the window with no safe span', async () => {
     // No prior turns and a window the first step's usage already exceeds: the
     // pool is [anchor, one open call/result pair], so no safe completed span.
-    const fixture = buildFixture({ contextWindow: 120, reserveTokens: 100, withoutPriorTurns: true });
+    const fixture = buildFixture({
+      contextWindow: 120,
+      reserveTokens: 100,
+      withoutPriorTurns: true,
+    });
     await runFixtureTurn(fixture, consumer);
 
     const complete = fixture.events.find((event) => event.type === 'complete');
@@ -486,11 +531,22 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(complete.stopReason, 'context_budget_exhausted');
     assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
     // Explicit outcome, not a raw provider error.
-    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'error'),
+      false,
+    );
     // The over-budget request was aborted before it could stream (the second
     // doStream attempt sees an already-aborted signal and rejects).
     assert.equal(fixture.model.doStreamCalls.length <= 2, true);
-    assert.equal(fixture.events.some((event) => event.type === 'tool_start' && event.toolName === 'Read' && JSON.stringify(event.args).includes('two.md')), false);
+    assert.equal(
+      fixture.events.some(
+        (event) =>
+          event.type === 'tool_start' &&
+          event.toolName === 'Read' &&
+          JSON.stringify(event.args).includes('two.md'),
+      ),
+      false,
+    );
   });
 
   test('ends the turn with summarizer_failed detail when over the window and the summary fails', async () => {
@@ -499,7 +555,9 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     const fixture = buildFixture({
       contextWindow: 150,
       reserveTokens: 100,
-      summarize: () => { throw new Error('summarizer down'); },
+      summarize: () => {
+        throw new Error('summarizer down');
+      },
     });
     await runFixtureTurn(fixture, consumer);
 
@@ -561,7 +619,9 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
 
   test('preserves the typed summarizer failure in mid-turn diagnostics', async () => {
     const fixture = buildFixture({
-      summarize: () => { throw new HistoryCompactSummarizerError('provider_error'); },
+      summarize: () => {
+        throw new HistoryCompactSummarizerError('provider_error');
+      },
     });
     await runFixtureTurn(fixture, consumer);
 
@@ -574,7 +634,11 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
   });
 
   test('fails open with write_failed diagnostics when the checkpoint write fails under the window', async () => {
-    const fixture = buildFixture({ record: () => { throw new Error('disk full'); } });
+    const fixture = buildFixture({
+      record: () => {
+        throw new Error('disk full');
+      },
+    });
     await runFixtureTurn(fixture, consumer);
 
     // The turn still completes on the raw projection; nothing durable claims
@@ -606,7 +670,9 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
       contextWindow: 150,
       reserveTokens: 100,
       bigPriors: true,
-      record: () => { throw new Error('disk full'); },
+      record: () => {
+        throw new Error('disk full');
+      },
     });
     await runFixtureTurn(fixture, consumer);
 
@@ -628,9 +694,11 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
   test('fails open with a diagnostic when the durable ledger read fails (never a silent skip)', async () => {
     const fixture = buildFixture();
     // Break the seam after construction: every trigger read now rejects.
-    (fixture.backend as unknown as {
-      input: { loadTurnRuntimeEvents: () => Promise<RuntimeEvent[]> };
-    }).input.loadTurnRuntimeEvents = () => Promise.reject(new Error('ledger offline'));
+    (
+      fixture.backend as unknown as {
+        input: { loadTurnRuntimeEvents: () => Promise<RuntimeEvent[]> };
+      }
+    ).input.loadTurnRuntimeEvents = () => Promise.reject(new Error('ledger offline'));
     await runFixtureTurn(fixture, consumer);
 
     // The turn still completes on the raw projection; nothing was recorded.
@@ -682,7 +750,10 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(yielded?.decision, 'unchanged');
     assert.equal(fixture.summarizerCalls, 1);
     // No semantic summary model call was ever made.
-    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'error'),
+      false,
+    );
   });
 
   test('a rolling second compaction that still exceeds the window ends explicitly (review finding A)', async () => {
@@ -708,12 +779,15 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(complete.stopReason, 'context_budget_exhausted');
     assert.equal(complete.contextBudgetExhaustedDetail, 'head_anchor_exceeds_capacity');
     // The over-window fourth request never streamed.
-    assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'),
+      false,
+    );
   });
 
   test('an aborted multi-step send records the accumulated usage of the completed steps', async () => {
     // The terminal LLM-call record is fail-closed on usage evidence (#972),
-    // and an aborted send never resolves the SDK's totalUsage promise. But
+    // and an aborted send may never resolve the SDK's final usage promise. But
     // every COMPLETED step reported real usage at its finish-step boundary,
     // so the terminal record must carry that accumulated sum — the capacity
     // verdict diagnostics ride this record and the completed steps' cost is
@@ -723,7 +797,10 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     await runFixtureTurn(fixture, consumer);
 
     const complete = fixture.events.find((event) => event.type === 'complete');
-    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'context_budget_exhausted');
+    assert.equal(
+      complete?.type === 'complete' ? complete.stopReason : undefined,
+      'context_budget_exhausted',
+    );
     // Three requests streamed; the fourth doStream call rejects immediately on
     // the already-aborted signal and never reports usage.
     assert.equal(fixture.model.doStreamCalls.length, 4);
@@ -742,11 +819,18 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     // LlmCallRecord has no partial marker — downstream reads any record as
     // the whole call — so the truthful outcome is no record at all; the
     // terminal result stays observable on the durable CompleteEvent.
-    const fixture = buildFixture({ bigPriors: true, rollingOverflow: true, firstStepUsage: 'missing' });
+    const fixture = buildFixture({
+      bigPriors: true,
+      rollingOverflow: true,
+      firstStepUsage: 'missing',
+    });
     await runFixtureTurn(fixture, consumer);
 
     const complete = fixture.events.find((event) => event.type === 'complete');
-    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'context_budget_exhausted');
+    assert.equal(
+      complete?.type === 'complete' ? complete.stopReason : undefined,
+      'context_budget_exhausted',
+    );
     assert.equal(fixture.llmCalls.length, 0);
   });
 
@@ -800,7 +884,10 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(complete.stopReason, 'context_budget_exhausted');
     assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
     // The over-window second request never streamed the expanded schema.
-    assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'),
+      false,
+    );
   });
 
   test('a fold that cannot shrink the real payload is refused, not applied (runaway summary)', async () => {
@@ -835,7 +922,7 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(usageEvent?.contextBudget?.historyCompactWritesAttempted, undefined);
   });
 
-  test('the usage baseline is the last request\'s INPUT tokens — output is not double-counted (review finding 1)', async () => {
+  test("the usage baseline is the last request's INPUT tokens — output is not double-counted (review finding 1)", async () => {
     // Review round-4 finding 1 repro shape: a step with heavy output. The
     // signed payload delta already carries the freshly generated assistant
     // output and tool results, so a baseline of input+output counts the
@@ -965,14 +1052,17 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(complete.stopReason, 'context_budget_exhausted');
     assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
     // The over-window second request never streamed.
-    assert.equal(fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'text_complete' && event.text === 'done'),
+      false,
+    );
     // Every completed step's usage was unusable, so there is no usage
     // evidence at all: the fail-closed terminal record is skipped and the
     // exhausted outcome is observable only through the CompleteEvent above.
     assert.equal(fixture.llmCalls.length, 0);
   });
 
-  test('a completed step\'s assistant text is never dropped from the replacement (review finding B)', async () => {
+  test("a completed step's assistant text is never dropped from the replacement (review finding B)", async () => {
     // Review round-3 finding B repro: the FIRST step emits assistant text AND
     // a tool call, and the trigger fires at that step's own boundary. The old
     // durable watermark waited only for the tool call/response pair — which
@@ -995,7 +1085,9 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
 
     // The text was emitted to the user...
     assert.equal(
-      fixture.events.some((event) => event.type === 'text_complete' && event.text.includes('ASSISTANT_SENTINEL')),
+      fixture.events.some(
+        (event) => event.type === 'text_complete' && event.text.includes('ASSISTANT_SENTINEL'),
+      ),
       true,
     );
     // ...and the projection accounts for it: the step-1 text event is in the
@@ -1012,7 +1104,6 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     const complete = fixture.events.find((event) => event.type === 'complete');
     assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
   });
-
 }
 
 describe('mid-turn capacity compaction in the streaming backend', () => {
@@ -1038,7 +1129,13 @@ describe('mid-turn capacity compaction flow plumbing', () => {
       // eslint-disable-next-line @typescript-eslint/require-await
       async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
         sendInputs.push(input);
-        yield { type: 'complete', id: 'complete-1', turnId: input.turnId, ts: 2, stopReason: 'end_turn' };
+        yield {
+          type: 'complete',
+          id: 'complete-1',
+          turnId: input.turnId,
+          ts: 2,
+          stopReason: 'end_turn',
+        };
       },
       stop: async () => {},
       respondToPermission: async () => {},
@@ -1164,7 +1261,10 @@ describe('the shipped runtime default drives the proactive long-turn journey (is
     assert.equal(fixture.model.doStreamCalls.length, 3);
     const complete = fixture.events.find((event) => event.type === 'complete');
     assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
-    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'error'),
+      false,
+    );
   });
 
   test('an unrescuable turn under the shipped default ends with the explicit context_budget_exhausted outcome', async () => {
@@ -1184,11 +1284,19 @@ describe('the shipped runtime default drives the proactive long-turn journey (is
     if (complete?.type !== 'complete') return;
     assert.equal(complete.stopReason, 'context_budget_exhausted');
     assert.equal(complete.contextBudgetExhaustedDetail, 'no_safe_completed_span');
-    assert.equal(fixture.events.some((event) => event.type === 'error'), false);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'error'),
+      false,
+    );
   });
 });
 
-function runtimeTextEvent(id: string, turnId: string, role: 'user' | 'model', text: string): RuntimeEvent {
+function runtimeTextEvent(
+  id: string,
+  turnId: string,
+  role: 'user' | 'model',
+  text: string,
+): RuntimeEvent {
   return {
     id,
     sessionId: 'session-1',
@@ -1211,6 +1319,7 @@ function header(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

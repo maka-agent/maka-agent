@@ -1,4 +1,13 @@
-import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import {
+  PROVIDER_DEFAULTS,
+  type LlmConnection,
+  type ModelInfo,
+  type ProviderType,
+} from '@maka/core';
+import type { RunHarborCellEnv } from './headless-run-env.js';
 
 export interface ProviderCredentialEnv {
   apiKeys: readonly string[];
@@ -86,15 +95,10 @@ export function providerBaseUrlFromEnv(
     if (value) return value;
   }
 
-  const accountId = credentialEnv?.accountId
-    ? values[credentialEnv.accountId]?.trim()
-    : undefined;
+  const accountId = credentialEnv?.accountId ? values[credentialEnv.accountId]?.trim() : undefined;
   const template = PROVIDER_DEFAULTS[providerType].baseUrlTemplate;
   if (!accountId || !template) return undefined;
-  return template.replace(
-    '${CLOUDFLARE_ACCOUNT_ID}',
-    encodeURIComponent(accountId),
-  );
+  return template.replace('${CLOUDFLARE_ACCOUNT_ID}', encodeURIComponent(accountId));
 }
 
 function env(
@@ -109,4 +113,126 @@ function env(
     baseUrls,
     ...(accountId ? { accountId } : {}),
   };
+}
+
+export interface ResolvedHarborCellAiSdkEnv {
+  connection: LlmConnection;
+  apiKey: string;
+}
+
+export function providerApiKeyEnvName(provider: string): string {
+  return requireProviderCredentialEnv(provider).apiKeys[0]!;
+}
+
+export function providerFromEnv(value: string | undefined): ProviderType {
+  if (!value || !(value in PROVIDER_DEFAULTS)) {
+    throw new Error(`unsupported MAKA_PROVIDER: ${value ?? ''}`);
+  }
+  return value as ProviderType;
+}
+
+export function resolveHarborCellAiSdkEnv(input: {
+  provider: ProviderType;
+  model: string;
+  env: RunHarborCellEnv;
+  ts: number;
+}): ResolvedHarborCellAiSdkEnv {
+  const connection = connectionFromEnv(input.provider, input.model, input.env, input.ts);
+  return {
+    connection,
+    apiKey: apiKeyFromEnv(input.provider, input.env, connection.slug),
+  };
+}
+
+function connectionFromEnv(
+  provider: ProviderType,
+  model: string,
+  values: RunHarborCellEnv,
+  ts: number,
+): LlmConnection {
+  const defaults = PROVIDER_DEFAULTS[provider];
+  const githubApiProtocol = modelApiProtocolFromEnv(values.MAKA_MODEL_API_PROTOCOL);
+  if (provider === 'github-copilot' && !githubApiProtocol) {
+    throw new Error('GitHub Copilot requires an account-discovered model protocol');
+  }
+  return {
+    slug: values.MAKA_LLM_CONNECTION_SLUG ?? provider,
+    name: defaults.label,
+    providerType: provider,
+    baseUrl: values.MAKA_BASE_URL ?? providerBaseUrlFromEnv(provider, values) ?? defaults.baseUrl,
+    defaultModel: model,
+    ...(provider === 'github-copilot'
+      ? { models: [{ id: model, apiProtocol: githubApiProtocol }] }
+      : {}),
+    enabled: true,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+}
+
+function modelApiProtocolFromEnv(value: string | undefined): ModelInfo['apiProtocol'] {
+  if (value === 'openai-chat' || value === 'openai-responses' || value === 'anthropic-messages')
+    return value;
+  return undefined;
+}
+
+function apiKeyFromEnv(
+  provider: ProviderType,
+  values: RunHarborCellEnv,
+  connectionSlug: string,
+): string {
+  const credentialEnv = providerCredentialEnv(provider);
+  if (!credentialEnv) return '';
+  return resolveApiKey(values, credentialEnv.apiKeys, connectionSlug);
+}
+
+// Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.
+// The file path is what travels through the Harbor CLI / job config, so the secret
+// itself stays in a mounted file — never on a command line or in config.json.
+function resolveApiKey(
+  values: RunHarborCellEnv,
+  names: readonly string[],
+  connectionSlug?: string,
+): string {
+  for (const name of names) {
+    const raw = values[name];
+    if (raw) return raw;
+    const filePath = values[`${name}_FILE`];
+    if (filePath) {
+      try {
+        return readFileSync(filePath, 'utf8').trim();
+      } catch {
+        // Fall through to the next candidate (or empty) when the file is unreadable.
+      }
+    }
+  }
+  if (connectionSlug) {
+    return readStoredMakaApiKey(values, connectionSlug);
+  }
+  return '';
+}
+
+function readStoredMakaApiKey(values: RunHarborCellEnv, connectionSlug: string): string {
+  const credentialPath =
+    values.MAKA_CREDENTIALS_PATH ??
+    join(
+      homedir(),
+      'Library',
+      'Application Support',
+      'Maka',
+      'workspaces',
+      'default',
+      'credentials.json',
+    );
+  try {
+    const parsed = JSON.parse(readFileSync(credentialPath, 'utf8')) as {
+      version?: unknown;
+      values?: unknown;
+    };
+    if (parsed.version !== 1 || !parsed.values || typeof parsed.values !== 'object') return '';
+    const value = (parsed.values as Record<string, unknown>)[`${connectionSlug}:apiKey`];
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
 }

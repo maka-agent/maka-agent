@@ -17,7 +17,11 @@ export async function withAbRunLock<T>(runRoot: string, action: () => Promise<T>
 async function acquireLock(lockPath: string): Promise<void> {
   try {
     await mkdir(lockPath);
-    await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({ pid: process.pid, startedAt: Date.now() })}\n`, 'utf8');
+    await writeFile(
+      join(lockPath, 'owner.json'),
+      `${JSON.stringify({ pid: process.pid, startedAt: Date.now() })}\n`,
+      'utf8',
+    );
     return;
   } catch (error) {
     if (!isAlreadyExists(error)) throw error;
@@ -25,7 +29,9 @@ async function acquireLock(lockPath: string): Promise<void> {
 
   const ownerPid = await readOwnerPid(lockPath);
   if (ownerPid === undefined || isProcessAlive(ownerPid)) {
-    throw new Error(`A/B run is already active (lock: ${lockPath}${ownerPid ? `, pid: ${ownerPid}` : ''})`);
+    throw new Error(
+      `A/B run is already active (lock: ${lockPath}${ownerPid ? `, pid: ${ownerPid}` : ''})`,
+    );
   }
 
   const stalePath = `${lockPath}.stale-${process.pid}-${Date.now()}`;
@@ -36,12 +42,18 @@ async function acquireLock(lockPath: string): Promise<void> {
   }
   await rm(stalePath, { recursive: true, force: true });
   await mkdir(lockPath);
-  await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({ pid: process.pid, startedAt: Date.now() })}\n`, 'utf8');
+  await writeFile(
+    join(lockPath, 'owner.json'),
+    `${JSON.stringify({ pid: process.pid, startedAt: Date.now() })}\n`,
+    'utf8',
+  );
 }
 
 async function readOwnerPid(lockPath: string): Promise<number | undefined> {
   try {
-    const value = JSON.parse(await readFile(join(lockPath, 'owner.json'), 'utf8')) as { pid?: unknown };
+    const value = JSON.parse(await readFile(join(lockPath, 'owner.json'), 'utf8')) as {
+      pid?: unknown;
+    };
     return Number.isInteger(value.pid) && Number(value.pid) > 0 ? Number(value.pid) : undefined;
   } catch {
     return undefined;
@@ -66,5 +78,10 @@ function isNoSuchProcess(error: unknown): boolean {
 }
 
 function isNodeError(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === code;
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === code
+  );
 }

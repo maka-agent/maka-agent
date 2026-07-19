@@ -64,8 +64,12 @@ function deniedChildProfile(): PermissionProfile {
 describe('detectLinuxSandboxCapability', () => {
   it('probes every namespace used by production and requires seccomp support', () => {
     for (const flag of [
-      '--unshare-user', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
-      '--unshare-cgroup', '--unshare-net',
+      '--unshare-user',
+      '--unshare-pid',
+      '--unshare-ipc',
+      '--unshare-uts',
+      '--unshare-cgroup',
+      '--unshare-net',
     ]) {
       assert.ok((LINUX_BWRAP_PROBE_ARGS as readonly string[]).includes(flag));
     }
@@ -80,14 +84,17 @@ describe('detectLinuxSandboxCapability', () => {
   });
 
   it('reports a missing configured bwrap executable', () => {
-    assert.deepEqual(detectLinuxSandboxCapability({
-      platform: 'linux',
-      bwrapPath: '/definitely/missing/maka-bwrap',
-    }), {
-      available: false,
-      reason: 'missing-bwrap',
-      bwrapPath: '/definitely/missing/maka-bwrap',
-    });
+    assert.deepEqual(
+      detectLinuxSandboxCapability({
+        platform: 'linux',
+        bwrapPath: '/definitely/missing/maka-bwrap',
+      }),
+      {
+        available: false,
+        reason: 'missing-bwrap',
+        bwrapPath: '/definitely/missing/maka-bwrap',
+      },
+    );
   });
 
   it('reports an executable that cannot create the bubblewrap sandbox', () => {
@@ -179,13 +186,13 @@ describe('buildBubblewrapArgv', () => {
 
 describe('linuxExecutableRoots', () => {
   it('keeps the Node installation root and absolute PATH entries without nested duplicates', () => {
-    assert.deepEqual(linuxExecutableRoots({
-      execPath: '/opt/hostedtoolcache/node/22.23.1/x64/bin/node',
-      path: '/opt/hostedtoolcache/node/22.23.1/x64/bin:/home/runner/.local/bin:relative-bin',
-    }), [
-      '/opt/hostedtoolcache/node/22.23.1/x64',
-      '/home/runner/.local/bin',
-    ]);
+    assert.deepEqual(
+      linuxExecutableRoots({
+        execPath: '/opt/hostedtoolcache/node/22.23.1/x64/bin/node',
+        path: '/opt/hostedtoolcache/node/22.23.1/x64/bin:/home/runner/.local/bin:relative-bin',
+      }),
+      ['/opt/hostedtoolcache/node/22.23.1/x64', '/home/runner/.local/bin'],
+    );
   });
 });
 
@@ -296,7 +303,7 @@ function hasPair(argv: readonly string[], flag: string, value: string): boolean 
 }
 
 function hasTriple(argv: readonly string[], flag: string, left: string, right: string): boolean {
-  return argv.some((item, index) => (
-    item === flag && argv[index + 1] === left && argv[index + 2] === right
-  ));
+  return argv.some(
+    (item, index) => item === flag && argv[index + 1] === left && argv[index + 2] === right,
+  );
 }

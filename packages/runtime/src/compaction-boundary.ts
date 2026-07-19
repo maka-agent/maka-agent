@@ -165,12 +165,11 @@ export function historyCompactBlockToCompactionBoundary(
 export function compactionDecisionToDiagnostic(
   decision: CompactionDecision,
 ): CompactionDecisionDiagnostic {
-  const estimatedTokensSaved = decision.estimatedTokensSaved
-    ?? (
-      decision.estimatedTokensBefore !== undefined && decision.estimatedTokensAfter !== undefined
-        ? Math.max(0, decision.estimatedTokensBefore - decision.estimatedTokensAfter)
-        : undefined
-    );
+  const estimatedTokensSaved =
+    decision.estimatedTokensSaved ??
+    (decision.estimatedTokensBefore !== undefined && decision.estimatedTokensAfter !== undefined
+      ? Math.max(0, decision.estimatedTokensBefore - decision.estimatedTokensAfter)
+      : undefined);
   return {
     stage: decision.stage,
     sourceKind: decision.sourceKind,
@@ -182,7 +181,9 @@ export function compactionDecisionToDiagnostic(
     ...(decision.coverage?.runtimeEventIds
       ? { coveredRuntimeEvents: decision.coverage.runtimeEventIds.length }
       : {}),
-    ...(decision.coverage?.toolCallIds ? { coveredToolCalls: decision.coverage.toolCallIds.length } : {}),
+    ...(decision.coverage?.toolCallIds
+      ? { coveredToolCalls: decision.coverage.toolCallIds.length }
+      : {}),
     ...(decision.coverage?.providerMessageSourceIds
       ? { coveredProviderMessages: decision.coverage.providerMessageSourceIds.length }
       : {}),
@@ -223,7 +224,9 @@ export function compactionDecisionToDiagnostic(
       : {}),
     ...(decision.reason ? { reason: decision.reason } : {}),
     ...(decision.failOpenReason ? { failOpenReason: decision.failOpenReason } : {}),
-    ...(decision.skippedReasonCounts ? { skippedReasonCounts: { ...decision.skippedReasonCounts } } : {}),
+    ...(decision.skippedReasonCounts
+      ? { skippedReasonCounts: { ...decision.skippedReasonCounts } }
+      : {}),
     ...(decision.validationReasonCounts
       ? { validationReasonCounts: { ...decision.validationReasonCounts } }
       : {}),

@@ -17,23 +17,39 @@ test('runs the elapsed ticker only while a background Bash card is running', () 
   const ticker = createShellRunElapsedTicker({
     state,
     now: () => now,
-    onTick: () => { renders += 1; },
+    onTick: () => {
+      renders += 1;
+    },
     schedule: (callback) => {
       tick = callback;
-      return () => { cancelled += 1; tick = undefined; };
+      return () => {
+        cancelled += 1;
+        tick = undefined;
+      };
     },
   });
 
   ticker.sync();
   assert.equal(tick, undefined);
 
-  applyMakaSessionEventToTranscript(state, event({
-    type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'sleep 30' },
-  }));
-  applyMakaSessionEventToTranscript(state, event({
-    type: 'tool_result', toolUseId: 'bash-bg', isError: false,
-    content: shellRun({ status: 'running' }),
-  }));
+  applyMakaSessionEventToTranscript(
+    state,
+    event({
+      type: 'tool_start',
+      toolUseId: 'bash-bg',
+      toolName: 'Bash',
+      args: { command: 'sleep 30' },
+    }),
+  );
+  applyMakaSessionEventToTranscript(
+    state,
+    event({
+      type: 'tool_result',
+      toolUseId: 'bash-bg',
+      isError: false,
+      content: shellRun({ status: 'running' }),
+    }),
+  );
   ticker.sync();
   assert.ok(tick);
 
@@ -54,16 +70,21 @@ test('runs the elapsed ticker only while a background Bash card is running', () 
   assert.equal(tick, undefined);
   assert.equal(cancelled, 1);
 
-  applyMakaSessionEventToTranscript(state, event({
-    type: 'tool_result', toolUseId: 'bash-bg', isError: false,
-    content: shellRun({
-      status: 'completed',
-      completedAt: 6_500,
-      updatedAt: 6_500,
-      exitCode: 0,
-      revision: 3,
+  applyMakaSessionEventToTranscript(
+    state,
+    event({
+      type: 'tool_result',
+      toolUseId: 'bash-bg',
+      isError: false,
+      content: shellRun({
+        status: 'completed',
+        completedAt: 6_500,
+        updatedAt: 6_500,
+        exitCode: 0,
+        revision: 3,
+      }),
     }),
-  }));
+  );
   ticker.sync();
   assert.equal(tick, undefined);
   assert.equal(cancelled, 1);
@@ -77,13 +98,22 @@ function shellRun(
   overrides: Partial<Extract<ToolResultContent, { kind: 'shell_run'; mode: 'pipes' }>>,
 ): Extract<ToolResultContent, { kind: 'shell_run'; mode: 'pipes' }> {
   return {
-    kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+    kind: 'shell_run',
+    ref: 'maka://runtime/background-tasks/bg-1',
     mode: 'pipes',
-    status: 'running', cwd: '/repo', cmd: 'sleep 30',
-    startedAt: 1_000, updatedAt: 1_000, revision: overrides.revision ?? 1,
+    status: 'running',
+    cwd: '/repo',
+    cmd: 'sleep 30',
+    startedAt: 1_000,
+    updatedAt: 1_000,
+    revision: overrides.revision ?? 1,
     output: {
-      mode: 'pipes', stdout: '', stderr: '',
-      stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      mode: 'pipes',
+      stdout: '',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      redacted: false,
     },
     ...overrides,
   };

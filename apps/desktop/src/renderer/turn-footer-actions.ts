@@ -25,7 +25,8 @@
  * source of that decision.
  */
 
-import type { TurnStatus } from '@maka/core';
+import type { TurnStatus, UiLocale } from '@maka/core';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 
 export type TurnFooterActionId = 'regenerate' | 'branch' | 'copy' | 'info';
 
@@ -77,14 +78,8 @@ export interface TurnFooterContext {
    * / other action types stay clickable.
    */
   pendingActions?: ReadonlySet<TurnFooterActionId>;
+  locale?: UiLocale;
 }
-
-const ACTION_LABEL: Record<TurnFooterActionId, string> = {
-  regenerate: '重新生成',
-  branch: '分支',
-  copy: '复制',
-  info: '详情',
-};
 
 /**
  * Derive the ordered list of footer actions to render for a turn.
@@ -97,47 +92,49 @@ const ACTION_LABEL: Record<TurnFooterActionId, string> = {
  */
 export function deriveTurnFooterActions(input: TurnFooterContext): TurnFooterAction[] {
   const { status, hasContent, alreadyRegenerated, pendingActions, metaSummary } = input;
+  const copyText = getDesktopConversationCopy(input.locale ?? 'zh').footer;
+  const actionLabel = copyText.labels;
   const isPending = (id: TurnFooterActionId) => pendingActions?.has(id) ?? false;
-  const PENDING_TOOLTIP = '正在处理…';
+  const PENDING_TOOLTIP = copyText.pending;
 
   const regenerate: TurnFooterAction = isPending('regenerate')
-    ? { id: 'regenerate', label: ACTION_LABEL.regenerate, enabled: false, tooltip: PENDING_TOOLTIP }
+    ? { id: 'regenerate', label: actionLabel.regenerate, enabled: false, tooltip: PENDING_TOOLTIP }
     : {
         id: 'regenerate',
-        label: ACTION_LABEL.regenerate,
+        label: actionLabel.regenerate,
         enabled: status !== 'running',
         tooltip:
           status === 'running'
-            ? '当前回答仍在进行中，结束后再重新生成'
+            ? copyText.regenerateRunning
             : alreadyRegenerated
-            ? '已重新生成过，再次点击将创建新的并行回答'
-            : '让模型重新生成本轮回答',
+            ? copyText.regenerateAgain
+            : copyText.regenerate,
       };
   const branch: TurnFooterAction = isPending('branch')
-    ? { id: 'branch', label: ACTION_LABEL.branch, enabled: false, tooltip: PENDING_TOOLTIP }
+    ? { id: 'branch', label: actionLabel.branch, enabled: false, tooltip: PENDING_TOOLTIP }
     : {
         id: 'branch',
-        label: ACTION_LABEL.branch,
+        label: actionLabel.branch,
         enabled: status !== 'running',
         tooltip:
           status === 'running'
-            ? '当前回答仍在进行中，结束后再分支'
+            ? copyText.branchRunning
             : status === 'aborted'
-            ? '从中断前的上下文分支出新对话'
-            : '基于此回答的上下文分支出新对话',
+            ? copyText.branchAborted
+            : copyText.branch,
       };
   const copy: TurnFooterAction = {
     id: 'copy',
-    label: ACTION_LABEL.copy,
+    label: actionLabel.copy,
     enabled: hasContent,
-    tooltip: hasContent ? '复制回答到剪贴板' : '此回答尚无可复制的内容',
+    tooltip: hasContent ? copyText.copy : copyText.copyEmpty,
   };
 
   // info is informational, not an operation: no pending state, always
   // enabled, and its tooltip carries the turn meta summary. Rendered
   // only when there is meta to show (#546).
   const info: TurnFooterAction | undefined = metaSummary
-    ? { id: 'info', label: ACTION_LABEL.info, enabled: true, tooltip: metaSummary }
+    ? { id: 'info', label: actionLabel.info, enabled: true, tooltip: metaSummary }
     : undefined;
 
   return [regenerate, branch, copy, ...(info ? [info] : [])];

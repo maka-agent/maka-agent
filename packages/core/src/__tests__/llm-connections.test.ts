@@ -206,7 +206,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('derives catalog, recommendation, runtime, and discovery behavior from one registry', () => {
-    assert.equal(PROVIDER_DEFAULTS, PROVIDER_REGISTRY, 'the compatibility export must not copy registry state');
+    assert.equal(
+      PROVIDER_DEFAULTS,
+      PROVIDER_REGISTRY,
+      'the compatibility export must not copy registry state',
+    );
     assert.deepEqual(RECOMMENDED_PROVIDER_TYPES, [
       'siliconflow',
       'anthropic',
@@ -224,11 +228,23 @@ describe('provider compatibility contract', () => {
     assert.equal(PROVIDER_REGISTRY.siliconflow.modelDiscovery.kind, 'protocol');
     assert.deepEqual(PROVIDER_REGISTRY.siliconflow.modelDiscovery.query, { sub_type: 'chat' });
     assert.equal(PROVIDER_REGISTRY.ollama.modelDiscovery.kind, 'ollama');
-    assert.deepEqual(PROVIDER_REGISTRY['openai-codex'].modelDiscovery, { kind: 'protocol', auth: 'openai-codex' });
+    assert.deepEqual(PROVIDER_REGISTRY['openai-codex'].modelDiscovery, {
+      kind: 'protocol',
+      auth: 'openai-codex',
+    });
+  });
+
+  it('offers K3 first for Kimi Coding Plan while preserving the existing legacy alias', () => {
+    assert.deepEqual(PROVIDER_REGISTRY['kimi-coding-plan'].fallbackModels, [
+      'k3',
+      'kimi-for-coding',
+    ]);
   });
 
   it('owns OpenCode Zen and Go as distinct mixed-protocol access paths', () => {
-    const providers = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
+    const providers = PROVIDER_REGISTRY as Partial<
+      Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+    >;
     const zen = providers.opencode;
     const go = providers['opencode-go'];
 
@@ -253,7 +269,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns GitHub Copilot as an account subscription, never as GitHub Models inference', () => {
-    const provider = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['github-copilot'];
+    const provider = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['github-copilot'];
 
     assert.ok(provider);
     assert.equal(provider.label, 'GitHub Copilot');
@@ -270,7 +290,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Volcengine Ark Coding Plan as a fallback-only interactive coding access path', () => {
-    const provider = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['volcengine-coding-plan'];
+    const provider = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['volcengine-coding-plan'];
 
     assert.ok(provider);
     assert.equal(provider.label, 'Volcengine Ark Coding Plan (China)');
@@ -297,7 +321,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns LocalAI under one stable local provider id with optional API-key auth', () => {
-    const localai = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).localai;
+    const localai = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).localai;
 
     assert.ok(localai, 'LocalAI must be available through the shared provider registry');
     assert.equal(localai.label, 'LocalAI');
@@ -378,7 +406,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Vercel AI Gateway under the stable models.dev id with public language-model discovery', () => {
-    const provider = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).vercel;
+    const provider = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).vercel;
 
     assert.ok(provider, 'Vercel AI Gateway must be available through the shared provider registry');
     assert.equal(provider.label, 'Vercel AI Gateway');
@@ -386,7 +418,11 @@ describe('provider compatibility contract', () => {
     assert.equal(provider.authKind, 'api_key');
     assert.equal(provider.protocol, 'openai');
     assert.deepEqual(provider.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
-    assert.deepEqual(provider.modelDiscovery, { kind: 'protocol', auth: 'none', filter: 'language-models' });
+    assert.deepEqual(provider.modelDiscovery, {
+      kind: 'protocol',
+      auth: 'none',
+      filter: 'language-models',
+    });
     assert.equal(provider.category, 'overseas');
     assert.equal(provider.catalogGroup, 'aggregators');
     assert.equal(provider.catalogBadge, 'Gateway');
@@ -395,11 +431,18 @@ describe('provider compatibility contract', () => {
     assert.equal(provider.fallbackModels[0], 'anthropic/claude-opus-4.8');
     assert.ok(provider.fallbackModels.includes('openai/gpt-5.5'));
     assert.equal(provider.fallbackModels.includes('anthropic/claude-opus-4.1'), false);
-    assert.equal(provider.fallbackModels.every((id) => id.includes('/')), true);
+    assert.equal(
+      provider.fallbackModels.every((id) => id.includes('/')),
+      true,
+    );
   });
 
   it('owns ZenMux under the stable models.dev id with public snapshot-bounded discovery', () => {
-    const zenmux = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).zenmux;
+    const zenmux = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).zenmux;
 
     assert.ok(zenmux, 'ZenMux must be available through the shared provider registry');
     assert.equal(zenmux.label, 'ZenMux');
@@ -460,7 +503,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Mistral hosted API behavior under the stable mistral id', () => {
-    const mistral = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).mistral;
+    const mistral = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).mistral;
 
     assert.ok(mistral, 'Mistral must be available through the shared provider registry');
     assert.equal(mistral.label, 'Mistral');
@@ -478,7 +525,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns DeepInfra direct API behavior under the stable deepinfra id', () => {
-    const deepinfra = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).deepinfra;
+    const deepinfra = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).deepinfra;
 
     assert.ok(deepinfra, 'DeepInfra must be available through the shared provider registry');
     assert.equal(deepinfra.label, 'Deep Infra');
@@ -500,7 +551,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Groq direct API behavior under the stable groq id', () => {
-    const groq = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).groq;
+    const groq = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).groq;
 
     assert.ok(groq, 'Groq must be available through the shared provider registry');
     assert.equal(groq.label, 'Groq');
@@ -528,7 +583,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns OpenRouter direct API behavior under the stable openrouter id', () => {
-    const openrouter = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).openrouter;
+    const openrouter = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).openrouter;
 
     assert.ok(openrouter, 'OpenRouter must be available through the shared provider registry');
     assert.equal(openrouter.label, 'OpenRouter');
@@ -549,7 +608,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Cohere native API behavior under the stable cohere id', () => {
-    const cohere = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).cohere;
+    const cohere = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).cohere;
 
     assert.ok(cohere, 'Cohere must be available through the shared provider registry');
     assert.equal(cohere.label, 'Cohere');
@@ -567,9 +630,19 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Cloudflare Workers AI under one account-scoped stable provider id', () => {
-    const cloudflare = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY] & { baseUrlTemplate?: string }>>)['cloudflare-workers-ai'];
+    const cloudflare = (
+      PROVIDER_REGISTRY as Partial<
+        Record<
+          string,
+          (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY] & { baseUrlTemplate?: string }
+        >
+      >
+    )['cloudflare-workers-ai'];
 
-    assert.ok(cloudflare, 'Cloudflare Workers AI must be available through the shared provider registry');
+    assert.ok(
+      cloudflare,
+      'Cloudflare Workers AI must be available through the shared provider registry',
+    );
     assert.equal(cloudflare.label, 'Cloudflare Workers AI');
     assert.equal(cloudflare.baseUrl, '');
     assert.equal(
@@ -594,9 +667,16 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Hugging Face Inference Providers behavior under the stable huggingface id', () => {
-    const huggingface = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).huggingface;
+    const huggingface = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).huggingface;
 
-    assert.ok(huggingface, 'Hugging Face Inference Providers must be available through the shared provider registry');
+    assert.ok(
+      huggingface,
+      'Hugging Face Inference Providers must be available through the shared provider registry',
+    );
     assert.equal(huggingface.label, 'Hugging Face');
     assert.equal(huggingface.baseUrl, 'https://router.huggingface.co/v1');
     assert.equal(huggingface.authKind, 'api_key');
@@ -612,7 +692,9 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Ollama Cloud direct API separately from the local Ollama daemon', () => {
-    const providers = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
+    const providers = PROVIDER_REGISTRY as Partial<
+      Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+    >;
     const cloud = providers['ollama-cloud'];
 
     assert.ok(cloud, 'Ollama Cloud must be available through the shared provider registry');
@@ -623,6 +705,7 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(cloud.runtimeAdapter, {
       kind: 'openai-compatible',
       name: 'provider',
+      includeUsage: true,
       replayAssistantReasoningAs: 'reasoning',
     });
     assert.deepEqual(cloud.modelDiscovery, { kind: 'protocol' });
@@ -630,7 +713,10 @@ describe('provider compatibility contract', () => {
     assert.equal(cloud.catalogGroup, 'api');
     assert.equal(cloud.modelsDevId, 'ollama-cloud');
     assert.equal(cloud.fallbackModels[0], 'qwen3.5:397b');
-    assert.ok(!cloud.fallbackModels.includes('cogito-2.1:671b'), 'deprecated snapshot models must not be fallback choices');
+    assert.ok(
+      !cloud.fallbackModels.includes('cogito-2.1:671b'),
+      'deprecated snapshot models must not be fallback choices',
+    );
     assert.notEqual(cloud, providers.ollama);
     assert.equal(providers.ollama?.baseUrl, 'http://localhost:11434/v1');
     assert.equal(providers.ollama?.authKind, 'none');
@@ -720,7 +806,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Tencent direct API behavior under the stable tencent-tokenhub id', () => {
-    const tencent = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['tencent-tokenhub'];
+    const tencent = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['tencent-tokenhub'];
 
     assert.ok(tencent, 'Tencent TokenHub must be available through the shared provider registry');
     assert.equal(tencent.label, 'Tencent TokenHub');
@@ -737,7 +827,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Tencent Coding Plan behavior under its independent persisted id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['tencent-coding-plan'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['tencent-coding-plan'];
 
     assert.ok(plan, 'Tencent Coding Plan must be available through the shared provider registry');
     assert.equal(plan.label, 'Tencent Coding Plan (China)');
@@ -751,16 +845,15 @@ describe('provider compatibility contract', () => {
     assert.equal(plan.catalogBadge, 'Coding');
     assert.equal(plan.signupUrl, 'https://console.cloud.tencent.com/lkeap/coding-plan');
     assert.equal(plan.modelsDevId, 'tencent-coding-plan');
-    assert.deepEqual(plan.fallbackModels, [
-      'tc-code-latest',
-      'glm-5',
-      'minimax-m2.5',
-      'kimi-k2.5',
-    ]);
+    assert.deepEqual(plan.fallbackModels, ['tc-code-latest', 'glm-5', 'minimax-m2.5', 'kimi-k2.5']);
   });
 
   it('owns Tencent Token Plan behavior under its independent persisted id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['tencent-token-plan'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['tencent-token-plan'];
 
     assert.ok(plan, 'Tencent Token Plan must be available through the shared provider registry');
     assert.equal(plan.label, 'Tencent Token Plan');
@@ -804,9 +897,16 @@ describe('provider compatibility contract', () => {
   ];
 
   it('owns Alibaba Coding Plan (China) behavior under its independent persisted id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-coding-plan-cn'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['alibaba-coding-plan-cn'];
 
-    assert.ok(plan, 'Alibaba Coding Plan (China) must be available through the shared provider registry');
+    assert.ok(
+      plan,
+      'Alibaba Coding Plan (China) must be available through the shared provider registry',
+    );
     assert.equal(plan.label, 'Alibaba Coding Plan (China)');
     assert.equal(plan.baseUrl, 'https://coding.dashscope.aliyuncs.com/v1');
     assert.equal(plan.authKind, 'api_key');
@@ -824,7 +924,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Alibaba Coding Plan (global) behavior under its independent persisted id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-coding-plan'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['alibaba-coding-plan'];
 
     assert.ok(plan, 'Alibaba Coding Plan must be available through the shared provider registry');
     assert.equal(plan.label, 'Alibaba Coding Plan');
@@ -844,7 +948,9 @@ describe('provider compatibility contract', () => {
   });
 
   it('separates the two Alibaba Coding Plan regions from the Alibaba direct API path', () => {
-    const registry = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
+    const registry = PROVIDER_REGISTRY as Partial<
+      Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+    >;
     const cn = registry['alibaba-coding-plan-cn'];
     const global = registry['alibaba-coding-plan'];
     const direct = registry.alibaba;
@@ -875,11 +981,21 @@ describe('provider compatibility contract', () => {
   ];
 
   it('owns Alibaba Token Plan China behavior under its independent persisted id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-token-plan-cn'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['alibaba-token-plan-cn'];
 
-    assert.ok(plan, 'Alibaba Token Plan (China) must be available through the shared provider registry');
+    assert.ok(
+      plan,
+      'Alibaba Token Plan (China) must be available through the shared provider registry',
+    );
     assert.equal(plan.label, 'Alibaba Token Plan (China)');
-    assert.equal(plan.baseUrl, 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1');
+    assert.equal(
+      plan.baseUrl,
+      'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    );
     assert.equal(plan.authKind, 'api_key');
     assert.equal(plan.protocol, 'openai');
     assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
@@ -890,17 +1006,35 @@ describe('provider compatibility contract', () => {
     assert.equal(plan.modelsDevId, 'alibaba-token-plan-cn');
     assert.deepEqual(plan.fallbackModels, alibabaTokenPlanModels);
     // Interactive-only allowlist: the plan's image models are never tool-callable.
-    for (const imageModel of ['qwen-image-2.0', 'qwen-image-2.0-pro', 'wan2.7-image', 'wan2.7-image-pro']) {
-      assert.ok(!plan.fallbackModels.includes(imageModel), `${imageModel} must not be an offered chat model`);
+    for (const imageModel of [
+      'qwen-image-2.0',
+      'qwen-image-2.0-pro',
+      'wan2.7-image',
+      'wan2.7-image-pro',
+    ]) {
+      assert.ok(
+        !plan.fallbackModels.includes(imageModel),
+        `${imageModel} must not be an offered chat model`,
+      );
     }
   });
 
   it('owns Alibaba Token Plan global behavior under its independent persisted id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-token-plan'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['alibaba-token-plan'];
 
-    assert.ok(plan, 'Alibaba Token Plan (global) must be available through the shared provider registry');
+    assert.ok(
+      plan,
+      'Alibaba Token Plan (global) must be available through the shared provider registry',
+    );
     assert.equal(plan.label, 'Alibaba Token Plan');
-    assert.equal(plan.baseUrl, 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1');
+    assert.equal(
+      plan.baseUrl,
+      'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+    );
     assert.equal(plan.authKind, 'api_key');
     assert.equal(plan.protocol, 'openai');
     assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
@@ -911,7 +1045,11 @@ describe('provider compatibility contract', () => {
     assert.equal(plan.modelsDevId, 'alibaba-token-plan');
     assert.deepEqual(plan.fallbackModels, alibabaTokenPlanModels);
     // The China and global variants are distinct persisted ids sharing one model list.
-    const cn = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-token-plan-cn'];
+    const cn = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['alibaba-token-plan-cn'];
     assert.ok(cn);
     assert.notEqual(plan.baseUrl, cn.baseUrl);
     assert.deepEqual(plan.fallbackModels, cn.fallbackModels);
@@ -938,7 +1076,11 @@ describe('provider compatibility contract', () => {
     },
   ] as const) {
     it(`owns ${region.label} behavior under its independent persisted id`, () => {
-      const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)[region.type];
+      const plan = (
+        PROVIDER_REGISTRY as Partial<
+          Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+        >
+      )[region.type];
 
       assert.ok(plan, `${region.label} must have its own persisted provider id`);
       assert.equal(plan.label, region.label);
@@ -960,9 +1102,16 @@ describe('provider compatibility contract', () => {
   }
 
   it('owns StepFun China direct API behavior under the stable stepfun id', () => {
-    const stepfun = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>).stepfun;
+    const stepfun = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    ).stepfun;
 
-    assert.ok(stepfun, 'StepFun China direct API must be available through the shared provider registry');
+    assert.ok(
+      stepfun,
+      'StepFun China direct API must be available through the shared provider registry',
+    );
     assert.equal(stepfun.label, 'StepFun (China)');
     assert.equal(stepfun.baseUrl, 'https://api.stepfun.com/v1');
     assert.equal(stepfun.authKind, 'api_key');
@@ -983,7 +1132,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns StepFun Step Plan China behavior under the stable stepfun-step-plan id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['stepfun-step-plan'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['stepfun-step-plan'];
 
     assert.ok(plan, 'StepFun Step Plan China must have its own persisted provider id');
     assert.equal(plan.label, 'StepFun Step Plan (China)');
@@ -1006,7 +1159,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns StepFun Step Plan Global behavior under the stable stepfun-ai-step-plan id', () => {
-    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['stepfun-ai-step-plan'];
+    const plan = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['stepfun-ai-step-plan'];
 
     assert.ok(plan, 'StepFun Step Plan Global must have its own persisted provider id');
     assert.equal(plan.label, 'StepFun Step Plan (Global)');
@@ -1028,9 +1185,16 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns StepFun Global direct API behavior under the stable stepfun-ai id', () => {
-    const stepfunGlobal = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['stepfun-ai'];
+    const stepfunGlobal = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['stepfun-ai'];
 
-    assert.ok(stepfunGlobal, 'StepFun Global direct API must be available through the shared provider registry');
+    assert.ok(
+      stepfunGlobal,
+      'StepFun Global direct API must be available through the shared provider registry',
+    );
     assert.equal(stepfunGlobal.label, 'StepFun (Global)');
     assert.equal(stepfunGlobal.baseUrl, 'https://api.stepfun.ai/v1');
     assert.equal(stepfunGlobal.authKind, 'api_key');
@@ -1049,7 +1213,11 @@ describe('provider compatibility contract', () => {
   });
 
   it('owns Volcengine Ark China direct API behavior under the stable volcengine-ark id', () => {
-    const ark = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['volcengine-ark'];
+    const ark = (
+      PROVIDER_REGISTRY as Partial<
+        Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>
+      >
+    )['volcengine-ark'];
 
     assert.ok(ark, 'Volcengine Ark China direct API must have its own persisted provider id');
     assert.equal(ark.label, 'Volcengine Ark (China)');
@@ -1112,7 +1280,11 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
         'http://lan-server.local:5000',
       ];
       for (const url of local) {
-        assert.equal(validateConnectionBaseUrl(url), null, `localhost / private URL ${url} must be accepted`);
+        assert.equal(
+          validateConnectionBaseUrl(url),
+          null,
+          `localhost / private URL ${url} must be accepted`,
+        );
       }
     });
 
@@ -1128,7 +1300,10 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
     });
 
     it('https with custom port + path + query survives', () => {
-      assert.equal(validateConnectionBaseUrl('https://api.custom.example.com:8443/v2/chat?region=us'), null);
+      assert.equal(
+        validateConnectionBaseUrl('https://api.custom.example.com:8443/v2/chat?region=us'),
+        null,
+      );
     });
 
     it('trims surrounding whitespace', () => {
@@ -1233,7 +1408,9 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
 
 describe('provider URL defaults', () => {
   it('defines LM Studio as an independent no-auth local provider', () => {
-    const providers = PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>;
+    const providers = PROVIDER_DEFAULTS as Partial<
+      Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>
+    >;
     const lmStudio = providers['lm-studio'];
 
     assert.ok(lmStudio, 'LM Studio must have its own persisted provider id');
@@ -1252,7 +1429,11 @@ describe('provider URL defaults', () => {
   });
 
   it('exposes SiliconFlow with models.dev provider facts and exact model ids', () => {
-    const siliconflow = (PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>).siliconflow;
+    const siliconflow = (
+      PROVIDER_DEFAULTS as Partial<
+        Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>
+      >
+    ).siliconflow;
 
     assert.ok(siliconflow, 'SiliconFlow must be available through the shared provider registry');
     assert.equal(siliconflow.label, 'SiliconFlow');
@@ -1268,18 +1449,29 @@ describe('provider URL defaults', () => {
 
   it('labels the ChatGPT account path as OpenAI OAuth, not Codex subscription', () => {
     assert.equal(PROVIDER_DEFAULTS['openai-codex'].label, 'OpenAI OAuth (ChatGPT / Codex)');
-    assert.equal(PROVIDER_DEFAULTS['openai-codex'].description, 'ChatGPT/Codex account OAuth path for OpenAI Responses models.');
+    assert.equal(
+      PROVIDER_DEFAULTS['openai-codex'].description,
+      'ChatGPT/Codex account OAuth path for OpenAI Responses models.',
+    );
   });
 
   it('keeps Kimi Coding Plan separate from Moonshot API key access', () => {
     assert.equal(PROVIDER_DEFAULTS['kimi-coding-plan'].baseUrl, 'https://api.kimi.com/coding/v1');
-    assert.equal(PROVIDER_DEFAULTS['kimi-coding-plan'].signupUrl, 'https://www.kimi.com/code/console');
+    assert.equal(
+      PROVIDER_DEFAULTS['kimi-coding-plan'].signupUrl,
+      'https://www.kimi.com/code/console',
+    );
     assert.equal(PROVIDER_DEFAULTS.moonshot.baseUrl, 'https://api.moonshot.cn/v1');
-    assert.equal(PROVIDER_DEFAULTS.moonshot.signupUrl, 'https://platform.kimi.com/console/api-keys');
+    assert.equal(
+      PROVIDER_DEFAULTS.moonshot.signupUrl,
+      'https://platform.kimi.com/console/api-keys',
+    );
   });
 
   it('keeps MiniMax Coding Plan separate from MiniMax direct API access', () => {
-    const providers = PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>>;
+    const providers = PROVIDER_DEFAULTS as Partial<
+      Record<string, (typeof PROVIDER_DEFAULTS)[keyof typeof PROVIDER_DEFAULTS]>
+    >;
     const plan = providers['minimax-coding-plan'];
 
     assert.ok(plan, 'MiniMax Coding Plan must have its own persisted provider id');
@@ -1287,7 +1479,11 @@ describe('provider URL defaults', () => {
     assert.equal(plan.baseUrl, 'https://api.minimax.io/anthropic');
     assert.equal(plan.authKind, 'api_key');
     assert.equal(plan.protocol, 'anthropic');
-    assert.deepEqual(plan.runtimeAdapter, { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true });
+    assert.deepEqual(plan.runtimeAdapter, {
+      kind: 'anthropic',
+      auth: 'api-key',
+      normalizeBaseUrl: true,
+    });
     assert.deepEqual(plan.modelDiscovery, { kind: 'protocol' });
     assert.equal(plan.category, 'overseas');
     assert.equal(plan.catalogGroup, 'plans');
@@ -1337,7 +1533,10 @@ describe('persistedBaseUrl', () => {
     const custom = 'https://my-openai-proxy.example.com/v1';
     assert.equal(persistedBaseUrl('openai', custom), custom);
     assert.equal(persistedBaseUrl('openai', `  ${custom}  `), custom, 'whitespace is trimmed');
-    assert.equal(persistedBaseUrl('google', 'https://my-gemini-proxy.example.com/v1beta'), 'https://my-gemini-proxy.example.com/v1beta');
+    assert.equal(
+      persistedBaseUrl('google', 'https://my-gemini-proxy.example.com/v1beta'),
+      'https://my-gemini-proxy.example.com/v1beta',
+    );
   });
 
   it('persists a custom override for openai-compatible (whose default is the empty string)', () => {
@@ -1345,7 +1544,11 @@ describe('persistedBaseUrl', () => {
     // non-empty value the user supplies is a real override and must persist.
     const custom = 'https://my-gateway.example.com/v1';
     assert.equal(persistedBaseUrl('openai-compatible', custom), custom);
-    assert.equal(persistedBaseUrl('openai-compatible', ''), undefined, 'empty still means no override');
+    assert.equal(
+      persistedBaseUrl('openai-compatible', ''),
+      undefined,
+      'empty still means no override',
+    );
   });
 });
 
@@ -1394,14 +1597,14 @@ describe('normalizeConnectionBaseUrl (PR-UI-IPC-1 fixup v2, @kenji msg 8755ffb3 
     });
 
     it('URL with surrounding whitespace → trimmed', () => {
-      assert.deepEqual(
-        normalizeConnectionBaseUrl('  https://api.openai.com  '),
-        { ok: true, value: 'https://api.openai.com' },
-      );
-      assert.deepEqual(
-        normalizeConnectionBaseUrl('\thttps://api.openai.com\n'),
-        { ok: true, value: 'https://api.openai.com' },
-      );
+      assert.deepEqual(normalizeConnectionBaseUrl('  https://api.openai.com  '), {
+        ok: true,
+        value: 'https://api.openai.com',
+      });
+      assert.deepEqual(normalizeConnectionBaseUrl('\thttps://api.openai.com\n'), {
+        ok: true,
+        value: 'https://api.openai.com',
+      });
     });
 
     it('does NOT lowercase scheme / host / path (no URL canonicalization)', () => {
@@ -1409,21 +1612,21 @@ describe('normalizeConnectionBaseUrl (PR-UI-IPC-1 fixup v2, @kenji msg 8755ffb3 
       // normalization. Users who deliberately configured
       // mixed-case URLs keep them. WHATWG URL accepts the case
       // variants; we don't re-emit a normalized URL.
-      assert.deepEqual(
-        normalizeConnectionBaseUrl('  https://Example.com:443/V1  '),
-        { ok: true, value: 'https://Example.com:443/V1' },
-      );
+      assert.deepEqual(normalizeConnectionBaseUrl('  https://Example.com:443/V1  '), {
+        ok: true,
+        value: 'https://Example.com:443/V1',
+      });
     });
 
     it('localhost / private-network URLs survive (Ollama etc.)', () => {
-      assert.deepEqual(
-        normalizeConnectionBaseUrl('  http://localhost:11434/v1  '),
-        { ok: true, value: 'http://localhost:11434/v1' },
-      );
-      assert.deepEqual(
-        normalizeConnectionBaseUrl('http://192.168.1.50:11434'),
-        { ok: true, value: 'http://192.168.1.50:11434' },
-      );
+      assert.deepEqual(normalizeConnectionBaseUrl('  http://localhost:11434/v1  '), {
+        ok: true,
+        value: 'http://localhost:11434/v1',
+      });
+      assert.deepEqual(normalizeConnectionBaseUrl('http://192.168.1.50:11434'), {
+        ok: true,
+        value: 'http://192.168.1.50:11434',
+      });
     });
   });
 
@@ -1504,7 +1707,10 @@ describe('normalizeConnectionBaseUrl (PR-UI-IPC-1 fixup v2, @kenji msg 8755ffb3 
       // on null would throw TypeError, breaking the IPC handler's
       // typed-reject promise. This test catches that regression.
       for (const bad of [null, undefined, 42, true, {}, [], Symbol('x'), () => '', BigInt(1)]) {
-        assert.doesNotThrow(() => normalizeConnectionBaseUrl(bad), `bad input ${String(bad)} must not throw`);
+        assert.doesNotThrow(
+          () => normalizeConnectionBaseUrl(bad),
+          `bad input ${String(bad)} must not throw`,
+        );
       }
     });
   });
@@ -1578,7 +1784,10 @@ describe('unknown-providerType tolerance', () => {
   });
 
   it('effectiveBaseUrl returns the explicit baseUrl, else empty string', () => {
-    assert.equal(effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: 'https://example.test/v1' }), 'https://example.test/v1');
+    assert.equal(
+      effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: 'https://example.test/v1' }),
+      'https://example.test/v1',
+    );
     assert.equal(effectiveBaseUrl({ providerType: UNKNOWN, baseUrl: undefined }), '');
   });
 

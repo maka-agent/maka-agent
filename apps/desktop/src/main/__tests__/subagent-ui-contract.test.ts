@@ -7,7 +7,7 @@ import { LocaleProvider, OverlayHost } from '@maka/ui';
 describe('subagent UI contract', () => {
   it('renders a compact subagent card without exposing internal ids', () => {
     const markup = renderToStaticMarkup(createElement(LocaleProvider, {
-      preference: 'zh',
+      locale: 'zh',
       children: createElement(OverlayHost, {
         content: {
           kind: 'subagent',
@@ -53,11 +53,11 @@ describe('subagent UI contract', () => {
     const block = source.match(/export function OverlayHost[\s\S]*?^}/m)?.[0] ?? '';
 
     assert.match(block, /<UiButton[\s\S]*className=\{previewVariants\(\{ part: 'close' \}\)\}[\s\S]*variant="ghost"[\s\S]*size="sm"/);
-    assert.match(block, /aria-label="关闭预览"/);
+    assert.match(block, /aria-label=\{copy\.closeAriaLabel\}/);
     // Icon stroke governance round: per-call-site strokeWidth props were
     // deleted so lucide glyphs ride one governed weight (svg.lucide CSS rule).
     assert.match(block, /<X size=\{14\} aria-hidden="true" \/>/);
-    assert.match(block, /<span>关闭<\/span>/);
+    assert.match(block, /<span>\{copy\.close\}<\/span>/);
     assert.doesNotMatch(block, />Close</);
   });
 });

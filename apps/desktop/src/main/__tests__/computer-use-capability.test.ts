@@ -2,15 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const ROOT = resolve(process.cwd(), '..', '..');
 
 describe('Desktop Computer Use production wiring', () => {
   it('registers the function harness without presentation or provider adapters', async () => {
-    const main = await readFile(
-      resolve(ROOT, 'apps/desktop/src/main/main.ts'),
-      'utf8',
-    );
+    const main = await readMainProcessCombinedSource();
     assert.match(main, /createComputerUseHost/);
     assert.match(main, /createCursorOverlayController/);
     assert.match(main, /createComputerUseOverlayHook/);
@@ -20,10 +18,7 @@ describe('Desktop Computer Use production wiring', () => {
   });
 
   it('clears Runtime and executor ownership at every turn/session boundary', async () => {
-    const main = await readFile(
-      resolve(ROOT, 'apps/desktop/src/main/main.ts'),
-      'utf8',
-    );
+    const main = await readMainProcessCombinedSource();
     assert.match(main, /sessions:stop[\s\S]*computerUseTools\.clearSession/);
     assert.match(main, /sessions:stop[\s\S]*computerUseOverlay\.clearForSession/);
     assert.match(main, /sessions:archive[\s\S]*computerUseTools\.clearSession/);
@@ -41,7 +36,7 @@ describe('Desktop Computer Use production wiring', () => {
   it('reports scoped approval and live service health instead of binary-only healthy', async () => {
     const [snapshot, main] = await Promise.all([
       readFile(resolve(ROOT, 'apps/desktop/src/main/capability-snapshot.ts'), 'utf8'),
-      readFile(resolve(ROOT, 'apps/desktop/src/main/main.ts'), 'utf8'),
+      readMainProcessCombinedSource(),
     ]);
     const capability = snapshot.match(
       /function computerUseCapability[\s\S]*?(?=function officeDocumentsCapability)/,
@@ -60,7 +55,7 @@ describe('Desktop Computer Use production wiring', () => {
 
   it('does not expose screenshot-returning Computer Use tools to non-visual models', async () => {
     const [main, packageJson] = await Promise.all([
-      readFile(resolve(ROOT, 'apps/desktop/src/main/main.ts'), 'utf8'),
+      readMainProcessCombinedSource(),
       readFile(resolve(ROOT, 'apps/desktop/package.json'), 'utf8'),
     ]);
     assert.match(main, /computerUseToolsForModel\([\s\S]*supportsVision/);
@@ -72,10 +67,7 @@ describe('Desktop Computer Use production wiring', () => {
   });
 
   it('wires a conservative physical-input quiet window', async () => {
-    const main = await readFile(
-      resolve(ROOT, 'apps/desktop/src/main/main.ts'),
-      'utf8',
-    );
+    const main = await readMainProcessCombinedSource();
     assert.match(main, /powerMonitor\.getSystemIdleTime\(\) < 1/);
     assert.match(main, /physicalInputRecentlyActive/);
   });

@@ -37,9 +37,16 @@ describe('heavy-task self-check gate', () => {
 
     assert.equal(decision.action, 'repair_prompt');
     assert.match(decision.reason, /missing accepted public self-check/);
-    assert.match(decision.action === 'repair_prompt' ? decision.prompt : '', /not accepted for heavy-task finalization/);
+    assert.match(
+      decision.action === 'repair_prompt' ? decision.prompt : '',
+      /not accepted for heavy-task finalization/,
+    );
     assert.ok(decision.checklist.some((check) => check.path === '/app/move.txt'));
-    assert.ok(decision.checklist.some((check) => check.path === '/app/report.jsonl' && check.kind === 'artifact_parse'));
+    assert.ok(
+      decision.checklist.some(
+        (check) => check.path === '/app/report.jsonl' && check.kind === 'artifact_parse',
+      ),
+    );
   });
 
   test('does not derive required artifacts by parsing raw instruction text', () => {
@@ -64,7 +71,9 @@ describe('heavy-task self-check gate', () => {
       const decision = evaluateHeavyTaskSelfCheckGate({
         task,
         heavyTaskMode,
-        projection: projection(selfCheck(status, { command: 'test -f /app/move.txt', refs: ['/app/move.txt'] })),
+        projection: projection(
+          selfCheck(status, { command: 'test -f /app/move.txt', refs: ['/app/move.txt'] }),
+        ),
       });
 
       assert.equal(decision.action, 'repair_prompt');
@@ -76,11 +85,13 @@ describe('heavy-task self-check gate', () => {
     const decision = evaluateHeavyTaskSelfCheckGate({
       task,
       heavyTaskMode,
-      projection: projection(selfCheck('pass', {
-        command: 'test -f /app/move.txt',
-        refs: ['/app/move.txt'],
-        omitExecutionHygiene: true,
-      })),
+      projection: projection(
+        selfCheck('pass', {
+          command: 'test -f /app/move.txt',
+          refs: ['/app/move.txt'],
+          omitExecutionHygiene: true,
+        }),
+      ),
     });
 
     assert.equal(decision.action, 'repair_prompt');
@@ -99,17 +110,22 @@ describe('heavy-task self-check gate', () => {
     });
 
     assert.equal(decision.action, 'allow_finalize');
-    assert.equal(decision.action === 'allow_finalize' ? decision.selfCheckId : undefined, 'self-check-1');
+    assert.equal(
+      decision.action === 'allow_finalize' ? decision.selfCheckId : undefined,
+      'self-check-1',
+    );
   });
 
   test('pass self-check without a plan returns a plan diagnostic', () => {
     const decision = evaluateHeavyTaskSelfCheckGate({
       task,
       heavyTaskMode,
-      projection: projection(selfCheck('pass', {
-        command: 'test -f /app/move.txt && test -f /app/report.jsonl',
-        refs: ['/app/move.txt', '/app/report.jsonl'],
-      })),
+      projection: projection(
+        selfCheck('pass', {
+          command: 'test -f /app/move.txt && test -f /app/report.jsonl',
+          refs: ['/app/move.txt', '/app/report.jsonl'],
+        }),
+      ),
     });
 
     assert.equal(decision.action, 'repair_prompt');
@@ -229,7 +245,8 @@ describe('heavy-task self-check gate', () => {
     const revisedPlan = plan(['/app/polyglot/main.py.c']);
     revisedPlan.workspaceGuardPlan.expectedGeneratedPathsOutsideScratch = ['/app/polyglot/cmain'];
     const selfCheckState = selfCheck('pass', {
-      command: 'gcc /app/polyglot/main.py.c -o /tmp/maka-self-check/run-gate/cmain && /tmp/maka-self-check/run-gate/cmain 10',
+      command:
+        'gcc /app/polyglot/main.py.c -o /tmp/maka-self-check/run-gate/cmain && /tmp/maka-self-check/run-gate/cmain 10',
       refs: ['/app/polyglot/main.py.c'],
       artifactPath: '/app/polyglot/main.py.c',
     });
@@ -280,11 +297,14 @@ describe('heavy-task self-check gate', () => {
     const decision = evaluateHeavyTaskSelfCheckGate({
       task,
       heavyTaskMode,
-      projection: projection(selfCheck('pass', {
-        command: 'npm test',
-        refs: ['README.md'],
-        artifactPath: 'README.md',
-      }), plan(['/app/move.txt', '/app/report.jsonl'])),
+      projection: projection(
+        selfCheck('pass', {
+          command: 'npm test',
+          refs: ['README.md'],
+          artifactPath: 'README.md',
+        }),
+        plan(['/app/move.txt', '/app/report.jsonl']),
+      ),
     });
 
     assert.equal(decision.action, 'repair_prompt');
@@ -305,10 +325,13 @@ describe('heavy-task self-check gate', () => {
   });
 
   test('stale Self-check evidence requires bounded revalidation', () => {
-    const gateProjection = projection(selfCheck('pass', {
-      command: 'npm test',
-      refs: ['/app/move.txt'],
-    }), plan(['/app/move.txt']));
+    const gateProjection = projection(
+      selfCheck('pass', {
+        command: 'npm test',
+        refs: ['/app/move.txt'],
+      }),
+      plan(['/app/move.txt']),
+    );
     assert.ok(gateProjection.latestHeavyTaskSelfCheck);
     gateProjection.latestHeavyTaskSelfCheck.freshness = 'stale';
     gateProjection.latestHeavyTaskSelfCheck.freshnessReasons = ['workspace_revision_changed'];
@@ -349,18 +372,38 @@ function projection(
     },
   ];
   if (planState) {
-    events.push({ type: 'heavy_task_self_check_plan_recorded', id: 'e4-plan', taskRunId, ts: 4, plan: planState });
+    events.push({
+      type: 'heavy_task_self_check_plan_recorded',
+      id: 'e4-plan',
+      taskRunId,
+      ts: 4,
+      plan: planState,
+    });
   }
   if (selfCheckState) {
-    events.push({ type: 'heavy_task_self_check_recorded', id: 'e4', taskRunId, ts: 4, selfCheck: selfCheckState });
+    events.push({
+      type: 'heavy_task_self_check_recorded',
+      id: 'e4',
+      taskRunId,
+      ts: 4,
+      selfCheck: selfCheckState,
+    });
   }
   if (observation) {
-    events.push({ type: 'heavy_task_workspace_observation_recorded', id: 'e5-observation', taskRunId, ts: 5, observation });
+    events.push({
+      type: 'heavy_task_workspace_observation_recorded',
+      id: 'e5-observation',
+      taskRunId,
+      ts: 5,
+      observation,
+    });
   }
   return projectTaskRun(events, taskRunId);
 }
 
-function workspaceObservation(entries: HeavyTaskWorkspaceObservationState['entries']): HeavyTaskWorkspaceObservationState {
+function workspaceObservation(
+  entries: HeavyTaskWorkspaceObservationState['entries'],
+): HeavyTaskWorkspaceObservationState {
   return {
     schemaVersion: 1,
     observationId: 'workspace-observation-1',
@@ -409,8 +452,20 @@ function plan(finalArtifacts: string[]): HeavyTaskSelfCheckPlanState {
 
 function phaseGateTodos(): HeavyTaskTodoItem[] {
   return [
-    { id: 'artifact', kind: 'runnable_artifact', content: 'Create /app/move.txt', status: 'completed', priority: 'high' },
-    { id: 'check', kind: 'public_check', content: 'Run public check', status: 'completed', priority: 'high' },
+    {
+      id: 'artifact',
+      kind: 'runnable_artifact',
+      content: 'Create /app/move.txt',
+      status: 'completed',
+      priority: 'high',
+    },
+    {
+      id: 'check',
+      kind: 'public_check',
+      content: 'Run public check',
+      status: 'completed',
+      priority: 'high',
+    },
   ];
 }
 
@@ -431,27 +486,44 @@ function selfCheck(
     ts: 4,
     status,
     publicReason: `${options.command} used public task evidence.`,
-    commandEvidence: [{ command: options.command, exitCode: status === 'pass' ? 0 : 1, outputExcerpt: 'public check output', artifactRefs: options.refs }],
-    artifactEvidence: [{ path: options.artifactPath ?? options.refs[0] ?? '/app/move.txt', kind: 'file', exists: true }],
-    ...(options.omitExecutionHygiene ? {} : { executionHygiene: options.executionHygiene ?? {
-      sandbox: {
-        root: '/tmp/maka-self-check/run-gate',
-        strategy: 'scratch_dir',
-        commandCwd: '/tmp/maka-self-check/run-gate',
-        outputPolicy: 'scratch_only',
+    commandEvidence: [
+      {
+        command: options.command,
+        exitCode: status === 'pass' ? 0 : 1,
+        outputExcerpt: 'public check output',
+        artifactRefs: options.refs,
       },
-      scratchUsed: true,
-      scratchPath: '/tmp/maka-self-check/run-gate',
-      cleanupPerformed: true,
-      workspaceSideEffects: 'none',
-      workspaceGuard: {
-        checked: true,
-        checkedPaths: ['/app'],
-        addedPaths: [],
-        modifiedPaths: [],
-        removedPaths: [],
+    ],
+    artifactEvidence: [
+      {
+        path: options.artifactPath ?? options.refs[0] ?? '/app/move.txt',
+        kind: 'file',
+        exists: true,
       },
-    } }),
+    ],
+    ...(options.omitExecutionHygiene
+      ? {}
+      : {
+          executionHygiene: options.executionHygiene ?? {
+            sandbox: {
+              root: '/tmp/maka-self-check/run-gate',
+              strategy: 'scratch_dir',
+              commandCwd: '/tmp/maka-self-check/run-gate',
+              outputPolicy: 'scratch_only',
+            },
+            scratchUsed: true,
+            scratchPath: '/tmp/maka-self-check/run-gate',
+            cleanupPerformed: true,
+            workspaceSideEffects: 'none',
+            workspaceGuard: {
+              checked: true,
+              checkedPaths: ['/app'],
+              addedPaths: [],
+              modifiedPaths: [],
+              removedPaths: [],
+            },
+          },
+        }),
     guard: {
       status: 'accepted',
       checkedAt: 4,

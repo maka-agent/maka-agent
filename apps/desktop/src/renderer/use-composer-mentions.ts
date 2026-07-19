@@ -9,11 +9,11 @@ import type { SkillEntry } from '@maka/ui';
  * IPC. Both return values are memoized so the Composer props keep stable
  * identities across renders.
  */
-export function useComposerMentions(options: { skills: readonly SkillEntry[] }): {
+export function useComposerMentions(options: { skills: readonly SkillEntry[]; sessionId?: string }): {
   mentionSkills: ReadonlyArray<{ id: string; name: string; description?: string }>;
   searchMentionFiles(query: string): Promise<ReadonlyArray<{ relativePath: string }>>;
 } {
-  const { skills } = options;
+  const { skills, sessionId } = options;
 
   const mentionSkills = useMemo(
     () =>
@@ -28,7 +28,7 @@ export function useComposerMentions(options: { skills: readonly SkillEntry[] }):
   const searchMentionFiles = useCallback(
     async (query: string): Promise<ReadonlyArray<{ relativePath: string }>> => {
       try {
-        const result = await window.maka.workspace.searchFiles(query);
+        const result = await window.maka.workspace.searchFiles(query, { sessionId });
         return result.ok ? result.files : [];
       } catch {
         // Fail soft: a failed search just yields an empty list, so the popup
@@ -36,7 +36,7 @@ export function useComposerMentions(options: { skills: readonly SkillEntry[] }):
         return [];
       }
     },
-    [],
+    [sessionId],
   );
 
   return { mentionSkills, searchMentionFiles };

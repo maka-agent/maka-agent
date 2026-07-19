@@ -3,7 +3,11 @@ import { lstat, readdir, readFile, readlink } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
 
-export function resolveFixedPromptRunRoot(outDir: string, runId: string, envName = 'MAKA_PROMPT_RUN_ID'): string {
+export function resolveFixedPromptRunRoot(
+  outDir: string,
+  runId: string,
+  envName = 'MAKA_PROMPT_RUN_ID',
+): string {
   if (!/^[A-Za-z0-9._-]+$/.test(runId) || runId === '.' || runId === '..') {
     throw new Error(`${envName} must contain only letters, numbers, dot, underscore, or hyphen`);
   }
@@ -50,22 +54,32 @@ export async function discoverCachedHarborTasks(
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export async function fingerprintFixedPromptTaskTree(tasks: readonly FixedPromptTask[]): Promise<string> {
+export async function fingerprintFixedPromptTaskTree(
+  tasks: readonly FixedPromptTask[],
+): Promise<string> {
   const taskEntries = [];
   for (const task of [...tasks].sort((left, right) => left.id.localeCompare(right.id))) {
     taskEntries.push({ id: task.id, entries: await taskDirectoryEntries(task.path) });
   }
-  return `sha256:${createHash('sha256').update(JSON.stringify({ schemaVersion: 1, tasks: taskEntries })).digest('hex')}`;
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify({ schemaVersion: 1, tasks: taskEntries }))
+    .digest('hex')}`;
 }
 
 export async function fingerprintFixedPromptTask(task: FixedPromptTask): Promise<string> {
-  return `sha256:${createHash('sha256').update(JSON.stringify({
-    schemaVersion: 1,
-    task: { id: task.id, entries: await taskDirectoryEntries(task.path) },
-  })).digest('hex')}`;
+  return `sha256:${createHash('sha256')
+    .update(
+      JSON.stringify({
+        schemaVersion: 1,
+        task: { id: task.id, entries: await taskDirectoryEntries(task.path) },
+      }),
+    )
+    .digest('hex')}`;
 }
 
-async function taskDirectoryEntries(taskPath: string): Promise<Array<Record<string, string | boolean>>> {
+async function taskDirectoryEntries(
+  taskPath: string,
+): Promise<Array<Record<string, string | boolean>>> {
   const root = resolve(taskPath);
   const entries: Array<Record<string, string | boolean>> = [];
   await walkTaskDirectory(root, root, entries);
@@ -87,13 +101,17 @@ async function walkTaskDirectory(
       entries.push({ path: entryPath, type: 'directory' });
       await walkTaskDirectory(root, path, entries);
     } else if (child.isSymbolicLink()) {
-      throw new Error(`task source symlink is not supported: ${entryPath} -> ${await readlink(path)}`);
+      throw new Error(
+        `task source symlink is not supported: ${entryPath} -> ${await readlink(path)}`,
+      );
     } else if (child.isFile()) {
       entries.push({
         path: entryPath,
         type: 'file',
         executable: (stats.mode & 0o111) !== 0,
-        hash: createHash('sha256').update(await readFile(path)).digest('hex'),
+        hash: createHash('sha256')
+          .update(await readFile(path))
+          .digest('hex'),
       });
     } else {
       entries.push({ path: entryPath, type: 'other' });
@@ -131,9 +149,18 @@ function addDiscoveredTask(
 function parseTaskTomlMetadata(text: string): FixedPromptTask['metadata'] {
   return {
     ...stringField('difficulty', sectionField(text, 'metadata', 'difficulty')),
-    ...numberField('estimatedDurationSec', sectionField(text, 'metadata', 'estimated_duration_sec')),
-    ...numberField('expertTimeEstimateMin', sectionField(text, 'metadata', 'expert_time_estimate_min')),
-    ...numberField('juniorTimeEstimateMin', sectionField(text, 'metadata', 'junior_time_estimate_min')),
+    ...numberField(
+      'estimatedDurationSec',
+      sectionField(text, 'metadata', 'estimated_duration_sec'),
+    ),
+    ...numberField(
+      'expertTimeEstimateMin',
+      sectionField(text, 'metadata', 'expert_time_estimate_min'),
+    ),
+    ...numberField(
+      'juniorTimeEstimateMin',
+      sectionField(text, 'metadata', 'junior_time_estimate_min'),
+    ),
     ...numberField('agentTimeoutSec', sectionField(text, 'agent', 'timeout_sec')),
     ...numberField('verifierTimeoutSec', sectionField(text, 'verifier', 'timeout_sec')),
   };
@@ -157,21 +184,27 @@ function sectionField(text: string, sectionName: string, fieldName: string): str
   return undefined;
 }
 
-function stringField(key: 'difficulty', raw: string | undefined): Pick<NonNullable<FixedPromptTask['metadata']>, 'difficulty'> | {} {
+function stringField(
+  key: 'difficulty',
+  raw: string | undefined,
+): Pick<NonNullable<FixedPromptTask['metadata']>, 'difficulty'> | {} {
   if (raw === undefined) return {};
   const value = raw.match(/^"([^"]*)"$/)?.[1] ?? raw;
   return value.length > 0 ? { [key]: value } : {};
 }
 
-function numberField<K extends Exclude<keyof NonNullable<FixedPromptTask['metadata']>, 'difficulty'>>(
-  key: K,
-  raw: string | undefined,
-): Pick<NonNullable<FixedPromptTask['metadata']>, K> | {} {
+function numberField<
+  K extends Exclude<keyof NonNullable<FixedPromptTask['metadata']>, 'difficulty'>,
+>(key: K, raw: string | undefined): Pick<NonNullable<FixedPromptTask['metadata']>, K> | {} {
   if (raw === undefined) return {};
   const value = Number(raw);
-  return Number.isFinite(value) ? { [key]: value } as Pick<NonNullable<FixedPromptTask['metadata']>, K> : {};
+  return Number.isFinite(value)
+    ? ({ [key]: value } as Pick<NonNullable<FixedPromptTask['metadata']>, K>)
+    : {};
 }
 
-function metadataField(metadata: FixedPromptTask['metadata']): Pick<FixedPromptTask, 'metadata'> | {} {
+function metadataField(
+  metadata: FixedPromptTask['metadata'],
+): Pick<FixedPromptTask, 'metadata'> | {} {
   return metadata && Object.keys(metadata).length > 0 ? { metadata } : {};
 }

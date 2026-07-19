@@ -7,38 +7,36 @@
  * removed/renamed an export, the old dist would survive and tests
  * would lie.
  *
+ * Workspace list is derived from root package.json so it cannot drift
+ * from npm workspaces (e.g. packages/computer-use). Desktop keeps a
+ * few extra outputs (renderer bundle + multi-tsconfig build info).
+ *
  * Idempotent; missing paths are silently ignored.
  *
  * Run via `npm run clean` at the repo root.
  */
 
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 
-const targets = [
-  // Each workspace's compiled output + incremental info.
-  'packages/core/dist',
-  'packages/core/tsconfig.tsbuildinfo',
-  'packages/storage/dist',
-  'packages/storage/tsconfig.tsbuildinfo',
-  'packages/runtime/dist',
-  'packages/runtime/tsconfig.tsbuildinfo',
-  'packages/headless/dist',
-  'packages/headless/tsconfig.tsbuildinfo',
-  'packages/cli/dist',
-  'packages/cli/tsconfig.tsbuildinfo',
-  'packages/ui/dist',
-  'packages/ui/tsconfig.tsbuildinfo',
-  'apps/desktop/dist',
+const rootPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+const workspaceDirs = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : [];
+
+const targets = [];
+for (const dir of workspaceDirs) {
+  targets.push(`${dir}/dist`, `${dir}/tsconfig.tsbuildinfo`);
+}
+
+// Desktop has additional build outputs beyond the standard package layout.
+targets.push(
   'apps/desktop/dist-renderer',
-  'apps/desktop/tsconfig.tsbuildinfo',
   'apps/desktop/tsconfig.main.tsbuildinfo',
   'apps/desktop/tsconfig.renderer.tsbuildinfo',
-];
+);
 
 let removed = 0;
 for (const rel of targets) {

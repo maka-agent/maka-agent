@@ -55,7 +55,9 @@ export class TurnScopedAwaitRegistry<TValue, TMetadata> {
   }
 
   entries(turnId: string): ReadonlyArray<readonly [string, TMetadata]> {
-    return [...(this.turns.get(turnId) ?? [])].map(([requestId, request]) => [requestId, request.metadata] as const);
+    return [...(this.turns.get(turnId) ?? [])].map(
+      ([requestId, request]) => [requestId, request.metadata] as const,
+    );
   }
 
   pendingCount(turnId: string): number {

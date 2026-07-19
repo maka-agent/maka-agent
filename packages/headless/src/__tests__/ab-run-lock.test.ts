@@ -9,7 +9,10 @@ test('withAbRunLock excludes concurrent writers and releases after completion', 
   const dir = await mkdtemp(join(tmpdir(), 'maka-ab-lock-'));
   try {
     await withAbRunLock(dir, async () => {
-      await assert.rejects(withAbRunLock(dir, async () => undefined), /A\/B run is already active/);
+      await assert.rejects(
+        withAbRunLock(dir, async () => undefined),
+        /A\/B run is already active/,
+      );
     });
     await withAbRunLock(dir, async () => undefined);
   } finally {

@@ -5,10 +5,7 @@ import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
 import type { PromptOptimizationProfileName } from './prompt-optimization-profile.js';
-import {
-  buildRunManifestFingerprint,
-  ensureAbRunManifest,
-} from './ab-manifest.js';
+import { buildRunManifestFingerprint, ensureAbRunManifest } from './ab-manifest.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -99,10 +96,7 @@ export function buildPromptOptimizationRunManifest(
     heldOutTaskIds: input.heldOutTasks.map((task) => task.id),
     heldOutNoPatternTaskIds: input.heldOutNoPattern.map((task) => task.id),
   });
-  const {
-    costCeilingUsd: _costCeilingUsd,
-    ...fingerprintPayload
-  } = manifestWithoutFingerprint;
+  const { costCeilingUsd: _costCeilingUsd, ...fingerprintPayload } = manifestWithoutFingerprint;
   return {
     ...manifestWithoutFingerprint,
     fingerprint: buildRunManifestFingerprint(fingerprintPayload),
@@ -137,11 +131,16 @@ export async function ensurePromptOptimizationRunManifest(
     }
     return ensured;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('A/B run manifest does not match existing run id:')) {
-      throw new Error(error.message.replace(
-        'A/B run manifest does not match existing run id:',
-        'prompt optimization run manifest does not match existing run id:',
-      ));
+    if (
+      error instanceof Error &&
+      error.message.startsWith('A/B run manifest does not match existing run id:')
+    ) {
+      throw new Error(
+        error.message.replace(
+          'A/B run manifest does not match existing run id:',
+          'prompt optimization run manifest does not match existing run id:',
+        ),
+      );
     }
     throw error;
   }
@@ -168,7 +167,9 @@ export async function buildPromptOptimizationSubjectFingerprint(repoPath: string
   });
 }
 
-export async function buildPromptOptimizationToolchainFingerprint(repoRoot: string): Promise<string> {
+export async function buildPromptOptimizationToolchainFingerprint(
+  repoRoot: string,
+): Promise<string> {
   const [gitRoot, head, status] = await Promise.all([
     gitOutput(repoRoot, 'rev-parse', '--show-toplevel'),
     gitOutput(repoRoot, 'rev-parse', 'HEAD'),
@@ -189,7 +190,9 @@ export async function buildPromptOptimizationToolchainFingerprint(repoRoot: stri
   });
 }
 
-async function buildPromptOptimizationRuntimeArtifactFingerprint(repoRoot: string): Promise<string> {
+async function buildPromptOptimizationRuntimeArtifactFingerprint(
+  repoRoot: string,
+): Promise<string> {
   const artifactRoots = [
     'packages/headless/dist',
     'packages/core/dist',
@@ -198,10 +201,12 @@ async function buildPromptOptimizationRuntimeArtifactFingerprint(repoRoot: strin
   ];
   return buildRunManifestFingerprint({
     kind: 'prompt-optimization-runtime-artifacts',
-    artifacts: await Promise.all(artifactRoots.map(async (artifactPath) => ({
-      path: artifactPath,
-      entries: await hashOptionalDirectory(join(repoRoot, artifactPath)),
-    }))),
+    artifacts: await Promise.all(
+      artifactRoots.map(async (artifactPath) => ({
+        path: artifactPath,
+        entries: await hashOptionalDirectory(join(repoRoot, artifactPath)),
+      })),
+    ),
   });
 }
 
@@ -255,7 +260,9 @@ async function walkTaskDirectory(
       entries.push({ path: entryPath, type: 'directory' });
       await walkTaskDirectory(root, path, entries);
     } else if (child.isSymbolicLink()) {
-      throw new Error(`task source symlink is not supported in prompt optimization fingerprints: ${entryPath} -> ${await readlink(path)}`);
+      throw new Error(
+        `task source symlink is not supported in prompt optimization fingerprints: ${entryPath} -> ${await readlink(path)}`,
+      );
     } else if (child.isFile()) {
       entries.push({
         path: entryPath,
@@ -293,12 +300,16 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'ENOENT';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
 }
 
 function withoutUndefined<T extends Record<string, unknown>>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as T;
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  ) as T;
 }

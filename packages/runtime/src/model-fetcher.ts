@@ -112,10 +112,12 @@ async function fetchProviderModelsStrict(
     return definition.fallbackModels.map((id) => ({ id }));
   }
   if (discovery.kind === 'ollama') {
-    const r = await proxiedFetch(`${ollamaRoot(baseUrl)}/api/tags`, { timeoutMs: MODEL_FETCH_TIMEOUT_MS });
+    const r = await proxiedFetch(`${ollamaRoot(baseUrl)}/api/tags`, {
+      timeoutMs: MODEL_FETCH_TIMEOUT_MS,
+    });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json() as { models?: Array<{ name?: string }> };
-    return (data.models ?? []).flatMap((model) => model.name ? [{ id: model.name }] : []);
+    const data = (await r.json()) as { models?: Array<{ name?: string }> };
+    return (data.models ?? []).flatMap((model) => (model.name ? [{ id: model.name }] : []));
   }
   if (discovery.kind === 'fireworks') {
     return fetchFireworksModels(baseUrl, apiKey, discovery);
@@ -140,25 +142,34 @@ async function fetchProviderModelsStrict(
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as { data?: RawProviderModel[] };
-      const models = (data.data ?? []).map(toModelInfo).filter((model): model is ModelInfo => model !== null);
+      const data = (await r.json()) as { data?: RawProviderModel[] };
+      const models = (data.data ?? [])
+        .map(toModelInfo)
+        .filter((model): model is ModelInfo => model !== null);
       return filterDiscoveredModels(models, discovery.filter, definition.fallbackModels);
     }
     case 'openai': {
       const r = await proxiedFetch(modelListUrl(baseUrl, discovery.path, discovery.query), {
         headers: {
           'content-type': 'application/json',
-          ...(discovery.auth !== 'none' && apiKey && providerAuthSupportsApiKey(connection.providerType)
+          ...(discovery.auth !== 'none' &&
+          apiKey &&
+          providerAuthSupportsApiKey(connection.providerType)
             ? { authorization: `Bearer ${apiKey}` }
             : {}),
         },
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as { data?: RawProviderModel[] } | RawProviderModel[];
-      const rawModels = discovery.responseShape === 'array-or-data'
-        ? (Array.isArray(data) ? data : data.data ?? [])
-        : (Array.isArray(data) ? [] : data.data ?? []);
+      const data = (await r.json()) as { data?: RawProviderModel[] } | RawProviderModel[];
+      const rawModels =
+        discovery.responseShape === 'array-or-data'
+          ? Array.isArray(data)
+            ? data
+            : (data.data ?? [])
+          : Array.isArray(data)
+            ? []
+            : (data.data ?? []);
       const models = rawModels
         .filter((model) => discovery.filter !== 'language-models' || model.type === 'language')
         .map(toModelInfo)
@@ -166,12 +177,11 @@ async function fetchProviderModelsStrict(
       return filterDiscoveredModels(models, discovery.filter, definition.fallbackModels);
     }
     case 'google': {
-      const r = await proxiedFetch(
-        googleApiUrl(baseUrl, '/models', apiKey),
-        { timeoutMs: MODEL_FETCH_TIMEOUT_MS },
-      );
+      const r = await proxiedFetch(googleApiUrl(baseUrl, '/models', apiKey), {
+        timeoutMs: MODEL_FETCH_TIMEOUT_MS,
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as { models?: Array<{ name?: string }> };
+      const data = (await r.json()) as { models?: Array<{ name?: string }> };
       return (data.models ?? []).flatMap((model) => {
         const id = model.name?.split('/').pop();
         return id ? [{ id }] : [];
@@ -194,10 +204,12 @@ export async function fetchGitHubCopilotModels(
       'Openai-Intent': 'conversation-edits',
       'X-GitHub-Api-Version': GITHUB_COPILOT_API_VERSION,
     },
-    ...(fetchFn ? { signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS) } : { timeoutMs: MODEL_FETCH_TIMEOUT_MS }),
+    ...(fetchFn
+      ? { signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS) }
+      : { timeoutMs: MODEL_FETCH_TIMEOUT_MS }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const payload = await response.json() as { data?: RawGitHubCopilotModel[] };
+  const payload = (await response.json()) as { data?: RawGitHubCopilotModel[] };
   if (!Array.isArray(payload.data)) throw new Error('Invalid GitHub Copilot models response');
   return payload.data.flatMap(toGitHubCopilotModelInfo);
 }
@@ -243,15 +255,18 @@ export async function fetchOpenAiCodexModels(
         ...openAiCodexHeaders(accessToken),
         'content-type': 'application/json',
       },
-      ...(fetchFn ? { signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS) } : { timeoutMs: MODEL_FETCH_TIMEOUT_MS }),
+      ...(fetchFn
+        ? { signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS) }
+        : { timeoutMs: MODEL_FETCH_TIMEOUT_MS }),
     },
   );
   if (!response.ok) throw new OpenAiCodexDiscoveryError(response.status);
-  const payload = await response.json() as { models?: RawOpenAiCodexModel[] };
+  const payload = (await response.json()) as { models?: RawOpenAiCodexModel[] };
   if (!Array.isArray(payload?.models)) throw new Error('Invalid OpenAI Codex models response');
   const visible = payload.models.filter((model) => {
     if (!model || typeof model.slug !== 'string' || !model.slug.trim()) return false;
-    const visibility = typeof model.visibility === 'string' ? model.visibility.trim().toLowerCase() : '';
+    const visibility =
+      typeof model.visibility === 'string' ? model.visibility.trim().toLowerCase() : '';
     return visibility !== 'hide' && visibility !== 'hidden';
   });
   visible.sort((a, b) => priorityOfOpenAiCodexModel(a) - priorityOfOpenAiCodexModel(b));
@@ -264,48 +279,59 @@ export async function fetchOpenAiCodexModels(
 }
 
 function priorityOfOpenAiCodexModel(model: RawOpenAiCodexModel): number {
-  return typeof model.priority === 'number' && Number.isFinite(model.priority) ? model.priority : 10_000;
+  return typeof model.priority === 'number' && Number.isFinite(model.priority)
+    ? model.priority
+    : 10_000;
 }
 
 function contextWindowOfOpenAiCodexModel(model: RawOpenAiCodexModel): number | undefined {
-  return typeof model.context_window === 'number' && Number.isFinite(model.context_window) && model.context_window > 0
+  return typeof model.context_window === 'number' &&
+    Number.isFinite(model.context_window) &&
+    model.context_window > 0
     ? model.context_window
     : undefined;
 }
 
 function toGitHubCopilotModelInfo(model: RawGitHubCopilotModel): ModelInfo[] {
   if (
-    !model.id
-    || model.model_picker_enabled !== true
-    || model.policy?.state === 'disabled'
-    || model.capabilities?.supports?.tool_calls !== true
-  ) return [];
+    !model.id ||
+    model.model_picker_enabled !== true ||
+    model.policy?.state === 'disabled' ||
+    model.capabilities?.supports?.tool_calls !== true
+  )
+    return [];
   const endpoints = model.supported_endpoints ?? [];
   const apiProtocol = endpoints.includes('/v1/messages')
-    ? 'anthropic-messages' as const
+    ? ('anthropic-messages' as const)
     : endpoints.includes('/responses')
-      ? 'openai-responses' as const
+      ? ('openai-responses' as const)
       : endpoints.includes('/chat/completions')
-        ? 'openai-chat' as const
+        ? ('openai-chat' as const)
         : null;
   if (!apiProtocol) return [];
   const limits = model.capabilities.limits;
   const supports = model.capabilities.supports;
-  const reasoning = supports.adaptive_thinking === true
-    || (supports.reasoning_effort?.length ?? 0) > 0
-    || supports.max_thinking_budget !== undefined
-    || supports.min_thinking_budget !== undefined;
-  const vision = supports.vision === true
-    || limits?.vision?.supported_media_types?.some((type) => type.startsWith('image/')) === true;
+  const reasoning =
+    supports.adaptive_thinking === true ||
+    (supports.reasoning_effort?.length ?? 0) > 0 ||
+    supports.max_thinking_budget !== undefined ||
+    supports.min_thinking_budget !== undefined;
+  const vision =
+    supports.vision === true ||
+    limits?.vision?.supported_media_types?.some((type) => type.startsWith('image/')) === true;
   const contextWindow = limits?.max_context_window_tokens ?? limits?.max_prompt_tokens;
-  return [{
-    id: model.id,
-    ...(model.name ? { displayName: model.name } : {}),
-    ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
-    ...(typeof limits?.max_output_tokens === 'number' ? { maxOutputTokens: limits.max_output_tokens } : {}),
-    apiProtocol,
-    capabilities: { vision, reasoning, functionCalling: true },
-  }];
+  return [
+    {
+      id: model.id,
+      ...(model.name ? { displayName: model.name } : {}),
+      ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
+      ...(typeof limits?.max_output_tokens === 'number'
+        ? { maxOutputTokens: limits.max_output_tokens }
+        : {}),
+      apiProtocol,
+      capabilities: { vision, reasoning, functionCalling: true },
+    },
+  ];
 }
 
 async function fetchCohereModels(baseUrl: string, apiKey: string): Promise<ModelInfo[]> {
@@ -320,17 +346,24 @@ async function fetchCohereModels(baseUrl: string, apiKey: string): Promise<Model
       timeoutMs: MODEL_FETCH_TIMEOUT_MS,
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       models?: RawCohereModel[];
       next_page_token?: string;
     };
-    models.push(...(data.models ?? []).flatMap((model) => {
-      if (!model.name || model.is_deprecated === true || !model.endpoints?.includes('chat')) return [];
-      return [{
-        id: model.name,
-        ...(typeof model.context_length === 'number' ? { contextWindow: model.context_length } : {}),
-      }];
-    }));
+    models.push(
+      ...(data.models ?? []).flatMap((model) => {
+        if (!model.name || model.is_deprecated === true || !model.endpoints?.includes('chat'))
+          return [];
+        return [
+          {
+            id: model.name,
+            ...(typeof model.context_length === 'number'
+              ? { contextWindow: model.context_length }
+              : {}),
+          },
+        ];
+      }),
+    );
     pageToken = data.next_page_token || undefined;
   } while (pageToken);
   return models;
@@ -381,12 +414,12 @@ async function fetchFireworksModels(
     do {
       const search = new URLSearchParams(query);
       if (pageToken) search.set('pageToken', pageToken);
-      const response = await proxiedFetch(
-        `${root}${path}?${search.toString()}`,
-        { headers, timeoutMs: MODEL_FETCH_TIMEOUT_MS },
-      );
+      const response = await proxiedFetch(`${root}${path}?${search.toString()}`, {
+        headers,
+        timeoutMs: MODEL_FETCH_TIMEOUT_MS,
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json() as {
+      const data = (await response.json()) as {
         accounts?: T[];
         models?: T[];
         nextPageToken?: string;
@@ -403,26 +436,32 @@ async function fetchFireworksModels(
     'accounts',
   );
   const accountNames = [
-    ...accounts.flatMap((account) => (
-      account.name && /^accounts\/[^/]+$/.test(account.name) ? [account.name] : []
-    )),
+    ...accounts.flatMap((account) =>
+      account.name && /^accounts\/[^/]+$/.test(account.name) ? [account.name] : [],
+    ),
     discovery.publicAccount,
   ].filter((name, index, names) => names.indexOf(name) === index);
-  const modelLists = await Promise.all(accountNames.map((accountName) => (
-    fetchPages<RawFireworksModel>(`/v1/${accountName}/models`, discovery.query, 'models')
-  )));
+  const modelLists = await Promise.all(
+    accountNames.map((accountName) =>
+      fetchPages<RawFireworksModel>(`/v1/${accountName}/models`, discovery.query, 'models'),
+    ),
+  );
 
   return modelLists.flat().flatMap((model) => {
     if (!model.name) return [];
     const capabilities: NonNullable<ModelInfo['capabilities']> = {};
-    if (typeof model.supportsImageInput === 'boolean') capabilities.vision = model.supportsImageInput;
-    if (typeof model.supportsTools === 'boolean') capabilities.functionCalling = model.supportsTools;
-    return [{
-      id: model.name,
-      ...(model.displayName ? { displayName: model.displayName } : {}),
-      ...(typeof model.contextLength === 'number' ? { contextWindow: model.contextLength } : {}),
-      ...(Object.keys(capabilities).length ? { capabilities } : {}),
-    }];
+    if (typeof model.supportsImageInput === 'boolean')
+      capabilities.vision = model.supportsImageInput;
+    if (typeof model.supportsTools === 'boolean')
+      capabilities.functionCalling = model.supportsTools;
+    return [
+      {
+        id: model.name,
+        ...(model.displayName ? { displayName: model.displayName } : {}),
+        ...(typeof model.contextLength === 'number' ? { contextWindow: model.contextLength } : {}),
+        ...(Object.keys(capabilities).length ? { capabilities } : {}),
+      },
+    ];
   });
 }
 
@@ -431,16 +470,18 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   const contextWindow = model.context_length ?? model.context_window;
   const capabilities: NonNullable<ModelInfo['capabilities']> = {};
   if (model.input_modalities?.includes('image')) capabilities.vision = true;
-  if (typeof model.capabilities?.reasoning === 'boolean') capabilities.reasoning = model.capabilities.reasoning;
+  if (typeof model.capabilities?.reasoning === 'boolean')
+    capabilities.reasoning = model.capabilities.reasoning;
   if (typeof model.supports_image_in === 'boolean') capabilities.vision = model.supports_image_in;
-  if (typeof model.supports_reasoning === 'boolean') capabilities.reasoning = model.supports_reasoning;
+  if (typeof model.supports_reasoning === 'boolean')
+    capabilities.reasoning = model.supports_reasoning;
   if (model.tags?.includes('vision')) capabilities.vision = true;
   if (model.tags?.includes('reasoning')) capabilities.reasoning = true;
   if (model.tags?.includes('tool-use')) capabilities.functionCalling = true;
   if (model.providers) {
-    capabilities.functionCalling = model.providers.some((provider) => (
-      provider.status === 'live' && provider.supports_tools === true
-    ));
+    capabilities.functionCalling = model.providers.some(
+      (provider) => provider.status === 'live' && provider.supports_tools === true,
+    );
   }
   return {
     id: model.id,
@@ -451,7 +492,10 @@ function toModelInfo(model: RawProviderModel): ModelInfo | null {
   };
 }
 
-function anthropicModelHeaders(auth: 'claude-subscription' | undefined, apiKey: string): Record<string, string> {
+function anthropicModelHeaders(
+  auth: 'claude-subscription' | undefined,
+  apiKey: string,
+): Record<string, string> {
   if (auth === 'claude-subscription') {
     return {
       ...claudeSubscriptionHeaders(),

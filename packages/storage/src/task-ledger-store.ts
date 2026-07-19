@@ -23,6 +23,7 @@ import {
   classifyTaskResumeTrust,
   type Task,
   type TaskAgentOutcome,
+  type TaskAvailableClaimScope,
   type TaskLedgerChangedEvent,
   type TaskLedgerEvent,
   type TaskLedgerEventTaskSnapshot,
@@ -54,9 +55,14 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     return this.applyListOptions(await this.readForRender(sessionId), options);
   }
 
-  async get(sessionId: string, id: string, options: TaskLedgerListOptions = {}): Promise<Task | undefined> {
+  async get(
+    sessionId: string,
+    id: string,
+    options: TaskLedgerListOptions = {},
+  ): Promise<Task | undefined> {
     assertSafeSessionId(sessionId);
-    if (!isSafeTaskId(id)) throw new Error('Task id must be a stable token (alphanumeric plus . _ : -, max 64 chars)');
+    if (!isSafeTaskId(id))
+      throw new Error('Task id must be a stable token (alphanumeric plus . _ : -, max 64 chars)');
     const tasks = await this.list(sessionId, options);
     return findTaskByRef(tasks, id);
   }
@@ -94,41 +100,48 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     // Cap check runs inside the serialized mutate callback (after reading the
     // current ledger) so concurrent creates cannot race past the limit, and a
     // rejected create never touches the file.
-    const all = await this.mutate(sessionId, (tasks) => {
-      if (tasks.length + normalizedDrafts.length > TASK_LEDGER_MAX_TASKS) {
-        throw new Error(
-          `Task ledger is limited to ${TASK_LEDGER_MAX_TASKS} tasks total per session `
-          + `(currently ${tasks.length}, adding ${normalizedDrafts.length}). This is a hard runaway guard on the `
-          + 'total count — completed or cancelled tasks still count, so batch related work into fewer, '
-          + 'coarser tasks instead.',
-        );
-      }
-      const now = Date.now();
-      for (const draft of normalizedDrafts) {
-        const parent = draft.parentId ? findTaskByRef(tasks, draft.parentId) : undefined;
-        if (draft.parentId && !parent) throw new Error(`No such parent task: ${draft.parentId}`);
-        if (parent && isTerminalTaskStatus(parent.status)) {
-          throw new Error(`Cannot create a child under terminal task ${parent.key}`);
-        }
-        const task: Task = {
-          id: randomUUID(),
-          key: nextTaskKey([...tasks, ...created], parent),
-          subject: draft.subject,
-          status: 'pending',
-          createdAt: now,
-          updatedAt: now,
-          ...(parent ? { parentId: parent.id } : {}),
-          ...(ownerFromContext(context) ? { owner: ownerFromContext(context) } : {}),
-        };
-        created.push(task);
-      }
-      return [...tasks, ...created];
-    }, (next) => created.map((task) => buildTaskLedgerEvent({
-      type: taskLedgerEventTypeForCreate(task),
+    const all = await this.mutate(
       sessionId,
-      task,
-      context,
-    })));
+      (tasks) => {
+        if (tasks.length + normalizedDrafts.length > TASK_LEDGER_MAX_TASKS) {
+          throw new Error(
+            `Task ledger is limited to ${TASK_LEDGER_MAX_TASKS} tasks total per session ` +
+              `(currently ${tasks.length}, adding ${normalizedDrafts.length}). This is a hard runaway guard on the ` +
+              'total count — completed or cancelled tasks still count, so batch related work into fewer, ' +
+              'coarser tasks instead.',
+          );
+        }
+        const now = Date.now();
+        for (const draft of normalizedDrafts) {
+          const parent = draft.parentId ? findTaskByRef(tasks, draft.parentId) : undefined;
+          if (draft.parentId && !parent) throw new Error(`No such parent task: ${draft.parentId}`);
+          if (parent && isTerminalTaskStatus(parent.status)) {
+            throw new Error(`Cannot create a child under terminal task ${parent.key}`);
+          }
+          const task: Task = {
+            id: randomUUID(),
+            key: nextTaskKey([...tasks, ...created], parent),
+            subject: draft.subject,
+            status: 'pending',
+            createdAt: now,
+            updatedAt: now,
+            ...(parent ? { parentId: parent.id } : {}),
+            ...(ownerFromContext(context) ? { owner: ownerFromContext(context) } : {}),
+          };
+          created.push(task);
+        }
+        return [...tasks, ...created];
+      },
+      (next) =>
+        created.map((task) =>
+          buildTaskLedgerEvent({
+            type: taskLedgerEventTypeForCreate(task),
+            sessionId,
+            task,
+            context,
+          }),
+        ),
+    );
     return { created, total: all.length };
   }
 
@@ -142,55 +155,67 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     const now = Date.now();
     let updated: Task | undefined;
     let previous: Task | undefined;
-    const all = await this.mutate(sessionId, (tasks) => {
-      // Locate the target before producing a new list: an unknown id must
-      // fail inside the callback without rewriting an identical file.
-      const resolved = findTaskByRef(tasks, id);
-      const index = resolved ? tasks.findIndex((task) => task.id === resolved.id) : -1;
-      const current = index === -1 ? undefined : tasks[index];
-      if (!current) throw new Error(`No such task: ${id}`);
-      previous = current;
-      const normalizedPatch = normalizeUpdateTaskInput(patch);
-      if (!normalizedPatch.ok) throw new Error(normalizedPatch.message);
-      const normalized = validateTaskUpdate(current, normalizedPatch.value, {
-        explicitReopen: normalizedPatch.value.explicitReopen === true,
-      });
-      if (!normalized.ok) throw new Error(normalized.message);
-      const { explicitReopen: _explicitReopen, ...taskPatch } = normalized.value;
-      void _explicitReopen;
-      updated = {
-        ...current,
-        ...(taskPatch.subject !== undefined ? { subject: taskPatch.subject } : {}),
-        ...(taskPatch.status !== undefined ? { status: taskPatch.status } : {}),
-        ...(taskPatch.blockedReason !== undefined ? { blockedReason: taskPatch.blockedReason } : {}),
-        ...(taskPatch.failureReason !== undefined ? { failureReason: taskPatch.failureReason } : {}),
-        ...(taskPatch.completionEvidence !== undefined ? { completionEvidence: taskPatch.completionEvidence } : {}),
-        ...(taskPatch.status === 'in_progress' && context.actor === 'main_agent'
-          ? { owner: ownerFromContext(context) }
-          : {}),
-        updatedAt: now,
-      };
-      if (taskPatch.status !== undefined && isTerminalTaskStatus(taskPatch.status)) {
-        if (taskPatch.status === 'completed') assertDescendantsTerminal(tasks, current.id);
-        updated.endedAt = now;
-      } else if (taskPatch.status === 'pending' || taskPatch.status === 'in_progress') {
-        delete updated.endedAt;
-      }
-      if (taskPatch.status === 'pending') delete updated.owner;
-      updated = clearStaleTaskEvidence(updated);
-      const next = [...tasks];
-      next[index] = updated;
-      return next;
-    }, () => {
-      if (!previous || !updated) return [];
-      return [buildTaskLedgerEvent({
-        type: taskLedgerEventTypeForUpdate(previous, updated),
-        sessionId,
-        task: updated,
-        previous,
-        context,
-      })];
-    });
+    const all = await this.mutate(
+      sessionId,
+      (tasks) => {
+        // Locate the target before producing a new list: an unknown id must
+        // fail inside the callback without rewriting an identical file.
+        const resolved = findTaskByRef(tasks, id);
+        const index = resolved ? tasks.findIndex((task) => task.id === resolved.id) : -1;
+        const current = index === -1 ? undefined : tasks[index];
+        if (!current) throw new Error(`No such task: ${id}`);
+        previous = current;
+        const normalizedPatch = normalizeUpdateTaskInput(patch);
+        if (!normalizedPatch.ok) throw new Error(normalizedPatch.message);
+        const normalized = validateTaskUpdate(current, normalizedPatch.value, {
+          explicitReopen: normalizedPatch.value.explicitReopen === true,
+        });
+        if (!normalized.ok) throw new Error(normalized.message);
+        const { explicitReopen: _explicitReopen, ...taskPatch } = normalized.value;
+        void _explicitReopen;
+        updated = {
+          ...current,
+          ...(taskPatch.subject !== undefined ? { subject: taskPatch.subject } : {}),
+          ...(taskPatch.status !== undefined ? { status: taskPatch.status } : {}),
+          ...(taskPatch.blockedReason !== undefined
+            ? { blockedReason: taskPatch.blockedReason }
+            : {}),
+          ...(taskPatch.failureReason !== undefined
+            ? { failureReason: taskPatch.failureReason }
+            : {}),
+          ...(taskPatch.completionEvidence !== undefined
+            ? { completionEvidence: taskPatch.completionEvidence }
+            : {}),
+          ...(taskPatch.status === 'in_progress' && context.actor === 'main_agent'
+            ? { owner: ownerFromContext(context) }
+            : {}),
+          updatedAt: now,
+        };
+        if (taskPatch.status !== undefined && isTerminalTaskStatus(taskPatch.status)) {
+          if (taskPatch.status === 'completed') assertDescendantsTerminal(tasks, current.id);
+          updated.endedAt = now;
+        } else if (taskPatch.status === 'pending' || taskPatch.status === 'in_progress') {
+          delete updated.endedAt;
+        }
+        if (taskPatch.status === 'pending') delete updated.owner;
+        updated = clearStaleTaskEvidence(updated);
+        const next = [...tasks];
+        next[index] = updated;
+        return next;
+      },
+      () => {
+        if (!previous || !updated) return [];
+        return [
+          buildTaskLedgerEvent({
+            type: taskLedgerEventTypeForUpdate(previous, updated),
+            sessionId,
+            task: updated,
+            previous,
+            context,
+          }),
+        ];
+      },
+    );
     if (!updated) throw new Error(`No such task: ${id}`);
     return { updated, total: all.length };
   }
@@ -205,19 +230,124 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     assertChildTaskOwner(owner);
     let updated: Task | undefined;
     let previous: Task | undefined;
-    const all = await this.mutate(sessionId, (tasks) => {
-      const current = findTaskByRef(tasks, id);
-      if (!current) throw new Error(`No such task: ${id}`);
-      if (isTerminalTaskStatus(current.status)) throw new Error(`Cannot claim terminal task ${current.key}`);
-      if (current.status === 'in_progress' && current.owner?.actor === 'child_agent' && current.owner.turnId !== owner.turnId) {
-        throw new Error(`Task ${current.key} is already claimed by another child agent`);
-      }
-      previous = current;
-      updated = clearStaleTaskEvidence({ ...current, status: 'in_progress', owner, updatedAt: Date.now() });
-      return tasks.map((task) => task.id === current.id ? updated! : task);
-    }, () => previous && updated ? [buildTaskLedgerEvent({
-      type: taskLedgerEventTypeForUpdate(previous, updated), sessionId, task: updated, previous, context,
-    })] : []);
+    const all = await this.mutate(
+      sessionId,
+      (tasks) => {
+        const current = findTaskByRef(tasks, id);
+        if (!current) throw new Error(`No such task: ${id}`);
+        if (isTerminalTaskStatus(current.status))
+          throw new Error(`Cannot claim terminal task ${current.key}`);
+        if (
+          current.status === 'in_progress' &&
+          current.owner?.actor === 'child_agent' &&
+          current.owner.turnId !== owner.turnId
+        ) {
+          throw new Error(`Task ${current.key} is already claimed by another child agent`);
+        }
+        previous = current;
+        updated = clearStaleTaskEvidence({
+          ...current,
+          status: 'in_progress',
+          owner,
+          updatedAt: Date.now(),
+        });
+        return tasks.map((task) => (task.id === current.id ? updated! : task));
+      },
+      () =>
+        previous && updated
+          ? [
+              buildTaskLedgerEvent({
+                type: taskLedgerEventTypeForUpdate(previous, updated),
+                sessionId,
+                task: updated,
+                previous,
+                context,
+              }),
+            ]
+          : [],
+    );
+    if (!updated) throw new Error(`No such task: ${id}`);
+    return { updated, total: all.length };
+  }
+
+  async claimAvailable(
+    sessionId: string,
+    id: string,
+    owner: TaskOwner,
+    scope: TaskAvailableClaimScope,
+    context: TaskLedgerMutationContext = {},
+  ): Promise<{ updated: Task; total: number }> {
+    assertSafeSessionId(sessionId);
+    assertChildTaskOwner(owner);
+    if (!isSafeTaskId(scope.parentRunId))
+      throw new Error('Available task claim requires a stable parent AgentRun id');
+    let updated: Task | undefined;
+    let previous: Task | undefined;
+    const all = await this.mutate(
+      sessionId,
+      (tasks) => {
+        const current = findTaskByRef(tasks, id);
+        if (!current) throw new Error(`No such task: ${id}`);
+        if (isTerminalTaskStatus(current.status))
+          throw new Error(`Cannot claim terminal task ${current.key}`);
+
+        const alreadyClaimed = tasks.find(
+          (task) =>
+            task.id !== current.id &&
+            !isTerminalTaskStatus(task.status) &&
+            task.owner?.actor === 'child_agent' &&
+            task.owner.turnId === owner.turnId,
+        );
+        if (alreadyClaimed) {
+          throw new Error(
+            `Child agent already owns task ${alreadyClaimed.key}; one shared task may be claimed per child turn`,
+          );
+        }
+
+        const sameOwner =
+          current.owner?.actor === 'child_agent' && current.owner.turnId === owner.turnId;
+        if (
+          !sameOwner &&
+          (current.owner?.actor !== 'main_agent' || current.owner.runId !== scope.parentRunId)
+        ) {
+          throw new Error(`Task ${current.key} is not shared by parent run ${scope.parentRunId}`);
+        }
+        if (current.status === 'in_progress' && !sameOwner) {
+          throw new Error(
+            `Task ${current.key} is already in progress and is not available for self-claim`,
+          );
+        }
+        if (current.owner?.actor === 'child_agent' && !sameOwner) {
+          throw new Error(`Task ${current.key} is already claimed by another child agent`);
+        }
+
+        previous = current;
+        updated =
+          sameOwner && current.status === 'in_progress'
+            ? current
+            : clearStaleTaskEvidence({
+                ...current,
+                status: 'in_progress',
+                owner,
+                updatedAt: Date.now(),
+              });
+        return updated === current
+          ? tasks
+          : tasks.map((task) => (task.id === current.id ? updated! : task));
+      },
+      () =>
+        previous && updated && previous !== updated
+          ? [
+              buildTaskLedgerEvent({
+                type: taskLedgerEventTypeForUpdate(previous, updated),
+                sessionId,
+                task: updated,
+                previous,
+                context,
+              }),
+            ]
+          : [],
+    );
     if (!updated) throw new Error(`No such task: ${id}`);
     return { updated, total: all.length };
   }
@@ -232,34 +362,53 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     assertChildTaskOwner(outcome.owner);
     let updated: Task | undefined;
     let previous: Task | undefined;
-    const all = await this.mutate(sessionId, (tasks) => {
-      const current = findTaskByRef(tasks, id);
-      if (!current) throw new Error(`No such task: ${id}`);
-      if (current.owner?.actor === 'child_agent' && current.owner.turnId && current.owner.turnId !== outcome.owner.turnId) {
-        throw new Error(`Task ${current.key} is owned by a different child agent`);
-      }
-      previous = current;
-      const now = Date.now();
-      updated = { ...current, owner: outcome.owner, updatedAt: now };
-      if (!isTerminalTaskStatus(current.status)) {
-        if (outcome.status === 'failed') {
-          updated.status = 'failed';
-          updated.failureReason = normalizeOutcomeReason(outcome.reason, 'Child agent failed');
-          updated.endedAt = now;
-        } else if (outcome.status === 'cancelled') {
-          updated.status = 'cancelled';
-          updated.endedAt = now;
-        } else if (outcome.status === 'waiting_permission') {
-          updated.status = 'blocked';
-          updated.blockedReason = normalizeOutcomeReason(outcome.reason, 'Child agent is waiting for permission');
+    const all = await this.mutate(
+      sessionId,
+      (tasks) => {
+        const current = findTaskByRef(tasks, id);
+        if (!current) throw new Error(`No such task: ${id}`);
+        if (
+          current.owner?.actor === 'child_agent' &&
+          current.owner.turnId &&
+          current.owner.turnId !== outcome.owner.turnId
+        ) {
+          throw new Error(`Task ${current.key} is owned by a different child agent`);
         }
-      }
-      updated = clearStaleTaskEvidence(updated);
-      return tasks.map((task) => task.id === current.id ? updated! : task);
-    }, () => previous && updated ? [buildTaskLedgerEvent({
-      type: taskLedgerEventTypeForUpdate(previous, updated), sessionId, task: updated, previous,
-      context: { ...context, reason: outcome.reason ?? context.reason },
-    })] : []);
+        previous = current;
+        const now = Date.now();
+        updated = { ...current, owner: outcome.owner, updatedAt: now };
+        if (!isTerminalTaskStatus(current.status)) {
+          if (outcome.status === 'failed') {
+            updated.status = 'failed';
+            updated.failureReason = normalizeOutcomeReason(outcome.reason, 'Child agent failed');
+            updated.endedAt = now;
+          } else if (outcome.status === 'cancelled') {
+            updated.status = 'cancelled';
+            updated.endedAt = now;
+          } else if (outcome.status === 'waiting_permission') {
+            updated.status = 'blocked';
+            updated.blockedReason = normalizeOutcomeReason(
+              outcome.reason,
+              'Child agent is waiting for permission',
+            );
+          }
+        }
+        updated = clearStaleTaskEvidence(updated);
+        return tasks.map((task) => (task.id === current.id ? updated! : task));
+      },
+      () =>
+        previous && updated
+          ? [
+              buildTaskLedgerEvent({
+                type: taskLedgerEventTypeForUpdate(previous, updated),
+                sessionId,
+                task: updated,
+                previous,
+                context: { ...context, reason: outcome.reason ?? context.reason },
+              }),
+            ]
+          : [],
+    );
     if (!updated) throw new Error(`No such task: ${id}`);
     return { updated, total: all.length };
   }
@@ -290,7 +439,9 @@ class FileTaskLedgerStore implements TaskLedgerStore {
         }
       }
       try {
-        return projectLegacySnapshots(decodeTaskSnapshots(await readFile(this.filePath(sessionId), 'utf8'))).tasks;
+        return projectLegacySnapshots(
+          decodeTaskSnapshots(await readFile(this.filePath(sessionId), 'utf8')),
+        ).tasks;
       } catch {
         return [];
       }
@@ -299,7 +450,9 @@ class FileTaskLedgerStore implements TaskLedgerStore {
 
   private async readUntrustedCache(sessionId: string): Promise<Task[]> {
     try {
-      const tasks = projectLegacySnapshots(decodeTaskSnapshots(await readFile(this.filePath(sessionId), 'utf8'))).tasks;
+      const tasks = projectLegacySnapshots(
+        decodeTaskSnapshots(await readFile(this.filePath(sessionId), 'utf8')),
+      ).tasks;
       return tasks.map((task) => ({ ...task, resumeTrust: 'untrusted' }));
     } catch {
       return [];
@@ -319,7 +472,11 @@ class FileTaskLedgerStore implements TaskLedgerStore {
   }> {
     try {
       const projected = await this.readProjected(sessionId);
-      return { tasks: projected.tasks, source: 'events', backfilledTaskIds: projected.backfilledTaskIds };
+      return {
+        tasks: projected.tasks,
+        source: 'events',
+        backfilledTaskIds: projected.backfilledTaskIds,
+      };
     } catch (eventError) {
       try {
         await readFile(this.eventsPath(sessionId), 'utf8');
@@ -334,25 +491,34 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     try {
       text = await readFile(this.filePath(sessionId), 'utf8');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: [], source: 'legacy', backfilledTaskIds: [] };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { tasks: [], source: 'legacy', backfilledTaskIds: [] };
       throw error;
     }
     try {
       const projected = projectLegacySnapshots(decodeTaskSnapshots(text));
-      return { tasks: projected.tasks, source: 'legacy', backfilledTaskIds: projected.backfilledTaskIds };
+      return {
+        tasks: projected.tasks,
+        source: 'legacy',
+        backfilledTaskIds: projected.backfilledTaskIds,
+      };
     } catch (error) {
       throw new Error(
-        `Task ledger file for session ${sessionId} is corrupt; refusing to overwrite it: `
-        + (error instanceof Error ? error.message : String(error)),
+        `Task ledger file for session ${sessionId} is corrupt; refusing to overwrite it: ` +
+          (error instanceof Error ? error.message : String(error)),
       );
     }
   }
 
-  private async readProjected(sessionId: string): Promise<{ tasks: Task[]; backfilledTaskIds: string[] }> {
+  private async readProjected(
+    sessionId: string,
+  ): Promise<{ tasks: Task[]; backfilledTaskIds: string[] }> {
     const events = await this.readTaskEvents(sessionId);
     const projection = projectTaskLedgerEvents(events);
     if (projection.diagnostics.length > 0) {
-      throw new Error(`task event ledger has projection diagnostics: ${projection.diagnostics.join('; ')}`);
+      throw new Error(
+        `task event ledger has projection diagnostics: ${projection.diagnostics.join('; ')}`,
+      );
     }
     if (projection.tasks.length > TASK_LEDGER_MAX_TASKS) {
       throw new Error(
@@ -396,17 +562,34 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       const current = currentRead.tasks;
       next = fn(current);
       const mutationEvents = eventsForMutation(next);
-      const compatibilityEvents = currentRead.source === 'legacy'
-        ? current.map((task) => buildTaskLedgerEvent({
-          type: 'task_imported', sessionId, task, context: { source: 'import', actor: 'system' },
-        }))
-        : currentRead.backfilledTaskIds.flatMap((taskId) => {
-          const task = current.find((candidate) => candidate.id === taskId);
-          return task ? [buildTaskLedgerEvent({
-            type: 'task_updated', sessionId, task, previous: task,
-            context: { source: 'recovery', actor: 'system', reason: 'backfilled task-ledger v2 fields' },
-          })] : [];
-        });
+      const compatibilityEvents =
+        currentRead.source === 'legacy'
+          ? current.map((task) =>
+              buildTaskLedgerEvent({
+                type: 'task_imported',
+                sessionId,
+                task,
+                context: { source: 'import', actor: 'system' },
+              }),
+            )
+          : currentRead.backfilledTaskIds.flatMap((taskId) => {
+              const task = current.find((candidate) => candidate.id === taskId);
+              return task
+                ? [
+                    buildTaskLedgerEvent({
+                      type: 'task_updated',
+                      sessionId,
+                      task,
+                      previous: task,
+                      context: {
+                        source: 'recovery',
+                        actor: 'system',
+                        reason: 'backfilled task-ledger v2 fields',
+                      },
+                    }),
+                  ]
+                : [];
+            });
       const appended = [...compatibilityEvents, ...mutationEvents];
       await this.appendEvents(sessionId, appended);
       this.emitChanged({
@@ -423,7 +606,11 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     if (events.length === 0) return;
     const filePath = this.eventsPath(sessionId);
     await mkdir(dirname(filePath), { recursive: true });
-    await appendFile(filePath, events.map((event) => JSON.stringify(event)).join('\n') + '\n', 'utf8');
+    await appendFile(
+      filePath,
+      events.map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
   }
 
   private async write(sessionId: string, tasks: Task[]): Promise<void> {
@@ -440,11 +627,12 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       if (options.status && task.status !== options.status) return false;
       if (options.includeTerminal === false && isTerminalTaskStatus(task.status)) return false;
       if (
-        options.includeArchived === false
-        && isTerminalTaskStatus(task.status)
-        && task.endedAt !== undefined
-        && task.endedAt <= now - TASK_ARCHIVE_AFTER_MS
-      ) return false;
+        options.includeArchived === false &&
+        isTerminalTaskStatus(task.status) &&
+        task.endedAt !== undefined &&
+        task.endedAt <= now - TASK_ARCHIVE_AFTER_MS
+      )
+        return false;
       return true;
     });
     if (options.classifyResumeTrust !== true) return filtered;
@@ -456,7 +644,11 @@ class FileTaskLedgerStore implements TaskLedgerStore {
 
   private emitChanged(event: TaskLedgerChangedEvent): void {
     for (const listener of this.listeners) {
-      try { listener(event); } catch { /* observers cannot perturb the ledger */ }
+      try {
+        listener(event);
+      } catch {
+        /* observers cannot perturb the ledger */
+      }
     }
   }
 }
@@ -478,7 +670,9 @@ function decodeTaskSnapshots(text: string): TaskLedgerEventTaskSnapshot[] {
     // the render path degrades to empty and the mutate path stays fail-closed
     // instead of rewriting a "half-correct" file.
     if (seenIds.has(task.id)) {
-      throw new Error(`task ledger has a duplicate id "${task.id}"; refusing to load an ambiguous ledger`);
+      throw new Error(
+        `task ledger has a duplicate id "${task.id}"; refusing to load an ambiguous ledger`,
+      );
     }
     seenIds.add(task.id);
     tasks.push(task);
@@ -529,12 +723,14 @@ function normalizePersistedTask(value: unknown): TaskLedgerEventTaskSnapshot | u
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     ...(record.parentId && isSafeTaskId(record.parentId) ? { parentId: record.parentId } : {}),
-    ...(normalizeOptionalOwner(record.owner)),
-    ...(typeof record.endedAt === 'number' && Number.isFinite(record.endedAt) ? { endedAt: record.endedAt } : {}),
-    ...(normalizeOptionalEvidence(record.blockedReason, 'blockedReason')),
-    ...(normalizeOptionalEvidence(record.failureReason, 'failureReason')),
-    ...(normalizeOptionalEvidence(record.completionEvidence, 'completionEvidence')),
-    ...(normalizeOptionalResumeTrust(record.resumeTrust)),
+    ...normalizeOptionalOwner(record.owner),
+    ...(typeof record.endedAt === 'number' && Number.isFinite(record.endedAt)
+      ? { endedAt: record.endedAt }
+      : {}),
+    ...normalizeOptionalEvidence(record.blockedReason, 'blockedReason'),
+    ...normalizeOptionalEvidence(record.failureReason, 'failureReason'),
+    ...normalizeOptionalEvidence(record.completionEvidence, 'completionEvidence'),
+    ...normalizeOptionalResumeTrust(record.resumeTrust),
   };
 }
 
@@ -548,7 +744,9 @@ function normalizeOptionalEvidence(
   return { [field]: normalized.value } as Partial<Task>;
 }
 
-function normalizeOptionalResumeTrust(value: unknown): Pick<Task, 'resumeTrust'> | Record<string, never> {
+function normalizeOptionalResumeTrust(
+  value: unknown,
+): Pick<Task, 'resumeTrust'> | Record<string, never> {
   if (value === undefined) return {};
   const normalized = normalizeResumeTrust(value);
   if (!normalized.ok) return {};
@@ -569,19 +767,25 @@ function normalizeOptionalOwner(value: unknown): Pick<Task, 'owner'> | Record<st
 }
 
 function projectLegacySnapshots(tasks: readonly TaskLedgerEventTaskSnapshot[]) {
-  const projection = projectTaskLedgerEvents(tasks.map((task, index): TaskLedgerEvent => ({
-    eventId: `legacy-import-${index}`,
-    type: 'task_imported',
-    ts: task.createdAt,
-    sessionId: 'legacy',
-    taskId: task.id,
-    nextStatus: task.status,
-    task,
-    source: 'import',
-    actor: 'system',
-  })));
+  const projection = projectTaskLedgerEvents(
+    tasks.map(
+      (task, index): TaskLedgerEvent => ({
+        eventId: `legacy-import-${index}`,
+        type: 'task_imported',
+        ts: task.createdAt,
+        sessionId: 'legacy',
+        taskId: task.id,
+        nextStatus: task.status,
+        task,
+        source: 'import',
+        actor: 'system',
+      }),
+    ),
+  );
   if (projection.diagnostics.length > 0) {
-    throw new Error(`legacy task ledger has projection diagnostics: ${projection.diagnostics.join('; ')}`);
+    throw new Error(
+      `legacy task ledger has projection diagnostics: ${projection.diagnostics.join('; ')}`,
+    );
   }
   return projection;
 }
@@ -593,18 +797,20 @@ function nextTaskKey(tasks: readonly Task[], parent: Task | undefined): string {
   let index = 1;
   while (used.has(`${prefix}${index}`)) index += 1;
   const key = `${prefix}${index}`;
-  if (!isTaskKey(key)) throw new Error(`Task hierarchy is too deep to allocate a stable key under ${parent?.key ?? 'root'}`);
+  if (!isTaskKey(key))
+    throw new Error(
+      `Task hierarchy is too deep to allocate a stable key under ${parent?.key ?? 'root'}`,
+    );
   return key;
 }
 
-function assertChildTaskOwner(owner: TaskOwner): asserts owner is TaskOwner & { actor: 'child_agent'; agentId: string; turnId: string } {
-  if (
-    owner.actor !== 'child_agent'
-    || !owner.agentId
-    || !owner.turnId
-    || !isTaskOwner(owner)
-  ) {
-    throw new Error('Child task ownership requires stable child_agent agentId and turnId references');
+function assertChildTaskOwner(
+  owner: TaskOwner,
+): asserts owner is TaskOwner & { actor: 'child_agent'; agentId: string; turnId: string } {
+  if (owner.actor !== 'child_agent' || !owner.agentId || !owner.turnId || !isTaskOwner(owner)) {
+    throw new Error(
+      'Child task ownership requires stable child_agent agentId and turnId references',
+    );
   }
 }
 
@@ -623,7 +829,9 @@ function assertDescendantsTerminal(tasks: readonly Task[], parentId: string): vo
     const current = pending.shift()!;
     for (const child of tasks.filter((task) => task.parentId === current)) {
       if (!isTerminalTaskStatus(child.status)) {
-        throw new Error(`Cannot complete a parent while descendant ${child.key} is ${child.status}`);
+        throw new Error(
+          `Cannot complete a parent while descendant ${child.key} is ${child.status}`,
+        );
       }
       pending.push(child.id);
     }

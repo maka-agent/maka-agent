@@ -14,7 +14,7 @@ export const EXECUTION_LOG_LEDGERS = [
   'runtime_event_projection',
   'task_event',
 ] as const;
-export type ExecutionLogLedger = typeof EXECUTION_LOG_LEDGERS[number];
+export type ExecutionLogLedger = (typeof EXECUTION_LOG_LEDGERS)[number];
 
 export const WORKSPACE_REVISION_KINDS = [
   'git_commit',
@@ -22,7 +22,7 @@ export const WORKSPACE_REVISION_KINDS = [
   'manifest',
   'opaque',
 ] as const;
-export type WorkspaceRevisionKind = typeof WORKSPACE_REVISION_KINDS[number];
+export type WorkspaceRevisionKind = (typeof WORKSPACE_REVISION_KINDS)[number];
 
 /**
  * Runtime identity lane.
@@ -158,10 +158,19 @@ export function validateExecutionEvidenceRef(value: unknown): ExecutionEvidenceV
     errors.push({ path: 'ref', message: 'expected at least one execution or task identity lane' });
   }
 
-  const runtimeCoverage = validateCoverage(value.runtimeCoverage, 'runtimeCoverage', 'runtime_event', errors);
+  const runtimeCoverage = validateCoverage(
+    value.runtimeCoverage,
+    'runtimeCoverage',
+    'runtime_event',
+    errors,
+  );
   const taskCoverage = validateCoverage(value.taskCoverage, 'taskCoverage', 'task_event', errors);
 
-  if (execution?.agentRunId && runtimeCoverage && runtimeCoverage.highWater.streamId !== execution.agentRunId) {
+  if (
+    execution?.agentRunId &&
+    runtimeCoverage &&
+    runtimeCoverage.highWater.streamId !== execution.agentRunId
+  ) {
     errors.push({
       path: 'runtimeCoverage.highWater.streamId',
       message: 'expected streamId to match execution.agentRunId',
@@ -229,25 +238,35 @@ function validateCoverage(
   }
 
   const highWater = validateCursor(value.highWater, `${path}.highWater`, expectedLedger, errors);
-  const lowWater = value.lowWater === undefined
-    ? undefined
-    : validateCursor(value.lowWater, `${path}.lowWater`, expectedLedger, errors);
+  const lowWater =
+    value.lowWater === undefined
+      ? undefined
+      : validateCursor(value.lowWater, `${path}.lowWater`, expectedLedger, errors);
 
   if (lowWater && highWater) {
     const comparison = compareExecutionLogCursors(lowWater, highWater);
     if (comparison === 'incomparable') {
-      errors.push({ path: `${path}.lowWater`, message: 'expected lowWater and highWater in the same log stream' });
+      errors.push({
+        path: `${path}.lowWater`,
+        message: 'expected lowWater and highWater in the same log stream',
+      });
     } else if (comparison === 'after') {
-      errors.push({ path: `${path}.lowWater.sequence`, message: 'expected lowWater at or before highWater' });
+      errors.push({
+        path: `${path}.lowWater.sequence`,
+        message: 'expected lowWater at or before highWater',
+      });
     } else if (comparison === 'conflict') {
-      errors.push({ path: `${path}.lowWater.eventId`, message: 'conflicting event ids at the same log position' });
+      errors.push({
+        path: `${path}.lowWater.eventId`,
+        message: 'conflicting event ids at the same log position',
+      });
     }
   }
 
   if (value.eventCount !== undefined && !isPositiveSafeInteger(value.eventCount)) {
     errors.push({ path: `${path}.eventCount`, message: 'expected a positive safe integer' });
   }
-  return highWater ? value as unknown as ExecutionLogCoverage : undefined;
+  return highWater ? (value as unknown as ExecutionLogCoverage) : undefined;
 }
 
 function validateCursor(
@@ -271,7 +290,10 @@ function validateCursor(
   return value as unknown as ExecutionLogCursor;
 }
 
-function validateWorkspaceRevision(value: unknown, errors: ExecutionEvidenceValidationIssue[]): void {
+function validateWorkspaceRevision(
+  value: unknown,
+  errors: ExecutionEvidenceValidationIssue[],
+): void {
   if (value === undefined) return;
   if (!isRecord(value)) {
     errors.push({ path: 'workspace', message: 'expected an object' });

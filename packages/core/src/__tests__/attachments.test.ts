@@ -15,7 +15,10 @@ describe('attachment MIME routing', () => {
 
   test('classifies office file extensions as doc regardless of MIME', () => {
     assert.equal(
-      attachmentKindFromMimeType('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'report.docx'),
+      attachmentKindFromMimeType(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'report.docx',
+      ),
       'doc',
     );
     assert.equal(attachmentKindFromMimeType('application/octet-stream', 'budget.xlsx'), 'doc');
@@ -28,7 +31,10 @@ describe('attachment MIME routing', () => {
     assert.equal(guessMimeFromName('anim.gif'), 'image/gif');
     assert.equal(guessMimeFromName('shot.webp'), 'image/webp');
     assert.equal(guessMimeFromName('doc.pdf'), 'application/pdf');
-    assert.equal(guessMimeFromName('sheet.xlsx'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    assert.equal(
+      guessMimeFromName('sheet.xlsx'),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     assert.equal(guessMimeFromName('unknown.xyz'), 'application/octet-stream');
     assert.equal(guessMimeFromName('noext'), 'application/octet-stream');
   });

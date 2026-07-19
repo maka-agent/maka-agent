@@ -8,9 +8,8 @@ export function parseProxyConfig(input: unknown): ProxySettings {
   if (!input || typeof input !== 'object') return { ...PROXY_DEFAULTS };
   const value = input as Record<string, unknown>;
   const rawPort = typeof value.port === 'number' ? value.port : Number(value.port);
-  const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65_535
-    ? rawPort
-    : PROXY_DEFAULTS.port;
+  const port =
+    Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65_535 ? rawPort : PROXY_DEFAULTS.port;
   const typeRaw = value.type;
   const type: ProxyType = typeRaw === 'https' || typeRaw === 'socks5' ? typeRaw : 'http';
 
@@ -19,10 +18,14 @@ export function parseProxyConfig(input: unknown): ProxySettings {
     type,
     host: typeof value.host === 'string' ? value.host.trim() : '',
     port,
-    username: typeof value.username === 'string' && value.username.length > 0 ? value.username : undefined,
-    password: typeof value.password === 'string' && value.password.length > 0 ? value.password : undefined,
+    username:
+      typeof value.username === 'string' && value.username.length > 0 ? value.username : undefined,
+    password:
+      typeof value.password === 'string' && value.password.length > 0 ? value.password : undefined,
     bypassList: Array.isArray(value.bypassList)
-      ? value.bypassList.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      ? value.bypassList.filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+        )
       : [...PROXY_DEFAULTS.bypassList],
   };
 }

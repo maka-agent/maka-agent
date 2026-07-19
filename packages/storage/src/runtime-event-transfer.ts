@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import { createRuntimeEventStore } from './agent-run-store.js';
@@ -75,9 +75,7 @@ export async function exportRuntimeEventsToJsonl(
   const events = source.readImmutableRuntimeEvents
     ? await source.readImmutableRuntimeEvents(sessionId, runId)
     : await source.readRuntimeEvents(sessionId, runId);
-  return events.length === 0
-    ? ''
-    : `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
+  return events.length === 0 ? '' : `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
 }
 
 export async function importRuntimeEventsFromJsonl(input: {
@@ -94,7 +92,6 @@ export async function importLegacyRuntimeEventJsonlTree(input: {
   workspaceRoot: string;
   destination: SqliteRuntimeStore;
 }): Promise<LegacyRuntimeEventImportReport> {
-  const source = createRuntimeEventStore(input.workspaceRoot);
   const sessionsRoot = join(input.workspaceRoot, 'sessions');
   const report: LegacyRuntimeEventImportReport = {
     filesScanned: 0,
@@ -113,18 +110,16 @@ export async function importLegacyRuntimeEventJsonlTree(input: {
       if (!sourceStat) continue;
       const fingerprint = `${sourceStat.size}:${sourceStat.mtimeMs}`;
       if (await input.destination.isRuntimeImportSourceCurrent(sourcePath, fingerprint)) continue;
-      const events = (source.readImmutableRuntimeEvents
-        ? await source.readImmutableRuntimeEvents(session, run)
-        : await source.readRuntimeEvents(session, run)
-      ).filter((event) => !isLegacyStreamPartialSnapshot(event));
-      report.filesScanned += 1;
-      const imported = await importRuntimeEvents(
-        events,
+      const events = parseLegacyRuntimeEventJsonl(
+        await readFile(sourcePath, 'utf8'),
         session,
         run,
-        input.destination,
-        { path: sourcePath, fingerprint },
-      );
+      ).filter((event) => !isLegacyStreamPartialSnapshot(event));
+      report.filesScanned += 1;
+      const imported = await importRuntimeEvents(events, session, run, input.destination, {
+        path: sourcePath,
+        fingerprint,
+      });
       report.eventsRead += imported.eventsRead;
       report.eventsImported += imported.eventsImported;
       report.eventsExisting += imported.eventsExisting;
@@ -161,7 +156,30 @@ async function importRuntimeEvents(
   return report;
 }
 
-function parseRuntimeEventJsonl(
+function parseRuntimeEventJsonl(jsonl: string, sessionId: string, runId: string): RuntimeEvent[] {
+  const events: RuntimeEvent[] = [];
+  const lines = jsonl.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line?.trim()) continue;
+    let event: RuntimeEvent;
+    try {
+      event = JSON.parse(line) as RuntimeEvent;
+    } catch (error) {
+      throw new Error(`Invalid RuntimeEvent JSONL line ${index + 1} for run ${runId}`, {
+        cause: error,
+      });
+    }
+    assertRuntimeEventImportIdentity(event, sessionId, runId);
+    if (event.partial === true) {
+      throw new Error(`Partial RuntimeEvent ${event.id} cannot be imported as immutable JSONL`);
+    }
+    events.push(event);
+  }
+  return events;
+}
+
+function parseLegacyRuntimeEventJsonl(
   jsonl: string,
   sessionId: string,
   runId: string,
@@ -175,12 +193,11 @@ function parseRuntimeEventJsonl(
     try {
       event = JSON.parse(line) as RuntimeEvent;
     } catch (error) {
-      throw new Error(`Invalid RuntimeEvent JSONL line ${index + 1} for run ${runId}`, { cause: error });
+      throw new Error(`Invalid legacy RuntimeEvent JSONL line ${index + 1} for run ${runId}`, {
+        cause: error,
+      });
     }
     assertRuntimeEventImportIdentity(event, sessionId, runId);
-    if (event.partial === true) {
-      throw new Error(`Partial RuntimeEvent ${event.id} cannot be imported as immutable JSONL`);
-    }
     events.push(event);
   }
   return events;
@@ -191,7 +208,12 @@ function assertRuntimeEventImportIdentity(
   sessionId: string,
   runId: string,
 ): void {
-  if (!event || typeof event !== 'object' || event.sessionId !== sessionId || event.runId !== runId) {
+  if (
+    !event ||
+    typeof event !== 'object' ||
+    event.sessionId !== sessionId ||
+    event.runId !== runId
+  ) {
     throw new Error(`RuntimeEvent import identity mismatch for session ${sessionId}, run ${runId}`);
   }
 }

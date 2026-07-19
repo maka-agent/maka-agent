@@ -34,14 +34,14 @@ export type OAuthSubscriptionProvider = 'claude-subscription';
  * Closed union; future provider variants extend independently.
  */
 export type OAuthSubscriptionRuntimeState =
-  | 'not_logged_in'        // no token file present
-  | 'authorizing'          // user clicked "登录", browser open, awaiting paste-code
-  | 'authenticated'        // tokens valid; not yet proven operational
-  | 'refreshing'           // refresh attempt in flight
-  | 'refresh_failed'       // refresh errored; user must re-login (token file NOT auto-deleted per kenji)
-  | 'storage_failed'       // token file / safeStorage read failed; do not present as logged out
-  | 'quota_unavailable'    // tokens valid but /oauth/usage failed
-  | 'provider_rejected';   // last send rejected by provider (likely policy / cloak needed)
+  | 'not_logged_in' // no token file present
+  | 'authorizing' // user clicked "登录", browser open, awaiting paste-code
+  | 'authenticated' // tokens valid; not yet proven operational
+  | 'refreshing' // refresh attempt in flight
+  | 'refresh_failed' // refresh errored; user must re-login (token file NOT auto-deleted per kenji)
+  | 'storage_failed' // shared credential store read failed; do not present as logged out
+  | 'quota_unavailable' // tokens valid but /oauth/usage failed
+  | 'provider_rejected'; // last send rejected by provider (likely policy / cloak needed)
 
 /**
  * User profile slice exposed to the renderer.
@@ -115,12 +115,12 @@ export type SubscriptionActionResult =
   | { ok: false; reason: SubscriptionActionFailureReason; message: string };
 
 export type SubscriptionActionFailureReason =
-  | 'invalid_paste_code'       // user pasted malformed code or wrong state
-  | 'authorization_pending'    // no startAuthorization called yet
-  | 'authorization_expired'    // verifier TTL passed before paste
-  | 'token_exchange_failed'    // /oauth/token returned non-200
-  | 'refresh_failed'           // refresh attempt errored
-  | 'storage_failed'           // safeStorage / file write failed
+  | 'invalid_paste_code' // user pasted malformed code or wrong state
+  | 'authorization_pending' // no startAuthorization called yet
+  | 'authorization_expired' // verifier TTL passed before paste
+  | 'token_exchange_failed' // /oauth/token returned non-200
+  | 'refresh_failed' // refresh attempt errored
+  | 'storage_failed' // shared credential store write failed
   // PR-OAUTH-SUBSCRIPTION-0 (kenji `45b31e16`): the experimental
   // env flag is OFF. Distinct from `provider_rejected` so the user
   // doesn't think Anthropic rejected their account — this is
@@ -181,11 +181,12 @@ export function base64urlEncode(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]!);
   }
   // btoa is universal (Node 16+ and browsers).
-  const standard = typeof btoa === 'function'
-    ? btoa(binary)
-    // Node-only fallback if btoa is missing in some embed; never
-    // hit in supported runtimes.
-    : Buffer.from(binary, 'binary').toString('base64');
+  const standard =
+    typeof btoa === 'function'
+      ? btoa(binary)
+      : // Node-only fallback if btoa is missing in some embed; never
+        // hit in supported runtimes.
+        Buffer.from(binary, 'binary').toString('base64');
   return standard.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 

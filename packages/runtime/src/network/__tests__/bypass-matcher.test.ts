@@ -3,7 +3,15 @@ import { expect } from '../../test-helpers.js';
 import { matchesBypassList } from '../bypass-matcher.js';
 
 describe('matchesBypassList', () => {
-  const list = ['localhost', '*.local', '*.example.com', '192.168.*', '10.0.0.0/8', '127.0.0.1', '::1'];
+  const list = [
+    'localhost',
+    '*.local',
+    '*.example.com',
+    '192.168.*',
+    '10.0.0.0/8',
+    '127.0.0.1',
+    '::1',
+  ];
 
   test('matches exact, wildcard, and CIDR entries', () => {
     expect(matchesBypassList('localhost', list)).toBe(true);

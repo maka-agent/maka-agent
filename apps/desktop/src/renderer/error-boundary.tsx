@@ -7,8 +7,10 @@
 // crashed early just left the user staring at an empty viewport).
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import type { UiLocale } from '@maka/core';
 import { AlertTriangle, Check, Clipboard, RotateCw } from '@maka/ui/icons';
 import { Button as UiButton, Card, redactSecrets } from '@maka/ui';
+import { getShellCopy } from './locales/shell-copy.js';
 
 type State = {
   error: Error | null;
@@ -38,7 +40,7 @@ export function formatRendererErrorReport(error: Error, info?: ErrorInfo | null)
   return redactSecrets(lines.join('\n'));
 }
 
-export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
+export class ErrorBoundary extends Component<{ children: ReactNode; locale: UiLocale }, State> {
   state: State = { error: null, errorInfo: null, copyState: 'idle' };
   private mounted = false;
   private copyRequestSeq = 0;
@@ -96,7 +98,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     if (!error) return this.props.children;
     const safeStack = redactSecrets(`${error.name}: ${error.message}${error.stack ? `\n\n${error.stack}` : ''}`);
     const copyPending = copyState === 'pending';
-    const copyLabel = copyPending ? '复制中…' : copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制诊断信息';
+    const copy = getShellCopy(this.props.locale).errorBoundary;
+    const copyLabel = copyPending
+      ? copy.copyPending
+      : copyState === 'copied'
+        ? copy.copied
+        : copyState === 'failed'
+          ? copy.copyFailed
+          : copy.copyReport;
     const CopyIcon = copyState === 'copied' ? Check : Clipboard;
 
     return (
@@ -106,16 +115,16 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
             <AlertTriangle size={28} />
           </span>
           <div className="maka-error-copy">
-            <h2>Maka 渲染层崩溃了</h2>
+            <h2>{copy.title}</h2>
             <p>
-              已捕获一次未处理的 React 异常。下面是错误摘要；点 <strong>重试</strong>
-              清掉这次崩溃，<strong>重新加载</strong> 会刷新整个窗口。需要交接时先复制诊断信息。
+              {copy.descriptionBeforeRetry} <strong>{copy.retry}</strong> {copy.descriptionBeforeReload}{' '}
+              <strong>{copy.reload}</strong> {copy.descriptionAfterReload}
             </p>
-            <pre className="maka-error-stack" aria-label="错误详情">
+            <pre className="maka-error-stack" aria-label={copy.errorDetails}>
               {safeStack}
             </pre>
             {errorInfo?.componentStack && (
-              <pre className="maka-error-stack" aria-label="组件栈">
+              <pre className="maka-error-stack" aria-label={copy.componentStack}>
                 {redactSecrets(errorInfo.componentStack.trim())}
               </pre>
             )}
@@ -134,19 +143,13 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               </UiButton>
               <UiButton type="button" variant="secondary" onClick={this.handleReset}>
                 <RotateCw size={14} aria-hidden="true" />
-                <span>重试</span>
+                <span>{copy.retry}</span>
               </UiButton>
-              <UiButton
-                type="button"
-                variant="default"
-                onClick={this.handleReload}
-              >
-                重新加载
+              <UiButton type="button" variant="default" onClick={this.handleReload}>
+                {copy.reload}
               </UiButton>
             </div>
-            {copyState === 'failed' && (
-              <p className="maka-error-copy-status">剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。</p>
-            )}
+            {copyState === 'failed' && <p className="maka-error-copy-status">{copy.clipboardFailure}</p>}
           </div>
         </Card>
       </div>

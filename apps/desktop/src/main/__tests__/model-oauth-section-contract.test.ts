@@ -137,42 +137,52 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       providers,
-      /function connectionTestFailureMessage\(result: ConnectionTestResult, troubleshootingCopy: string\)[\s\S]*generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
+      /function connectionTestFailureMessage\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*\): string \{[\s\S]*generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
       'failed connection tests must not toast raw provider response bodies',
     );
     assert.match(
-      detail,
-      /toast\.error\([\s\S]*`连接失败 · \$\{connection\.name\}`,[\s\S]*connectionTestFailureMessage\(result, credentialTroubleshootingCopy\)/,
-      'ConnectionDetail test failure toast must use localized sanitized copy',
+      providers,
+      /function connectionTestFailureFallback\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*\): string \{[\s\S]*statusCode === 429[\s\S]*errorClass === 'auth'[\s\S]*copy\.auth[\s\S]*copy\.recheck/,
+      'connection-test failure classification must live once in provider-panel-shared with injectable surface copy',
     );
     assert.match(
       detail,
-      /const busyRef = useRef\(false\)[\s\S]*const testingRef = useRef\(false\)[\s\S]*const fetchingModelsRef = useRef\(false\)[\s\S]*const savingEnabledModelsRef = useRef\(false\)[\s\S]*const settingDefaultRef = useRef\(false\)[\s\S]*const deletingRef = useRef\(false\)/,
-      'ConnectionDetail actions must have synchronous duplicate-action guards, not only React state',
+      /toast\.error\([\s\S]*`连接失败 · \$\{connection\.name\}`,[\s\S]*connectionTestFailureMessage\(result, \{\s*auth: `鉴权失败，请确认 \$\{credentialTroubleshootingCopy\} 后重试。`,\s*recheck: `检查 \$\{credentialTroubleshootingCopy\} 后重试。`,\s*\}\)/,
+      'ConnectionDetail test failure toast must use shared helper with Models-sheet troubleshooting copy',
+    );
+    assert.doesNotMatch(
+      detail,
+      /function connectionTestFailure(?:Message|Fallback)\(/,
+      'ConnectionDetail must not keep a private connection-test failure classifier after sharing',
     );
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*if \(busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*props\.bridge\.update\(/,
+      /const connectionDetailActionGuard = useKeyedActionGuard<[\s\S]*'save' \| 'test' \| 'fetch-models' \| 'save-enabled-models' \| 'set-default' \| 'delete'[\s\S]*>\(\)/,
+      'ConnectionDetail actions must have synchronous duplicate-action guards from the shared keyed guard, not only React state',
+    );
+    assert.match(
+      detail,
+      /async function save\(\) \{[\s\S]*const releaseSave = connectionDetailActionGuard\.beginExclusive\('save'\);[\s\S]*if \(!releaseSave\) return;[\s\S]*props\.bridge\.update\(/,
       'ConnectionDetail save must set its duplicate-submit guard before awaiting bridge.update()',
     );
     assert.match(
       detail,
-      /async function runTest\(\) \{[\s\S]*if \(testingRef\.current \|\| busyRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*testingRef\.current = true;[\s\S]*props\.bridge\.test\(/,
+      /async function runTest\(\) \{[\s\S]*const releaseTest = connectionDetailActionGuard\.beginExclusive\('test'\);[\s\S]*if \(!releaseTest\) return;[\s\S]*props\.bridge\.test\(/,
       'ConnectionDetail test must be gated synchronously before awaiting bridge.test()',
     );
     assert.match(
       detail,
-      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*if \(fetchingModelsRef\.current\) return;[\s\S]*if \(!opts\.silent && \(busyRef\.current \|\| testingRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\)\) return;[\s\S]*fetchingModelsRef\.current = true;[\s\S]*props\.bridge\.fetchModels\(/,
+      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*const releaseFetch = opts\.silent[\s\S]*\? connectionDetailActionGuard\.begin\('fetch-models'\)[\s\S]*: connectionDetailActionGuard\.beginExclusive\('fetch-models'\);[\s\S]*if \(!releaseFetch\) return;[\s\S]*props\.bridge\.fetchModels\(/,
       'ConnectionDetail model refresh must be duplicate-gated while preserving the post-save silent refresh',
     );
     assert.match(
       detail,
-      /async function setAsDefault\(\) \{[\s\S]*if \(settingDefaultRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| deletingRef\.current\) return;[\s\S]*settingDefaultRef\.current = true;[\s\S]*props\.bridge\.setDefault\(/,
+      /async function setAsDefault\(\) \{[\s\S]*const releaseSetDefault = connectionDetailActionGuard\.beginExclusive\('set-default'\);[\s\S]*if \(!releaseSetDefault\) return;[\s\S]*props\.bridge\.setDefault\(/,
       'ConnectionDetail default-switch must be gated synchronously before awaiting bridge.setDefault()',
     );
     assert.match(
       detail,
-      /async function remove\(\) \{[\s\S]*if \(deletingRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| savingEnabledModelsRef\.current \|\| settingDefaultRef\.current\) return;[\s\S]*deletingRef\.current = true;[\s\S]*props\.bridge\.delete\(/,
+      /async function remove\(\) \{[\s\S]*const releaseDelete = connectionDetailActionGuard\.beginExclusive\('delete'\);[\s\S]*if \(!releaseDelete\) return;[\s\S]*props\.bridge\.delete\(/,
       'ConnectionDetail delete must be gated synchronously before awaiting bridge.delete()',
     );
     assert.match(
@@ -242,17 +252,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /const busyRef = useRef\(false\)/,
-      'AddProviderForm create must have a synchronous duplicate-submit guard',
+      /const submitGuard = useActionGuard<'submit'>\(\)/,
+      'AddProviderForm create must have a synchronous duplicate-submit guard from the shared hook',
     );
     assert.match(
       addForm,
-      /const addProviderMountedRef = useMountedRef\(\)[\s\S]*useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*busyRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
-      'AddProviderForm must track its own sheet lifetime so pending create continuations cannot write after overlay close',
+      /const addProviderMountedRef = useMountedRef\(\)/,
+      'AddProviderForm must track its own sheet lifetime so pending create continuations cannot write after overlay close (the shared guard hook releases on unmount)',
     );
     assert.match(
       addForm,
-      /async function submit\(\) \{[\s\S]*if \(busyRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*setBusy\(true\);[\s\S]*props\.bridge\.create\(/,
+      /async function submit\(\) \{[\s\S]*if \(submitGuard\.current !== null\) return;[\s\S]*submitGuard\.begin\('submit'\);[\s\S]*setBusy\(true\);[\s\S]*props\.bridge\.create\(/,
       'AddProviderForm create must set the duplicate-submit guard before awaiting bridge.create()',
     );
     assert.match(
@@ -262,7 +272,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /catch \(err\) \{[\s\S]*if \(addProviderMountedRef\.current\) setError\(providerPanelActionErrorMessage\(err\)\);[\s\S]*\} finally \{[\s\S]*busyRef\.current = false;[\s\S]*if \(addProviderMountedRef\.current\) setBusy\(false\);[\s\S]*\}/,
+      /catch \(err\) \{[\s\S]*if \(addProviderMountedRef\.current\) setError\(providerPanelActionErrorMessage\(err\)\);[\s\S]*\} finally \{[\s\S]*submitGuard\.finish\(\);[\s\S]*if \(addProviderMountedRef\.current\) setBusy\(false\);[\s\S]*\}/,
       'AddProviderForm create guard must release without setting React state after sheet unmount',
     );
     assert.match(
@@ -759,7 +769,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /async function remove\(\) \{[\s\S]*deletingRef\.current = true;[\s\S]*setDeleting\(true\);[\s\S]*let deleted = false;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*deleted \? '刷新模型列表失败' : '删除模型连接失败'/,
+      /async function remove\(\) \{[\s\S]*setDeleting\(true\);[\s\S]*let deleted = false;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*deleted \? '刷新模型列表失败' : '删除模型连接失败'/,
       'ConnectionDetail delete failures and post-delete refresh failures must be visible',
     );
     assert.match(
@@ -817,7 +827,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /useEffect\(\(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*busyRef\.current = false;[\s\S]*testingRef\.current = false;[\s\S]*fetchingModelsRef\.current = false;[\s\S]*settingDefaultRef\.current = false;[\s\S]*deletingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*connectionDetailActionGuard\.reset\(\);[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
       'ConnectionDetail cleanup must release every pending action owner on close or provider switch',
     );
     assert.match(
@@ -1108,6 +1118,49 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // this one flow rather than re-implementing the browser handoff.
     const src = await readProviderSettingsCombinedSource();
     assert.match(src, /const flow = useOAuthLoginFlow\(\{/, 'SubscriptionLoginModal must consume the shared login-flow hook');
+  });
+
+  it('GitHub Copilot modal rides the shared login flow through the direct account flow (#1042)', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const hook = await readFile(OAUTH_LOGIN_FLOW_HOOK_SOURCE, 'utf8');
+    const copilotModal = src.match(/function GitHubCopilotSubscriptionModal[\s\S]*?\n\}/)?.[0] ?? '';
+
+    // The modal consumes the shared controller instead of owning a separate
+    // pending-action state machine.
+    assert.match(
+      copilotModal,
+      /const flow = useOAuthLoginFlow\(\{[\s\S]*bridge: window\.maka\.githubCopilotSubscription as unknown as OAuthLoginFlowBridge[\s\S]*direct: \{[\s\S]*login: \(\) => window\.maka\.githubCopilotSubscription\.connectExistingLogin\(\)[\s\S]*refreshTokens: \(\) => window\.maka\.githubCopilotSubscription\.refreshTokens\(\)/,
+      'GitHub Copilot modal must consume the shared login-flow hook with its direct account actions',
+    );
+    assert.doesNotMatch(
+      copilotModal,
+      /createOneShotActionGuard|pendingGuard|useRef|useMountedRef/,
+      'GitHub Copilot modal must not own a parallel pending-action guard — the shared hook provides it',
+    );
+    assert.match(copilotModal, /disabled=\{flow\.actionBusy\}/, 'Copilot account actions must share the one busy flag');
+    assert.match(copilotModal, /flow\.pendingAction === 'login' \? '导入中…' : loggedIn \? '重新导入' : '导入兼容凭据'/, 'Copilot connect must expose its specific pending copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'refresh' \? '验证中…' : '重新验证'/, 'Copilot token refresh must expose its specific pending copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'logout' \? '移除中…' : '移除本地登录'/, 'Copilot logout must expose its specific pending copy');
+
+    // The hook gates the direct actions through the same one-shot guard and
+    // keeps loopback semantics for the browser services.
+    assert.match(
+      hook,
+      /direct\?: OAuthDirectAccountFlow/,
+      'shared OAuth flow must accept the direct account flow as an opt-in mode',
+    );
+    assert.match(hook, /if \(!beginPendingAction\('refresh'\)\) return;/, 'shared OAuth token refresh must use the ref-backed action guard');
+    assert.match(
+      hook,
+      /const result = await direct\.login\(\);[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return;[\s\S]*await refresh\(\);/,
+      'direct login must drop late writes after unmount and refresh the snapshot afterwards',
+    );
+    assert.match(
+      hook,
+      /if \(!direct\) \{[\s\S]*const ok = await toast\.confirm/,
+      'only the browser-loopback services keep the logout confirm — Copilot never had one',
+    );
+    assert.doesNotMatch(hook, /toast\.error\('[^']+', result\.message\)/, 'direct account failures must not toast raw service messages');
   });
 
   it('OAuth login modals surface thrown IPC/service failures instead of leaving console-only rejections', async () => {

@@ -102,15 +102,18 @@ describe('Cursor subscription OAuth config (upstream cursor-auth pattern)', () =
 });
 
 describe('Cursor service source-grep contract', () => {
-  it('declares the safeStorage-encrypted token path under userData', async () => {
+  it('persists tokens through the shared credential store, not safeStorage (#1125)', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(
       src,
-      /\.cursor_subscription_token/,
-      'token file path must mirror the Claude service pattern',
+      /saveSharedOAuthTokens\(this\.credentialStore, 'cursor-subscription'/,
+      'tokens must be written to the shared CredentialStore (the cross-surface authority)',
     );
-    assert.match(src, /safeStorage\.encryptString/, 'tokens must be encrypted via safeStorage');
-    assert.match(src, /mode:\s*0o600/, 'persisted token file must be written with mode 0o600');
+    assert.doesNotMatch(
+      src,
+      /encryptString|decryptString|isEncryptionAvailable/,
+      'no safeStorage-encrypted token path may remain',
+    );
   });
 
   it('uses globalThis.fetch by default so Electron session proxy applies', async () => {

@@ -37,7 +37,11 @@ describe('harbor smoke config generation', () => {
       'maka-stale-off',
       'maka-retrieval-on',
     ]) {
-      const { config } = buildSmokeJobConfig({ manifest, profileName, overrides: { jobName: `job-${profileName}` } });
+      const { config } = buildSmokeJobConfig({
+        manifest,
+        profileName,
+        overrides: { jobName: `job-${profileName}` },
+      });
       const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
       const env = agent.env as Record<string, string>;
       assert.equal(agent.import_path, 'maka_agent:MakaAgent', profileName);
@@ -50,7 +54,11 @@ describe('harbor smoke config generation', () => {
 
   test('heavy profile preserves heavy-task env verbatim', async () => {
     const manifest = await loadManifest();
-    const { config } = buildSmokeJobConfig({ manifest, profileName: 'maka-heavy', overrides: { jobName: 'job' } });
+    const { config } = buildSmokeJobConfig({
+      manifest,
+      profileName: 'maka-heavy',
+      overrides: { jobName: 'job' },
+    });
     const env = (config.agents as Array<Record<string, unknown>>)[0]!.env as Record<string, string>;
     assert.equal(env.MAKA_HEAVY_TASK_MODE, '1');
     assert.equal(env.MAKA_HARBOR_USE_TASK_RUN, '1');
@@ -83,8 +91,16 @@ describe('harbor smoke config generation', () => {
 
   test('n-tasks replaces task_names with a task count', async () => {
     const manifest = await loadManifest();
-    const withPattern = buildSmokeJobConfig({ manifest, profileName: 'oracle', overrides: { jobName: 'j', taskPattern: '*foo' } });
-    const withCount = buildSmokeJobConfig({ manifest, profileName: 'oracle', overrides: { jobName: 'j', nTasks: 3 } });
+    const withPattern = buildSmokeJobConfig({
+      manifest,
+      profileName: 'oracle',
+      overrides: { jobName: 'j', taskPattern: '*foo' },
+    });
+    const withCount = buildSmokeJobConfig({
+      manifest,
+      profileName: 'oracle',
+      overrides: { jobName: 'j', nTasks: 3 },
+    });
     const dsPattern = (withPattern.config.datasets as Array<Record<string, unknown>>)[0]!;
     const dsCount = (withCount.config.datasets as Array<Record<string, unknown>>)[0]!;
     assert.deepEqual(dsPattern.task_names, ['*foo']);
@@ -96,7 +112,12 @@ describe('harbor smoke config generation', () => {
   test('rejects non-positive n-tasks', async () => {
     const manifest = await loadManifest();
     assert.throws(
-      () => buildSmokeJobConfig({ manifest, profileName: 'oracle', overrides: { jobName: 'j', nTasks: 0 } }),
+      () =>
+        buildSmokeJobConfig({
+          manifest,
+          profileName: 'oracle',
+          overrides: { jobName: 'j', nTasks: 0 },
+        }),
       /--n-tasks must be a positive integer/,
     );
   });
@@ -117,7 +138,11 @@ describe('harbor smoke config generation', () => {
 
   test('oracle profile keeps the built-in agent and null import path', async () => {
     const manifest = await loadManifest();
-    const { config } = buildSmokeJobConfig({ manifest, profileName: 'oracle', overrides: { jobName: 'j' } });
+    const { config } = buildSmokeJobConfig({
+      manifest,
+      profileName: 'oracle',
+      overrides: { jobName: 'j' },
+    });
     const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
     assert.equal(agent.name, 'oracle');
     assert.equal(agent.import_path, null);
@@ -129,7 +154,11 @@ describe('harbor smoke config generation', () => {
       defaults: { taskPattern: '*sqlite-with-gcov' },
       profiles: { 'maka-basic': { agent: { importPath: 'maka_agent:MakaAgent', env: {} } } },
     };
-    const { jobName } = buildSmokeJobConfig({ manifest, profileName: 'maka-basic', overrides: { now: fixedNow } });
+    const { jobName } = buildSmokeJobConfig({
+      manifest,
+      profileName: 'maka-basic',
+      overrides: { now: fixedNow },
+    });
     assert.equal(jobName, 'maka-basic-terminal-bench-sample-sqlite-with-gcov-20260716T123456Z');
   });
 
@@ -142,7 +171,12 @@ describe('harbor smoke config generation', () => {
 
   test('resolveSmokeRunTargets splits compare profiles and suffixes job names', () => {
     assert.deepEqual(
-      resolveSmokeRunTargets({ compare: true, compareProfiles: 'maka-heavy, opencode', profile: 'x', jobName: 'run1' }),
+      resolveSmokeRunTargets({
+        compare: true,
+        compareProfiles: 'maka-heavy, opencode',
+        profile: 'x',
+        jobName: 'run1',
+      }),
       [
         { profileName: 'maka-heavy', jobName: 'run1-maka-heavy' },
         { profileName: 'opencode', jobName: 'run1-opencode' },
@@ -152,7 +186,11 @@ describe('harbor smoke config generation', () => {
 
   test('resolveSmokeRunTargets leaves job names blank when none is supplied', () => {
     assert.deepEqual(
-      resolveSmokeRunTargets({ compare: true, compareProfiles: 'maka-basic,opencode', profile: 'x' }),
+      resolveSmokeRunTargets({
+        compare: true,
+        compareProfiles: 'maka-basic,opencode',
+        profile: 'x',
+      }),
       [
         { profileName: 'maka-basic', jobName: '' },
         { profileName: 'opencode', jobName: '' },

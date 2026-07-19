@@ -89,17 +89,21 @@ export function buildRsiControllerAttribution(
   const heldIn = new Set(heldInTaskIds);
   const previous = eventsByTask(input.lastKeptEvents, heldIn);
   const current = eventsByTask(input.candidateEvents, heldIn);
-  const predictedFixes = sortedUnique(input.candidateRationale.predictedFixes)
-    .map((taskId) => ({
-      taskId,
-      outcome: predictedFixOutcome(taskOutcome(previous.get(taskId)), taskOutcome(current.get(taskId))),
-    }));
-  const riskTasks = sortedUnique(input.candidateRationale.riskTasks)
-    .map((taskId) => ({
-      taskId,
-      outcome: riskTaskOutcome(taskOutcome(previous.get(taskId)), taskOutcome(current.get(taskId))),
-    }));
-  const predictedOrRisk = new Set([...input.candidateRationale.predictedFixes, ...input.candidateRationale.riskTasks]);
+  const predictedFixes = sortedUnique(input.candidateRationale.predictedFixes).map((taskId) => ({
+    taskId,
+    outcome: predictedFixOutcome(
+      taskOutcome(previous.get(taskId)),
+      taskOutcome(current.get(taskId)),
+    ),
+  }));
+  const riskTasks = sortedUnique(input.candidateRationale.riskTasks).map((taskId) => ({
+    taskId,
+    outcome: riskTaskOutcome(taskOutcome(previous.get(taskId)), taskOutcome(current.get(taskId))),
+  }));
+  const predictedOrRisk = new Set([
+    ...input.candidateRationale.predictedFixes,
+    ...input.candidateRationale.riskTasks,
+  ]);
   return {
     runId: input.runId,
     roundId: input.roundId,
@@ -109,21 +113,31 @@ export function buildRsiControllerAttribution(
     evidenceRefs: sortedUnique(input.candidateRationale.evidenceRefs),
     predictedFixes,
     riskTasks,
-    unexpectedHeldInFlips: input.analysis.transitionVsLastKept
-      .filter((transition) => heldIn.has(transition.taskId) && !predictedOrRisk.has(transition.taskId)),
+    unexpectedHeldInFlips: input.analysis.transitionVsLastKept.filter(
+      (transition) => heldIn.has(transition.taskId) && !predictedOrRisk.has(transition.taskId),
+    ),
     decision: {
       decision: input.decision.decision,
       reason: input.decision.reason,
     },
-    rootCauseSignalMatch: rootCauseSignalMatch(input.candidateRationale, input.promptTimeAnalysis ?? input.analysis),
+    rootCauseSignalMatch: rootCauseSignalMatch(
+      input.candidateRationale,
+      input.promptTimeAnalysis ?? input.analysis,
+    ),
   };
 }
 
-export function projectRsiPromptAttribution(attribution: ProjectRsiPromptAttributionInput): RsiPromptAttribution {
+export function projectRsiPromptAttribution(
+  attribution: ProjectRsiPromptAttributionInput,
+): RsiPromptAttribution {
   return {
     predictedFixes: attribution.predictedFixes.map(({ taskId, outcome }) => ({ taskId, outcome })),
     riskTasks: attribution.riskTasks.map(({ taskId, outcome }) => ({ taskId, outcome })),
-    unexpectedHeldInFlips: attribution.unexpectedHeldInFlips.map(({ taskId, from, to }) => ({ taskId, from, to })),
+    unexpectedHeldInFlips: attribution.unexpectedHeldInFlips.map(({ taskId, from, to }) => ({
+      taskId,
+      from,
+      to,
+    })),
     rootCauseSignalMatch: attribution.rootCauseSignalMatch,
   };
 }
@@ -133,12 +147,19 @@ export function validateRsiControllerAttribution(
 ): RsiControllerAttributionValidation {
   const attribution = input.attribution;
   const outOfScope = rsiControllerAttributionOutOfScope(attribution, input.heldInTaskIds);
-  const malformed = !sameStringSet(attribution.evidenceRefs, input.candidateRationale.evidenceRefs)
-    || !sameStringSet(attribution.predictedFixes.map((item) => item.taskId), input.candidateRationale.predictedFixes)
-    || !sameStringSet(attribution.riskTasks.map((item) => item.taskId), input.candidateRationale.riskTasks)
-    || attribution.decision.decision !== input.decision.decision
-    || attribution.decision.reason !== input.decision.reason
-    || hasUnsafePromptAttributionProjection(attribution);
+  const malformed =
+    !sameStringSet(attribution.evidenceRefs, input.candidateRationale.evidenceRefs) ||
+    !sameStringSet(
+      attribution.predictedFixes.map((item) => item.taskId),
+      input.candidateRationale.predictedFixes,
+    ) ||
+    !sameStringSet(
+      attribution.riskTasks.map((item) => item.taskId),
+      input.candidateRationale.riskTasks,
+    ) ||
+    attribution.decision.decision !== input.decision.decision ||
+    attribution.decision.reason !== input.decision.reason ||
+    hasUnsafePromptAttributionProjection(attribution);
   return { malformed, outOfScope };
 }
 
@@ -155,7 +176,9 @@ function rsiControllerAttributionOutOfScope(
   return taskIds.some((taskId) => !heldIn.has(taskId));
 }
 
-function hasUnsafePromptAttributionProjection(attribution: RsiControllerAttributionValidationTarget): boolean {
+function hasUnsafePromptAttributionProjection(
+  attribution: RsiControllerAttributionValidationTarget,
+): boolean {
   const projection = projectRsiPromptAttribution(attribution);
   const allowedFields = new Set([
     'predictedFixes',
@@ -164,7 +187,9 @@ function hasUnsafePromptAttributionProjection(attribution: RsiControllerAttribut
     'rootCauseSignalMatch',
   ]);
   if (Object.keys(projection).some((field) => !allowedFields.has(field))) return true;
-  return /decisionReason|held[-_ ]?out|coverage_regressed|held_out_regressed/i.test(JSON.stringify(projection));
+  return /decisionReason|held[-_ ]?out|coverage_regressed|held_out_regressed/i.test(
+    JSON.stringify(projection),
+  );
 }
 
 function eventsByTask(
@@ -180,7 +205,8 @@ function eventsByTask(
 
 function predictedFixOutcome(from: RsiTaskOutcome, to: RsiTaskOutcome): RsiPredictedFixOutcome {
   if (to === 'missing') return 'missing';
-  if (to === 'unscored' || to === 'infra' || to === 'budget' || to === 'plumbing') return 'unscored';
+  if (to === 'unscored' || to === 'infra' || to === 'budget' || to === 'plumbing')
+    return 'unscored';
   if (score(to) > score(from)) return 'improved';
   if (score(to) < score(from)) return 'regressed';
   return 'unchanged';
@@ -188,7 +214,8 @@ function predictedFixOutcome(from: RsiTaskOutcome, to: RsiTaskOutcome): RsiPredi
 
 function riskTaskOutcome(from: RsiTaskOutcome, to: RsiTaskOutcome): RsiRiskTaskOutcome {
   if (to === 'missing') return 'missing';
-  if (to === 'unscored' || to === 'infra' || to === 'budget' || to === 'plumbing') return 'unscored';
+  if (to === 'unscored' || to === 'infra' || to === 'budget' || to === 'plumbing')
+    return 'unscored';
   return score(to) < score(from) ? 'regressed' : 'safe';
 }
 
@@ -223,7 +250,9 @@ function rootCauseSignalMatch(
     return signalKinds.has('tool_failure_cluster') ? 'matched' : 'contradicted';
   }
   if (isErrorClassBackedFailurePattern(rationale.failurePattern)) {
-    return referencedSignals.some((signal) => signal.kind === 'error_class' && signal.errorClass === rationale.failurePattern)
+    return referencedSignals.some(
+      (signal) => signal.kind === 'error_class' && signal.errorClass === rationale.failurePattern,
+    )
       ? 'matched'
       : 'contradicted';
   }
@@ -231,9 +260,11 @@ function rootCauseSignalMatch(
 }
 
 function isErrorClassBackedFailurePattern(failurePattern: PromptCandidateFailurePattern): boolean {
-  return failurePattern === 'max_tokens'
-    || failurePattern === 'runtime_error'
-    || failurePattern === 'verification_failed';
+  return (
+    failurePattern === 'max_tokens' ||
+    failurePattern === 'runtime_error' ||
+    failurePattern === 'verification_failed'
+  );
 }
 
 function sortedUnique(values: readonly string[]): string[] {
@@ -243,8 +274,10 @@ function sortedUnique(values: readonly string[]): string[] {
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
   const sortedLeft = sortedUnique(left);
   const sortedRight = sortedUnique(right);
-  return sortedLeft.length === sortedRight.length
-    && sortedLeft.every((value, index) => value === sortedRight[index]);
+  return (
+    sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((value, index) => value === sortedRight[index])
+  );
 }
 
 function compareStrings(a: string, b: string): number {

@@ -13,7 +13,7 @@ import type {
   UsageStats,
 } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
-import { OverlayScrollArea, useMountedRef, useToast } from '@maka/ui';
+import { OverlayScrollArea, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { safeLocalStorageSet } from '../browser-storage';
 import { AccountSettingsPage } from './account-settings-page';
@@ -35,6 +35,7 @@ import { UsageSettingsPage } from './usage-settings-page';
 import { VoiceModelsSettingsPage } from './voice-settings-page';
 import { WebSearchSettingsPage } from './web-search-settings-page';
 import type { UiLocaleUpdateGate } from './ui-locale-update-gate';
+import { getSettingsSharedCopy } from '../locales/settings-shared-copy.js';
 
 export function SettingsSurface(props: {
   connections: LlmConnection[];
@@ -54,6 +55,9 @@ export function SettingsSurface(props: {
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsSharedCopy(locale);
+  const localizedNav = groupedNav(locale);
   const [section, setSection] = useState<SettingsSection>(() => props.requestedSection ?? readLastSettingsSection());
   const [providerCatalogRequested, setProviderCatalogRequested] = useState(props.openProviderCatalog === true);
 
@@ -139,7 +143,7 @@ export function SettingsSurface(props: {
       }
     } catch (error) {
       if (settingsModalMountedRef.current && ticket === settingsReloadTicketRef.current) {
-        toast.error('载入设置失败', settingsActionErrorMessage(error));
+        toast.error(copy.settingsLoadFailed, settingsActionErrorMessage(error, locale));
       }
     } finally {
       if (settingsModalMountedRef.current && ticket === settingsReloadTicketRef.current) {
@@ -183,7 +187,7 @@ export function SettingsSurface(props: {
       }
     } catch (error) {
       if (settingsModalMountedRef.current && ticket === usageReloadTicketRef.current) {
-        toast.error('载入使用统计失败', settingsActionErrorMessage(error));
+        toast.error(copy.usageLoadFailed, settingsActionErrorMessage(error, locale));
       }
     }
   }
@@ -196,11 +200,14 @@ export function SettingsSurface(props: {
     if (section === 'usage') void reloadUsage();
   }, [section]);
 
-  const activeItem = SETTINGS_NAV.find((item) => item.id === section) ?? SETTINGS_NAV[0];
+  const activeItem = localizedNav.flatMap((group) => group.items).find((item) => item.id === section)
+    ?? localizedNav[0]?.items[0];
+
+  if (!activeItem) return null;
 
   return (
-    <main className="settingsSurface agents-layout-body" data-modal="true" aria-label="设置内容">
-      <aside className="settingsSidebar agents-sidebar" data-settings-nav-column aria-label="设置侧栏">
+    <main className="settingsSurface agents-layout-body" data-modal="true" aria-label={copy.contentLabel}>
+      <aside className="settingsSidebar agents-sidebar" data-settings-nav-column aria-label={copy.sidebarLabel}>
         <div className="settingsSidebarInner">
           {/* PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `8effe691`):
               reference sidebar has just `← 返回应用` then straight
@@ -208,16 +215,16 @@ export function SettingsSurface(props: {
           <BaseButton
             className="settingsBackButton"
             type="button"
-            aria-label="返回应用"
+            aria-label={copy.backToApp}
             onClick={props.onClose}
           >
             <ArrowLeft size={16} aria-hidden="true" />
-            <span>返回应用</span>
+            <span>{copy.backToApp}</span>
           </BaseButton>
-          <nav aria-label="设置分组">
-            {groupedNav().map(({ group, items }) => (
-              <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
-                <div className="settingsNavGroupLabel">{group}</div>
+          <nav aria-label={copy.navigationLabel}>
+            {localizedNav.map(({ group, label, items }) => (
+              <div key={group} className="settingsNavGroup" role="group" aria-label={label}>
+                <div className="settingsNavGroupLabel">{label}</div>
                 {items.map((item) => (
                   <BaseButton
                     key={item.id}
@@ -307,6 +314,8 @@ function SettingsPage(props: {
   onOpenSession?(sessionId: string): void;
   openProviderCatalog?: boolean;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsSharedCopy(locale);
   // PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): the inline `void
   // props.onUpdateSettings(...)` at the privacy toggle below
   // discarded rejection promises, so an IPC failure became an
@@ -408,7 +417,7 @@ function SettingsPage(props: {
     default:
       return (
         <SettingsRows>
-          <SettingRow title={navLabel(props.section)} detail="该设置页已纳入 Maka 设置树，会随对应 runtime 能力一起工作。" value="Ready" />
+          <SettingRow title={navLabel(props.section, locale)} detail={copy.unavailablePage} value={copy.ready} />
         </SettingsRows>
       );
   }

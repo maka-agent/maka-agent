@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { UpdateAppSettingsResult } from '@maka/core';
 import { useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useKeyedActionGuard } from './use-action-guard';
 
 type WorkspaceInstructionState = Awaited<ReturnType<typeof window.maka.workspaceInstructions.getState>>;
 
@@ -16,9 +17,10 @@ export function useWorkspaceInstructionsController(props: WorkspaceInstructionsC
   const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(false);
   const lifecycleRef = useRef(0);
-  const pendingActionOwnersRef = useRef<Map<string, number>>(new Map());
-  const actionOwnerSequenceRef = useRef(0);
-  const writeOwnerRef = useRef<number | null>(null);
+  // One keyed guard holds both the single write latch (key 'write', the old
+  // writeOwnerRef) and the per-action owner latches (the old
+  // pendingActionOwnersRef map) with owner-checked releases.
+  const instructionActionGuard = useKeyedActionGuard<string>();
   const toast = useToast();
 
   useEffect(() => {
@@ -28,8 +30,6 @@ export function useWorkspaceInstructionsController(props: WorkspaceInstructionsC
     return () => {
       if (lifecycleRef.current !== lifecycle) return;
       mountedRef.current = false;
-      pendingActionOwnersRef.current.clear();
-      writeOwnerRef.current = null;
     };
   }, []);
 
@@ -52,17 +52,14 @@ export function useWorkspaceInstructionsController(props: WorkspaceInstructionsC
   }
 
   async function runAction(key: string, action: (isActionCurrent: () => boolean) => Promise<void>): Promise<void> {
-    if (pendingActionOwnersRef.current.has(key)) return;
+    const release = instructionActionGuard.begin(key);
+    if (!release) return;
     const lifecycle = lifecycleRef.current;
-    const owner = ++actionOwnerSequenceRef.current;
-    pendingActionOwnersRef.current.set(key, owner);
     setPendingActions((current) => new Set(current).add(key));
     try {
       await action(() => isCurrent(lifecycle));
     } finally {
-      if (pendingActionOwnersRef.current.get(key) === owner) {
-        pendingActionOwnersRef.current.delete(key);
-      }
+      release();
       if (isCurrent(lifecycle)) {
         setPendingActions((current) => {
           const next = new Set(current);
@@ -77,13 +74,12 @@ export function useWorkspaceInstructionsController(props: WorkspaceInstructionsC
     key: string,
     action: (isActionCurrent: () => boolean) => Promise<void>,
   ): Promise<void> {
-    if (writeOwnerRef.current !== null) return;
-    const owner = ++actionOwnerSequenceRef.current;
-    writeOwnerRef.current = owner;
+    const releaseWrite = instructionActionGuard.begin('write');
+    if (!releaseWrite) return;
     try {
       await runAction(key, action);
     } finally {
-      if (writeOwnerRef.current === owner) writeOwnerRef.current = null;
+      releaseWrite();
     }
   }
 

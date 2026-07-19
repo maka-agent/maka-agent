@@ -7,29 +7,24 @@ import type { ChatModelChoice } from '../src/chat-model-helpers.js';
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
 
 // 64x64 solid-color PNGs so the thumbnail/lightbox actually show an image
-// (the renderer reads attachment bytes via window.maka.attachments.readBytes).
+// (the story feeds them through the injected `onReadAttachmentBytes` reader below).
 const RED_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAACv0lEQVR4nO3TMQ0AMAzAsELcPcSDNRg9YskA8mTeuZA16wWwyACkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSPvHHhWvMw1VrQAAAABJRU5ErkJggg==';
 const BLUE_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAACwElEQVR4nO3TMQ0AMAzAsEIckuEcrMHoEUsGkCdz7oOsWS+ARQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQNoHahEW2x9npg0AAAAASUVORK5CYII=';
 
+// @maka/ui is host-agnostic: image thumbnails read bytes through the injected
+// `onReadAttachmentBytes` prop, not a host global. The story supplies a fake
+// reader that echoes the two solid-color PNGs above.
+const mockReadBytes = async (_sessionId: string, relativePath: string) => ({
+  ok: true as const,
+  base64: relativePath.includes('metrics') ? BLUE_PNG : RED_PNG,
+  mimeType: 'image/png',
+});
+
 const meta = {
   title: 'Product/Attachments',
   parameters: { layout: 'fullscreen' },
-  decorators: [
-    (Story: () => React.ReactElement) => {
-      (window as unknown as { maka?: { attachments?: { readBytes?: (sessionId: string, relativePath: string) => Promise<{ ok: true; base64: string; mimeType: string }> } } }).maka = {
-        attachments: {
-          readBytes: async (_sessionId: string, relativePath: string) => ({
-            ok: true as const,
-            base64: relativePath.includes('metrics') ? BLUE_PNG : RED_PNG,
-            mimeType: 'image/png',
-          }),
-        },
-      };
-      return Story();
-    },
-  ],
 } satisfies Meta;
 
 export default meta;
@@ -102,6 +97,7 @@ const baseChat: ChatViewProps = {
   activeModelLabel: 'Claude Sonnet 4.5',
   modelChoices,
   userLabel: '你',
+  onReadAttachmentBytes: mockReadBytes,
   onNew: noop,
   onPromptSuggestion: noop,
 };
@@ -172,19 +168,14 @@ export const ImageThumbnails: Story = {
 export const PendingSkeleton: Story = {
   render: () => (
     <Frame>
+      {/* No reader wired — the thumbnail stays in the pending skeleton state. */}
       <ChatView
         {...baseChat}
+        onReadAttachmentBytes={undefined}
         messages={[user('u3', 't3', '这张图还在读。', [attachment('image', 'loading.png', 'image/png', 1024)])]}
       />
     </Frame>
   ),
-  decorators: [
-    (Story: () => React.ReactElement) => {
-      // No readBytes mock — the thumbnail stays in the pending skeleton state.
-      (window as unknown as { maka?: unknown }).maka = undefined;
-      return Story();
-    },
-  ],
 };
 
 export const Lightbox: Story = {

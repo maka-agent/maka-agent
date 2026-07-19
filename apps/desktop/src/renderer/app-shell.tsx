@@ -1,26 +1,19 @@
-import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type {
-  ChatDefaultPermissionMode,
-  PermissionMode,
-  PlanReminder,
-  SessionSummary,
-  SettingsSection,
-  ThemePalette,
-  ThemePreference,
-  UiLocale,
-  UiLocalePreference,
-} from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import type { PermissionMode, PlanReminder, SessionSummary, UiLocale, UiLocalePreference } from '@maka/core';
+import { hasSettledInitialOnboarding, resolveUiLocale } from '@maka/core';
+import {
   AutomationsPage,
-  ChatView,
-  Composer,
-  PermissionPrompt,
-  UserQuestionPrompt,
   DailyReviewPage,
   type ComposerHandle,
   type MakaUriDest,
@@ -37,24 +30,18 @@ import {
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
-import { OnboardingHero } from './OnboardingHero';
-import { FirstRunChecklist } from './FirstRunChecklist';
+import { ChatMessageSurface } from './chat-message-surface';
+import { ChatComposerRegion } from './chat-composer-region';
+import { ChatWorkbar } from './chat-workbar';
+import { McpPage } from './mcp-page';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
-import { createUiLocaleUpdateGate } from './settings/ui-locale-update-gate';
-// The session workbar owns the task ledger, embedded browser, and artifact
-// preview. Keep the combined auxiliary surface out of the first chat paint.
-const SessionWorkbar = lazy(() => import('./session-workbar').then((m) => ({ default: m.SessionWorkbar })));
-
-function SessionWorkbarFallback() {
-  return (
-    <aside className="maka-session-workbar" role="status" aria-busy="true" aria-label="正在加载会话工作栏">
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载会话工作栏…</div>
-    </aside>
-  );
-}
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy';
+import { ErrorBoundary } from './error-boundary';
+import { useShellAppearance } from './use-shell-appearance';
+import { useShellSearch } from './use-shell-search';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
@@ -62,32 +49,20 @@ import { deriveSessionStatusGroups } from './session-status-grouping';
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { applyTheme, applyThemePalette } from './theme';
-import { safeLocalStorageSet } from './browser-storage';
 import { filterSessions, readNavSelection } from './nav-selection';
 import {
-  readSessionListCollapsed,
-  readSessionListWidth,
   SESSION_LIST_COLLAPSED_WIDTH,
   SESSION_LIST_EXPANDED_MAX_WIDTH,
   SESSION_LIST_EXPANDED_MIN_WIDTH,
 } from './session-list-layout';
-import {
-  readSessionWorkbarCollapsed,
-  readSessionWorkbarTab,
-  readSessionWorkbarWidth,
-  SESSION_WORKBAR_MAX_WIDTH,
-  SESSION_WORKBAR_MIN_WIDTH,
-} from './session-workbar-layout';
-import {
-  modelSetupToastCopy,
-} from './model-connection-errors';
+import { modelSetupToastCopy } from './model-connection-errors';
 import { basenameFromPath } from './app-shell-copy';
 import type { AppShellCommandListOptions } from './app-shell-command-actions';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-chrome-actions';
 import { AppShellOverlays } from './app-shell-overlays';
 import { createAppShellDailyReviewBridge } from './app-shell-daily-review-bridge';
 import { useAppShellModuleData } from './use-module-data';
+import { useKeepSystemAwake } from './use-keep-system-awake';
 import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
@@ -99,6 +74,7 @@ import { createAppShellDailyReviewActions } from './app-shell-daily-review-actio
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
+import { useStableActions } from './use-stable-actions';
 import {
   useActiveSessionEvents,
   useAppShellBootstrapSubscriptions,
@@ -114,9 +90,17 @@ import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
 import { useComposerMentions } from './use-composer-mentions';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
+import { useShellExpertTeams } from './use-shell-expert-teams';
+import { useShellMemoryPill } from './use-shell-memory-pill';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
+import { useShellLayout } from './use-shell-layout';
+import { useSettingsModal } from './use-settings-modal';
+import {
+  isSessionWorkspaceUnavailableError,
+  showSessionWorkspaceUnavailableToast,
+} from './session-workspace-errors';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -132,12 +116,44 @@ type ComposerImportOwner = {
  */
 const SETTLE_FALLBACK_GRACE_MS = 1000;
 
-export function AppShell({
-  initialOnboardingSnapshot = null,
-}: {
+type AppShellProps = {
   /** Pre-mount snapshot prefetched by main.tsx — see prefetchOnboardingSnapshot. */
   initialOnboardingSnapshot?: OnboardingSnapshot | null;
-} = {}) {
+};
+
+export function AppShell({ initialOnboardingSnapshot = null }: AppShellProps = {}) {
+  const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
+  const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
+  const uiLocale = resolveUiLocale(uiLocalePreference, uiLocaleOverride);
+
+  return (
+    <LocaleProvider locale={uiLocale} override={uiLocaleOverride}>
+      <ErrorBoundary locale={uiLocale}>
+        <AppShellContent
+          initialOnboardingSnapshot={initialOnboardingSnapshot}
+          uiLocale={uiLocale}
+          uiLocaleOverride={uiLocaleOverride}
+          setUiLocaleOverride={setUiLocaleOverride}
+          setUiLocalePreference={setUiLocalePreference}
+        />
+      </ErrorBoundary>
+    </LocaleProvider>
+  );
+}
+
+function AppShellContent({
+  initialOnboardingSnapshot = null,
+  uiLocale,
+  uiLocaleOverride,
+  setUiLocaleOverride,
+  setUiLocalePreference,
+}: {
+  initialOnboardingSnapshot?: OnboardingSnapshot | null;
+  uiLocale: UiLocale;
+  uiLocaleOverride: UiLocale | null;
+  setUiLocaleOverride: Dispatch<SetStateAction<UiLocale | null>>;
+  setUiLocalePreference: Dispatch<SetStateAction<UiLocalePreference>>;
+}) {
   const toastApi = useToast();
   const {
     sessions,
@@ -197,13 +213,11 @@ export function AppShell({
     pendingPermissionModeBySession,
     pendingSessionModelBySession,
   } = sessionUiState;
-  // PR-MEMORY-VISIBILITY-INDICATOR-0: surface a small pill in the
-  // chat header when xuan's MEMORY.md is being injected into the
-  // agent's system prompt (PR-MEMORY-PROMPT-INJECT-0). Refreshed
-  // when activeId changes (we re-fetch on every chat switch) and
-  // whenever the Settings modal closes (the user may have toggled
-  // the agentReadEnabled switch).
-  const [memoryActive, setMemoryActive] = useState(false);
+  // PR-MEMORY-VISIBILITY-INDICATOR-0: chat-header memory pill (MEMORY.md
+  // injected into the system prompt). State and the fire-and-forget refresh
+  // live in `useShellMemoryPill`; recompute is triggered on mount (bootstrap
+  // subscriptions) and when Settings closes (closeSettings).
+  const { memoryActive, refreshMemoryActive } = useShellMemoryPill({ toastApi, uiLocale });
   const {
     connections,
     connectionsRevision,
@@ -213,50 +227,41 @@ export function AppShell({
     refreshConnections,
     handleConnectionEvent,
   } = useShellConnections({ toastApi });
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(undefined);
-  const [settingsProviderCatalogOpen, setSettingsProviderCatalogOpen] = useState(false);
-  const [themePref, setThemePref] = useState<ThemePreference>('auto');
-  const [themePalette, setThemePalette] = useState<ThemePalette>('default');
-  const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
-  const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
-  const [uiLocaleUpdateGate] = useState(createUiLocaleUpdateGate);
-  const [userLabel, setUserLabel] = useState<string>('');
-  // Settings → 通用 → 默认权限模式 — DISPLAY-ONLY mirror. The composer's
-  // picker shows it before the user makes a per-session choice; the actual
-  // authority for a new session's mode is main.ts's sessions:create fallback
-  // (the renderer omits permissionMode unless the user explicitly picked),
-  // so a stale value here can briefly mislabel the chip but never changes
-  // which mode a session is created with.
-  const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
+  const {
+    settingsOpen,
+    settingsRequestedSection,
+    settingsProviderCatalogOpen,
+    setSettingsOpen,
+    setSettingsProviderCatalogOpen,
+    openSettings,
+    openSettingsSection,
+    openProviderCatalog,
+  } = useSettingsModal();
+  const {
+    themePref,
+    setThemePref,
+    themePalette,
+    setThemePalette,
+    uiLocaleUpdateGate,
+    userLabel,
+    setUserLabel,
+    defaultPermissionMode,
+    setDefaultPermissionMode,
+    refreshShellSettings,
+  } = useShellAppearance({
+    toastApi,
+    uiLocale,
+    setUiLocaleOverride,
+    setUiLocalePreference,
+  });
+  const shellCopy = getShellCopy(uiLocale).app;
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
   // `app:info` round-trip completes on mount.
   const persistedComposerDefaults = loadComposerDefaults();
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
-  // Search modal state. Sidebar `搜索` opens the real thread-search
-  // modal; result selection below can also hand ChatView a turn anchor
-  // so the hit is visible after session navigation.
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-  // Funnel bridge: query handed from the palette's 查看全部结果 row into the
-  // search modal. Topbar opens reset it so a plain open starts blank.
-  const [searchModalInitialQuery, setSearchModalInitialQuery] = useState('');
-  const [searchScrollTarget, setSearchScrollTarget] = useState<{
-    sessionId: string;
-    turnId: string;
-    nonce: number;
-  } | null>(null);
   const [viewMode, setViewMode] = useState<SessionViewMode>('status');
-  function closeSearchModal(options?: { restoreFocus?: boolean }) {
-    setSearchModalOpen(false);
-    if (options?.restoreFocus === false) return;
-    window.requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLButtonElement>('[data-maka-search-trigger="true"]')
-        ?.focus({ preventScroll: true });
-    });
-  }
   const composerRef = useRef<ComposerHandle>(null);
   const [resumePendingSessionId, setResumePendingSessionId] = useState<string | null>(null);
   const [resumeParkDescriptionBySession, setResumeParkDescriptionBySession] = useState<Record<string, string>>({});
@@ -284,8 +289,8 @@ export function AppShell({
   // in their own group, preserving the PR48 pin-floats behavior.
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   const sessionStatusGroups = useMemo(
-    () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true }),
-    [visibleSessions],
+    () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true, locale: uiLocale }),
+    [visibleSessions, uiLocale],
   );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
@@ -298,7 +303,8 @@ export function AppShell({
     appendDailyReviewMarkdown,
     copyDailyReviewMarkdown,
     saveDailyReviewMarkdown,
-  } = createAppShellDailyReviewActions({
+  } = useStableActions(createAppShellDailyReviewActions, {
+    uiLocale,
     composerRef,
     toastApi,
   });
@@ -359,6 +365,7 @@ export function AppShell({
     setPendingNewChatThinkingLevel,
     sessionHealthNotice,
   } = useShellChatModel({
+    uiLocale,
     connections,
     connectionsRevision,
     defaultConnection,
@@ -385,7 +392,10 @@ export function AppShell({
   // into React state (drives the disabled mask) and arms a 5s auto-clear
   // fallback timer; the other three stay ref-only and clear in their action's
   // `finally`.
-  const turnActionRegistry = useKeyedPendingRegistry({ trackState: true, autoClearMs: 5000 });
+  const turnActionRegistry = useKeyedPendingRegistry({
+    trackState: true,
+    autoClearMs: 5000,
+  });
   const pendingTurnActions = turnActionRegistry.keys;
   const sessionRowActionRegistry = useKeyedPendingRegistry();
   const permissionModeChangeRegistry = useKeyedPendingRegistry();
@@ -427,7 +437,8 @@ export function AppShell({
     sessionModelChangeRegistry.keysRef.current.delete(sessionId);
   }
 
-  const sessionRowActionHandlers = createAppShellSessionRowActions({
+  const sessionRowActionHandlers = useStableActions(createAppShellSessionRowActions, {
+    uiLocale,
     activeIdRef,
     clearSessionRendererState,
     pendingSessionRowActionsRef: sessionRowActionRegistry.keysRef,
@@ -437,15 +448,13 @@ export function AppShell({
     setMessages,
     toastApi,
   });
-  const sessionRowActionHandlersRef = useRef(sessionRowActionHandlers);
-  sessionRowActionHandlersRef.current = sessionRowActionHandlers;
   const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>[0]['rowActions']>>(
     () => ({
-      onToggleFlag: (sessionId, next) => sessionRowActionHandlersRef.current.flagSession(sessionId, next),
-      onArchive: (sessionId) => sessionRowActionHandlersRef.current.archiveSession(sessionId),
-      onUnarchive: (sessionId) => sessionRowActionHandlersRef.current.unarchiveSession(sessionId),
-      onRename: (sessionId, name) => sessionRowActionHandlersRef.current.renameSession(sessionId, name),
-      onDelete: (sessionId) => sessionRowActionHandlersRef.current.deleteSession(sessionId),
+      onToggleFlag: (sessionId, next) => sessionRowActionHandlers.flagSession(sessionId, next),
+      onArchive: (sessionId) => sessionRowActionHandlers.archiveSession(sessionId),
+      onUnarchive: (sessionId) => sessionRowActionHandlers.unarchiveSession(sessionId),
+      onRename: (sessionId, name) => sessionRowActionHandlers.renameSession(sessionId, name),
+      onDelete: (sessionId) => sessionRowActionHandlers.deleteSession(sessionId),
     }),
     [],
   );
@@ -454,7 +463,8 @@ export function AppShell({
     setPermissionMode,
     setSessionModel,
     setSessionThinkingLevel,
-  } = createAppShellSessionSettingsActions({
+  } = useStableActions(createAppShellSessionSettingsActions, {
+    uiLocale,
     activeIdRef,
     connections,
     pendingPermissionModeChangesRef: permissionModeChangeRegistry.keysRef,
@@ -480,8 +490,9 @@ export function AppShell({
       messages,
       pendingTurnActions,
       pendingKeyOf,
+      uiLocale,
     }),
-    [activeId, messages, pendingTurnActions],
+    [activeId, messages, pendingTurnActions, uiLocale],
   );
 
   // PR109e-e: click handler for lineage badge → scroll target turn into
@@ -532,13 +543,17 @@ export function AppShell({
      change. Stable refs + memos keep the timers alive. */
   const openSessionInChatRef = useRef(openSessionInChat);
   openSessionInChatRef.current = openSessionInChat;
-  const searchModalDeps = useMemo(
-    () => ({ searchThread: (request: Parameters<typeof window.maka.search.thread>[0]) => window.maka.search.thread(request) }),
-    [],
-  );
-  const searchModalOnNavigate = useCallback((sessionId: string, turnId?: string) => {
-    openSessionInChatRef.current(sessionId, turnId);
-  }, []);
+  const {
+    searchModalOpen,
+    setSearchModalOpen,
+    searchModalInitialQuery,
+    setSearchModalInitialQuery,
+    searchScrollTarget,
+    setSearchScrollTarget,
+    closeSearchModal,
+    searchModalDeps,
+    searchModalOnNavigate,
+  } = useShellSearch({ openSessionInChatRef });
   const paletteOnSelectSession = useCallback((sessionId: string, turnId?: string) => {
     openSessionInChatRef.current(sessionId, turnId);
   }, []);
@@ -549,10 +564,11 @@ export function AppShell({
   /** 技能页 使用: jump to the chat view and seed the composer with a skill
    *  invocation. Same human-in-the-loop rule as maka://compose — we never
    *  auto-send; the user finishes the sentence and presses Enter. */
-  const useSkillInChat = useCallback((_skillId: string, skillName: string) => {
+  const useSkillInChat = useCallback(
+    (_skillId: string, skillName: string) => {
     setNavSelection({ section: 'sessions', filter: 'chats' });
     const seed = () => {
-      composerRef.current?.setText(`使用 ${skillName} 技能：`);
+        composerRef.current?.setText(shellCopy.useSkillPrompt(skillName));
       composerRef.current?.focus();
     };
     if (activeIdRef.current) {
@@ -560,7 +576,9 @@ export function AppShell({
       return;
     }
     void createSession().then(() => window.requestAnimationFrame(seed));
-  }, []);
+    },
+    [shellCopy],
+  );
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
   }, []);
@@ -584,9 +602,12 @@ export function AppShell({
     openSessionInChat(parentSessionId);
   }
 
-  const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
+  const activeSessionForView: SessionSummary | undefined =
+    activeSession ??
+    (activeId
+      ? {
     id: activeId,
-    name: '新建对话',
+          name: shellCopy.newConversation,
     isFlagged: false,
     isArchived: false,
     labels: [],
@@ -600,7 +621,8 @@ export function AppShell({
     // matches the configured default so the composer doesn't flash a
     // hardcoded value before the real session data settles.
     permissionMode: defaultPermissionMode,
-  } : undefined);
+        }
+      : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
@@ -612,7 +634,8 @@ export function AppShell({
   const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
-  const { handleQuickChatSubmit, handleExpertTeamStart } = createAppShellQuickChatActions({
+  const { handleQuickChatSubmit, handleExpertTeamStart } = useStableActions(createAppShellQuickChatActions, {
+    uiLocale,
     activeIdRef,
     captureComposerImportOwner,
     composerRef,
@@ -624,16 +647,9 @@ export function AppShell({
     setQuickChatPending,
     toastApi,
   });
-  // Built-in expert teams for the composer "+" menu. Loaded once — the catalog
-  // is static, so a failure just leaves the 专家团 entry hidden.
-  const [expertTeams, setExpertTeams] = useState<readonly { id: string; name: string; description?: string }[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    void window.maka.expertTeam.list()
-      .then((result) => { if (!cancelled) setExpertTeams(result.teams); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+  // Built-in expert teams for the composer "+" menu - loaded once via
+  // `useShellExpertTeams` (static catalog; a failure just hides the 专家团 entry).
+  const expertTeams = useShellExpertTeams();
   const onboardingState = onboarding.snapshot?.state;
   const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
   // Seed sessions from the onboarding snapshot on first load — the snapshot
@@ -696,14 +712,24 @@ export function AppShell({
   // the state-routed OnboardingHero mounts.
   const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined && !onboardingSettled;
   const showOnboardingHero =
-    sessions.length === 0 && !onboardingSettled && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
+    sessions.length === 0 &&
+    !onboardingSettled &&
+    onboardingState !== undefined &&
+    onboardingState.kind !== 'ready_with_history';
   const onboardingComposerHidden = isOnboardingLoading || (showOnboardingHero && onboardingState !== undefined);
-  const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
-  const [sessionListCollapsed, setSessionListCollapsed] = useState(() => readSessionListCollapsed());
-  const [workbarCollapsed, setWorkbarCollapsed] = useState(() => readSessionWorkbarCollapsed());
-  const [workbarWidth, setWorkbarWidth] = useState(() => readSessionWorkbarWidth());
-  const [workbarTab, setWorkbarTab] = useState(() => readSessionWorkbarTab());
-  const { startColumnResize, onResizeHandleKeyDown, startWorkbarResize, onWorkbarResizeHandleKeyDown } = createAppShellLayoutActions({
+  const {
+    sessionListWidth,
+    setSessionListWidth,
+    sessionListCollapsed,
+    setSessionListCollapsed,
+    workbarCollapsed,
+    setWorkbarCollapsed,
+    workbarWidth,
+    setWorkbarWidth,
+    workbarTab,
+    setWorkbarTab,
+  } = useShellLayout();
+  const { startColumnResize, onResizeHandleKeyDown, startWorkbarResize, onWorkbarResizeHandleKeyDown } = useStableActions(createAppShellLayoutActions, {
     sessionListCollapsed,
     sessionListWidth,
     setSessionListWidth,
@@ -750,18 +776,27 @@ export function AppShell({
     deleteSkill,
     openSkill,
   } = useAppShellModuleData({
+    uiLocale,
     isSkillsSurfaceActive,
     isAutomationsSurfaceActive,
     toastApi,
   });
 
+  // 保持系统唤醒 capability for the 定时任务 page: reads/writes
+  // settings.system.keepSystemAwake over the existing settings bridge. When
+  // the bridge is absent the panel hides the row (fail-soft).
+  const keepSystemAwakeController = useKeepSystemAwake();
+
   // Composer mention popups: `/` skills (enabled only) + `@` workspace file
   // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
   // inline mention state.
-  const { mentionSkills, searchMentionFiles } = useComposerMentions({ skills });
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({
+    skills,
+    sessionId: activeId,
+  });
 
   const {
-    appInfo,
+    projectInfo,
     branchList,
     branchPending,
     recentProjectPaths,
@@ -777,12 +812,18 @@ export function AppShell({
     listGitBranches,
     checkoutGitBranch,
   } = useAppShellProjectContext({
+    uiLocale,
     persistedComposerDefaults,
     rendererMountedRef,
+    sessionId: activeId,
+    sessionCwd: activeSession?.cwd,
+    onProjectSelected: (ownerSessionId) => {
+      if (ownerSessionId && activeIdRef.current === ownerSessionId) void createSession();
+    },
     toastApi,
   });
 
-  const { applyVisualSmokeFixture } = createAppShellVisualSmokeActions({
+  const { applyVisualSmokeFixture } = useStableActions(createAppShellVisualSmokeActions, {
     openPalette,
     openSettingsSection,
     refreshSessions,
@@ -805,7 +846,8 @@ export function AppShell({
     respondToUserQuestion,
     refreshMessages,
     retryMessages,
-  } = createAppShellChatActions({
+  } = useStableActions(createAppShellChatActions, {
+    uiLocale,
     activeIdRef,
     addPendingSessionAction,
     captureComposerImportOwner,
@@ -829,7 +871,8 @@ export function AppShell({
     pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
 
-  const { handleTurnFooterAction } = createAppShellTurnActions({
+  const { handleTurnFooterAction } = useStableActions(createAppShellTurnActions, {
+    uiLocale,
     activeIdRef,
     addPendingTurnAction: turnActionRegistry.addKey,
     clearPendingTurnAction: turnActionRegistry.clearKey,
@@ -866,7 +909,11 @@ export function AppShell({
     } catch (error) {
       toastApi.error(
         '恢复失败',
-        generalizedErrorMessageChinese(error, '无法启动安全恢复，请检查会话状态后重试。'),
+        localizedShellErrorMessage(
+          error,
+          '无法启动安全恢复，请检查会话状态后重试。',
+          uiLocale,
+        ),
       );
     } finally {
       setResumePendingSessionId((current) => current === sessionId ? null : current);
@@ -875,8 +922,23 @@ export function AppShell({
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
     if (text.trim() === '/compact') {
-      if (activeId) await window.maka.sessions.compact(activeId);
-      return true;
+      const sessionId = activeIdRef.current;
+      if (!sessionId) return true;
+      try {
+        await window.maka.sessions.compact(sessionId);
+        return true;
+      } catch (error) {
+        if (activeIdRef.current !== sessionId) return false;
+        if (isSessionWorkspaceUnavailableError(error)) {
+          showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+        } else {
+          toastApi.error(
+            shellCopy.compactErrorTitle,
+            localizedShellErrorMessage(error, shellCopy.compactErrorFallback, uiLocale),
+          );
+        }
+        return false;
+      }
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
@@ -885,6 +947,7 @@ export function AppShell({
   }
 
   const stop = createAppShellStopAction({
+    uiLocale,
     activeIdRef,
     addPendingSessionAction,
     clearPendingSessionAction,
@@ -893,7 +956,8 @@ export function AppShell({
     toastApi,
   });
 
-  const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = createAppShellSessionEventHandlers({
+  const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = useStableActions(createAppShellSessionEventHandlers, {
+    uiLocale,
     activeIdRef,
     liveTurnBySessionRef,
     refreshMessages,
@@ -934,7 +998,9 @@ export function AppShell({
   // (`streamingMessageId` suppresses it while draining).
   useEffect(() => {
     if (!activeId || !activeStreamingComplete || !activeStreamingMessageId) return;
-    const committedAssistantArrived = messages.some((message) => message.type === 'assistant' && message.id === activeStreamingMessageId);
+    const committedAssistantArrived = messages.some(
+      (message) => message.type === 'assistant' && message.id === activeStreamingMessageId,
+    );
     if (!committedAssistantArrived) return;
     const timer = window.setTimeout(() => {
       void settleAssistantStreaming(activeId, activeStreamingMessageId);
@@ -954,6 +1020,7 @@ export function AppShell({
     setLiveBrowserSessionIds,
   });
   useAppShellBootstrapSubscriptions({
+    uiLocale,
     activeIdRef,
     applyVisualSmokeFixture,
     bootstrapSessions,
@@ -996,6 +1063,7 @@ export function AppShell({
     themePref,
   });
   useActiveSessionEvents({
+    uiLocale,
     activeId,
     activeIdRef,
     handleEvent,
@@ -1033,47 +1101,24 @@ export function AppShell({
   }
 
   function isComposerImportOwnerActive(owner: ComposerImportOwner): boolean {
-    return owner.navSection === 'sessions'
-      && navSelectionRef.current.section === 'sessions'
-      && activeIdRef.current === owner.sessionId;
+    return (
+      owner.navSection === 'sessions' &&
+      navSelectionRef.current.section === 'sessions' &&
+      activeIdRef.current === owner.sessionId
+    );
   }
 
   function isNewChatSendSurfaceActive(owner: ComposerImportOwner): boolean {
-    return owner.navSection === 'sessions'
-      && owner.sessionId === undefined
-      && navSelectionRef.current.section === 'sessions'
-      && activeIdRef.current === undefined;
+    return (
+      owner.navSection === 'sessions' &&
+      owner.sessionId === undefined &&
+      navSelectionRef.current.section === 'sessions' &&
+      activeIdRef.current === undefined
+    );
   }
 
   function isShellSurfaceOwnerActive(owner: ComposerImportOwner): boolean {
-    return navSelectionRef.current.section === owner.navSection
-      && activeIdRef.current === owner.sessionId;
-  }
-
-  async function refreshShellSettings() {
-    const uiLocaleHydration = uiLocaleUpdateGate.beginHydration();
-    try {
-      const next = await window.maka.settings.get();
-      const smoke = await window.maka.visualSmoke.getState();
-      const pref = smoke?.theme ?? next.appearance?.theme ?? 'auto';
-      const palette = next.appearance?.palette ?? 'default';
-      const name = next.personalization?.displayName ?? '';
-      const uiLocale = next.personalization?.uiLocale ?? 'auto';
-      setUiLocaleOverride(smoke?.locale ?? null);
-      uiLocaleUpdateGate.commitHydration(
-        uiLocaleHydration,
-        uiLocale,
-        (preference) => setUiLocalePreference(preference),
-      );
-      setThemePref(pref);
-      setThemePalette(palette);
-      setUserLabel(name);
-      setDefaultPermissionMode(next.chatDefaults?.permissionMode ?? 'ask');
-      applyTheme(pref);
-      applyThemePalette(palette);
-    } catch (error) {
-      toastApi.error('载入外观设置失败', generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。'));
-    }
+    return navSelectionRef.current.section === owner.navSection && activeIdRef.current === owner.sessionId;
   }
 
   async function bootstrapSessions() {
@@ -1095,28 +1140,12 @@ export function AppShell({
     setNavSelection({ section: 'automations' });
     closePalette();
     window.requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')
-        ?.focus({ preventScroll: false });
+      document.querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')?.focus({ preventScroll: false });
     });
   }
 
-  async function refreshMemoryActive(failureTitle = '刷新本地记忆状态失败') {
-    try {
-      const next = await window.maka.memory.getState();
-      setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
-    } catch (error) {
-      toastApi.error(failureTitle, generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。'));
-    }
-  }
-
-  function openSettings() {
-    setSettingsProviderCatalogOpen(false);
-    setSettingsOpen(true);
-  }
-
   /**
-   * PR-UI-RENDER-2 — single chokepoint for the Markdown internal-URI
+   * PR-UI-RENDER-2 - single chokepoint for the Markdown internal-URI
    * router. Receives a typed `MakaUriDest` from the link override in
    * `<Markdown>` and dispatches to the existing app navigation
    * surfaces:
@@ -1150,26 +1179,6 @@ export function AppShell({
     }
   }
 
-  /**
-   * Opens Settings and jumps directly to the named section. Writes the section
-   * to localStorage (so the next cold-open lands there too) and threads it
-   * through `requestedSection` so an already-open Settings modal switches
-   * tabs without close/reopen.
-   */
-  function openSettingsSection(section: SettingsSection) {
-    safeLocalStorageSet('maka-settings-section-v1', section);
-    setSettingsRequestedSection(section);
-    setSettingsProviderCatalogOpen(false);
-    setSettingsOpen(true);
-  }
-
-  function openProviderCatalog() {
-    safeLocalStorageSet('maka-settings-section-v1', 'models');
-    setSettingsRequestedSection('models');
-    setSettingsProviderCatalogOpen(true);
-    setSettingsOpen(true);
-  }
-
   function closeSettings() {
     setSettingsOpen(false);
     setSettingsProviderCatalogOpen(false);
@@ -1190,20 +1199,23 @@ export function AppShell({
     // app restart. New-chat creation can't happen while Settings is open
     // anyway, so a close-time refresh is timely enough (unlike theme,
     // which needs to apply instantly and has its own onThemeChange wire).
-    void window.maka.settings.get().then((next) => {
+    void window.maka.settings
+      .get()
+      .then((next) => {
       setDefaultPermissionMode(next.chatDefaults?.permissionMode ?? 'ask');
-    }).catch(() => {});
+      })
+      .catch(() => {});
   }
 
   function showModelSetupToast(description: string, reason?: string) {
-    const copy = modelSetupToastCopy(reason, description);
+    const copy = modelSetupToastCopy(reason, description, uiLocale);
     toastApi.toast({
       title: copy.title,
       description: copy.description,
       variant: 'error',
       duration: 8000,
       action: {
-        label: '打开设置 · 模型',
+        label: shellCopy.openModelSettings,
         onClick: () => openSettingsSection('models'),
       },
     });
@@ -1212,13 +1224,14 @@ export function AppShell({
 
   const activeMessageLoadError = activeId ? messageLoadErrorBySession[activeId] : undefined;
   const homeSurfaceActive =
-    navSelection.section === 'sessions'
-    && messages.length === 0
-    && activeStreaming.length === 0
-    && activeThinking.length === 0
-    && liveTools.length === 0
-    && !activeMessageLoadError;
+    navSelection.section === 'sessions' &&
+    messages.length === 0 &&
+    activeStreaming.length === 0 &&
+    activeThinking.length === 0 &&
+    liveTools.length === 0 &&
+    !activeMessageLoadError;
   const commandOptions: AppShellCommandListOptions = {
+    uiLocale,
     activeId,
     activePermissionMode: activeSessionForView?.permissionMode,
     connections,
@@ -1251,7 +1264,6 @@ export function AppShell({
   };
 
   return (
-    <LocaleProvider preference={uiLocalePreference} override={uiLocaleOverride}>
       <div className="appFrame agents-layout-root" data-agents-page>
       <div
         className="app maka-shell-2col agents-layout-body"
@@ -1259,10 +1271,12 @@ export function AppShell({
         inert={hasModalOpen ? true : undefined}
         data-modal-background-hidden={hasModalOpen ? 'true' : undefined}
         data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
-        style={{
+        style={
+          {
           '--maka-session-list-width': `${sessionListCollapsed ? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth}px`,
           '--maka-resize-handle-width': '0px',
-        } as CSSProperties}
+          } as CSSProperties
+        }
       >
         <AppShellTopbarActions
           sidebarCollapsed={sessionListCollapsed}
@@ -1300,7 +1314,7 @@ export function AppShell({
         <div
           className="maka-resize-handle"
           role="separator"
-          aria-label={sessionListCollapsed ? '侧边栏已收起' : '调整对话列表宽度'}
+          aria-label={sessionListCollapsed ? shellCopy.sidebarCollapsed : shellCopy.resizeConversationList}
           aria-orientation="vertical"
           aria-valuemin={SESSION_LIST_EXPANDED_MIN_WIDTH}
           aria-valuemax={SESSION_LIST_EXPANDED_MAX_WIDTH}
@@ -1318,6 +1332,8 @@ export function AppShell({
               ? 'cron'
               : navSelection.section === 'skills'
                 ? 'skills'
+                : navSelection.section === 'mcp'
+                  ? 'mcp'
                 : navSelection.section === 'sessions'
                   ? 'im_hub'
                   : navSelection.section
@@ -1364,11 +1380,27 @@ export function AppShell({
                   onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
                   onDeleteSkill={(skillId) => deleteSkill(skillId)}
                 />
+              ) : navSelection.section === 'mcp' ? (
+                <McpPage />
               ) : navSelection.section === 'automations' ? (
                 <AutomationsPage
                   skills={skills}
                   reminders={planReminders}
-                  onRefresh={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
+                  keepSystemAwake={
+                    keepSystemAwakeController.supported
+                      ? keepSystemAwakeController.keepSystemAwake
+                      : undefined
+                  }
+                  onKeepSystemAwakeChange={
+                    keepSystemAwakeController.supported
+                      ? keepSystemAwakeController.setKeepSystemAwake
+                      : undefined
+                  }
+                    onRefresh={() =>
+                      refreshPlanReminders({
+                        shouldShowError: isAutomationsSurfaceActive,
+                      })
+                    }
                   onCreate={(input) => createPlanReminder(input)}
                   onUpdate={(id, patch) => updatePlanReminder(id, patch)}
                   onToggle={(id, enabled) => togglePlanReminder(id, enabled)}
@@ -1386,14 +1418,16 @@ export function AppShell({
                   onSaveMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
                 />
               ) : (
-              <ChatView
+              <ChatMessageSurface
                 messages={messages}
                 liveTurn={activeLiveTurn}
                 shellRunUpdates={activeShellRunUpdates}
                 messageLoading={activeMessageLoading}
                 processingIndicator={showProcessingIndicator}
                 continuingIndicator={showContinuingIndicator}
-                onStreamingSettled={activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined}
+                    onStreamingSettled={
+                      activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined
+                    }
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
                 activeModelLabel={activeModelLabel}
@@ -1405,13 +1439,19 @@ export function AppShell({
                 userLabel={userLabel}
                 memoryActive={memoryActive}
                 onOpenMemorySettings={() => openSettingsSection('memory')}
-                goalIndicator={activeGoal ? {
+                    goalIndicator={
+                      activeGoal
+                        ? {
                   condition: activeGoal.condition,
                   status: activeGoal.status,
                   iterations: activeGoal.iterations,
                   maxIterations: activeGoal.maxIterations,
-                  onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
-                } : undefined}
+                            onClear: () => {
+                              void window.maka.goal.clear(activeGoal.sessionId);
+                            },
+                          }
+                        : undefined
+                    }
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
                 onRetryMessages={activeId ? () => void retryMessages(activeId) : undefined}
@@ -1427,112 +1467,64 @@ export function AppShell({
                 } : undefined}
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
+                onReadAttachmentBytes={window.maka.attachments.readBytes}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
-                    ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }
+                        ? {
+                            turnId: searchScrollTarget.turnId,
+                            nonce: searchScrollTarget.nonce,
+                          }
                     : undefined
                 }
                 scrollBehavior={readScrollMotionBehavior()}
                 branchBanner={branchBanner}
                 onBranchBannerClick={handleBranchBannerClick}
-                emptyOverride={
-                  showOnboardingHero && onboardingState ? (
-                    <div className="maka-onboarding-stack">
-                      <OnboardingHero
-                        state={onboardingState}
-                        onOpenSettings={(section) => {
-                          if (section) openSettingsSection(section);
-                          else openSettings();
-                        }}
-                        onBrowseProviders={openProviderCatalog}
-                        onQuickChatSubmit={handleQuickChatSubmit}
-                        quickChatPending={quickChatPending}
-                        connections={connections}
-                        onRefreshConnections={refreshConnections}
-                        onSkip={async () => {
-                          try {
-                            await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
-                            onboarding.refresh();
-                          } catch (error) {
-                            toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
-                          }
-                        }}
-                      />
-                      {onboardingState.kind === 'ready_empty' && (
-                        <FirstRunChecklist
-                          onOpenSettingsSection={(section) => openSettingsSection(section)}
-                          onOpenSidebarModule={(target) => {
-                            setNavSelection({ section: target });
-                          }}
-                          onStartPlanReminder={openPlanReminderForm}
-                        />
-                      )}
-                    </div>
-                  ) : isOnboardingLoading ? (
-                    // @kenji review: render a no-op skeleton while the
-                    // first snapshot resolves so EmptyChatHero doesn't
-                    // flash. Use an aria-busy live region so screen
-                    // readers know something is loading.
-                    <div
-                      className="maka-onboarding-loading"
-                      role="status"
-                      aria-busy="true"
-                      aria-label="加载中"
-                    />
-                  ) : undefined
-                }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
+                sessionHealthNotice={sessionHealthNotice}
+                showOnboardingHero={showOnboardingHero}
+                onboardingState={onboardingState}
+                isOnboardingLoading={isOnboardingLoading}
+                onOpenSettings={(section) => {
+                  if (section) openSettingsSection(section);
+                  else openSettings();
+                }}
+                onBrowseProviders={openProviderCatalog}
+                onQuickChatSubmit={handleQuickChatSubmit}
+                quickChatPending={quickChatPending}
+                connections={connections}
+                onRefreshConnections={refreshConnections}
+                onSkip={async () => {
+                  try {
+                    await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
+                    onboarding.refresh();
+                  } catch (error) {
+                    toastApi.error(
+                      shellCopy.skipErrorTitle,
+                      localizedShellErrorMessage(error, shellCopy.tryAgainLater, uiLocale),
+                    );
+                  }
+                }}
+                onOpenSettingsSection={(section) => openSettingsSection(section)}
+                onOpenSidebarModule={(target) => {
+                  setNavSelection({ section: target });
+                }}
+                onStartPlanReminder={openPlanReminderForm}
               />
               )}
-              {navSelection.section === 'sessions' && sessionHealthNotice && (
-                <div className="maka-session-health-notice">
-                  <Alert
-                    className="maka-session-health-notice-alert"
-                    variant={sessionHealthNotice.tone === 'destructive' ? 'error' : sessionHealthNotice.tone === 'warning' ? 'warning' : 'info'}
-                    role="status"
-                    aria-label={sessionHealthNotice.tooltip ?? sessionHealthNotice.label}
-                    title={sessionHealthNotice.tooltip}
-                  >
-                    <AlertTitle>{sessionHealthNotice.label}</AlertTitle>
-                    {sessionHealthNotice.tooltip ? (
-                      <AlertDescription>{sessionHealthNotice.tooltip}</AlertDescription>
-                    ) : null}
-                    <AlertAction>
-                      <button
-                        type="button"
-                        className="maka-session-health-notice-action"
-                        onClick={sessionHealthNotice.onClick}
-                      >
-                        {sessionHealthNotice.onClickTarget === 'account' ? '去账号' : '去模型'}
-                      </button>
-                    </AlertAction>
-                  </Alert>
-                </div>
-              )}
-              <div className="maka-composer-interaction-slot">
-                {activePermission && (
-                  <PermissionPrompt
-                    request={activePermission}
-                    onRespond={respondToPermission}
-                    onStop={stop}
-                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                  />
-                )}
-                {activeQuestion && (
-                  <UserQuestionPrompt
-                    request={activeQuestion}
-                    onRespond={respondToUserQuestion}
-                    onStop={stop}
-                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                  />
-                )}
-              </div>
-              <Composer
-                ref={composerRef}
-                hidden={navSelection.section !== 'sessions' || onboardingComposerHidden || Boolean(activeInteraction)}
-                draftKey={activeId ?? 'new-session'}
-                // #646: Stop must be available for the WHOLE turn — the moment the
+              <ChatComposerRegion
+                composerRef={composerRef}
+                active={navSelection.section === 'sessions'}
+                onboardingComposerHidden={onboardingComposerHidden}
+                activeInteraction={activeInteraction}
+                activeId={activeId}
+                stopPendingBySession={stopPendingBySession}
+                activePermission={activePermission}
+                respondToPermission={respondToPermission}
+                activeQuestion={activeQuestion}
+                respondToUserQuestion={respondToUserQuestion}
+                stop={stop}
+                // #646: Stop must be available for the WHOLE turn - the moment the
                 // user most wants to interrupt is a long wait with nothing on
                 // screen (first token, or a slow provider's step-to-step lull).
                 // Drive Stop off `turnInFlight` (armed at send, cleared at the
@@ -1554,7 +1546,6 @@ export function AppShell({
                 continuing={showContinuingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
-                stopPending={activeId ? stopPendingBySession[activeId] === true : false}
                 mentionSkills={mentionSkills}
                 onSearchMentionFiles={searchMentionFiles}
                 pendingAttachments={pendingAttachments}
@@ -1563,11 +1554,7 @@ export function AppShell({
                 onAttachFilePaths={attachFilePaths}
                 expertTeams={expertTeams}
                 onStartExpertTeam={handleExpertTeamStart}
-                modelLabel={
-                  activeModelLabel
-                  ?? newChatModelLabel
-                  ?? undefined
-                }
+                  modelLabel={activeModelLabel ?? newChatModelLabel ?? undefined}
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
                 activeModel={activeModel}
@@ -1591,8 +1578,8 @@ export function AppShell({
                 onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 workspacePicker={{
-                  label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
-                  branch: appInfo?.projectGit.branch,
+                    label: projectInfo ? basenameFromPath(projectInfo.projectPath, uiLocale) : undefined,
+                  branch: projectInfo?.projectGit.branch,
                   pending: projectPickerPending,
                   recentWorkspaces: recentProjectPaths,
                   onOpen: () => {
@@ -1603,16 +1590,16 @@ export function AppShell({
                   },
                 }}
                 branchPicker={
-                  appInfo?.projectGit.isGitRepo
+                  projectInfo?.projectGit.isGitRepo
                     ? {
-                        branch: appInfo.projectGit.branch ?? null,
+                        branch: projectInfo.projectGit.branch ?? null,
                         pending: branchPending,
                         branches: branchList?.branches ?? [],
                         onOpen: () => {
-                          void listGitBranches();
+                          void listGitBranches(activeId);
                         },
                         onSelect: (branch: string) => {
-                          void checkoutGitBranch(branch);
+                          void checkoutGitBranch(branch, activeId);
                         },
                       }
                     : undefined
@@ -1621,45 +1608,30 @@ export function AppShell({
                 permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
                 permissionModeDisabledReason={
                   activeId && pendingPermissionModeBySession[activeId] === true
-                    ? '权限模式正在切换，完成后再继续操作。'
+                      ? shellCopy.permissionModeChanging
                     : activeStreamingLive
-                      ? '当前对话正在流式输出，等结束后再切换权限模式。'
+                        ? shellCopy.permissionModeStreaming
                       : activeId && activeSessionForView?.status === 'running'
-                        ? '当前对话正在运行，等结束后再切换权限模式。'
+                          ? shellCopy.permissionModeRunning
                         : activeId && activeSessionForView?.status === 'waiting_for_user'
-                          ? '当前有工具调用正在等待确认，处理后再切换权限模式。'
+                            ? shellCopy.permissionModeWaiting
                           : undefined
                 }
                 onPermissionModeChange={(mode) => setPermissionMode(mode)}
               />
             </div>
             {navSelection.section === 'sessions' && activeId && !workbarCollapsed && (
-              <>
-                <div
-                  className="maka-workbar-resize-handle"
-                  role="separator"
-                  aria-label="调整会话工作栏宽度"
-                  aria-orientation="vertical"
-                  aria-valuemin={SESSION_WORKBAR_MIN_WIDTH}
-                  aria-valuemax={SESSION_WORKBAR_MAX_WIDTH}
-                  aria-valuenow={workbarWidth}
-                  tabIndex={0}
-                  onPointerDown={startWorkbarResize}
-                  onKeyDown={onWorkbarResizeHandleKeyDown}
-                />
-                <Suspense fallback={<SessionWorkbarFallback />}>
-                  <SessionWorkbar
-                    key={activeId}
-                    sessionId={activeId}
-                    browserLive={liveBrowserSessionIds.includes(activeId)}
-                    hidden={hasModalOpen}
-                    width={workbarWidth}
-                    onDismiss={() => setWorkbarCollapsed(true)}
-                    activeTab={workbarTab}
-                    onActiveTabChange={setWorkbarTab}
-                  />
-                </Suspense>
-              </>
+              <ChatWorkbar
+                activeId={activeId}
+                browserLive={liveBrowserSessionIds.includes(activeId)}
+                hidden={hasModalOpen}
+                width={workbarWidth}
+                onDismiss={() => setWorkbarCollapsed(true)}
+                activeTab={workbarTab}
+                onActiveTabChange={setWorkbarTab}
+                startWorkbarResize={startWorkbarResize}
+                onWorkbarResizeHandleKeyDown={onWorkbarResizeHandleKeyDown}
+              />
             )}
           </div>
           </MakaUriContext.Provider>
@@ -1702,6 +1674,5 @@ export function AppShell({
         commandOptions={commandOptions}
       />
       </div>
-    </LocaleProvider>
   );
 }

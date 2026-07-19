@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readSettingsCombinedSourceSync } from './settings-contract-source-helpers.js';
+import { getSettingsPreferencesCopy } from '../../renderer/locales/settings-preferences-copy.js';
 
 const settingsSource = readSettingsCombinedSourceSync();
 
@@ -15,17 +16,17 @@ describe('Settings app-info loading contract', () => {
     assert.match(aboutBlock, /const \[infoError, setInfoError\] = useState<string \| null>\(null\)/);
     assert.match(
       aboutBlock,
-      /catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setInfoError\(message\);[\s\S]*toast\.error\('载入关于信息失败', message\);/,
+      /catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error, locale\);[\s\S]*setInfoError\(message\);[\s\S]*toast\.error\(copy\.loadFailed, message\);/,
       'About page app.info failures must be visible to the user',
     );
     assert.match(
       aboutBlock,
-      /if \(!info && !infoError\) \{[\s\S]*label="正在加载关于页"/,
+      /if \(!info && !infoError\) \{[\s\S]*label=\{copy\.loading\}/,
       'About page skeleton should only render while no error has occurred',
     );
     assert.match(
       aboutBlock,
-      /if \(!info\) \{[\s\S]*role="alert"[\s\S]*无法载入关于信息[\s\S]*\{infoError\}/,
+      /if \(!info\) \{[\s\S]*role="alert"[\s\S]*\{copy\.unavailable\}[\s\S]*\{infoError\}/,
       'About page should render an alert state after app.info fails',
     );
     assert.doesNotMatch(aboutBlock, /catch\(\(\) => \{\}\)/, 'About page must not swallow app.info errors');
@@ -71,21 +72,16 @@ describe('Settings app-info loading contract', () => {
     const dataBlock = blockBetween('function DataSettingsPage', 'function PersonalizationSettingsPage');
 
     assert.match(dataBlock, /const \[pendingDataAction, setPendingDataAction\] = useState<string \| null>\(null\)/);
-    assert.match(dataBlock, /const pendingDataActionRef = useRef<string \| null>\(null\)/);
+    assert.match(dataBlock, /const dataActionGuard = useActionGuard<string>\(\)/);
     assert.match(dataBlock, /const dataPageMountedRef = useMountedRef\(\)/);
     assert.match(
       dataBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingDataActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
-      'Data page actions must be invalidated when the page unmounts',
+      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(!dataActionGuard\.begin\(action\)\) return;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*dataActionGuard\.finish\(\);[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*setPendingDataAction\(null\);[\s\S]*\}/,
+      'Data page open/copy actions need a shared pending guard and must not clean UI state after unmount (the shared guard hook releases on unmount)',
     );
     assert.match(
       dataBlock,
-      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(pendingDataActionRef\.current\) return;[\s\S]*pendingDataActionRef\.current = action;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingDataActionRef\.current = null;[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*setPendingDataAction\(null\);[\s\S]*\}/,
-      'Data page open/copy actions need a shared pending guard and must not clean UI state after unmount',
-    );
-    assert.match(
-      dataBlock,
-      /const result = await window\.maka\.app\.openPath\('workspace'\);[\s\S]*if \(!dataPageMountedRef\.current\) return;[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`/,
+      /const result = await window\.maka\.app\.openPath\('workspace'\);[\s\S]*if \(!dataPageMountedRef\.current\) return;[\s\S]*toast\.error\([\s\S]*openPathActionLabel\('workspace', locale\)/,
       'Late workspace-open failures must not toast after Settings is closed',
     );
     assert.match(
@@ -115,17 +111,16 @@ describe('Settings app-info loading contract', () => {
     );
   });
 
-  it('keeps About page privacy and storage copy Chinese-first and accessible', () => {
+  it('keeps About page privacy and storage copy bilingual and accessible', () => {
     const aboutBlock = blockBetween('function AboutSettingsPage', 'function SettingsSkeleton');
 
-    assert.match(aboutBlock, /<ul aria-label="隐私与安全说明">/);
-    assert.match(aboutBlock, /所有会话、设置、凭据和 Skill 指令文件/);
-    assert.match(aboutBlock, /模型供应商密钥保存在本机凭据文件内/);
-    assert.match(aboutBlock, /订阅账号令牌使用系统安全存储/);
-    assert.match(aboutBlock, /权限策略会判断工具调用风险/);
-    assert.match(aboutBlock, /每个会话都会在本机保留消息、工具调用、权限决策与模式变更记录/);
-    assert.match(aboutBlock, /会话记录、设置文件、SQLite 使用统计、本机凭据文件和订阅账号安全存储/);
-    assert.match(aboutBlock, /可直接粘贴到问题报告/);
+    const zh = getSettingsPreferencesCopy('zh').about;
+    const en = getSettingsPreferencesCopy('en').about;
+    assert.match(aboutBlock, /<ul aria-label=\{copy\.privacyLabel\}>/);
+    assert.equal(zh.privacyPoints.length, 5);
+    assert.match(zh.privacyPoints.join('\n'), /本机工作区/);
+    assert.match(zh.storageDetail, /凭据/);
+    assert.doesNotMatch(JSON.stringify(en), /[\u3400-\u9fff]/u);
     assert.match(aboutBlock, /const envSummaryHelpId = useId\(\)/);
     assert.match(
       aboutBlock,
@@ -134,7 +129,7 @@ describe('Settings app-info loading contract', () => {
     );
     assert.match(
       aboutBlock,
-      /<p id=\{envSummaryHelpId\} className="settingsHelpText">[\s\S]*复制内容不包含工作区路径/,
+      /<p id=\{envSummaryHelpId\} className="settingsHelpText">[\s\S]*\{copy\.copyHelp\}/,
       'About page copy privacy note must be the target of the button description',
     );
     assert.doesNotMatch(aboutBlock, /settings、credentials、skills/);
@@ -153,21 +148,21 @@ describe('Settings app-info loading contract', () => {
     const aboutBlock = blockBetween('function AboutSettingsPage', 'function SettingsSkeleton');
 
     assert.match(aboutBlock, /const \[copyingEnvSummary, setCopyingEnvSummary\] = useState\(false\)/);
-    assert.match(aboutBlock, /const copyingEnvSummaryRef = useRef\(false\)/);
+    assert.match(aboutBlock, /const envSummaryCopyGuard = useActionGuard<'copy'>\(\)/);
     assert.match(aboutBlock, /const aboutPageMountedRef = useMountedRef\(\)/);
     assert.match(
       aboutBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
-      'About page copy actions must be invalidated when the page unmounts',
+      /async function copyEnvSummary\(\) \{[\s\S]*if \(!envSummaryCopyGuard\.begin\('copy'\)\) return;[\s\S]*setCopyingEnvSummary\(true\);/,
+      'About page environment copy should not allow repeated clipboard requests (the shared guard hook releases on unmount)',
     );
     assert.match(
       aboutBlock,
-      /async function copyEnvSummary\(\) \{[\s\S]*if \(copyingEnvSummaryRef\.current\) return;[\s\S]*copyingEnvSummaryRef\.current = true;[\s\S]*setCopyingEnvSummary\(true\);[\s\S]*await navigator\.clipboard\.writeText\(summary\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.success\('已复制环境信息', '可直接粘贴到问题报告'\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);[\s\S]*\}[\s\S]*finally \{[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*setCopyingEnvSummary\(false\);[\s\S]*\}/,
-      'About page environment copy should not allow repeated clipboard requests and must not update UI after unmount',
+      /await navigator\.clipboard\.writeText\(summary\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.success\(copy\.copied, copy\.pasteHint\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.error\(copy\.copyFailed, copy\.clipboardUnavailable\);[\s\S]*\}[\s\S]*finally \{[\s\S]*envSummaryCopyGuard\.finish\(\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*setCopyingEnvSummary\(false\);[\s\S]*\}/,
+      'About page environment copy must not update UI after unmount',
     );
     assert.match(aboutBlock, /disabled=\{copyingEnvSummary\}/);
-    assert.match(aboutBlock, /copyingEnvSummary \? '复制中…' : '复制环境信息'/);
-    assert.match(aboutBlock, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.match(aboutBlock, /copyingEnvSummary \? copy\.copying : copy\.copyEnvironment/);
+    assert.match(aboutBlock, /toast\.error\(copy\.copyFailed, copy\.clipboardUnavailable\)/);
     assert.doesNotMatch(aboutBlock, /toast\.error\('复制失败', '剪贴板不可用'\)/);
   });
 });

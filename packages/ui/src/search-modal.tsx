@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import type { SearchErrorReason, SearchRequest, SearchResult } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { SearchErrorReason, SearchRequest, SearchResult, UiLocale } from '@maka/core';
+import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core';
 import { Autocomplete } from '@base-ui/react/autocomplete';
 import { Search, X } from './icons.js';
 import { DialogHeader } from './primitives/dialog-header.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
 import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
+import { useUiLocale } from './locale-context.js';
+import { getShellControlsCopy } from './shell-controls-copy.js';
 
 /**
  * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `6465cf22`,
@@ -49,8 +51,8 @@ import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
  *     the query, write history, or route via internal URI strings.
  */
 /**
- * Dependency-injected search interface. Production wiring binds this
- * to `window.maka.search.thread`; tests pass an in-memory fake.
+ * Dependency-injected search interface. Production wiring binds this to the
+ * desktop preload's thread search; tests pass an in-memory fake.
  *
  * The return type matches the IPC envelope exactly: either an array
  * of `SearchResult` (success path) or a `{ ok: false, reason, message }`
@@ -59,14 +61,13 @@ import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
  * them as user-facing copy.
  */
 interface SearchModalDeps {
-  searchThread(request: SearchRequest): Promise<
-    | SearchResult[]
-    | { ok: false; reason: SearchErrorReason; message: string }
-  >;
+  searchThread(
+    request: SearchRequest,
+  ): Promise<SearchResult[] | { ok: false; reason: SearchErrorReason; message: string }>;
 }
 
-function searchModalThrownErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '搜索服务需要刷新，请重试。');
+function searchModalThrownErrorMessage(error: unknown, locale: UiLocale, fallback: string): string {
+  return locale === 'zh' ? generalizedErrorMessageChinese(error, fallback) : generalizedErrorMessage(error, fallback);
 }
 
 interface SearchModalCloseOptions {
@@ -89,8 +90,8 @@ export function SearchModal(props: {
    */
   onNavigateToSession?(sessionId: string, turnId?: string): void;
   /**
-   * Injected `search:thread` IPC. Production binds to
-   * `window.maka.search.thread`; tests supply a fake.
+   * Injected `search:thread` IPC. Production binds to the desktop preload;
+   * tests supply a fake.
    *
    * Optional so the modal renders a degraded "search unavailable"
    * state when the renderer cannot bind to the IPC (legacy / smoke
@@ -99,6 +100,8 @@ export function SearchModal(props: {
    */
   deps?: SearchModalDeps;
 }) {
+  const locale = useUiLocale();
+  const copy = getShellControlsCopy(locale).search;
   // PR-UX-POLISH-1 commit 5 (kenji `2844f64f` SEARCH gate):
   //   - `query` is local state ONLY (no localStorage / no IPC echo).
   //   - `results` is the most recent successful response; older
@@ -113,7 +116,10 @@ export function SearchModal(props: {
   //     loading state during typing).
   const [query, setQuery] = useState(props.initialQuery ?? '');
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [error, setError] = useState<{ reason: SearchErrorReason; message: string } | null>(null);
+  const [error, setError] = useState<{
+    reason: SearchErrorReason;
+    message: string;
+  } | null>(null);
   const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const ticketRef = useRef(0);
@@ -165,14 +171,14 @@ export function SearchModal(props: {
         setResults([]);
         setError({
           reason: 'provider_error',
-          message: searchModalThrownErrorMessage(err),
+          message: searchModalThrownErrorMessage(err, locale, copy.errorFallback),
         });
       } finally {
         if (searchMountedRef.current && ticket === ticketRef.current) setPending(false);
       }
     }, 180);
     return () => window.clearTimeout(handle);
-  }, [query, searchThread]);
+  }, [copy.errorFallback, locale, query, searchThread]);
 
   function selectResult(result: SearchResult) {
     if (!props.onNavigateToSession) return;
@@ -230,7 +236,7 @@ export function SearchModal(props: {
       >
         <DialogHeader
           icon={<Search aria-hidden="true" />}
-          title="搜索"
+          title={copy.title}
           titleId="maka-search-modal-title"
           onClose={() => props.onClose()}
         />
@@ -259,7 +265,7 @@ export function SearchModal(props: {
           itemToStringValue={(result) => result.title ?? ''}
           items={results}
         >
-          <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">
+          <InputGroup className="maka-search-modal-input-row" aria-label={copy.conversationsLabel}>
             <InputGroupAddon>
               <Search size={16} aria-hidden="true" className="maka-search-modal-input-icon" />
             </InputGroupAddon>
@@ -269,8 +275,8 @@ export function SearchModal(props: {
                   ref={inputRef}
                   type="search"
                   className="maka-search-modal-input"
-                  placeholder="搜索会话标题和内容…"
-                  aria-label="搜索会话标题和内容"
+                  placeholder={copy.placeholder}
+                  aria-label={copy.placeholder}
                   autoComplete="off"
                   spellCheck={false}
                   onKeyDown={(event) => {
@@ -293,7 +299,7 @@ export function SearchModal(props: {
                   variant="quiet"
                   size="icon-sm"
                   type="button"
-                  aria-label="清空搜索"
+                  aria-label={copy.clearLabel}
                   onClick={clearSearchQuery}
                 >
                   <X size={14} aria-hidden="true" />
@@ -301,46 +307,34 @@ export function SearchModal(props: {
               </InputGroupAddon>
             )}
           </InputGroup>
-          <div className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite">
-            {!searchThread && (
-              <p className="maka-search-modal-placeholder">
-                当前环境无法连接搜索后端，请稍后重试。
-              </p>
-            )}
+          <div className="maka-search-modal-body" role="region" aria-label={copy.statusRegionLabel} aria-live="polite">
+            {!searchThread && <p className="maka-search-modal-placeholder">{copy.unavailable}</p>}
             {searchThread && incognitoBlocked && (
               <div className="maka-search-modal-state" data-tone="info">
-                <p>隐私模式已关闭搜索。</p>
-                <p className="maka-search-modal-state-detail">
-                  关闭隐私模式后可以继续按关键词查找历史对话。
-                </p>
+                <p>{copy.privacyTitle}</p>
+                <p className="maka-search-modal-state-detail">{copy.privacyDetail}</p>
               </div>
             )}
             {searchThread && !incognitoBlocked && error && (
               <div className="maka-search-modal-state" data-tone="warning">
-                <p>搜索暂时无法完成。</p>
+                <p>{copy.errorTitle}</p>
                 <p className="maka-search-modal-state-detail">{error.message}</p>
               </div>
             )}
             {searchThread && !error && trimmed.length === 0 && (
-              <p className="maka-search-modal-placeholder">
-                开始输入以按关键词查找历史对话。结果只包含会话标题和内容文本，不进入网络。
-              </p>
+              <p className="maka-search-modal-placeholder">{copy.introduction}</p>
             )}
             {searchThread && pending && trimmed.length > 0 && (
               <p className="maka-search-modal-placeholder" aria-live="polite">
-                正在搜索…
+                {copy.searching}
               </p>
             )}
-            {showEmpty && (
-              <p className="maka-search-modal-placeholder">
-                没有匹配的会话标题或内容。换个关键词试试。
-              </p>
-            )}
+            {showEmpty && <p className="maka-search-modal-placeholder">{copy.empty}</p>}
             {showResults && (
               <>
                 <div className="maka-search-modal-result-summary" aria-live="polite">
-                  <span>找到 {results.length} 条匹配</span>
-                  {resultsTruncated && <span>结果较多，已显示前 {results.length} 条</span>}
+                  <span>{copy.results(results.length)}</span>
+                  {resultsTruncated && <span>{copy.truncatedResults(results.length)}</span>}
                 </div>
                 {/*
                   Autocomplete.List renders a <div role="listbox">; Autocomplete.Item
@@ -349,7 +343,7 @@ export function SearchModal(props: {
                   covers both paths. aria-activedescendant on the input is managed by
                   Autocomplete — no manual wiring.
                 */}
-                <Autocomplete.List className="maka-search-modal-results" aria-label="搜索结果">
+                <Autocomplete.List className="maka-search-modal-results" aria-label={copy.resultsLabel}>
                   {results.map((result, index) => (
                     <Autocomplete.Item
                       key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}
@@ -366,7 +360,9 @@ export function SearchModal(props: {
                         // and the snippet is bounded by SNIPPET_MAX_CODE_POINTS.
                         // No markdown rendering, no <img>, no <a href> —
                         // per kenji SEARCH gate (no path / no URL exposure).
-                        <div className="maka-search-modal-result-snippet">{renderSearchSnippet(result.snippet, trimmed)}</div>
+                        <div className="maka-search-modal-result-snippet">
+                          {renderSearchSnippet(result.snippet, trimmed)}
+                        </div>
                       )}
                     </Autocomplete.Item>
                   ))}

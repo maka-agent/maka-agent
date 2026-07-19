@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
-  isContainedPath,
+  isPathInside,
   isRecord,
   isSafeSkillId,
   parseSkillFrontMatter,
@@ -258,7 +258,7 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
       return { created, updated, skipped, failed: BUNDLED_OFFICE_SKILLS.map((skill) => skill.id) };
     }
     [rootReal, skillsReal] = await Promise.all([realpath(root), realpath(skillsDir)]);
-    if (!isContainedPath(rootReal, skillsReal)) {
+    if (!isPathInside(rootReal, skillsReal)) {
       return { created, updated, skipped, failed: BUNDLED_OFFICE_SKILLS.map((skill) => skill.id) };
     }
   } catch {
@@ -273,7 +273,7 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
         if (error.code !== 'EEXIST') throw error;
       });
       const skillReal = await realpath(skillDir);
-      if (!isContainedPath(skillsReal, skillReal)) {
+      if (!isPathInside(skillsReal, skillReal)) {
         failed.push(skill.id);
         continue;
       }
@@ -453,7 +453,7 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
 
     try {
       const skillReal = await realpath(skillDir);
-      if (!isContainedPath(skillsReal, skillReal)) {
+      if (!isPathInside(skillsReal, skillReal)) {
         return { ok: false, reason: 'blocked_path' };
       }
 
@@ -504,7 +504,7 @@ export async function deleteSkill(root: string, id: string): Promise<DeleteSkill
     const [rootReal, skillsStat] = await Promise.all([realpath(root), lstat(skillsDir)]);
     if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     skillsReal = await realpath(skillsDir);
-    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
   } catch {
     return { ok: false, reason: 'not_found' };
   }
@@ -519,7 +519,7 @@ export async function deleteSkill(root: string, id: string): Promise<DeleteSkill
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, reason: 'not_found' };
     return { ok: false, reason: 'blocked_path' };
   }
-  if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+  if (!isPathInside(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
 
   try {
     await rm(skillReal, { recursive: true });
@@ -552,7 +552,7 @@ export async function installManagedSkill(
     if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const rootReal = await realpath(root);
     skillsReal = await realpath(skillsDir);
-    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
   } catch {
     return { ok: false, reason: 'write_failed' };
   }
@@ -564,7 +564,7 @@ export async function installManagedSkill(
     await mkdir(skillDir, { mode: 0o700 });
     createdSkillDir = true;
     const skillReal = await realpath(skillDir);
-    if (!isContainedPath(skillsReal, skillReal)) {
+    if (!isPathInside(skillsReal, skillReal)) {
       if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
       return { ok: false, reason: 'blocked_path' };
     }
@@ -675,7 +675,7 @@ export async function installBundledSkill(root: string, id: string): Promise<Ins
     if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const rootReal = await realpath(root);
     skillsReal = await realpath(skillsDir);
-    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
   } catch {
     return { ok: false, reason: 'write_failed' };
   }
@@ -687,7 +687,7 @@ export async function installBundledSkill(root: string, id: string): Promise<Ins
     await mkdir(skillDir, { mode: 0o700 });
     createdSkillDir = true;
     const skillReal = await realpath(skillDir);
-    if (!isContainedPath(skillsReal, skillReal)) {
+    if (!isPathInside(skillsReal, skillReal)) {
       await rm(skillDir, { recursive: true, force: true }).catch(() => {});
       return { ok: false, reason: 'blocked_path' };
     }
@@ -751,7 +751,7 @@ export async function updateManagedSkill(
       readContainedRegularTextFile(skillDir, skillFile),
       readContainedRegularTextFile(skillDir, lockFile),
     ]);
-    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
     if (!current.ok) return { ok: false, reason: current.reason === 'blocked_path' ? 'blocked_path' : 'write_failed' };
     if (!currentLock.ok) return { ok: false, reason: currentLock.reason === 'blocked_path' ? 'blocked_path' : 'write_failed' };
 
@@ -811,17 +811,17 @@ async function resolveSkillFileUpdateTarget(root: string, skillId: string): Prom
     const [rootReal, skillsStat] = await Promise.all([realpath(root), lstat(skillsDir)]);
     if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const skillsReal = await realpath(skillsDir);
-    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
 
     const skillStat = await lstat(skillDir);
     if (!skillStat.isDirectory() || skillStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const skillReal = await realpath(skillDir);
-    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
 
     const fileStat = await lstat(skillFile);
     if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const fileReal = await realpath(skillFile);
-    if (!isContainedPath(skillReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(skillReal, fileReal)) return { ok: false, reason: 'blocked_path' };
     return { ok: true };
   } catch {
     return { ok: false, reason: 'missing' };
@@ -876,7 +876,7 @@ export async function previewManagedSkillUpdate(
       realpath(skillDir),
       readContainedRegularTextFile(skillDir, skillFile),
     ]);
-    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
     if (!current.ok) return { ok: false, reason: current.reason === 'blocked_path' ? 'blocked_path' : 'read_failed' };
     const baselineContent = await readManagedSkillBaseline(skillDir);
     return {
@@ -971,7 +971,7 @@ async function removeManagedSkillBaseline(skillDir: string): Promise<void> {
   if (fileStat === null) return;
   if (!fileStat.isFile() || fileStat.isSymbolicLink()) return;
   const fileReal = await realpath(baselineFile);
-  if (!isContainedPath(baselineReal, fileReal)) return;
+  if (!isPathInside(baselineReal, fileReal)) return;
   await unlink(baselineFile);
 }
 
@@ -996,7 +996,7 @@ async function resolveManagedSkillBaselineDir(skillDir: string): Promise<
       return { ok: false };
     }
     const [metadataReal, baselineReal] = await Promise.all([realpath(metadataDir), realpath(baselineDir)]);
-    if (!isContainedPath(skillReal, metadataReal) || !isContainedPath(metadataReal, baselineReal)) return { ok: false };
+    if (!isPathInside(skillReal, metadataReal) || !isPathInside(metadataReal, baselineReal)) return { ok: false };
     return { ok: true, baselineDir };
   } catch {
     return { ok: false };
@@ -1083,7 +1083,7 @@ export async function resolveSkillOpenPath(
   } catch {
     return { ok: false, reason: 'missing' };
   }
-  if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+  if (!isPathInside(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
 
   const skillDir = join(skillsDir, id);
   const candidate = target === 'file' ? join(skillDir, 'SKILL.md') : skillDir;
@@ -1093,7 +1093,7 @@ export async function resolveSkillOpenPath(
   } catch {
     return { ok: false, reason: 'missing' };
   }
-  if (!isContainedPath(skillsReal, openedPath)) return { ok: false, reason: 'blocked_path' };
+  if (!isPathInside(skillsReal, openedPath)) return { ok: false, reason: 'blocked_path' };
 
   const openedStat = await stat(openedPath).catch(() => null);
   if (!openedStat) return { ok: false, reason: 'missing' };

@@ -134,9 +134,9 @@ export type PlanReminderUpdatePatch = {
 
 /**
  * PR-DAILY-REVIEW-MVP-0: bridge handed in by `main.tsx`. Keeps
- * `@maka/ui` out of `window.maka` — the renderer wires
- * `(offsetDays) => window.maka.dailyReview.day(offsetDays)` and the
- * UI layer is reusable in fixtures / visual smoke / future surfaces
+ * `@maka/ui` independent of desktop preload globals — the renderer wires a
+ * host-injected daily-review reader, and the UI layer stays reusable in fixtures,
+ * visual smoke tests, and future surfaces
  * (e.g. a desktop notification renderer).
  */
 export interface DailyReviewBridge {

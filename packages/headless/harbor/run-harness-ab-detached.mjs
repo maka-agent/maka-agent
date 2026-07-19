@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
-import { DEFAULT_HARNESS_AB_RUN_ID } from './run-harness-ab.mjs';
+import { resolveHarnessAbRunId, resolveHarnessCompetitorProfile } from './run-harness-ab.mjs';
 
 const JOURNAL_FILENAME = 'background-run.json';
 const LOG_FILENAME = 'background-run.log';
@@ -20,16 +20,24 @@ function envPath(name) {
 
 function detachedRunPaths() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
-  const runId = process.env.MAKA_HARNESS_AB_RUN_ID || DEFAULT_HARNESS_AB_RUN_ID;
+  const competitorProfile = resolveHarnessCompetitorProfile(
+    process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code',
+  );
+  const runId = resolveHarnessAbRunId(
+    competitorProfile,
+    process.env.MAKA_HARNESS_AB_RUN_ID,
+    process.env.MAKA_HARNESS_AB_TASK_ID,
+  );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   return {
+    runId,
     runRoot,
     logPath: join(runRoot, LOG_FILENAME),
   };
 }
 
 async function launchDetached() {
-  const { runRoot, logPath } = detachedRunPaths();
+  const { runId, runRoot, logPath } = detachedRunPaths();
   await mkdir(runRoot, { recursive: true });
   const logFd = openSync(logPath, 'a', 0o600);
   const startedAt = new Date().toISOString();
@@ -40,6 +48,7 @@ async function launchDetached() {
       detached: true,
       env: {
         ...process.env,
+        MAKA_HARNESS_AB_RUN_ID: runId,
         MAKA_HARNESS_AB_BACKGROUND_RUN: '1',
         MAKA_HARNESS_AB_DETACHED_STARTED_AT: startedAt,
       },
@@ -89,9 +98,11 @@ function waitForWorkerOwnership(child, journalPath, startedAt) {
         finish();
         return;
       }
-      finish(new Error(
-        `detached harness runner exited before acquiring the run lock (code ${code ?? 'null'}, signal ${signal ?? 'none'})`,
-      ));
+      finish(
+        new Error(
+          `detached harness runner exited before acquiring the run lock (code ${code ?? 'null'}, signal ${signal ?? 'none'})`,
+        ),
+      );
     };
     child.once('error', onError);
     child.once('exit', onExit);

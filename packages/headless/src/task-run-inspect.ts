@@ -1,9 +1,4 @@
-import type {
-  AgentRunHeader,
-  AgentRunStore,
-  RuntimeEvent,
-  RuntimeEventStore,
-} from '@maka/core';
+import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import type {
   ExecutionEvidenceRef,
   ExecutionIdentityRef,
@@ -19,7 +14,11 @@ import {
   validateHistoryCompactCheckpointShape,
   type HistoryCompactCheckpoint,
 } from '@maka/runtime';
-import { isTerminalTaskRunStatus, type HeavyTaskSelfCheckProjection, type TaskAttempt } from './task-contracts.js';
+import {
+  isTerminalTaskRunStatus,
+  type HeavyTaskSelfCheckProjection,
+  type TaskAttempt,
+} from './task-contracts.js';
 import { projectTaskRun, type TaskRunProjection, type TaskRunStore } from './task-run-store.js';
 
 export const TASK_RUN_INSPECT_SCHEMA_VERSION = 'maka.task_run_inspect.v1' as const;
@@ -76,11 +75,7 @@ export interface TaskRunInspectTaskEventSource {
   coverage?: ExecutionLogCoverage;
 }
 
-export type TaskRunInspectCoverageStatus =
-  | 'matched'
-  | 'unknown'
-  | 'source_missing'
-  | 'mismatch';
+export type TaskRunInspectCoverageStatus = 'matched' | 'unknown' | 'source_missing' | 'mismatch';
 
 export interface TaskRunInspectToolFact {
   toolCallId: string;
@@ -159,7 +154,10 @@ export async function inspectTaskRun(
   // Project the exact rows whose source coverage is reported below. Calling
   // `project()` separately could observe a later append and produce a read
   // model whose advertised Task high water is already stale.
-  const projection = projectTaskRun(records.map((record) => record.event), taskRunId);
+  const projection = projectTaskRun(
+    records.map((record) => record.event),
+    taskRunId,
+  );
   const diagnostics: TaskRunInspectDiagnostic[] = projection.warnings.map((message) => ({
     severity: 'warning',
     code: 'task_projection_warning',
@@ -172,11 +170,26 @@ export async function inspectTaskRun(
   for (const attempt of projection.attempts) {
     const agentRuns: TaskRunInspectAgentRun[] = [];
     if (attempt.executionLineage.length === 0) {
-      diagnostics.push(diagnostic(taskRunId, 'attempt_execution_missing', 'warning',
-        'Attempt has no durable AgentRun execution link.', { attemptId: attempt.attemptId }));
+      diagnostics.push(
+        diagnostic(
+          taskRunId,
+          'attempt_execution_missing',
+          'warning',
+          'Attempt has no durable AgentRun execution link.',
+          { attemptId: attempt.attemptId },
+        ),
+      );
     }
     for (const evidence of attempt.executionLineage) {
-      agentRuns.push(await inspectLinkedAgentRun(dependencies, taskRunId, attempt.attemptId, evidence, diagnostics));
+      agentRuns.push(
+        await inspectLinkedAgentRun(
+          dependencies,
+          taskRunId,
+          attempt.attemptId,
+          evidence,
+          diagnostics,
+        ),
+      );
     }
     const selfChecks = projection.heavyTaskSelfChecks
       .filter((selfCheck) => selfCheck.attemptId === attempt.attemptId)
@@ -213,8 +226,15 @@ async function inspectLinkedAgentRun(
 ): Promise<TaskRunInspectAgentRun> {
   const identity = evidence.execution;
   if (!identity?.sessionId || !identity.agentRunId) {
-    diagnostics.push(diagnostic(taskRunId, 'execution_identity_missing', 'warning',
-      'Execution link does not identify an AgentRun; source facts remain unknown.', { attemptId }));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'execution_identity_missing',
+        'warning',
+        'Execution link does not identify an AgentRun; source facts remain unknown.',
+        { attemptId },
+      ),
+    );
     return emptyAgentRun(identity, evidence.runtimeCoverage);
   }
 
@@ -255,14 +275,28 @@ async function inspectLinkedAgentRun(
       compactionCheckpoints,
     };
   } catch (error) {
-    diagnostics.push(diagnostic(taskRunId, 'agent_run_unavailable', 'error',
-      'Linked AgentRun could not be read.', {
-        ...refs,
-        detail: { error: errorMessage(error) },
-      }));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'agent_run_unavailable',
+        'error',
+        'Linked AgentRun could not be read.',
+        {
+          ...refs,
+          detail: { error: errorMessage(error) },
+        },
+      ),
+    );
     if (evidence.runtimeCoverage) {
-      diagnostics.push(diagnostic(taskRunId, 'runtime_coverage_source_missing', 'error',
-        'Claimed Runtime coverage cannot be checked because its AgentRun source is unavailable.', refs));
+      diagnostics.push(
+        diagnostic(
+          taskRunId,
+          'runtime_coverage_source_missing',
+          'error',
+          'Claimed Runtime coverage cannot be checked because its AgentRun source is unavailable.',
+          refs,
+        ),
+      );
     }
     return emptyAgentRun(identity, evidence.runtimeCoverage, 'source_missing');
   }
@@ -276,13 +310,27 @@ function inspectRuntimeCoverage(
   diagnostics: TaskRunInspectDiagnostic[],
 ): TaskRunInspectCoverageStatus {
   if (!claimed) {
-    diagnostics.push(diagnostic(taskRunId, 'runtime_coverage_unknown', 'info',
-      'Execution identity is known, but this legacy link has no Runtime Event coverage.', refs));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'runtime_coverage_unknown',
+        'info',
+        'Execution identity is known, but this legacy link has no Runtime Event coverage.',
+        refs,
+      ),
+    );
     return 'unknown';
   }
   if (events.length === 0) {
-    diagnostics.push(diagnostic(taskRunId, 'runtime_coverage_source_missing', 'error',
-      'Claimed Runtime coverage has no readable source events.', refs));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'runtime_coverage_source_missing',
+        'error',
+        'Claimed Runtime coverage has no readable source events.',
+        refs,
+      ),
+    );
     return 'source_missing';
   }
   const lowSequence = claimed.lowWater?.sequence ?? 0;
@@ -290,30 +338,37 @@ function inspectRuntimeCoverage(
   const low = events[lowSequence];
   const high = events[highSequence];
   const observedCount = highSequence >= lowSequence ? highSequence - lowSequence + 1 : 0;
-  const matches = claimed.highWater.ledger === 'runtime_event'
-    && claimed.highWater.streamId === refs.agentRunId
-    && (!claimed.lowWater || (
-      claimed.lowWater.ledger === 'runtime_event'
-      && claimed.lowWater.streamId === refs.agentRunId
-    ))
-    && low !== undefined
-    && high !== undefined
-    && (!claimed.lowWater?.eventId || claimed.lowWater.eventId === low.id)
-    && (!claimed.highWater.eventId || claimed.highWater.eventId === high.id)
-    && (claimed.eventCount === undefined || claimed.eventCount === observedCount);
+  const matches =
+    claimed.highWater.ledger === 'runtime_event' &&
+    claimed.highWater.streamId === refs.agentRunId &&
+    (!claimed.lowWater ||
+      (claimed.lowWater.ledger === 'runtime_event' &&
+        claimed.lowWater.streamId === refs.agentRunId)) &&
+    low !== undefined &&
+    high !== undefined &&
+    (!claimed.lowWater?.eventId || claimed.lowWater.eventId === low.id) &&
+    (!claimed.highWater.eventId || claimed.highWater.eventId === high.id) &&
+    (claimed.eventCount === undefined || claimed.eventCount === observedCount);
   if (matches) return 'matched';
-  diagnostics.push(diagnostic(taskRunId, 'runtime_coverage_mismatch', 'error',
-    'Claimed Runtime coverage does not match the observed AgentRun ledger boundaries.', {
-      ...refs,
-      detail: {
-        claimedLow: claimed.lowWater,
-        claimedHigh: claimed.highWater,
-        claimedEventCount: claimed.eventCount,
-        observedLowEventId: low?.id,
-        observedHighEventId: high?.id,
-        observedEventCount: observedCount,
+  diagnostics.push(
+    diagnostic(
+      taskRunId,
+      'runtime_coverage_mismatch',
+      'error',
+      'Claimed Runtime coverage does not match the observed AgentRun ledger boundaries.',
+      {
+        ...refs,
+        detail: {
+          claimedLow: claimed.lowWater,
+          claimedHigh: claimed.highWater,
+          claimedEventCount: claimed.eventCount,
+          observedLowEventId: low?.id,
+          observedHighEventId: high?.id,
+          observedEventCount: observedCount,
+        },
       },
-    }));
+    ),
+  );
   return 'mismatch';
 }
 
@@ -341,25 +396,41 @@ function inspectToolFacts(
       });
     }
   }
-  const callsWithoutResponse = [...calls.values()].filter((call) => !responses.has(call.toolCallId));
+  const callsWithoutResponse = [...calls.values()].filter(
+    (call) => !responses.has(call.toolCallId),
+  );
   const responsesWithoutCall = [...responses.values()]
     .filter((response) => !calls.has(response.toolCallId))
     .map(({ isError: _isError, ...response }) => response);
   for (const call of callsWithoutResponse) {
-    diagnostics.push(diagnostic(taskRunId, 'tool_response_missing', 'warning',
-      `Tool Call ${call.toolCallId} has no committed Runtime response; its outcome and external side effects are unknown.`, {
-        ...refs,
-        eventId: call.eventId,
-        detail: { toolCallId: call.toolCallId, toolName: call.toolName },
-      }));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'tool_response_missing',
+        'warning',
+        `Tool Call ${call.toolCallId} has no committed Runtime response; its outcome and external side effects are unknown.`,
+        {
+          ...refs,
+          eventId: call.eventId,
+          detail: { toolCallId: call.toolCallId, toolName: call.toolName },
+        },
+      ),
+    );
   }
   for (const response of responsesWithoutCall) {
-    diagnostics.push(diagnostic(taskRunId, 'tool_call_missing', 'warning',
-      `Tool response ${response.toolCallId} has no matching Runtime call fact.`, {
-        ...refs,
-        eventId: response.eventId,
-        detail: { toolCallId: response.toolCallId, toolName: response.toolName },
-      }));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'tool_call_missing',
+        'warning',
+        `Tool response ${response.toolCallId} has no matching Runtime call fact.`,
+        {
+          ...refs,
+          eventId: response.eventId,
+          detail: { toolCallId: response.toolCallId, toolName: response.toolName },
+        },
+      ),
+    );
   }
   return {
     callCount: calls.size,
@@ -381,8 +452,15 @@ function inspectCompactionCheckpoints(
     if (event.type !== 'history_compact_checkpoint_recorded') continue;
     const checkpoint = event.data?.checkpoint;
     if (!validateHistoryCompactCheckpointShape(checkpoint, refs.sessionId)) {
-      diagnostics.push(diagnostic(taskRunId, 'compaction_checkpoint_invalid', 'error',
-        'AgentRun contains an invalid durable Compaction checkpoint record.', { ...refs, eventId: event.id }));
+      diagnostics.push(
+        diagnostic(
+          taskRunId,
+          'compaction_checkpoint_invalid',
+          'error',
+          'AgentRun contains an invalid durable Compaction checkpoint record.',
+          { ...refs, eventId: event.id },
+        ),
+      );
       checkpoints.push({ eventId: event.id, validation: 'invalid' });
       continue;
     }
@@ -405,17 +483,31 @@ function inspectSelfCheck(
   diagnostics: TaskRunInspectDiagnostic[],
 ): TaskRunInspectSelfCheck {
   if (selfCheck.freshness === 'stale') {
-    diagnostics.push(diagnostic(taskRunId, 'self_check_stale', 'warning',
-      `Self-check ${selfCheck.selfCheckId} is stale.`, {
-        ...(attemptId ? { attemptId } : {}),
-        detail: { freshnessReasons: selfCheck.freshnessReasons },
-      }));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'self_check_stale',
+        'warning',
+        `Self-check ${selfCheck.selfCheckId} is stale.`,
+        {
+          ...(attemptId ? { attemptId } : {}),
+          detail: { freshnessReasons: selfCheck.freshnessReasons },
+        },
+      ),
+    );
   } else if (selfCheck.freshness === 'unknown') {
-    diagnostics.push(diagnostic(taskRunId, 'self_check_source_unknown', 'info',
-      `Self-check ${selfCheck.selfCheckId} has no fully validated source binding.`, {
-        ...(attemptId ? { attemptId } : {}),
-        detail: { freshnessReasons: selfCheck.freshnessReasons },
-      }));
+    diagnostics.push(
+      diagnostic(
+        taskRunId,
+        'self_check_source_unknown',
+        'info',
+        `Self-check ${selfCheck.selfCheckId} has no fully validated source binding.`,
+        {
+          ...(attemptId ? { attemptId } : {}),
+          detail: { freshnessReasons: selfCheck.freshnessReasons },
+        },
+      ),
+    );
   }
   return {
     selfCheckId: selfCheck.selfCheckId,
@@ -423,23 +515,29 @@ function inspectSelfCheck(
     freshness: selfCheck.freshness,
     freshnessReasons: [...selfCheck.freshnessReasons],
     ...(selfCheck.provenance?.workspace ? { workspace: selfCheck.provenance.workspace } : {}),
-    ...(selfCheck.provenance?.runtimeCoverage ? { runtimeCoverage: selfCheck.provenance.runtimeCoverage } : {}),
-    ...(selfCheck.provenance?.taskCoverage ? { taskCoverage: selfCheck.provenance.taskCoverage } : {}),
+    ...(selfCheck.provenance?.runtimeCoverage
+      ? { runtimeCoverage: selfCheck.provenance.runtimeCoverage }
+      : {}),
+    ...(selfCheck.provenance?.taskCoverage
+      ? { taskCoverage: selfCheck.provenance.taskCoverage }
+      : {}),
   };
 }
 
 export function renderTaskRunInspectTree(document: TaskRunInspectDocument): string {
-  const hasRootTail = document.attempts.length > 0
-    || document.unscopedSelfChecks.length > 0
-    || document.diagnostics.length > 0;
+  const hasRootTail =
+    document.attempts.length > 0 ||
+    document.unscopedSelfChecks.length > 0 ||
+    document.diagnostics.length > 0;
   const lines = [
     `TaskRun ${document.taskRun.taskRunId} [${document.taskRun.status}]`,
     `${hasRootTail ? '├─' : '└─'} Task Events ${formatCoverage(document.taskEventSource.coverage)} (${document.taskEventSource.eventCount})`,
   ];
   document.attempts.forEach((attempt, attemptIndex) => {
-    const isLastRootNode = attemptIndex === document.attempts.length - 1
-      && document.unscopedSelfChecks.length === 0
-      && document.diagnostics.length === 0;
+    const isLastRootNode =
+      attemptIndex === document.attempts.length - 1 &&
+      document.unscopedSelfChecks.length === 0 &&
+      document.diagnostics.length === 0;
     const rootBranch = isLastRootNode ? '└─' : '├─';
     const childPrefix = isLastRootNode ? '   ' : '│  ';
     lines.push(`${rootBranch} Attempt ${attempt.attemptId} [${attempt.status}]`);
@@ -450,12 +548,15 @@ export function renderTaskRunInspectTree(document: TaskRunInspectDocument): stri
       attemptChildIndex += 1;
       const lastAgent = attemptChildIndex === attemptChildCount;
       const detailPrefix = `${childPrefix}${lastAgent ? '   ' : '│  '}`;
-      lines.push(`${childPrefix}${lastAgent ? '└─' : '├─'} AgentRun ${agentRun.identity?.agentRunId ?? 'unknown'} [${agentRun.status ?? 'unknown'}]`);
+      lines.push(
+        `${childPrefix}${lastAgent ? '└─' : '├─'} AgentRun ${agentRun.identity?.agentRunId ?? 'unknown'} [${agentRun.status ?? 'unknown'}]`,
+      );
       const details = [
         `Runtime Events ${formatCoverage(agentRun.claimedCoverage)} [${agentRun.coverageStatus}]`,
         `Tool Calls ${agentRun.tools.callCount} / Responses ${agentRun.tools.responseCount}`,
-        ...agentRun.compactionCheckpoints.map((checkpoint) =>
-          `Compaction ${checkpoint.checkpointId ?? checkpoint.eventId} ${formatCoverage(checkpoint.sourceCoverage)} [${checkpoint.validation}]`
+        ...agentRun.compactionCheckpoints.map(
+          (checkpoint) =>
+            `Compaction ${checkpoint.checkpointId ?? checkpoint.eventId} ${formatCoverage(checkpoint.sourceCoverage)} [${checkpoint.validation}]`,
         ),
       ];
       details.forEach((detail, index) => {
@@ -465,21 +566,30 @@ export function renderTaskRunInspectTree(document: TaskRunInspectDocument): stri
     for (const selfCheck of attempt.selfChecks) {
       attemptChildIndex += 1;
       const lastSelfCheck = attemptChildIndex === attemptChildCount;
-      lines.push(`${childPrefix}${lastSelfCheck ? '└─' : '├─'} Self-check ${selfCheck.selfCheckId} [${selfCheck.status}; ${selfCheck.freshness}]`);
+      lines.push(
+        `${childPrefix}${lastSelfCheck ? '└─' : '├─'} Self-check ${selfCheck.selfCheckId} [${selfCheck.status}; ${selfCheck.freshness}]`,
+      );
       if (selfCheck.workspace) {
         const detailPrefix = `${childPrefix}${lastSelfCheck ? '   ' : '│  '}`;
-        lines.push(`${detailPrefix}└─ Workspace ${selfCheck.workspace.kind}:${selfCheck.workspace.ref}`);
+        lines.push(
+          `${detailPrefix}└─ Workspace ${selfCheck.workspace.kind}:${selfCheck.workspace.ref}`,
+        );
       }
     }
   });
   document.unscopedSelfChecks.forEach((selfCheck, index) => {
-    const isLast = index === document.unscopedSelfChecks.length - 1 && document.diagnostics.length === 0;
-    lines.push(`${isLast ? '└─' : '├─'} Self-check ${selfCheck.selfCheckId} [${selfCheck.status}; ${selfCheck.freshness}] (unscoped)`);
+    const isLast =
+      index === document.unscopedSelfChecks.length - 1 && document.diagnostics.length === 0;
+    lines.push(
+      `${isLast ? '└─' : '├─'} Self-check ${selfCheck.selfCheckId} [${selfCheck.status}; ${selfCheck.freshness}] (unscoped)`,
+    );
   });
   if (document.diagnostics.length > 0) {
     lines.push(`└─ Diagnostics (${document.diagnostics.length})`);
     document.diagnostics.forEach((item, index) => {
-      lines.push(`   ${index === document.diagnostics.length - 1 ? '└─' : '├─'} ${item.severity.toUpperCase()} ${item.code}: ${item.message}`);
+      lines.push(
+        `   ${index === document.diagnostics.length - 1 ? '└─' : '├─'} ${item.severity.toUpperCase()} ${item.code}: ${item.message}`,
+      );
     });
   }
   return `${lines.join('\n')}\n`;
@@ -496,10 +606,14 @@ function taskRunSummary(projection: TaskRunProjection): TaskRunInspectSummary {
     eventCount: projection.events.length,
     ...(projection.startedAt !== undefined ? { startedAt: projection.startedAt } : {}),
     ...(projection.finishedAt !== undefined ? { finishedAt: projection.finishedAt } : {}),
-    ...(projection.result ? { result: {
-      passed: projection.result.passed,
-      taxonomy: projection.result.taxonomy,
-    } } : {}),
+    ...(projection.result
+      ? {
+          result: {
+            passed: projection.result.passed,
+            taxonomy: projection.result.taxonomy,
+          },
+        }
+      : {}),
     ...(projection.error?.class ? { errorClass: projection.error.class } : {}),
     ...(projection.parked ? { parked: projection.parked } : {}),
   };
@@ -512,17 +626,27 @@ function taskEventSource(
   const last = records.at(-1)?.cursor;
   return {
     eventCount: records.length,
-    ...(first && last ? { coverage: { lowWater: first, highWater: last, eventCount: records.length } } : {}),
+    ...(first && last
+      ? { coverage: { lowWater: first, highWater: last, eventCount: records.length } }
+      : {}),
   };
 }
 
-function runtimeCoverage(runId: string, events: readonly RuntimeEvent[]): ExecutionLogCoverage | undefined {
+function runtimeCoverage(
+  runId: string,
+  events: readonly RuntimeEvent[],
+): ExecutionLogCoverage | undefined {
   const first = events[0];
   const last = events.at(-1);
   if (!first || !last) return undefined;
   return {
     lowWater: { ledger: 'runtime_event', streamId: runId, sequence: 0, eventId: first.id },
-    highWater: { ledger: 'runtime_event', streamId: runId, sequence: events.length - 1, eventId: last.id },
+    highWater: {
+      ledger: 'runtime_event',
+      streamId: runId,
+      sequence: events.length - 1,
+      eventId: last.id,
+    },
     eventCount: events.length,
   };
 }
@@ -553,7 +677,9 @@ function agentRunDiagnostic(
   refs: Pick<TaskRunInspectDiagnostic, 'attemptId' | 'sessionId' | 'agentRunId'>,
   source: AgentRunInspectDiagnostic,
 ): TaskRunInspectDiagnostic {
-  const severity: TaskRunInspectSeverity = /read_failed|corrupt|mismatch/.test(source.code) ? 'error' : 'warning';
+  const severity: TaskRunInspectSeverity = /read_failed|corrupt|mismatch/.test(source.code)
+    ? 'error'
+    : 'warning';
   return diagnostic(taskRunId, 'agent_run_source_diagnostic', severity, source.message, {
     ...refs,
     ...(source.eventId ? { eventId: source.eventId } : {}),

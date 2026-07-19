@@ -32,7 +32,10 @@ export function createCuE2eFixture(input: {
   getWindowTitle(windowId: string): string;
   readState(windowId: string): Promise<unknown>;
   readAllStates(): Promise<Record<string, unknown>>;
-  elementScreenRect(windowId: string, selector: string): Promise<{
+  elementScreenRect(
+    windowId: string,
+    selector: string,
+  ): Promise<{
     x: number;
     y: number;
     width: number;

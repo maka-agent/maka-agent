@@ -1,5 +1,17 @@
-import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Search, SquarePen } from '@maka/ui/icons';
-import { Button as UiButton, Tooltip, TooltipContent, TooltipTrigger } from '@maka/ui';
+import {
+  CircleGauge,
+  Grid3X3,
+  HelpCircle,
+  MessageCircleQuestion,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Search,
+  SquarePen,
+} from '@maka/ui/icons';
+import { Button as UiButton, Tooltip, TooltipContent, TooltipTrigger, useUiLocale } from '@maka/ui';
+import { getShellCopy } from './locales/shell-copy';
 
 export function AppShellTopbarActions(props: {
   sidebarCollapsed: boolean;
@@ -8,10 +20,12 @@ export function AppShellTopbarActions(props: {
   onExpandSidebar(): void;
   onCreateSession(): void;
 }) {
+  const locale = useUiLocale();
+  const copy = getShellCopy(locale).chrome;
   return (
     <div
       className={`maka-shell-topbar-rail ${props.sidebarCollapsed ? 'is-collapsed' : 'is-expanded'}`}
-      aria-label="窗口快捷操作"
+      aria-label={copy.windowActions}
     >
       <Tooltip>
         <TooltipTrigger
@@ -20,11 +34,11 @@ export function AppShellTopbarActions(props: {
           className="maka-titlebar-action"
           data-maka-search-trigger="true"
           onClick={props.onOpenSearchModal}
-          aria-label="搜索对话"
+          aria-label={copy.searchConversations}
         >
           <Search aria-hidden="true" />
         </TooltipTrigger>
-        <TooltipContent>搜索对话</TooltipContent>
+        <TooltipContent>{copy.searchConversations}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -32,16 +46,12 @@ export function AppShellTopbarActions(props: {
           type="button"
           className="maka-titlebar-action"
           onClick={props.sidebarCollapsed ? props.onExpandSidebar : props.onCollapseSidebar}
-          aria-label={props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+          aria-label={props.sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
           aria-expanded={!props.sidebarCollapsed}
         >
-          {props.sidebarCollapsed ? (
-            <PanelLeftOpen aria-hidden="true" />
-          ) : (
-            <PanelLeftClose aria-hidden="true" />
-          )}
+          {props.sidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
         </TooltipTrigger>
-        <TooltipContent>{props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}</TooltipContent>
+        <TooltipContent>{props.sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}</TooltipContent>
       </Tooltip>
       {props.sidebarCollapsed && (
         <Tooltip>
@@ -50,11 +60,11 @@ export function AppShellTopbarActions(props: {
             type="button"
             className="maka-titlebar-action"
             onClick={props.onCreateSession}
-            aria-label="新任务"
+            aria-label={copy.newTask}
           >
             <SquarePen aria-hidden="true" />
           </TooltipTrigger>
-          <TooltipContent>新任务</TooltipContent>
+          <TooltipContent>{copy.newTask}</TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -70,25 +80,23 @@ export function AppShellWorkspaceTopActions(props: {
   onOpenHelp(): void;
   onOpenHealth(): void;
 }) {
-  const workbarLabel = !props.workbarAvailable
-    ? '暂无可用的会话工作栏'
-    : props.workbarCollapsed
-      ? '展开会话工作栏'
-      : '收起会话工作栏';
+  const locale = useUiLocale();
+  const copy = getShellCopy(locale).chrome;
+  const workbarLabel = props.workbarCollapsed ? copy.expandWorkbar : copy.collapseWorkbar;
 
   return (
-    <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
+    <div className="maka-workspace-top-actions" role="toolbar" aria-label={copy.workspaceActions}>
       <Tooltip>
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}
           type="button"
           className="maka-titlebar-action"
           onClick={props.onOpenFeedback}
-          aria-label="问题反馈"
+          aria-label={copy.feedback}
         >
           <MessageCircleQuestion aria-hidden="true" />
         </TooltipTrigger>
-        <TooltipContent>问题反馈 · 打开关于与环境信息</TooltipContent>
+        <TooltipContent>{copy.feedbackTooltip}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -96,11 +104,11 @@ export function AppShellWorkspaceTopActions(props: {
           type="button"
           className="maka-titlebar-action"
           onClick={props.onOpenPalette}
-          aria-label="打开命令面板"
+          aria-label={copy.openCommandPalette}
         >
           <Grid3X3 aria-hidden="true" />
         </TooltipTrigger>
-        <TooltipContent>打开命令面板</TooltipContent>
+        <TooltipContent>{copy.openCommandPalette}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -108,11 +116,11 @@ export function AppShellWorkspaceTopActions(props: {
           type="button"
           className="maka-titlebar-action"
           onClick={props.onOpenHelp}
-          aria-label="打开帮助"
+          aria-label={copy.openHelp}
         >
           <HelpCircle aria-hidden="true" />
         </TooltipTrigger>
-        <TooltipContent>打开帮助</TooltipContent>
+        <TooltipContent>{copy.openHelp}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -120,25 +128,27 @@ export function AppShellWorkspaceTopActions(props: {
           type="button"
           className="maka-titlebar-action"
           onClick={props.onOpenHealth}
-          aria-label="打开健康中心"
+          aria-label={copy.openHealth}
         >
           <CircleGauge aria-hidden="true" />
         </TooltipTrigger>
-        <TooltipContent>打开健康中心</TooltipContent>
+        <TooltipContent>{copy.openHealth}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={<UiButton variant="quiet" size="icon-sm" disabled={!props.workbarAvailable} />}
-          type="button"
-          className="maka-titlebar-action"
-          onClick={props.onToggleWorkbar}
-          aria-label={workbarLabel}
-          aria-expanded={props.workbarAvailable && !props.workbarCollapsed}
-        >
-          {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
-        </TooltipTrigger>
-        <TooltipContent>{workbarLabel}</TooltipContent>
-      </Tooltip>
+      {props.workbarAvailable && (
+        <Tooltip>
+          <TooltipTrigger
+            render={<UiButton variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-titlebar-action"
+            onClick={props.onToggleWorkbar}
+            aria-label={workbarLabel}
+            aria-expanded={!props.workbarCollapsed}
+          >
+            {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
+          </TooltipTrigger>
+          <TooltipContent>{workbarLabel}</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }

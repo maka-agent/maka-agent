@@ -9,10 +9,7 @@ import {
   discoverCachedHarborTasks,
   fingerprintFixedPromptTaskTree,
 } from '#fixed-prompt-task-source';
-import {
-  createHarborOracleQualifier,
-  HarborInfraError,
-} from '#harbor-task-runner';
+import { createHarborOracleQualifier, HarborInfraError } from '#harbor-task-runner';
 import {
   buildHarnessOracleExecutionPolicyFingerprint,
   HARBOR_ORACLE_EXECUTION_POLICY,
@@ -74,12 +71,13 @@ async function taskCommand(args) {
   const planned = plan.tasks.find((task) => task.taskId === taskId);
   if (!planned) throw new Error(`Oracle audit plan has no task ${taskId}`);
   const tasks = await discoverCachedHarborTasks(requiredArg(args, 'tasks-root'), new Set([taskId]));
-  if (tasks.length !== 1) throw new Error(`Oracle audit expected exactly one task source for ${taskId}`);
+  if (tasks.length !== 1)
+    throw new Error(`Oracle audit expected exactly one task source for ${taskId}`);
   const [auditTask] = await currentAuditTasks(repoRoot, tasks);
   if (
-    !auditTask
-    || fingerprintHarnessOracleDocument(auditTask.identity)
-      !== fingerprintHarnessOracleDocument(planned.identity)
+    !auditTask ||
+    fingerprintHarnessOracleDocument(auditTask.identity) !==
+      fingerprintHarnessOracleDocument(planned.identity)
   ) {
     throw new Error(`Oracle audit identity changed after planning for task ${taskId}`);
   }
@@ -136,11 +134,13 @@ async function mergeCommand(args) {
 async function currentAuditTasks(repoRoot, tasks) {
   const [verifierImplementationSource, composeImplementationSource] = await Promise.all([
     readFile(join(repoRoot, 'packages/headless/harbor/maka_verifier.py')),
-    readFile(join(
-      repoRoot,
-      'packages/headless/harbor',
-      HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile,
-    )),
+    readFile(
+      join(
+        repoRoot,
+        'packages/headless/harbor',
+        HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile,
+      ),
+    ),
   ]);
   const executionPolicyFingerprint = buildHarnessOracleExecutionPolicyFingerprint({
     verifierImplementationSource,
@@ -152,9 +152,8 @@ async function currentAuditTasks(repoRoot, tasks) {
     executionPolicyFingerprint,
     environment: 'docker',
     platform: DOCKER_PLATFORM,
-    resolveBaseImageDigest: (reference, platform) => (
-      resolveHarnessOracleBaseImageDigest(reference, platform, digestCache)
-    ),
+    resolveBaseImageDigest: (reference, platform) =>
+      resolveHarnessOracleBaseImageDigest(reference, platform, digestCache),
   });
 }
 
@@ -165,13 +164,14 @@ async function readSnapshot(path) {
 async function readPlan(path) {
   const value = JSON.parse(await readFile(path, 'utf8'));
   if (
-    !value
-    || typeof value !== 'object'
-    || value.schemaVersion !== AUDIT_PLAN_SCHEMA_VERSION
-    || !Array.isArray(value.tasks)
-    || !Array.isArray(value.reusedEntries)
-    || typeof value.fingerprint !== 'string'
-  ) throw new Error('Oracle audit plan is malformed');
+    !value ||
+    typeof value !== 'object' ||
+    value.schemaVersion !== AUDIT_PLAN_SCHEMA_VERSION ||
+    !Array.isArray(value.tasks) ||
+    !Array.isArray(value.reusedEntries) ||
+    typeof value.fingerprint !== 'string'
+  )
+    throw new Error('Oracle audit plan is malformed');
   const { fingerprint, ...body } = value;
   if (fingerprint !== fingerprintHarnessOracleDocument(body)) {
     throw new Error('Oracle audit plan fingerprint is invalid');
@@ -251,7 +251,8 @@ function parseArgs(args) {
   for (let index = 0; index < args.length; index += 2) {
     const name = args[index];
     const value = args[index + 1];
-    if (!name?.startsWith('--') || value === undefined) throw new Error(`invalid argument ${name ?? ''}`);
+    if (!name?.startsWith('--') || value === undefined)
+      throw new Error(`invalid argument ${name ?? ''}`);
     parsed[name.slice(2)] = value;
   }
   return parsed;

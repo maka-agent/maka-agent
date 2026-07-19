@@ -1,13 +1,8 @@
 import type { SessionStatus } from './session.js';
 
-export const SESSION_EVENT_STREAM_STATUSES = [
-  'connected',
-  'stale',
-  'recovered',
-  'closed',
-] as const;
+export const SESSION_EVENT_STREAM_STATUSES = ['connected', 'stale', 'recovered', 'closed'] as const;
 
-export type SessionEventStreamStatus = typeof SESSION_EVENT_STREAM_STATUSES[number];
+export type SessionEventStreamStatus = (typeof SESSION_EVENT_STREAM_STATUSES)[number];
 
 export const SESSION_EVENT_STREAM_STALE_AFTER_MS = 15_000;
 export const SESSION_EVENT_STREAM_REFRESH_COOLDOWN_MS = 10_000;
@@ -24,10 +19,16 @@ export interface SessionEventStreamSnapshot {
 }
 
 export function isSessionEventStreamStatus(value: unknown): value is SessionEventStreamStatus {
-  return typeof value === 'string' && (SESSION_EVENT_STREAM_STATUSES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' &&
+    (SESSION_EVENT_STREAM_STATUSES as readonly string[]).includes(value)
+  );
 }
 
-export function sessionExpectsEventStream(status: SessionStatus | undefined, hasLiveActivity = false): boolean {
+export function sessionExpectsEventStream(
+  status: SessionStatus | undefined,
+  hasLiveActivity = false,
+): boolean {
   return status === 'running' || hasLiveActivity;
 }
 
@@ -63,5 +64,7 @@ export function shouldRefreshStaleSessionEventStream(input: {
 }): boolean {
   if (input.status !== 'stale') return false;
   const cooldownMs = input.cooldownMs ?? SESSION_EVENT_STREAM_REFRESH_COOLDOWN_MS;
-  return input.refreshRequestedAt === undefined || input.now - input.refreshRequestedAt >= cooldownMs;
+  return (
+    input.refreshRequestedAt === undefined || input.now - input.refreshRequestedAt >= cooldownMs
+  );
 }

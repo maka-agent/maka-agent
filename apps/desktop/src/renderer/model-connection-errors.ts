@@ -1,9 +1,9 @@
-import type { SessionEvent } from '@maka/core';
+import type { ChatConfigurationReason, SessionEvent, UiLocale } from '@maka/core';
 import {
-  describeChatConfigurationReason,
-  generalizedErrorMessageChinese,
   parseNoRealConnectionError,
 } from '@maka/core';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+import { localizedShellErrorMessage } from './locales/shell-copy.js';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
@@ -26,12 +26,19 @@ export function noRealConnectionReasonFromEvent(event: Extract<SessionEvent, { t
   ).reason;
 }
 
-export function noRealConnectionSetupDescription(reason: string | undefined): string {
-  return describeChatConfigurationReason(reason);
+export function noRealConnectionSetupDescription(reason: string | undefined, locale: UiLocale = 'zh'): string {
+  const copy = getDesktopConversationCopy(locale).model;
+  return reason && Object.hasOwn(copy.configurationReason, reason)
+    ? copy.configurationReason[reason as ChatConfigurationReason]
+    : copy.configurationFallback;
 }
 
-export function sessionEventErrorMessage(event: Extract<SessionEvent, { type: 'error' }>): string {
-  return generalizedErrorMessageChinese(new Error(event.message), '对话运行失败，请稍后重试。');
+export function sessionEventErrorMessage(
+  event: Extract<SessionEvent, { type: 'error' }>,
+  locale: UiLocale = 'zh',
+): string {
+  const fallback = getDesktopConversationCopy(locale).actions.conversationErrorFallback;
+  return localizedShellErrorMessage(new Error(event.message), fallback, locale);
 }
 
 /**
@@ -53,15 +60,20 @@ export function cleanEventMessage(message: string): string {
     .replace(`${NO_REAL_CONNECTION_CODE}: `, '');
 }
 
-export function modelSetupToastCopy(reason: string | undefined, fallback: string): { title: string; description: string } {
+export function modelSetupToastCopy(
+  reason: string | undefined,
+  fallback: string,
+  locale: UiLocale = 'zh',
+): { title: string; description: string } {
+  const copy = getDesktopConversationCopy(locale).model;
   if (reason === 'connection_missing') {
     return {
-      title: '连接已删除',
-      description: describeChatConfigurationReason(reason),
+      title: copy.connectionMissingTitle,
+      description: noRealConnectionSetupDescription(reason, locale),
     };
   }
   return {
-    title: '等待配置真实模型',
+    title: copy.setupTitle,
     description: fallback,
   };
 }

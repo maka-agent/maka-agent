@@ -48,7 +48,8 @@ describe('fixed prompt controller', () => {
       });
 
       assert.equal(result.events[0]?.type, 'task_completed');
-      if (result.events[0]?.type === 'task_completed') assert.deepEqual(result.events[0].harbor.verifier, verifier);
+      if (result.events[0]?.type === 'task_completed')
+        assert.deepEqual(result.events[0].harbor.verifier, verifier);
     });
   });
 
@@ -91,7 +92,11 @@ describe('fixed prompt controller', () => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      await appendFile(resultsJsonlPath, `${JSON.stringify(taskCompletedEvent({ taskId: 'task-a' }))}\n`, 'utf8');
+      await appendFile(
+        resultsJsonlPath,
+        `${JSON.stringify(taskCompletedEvent({ taskId: 'task-a' }))}\n`,
+        'utf8',
+      );
 
       const calls: string[] = [];
       const result = await runFixedPromptController({
@@ -266,28 +271,32 @@ describe('fixed prompt controller', () => {
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
       const retainedContextBudgetSummary = contextBudgetSummary({ activePrunedToolResults: 1 });
-      await writeFile(resultsJsonlPath, `${JSON.stringify({
-        schemaVersion: 1,
-        type: 'task_plumbing_failed',
-        id: 'legacy-timeout',
-        ts: 10,
-        runId: 'run-1',
-        roundId: 'round-1',
-        resumeFingerprint: 'fingerprint-same',
-        taskId: 'task-a',
-        status: 'plumbing_failed',
-        passed: false,
-        scored: false,
-        eligible: false,
-        errorClass: 'missing_execution_identity',
-        error: 'Timed-out Harbor attempt did not produce execution identity attestation',
-        expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
-        contextBudgetPolicy: { enabled: true, minRecentTurns: 2 },
-        contextBudgetSummary: retainedContextBudgetSummary,
-        taskToolSummary: { todoWriteCalls: 3 },
-        steps: 42,
-        durationMs: 180_000,
-      })}\n`, 'utf8');
+      await writeFile(
+        resultsJsonlPath,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          type: 'task_plumbing_failed',
+          id: 'legacy-timeout',
+          ts: 10,
+          runId: 'run-1',
+          roundId: 'round-1',
+          resumeFingerprint: 'fingerprint-same',
+          taskId: 'task-a',
+          status: 'plumbing_failed',
+          passed: false,
+          scored: false,
+          eligible: false,
+          errorClass: 'missing_execution_identity',
+          error: 'Timed-out Harbor attempt did not produce execution identity attestation',
+          expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
+          contextBudgetPolicy: { enabled: true, minRecentTurns: 2 },
+          contextBudgetSummary: retainedContextBudgetSummary,
+          taskToolSummary: { todoWriteCalls: 3 },
+          steps: 42,
+          durationMs: 180_000,
+        })}\n`,
+        'utf8',
+      );
       const originalWal = await readFile(resultsJsonlPath, 'utf8');
       const projectedWal = await readFixedPromptWal(resultsJsonlPath);
       assert.equal(projectedWal[0]?.type, 'task_budget_exhausted');
@@ -413,7 +422,9 @@ describe('fixed prompt controller', () => {
       syncBuiltinESMExports();
 
       try {
-        await Promise.all(appended.map((event) => appendFixedPromptWalEvent(resultsJsonlPath, event)));
+        await Promise.all(
+          appended.map((event) => appendFixedPromptWalEvent(resultsJsonlPath, event)),
+        );
       } finally {
         fs.promises.truncate = originalTruncate;
         fs.promises.appendFile = originalAppendFile;
@@ -422,11 +433,8 @@ describe('fixed prompt controller', () => {
 
       const events = await readFixedPromptWal(resultsJsonlPath);
       assert.equal(events.length, appended.length + 1);
-      const taskIds = events.flatMap((event) => 'taskId' in event ? [event.taskId] : []);
-      assert.deepEqual(
-        new Set(taskIds),
-        new Set(['retained', 'task-a', 'task-b']),
-      );
+      const taskIds = events.flatMap((event) => ('taskId' in event ? [event.taskId] : []));
+      assert.deepEqual(new Set(taskIds), new Set(['retained', 'task-a', 'task-b']));
     });
   });
 
@@ -435,7 +443,11 @@ describe('fixed prompt controller', () => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      await appendFile(resultsJsonlPath, `${JSON.stringify(taskInfraFailedEvent({ taskId: 'task-a' }))}\n`, 'utf8');
+      await appendFile(
+        resultsJsonlPath,
+        `${JSON.stringify(taskInfraFailedEvent({ taskId: 'task-a' }))}\n`,
+        'utf8',
+      );
 
       const calls: string[] = [];
       const result = await runFixedPromptController({
@@ -465,7 +477,11 @@ describe('fixed prompt controller', () => {
       const resultsJsonlPath = join(dir, 'results.jsonl');
       const resultsTsvPath = join(dir, 'results.tsv');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      await appendFile(resultsJsonlPath, `${JSON.stringify(taskCompletedEvent({ taskId: 'task-a' }))}\n`, 'utf8');
+      await appendFile(
+        resultsJsonlPath,
+        `${JSON.stringify(taskCompletedEvent({ taskId: 'task-a' }))}\n`,
+        'utf8',
+      );
 
       await runFixedPromptController({
         runId: 'run-1',
@@ -506,7 +522,9 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         harborRunner: async () => {
-          throw new Error('container crashed before result.json');
+          throw Object.assign(new Error('container crashed before result.json'), {
+            artifactRefs: { providerTelemetryPath: '/logs/task-a/provider-request-telemetry.json' },
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -517,6 +535,12 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.eligible, false);
       assert.equal(result.events[0]?.scored, false);
       assert.equal(result.events[0]?.errorClass, 'infra_error');
+      assert.equal(
+        result.events[0]?.type === 'task_infra_failed'
+          ? result.events[0].providerTelemetryPath
+          : undefined,
+        '/logs/task-a/provider-request-telemetry.json',
+      );
       assert.match(await readFile(resultsJsonlPath, 'utf8'), /"type":"task_infra_failed"/);
     });
   });
@@ -843,8 +867,12 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.eligible, true);
       assert.equal(result.events[0]?.passed, false);
       assert.equal(result.events[0]?.expectedPromptHash, hashSystemPrompt('fixed prompt\n'));
-      if (result.events[0]?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
-      assert.equal(result.events[0].runtimeEventsUnavailableReason, 'budget_exhausted_before_cell_output');
+      if (result.events[0]?.type !== 'task_budget_exhausted')
+        assert.fail('expected budget exhaustion event');
+      assert.equal(
+        result.events[0].runtimeEventsUnavailableReason,
+        'budget_exhausted_before_cell_output',
+      );
       assert.match(await readFile(resultsJsonlPath, 'utf8'), /"type":"task_budget_exhausted"/);
     });
   });
@@ -884,7 +912,13 @@ describe('fixed prompt controller', () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      const retainedUsage = tokenSummary({ input: 100, output: 20, reasoning: 0, total: 120, costUsd: 0.42 });
+      const retainedUsage = tokenSummary({
+        input: 100,
+        output: 20,
+        reasoning: 0,
+        total: 120,
+        costUsd: 0.42,
+      });
 
       const result = await runFixedPromptController({
         runId: 'run-1',
@@ -906,7 +940,10 @@ describe('fixed prompt controller', () => {
       assert.equal(result.totalTokens, 120);
       assert.equal(result.totalCostUsd, 0.42);
       assert.equal(result.events[0]?.type, 'task_budget_exhausted');
-      assert.deepEqual('tokenSummary' in result.events[0]! ? result.events[0].tokenSummary : undefined, retainedUsage);
+      assert.deepEqual(
+        'tokenSummary' in result.events[0]! ? result.events[0].tokenSummary : undefined,
+        retainedUsage,
+      );
       assert.equal(
         'tokenSummarySource' in result.events[0]! ? result.events[0].tokenSummarySource : undefined,
         'checkpoint',
@@ -939,7 +976,9 @@ describe('fixed prompt controller', () => {
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
         harborRunner: async () => {
-          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+            cellOutput: cell,
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -981,7 +1020,9 @@ describe('fixed prompt controller', () => {
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
         harborRunner: async () => {
-          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+            cellOutput: cell,
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -998,6 +1039,7 @@ describe('fixed prompt controller', () => {
       assert.equal(event.tokenSummarySource, 'final');
       assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
       assert.equal(event.traceEventsPath, cell.traceEventsPath);
+      assert.equal(event.providerTelemetryPath, '/logs/task-a/provider-request-telemetry.json');
       assert.deepEqual(
         'contextBudgetSummary' in event ? event.contextBudgetSummary : undefined,
         retainedContextBudgetSummary,
@@ -1028,7 +1070,9 @@ describe('fixed prompt controller', () => {
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
         harborRunner: async () => {
-          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { executionIdentity });
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+            executionIdentity,
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -1073,7 +1117,9 @@ describe('fixed prompt controller', () => {
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
         harborRunner: async () => {
-          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+            cellOutput: cell,
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -1115,7 +1161,9 @@ describe('fixed prompt controller', () => {
           requireExecutionIdentity: true,
           expectedPricingProfile: 'test-profile',
           harborRunner: async () => {
-            throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+            throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+              cellOutput: cell,
+            });
           },
           now: () => 100,
           newId: idFactory(),
@@ -1123,7 +1171,8 @@ describe('fixed prompt controller', () => {
 
         const event = result.events[0];
         assert.equal(event?.type, 'task_budget_exhausted');
-        if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
+        if (event?.type !== 'task_budget_exhausted')
+          assert.fail('expected budget exhaustion event');
         assert.equal(event.eligible, false);
         assert.equal(event.evidenceErrorClass, errorClass);
       });
@@ -1156,7 +1205,9 @@ describe('fixed prompt controller', () => {
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
         harborRunner: async () => {
-          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+            cellOutput: cell,
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -1310,7 +1361,9 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => { throw new Error('should not run'); },
+        harborRunner: async () => {
+          throw new Error('should not run');
+        },
         now: () => 100,
         newId: idFactory(),
       };
@@ -1332,7 +1385,11 @@ describe('fixed prompt controller', () => {
         /maxInfraFailureRate must be a number in \(0, 1\]/,
       );
       await assert.rejects(
-        runFixedPromptController({ ...base, protectPassAtOne: true, infraFailurePolicy: 'retry-once' }),
+        runFixedPromptController({
+          ...base,
+          protectPassAtOne: true,
+          infraFailurePolicy: 'retry-once',
+        }),
         /protectPassAtOne is incompatible with infraFailurePolicy retry-once/,
       );
     });
@@ -1374,8 +1431,16 @@ describe('fixed prompt controller', () => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      await appendFile(resultsJsonlPath, `${JSON.stringify(taskInfraFailedEvent({ taskId: 'task-a' }))}\n`, 'utf8');
-      await appendFile(resultsJsonlPath, `${JSON.stringify(taskInfraFailedEvent({ taskId: 'task-b' }))}\n`, 'utf8');
+      await appendFile(
+        resultsJsonlPath,
+        `${JSON.stringify(taskInfraFailedEvent({ taskId: 'task-a' }))}\n`,
+        'utf8',
+      );
+      await appendFile(
+        resultsJsonlPath,
+        `${JSON.stringify(taskInfraFailedEvent({ taskId: 'task-b' }))}\n`,
+        'utf8',
+      );
 
       const calls: string[] = [];
       const result = await runFixedPromptController({
@@ -1427,7 +1492,11 @@ describe('fixed prompt controller', () => {
         maxConcurrency: 1,
         harborRunner: async ({ task }) => {
           calls.push(task.id);
-          return harborOutput({ taskId: task.id, status: 'failed', errorClass: 'provider_billing' });
+          return harborOutput({
+            taskId: task.id,
+            status: 'failed',
+            errorClass: 'provider_billing',
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -1465,7 +1534,13 @@ describe('fixed prompt controller', () => {
           calls.push(task.id);
           return harborOutput({
             taskId: task.id,
-            tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
+            tokenSummary: tokenSummary({
+              input: 1,
+              output: 2,
+              reasoning: 0,
+              total: 3,
+              costUsd: 0.02,
+            }),
           });
         },
         now: () => 100,
@@ -1510,7 +1585,13 @@ describe('fixed prompt controller', () => {
           inFlight -= 1;
           return harborOutput({
             taskId: task.id,
-            tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
+            tokenSummary: tokenSummary({
+              input: 1,
+              output: 2,
+              reasoning: 0,
+              total: 3,
+              costUsd: 0.02,
+            }),
           });
         },
         now: () => 100,
@@ -1530,7 +1611,11 @@ describe('fixed prompt controller', () => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
-      await appendFile(resultsJsonlPath, `${JSON.stringify(taskCompletedEvent({ taskId: 'task-a' }))}\n`, 'utf8');
+      await appendFile(
+        resultsJsonlPath,
+        `${JSON.stringify(taskCompletedEvent({ taskId: 'task-a' }))}\n`,
+        'utf8',
+      );
 
       const calls: string[] = [];
       const result = await runFixedPromptController({
@@ -1594,8 +1679,14 @@ describe('fixed prompt controller', () => {
 
       assert.equal(maxInFlight, 2);
       assert.deepEqual(result.taskIds, ['task-a', 'task-b', 'task-c']);
-      const events = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
-      assert.deepEqual(events.map((event) => event.taskId), ['task-a', 'task-b', 'task-c']);
+      const events = (await readFile(resultsJsonlPath, 'utf8'))
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.deepEqual(
+        events.map((event) => event.taskId),
+        ['task-a', 'task-b', 'task-c'],
+      );
     });
   });
 
@@ -1642,8 +1733,14 @@ describe('fixed prompt controller', () => {
 
       assert.deepEqual(calls, ['task-a', 'task-b', 'task-c']);
       assert.deepEqual(result.taskIds, ['task-a', 'task-b', 'task-c']);
-      const events = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
-      assert.deepEqual(events.map((event) => event.taskId), ['task-a', 'task-b', 'task-c']);
+      const events = (await readFile(resultsJsonlPath, 'utf8'))
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.deepEqual(
+        events.map((event) => event.taskId),
+        ['task-a', 'task-b', 'task-c'],
+      );
     });
   });
 
@@ -1651,8 +1748,16 @@ describe('fixed prompt controller', () => {
     await withDir(async (dir) => {
       const harborResultPath = join(dir, 'result.json');
       const cellOutputPath = join(dir, 'maka-cell-output.json');
-      await writeFile(harborResultPath, JSON.stringify({ verifier_result: { rewards: { reward: 0 } } }), 'utf8');
-      await writeFile(cellOutputPath, JSON.stringify(harborOutput({ taskId: 'task-a' }).cell), 'utf8');
+      await writeFile(
+        harborResultPath,
+        JSON.stringify({ verifier_result: { rewards: { reward: 0 } } }),
+        'utf8',
+      );
+      await writeFile(
+        cellOutputPath,
+        JSON.stringify(harborOutput({ taskId: 'task-a' }).cell),
+        'utf8',
+      );
 
       const output = await readHarborTaskRunOutput({ harborResultPath, cellOutputPath });
 
@@ -1698,7 +1803,11 @@ describe('fixed prompt controller', () => {
       const contextBudgetPolicy = {
         enabled: true as const,
         name: 'harbor-cell-context-budget',
-        staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 2048, minRecentTurnsFull: 2 },
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 2048,
+          minRecentTurnsFull: 2,
+        },
         minRecentTurns: 2,
       };
 
@@ -1710,7 +1819,8 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', contextBudgetPolicy, contextBudgetSummary }),
+        harborRunner: async () =>
+          harborOutput({ taskId: 'task-a', contextBudgetPolicy, contextBudgetSummary }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1838,12 +1948,13 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          reward: 0,
-          status: 'failed',
-          errorClass: 'tool_step_cap_reached',
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'tool_step_cap_reached',
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1853,6 +1964,108 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.scored, false);
       assert.equal(result.events[0]?.eligible, true);
       assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
+    });
+  });
+
+  test('counts a verifier-graded max-token stop as a scored benchmark failure', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'max_tokens',
+            verifier: {
+              outcome: 'failed',
+              attempts: [{ attempt: 1, classification: 'failed', durationMs: 20, reward: 0 }],
+            },
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.eligible, true);
+      assert.equal(result.events[0]?.errorClass, 'max_tokens');
+    });
+  });
+
+  test('counts a verifier-graded tool-step cap as a scored benchmark failure', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'tool_step_cap_reached',
+            verifier: {
+              outcome: 'failed',
+              attempts: [{ attempt: 1, classification: 'failed', durationMs: 20, reward: 0 }],
+            },
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.eligible, true);
+      assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
+    });
+  });
+
+  test('keeps verifier-graded deadline settlements as scored benchmark outcomes', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'aborted',
+            deadlineSettlement: { source: 'benchmark.deadline', mode: 'immediate' },
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.eligible, true);
     });
   });
 
@@ -1869,12 +2082,13 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          reward: 0,
-          status: 'failed',
-          errorClass: 'rate_limit',
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'rate_limit',
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1882,6 +2096,12 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.type, 'task_infra_failed');
       assert.equal(result.events[0]?.eligible, false);
       assert.equal(result.events[0]?.errorClass, 'rate_limit');
+      assert.equal(
+        result.events[0]?.type === 'task_infra_failed'
+          ? result.events[0].providerTelemetryPath
+          : undefined,
+        '/logs/task-a/provider-request-telemetry.json',
+      );
     });
   });
 
@@ -1898,12 +2118,13 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          reward: 0,
-          status: 'failed',
-          errorClass: 'network',
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'network',
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1927,12 +2148,13 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          reward: 0,
-          status: 'failed',
-          errorClass: 'request_limit_exceeded',
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'request_limit_exceeded',
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -2004,6 +2226,35 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('accepts zero cost with tokens for an explicitly attested account plan', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        billingMode: 'account-plan',
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            tokenSummary: tokenSummary({ input: 2, output: 1, reasoning: 0, total: 3, costUsd: 0 }),
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.totalTokens, 3);
+      assert.equal(result.totalCostUsd, 0);
+    });
+  });
+
   test('keeps an attested completed result eligible when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -2019,16 +2270,17 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          omitTokenSummary: true,
-          executionIdentity: {
-            llmConnectionSlug: 'fake',
-            model: 'fake-model',
-            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
-            pricingProfile: 'test-profile',
-          },
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            omitTokenSummary: true,
+            executionIdentity: {
+              llmConnectionSlug: 'fake',
+              model: 'fake-model',
+              systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+              pricingProfile: 'test-profile',
+            },
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -2037,6 +2289,43 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.eligible, true);
       assert.equal(result.events[0]?.scored, true);
       assert.equal('tokenSummary' in result.events[0]!, false);
+    });
+  });
+
+  test('rejects an attested completed result when final usage is required', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        requireFinalUsage: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            omitTokenSummary: true,
+            executionIdentity: {
+              llmConnectionSlug: 'fake',
+              model: 'fake-model',
+              systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+              pricingProfile: 'test-profile',
+            },
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.scored, false);
     });
   });
 
@@ -2056,18 +2345,19 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          status: 'failed',
-          errorClass: 'tool_step_cap_reached',
-          omitTokenSummary: true,
-          executionIdentity: {
-            llmConnectionSlug: 'fake',
-            model: 'fake-model',
-            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
-            pricingProfile: 'test-profile',
-          },
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            status: 'failed',
+            errorClass: 'tool_step_cap_reached',
+            omitTokenSummary: true,
+            executionIdentity: {
+              llmConnectionSlug: 'fake',
+              model: 'fake-model',
+              systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+              pricingProfile: 'test-profile',
+            },
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -2120,16 +2410,17 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({
-          taskId: 'task-a',
-          errorClass: 'network',
-          executionIdentity: {
-            llmConnectionSlug: 'fake',
-            model: 'wrong-model',
-            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
-            pricingProfile: 'test-profile',
-          },
-        }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            errorClass: 'network',
+            executionIdentity: {
+              llmConnectionSlug: 'fake',
+              model: 'wrong-model',
+              systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+              pricingProfile: 'test-profile',
+            },
+          }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -2190,9 +2481,179 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.expectedPromptHash, hashSystemPrompt('fixed prompt\n'));
     });
   });
+
+  test('resumes a legacy terminal whose prompt hash is attested by execution identity', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      const promptHash = hashSystemPrompt('fixed prompt\n');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const seeded = taskCompletedEvent({ taskId: 'task-a', resumeFingerprint: 'sha256:manifest' });
+      assert.equal(seeded.type, 'task_completed');
+      if (seeded.type !== 'task_completed') throw new Error('expected completed fixture');
+      const { promptHash: _legacyMissingPromptHash, ...withoutPromptHash } = seeded;
+      await appendFixedPromptWalEvent(resultsJsonlPath, {
+        ...withoutPromptHash,
+        executionIdentity: {
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          reasoningEffort: 'off',
+          systemPromptHash: promptHash,
+          pricingProfile: 'test-profile',
+        },
+      });
+      let harborCalls = 0;
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        resumeFingerprint: 'sha256:manifest',
+        protectPassAtOne: true,
+        harborRunner: async () => {
+          harborCalls += 1;
+          return harborOutput({ taskId: 'task-a' });
+        },
+      });
+
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.type, 'task_completed');
+    });
+  });
+
+  test('keeps a scored terminal authoritative over a later orphan marker', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      await appendFixedPromptWalEvent(
+        resultsJsonlPath,
+        taskCompletedEvent({
+          taskId: 'task-a',
+          resumeFingerprint: 'sha256:manifest',
+        }),
+      );
+      await appendFixedPromptWalEvent(resultsJsonlPath, {
+        schemaVersion: 1,
+        type: 'task_plumbing_failed',
+        id: 'orphan-1',
+        ts: 20,
+        runId: 'run-1',
+        roundId: 'round-1',
+        resumeFingerprint: 'sha256:manifest',
+        taskId: 'task-a',
+        status: 'plumbing_failed',
+        passed: false,
+        scored: false,
+        eligible: false,
+        errorClass: 'orphaned_sampled_attempt',
+        error: 'terminal WAL append raced an old orphan marker',
+        expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
+      });
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        resumeFingerprint: 'sha256:manifest',
+        protectPassAtOne: true,
+        harborRunner: async () => harborOutput({ taskId: 'task-a' }),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.scored, true);
+    });
+  });
+
+  test('keeps a structured verifier pass authoritative after an agent infrastructure exit', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 1,
+            status: 'failed',
+            errorClass: 'infra_failed',
+            verifier: {
+              outcome: 'passed',
+              attempts: [{ attempt: 1, classification: 'passed', durationMs: 20, reward: 1 }],
+            },
+          }),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, true);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.errorClass, undefined);
+    });
+  });
+
+  test('projects a stored structured verifier pass without resampling Harbor', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const stored = taskCompletedEvent({ taskId: 'task-a' });
+      assert.equal(stored.type, 'task_completed');
+      if (stored.type !== 'task_completed') throw new Error('expected completed fixture');
+      await appendFixedPromptWalEvent(resultsJsonlPath, {
+        ...stored,
+        status: 'failed',
+        passed: false,
+        scored: false,
+        eligible: false,
+        errorClass: 'infra_failed',
+        harbor: {
+          reward: 1,
+          verifier: {
+            outcome: 'passed',
+            attempts: [{ attempt: 1, classification: 'passed', durationMs: 20, reward: 1 }],
+          },
+        },
+      });
+      let harborCalls = 0;
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => {
+          harborCalls += 1;
+          return harborOutput({ taskId: 'task-a' });
+        },
+      });
+
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.passed, true);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.errorClass, undefined);
+    });
+  });
 });
 
-function taskCompletedEvent(input: { taskId: string; promptHash?: string; resumeFingerprint?: string }): FixedPromptWalEvent {
+function taskCompletedEvent(input: {
+  taskId: string;
+  promptHash?: string;
+  resumeFingerprint?: string;
+}): FixedPromptWalEvent {
   return {
     schemaVersion: 1,
     type: 'task_completed',
@@ -2248,7 +2709,9 @@ function harborOutput(input: {
   errorClass?: string;
   status?: HarborTaskRunOutput['cell']['status'];
   executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
+  deadlineSettlement?: HarborTaskRunOutput['cell']['deadlineSettlement'];
   verifier?: HarborTaskRunOutput['harbor']['verifier'];
+  providerTelemetryPath?: string;
 }): HarborTaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1, ...(input.verifier ? { verifier: input.verifier } : {}) },
@@ -2258,11 +2721,20 @@ function harborOutput(input: {
       ...(input.errorClass ? { errorClass: input.errorClass } : {}),
       runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
-      ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
+      providerTelemetryPath:
+        input.providerTelemetryPath ?? `/logs/${input.taskId}/provider-request-telemetry.json`,
+      ...(input.omitPromptHash
+        ? {}
+        : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
       ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
+      ...(input.deadlineSettlement ? { deadlineSettlement: input.deadlineSettlement } : {}),
       ...(input.omitTokenSummary
         ? {}
-        : { tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }) }),
+        : {
+            tokenSummary:
+              input.tokenSummary ??
+              tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
+          }),
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
       ...(input.contextBudgetSummary ? { contextBudgetSummary: input.contextBudgetSummary } : {}),
       ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
@@ -2296,7 +2768,11 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void; reject: (error: unknown) => void } {
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (error: unknown) => void;
+} {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<T>((res, rej) => {

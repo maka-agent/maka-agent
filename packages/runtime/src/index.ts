@@ -5,13 +5,21 @@
  * package README and root ARCHITECTURE.md for responsibility boundaries.
  */
 
-export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
+export {
+  SessionManager,
+  BackendRegistry,
+  headerToSummary,
+  changesBackendConfig,
+} from './session-manager.js';
 export type {
   CompactSessionInput,
   PlanSafeBoundaryContinuationInput,
   SessionManagerDeps,
   RuntimeContinuationLifecycleEvent,
   SessionStore,
+  StrictRecoveryAgentRunStore,
+  StrictRecoverySessionStore,
+  StrictRecoveryStores,
   BackendFactory,
   BackendFactoryContext,
   SpawnChildAgentInput,
@@ -20,6 +28,7 @@ export type {
   AgentListResult,
   AgentOutputInput,
   AgentOutputResult,
+  StopSessionInput,
 } from './session-manager.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
@@ -101,15 +110,17 @@ export type {
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
+export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
 export { terminateChildProcessTree } from './process-tree-terminator.js';
+export type { AttachmentByteReader } from '@maka/core/attachments';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
   BackendCompactHistoryResult,
   AiSdkBackendInput,
   AppendMessageFn,
-  AttachmentByteReader,
   ModelFactory,
   ModelFactoryInput,
   RunTraceEvent,
@@ -324,10 +335,19 @@ export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-rep
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
-export { runProcessWithBoundedTail, runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
+export {
+  runProcessWithBoundedTail,
+  runShellWithBoundedTail,
+  BASH_MAX_RETAINED_CHARS,
+} from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
 export type { ChildFdInput } from './child-fd-input.js';
-export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
+export {
+  detectShell,
+  defaultShellPlan,
+  buildShellSpawnPlan,
+  bashToolShellGuidance,
+} from './shell-detect.js';
 export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
   MACOS_SEATBELT_BASE_POLICY,
@@ -412,6 +432,17 @@ export type {
   AgentWriteBackMode,
 } from './agent-catalog.js';
 export {
+  AGENT_SWARM_DEFAULT_CONCURRENCY,
+  AGENT_SWARM_MAX_CONCURRENCY,
+  AGENT_SWARM_MAX_ITEMS,
+  AGENT_SWARM_TOOL_NAME,
+  buildAgentSwarmTool,
+} from './agent-swarm-tools.js';
+export type {
+  AgentSwarmToolInput,
+  AgentSwarmToolResult,
+} from './agent-swarm-tools.js';
+export {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
@@ -421,6 +452,7 @@ export {
   buildChildAgentTools,
   buildSubagentListTool,
   buildSubagentOutputTool,
+  buildParentAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
@@ -450,6 +482,21 @@ export {
   buildExpertDispatchTool,
   buildExpertDispatchToolForTeamId,
 } from './expert-tools.js';
+export type { ExpertDispatchToolDeps } from './expert-tools.js';
+export {
+  AGENT_TEAM_CHILD_TOOL_NAMES,
+  AGENT_TEAM_LEAD_TOOL_NAMES,
+  TEAM_INBOX_TOOL_NAME,
+  TEAM_MESSAGE_TOOL_NAME,
+  TEAM_TASK_CLAIM_TOOL_NAME,
+  TEAM_TASK_LIST_TOOL_NAME,
+} from './agent-team-tool-names.js';
+export {
+  buildAgentTeamChildTools,
+  buildAgentTeamLeadTools,
+  buildAgentTeamTools,
+} from './agent-team-tools.js';
+export type { AgentTeamToolDeps } from './agent-team-tools.js';
 export {
   LEGACY_TASK_CREATE_TOOL_NAME,
   LEGACY_TASK_UPDATE_TOOL_NAME,
@@ -479,14 +526,22 @@ export {
   StreamWatchdog,
   formatStreamWatchdogError,
 } from './stream-watchdog.js';
-export type { StreamWatchdogInput, StreamWatchdogPhase, StreamWatchdogTimeout } from './stream-watchdog.js';
+export type {
+  StreamWatchdogInput,
+  StreamWatchdogPhase,
+  StreamWatchdogTimeout,
+} from './stream-watchdog.js';
 
 export { getAIModel, buildProviderOptions } from './model-factory.js';
+export { fallbackSessionTitle, generateSessionTitle, sessionTitleSource } from './session-title.js';
 export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';
 export {
   extractOAuthSubscriptionAccessToken,
   isOAuthSubscriptionProvider,
   parseOAuthSubscriptionTokens,
+  refreshAndPersistOAuthSubscriptionTokens,
+  refreshOAuthSubscriptionTokens,
+  resolveAndPersistOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
   createGitHubCopilotAccountTokens,
@@ -497,7 +552,11 @@ export {
 export type {
   OAuthSubscriptionCredentialStore,
   OAuthSubscriptionProvider,
+  OAuthSubscriptionRefreshAndPersistOutcome,
+  OAuthSubscriptionResolveAndPersistOutcome,
   OAuthSubscriptionTokens,
+  RefreshAndPersistOAuthSubscriptionTokensInput,
+  ResolveAndPersistOAuthSubscriptionTokensInput,
   ResolveOAuthSubscriptionAccessTokenInput,
 } from './subscription-credentials.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';
@@ -517,7 +576,11 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
-export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy, resolveSelectedModelContextWindow } from './context-budget-policy.js';
+export {
+  buildDefaultContextBudgetPolicy,
+  buildManualCompactLookupPolicy,
+  resolveSelectedModelContextWindow,
+} from './context-budget-policy.js';
 export type {
   BuildDefaultContextBudgetPolicyOptions,
   BuildManualCompactLookupPolicyOptions,
@@ -572,10 +635,11 @@ export type {
   HistoryCompactCleanupResult,
   HistoryCompactCleanupSkip,
 } from './history-compact-cleanup.js';
-export { buildLlmHistorySummarizer, HistoryCompactSummarizerError } from './history-compact-summarizer.js';
-export type {
-  BuildLlmHistorySummarizerOptions,
+export {
+  buildLlmHistorySummarizer,
+  HistoryCompactSummarizerError,
 } from './history-compact-summarizer.js';
+export type { BuildLlmHistorySummarizerOptions } from './history-compact-summarizer.js';
 export type { HistoryCompactSummarizerFailureReason } from './history-compact-error.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
@@ -703,7 +767,12 @@ export type {
   SemanticCompactSummaryRequest,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
-export { fetchGitHubCopilotModels, fetchOpenAiCodexModels, fetchProviderModels, OpenAiCodexDiscoveryError } from './model-fetcher.js';
+export {
+  fetchGitHubCopilotModels,
+  fetchOpenAiCodexModels,
+  fetchProviderModels,
+  OpenAiCodexDiscoveryError,
+} from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -822,6 +891,8 @@ export type {
   RuntimeEventTerminalFact,
   RuntimeEventTerminalFactResult,
 } from './runtime-event-read-model.js';
+export { classifyTerminalRuntimeLedger } from './terminal-run-commit.js';
+export type { TerminalRuntimeLedgerClassification } from './terminal-run-commit.js';
 export {
   RuntimeReadModel,
   RuntimeReadModelError,
@@ -835,10 +906,12 @@ export { RuntimeKernel } from './runtime-kernel.js';
 export type {
   RuntimeKernelDeps,
   RuntimeKernelLike,
+  TurnStartOptions,
 } from './runtime-kernel.js';
 export { AgentRun } from './agent-run.js';
 export type {
   AgentRunActiveSession,
+  AgentRunDurability,
   AgentRunLineage,
 } from './agent-run.js';
 
@@ -879,10 +952,15 @@ export type {
 } from './execution-inspect.js';
 
 // model-history.ts — policy-driven model-history projection.
-export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
+export {
+  buildModelHistoryFromRuntimeEvents,
+  buildRuntimeEventModelReplayPlan,
+} from './model-history.js';
 export type {
   ModelHistoryEntry,
   BuildModelHistoryOptions,
+  RuntimeEventModelReplayPlan,
+  RuntimeEventModelReplayItem,
 } from './model-history.js';
 
 // runtime-resume.ts - Phase 0 replay projection + Phase 1 safe continuation gates.
@@ -929,6 +1007,10 @@ export type {
 
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
+// history-compact-summarizer.ts — replay-plan → ModelMessage[] projection
+// (issue #1055's session-recap generator reuses this authoritative slice
+// instead of re-deriving a lossy projection of its own).
+export { replayPlanItemsToModelMessages } from './history-compact-summarizer.js';
 
 export {
   buildToolOperationId,
@@ -985,7 +1067,6 @@ export type {
 export {
   buildWorkspaceInstructionsPromptFragment,
   getWorkspaceInstructionsState,
-  isPathInside,
   WORKSPACE_INSTRUCTION_FILES,
   MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
   MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS,
@@ -994,7 +1075,6 @@ export type {
   WorkspaceInstructionFileStatus,
   WorkspaceInstructionFileState,
   WorkspaceInstructionsState,
-  PathInsideApi,
 } from './system-prompt/workspace-instructions.js';
 export {
   buildPersonalizationPromptFragment,
@@ -1014,7 +1094,12 @@ export type { SessionEnvironmentPromptInput } from './system-prompt/session-envi
 // ───────────────────────────────────────────────────────────────────────────
 // Unified Automation (Codex-style: heartbeat + cron, single tool).
 // ───────────────────────────────────────────────────────────────────────────
-export { AutomationManager, computeNextCronFire, computeJitter, matchesCronField } from './automation-state.js';
+export {
+  AutomationManager,
+  computeNextCronFire,
+  computeJitter,
+  matchesCronField,
+} from './automation-state.js';
 export type {
   AutomationDefinition,
   AutomationKind,
@@ -1022,7 +1107,11 @@ export type {
   AutomationStatus,
   AutomationManagerDeps,
 } from './automation-state.js';
-export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS } from './automation-scheduler.js';
+export {
+  AutomationScheduler,
+  FIRE_CHECK_INTERVAL_MS,
+  DEFER_WINDOW_MS,
+} from './automation-scheduler.js';
 export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
 export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
 export type { AutomationToolDeps } from './automation-tools.js';
@@ -1032,8 +1121,19 @@ export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './auto
 // ───────────────────────────────────────────────────────────────────────────
 // Goal execution (Issue #15 Primitive 6).
 // ───────────────────────────────────────────────────────────────────────────
-export { GoalManager, TERMINAL_GOAL_STATUSES, DEFAULT_MAX_ITERATIONS, DEFAULT_BLOCK_CAP } from './goal-state.js';
-export type { GoalState, GoalStatus, GoalManagerDeps } from './goal-state.js';
+export {
+  GoalManager,
+  TERMINAL_GOAL_STATUSES,
+  DEFAULT_MAX_ITERATIONS,
+  DEFAULT_BLOCK_CAP,
+} from './goal-state.js';
+export type {
+  GoalCheckpoint,
+  GoalManagerDeps,
+  GoalPauseOptions,
+  GoalState,
+  GoalStatus,
+} from './goal-state.js';
 export {
   evaluateGoal,
   buildGoalEvaluationPrompt,
@@ -1050,14 +1150,31 @@ export {
   GOAL_RESUME_TOOL_NAME,
 } from './goal-tools.js';
 export type { GoalToolsDeps } from './goal-tools.js';
-export { handleGoalContinuation } from './goal-continuation.js';
+export {
+  GoalContinuationCoordinator,
+  GOAL_WAIT_BACKOFF_BASE_MS,
+  GOAL_WAIT_BACKOFF_MAX_MS,
+} from './goal-continuation.js';
 export type {
   GoalContinuationDeps,
-  GoalContinuationOutcome,
+  GoalContinuationScheduler,
+  GoalExternalTurnStart,
+  GoalExternalTurnSettler,
+  GoalSessionCloseOperation,
   GoalTaskGateDecision,
   GoalTaskGateDeps,
   GoalTaskGateTrace,
+  GoalTurnAdmission,
+  GoalTurnOutcome,
 } from './goal-continuation.js';
+export {
+  SessionActivityRegistry,
+  drainGoalTurn,
+} from './goal-turn-lifecycle.js';
+export type {
+  DrainGoalTurnInput,
+  SessionActivityLease,
+} from './goal-turn-lifecycle.js';
 
 export {
   MAX_SKILL_BODY_CHARS,
@@ -1083,10 +1200,23 @@ export {
   readContainedRegularFile,
   readContainedRegularTextFile,
   writeContainedRegularTextFile,
-  isContainedPath,
-  isSafeSkillId,
   isRecord,
 } from './skills.js';
+export {
+  listInvocableSkills,
+  resolveSkillInvocations,
+  composeSkillInvocationMessage,
+} from './skill-invocation.js';
+export type {
+  InvocableSkillEntry,
+  SkillInvocationResolution,
+} from './skill-invocation.js';
+export {
+  isPathInside,
+  isSafeSkillId,
+  toRelative,
+} from './path-containment.js';
+export type { PathInsideApi } from './path-containment.js';
 export type {
   SkillRuntimeStatus,
   SkillManifest,

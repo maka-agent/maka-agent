@@ -66,11 +66,16 @@ export function botReadinessFromSettings(settings: BotChannelSettings): BotStatu
   return 'configured';
 }
 
-export function botSettingsRequireRestart(previous: BotChannelSettings, next: BotChannelSettings): boolean {
-  return previous.enabled !== next.enabled ||
+export function botSettingsRequireRestart(
+  previous: BotChannelSettings,
+  next: BotChannelSettings,
+): boolean {
+  return (
+    previous.enabled !== next.enabled ||
     previous.token !== next.token ||
     previous.appId !== next.appId ||
     previous.appSecret !== next.appSecret ||
     previous.domain !== next.domain ||
-    previous.webhookUrl !== next.webhookUrl;
+    previous.webhookUrl !== next.webhookUrl
+  );
 }

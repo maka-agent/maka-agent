@@ -20,33 +20,43 @@ describe('composer send guard', () => {
 
   it('keeps follow-up submits single-flight until the current send settles', async () => {
     const source = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
+    const copySource = await readFile(join(process.cwd(), '../../packages/ui/src/conversation-copy.ts'), 'utf8');
+    // Issue #1044: draft persistence moved into useComposerDraft; the draft
+    // assertions read the hook, the send/toolbar assertions stay on Composer.
+    const draftHook = await readFile(join(process.cwd(), '../../packages/ui/src/use-composer-draft.ts'), 'utf8');
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
-    const toolbar = source.match(/<div className="maka-composer-toolbar[\s\S]*?<\/div>\n        <\/div>/)?.[0] ?? '';
 
     assert.match(sendCurrent, /sendPendingRef\.current/, 'composer must use a ref guard for same-tick duplicate submits');
     assert.match(sendCurrent, /if \(props\.disabled \|\| sendPendingRef\.current \|\| importActionOwnerRef\.current\?\.pending\) return;/);
     assert.match(sendCurrent, /sendPendingRef\.current = true;[\s\S]*setSendPending\(true\);/);
     assert.match(sendCurrent, /finally \{[\s\S]*sendPendingRef\.current = false;[\s\S]*if \(composerMountedRef\.current\) setSendPending\(false\);[\s\S]*\}/);
-    assert.match(toolbar, /sendPending \? \(\s*copy\.sending\s*\)/, 'toolbar must surface the transient sending state');
-    assert.match(source, /const \[hasDraftText, setHasDraftText\] = useState\(false\);/);
+    assert.match(source, /sendPending \? \(\s*copy\.sending\s*\)/, 'toolbar must surface the transient sending state');
+    assert.match(draftHook, /const \[hasDraftText, setHasDraftText\] = useState\(false\);/);
     assert.match(
-      source,
+      draftHook,
       /rememberComposerDraft\(draftStoreRef\.current, activeDraftKeyRef\.current, nextValue\);[\s\S]*setHasDraftText\(Boolean\(nextValue\.trim\(\)\)\);/,
       'draft text state must follow the actual textarea draft value',
     );
     assert.match(source, /const sendDisabled = props\.disabled \|\| sendPending \|\| importActionBusy \|\| !hasDraftText;/);
-    assert.match(toolbar, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty or submit is in flight');
-    assert.match(source, /zh: \{ sendLabel: '发送', stopLabel: '停止' \}/, 'Chinese UI must not keep English Send/Stop button copy');
+    assert.match(source, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty or submit is in flight');
+    assert.match(copySource, /sendLabel: '发送'/, 'Chinese UI must not keep English Send button copy');
+    assert.match(copySource, /stopLabel: '停止'/, 'Chinese UI must not keep English Stop button copy');
   });
 
   it('clears the submitted draft key when first send switches into a new session', async () => {
     const source = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
+    const draftHook = await readFile(join(process.cwd(), '../../packages/ui/src/use-composer-draft.ts'), 'utf8');
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
       sendCurrent,
-      /const submittedDraftKey = activeDraftKeyRef\.current;[\s\S]*sent = await props\.onSend\(text\);[\s\S]*if \(sent === false\) return;[\s\S]*rememberComposerDraft\(draftStoreRef\.current, submittedDraftKey, ''\);[\s\S]*saveCurrentDraft\(''\);/,
+      /const submittedDraftKey = activeDraftKey\(\);[\s\S]*sent = await props\.onSend\(text\);[\s\S]*if \(sent === false\) return;[\s\S]*clearDraft\(submittedDraftKey\);[\s\S]*saveCurrentDraft\(''\);/,
       'successful sends must clear both the original draft key and the current key after a new-session send changes draftKey',
+    );
+    assert.match(
+      draftHook,
+      /function clearDraft\(key: string \| undefined\) \{\s*rememberComposerDraft\(draftStoreRef\.current, key, ''\);/,
+      'clearDraft must remove the stored draft under the submitted key',
     );
   });
 
@@ -83,6 +93,6 @@ describe('composer send guard', () => {
     assert.match(source, /if \(props\.stopPending\) return;[\s\S]*void props\.onStop\(\);/);
     assert.match(source, /aria-busy=\{props\.stopPending \? 'true' : undefined\}/);
     assert.match(source, /data-pending=\{props\.stopPending \? 'true' : undefined\}/);
-    assert.match(source, /\{props\.stopPending \? '停止中…' : buttonCopy\.stopLabel\}/);
+    assert.match(source, /\{props\.stopPending \? copy\.stopping : copy\.stopLabel\}/);
   });
 });

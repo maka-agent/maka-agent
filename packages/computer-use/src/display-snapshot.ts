@@ -17,21 +17,24 @@ export function resolveCuaDisplaySnapshots(input: {
   );
   if (!primary) return [];
   const primaryMatches =
-    Math.round(primary.bounds.width * primary.scaleFactor) === input.screenshotWidthPx
-    && Math.round(primary.bounds.height * primary.scaleFactor) === input.screenshotHeightPx;
-  const primarySnapshot = (): ComputerUseDisplayIdentity[] => primaryMatches
-    ? [{
-        displayId: String(primary.id),
-        logicalBounds: primary.bounds,
-        sourceBoundsPx: {
-          x: 0,
-          y: 0,
-          width: input.screenshotWidthPx,
-          height: input.screenshotHeightPx,
-        },
-        scaleFactor: primary.scaleFactor,
-      }]
-    : [];
+    Math.round(primary.bounds.width * primary.scaleFactor) === input.screenshotWidthPx &&
+    Math.round(primary.bounds.height * primary.scaleFactor) === input.screenshotHeightPx;
+  const primarySnapshot = (): ComputerUseDisplayIdentity[] =>
+    primaryMatches
+      ? [
+          {
+            displayId: String(primary.id),
+            logicalBounds: primary.bounds,
+            sourceBoundsPx: {
+              x: 0,
+              y: 0,
+              width: input.screenshotWidthPx,
+              height: input.screenshotHeightPx,
+            },
+            scaleFactor: primary.scaleFactor,
+          },
+        ]
+      : [];
   const scaleFactors = new Set(input.displays.map((display) => display.scaleFactor));
   if (scaleFactors.size !== 1) return primarySnapshot();
 
@@ -45,8 +48,8 @@ export function resolveCuaDisplaySnapshots(input: {
     ...input.displays.map((display) => display.bounds.y + display.bounds.height),
   );
   const fullAtlasMatches =
-    Math.round((maxX - minX) * scaleFactor) === input.screenshotWidthPx
-    && Math.round((maxY - minY) * scaleFactor) === input.screenshotHeightPx;
+    Math.round((maxX - minX) * scaleFactor) === input.screenshotWidthPx &&
+    Math.round((maxY - minY) * scaleFactor) === input.screenshotHeightPx;
   if (!fullAtlasMatches) return primarySnapshot();
 
   return input.displays.map((display) => ({

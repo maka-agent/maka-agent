@@ -152,18 +152,18 @@ describe('permission mode transition guard copy', () => {
   // main.tsx, not components.tsx.
   it('passes a disabled-reason for running, waiting, streaming, and pending sessions', async () => {
     const renderer = await readRendererShellCombinedSource();
-    const composerReasonBlock = renderer.match(/permissionModeDisabledReason=\{[\s\S]*?\}\n {16}onPermissionModeChange/)?.[0] ?? '';
+    const composerReasonBlock = renderer.match(/permissionModeDisabledReason=\{[\s\S]*?\}\s*onPermissionModeChange/)?.[0] ?? '';
 
     assert.ok(composerReasonBlock, 'main.tsx must pass permissionModeDisabledReason to the <Composer/>');
     assert.match(composerReasonBlock, /pendingPermissionModeBySession\[activeId\] === true/);
-    assert.match(composerReasonBlock, /权限模式正在切换，完成后再继续操作。/);
+    assert.match(composerReasonBlock, /shellCopy\.permissionModeChanging/);
     assert.match(composerReasonBlock, /activeStreamingLive/);
     assert.doesNotMatch(composerReasonBlock, /activeStreaming\.length > 0/);
-    assert.match(composerReasonBlock, /当前对话正在流式输出，等结束后再切换权限模式。/);
+    assert.match(composerReasonBlock, /shellCopy\.permissionModeStreaming/);
     assert.match(composerReasonBlock, /activeSessionForView\?\.status === 'running'/);
-    assert.match(composerReasonBlock, /当前对话正在运行，等结束后再切换权限模式。/);
+    assert.match(composerReasonBlock, /shellCopy\.permissionModeRunning/);
     assert.match(composerReasonBlock, /activeSessionForView\?\.status === 'waiting_for_user'/);
-    assert.match(composerReasonBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
+    assert.match(composerReasonBlock, /shellCopy\.permissionModeWaiting/);
   });
 
   it('composer permission picker disables itself when the composer is disabled, pending, or a disabledReason is present', async () => {
@@ -231,20 +231,20 @@ describe('permission mode transition guard copy', () => {
       /if \(mode === 'explore'\) return;[\s\S]*const sessionId = activeIdRef\.current;[\s\S]*const pendingKey = sessionId \?\? '__global_permission_mode__';[\s\S]*pendingPermissionModeChangesRef\.current\.has\(pendingKey\)/,
       'Permission mode changes must reject explore, capture the active session id, and gate duplicate active/global saves',
     );
-    assert.match(setPermissionModeBlock, /pendingPermissionModeChangesRef\.current\.add\(pendingKey\);[\s\S]*if \(sessionId\) setPendingPermissionModeBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/);
+    assert.match(setPermissionModeBlock, /pendingPermissionModeChangesRef\.current\.add\(pendingKey\);[\s\S]*if \(sessionId\)\s*setPendingPermissionModeBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: true,?\s*\}\)\);/);
     assert.match(
       setPermissionModeBlock,
-      /window\.maka\.settings\.update\(\{ chatDefaults: \{ permissionMode: mode \} \}\)/,
+      /window\.maka\.settings\.update\(\{\s*chatDefaults: \{ permissionMode: mode \},?\s*\}\)/,
       'Permission mode changes must persist the Settings -> General chat default instead of mutating one session',
     );
     assert.match(setPermissionModeBlock, /const nextMode = result\.settings\.chatDefaults\.permissionMode;/);
     assert.match(setPermissionModeBlock, /setDefaultPermissionMode\(nextMode\);/);
     assert.match(setPermissionModeBlock, /setSessions\(\(prev\) => prev\.map\(\(session\) => \(\{ \.\.\.session, permissionMode: nextMode \}\)\)\);/);
-    assert.match(setPermissionModeBlock, /toastApi\.success\(`已切到 \$\{permissionModeLabels\[nextMode\]\}`, permissionModeDescriptions\[nextMode\]\);/);
+    assert.match(setPermissionModeBlock, /toastApi\.success\(copy\.permissionSwitched\(copy\.permissionLabels\[nextMode\]\), copy\.permissionDescriptions\[nextMode\]\);/);
     assert.match(setPermissionModeBlock, /await refreshSessions\(\)/, 'Permission mode changes must still refresh the sidebar/session list');
     assert.match(
       setPermissionModeBlock,
-      /catch \(error\) \{[\s\S]*toastApi\.error\(\s*'切换权限模式失败',\s*generalizedErrorMessageChinese\(error, '权限模式暂时无法切换，请稍后重试。'\)/,
+      /catch \(error\) \{[\s\S]*toastApi\.error\(copy\.permissionFailedTitle, localizedShellErrorMessage\(error, copy\.permissionFallback, uiLocale\)\)/,
       'Permission mode failures must use shared Chinese error classification/redaction before reaching toast',
     );
     assert.match(setPermissionModeBlock, /finally \{[\s\S]*pendingPermissionModeChangesRef\.current\.delete\(pendingKey\);[\s\S]*\}/);

@@ -45,7 +45,7 @@ describe('sidebar project view mode', () => {
   });
 
   it('renders the status/project view mode controls as a pressed segmented control', () => {
-    // #571 routes the toggle through the shared SettingsSegmented primitive,
+    // #571 routes the toggle through the shared Segmented primitive,
     // whose <button> carries aria-pressed and puts the label inline (no <span>).
     const statusMarkup = renderSessionListPanel({ viewMode: 'status' });
     assert.match(statusMarkup, /<button[^>]*aria-pressed="true"[^>]*>按状态/);
@@ -90,7 +90,7 @@ describe('sidebar project view mode', () => {
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
     assert.match(appShell, /const visibleSessions = useMemo\(\(\) => filterSessions\(sessions, navSelection\), \[sessions, navSelection\]\)/);
-    assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true \}\)/);
+    assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
     assert.match(appShell, /deriveProjectGroups\(visibleSessions\)/);
     assert.match(appShell, /const sessionListGroups = viewMode === 'project' \? sessionProjectGroups : sessionStatusGroups/);
     assert.match(appShell, /statusGroups=\{sessionListGroups\}/);

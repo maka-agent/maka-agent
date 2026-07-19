@@ -1,7 +1,10 @@
 import type { ProviderType } from '@maka/core/llm-connections';
 import { TOKEN_REFRESH_SKEW_MS } from '@maka/core';
 
-export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'openai-codex' | 'github-copilot'>;
+export type OAuthSubscriptionProvider = Extract<
+  ProviderType,
+  'claude-subscription' | 'openai-codex' | 'github-copilot'
+>;
 
 export interface OAuthSubscriptionTokens {
   access_token: string;
@@ -15,10 +18,14 @@ export interface OAuthSubscriptionTokens {
   base_url?: string;
 }
 
-export function isOAuthSubscriptionProvider(providerType: ProviderType): providerType is OAuthSubscriptionProvider {
-  return providerType === 'claude-subscription'
-    || providerType === 'openai-codex'
-    || providerType === 'github-copilot';
+export function isOAuthSubscriptionProvider(
+  providerType: ProviderType,
+): providerType is OAuthSubscriptionProvider {
+  return (
+    providerType === 'claude-subscription' ||
+    providerType === 'openai-codex' ||
+    providerType === 'github-copilot'
+  );
 }
 
 export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionTokens | null {
@@ -56,6 +63,12 @@ export function extractOAuthSubscriptionAccessToken(raw: string): string | null 
 export interface OAuthSubscriptionCredentialStore {
   getSecret(slug: string, kind: 'oauth_token'): Promise<string | null>;
   setSecret?(slug: string, kind: 'oauth_token', value: string): Promise<void>;
+  compareAndSetSecret?(
+    slug: string,
+    kind: 'oauth_token',
+    expected: string | null,
+    value: string,
+  ): Promise<{ committed: true } | { committed: false; current: string | null }>;
 }
 
 export interface ResolveOAuthSubscriptionAccessTokenInput {
@@ -65,6 +78,33 @@ export interface ResolveOAuthSubscriptionAccessTokenInput {
   now?: () => number;
   fetchFn?: typeof fetch;
 }
+
+export type OAuthSubscriptionRefreshAndPersistOutcome =
+  | { outcome: 'refreshed'; tokens: OAuthSubscriptionTokens }
+  | { outcome: 'superseded'; tokens: OAuthSubscriptionTokens }
+  | { outcome: 'logged-out' }
+  | { outcome: 'refresh-failed'; error: unknown }
+  | { outcome: 'storage-failed'; error: unknown };
+
+export type OAuthSubscriptionResolveAndPersistOutcome =
+  | { outcome: 'current'; tokens: OAuthSubscriptionTokens }
+  | OAuthSubscriptionRefreshAndPersistOutcome;
+
+export type RefreshAndPersistOAuthSubscriptionTokensInput = {
+  slug: string;
+  credentialStore: OAuthSubscriptionCredentialStore;
+  now?: () => number;
+  fetchFn?: typeof fetch;
+} & (
+  | { providerType: OAuthSubscriptionProvider; refreshTokens?: never }
+  | {
+      providerType?: never;
+      refreshTokens: (tokens: OAuthSubscriptionTokens) => Promise<OAuthSubscriptionTokens>;
+    }
+);
+
+export type ResolveAndPersistOAuthSubscriptionTokensInput =
+  RefreshAndPersistOAuthSubscriptionTokensInput & { refreshSkewMs?: number };
 
 const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const CLAUDE_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
@@ -84,38 +124,123 @@ export async function resolveOAuthSubscriptionAccessToken(
 export async function resolveOAuthSubscriptionTokens(
   input: ResolveOAuthSubscriptionAccessTokenInput,
 ): Promise<OAuthSubscriptionTokens | null> {
-  const raw = await input.credentialStore.getSecret(input.slug, 'oauth_token');
-  if (!raw) return null;
-  const tokens = parseOAuthSubscriptionTokens(raw);
-  if (!tokens) return null;
-
-  const now = input.now ?? (() => Date.now());
-  if (tokens.expires_at - now() > TOKEN_REFRESH_SKEW_MS) return tokens;
-  if (!input.credentialStore.setSecret) return null;
-
-  const refreshed = await refreshOAuthSubscriptionTokens({
-    providerType: input.providerType,
-    tokens,
-    now,
-    fetchFn: input.fetchFn ?? fetch,
-  }).catch(() => null);
-  if (!refreshed) return null;
-
-  await input.credentialStore.setSecret(input.slug, 'oauth_token', serializeOAuthSubscriptionTokens(refreshed));
-  return refreshed;
+  const result = await resolveAndPersistOAuthSubscriptionTokens(input);
+  return result.outcome === 'current' ||
+    result.outcome === 'refreshed' ||
+    result.outcome === 'superseded'
+    ? result.tokens
+    : null;
 }
 
-async function refreshOAuthSubscriptionTokens(input: {
+export async function resolveAndPersistOAuthSubscriptionTokens(
+  input: ResolveAndPersistOAuthSubscriptionTokensInput,
+): Promise<OAuthSubscriptionResolveAndPersistOutcome> {
+  let raw: string | null;
+  try {
+    raw = await input.credentialStore.getSecret(input.slug, 'oauth_token');
+  } catch (error) {
+    return { outcome: 'storage-failed', error };
+  }
+  if (raw === null) return { outcome: 'logged-out' };
+
+  const tokens = parseOAuthSubscriptionTokens(raw);
+  if (!tokens) {
+    return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
+  }
+  const now = input.now ?? (() => Date.now());
+  if (tokens.expires_at - now() > (input.refreshSkewMs ?? TOKEN_REFRESH_SKEW_MS)) {
+    return { outcome: 'current', tokens };
+  }
+
+  return refreshAndPersistOAuthSubscriptionTokensFromRaw(input, raw);
+}
+
+export async function refreshAndPersistOAuthSubscriptionTokens(
+  input: RefreshAndPersistOAuthSubscriptionTokensInput,
+): Promise<OAuthSubscriptionRefreshAndPersistOutcome> {
+  let raw: string | null;
+  try {
+    raw = await input.credentialStore.getSecret(input.slug, 'oauth_token');
+  } catch (error) {
+    return { outcome: 'storage-failed', error };
+  }
+  if (raw === null) return { outcome: 'logged-out' };
+
+  return refreshAndPersistOAuthSubscriptionTokensFromRaw(input, raw);
+}
+
+async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
+  input: RefreshAndPersistOAuthSubscriptionTokensInput,
+  raw: string,
+): Promise<OAuthSubscriptionRefreshAndPersistOutcome> {
+  const tokens = parseOAuthSubscriptionTokens(raw);
+  if (!tokens) {
+    return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
+  }
+  if (!input.credentialStore.compareAndSetSecret && !input.credentialStore.setSecret) {
+    return { outcome: 'storage-failed', error: new Error('Credential store is read-only.') };
+  }
+
+  let refreshed: OAuthSubscriptionTokens;
+  try {
+    refreshed = input.refreshTokens
+      ? await input.refreshTokens(tokens)
+      : await refreshOAuthSubscriptionTokens({
+          providerType: input.providerType,
+          tokens,
+          now: input.now,
+          fetchFn: input.fetchFn,
+        });
+  } catch (error) {
+    return { outcome: 'refresh-failed', error };
+  }
+
+  const serialized = serializeOAuthSubscriptionTokens(refreshed);
+  try {
+    if (input.credentialStore.compareAndSetSecret) {
+      const committed = await input.credentialStore.compareAndSetSecret(
+        input.slug,
+        'oauth_token',
+        raw,
+        serialized,
+      );
+      if (!committed.committed) {
+        if (committed.current === null) return { outcome: 'logged-out' };
+        const current = parseOAuthSubscriptionTokens(committed.current);
+        if (!current) {
+          return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
+        }
+        return { outcome: 'superseded', tokens: current };
+      }
+    } else {
+      await input.credentialStore.setSecret!(input.slug, 'oauth_token', serialized);
+    }
+  } catch (error) {
+    return { outcome: 'storage-failed', error };
+  }
+
+  return { outcome: 'refreshed', tokens: refreshed };
+}
+
+/**
+ * Provider-specific refresh request. Exported so the desktop services
+ * force-refresh through the same HTTP contract the pure-Node resolve
+ * path uses — one refresh implementation per provider, not two.
+ * Throws on a failed refresh; persistence is the caller's concern.
+ */
+export async function refreshOAuthSubscriptionTokens(input: {
   providerType: OAuthSubscriptionProvider;
   tokens: OAuthSubscriptionTokens;
-  now: () => number;
-  fetchFn: typeof fetch;
+  now?: () => number;
+  fetchFn?: typeof fetch;
 }): Promise<OAuthSubscriptionTokens> {
+  const now = input.now ?? (() => Date.now());
+  const fetchFn = input.fetchFn ?? fetch;
   switch (input.providerType) {
     case 'claude-subscription':
-      return refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+      return refreshClaudeSubscriptionTokens(input.tokens, now, fetchFn);
     case 'openai-codex':
-      return refreshOpenAiCodexTokens(input.tokens, input.now, input.fetchFn);
+      return refreshOpenAiCodexTokens(input.tokens, now, fetchFn);
     case 'github-copilot':
       return input.tokens;
   }
@@ -144,6 +269,34 @@ export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
   return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
 }
 
+/**
+ * Guard a refresh response before it may replace the stored authority:
+ * a 200 with a missing/empty access token or a non-positive expiry must
+ * surface as a refresh failure, never overwrite a still-working record
+ * with garbage. Returns the validated required fields.
+ */
+function requireRefreshedTokenFields(
+  provider: string,
+  payload: { access_token?: unknown; expires_in?: unknown },
+): { accessToken: string; expiresInMs: number } {
+  const accessToken = payload.access_token;
+  const expiresIn = payload.expires_in;
+  if (
+    typeof accessToken !== 'string' ||
+    accessToken.length === 0 ||
+    typeof expiresIn !== 'number' ||
+    !Number.isFinite(expiresIn) ||
+    expiresIn <= 0
+  ) {
+    throw new Error(`${provider} OAuth token refresh returned an invalid token payload.`);
+  }
+  return { accessToken, expiresInMs: 1000 * expiresIn };
+}
+
+/** A rotated refresh token must be a non-empty string; otherwise keep the previous one. */
+function nextRefreshToken(candidate: unknown, previous: string): string {
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : previous;
+}
 
 async function refreshClaudeSubscriptionTokens(
   tokens: OAuthSubscriptionTokens,
@@ -163,18 +316,19 @@ async function refreshClaudeSubscriptionTokens(
     }),
   });
   if (!response.ok) throw new Error(`Claude OAuth token refresh failed (${response.status}).`);
-  const payload = await response.json() as {
-    access_token: string;
+  const payload = (await response.json()) as {
+    access_token?: string;
     refresh_token?: string;
-    expires_in: number;
+    expires_in?: number;
     token_type?: string;
     scope?: string;
     account?: { uuid?: string };
   };
+  const { accessToken, expiresInMs } = requireRefreshedTokenFields('Claude', payload);
   return {
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token ?? tokens.refresh_token,
-    expires_at: now() + 1000 * payload.expires_in,
+    access_token: accessToken,
+    refresh_token: nextRefreshToken(payload.refresh_token, tokens.refresh_token),
+    expires_at: now() + expiresInMs,
     token_type: payload.token_type ?? tokens.token_type,
     scope: payload.scope ?? tokens.scope,
     account_uuid: payload.account?.uuid ?? tokens.account_uuid,
@@ -200,17 +354,18 @@ async function refreshOpenAiCodexTokens(
     body: body.toString(),
   });
   if (!response.ok) throw new Error(`Codex OAuth token refresh failed (${response.status}).`);
-  const payload = await response.json() as {
-    access_token: string;
+  const payload = (await response.json()) as {
+    access_token?: string;
     refresh_token?: string;
     id_token?: string;
-    expires_in: number;
+    expires_in?: number;
   };
+  const { accessToken, expiresInMs } = requireRefreshedTokenFields('Codex', payload);
   return {
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token ?? tokens.refresh_token,
+    access_token: accessToken,
+    refresh_token: nextRefreshToken(payload.refresh_token, tokens.refresh_token),
     id_token: payload.id_token ?? tokens.id_token,
-    expires_at: now() + 1000 * payload.expires_in,
+    expires_at: now() + expiresInMs,
     account_id: tokens.account_id,
   };
 }

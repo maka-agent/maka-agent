@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
+import { useToast } from './toast.js';
 import {
   ArchiveRestore,
-  Check,
   Clock,
   Copy,
   Info,
@@ -13,62 +13,50 @@ import {
   RefreshCcw,
   Repeat,
   Trash2,
-  X,
 } from './icons.js';
-import { BotBrandLogo } from './bot-brand-logo.js';
-import { SettingsSelect, type SettingsSelectOption } from './primitives/settings-select.js';
 import type {
-  BotProvider,
   CapabilityAuditReport,
   PlanReminder,
-  PlanReminderDeliveryTarget,
-  PlanReminderRecurrence,
   PlanReminderStatus,
 } from '@maka/core';
 import {
-  BOT_DELIVERY_PROVIDERS,
-  botDisplayLabel,
   deriveCapabilityAuditReport,
   formatPlanReminderDeliveryTarget,
+  generalizedErrorMessageChinese,
 } from '@maka/core';
 import {
   PLAN_REMINDER_EXAMPLE_TEMPLATES,
   type PlanReminderExampleTemplate,
+  type PlanReminderFormSeed,
   comparePlanReminderBySort,
-  duplicatePlanReminderTitle,
-  formatPlanDeliveryProviderList,
+  createPlanReminderFormSeed,
   formatPlanRecurrence,
   formatReminderCountdown,
   formatReminderTime,
   normalizePlanReminderSearchQuery,
-  planReminderEditableRunAt,
-  planReminderFormValidationMessage,
+  planReminderDuplicateSeed,
+  planReminderEditSeed,
   planReminderMatchesSearch,
-  planReminderPresetRunAt,
-  planReminderRecurrenceValue,
   planReminderRunRangeStart,
   planReminderStatusLabel,
-  planReminderTemplateNextRunAt,
+  planReminderTemplateSeed,
   runStatusLabel,
-  toPlanReminderDateTimeInputValue,
 } from './plan-reminder-helpers.js';
+import { PlanReminderFormDialog } from './plan-reminder-form-dialog.js';
+import { PlanReminderSelect } from './plan-reminder-select.js';
 import {
   Button as UiButton,
-  DialogClose,
-  DialogContent,
-  DialogRoot,
   Switch,
   TabsList,
   TabsPanel,
   TabsRoot,
   TabsTrigger,
 } from './ui.js';
+import { SettingsSwitch } from './primitives/settings-switch.js';
 import { Badge } from './primitives/badge.js';
 import { Chip, type ChipProps } from './primitives/chip.js';
 import { PageHeader } from './primitives/page-header.js';
 import { Input } from './primitives/input.js';
-import { Textarea as UiTextarea } from './primitives/textarea.js';
-import { Alert, AlertTitle } from './primitives/alert.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
@@ -76,23 +64,6 @@ import type {
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
 } from './module-panel-types.js';
-
-// PR round-AB-shared-select (yuejing 2026-06-25, kenji styles inventory
-// task #128): `PlanReminderSelect` is now a thin specialization of the
-// shared `SettingsSelect` primitive — `width="full"` to preserve the
-// existing edge-to-edge sizing inside `.maka-plan-delivery-grid`.
-// Plan Reminder and Settings selects share one component so option
-// shape, trigger/popup chrome, and the selected-trigger icon contract
-// can't drift apart again.
-function PlanReminderSelect<T extends string>(props: {
-  value: T;
-  options: ReadonlyArray<SettingsSelectOption<T>>;
-  onChange(value: T): void;
-  ariaLabel: string;
-  disabled?: boolean;
-}) {
-  return <SettingsSelect width="full" {...props} />;
-}
 
 // Run-history status Chip tone. triggered = it fired (info, informational,
 // not a health signal), blocked = intentionally skipped (warning), failed =
@@ -109,6 +80,13 @@ function planRunStatusChipTone(
 export function PlanReminderPanel(props: {
   reminders: PlanReminder[];
   auditReport?: CapabilityAuditReport;
+  /**
+   * Current persisted 保持系统唤醒 state. `undefined` means the capability is
+   * unavailable (bridge absent / older main) — the row hides entirely.
+   */
+  keepSystemAwake?: boolean;
+  /** Persist a new keep-awake value; rejects on failure so the row reverts. */
+  onKeepSystemAwakeChange?: (next: boolean) => Promise<void>;
   onRefresh?(): void | Promise<void>;
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
@@ -124,29 +102,34 @@ export function PlanReminderPanel(props: {
   type PlanReminderView = 'tasks' | 'runs';
   type PlanReminderRunRange = 'day' | 'week' | 'month' | 'all';
   type PlanReminderSort = 'created-desc' | 'next-run-asc' | 'updated-desc';
-  const [title, setTitle] = useState('');
-  const [note, setNote] = useState('');
-  const [runAtLocal, setRunAtLocal] = useState(() => toPlanReminderDateTimeInputValue(Date.now() + 60 * 60 * 1000));
-  const [recurrence, setRecurrence] = useState<PlanReminderRecurrence>('none');
-  const [cronExpression, setCronExpression] = useState('0 9 * * 1-5');
-  const [deliveryChannel, setDeliveryChannel] = useState<PlanReminderDeliveryTarget['channel']>('local');
-  const [deliveryPlatform, setDeliveryPlatform] = useState<BotProvider>('telegram');
-  const [deliveryChatId, setDeliveryChatId] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [submitPending, setSubmitPending] = useState(false);
   const [pendingActionKeys, setPendingActionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const planReminderMountedRef = useMountedRef();
-  const submitPendingRef = useRef(false);
   const refreshPendingRef = useRef(false);
   const pendingActionKeysRef = useRef<Set<string>>(new Set());
+  // Issue #1044: all create/edit form fields + submit moved into
+  // PlanReminderFormDialog. The panel only tracks whether the dialog is
+  // open and which seed it mounts with; `formNonce` remounts the dialog per
+  // open so the form initializes from the seed.
   const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [formSeed, setFormSeed] = useState<PlanReminderFormSeed>(() => createPlanReminderFormSeed());
+  const [formNonce, setFormNonce] = useState(0);
   const [planView, setPlanView] = useState<PlanReminderView>('tasks');
   const [runRange, setRunRange] = useState<PlanReminderRunRange>('week');
   const [listFilter, setListFilter] = useState<PlanReminderListFilter>('active');
   const [listSort, setListSort] = useState<PlanReminderSort>('created-desc');
   const [listQuery, setListQuery] = useState('');
   const [refreshPending, setRefreshPending] = useState(false);
-  const parsedRunAt = Date.parse(runAtLocal);
+  const toast = useToast();
+  // 保持系统唤醒 capability control. Available only when the host wires both
+  // the current value and the setter (bridge present); otherwise the row
+  // hides. Local optimistic state drives the switch, initialized from the
+  // persisted snapshot and re-synced when the prop changes (but never while a
+  // write is in flight, so a slow snapshot can't clobber the optimistic flip).
+  const keepSystemAwakeSupported =
+    props.keepSystemAwake !== undefined && typeof props.onKeepSystemAwakeChange === 'function';
+  const [keepSystemAwakeChecked, setKeepSystemAwakeChecked] = useState(props.keepSystemAwake ?? false);
+  const [keepSystemAwakePending, setKeepSystemAwakePending] = useState(false);
+  const keepSystemAwakePendingRef = useRef(false);
   const normalizedListQuery = normalizePlanReminderSearchQuery(listQuery);
   const searchMatchedReminders = normalizedListQuery
     ? props.reminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery))
@@ -169,139 +152,64 @@ export function PlanReminderPanel(props: {
     paused: searchMatchedReminders.filter((reminder) => reminder.status === 'paused').length,
     completed: searchMatchedReminders.filter((reminder) => reminder.status === 'completed').length,
   };
-  const delivery: PlanReminderDeliveryTarget = deliveryChannel === 'bot'
-    ? { channel: 'bot', platform: deliveryPlatform, chatId: deliveryChatId.trim() }
-    : { channel: 'local' };
-  const validationMessage = planReminderFormValidationMessage({
-    title,
-    parsedRunAt,
-    recurrence,
-    cronExpression,
-    delivery,
-    now: Date.now(),
-  });
-  const canCreate = validationMessage === null;
-  const submitDisabled = !canCreate || submitPending;
-  const formInteractionDisabled = submitPending;
-  const isEditing = editingId !== null;
   const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ planReminders: props.reminders });
 
   useEffect(() => {
     return () => {
-      submitPendingRef.current = false;
       refreshPendingRef.current = false;
       pendingActionKeysRef.current = new Set();
+      keepSystemAwakePendingRef.current = false;
     };
   }, []);
 
+  // Re-sync the switch to the persisted snapshot when it changes (external
+  // edit, relaunch), unless a local write is mid-flight — the optimistic
+  // value wins until the write settles.
   useEffect(() => {
-    if (editingId && !props.reminders.some((reminder) => reminder.id === editingId)) resetForm();
-  }, [editingId, props.reminders]);
+    if (keepSystemAwakePendingRef.current) return;
+    if (props.keepSystemAwake !== undefined) setKeepSystemAwakeChecked(props.keepSystemAwake);
+  }, [props.keepSystemAwake]);
 
-  function resetForm() {
-    setTitle('');
-    setNote('');
-    setRecurrence('none');
-    setCronExpression('0 9 * * 1-5');
-    setDeliveryChannel('local');
-    setDeliveryPlatform('telegram');
-    setDeliveryChatId('');
-    setRunAtLocal(toPlanReminderDateTimeInputValue(Date.now() + 60 * 60 * 1000));
-    setEditingId(null);
+  async function toggleKeepSystemAwake(next: boolean) {
+    if (!props.onKeepSystemAwakeChange || keepSystemAwakePendingRef.current) return;
+    keepSystemAwakePendingRef.current = true;
+    setKeepSystemAwakePending(true);
+    setKeepSystemAwakeChecked(next); // optimistic
+    try {
+      await props.onKeepSystemAwakeChange(next);
+    } catch (error) {
+      // Revert to reflect REALITY, and surface the failure in Chinese.
+      if (planReminderMountedRef.current) setKeepSystemAwakeChecked(!next);
+      toast.error(
+        '无法更新保持系统唤醒',
+        generalizedErrorMessageChinese(error, '更新保持系统唤醒设置失败，请稍后重试。'),
+      );
+    } finally {
+      keepSystemAwakePendingRef.current = false;
+      if (planReminderMountedRef.current) setKeepSystemAwakePending(false);
+    }
+  }
+
+  function openReminderDialog(seed: PlanReminderFormSeed) {
+    setFormSeed(seed);
+    setFormNonce((nonce) => nonce + 1);
+    setFormDialogOpen(true);
   }
 
   function openCreateReminderDialog() {
-    resetForm();
-    setFormDialogOpen(true);
+    openReminderDialog(createPlanReminderFormSeed());
   }
 
   function openPlanReminderTemplate(template: PlanReminderExampleTemplate) {
-    setEditingId(null);
-    setTitle(template.title);
-    setNote(template.note);
-    setRecurrence(template.recurrence);
-    setCronExpression(template.cronExpression);
-    setDeliveryChannel('local');
-    setDeliveryPlatform('telegram');
-    setDeliveryChatId('');
-    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderTemplateNextRunAt(template)));
-    setFormDialogOpen(true);
-  }
-
-  function closeReminderDialog() {
-    if (submitPendingRef.current) return;
-    setFormDialogOpen(false);
-    resetForm();
+    openReminderDialog(planReminderTemplateSeed(template));
   }
 
   function editReminder(reminder: PlanReminder) {
-    setEditingId(reminder.id);
-    setTitle(reminder.title);
-    setNote(reminder.note);
-    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderEditableRunAt(reminder)));
-    setRecurrence(planReminderRecurrenceValue(reminder));
-    setCronExpression(reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5');
-    setDeliveryChannel(reminder.delivery.channel);
-    if (reminder.delivery.channel === 'bot') {
-      setDeliveryPlatform(reminder.delivery.platform);
-      setDeliveryChatId(reminder.delivery.chatId);
-    } else {
-      setDeliveryPlatform('telegram');
-      setDeliveryChatId('');
-    }
-    setFormDialogOpen(true);
+    openReminderDialog(planReminderEditSeed(reminder));
   }
 
   function duplicateReminder(reminder: PlanReminder) {
-    setEditingId(null);
-    setTitle(duplicatePlanReminderTitle(reminder.title));
-    setNote(reminder.note);
-    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderEditableRunAt(reminder)));
-    setRecurrence(planReminderRecurrenceValue(reminder));
-    setCronExpression(reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5');
-    setDeliveryChannel(reminder.delivery.channel);
-    if (reminder.delivery.channel === 'bot') {
-      setDeliveryPlatform(reminder.delivery.platform);
-      setDeliveryChatId(reminder.delivery.chatId);
-    } else {
-      setDeliveryPlatform('telegram');
-      setDeliveryChatId('');
-    }
-    setFormDialogOpen(true);
-  }
-
-  function applyRunAtPreset(preset: 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday') {
-    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderPresetRunAt(preset)));
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitDisabled || submitPendingRef.current) return;
-    submitPendingRef.current = true;
-    const input = {
-      title: title.trim(),
-      note: note.trim(),
-      runAt: parsedRunAt,
-      recurrence,
-      ...(recurrence === 'cron' ? { cronExpression: cronExpression.trim() } : {}),
-      delivery,
-    };
-    setSubmitPending(true);
-    try {
-      const result = editingId
-        ? await props.onUpdate?.(editingId, input)
-        : await props.onCreate?.({
-          ...input,
-          ...(input.note ? { note: input.note } : {}),
-        });
-      if (result !== false && planReminderMountedRef.current) {
-        resetForm();
-        setFormDialogOpen(false);
-      }
-    } finally {
-      submitPendingRef.current = false;
-      if (planReminderMountedRef.current) setSubmitPending(false);
-    }
+    openReminderDialog(planReminderDuplicateSeed(reminder));
   }
 
   async function runPlanReminderAction(
@@ -379,19 +287,28 @@ export function PlanReminderPanel(props: {
             the empty state (quick-start), so the populated/default view matches
             the reference's clean flow. */}
 
-        {/* Designer audit P1-5: the 保持系统唤醒·即将支持 tag was removed —
-            unshipped features don't belong in first-screen chrome. Reintroduce
-            the control (as a real Switch) when the wake-lock lands. */}
-        <Alert variant="info" className="maka-plan-system-alert">
-          <div className="maka-plan-system-alert-main">
-            <Info aria-hidden="true" />
-            <div>
-              {/* Designer audit P2-12: one sentence, the one that matters —
-                  the queue/run-history mechanics line was engineering trivia. */}
-              <AlertTitle>计划提醒只在本机唤醒时运行</AlertTitle>
+        {/* Designer audit P1-5 follow-through: the earlier placeholder tag
+            (removed for placeholder honesty) is now shipped as a REAL control.
+            Status-color restraint keeps this informational-expected capability
+            row neutral (passive surface + switch), not a saturated banner. The
+            row hides entirely when the host can't wire the toggle. */}
+        {keepSystemAwakeSupported && (
+          <div className="maka-plan-system-awake" data-tone="passive">
+            <div className="maka-plan-system-awake-main">
+              <Info size={15} aria-hidden="true" />
+              <span>定时任务仅在电脑保持唤醒时运行</span>
+            </div>
+            <div className="maka-plan-system-awake-control">
+              <span className="maka-plan-system-awake-label">保持系统唤醒</span>
+              <SettingsSwitch
+                ariaLabel="保持系统唤醒"
+                checked={keepSystemAwakeChecked}
+                disabled={keepSystemAwakePending}
+                onChange={(next) => void toggleKeepSystemAwake(next)}
+              />
             </div>
           </div>
-        </Alert>
+        )}
 
         <CapabilityAuditStrip report={auditReport} />
 
@@ -546,14 +463,14 @@ export function PlanReminderPanel(props: {
                           <MenuPopup className="maka-plan-card-menu" align="end">
                             <MenuItem
                               onClick={() => editReminder(reminder)}
-                              disabled={submitPending || reminderActionPending || reminder.status === 'completed'}
+                              disabled={reminderActionPending || reminder.status === 'completed'}
                             >
                               <Pencil size={14} aria-hidden="true" />
                               编辑
                             </MenuItem>
                             <MenuItem
                               onClick={() => duplicateReminder(reminder)}
-                              disabled={submitPending || reminderActionPending}
+                              disabled={reminderActionPending}
                             >
                               <Copy size={14} aria-hidden="true" />
                               复制
@@ -665,199 +582,15 @@ export function PlanReminderPanel(props: {
         </TabsRoot>
       </div>
 
-      <DialogRoot
+      <PlanReminderFormDialog
+        key={formNonce}
         open={formDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setFormDialogOpen(true);
-          } else {
-            closeReminderDialog();
-          }
-        }}
-      >
-        <DialogContent
-          className="maka-plan-dialog w-[min(92vw,680px)] p-0"
-          aria-labelledby="maka-plan-dialog-title"
-          showClose={false}
-        >
-          <form className="maka-plan-form" onSubmit={submit} aria-busy={submitPending ? 'true' : undefined}>
-            <header className="maka-plan-form-header">
-              <div>
-                <p className="maka-plan-eyebrow">计划提示词</p>
-                <h3 id="maka-plan-dialog-title" className="maka-plan-form-title">{isEditing ? '编辑提醒' : '新建提醒'}</h3>
-              </div>
-              <DialogClose
-                render={<UiButton variant="quiet" size="icon-sm" />}
-                type="button"
-                onClick={closeReminderDialog}
-                disabled={formInteractionDisabled}
-                aria-label="关闭计划提醒表单"
-              >
-                <X size={16} aria-hidden="true" />
-              </DialogClose>
-            </header>
-            <div className="maka-plan-form-grid">
-              <label className="maka-plan-field">
-                <span>标题</span>
-                <Input
-                  value={title}
-                  onChange={(event) => setTitle(event.currentTarget.value)}
-                  maxLength={120}
-                  data-maka-plan-title-input="true"
-                  placeholder="例如：明天复盘项目进度"
-                  disabled={formInteractionDisabled}
-                />
-              </label>
-              <label className="maka-plan-field">
-                <span>时间</span>
-                <Input
-                  value={runAtLocal}
-                  onChange={(event) => setRunAtLocal(event.currentTarget.value)}
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="2026-06-05 13:44"
-                  aria-label="提醒时间"
-                  disabled={formInteractionDisabled}
-                />
-              </label>
-            </div>
-            <div className="maka-plan-presets" aria-label="快速设置提醒时间">
-              {[
-                ['ten-minutes', '10 分钟后'],
-                ['one-hour', '1 小时后'],
-                ['tomorrow-morning', '明天 9 点'],
-                ['next-monday', '下周一 9 点'],
-              ].map(([preset, label]) => (
-                <UiButton
-                  key={preset}
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="maka-plan-preset"
-                  onClick={() => applyRunAtPreset(preset as 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday')}
-                  disabled={formInteractionDisabled}
-                >
-                  {label}
-                </UiButton>
-              ))}
-            </div>
-            <div className="maka-plan-form-grid">
-              <label className="maka-plan-field">
-                <span>重复</span>
-                <PlanReminderSelect
-                  value={recurrence}
-                  onChange={(value) => setRecurrence(value)}
-                  disabled={formInteractionDisabled}
-                  ariaLabel="重复"
-                  options={[
-                    ['none', '不重复'],
-                    ['daily', '每天'],
-                    ['weekly', '每周'],
-                    ['monthly', '每月'],
-                    ['cron', 'Cron'],
-                  ] satisfies ReadonlyArray<readonly [PlanReminderRecurrence, string]>}
-                />
-              </label>
-              <label className="maka-plan-field">
-                <span>投递</span>
-                <PlanReminderSelect
-                  value={deliveryChannel}
-                  onChange={(value) => setDeliveryChannel(value)}
-                  disabled={formInteractionDisabled}
-                  ariaLabel="投递"
-                  options={[
-                    ['local', '本地提醒'],
-                    ['bot', '机器人聊天'],
-                  ] satisfies ReadonlyArray<readonly [PlanReminderDeliveryTarget['channel'], string]>}
-                />
-              </label>
-            </div>
-            {recurrence === 'cron' && (
-              <label className="maka-plan-field">
-                <span>Cron</span>
-                <Input
-                  value={cronExpression}
-                  onChange={(event) => setCronExpression(event.currentTarget.value)}
-                  maxLength={80}
-                  placeholder="例如 0 9 * * 1-5"
-                  disabled={formInteractionDisabled}
-                />
-              </label>
-            )}
-            {deliveryChannel === 'bot' && (
-              <>
-                <div className="maka-plan-delivery-grid">
-                  <label className="maka-plan-field">
-                    <span>平台</span>
-                    <PlanReminderSelect
-                      value={deliveryPlatform}
-                      onChange={(value) => setDeliveryPlatform(value)}
-                      disabled={formInteractionDisabled}
-                      ariaLabel="平台"
-                      options={BOT_DELIVERY_PROVIDERS.map((provider) => {
-                        const icon = (
-                          <BotBrandLogo
-                            provider={provider}
-                            width="100%"
-                            height="100%"
-                            aria-hidden="true"
-                          />
-                        );
-                        return [provider, botDisplayLabel(provider), icon] as const;
-                      })}
-                    />
-                  </label>
-                  <label className="maka-plan-field">
-                    <span>Chat ID</span>
-                    <Input
-                      value={deliveryChatId}
-                      onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
-                      maxLength={160}
-                      placeholder="例如 Telegram chat_id"
-                      disabled={formInteractionDisabled}
-                    />
-                  </label>
-                </div>
-                <p className="maka-plan-delivery-help">
-                  当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台不会出现在投递目标里。
-                </p>
-              </>
-            )}
-            <label className="maka-plan-field maka-plan-prompt-field">
-              <span>备注</span>
-              <UiTextarea
-                value={note}
-                onChange={(event) => setNote(event.currentTarget.value)}
-                maxLength={1000}
-                rows={5}
-                placeholder="可选：补充需要提醒的上下文"
-                disabled={formInteractionDisabled}
-              />
-            </label>
-            {validationMessage && (
-              <p className="maka-plan-validation" role="status" aria-live="polite">
-                {validationMessage}
-              </p>
-            )}
-            <footer className="maka-plan-form-footer">
-              <UiButton
-                variant="secondary"
-                type="button"
-                onClick={closeReminderDialog}
-                disabled={formInteractionDisabled}
-              >
-                取消
-              </UiButton>
-              <UiButton type="submit" disabled={submitDisabled}>
-                {isEditing ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
-                <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
-              </UiButton>
-            </footer>
-          </form>
-        </DialogContent>
-      </DialogRoot>
+        seed={formSeed}
+        reminders={props.reminders}
+        onOpenChange={setFormDialogOpen}
+        onCreate={props.onCreate}
+        onUpdate={props.onUpdate}
+      />
     </div>
   );
 }

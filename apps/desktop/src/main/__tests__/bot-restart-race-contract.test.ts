@@ -19,7 +19,7 @@ describe('Bot restart flow contract (PR-BOT-RESTART-RACE-0)', () => {
     // the whole control is gone before the user sees feedback.
     assert.match(
       src,
-      /support === 'runtime' && \(selectedStatus\?\.running\s*\|\|\s*restarting\)/,
+      /support === 'runtime' && \(status\?\.running\s*\|\|\s*props\.restarting\)/,
       'restart button visibility must OR with `restarting` so it persists through the bridge stop→start cycle',
     );
   });

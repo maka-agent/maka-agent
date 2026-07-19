@@ -21,13 +21,8 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { availableParallelism, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  BENCHMARK_BASE_SYSTEM_PROMPT,
-} from '@maka/headless';
-import {
-  discoverCachedHarborTasks,
-  resolveFixedPromptRunRoot,
-} from '#fixed-prompt-task-source';
+import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
+import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import {
   buildRewardHackVerifierPatterns,
   runPromptOptimizationRun,
@@ -53,9 +48,7 @@ import {
   buildPromptOptimizationToolchainFingerprint,
   ensurePromptOptimizationRunManifest,
 } from '#prompt-optimization-manifest';
-import {
-  resolvePromptOptimizationProfile,
-} from '#prompt-optimization-profile';
+import { resolvePromptOptimizationProfile } from '#prompt-optimization-profile';
 
 // DeepSeek per-1M USD pricing (0.145 USD/CNY). "input" is the cache-miss rate;
 // cache writes carry no separate charge, so cacheWriteUsdPer1M is 0. Vendor
@@ -75,10 +68,17 @@ const DEEPSEEK_V4_FLASH_PRICING = {
 // before any Docker time — if a canonical rate field is missing or not a finite,
 // non-negative number. The field-name -> MAKA_TRIAL_* forwarding contract is
 // covered in harbor-task-runner.test.ts.
-for (const field of ['inputUsdPer1M', 'outputUsdPer1M', 'cacheReadUsdPer1M', 'cacheWriteUsdPer1M']) {
+for (const field of [
+  'inputUsdPer1M',
+  'outputUsdPer1M',
+  'cacheReadUsdPer1M',
+  'cacheWriteUsdPer1M',
+]) {
   const rate = DEEPSEEK_V4_FLASH_PRICING[field];
   if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0) {
-    throw new Error(`DEEPSEEK_V4_FLASH_PRICING.${field} must be a finite, non-negative number (got ${JSON.stringify(rate)})`);
+    throw new Error(
+      `DEEPSEEK_V4_FLASH_PRICING.${field} must be a finite, non-negative number (got ${JSON.stringify(rate)})`,
+    );
   }
 }
 
@@ -140,7 +140,10 @@ const envBool = (name, fallback) => {
 function envIds(name) {
   const raw = process.env[name];
   if (!raw) return undefined;
-  const ids = raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  const ids = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
   return ids.length > 0 ? ids : undefined;
 }
 
@@ -163,7 +166,10 @@ async function main() {
 
   const localEvalRoot = defaultLocalEvalRoot(repoRoot);
   const outDir = envPath('MAKA_PROMPT_OUT_DIR', join(localEvalRoot, 'maka-eval', 'rsi-runs'));
-  const keyFile = envPath('MAKA_PROMPT_KEY_FILE', join(localEvalRoot, '.local-secrets', 'deepseek-key'));
+  const keyFile = envPath(
+    'MAKA_PROMPT_KEY_FILE',
+    join(localEvalRoot, '.local-secrets', 'deepseek-key'),
+  );
   const tasksRoot = envPath('MAKA_PROMPT_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
   const initialSystemPromptFile = process.env.MAKA_PROMPT_INITIAL_SYSTEM_PROMPT_FILE
     ? envPath('MAKA_PROMPT_INITIAL_SYSTEM_PROMPT_FILE')
@@ -236,7 +242,9 @@ async function main() {
     },
     contextEnv: {
       MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: activeToolResultPrune ? 'on' : 'off',
-      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(activeToolResultMaxEstimatedTokens),
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(
+        activeToolResultMaxEstimatedTokens,
+      ),
       MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(activeToolResultMinStepNumber),
     },
   };
@@ -266,32 +274,44 @@ async function main() {
     if (overlap.length > 0) throw new Error(`held-in and held-out overlap: ${overlap.join(', ')}`);
     heldInTasks = selectTasksByIds(allTasks, heldInIds);
     heldOutTasks = selectTasksByIds(allTasks, heldOutIds);
-    rewardHackVerifierPatternsByTaskId = await buildRewardHackVerifierPatterns([...heldInTasks, ...heldOutTasks]);
+    rewardHackVerifierPatternsByTaskId = await buildRewardHackVerifierPatterns([
+      ...heldInTasks,
+      ...heldOutTasks,
+    ]);
     const hasPattern = (t) => (rewardHackVerifierPatternsByTaskId[t.id] ?? []).length > 0;
     const unscannableHeldInTasks = heldInTasks.filter((t) => !hasPattern(t));
     if (unscannableHeldInTasks.length > 0) {
       const ids = unscannableHeldInTasks.map((t) => t.id).join(', ');
-      throw new Error(`held-in task(s) have no canary verifier pattern (would quarantine every round): ${ids}`);
+      throw new Error(
+        `held-in task(s) have no canary verifier pattern (would quarantine every round): ${ids}`,
+      );
     }
     heldOutNoPattern = heldOutTasks.filter((t) => !hasPattern(t));
-    console.log(`Selected by id: held-in [${heldInIds.join(', ')}], held-out [${heldOutIds.join(', ')}]`);
+    console.log(
+      `Selected by id: held-in [${heldInIds.join(', ')}], held-out [${heldOutIds.join(', ')}]`,
+    );
   } else {
     rewardHackVerifierPatternsByTaskId = await buildRewardHackVerifierPatterns(allTasks);
-    ({
-      heldInTasks,
-      heldOutTasks,
-      heldOutNoPattern,
-    } = selectPromptOptimizationPartitions(allTasks, {
-      heldInCount,
-      heldOutCount,
-      rewardHackVerifierPatternsByTaskId,
-    }));
-    console.log(`Partitioned: ${heldInTasks.length} scannable held-in, ${heldOutTasks.length} held-out`);
+    ({ heldInTasks, heldOutTasks, heldOutNoPattern } = selectPromptOptimizationPartitions(
+      allTasks,
+      {
+        heldInCount,
+        heldOutCount,
+        rewardHackVerifierPatternsByTaskId,
+      },
+    ));
+    console.log(
+      `Partitioned: ${heldInTasks.length} scannable held-in, ${heldOutTasks.length} held-out`,
+    );
   }
   if (heldOutNoPattern.length > 0) {
-    console.warn(`Note: ${heldOutNoPattern.length} held-out task(s) have no canary pattern (held-out is not reward-hack-scanned): ${heldOutNoPattern.map((t) => t.id).join(', ')}`);
+    console.warn(
+      `Note: ${heldOutNoPattern.length} held-out task(s) have no canary pattern (held-out is not reward-hack-scanned): ${heldOutNoPattern.map((t) => t.id).join(', ')}`,
+    );
   }
-  console.log(`Reward-hack patterns: ${heldInTasks.length} held-in all covered, ${heldOutTasks.length} held-out`);
+  console.log(
+    `Reward-hack patterns: ${heldInTasks.length} held-in all covered, ${heldOutTasks.length} held-out`,
+  );
 
   // Resolve the min-stable floors against the final selected partition sizes.
   // An explicit MAKA_PROMPT_MIN_STABLE_* wins (cheap smokes pin "1"); otherwise
@@ -299,10 +319,20 @@ async function main() {
   // sample shrunk by unstable-task drops fails loud instead of a flat default of
   // 1 letting a near-empty stable set still produce a "valid" conclusion.
   const minStableHeldInTasks = resolveMinStable(
-    'MAKA_PROMPT_MIN_STABLE_HELD_IN', heldInTasks.length, process.env.MAKA_PROMPT_MIN_STABLE_HELD_IN, minStableRatio);
+    'MAKA_PROMPT_MIN_STABLE_HELD_IN',
+    heldInTasks.length,
+    process.env.MAKA_PROMPT_MIN_STABLE_HELD_IN,
+    minStableRatio,
+  );
   const minStableHeldOutTasks = resolveMinStable(
-    'MAKA_PROMPT_MIN_STABLE_HELD_OUT', heldOutTasks.length, process.env.MAKA_PROMPT_MIN_STABLE_HELD_OUT, minStableRatio);
-  console.log(`Min-stable floors: held-in ${minStableHeldInTasks}/${heldInTasks.length}, held-out ${minStableHeldOutTasks}/${heldOutTasks.length}`);
+    'MAKA_PROMPT_MIN_STABLE_HELD_OUT',
+    heldOutTasks.length,
+    process.env.MAKA_PROMPT_MIN_STABLE_HELD_OUT,
+    minStableRatio,
+  );
+  console.log(
+    `Min-stable floors: held-in ${minStableHeldInTasks}/${heldInTasks.length}, held-out ${minStableHeldOutTasks}/${heldOutTasks.length}`,
+  );
 
   const manifestPath = join(runRoot, 'prompt-optimization-manifest.json');
   const runManifest = await ensurePromptOptimizationRunManifest(
@@ -325,7 +355,11 @@ async function main() {
       minStableHeldOutTasks,
       runtimeProfile,
       subjectFingerprint: await buildPromptOptimizationSubjectFingerprint(makaRepoPath),
-      taskSourceFingerprint: await buildPromptOptimizationTaskSourceFingerprint(tasksRoot, heldInTasks, heldOutTasks),
+      taskSourceFingerprint: await buildPromptOptimizationTaskSourceFingerprint(
+        tasksRoot,
+        heldInTasks,
+        heldOutTasks,
+      ),
       toolchainFingerprint: await buildPromptOptimizationToolchainFingerprint(repoRoot),
       heldInTasks,
       heldOutTasks,
@@ -334,7 +368,9 @@ async function main() {
     runRoot,
   );
   console.log(`Run manifest: ${runManifest.fingerprint}`);
-  console.log(`Runtime profile: taskBudget=${taskBudgetSec}s, harborTimeout=${harborTimeoutMs}ms, commandTimeout=${commandTimeoutMs}ms, continuation=${continuationEnabled ? 'on' : 'off'} (${continuationMaxTurns} turn(s)), activeToolPrune=${activeToolResultPrune ? 'on' : 'off'}`);
+  console.log(
+    `Runtime profile: taskBudget=${taskBudgetSec}s, harborTimeout=${harborTimeoutMs}ms, commandTimeout=${commandTimeoutMs}ms, continuation=${continuationEnabled ? 'on' : 'off'} (${continuationMaxTurns} turn(s)), activeToolPrune=${activeToolResultPrune ? 'on' : 'off'}`,
+  );
 
   // Prompt repo: program.md + system_prompt.md committed; agent-cwd/ is the empty
   // isolation root; controller artifacts live OUTSIDE it.
@@ -344,11 +380,7 @@ async function main() {
   await mkdir(controllerDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
   const resultsJsonlPath = join(controllerDir, 'results.jsonl');
-  const {
-    agentCwdPath,
-    programPath,
-    systemPromptPath,
-  } = await ensurePromptOptimizationPromptRepo({
+  const { agentCwdPath, programPath, systemPromptPath } = await ensurePromptOptimizationPromptRepo({
     promptRepoDir,
     program: PROGRAM,
     systemPrompt: initialSystemPrompt,
@@ -366,7 +398,9 @@ async function main() {
     updatedAt: 0,
   };
 
-  console.log(`Starting run ${runId}: profile ${promptProfile.name}, ${rounds} round(s), ${baselineRuns} baseline sweep(s), model ${model}`);
+  console.log(
+    `Starting run ${runId}: profile ${promptProfile.name}, ${rounds} round(s), ${baselineRuns} baseline sweep(s), model ${model}`,
+  );
   const result = await runPromptOptimizationRun({
     runId,
     rounds,
@@ -409,7 +443,9 @@ async function main() {
   console.log('---');
   console.log(`stopReason: ${result.stopReason}`);
   if (result.droppedHeldInTaskIds.length > 0 || result.droppedHeldOutTaskIds.length > 0) {
-    console.log(`dropped (unstable in baseline): held-in [${result.droppedHeldInTaskIds.join(', ')}], held-out [${result.droppedHeldOutTaskIds.join(', ')}]`);
+    console.log(
+      `dropped (unstable in baseline): held-in [${result.droppedHeldInTaskIds.join(', ')}], held-out [${result.droppedHeldOutTaskIds.join(', ')}]`,
+    );
   }
   const excludedHeldIn = result.addressability.heldIn.taskStats
     .filter((stat) => !stat.addressable)
@@ -418,11 +454,15 @@ async function main() {
     .filter((stat) => !stat.addressable)
     .map((stat) => `${stat.taskId}:${stat.rejectionReason}`);
   if (excludedHeldIn.length > 0 || excludedHeldOut.length > 0) {
-    console.log(`excluded (proposal/decision only): held-in [${excludedHeldIn.join(', ')}], held-out [${excludedHeldOut.join(', ')}]`);
+    console.log(
+      `excluded (proposal/decision only): held-in [${excludedHeldIn.join(', ')}], held-out [${excludedHeldOut.join(', ')}]`,
+    );
   }
   console.log(`decisions: ${result.decisions.length} (kept ${result.keptCount})`);
   console.log(`totalCostUsd: ${result.totalCostUsd.toFixed(4)}`);
-  console.log(`smoke: ${result.smoke.status} (rounds ${result.smoke.observedRounds}/${result.smoke.minimumRounds})`);
+  console.log(
+    `smoke: ${result.smoke.status} (rounds ${result.smoke.observedRounds}/${result.smoke.minimumRounds})`,
+  );
   console.log(`result -> ${resultPath}`);
   console.log(`smoke  -> ${smokePath}`);
   if (result.smoke.status !== 'pass') {

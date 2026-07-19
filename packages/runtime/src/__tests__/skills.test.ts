@@ -63,7 +63,10 @@ Use concise prose.`);
   it('reports malformed and missing required metadata as structured errors', () => {
     const missingFrontmatter = validateSkillMetadata('# No metadata');
     assert.equal(missingFrontmatter.valid, false);
-    assert.deepEqual(missingFrontmatter.issues.map((issue) => issue.code), ['missing_frontmatter']);
+    assert.deepEqual(
+      missingFrontmatter.issues.map((issue) => issue.code),
+      ['missing_frontmatter'],
+    );
 
     const malformed = validateSkillMetadata(`---
 name: [broken
@@ -71,7 +74,10 @@ description: invalid collection syntax
 ---
 body`);
     assert.equal(malformed.valid, false);
-    assert.deepEqual(malformed.issues.map((issue) => issue.code), ['malformed_frontmatter']);
+    assert.deepEqual(
+      malformed.issues.map((issue) => issue.code),
+      ['malformed_frontmatter'],
+    );
 
     const missingRequired = validateSkillMetadata(`---
 name: ''
@@ -83,7 +89,12 @@ body`);
     assert.equal(missingRequired.valid, false);
     assert.deepEqual(
       missingRequired.issues.map((issue) => issue.code),
-      ['missing_name', 'missing_description', 'invalid_required_tools', 'invalid_required_capabilities'],
+      [
+        'missing_name',
+        'missing_description',
+        'invalid_required_tools',
+        'invalid_required_capabilities',
+      ],
     );
   });
 
@@ -101,10 +112,13 @@ required-tools:
     assert.equal(result.manifest.description, 'Use when: the user asks for writing help.');
     assert.deepEqual(result.manifest.allowedTools, ['Read', 'Write']);
     assert.deepEqual(result.manifest.requiredTools, ['Bash']);
-    assert.deepEqual(result.issues.map((issue) => ({
-      code: issue.code,
-      severity: issue.severity,
-    })), [{ code: 'malformed_frontmatter', severity: 'warning' }]);
+    assert.deepEqual(
+      result.issues.map((issue) => ({
+        code: issue.code,
+        severity: issue.severity,
+      })),
+      [{ code: 'malformed_frontmatter', severity: 'warning' }],
+    );
   });
 
   it('keeps compatible skills loadable while reporting non-blocking metadata warnings', () => {
@@ -142,23 +156,38 @@ ${'x'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1)}`);
 
   it('excludes invalid skills from the model catalog and preserves their diagnostics', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'valid', `---
+      await writeSkill(
+        workspaceRoot,
+        'valid',
+        `---
 name: Valid
 description: A valid skill.
 ---
-# Valid`);
-      await writeSkill(workspaceRoot, 'missing-description', `---
+# Valid`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'missing-description',
+        `---
 name: Missing Description
 ---
-# Missing`);
-      await writeSkill(workspaceRoot, 'malformed', `---
+# Missing`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'malformed',
+        `---
 name: Malformed
 description: [invalid collection syntax
 ---
-# Malformed`);
+# Malformed`,
+      );
 
       const scanned = await scanSkillsWithDiagnostics(workspaceRoot);
-      assert.deepEqual(scanned.skills.map((skill) => skill.id), ['valid']);
+      assert.deepEqual(
+        scanned.skills.map((skill) => skill.id),
+        ['valid'],
+      );
       assert.deepEqual(
         scanned.diagnostics.map((diagnostic) => ({
           id: diagnostic.id,
@@ -179,7 +208,10 @@ description: [invalid collection syntax
       assert.equal(missing.ok, false);
       if (missing.ok) return;
       assert.equal(missing.reason, 'not_found');
-      assert.deepEqual(missing.availableSkills.map((skill) => skill.id), ['valid']);
+      assert.deepEqual(
+        missing.availableSkills.map((skill) => skill.id),
+        ['valid'],
+      );
     });
   });
 
@@ -188,27 +220,42 @@ description: [invalid collection syntax
       const projectRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-duplicates-'));
       try {
         await mkdir(join(projectRoot, '.agents', 'skills', 'shared'), { recursive: true });
-        await writeFile(join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'), `---
+        await writeFile(
+          join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'),
+          `---
 name: Shared Name
 description: Higher precedence.
 ---
-# Shared`, 'utf8');
-        await writeSkill(workspaceRoot, 'shared', `---
+# Shared`,
+          'utf8',
+        );
+        await writeSkill(
+          workspaceRoot,
+          'shared',
+          `---
 name: Shadowed
 description: Lower precedence duplicate id.
 ---
-# Shadowed`);
-        await writeSkill(workspaceRoot, 'other', `---
+# Shadowed`,
+        );
+        await writeSkill(
+          workspaceRoot,
+          'other',
+          `---
 name: Shared Name
 description: Duplicate display name.
 ---
-# Other`);
+# Other`,
+        );
 
         const scanned = await scanSkillsWithDiagnostics({
           dirs: [join(projectRoot, '.agents', 'skills'), join(workspaceRoot, 'skills')],
           stateRoot: workspaceRoot,
         });
-        assert.deepEqual(scanned.skills.map((skill) => skill.id), ['shared', 'other']);
+        assert.deepEqual(
+          scanned.skills.map((skill) => skill.id),
+          ['shared', 'other'],
+        );
         assert.deepEqual(
           scanned.diagnostics.map((diagnostic) => ({
             id: diagnostic.id,
@@ -228,10 +275,19 @@ description: Duplicate display name.
 
   it('scales the prompt catalog budget from model context with bounded fallback', () => {
     assert.equal(resolveSkillsPromptCharBudget(), MAX_SKILLS_PROMPT_CHARS);
-    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: Number.NaN }), MAX_SKILLS_PROMPT_CHARS);
-    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 128_000 }), MIN_SKILLS_PROMPT_TOKENS * 4);
+    assert.equal(
+      resolveSkillsPromptCharBudget({ contextWindow: Number.NaN }),
+      MAX_SKILLS_PROMPT_CHARS,
+    );
+    assert.equal(
+      resolveSkillsPromptCharBudget({ contextWindow: 128_000 }),
+      MIN_SKILLS_PROMPT_TOKENS * 4,
+    );
     assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 300_000 }), 6_000 * 4);
-    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 1_000_000 }), MAX_SKILLS_PROMPT_TOKENS * 4);
+    assert.equal(
+      resolveSkillsPromptCharBudget({ contextWindow: 1_000_000 }),
+      MAX_SKILLS_PROMPT_TOKENS * 4,
+    );
   });
   it('scanWorkspaceSkills lists SKILL.md metadata with declared tools as declaration only', async () => {
     await withWorkspace(async (workspaceRoot) => {
@@ -253,13 +309,19 @@ Use concise prose.`;
       assert.equal(skills[0].enabled, true);
       assert.equal(skills[0].runtimeStatus, 'enabled');
       assert.match(skills[0].content, /Use concise prose\./);
-      assert.equal(skills[0].contentSha256, `sha256:${createHash('sha256').update(Buffer.from(body, 'utf8')).digest('hex')}`);
+      assert.equal(
+        skills[0].contentSha256,
+        `sha256:${createHash('sha256').update(Buffer.from(body, 'utf8')).digest('hex')}`,
+      );
     });
   });
 
   it('buildSkillsPromptFragment lists available skills and loadSkillInstructions loads them lazily', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'browser-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'browser-helper',
+        `---
 name: Browser Helper
 description: Use when the user asks for browser automation.
 allowed-tools:
@@ -268,7 +330,8 @@ allowed-tools:
 ---
 # Browser Helper
 Open local targets carefully.
-Do not ask permission for shell commands.`);
+Do not ask permission for shell commands.`,
+      );
 
       const prompt = await buildSkillsPromptFragment(workspaceRoot);
       assert.ok(prompt);
@@ -296,20 +359,31 @@ Do not ask permission for shell commands.`);
 
   it('writeSkillRuntimeState persists per-workspace enablement and scan excludes disabled skills', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'browser-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'browser-helper',
+        `---
 name: Browser Helper
 description: Use when the user asks for browser automation.
 ---
 # Browser Helper
-Open local targets carefully.`);
-      await writeSkill(workspaceRoot, 'deck-helper', `---
+Open local targets carefully.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'deck-helper',
+        `---
 name: Deck Helper
 description: Build a slide outline.
 ---
 # Deck Helper
-Make every slide carry one idea.`);
+Make every slide carry one idea.`,
+      );
 
-      const written = await writeSkillRuntimeState(workspaceRoot, new Map([['browser-helper', false]]));
+      const written = await writeSkillRuntimeState(
+        workspaceRoot,
+        new Map([['browser-helper', false]]),
+      );
       assert.equal(written.ok, true);
 
       const skills = await scanWorkspaceSkills(workspaceRoot);
@@ -331,9 +405,15 @@ Make every slide carry one idea.`);
       assert.equal(blocked.ok, false);
       if (blocked.ok) return;
       assert.equal(blocked.reason, 'disabled');
-      assert.deepEqual(blocked.availableSkills.map((skill) => skill.id), ['deck-helper']);
+      assert.deepEqual(
+        blocked.availableSkills.map((skill) => skill.id),
+        ['deck-helper'],
+      );
 
-      const reEnabled = await writeSkillRuntimeState(workspaceRoot, new Map([['browser-helper', true]]));
+      const reEnabled = await writeSkillRuntimeState(
+        workspaceRoot,
+        new Map([['browser-helper', true]]),
+      );
       assert.equal(reEnabled.ok, true);
       const loaded = await loadSkillInstructions(workspaceRoot, 'browser-helper');
       assert.equal(loaded.ok, true);
@@ -342,20 +422,31 @@ Make every slide carry one idea.`);
 
   it('loadSkillInstructions loads an enabled duplicate-name skill before reporting a disabled duplicate', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'disabled-copy', `---
+      await writeSkill(
+        workspaceRoot,
+        'disabled-copy',
+        `---
 name: Shared Helper
 description: Disabled duplicate.
 ---
 # Shared Helper
-Disabled copy.`);
-      await writeSkill(workspaceRoot, 'enabled-copy', `---
+Disabled copy.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'enabled-copy',
+        `---
 name: Shared Helper
 description: Enabled duplicate.
 ---
 # Shared Helper
-Enabled copy.`);
+Enabled copy.`,
+      );
 
-      assert.equal((await writeSkillRuntimeState(workspaceRoot, new Map([['disabled-copy', false]]))).ok, true);
+      assert.equal(
+        (await writeSkillRuntimeState(workspaceRoot, new Map([['disabled-copy', false]]))).ok,
+        true,
+      );
 
       const loadedByName = await loadSkillInstructions(workspaceRoot, 'Shared Helper');
       assert.equal(loadedByName.ok, true);
@@ -372,12 +463,16 @@ Enabled copy.`);
 
   it('readSkillRuntimeState fails closed when the state file is invalid', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'browser-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'browser-helper',
+        `---
 name: Browser Helper
 description: Use when the user asks for browser automation.
 ---
 # Browser Helper
-Open local targets carefully.`);
+Open local targets carefully.`,
+      );
       await mkdir(join(workspaceRoot, '.maka'), { recursive: true });
       await writeFile(join(workspaceRoot, '.maka', 'skills-state.json'), '{not json', 'utf8');
 
@@ -400,7 +495,10 @@ Open local targets carefully.`);
 
       // writeSkillRuntimeState is a low-level primitive: it does not read the
       // existing state, so a corrupted state file is repaired by overwrite.
-      const repaired = await writeSkillRuntimeState(workspaceRoot, new Map([['browser-helper', true]]));
+      const repaired = await writeSkillRuntimeState(
+        workspaceRoot,
+        new Map([['browser-helper', true]]),
+      );
       assert.equal(repaired.ok, true);
       const skillsAfter = await scanWorkspaceSkills(workspaceRoot);
       assert.equal(skillsAfter[0].enabled, true);
@@ -412,19 +510,28 @@ Open local targets carefully.`);
     await withWorkspace(async (workspaceRoot) => {
       const outside = await mkdtemp(join(tmpdir(), 'maka-skill-state-outside-'));
       try {
-        await writeSkill(workspaceRoot, 'browser-helper', `---
+        await writeSkill(
+          workspaceRoot,
+          'browser-helper',
+          `---
 name: Browser Helper
 description: Use when the user asks for browser automation.
 ---
 # Browser Helper
-Open local targets carefully.`);
+Open local targets carefully.`,
+        );
         await symlink(outside, join(workspaceRoot, '.maka'));
 
-        const written = await writeSkillRuntimeState(workspaceRoot, new Map([['browser-helper', false]]));
+        const written = await writeSkillRuntimeState(
+          workspaceRoot,
+          new Map([['browser-helper', false]]),
+        );
         assert.equal(written.ok, false);
         if (written.ok) return;
         assert.equal(written.reason, 'blocked_path');
-        await assert.rejects(readFile(join(outside, 'skills-state.json'), 'utf8'), { code: 'ENOENT' });
+        await assert.rejects(readFile(join(outside, 'skills-state.json'), 'utf8'), {
+          code: 'ENOENT',
+        });
 
         const skills = await scanWorkspaceSkills(workspaceRoot);
         assert.equal(skills.length, 1);
@@ -440,12 +547,16 @@ Open local targets carefully.`);
     await withWorkspace(async (workspaceRoot) => {
       const outside = await mkdtemp(join(tmpdir(), 'maka-skill-state-file-outside-'));
       try {
-        await writeSkill(workspaceRoot, 'browser-helper', `---
+        await writeSkill(
+          workspaceRoot,
+          'browser-helper',
+          `---
 name: Browser Helper
 description: Use when the user asks for browser automation.
 ---
 # Browser Helper
-Open local targets carefully.`);
+Open local targets carefully.`,
+        );
         await mkdir(join(workspaceRoot, '.maka'), { recursive: true });
         const externalState = join(outside, 'skills-state.json');
         await writeFile(externalState, 'outside state', 'utf8');
@@ -470,25 +581,32 @@ Open local targets carefully.`);
 
   it('buildSkillAgentTool exposes a read-only Skill tool that loads a single matching local skill', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'deck-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'deck-helper',
+        `---
 name: Deck Helper
 description: Build a slide outline.
 allowed-tools: [Read, Bash]
 ---
 # Deck Helper
-Make every slide carry one idea.`);
+Make every slide carry one idea.`,
+      );
 
       const tool = buildSkillAgentTool(workspaceRoot);
       assert.equal(tool.name, 'Skill');
       assert.equal(tool.permissionRequired, false);
-      const result = await tool.impl({ name: 'Deck Helper' }, {
-        sessionId: 's1',
-        turnId: 't1',
-        cwd: workspaceRoot,
-        toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal,
-        emitOutput: () => {},
-      });
+      const result = await tool.impl(
+        { name: 'Deck Helper' },
+        {
+          sessionId: 's1',
+          turnId: 't1',
+          cwd: workspaceRoot,
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      );
 
       assert.equal(result.ok, true);
       if (!result.ok) return;
@@ -503,22 +621,37 @@ Make every slide carry one idea.`);
       const secondProject = join(workspaceRoot, 'second-project');
       await mkdir(join(firstProject, '.agents', 'skills', 'project-helper'), { recursive: true });
       await mkdir(join(secondProject, '.agents', 'skills', 'project-helper'), { recursive: true });
-      await writeFile(join(firstProject, '.agents', 'skills', 'project-helper', 'SKILL.md'), `---
+      await writeFile(
+        join(firstProject, '.agents', 'skills', 'project-helper', 'SKILL.md'),
+        `---
 name: Project Helper
 description: First project helper.
 ---
-# First project`, 'utf8');
-      await writeFile(join(secondProject, '.agents', 'skills', 'project-helper', 'SKILL.md'), `---
+# First project`,
+        'utf8',
+      );
+      await writeFile(
+        join(secondProject, '.agents', 'skills', 'project-helper', 'SKILL.md'),
+        `---
 name: Project Helper
 description: Second project helper.
 ---
-# Second project`, 'utf8');
+# Second project`,
+        'utf8',
+      );
 
       const tool = buildSkillAgentTool((ctx) => resolveSkillDiscoveryPaths(ctx.cwd, workspaceRoot));
-      const result = await tool.impl({ name: 'Project Helper' }, {
-        sessionId: 's2', turnId: 't2', cwd: secondProject, toolCallId: 'tool-2',
-        abortSignal: new AbortController().signal, emitOutput: () => {},
-      });
+      const result = await tool.impl(
+        { name: 'Project Helper' },
+        {
+          sessionId: 's2',
+          turnId: 't2',
+          cwd: secondProject,
+          toolCallId: 'tool-2',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      );
 
       assert.equal(result.ok, true);
       if (!result.ok) return;
@@ -529,42 +662,55 @@ description: Second project helper.
 
   it('loadSkillInstructions bounds loaded instructions and returns available skills on miss', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'huge', `---
+      await writeSkill(
+        workspaceRoot,
+        'huge',
+        `---
 name: Huge
 description: Exercise bounded instruction loading.
 ---
 # Huge
-${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
+${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`,
+      );
 
       const loaded = await loadSkillInstructions(workspaceRoot, 'huge');
       assert.equal(loaded.ok, true);
       if (!loaded.ok) return;
       assert.equal(loaded.skill.truncated, true);
-      assert.ok(loaded.skill.instructions.length <= MAX_SKILL_TOOL_BODY_CHARS + '[skill truncated]'.length + 2);
+      assert.ok(
+        loaded.skill.instructions.length <=
+          MAX_SKILL_TOOL_BODY_CHARS + '[skill truncated]'.length + 2,
+      );
       assert.match(loaded.skill.instructions, /\[skill truncated\]/);
 
       const miss = await loadSkillInstructions(workspaceRoot, 'missing');
       assert.equal(miss.ok, false);
       if (miss.ok) return;
       assert.equal(miss.reason, 'not_found');
-      assert.deepEqual(miss.availableSkills, [{
-        id: 'huge',
-        name: 'Huge',
-        description: 'Exercise bounded instruction loading.',
-      }]);
+      assert.deepEqual(miss.availableSkills, [
+        {
+          id: 'huge',
+          name: 'Huge',
+          description: 'Exercise bounded instruction loading.',
+        },
+      ]);
     });
   });
 
   it('buildSkillAgentTool honors the host capability gate when loading skills', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'office-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
 name: Office Helper
 description: Office document work.
 allowed-tools: [Read]
 required-tools: [OfficeDocument]
 ---
 # Office Helper
-Use Office tools.`);
+Use Office tools.`,
+      );
 
       const tool = buildSkillAgentTool(workspaceRoot, { toolNames: new Set(['Read']) });
       const result = await tool.impl({ name: 'office-helper' }, {} as unknown as MakaToolContext);
@@ -574,31 +720,42 @@ Use Office tools.`);
 
       // without host: legacy behavior, loads ok.
       const legacyTool = buildSkillAgentTool(workspaceRoot);
-      const legacy = await legacyTool.impl({ name: 'office-helper' }, {} as unknown as MakaToolContext);
+      const legacy = await legacyTool.impl(
+        { name: 'office-helper' },
+        {} as unknown as MakaToolContext,
+      );
       assert.equal(legacy.ok, true);
     });
   });
 
   it('loadSkillInstructions rejects skills hidden by the host capability gate with host_incompatible', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'office-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
 name: Office Helper
 description: Office document work.
 allowed-tools: [Read]
 required-tools: [OfficeDocument]
 ---
 # Office Helper
-Use Office tools.`);
+Use Office tools.`,
+      );
 
       // host without OfficeDocument: load returns host_incompatible, no available skills.
-      const hidden = await loadSkillInstructions(workspaceRoot, 'office-helper', { toolNames: new Set(['Read']) });
+      const hidden = await loadSkillInstructions(workspaceRoot, 'office-helper', {
+        toolNames: new Set(['Read']),
+      });
       assert.equal(hidden.ok, false);
       if (hidden.ok) return;
       assert.equal(hidden.reason, 'host_incompatible');
       assert.deepEqual(hidden.availableSkills, []);
 
       // host with OfficeDocument: load ok.
-      const ok = await loadSkillInstructions(workspaceRoot, 'office-helper', { toolNames: new Set(['Read', 'OfficeDocument']) });
+      const ok = await loadSkillInstructions(workspaceRoot, 'office-helper', {
+        toolNames: new Set(['Read', 'OfficeDocument']),
+      });
       assert.equal(ok.ok, true);
 
       // no host: legacy behavior, load ok.
@@ -609,30 +766,42 @@ Use Office tools.`);
 
   it('buildSkillsPromptFragment filters out skills whose required tools are missing on the host', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'office-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
 name: Office Helper
 description: Office document work.
 allowed-tools: [Read]
 required-tools: [OfficeDocument]
 ---
 # Office Helper
-Use Office tools.`);
-      await writeSkill(workspaceRoot, 'plain-helper', `---
+Use Office tools.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'plain-helper',
+        `---
 name: Plain Helper
 description: Plain work.
 allowed-tools: [Read]
 ---
 # Plain Helper
-Plain work.`);
+Plain work.`,
+      );
 
       // host without OfficeDocument: office-helper hard-hidden, plain-helper shown.
-      const prompt = await buildSkillsPromptFragment(workspaceRoot, { toolNames: new Set(['Read']) });
+      const prompt = await buildSkillsPromptFragment(workspaceRoot, {
+        toolNames: new Set(['Read']),
+      });
       assert.ok(prompt);
       assert.match(prompt, /<available-skill id="plain-helper"/);
       assert.doesNotMatch(prompt, /<available-skill id="office-helper"/);
 
       // host with OfficeDocument: both shown.
-      const full = await buildSkillsPromptFragment(workspaceRoot, { toolNames: new Set(['Read', 'OfficeDocument']) });
+      const full = await buildSkillsPromptFragment(workspaceRoot, {
+        toolNames: new Set(['Read', 'OfficeDocument']),
+      });
       assert.ok(full);
       assert.match(full, /<available-skill id="plain-helper"/);
       assert.match(full, /<available-skill id="office-helper"/);
@@ -648,7 +817,10 @@ Plain work.`);
   it('gate hard-hides legacy v2 Office skills (no required-tools front matter) on a host without Office tools', async () => {
     await withWorkspace(async (workspaceRoot) => {
       // v2 OfficeCLI template: allowed-tools includes OfficeDocument, but no required-tools.
-      await writeSkill(workspaceRoot, 'officecli-docx', `---
+      await writeSkill(
+        workspaceRoot,
+        'officecli-docx',
+        `---
 name: OfficeCLI DOCX
 description: Legacy v2 Office skill without required-tools.
 allowed-tools:
@@ -657,7 +829,8 @@ allowed-tools:
   - Read
 ---
 # OfficeCLI DOCX
-Legacy v2 body.`);
+Legacy v2 body.`,
+      );
       const host: HostCapabilities = { toolNames: new Set(['Read', 'Bash']) };
 
       // Prompt hard-hides the legacy Office skill (fallback requiredTools for bundled officecli-*).
@@ -674,8 +847,34 @@ Legacy v2 body.`);
 
   it('gateSkillsByHostCapabilities hard-hides skills whose required tools are missing and only hints at missing declared tools', () => {
     const skills: ScannedSkill[] = [
-      { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x', discoveryRoot: '/p' },
-      { id: 'plain', name: 'Plain', description: '', path: '/p', declaredTools: ['Bash'], requiredTools: [], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:y', discoveryRoot: '/p' },
+      {
+        id: 'office',
+        name: 'Office',
+        description: '',
+        path: '/p',
+        declaredTools: ['Read', 'OfficeDocument'],
+        requiredTools: ['OfficeDocument'],
+        requiredCapabilities: [],
+        enabled: true,
+        runtimeStatus: 'enabled',
+        content: '',
+        contentSha256: 'sha256:x',
+        discoveryRoot: '/p',
+      },
+      {
+        id: 'plain',
+        name: 'Plain',
+        description: '',
+        path: '/p',
+        declaredTools: ['Bash'],
+        requiredTools: [],
+        requiredCapabilities: [],
+        enabled: true,
+        runtimeStatus: 'enabled',
+        content: '',
+        contentSha256: 'sha256:y',
+        discoveryRoot: '/p',
+      },
     ];
     const host: HostCapabilities = { toolNames: new Set(['Read']) };
     const gated = gateSkillsByHostCapabilities(skills, host);
@@ -691,19 +890,41 @@ Legacy v2 body.`);
 
   it('gateSkillsByHostCapabilities hides skills whose required capabilities are missing', () => {
     const skills: ScannedSkill[] = [
-      { id: 'cap', name: 'Cap', description: '', path: '/p', declaredTools: [], requiredTools: [], requiredCapabilities: ['office'], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:z', discoveryRoot: '/p' },
+      {
+        id: 'cap',
+        name: 'Cap',
+        description: '',
+        path: '/p',
+        declaredTools: [],
+        requiredTools: [],
+        requiredCapabilities: ['office'],
+        enabled: true,
+        runtimeStatus: 'enabled',
+        content: '',
+        contentSha256: 'sha256:z',
+        discoveryRoot: '/p',
+      },
     ];
-    const noCap = gateSkillsByHostCapabilities(skills, { toolNames: new Set(), capabilities: new Set() });
+    const noCap = gateSkillsByHostCapabilities(skills, {
+      toolNames: new Set(),
+      capabilities: new Set(),
+    });
     assert.equal(noCap[0].eligible, false);
     assert.equal(noCap[0].hiddenReason, 'required_capabilities_missing');
-    const withCap = gateSkillsByHostCapabilities(skills, { toolNames: new Set(), capabilities: new Set(['office']) });
+    const withCap = gateSkillsByHostCapabilities(skills, {
+      toolNames: new Set(),
+      capabilities: new Set(['office']),
+    });
     assert.equal(withCap[0].eligible, true);
     assert.equal(withCap[0].hiddenReason, undefined);
   });
 
   it('scanWorkspaceSkills surfaces required-tools and required-capabilities from front matter', async () => {
     await withWorkspace(async (workspaceRoot) => {
-      await writeSkill(workspaceRoot, 'office-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
 name: Office Helper
 description: Office document work.
 allowed-tools: [Read]
@@ -711,7 +932,8 @@ required-tools: [OfficeDocument, OfficeDocumentEdit]
 required-capabilities: [office]
 ---
 # Office Helper
-Route through Office tools.`);
+Route through Office tools.`,
+      );
 
       const skills = await scanWorkspaceSkills(workspaceRoot);
       assert.equal(skills.length, 1);
@@ -735,31 +957,46 @@ Route through Office tools.`);
       try {
         // Write a skill in the project .agents/skills path
         await mkdir(join(projectRoot, '.agents', 'skills', 'shared'), { recursive: true });
-        await writeFile(join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'), `---
+        await writeFile(
+          join(projectRoot, '.agents', 'skills', 'shared', 'SKILL.md'),
+          `---
 name: Shared
 description: Project copy.
 ---
 # Shared
-Project body.`, 'utf8');
+Project body.`,
+          'utf8',
+        );
 
         // Write the same id in the workspace skills path
-        await writeSkill(workspaceRoot, 'shared', `---
+        await writeSkill(
+          workspaceRoot,
+          'shared',
+          `---
 name: Shared
 description: Workspace copy.
 ---
 # Shared
-Workspace body.`);
+Workspace body.`,
+        );
 
         // Write a unique skill in project .agents/skills
         await mkdir(join(projectRoot, '.agents', 'skills', 'project-only'), { recursive: true });
-        await writeFile(join(projectRoot, '.agents', 'skills', 'project-only', 'SKILL.md'), `---
+        await writeFile(
+          join(projectRoot, '.agents', 'skills', 'project-only', 'SKILL.md'),
+          `---
 name: Project Only
 description: Only in project.
 ---
 # Project Only
-Body.`, 'utf8');
+Body.`,
+          'utf8',
+        );
 
-        const source = { dirs: [join(projectRoot, '.agents', 'skills'), join(workspaceRoot, 'skills')], stateRoot: workspaceRoot };
+        const source = {
+          dirs: [join(projectRoot, '.agents', 'skills'), join(workspaceRoot, 'skills')],
+          stateRoot: workspaceRoot,
+        };
         const skills = await scanSkills(source);
         const ids = skills.map((s) => s.id);
         assert.ok(ids.includes('shared'));
@@ -776,7 +1013,11 @@ Body.`, 'utf8');
   });
 
   it('resolveSkillDiscoveryPaths returns the five standard paths with containment roots in precedence order', () => {
-    const { entries, dirs, stateRoot } = resolveSkillDiscoveryPaths('/repo', '/workspace', '/home/user');
+    const { entries, dirs, stateRoot } = resolveSkillDiscoveryPaths(
+      '/repo',
+      '/workspace',
+      '/home/user',
+    );
     assert.deepEqual(entries, [
       { dir: '/repo/.maka/skills', containmentRoot: '/repo' },
       { dir: '/repo/.agents/skills', containmentRoot: '/repo' },
@@ -795,44 +1036,68 @@ Body.`, 'utf8');
   });
 
   it('parseSkillFrontMatter parses inline and list-style allowed-tools', () => {
-    assert.deepEqual(parseSkillFrontMatter('---\nname: A\ndescription: Desc one.\nallowed-tools: [Read, Write]\n---\nbody'), {
-      name: 'A',
-      description: 'Desc one.',
-      allowedTools: ['Read', 'Write'],
-      requiredTools: [],
-      requiredCapabilities: [],
-    });
-    assert.deepEqual(parseSkillFrontMatter('---\nname: B\ndescription: Desc two.\nallowed-tools:\n  - Read\n  - Bash\n---\nbody'), {
-      name: 'B',
-      description: 'Desc two.',
-      allowedTools: ['Read', 'Bash'],
-      requiredTools: [],
-      requiredCapabilities: [],
-    });
+    assert.deepEqual(
+      parseSkillFrontMatter(
+        '---\nname: A\ndescription: Desc one.\nallowed-tools: [Read, Write]\n---\nbody',
+      ),
+      {
+        name: 'A',
+        description: 'Desc one.',
+        allowedTools: ['Read', 'Write'],
+        requiredTools: [],
+        requiredCapabilities: [],
+      },
+    );
+    assert.deepEqual(
+      parseSkillFrontMatter(
+        '---\nname: B\ndescription: Desc two.\nallowed-tools:\n  - Read\n  - Bash\n---\nbody',
+      ),
+      {
+        name: 'B',
+        description: 'Desc two.',
+        allowedTools: ['Read', 'Bash'],
+        requiredTools: [],
+        requiredCapabilities: [],
+      },
+    );
   });
 
   it('parseSkillFrontMatter parses required-tools and required-capabilities alongside allowed-tools', () => {
-    assert.deepEqual(parseSkillFrontMatter('---\nname: A\ndescription: Desc one.\nallowed-tools: [Read]\nrequired-tools: [OfficeDocument, OfficeDocumentEdit]\nrequired-capabilities: [office]\n---\nbody'), {
-      name: 'A',
-      description: 'Desc one.',
-      allowedTools: ['Read'],
-      requiredTools: ['OfficeDocument', 'OfficeDocumentEdit'],
-      requiredCapabilities: ['office'],
-    });
-    assert.deepEqual(parseSkillFrontMatter('---\nname: B\ndescription: Desc two.\nallowed-tools:\n  - Read\nrequired-tools:\n  - OfficeDocument\n---\nbody'), {
-      name: 'B',
-      description: 'Desc two.',
-      allowedTools: ['Read'],
-      requiredTools: ['OfficeDocument'],
-      requiredCapabilities: [],
-    });
+    assert.deepEqual(
+      parseSkillFrontMatter(
+        '---\nname: A\ndescription: Desc one.\nallowed-tools: [Read]\nrequired-tools: [OfficeDocument, OfficeDocumentEdit]\nrequired-capabilities: [office]\n---\nbody',
+      ),
+      {
+        name: 'A',
+        description: 'Desc one.',
+        allowedTools: ['Read'],
+        requiredTools: ['OfficeDocument', 'OfficeDocumentEdit'],
+        requiredCapabilities: ['office'],
+      },
+    );
+    assert.deepEqual(
+      parseSkillFrontMatter(
+        '---\nname: B\ndescription: Desc two.\nallowed-tools:\n  - Read\nrequired-tools:\n  - OfficeDocument\n---\nbody',
+      ),
+      {
+        name: 'B',
+        description: 'Desc two.',
+        allowedTools: ['Read'],
+        requiredTools: ['OfficeDocument'],
+        requiredCapabilities: [],
+      },
+    );
   });
 
   it('buildSkillsPromptFragment does not impose an arbitrary count limit', async () => {
     await withWorkspace(async (workspaceRoot) => {
       for (let index = 1; index <= 15; index += 1) {
         const id = `small-${String(index).padStart(2, '0')}`;
-        await writeSkill(workspaceRoot, id, `---\nname: Small ${index}\ndescription: Short.\n---\n# Small ${index}`);
+        await writeSkill(
+          workspaceRoot,
+          id,
+          `---\nname: Small ${index}\ndescription: Short.\n---\n# Small ${index}`,
+        );
       }
       const prompt = await buildSkillsPromptFragment(workspaceRoot);
       assert.ok(prompt);
@@ -849,9 +1114,15 @@ Body.`, 'utf8');
       const longDescription = 'x'.repeat(1200);
       for (let index = 1; index <= 20; index += 1) {
         const id = `big-${String(index).padStart(2, '0')}`;
-        await writeSkill(workspaceRoot, id, `---\nname: Big ${index}\ndescription: ${longDescription}\n---\n# Big ${index}`);
+        await writeSkill(
+          workspaceRoot,
+          id,
+          `---\nname: Big ${index}\ndescription: ${longDescription}\n---\n# Big ${index}`,
+        );
       }
-      const prompt = await buildSkillsPromptFragment(workspaceRoot, undefined, { contextWindow: 128_000 });
+      const prompt = await buildSkillsPromptFragment(workspaceRoot, undefined, {
+        contextWindow: 128_000,
+      });
       assert.ok(prompt);
       const promptCharBudget = resolveSkillsPromptCharBudget({ contextWindow: 128_000 });
       assert.ok(
@@ -866,7 +1137,11 @@ Body.`, 'utf8');
       assert.ok(omittedIds.length > 0);
       for (const id of omittedIds) {
         const loaded = await loadSkillInstructions(workspaceRoot, id);
-        assert.equal(loaded.ok, true, `omitted skill ${id} should still be loadable via the Skill tool`);
+        assert.equal(
+          loaded.ok,
+          true,
+          `omitted skill ${id} should still be loadable via the Skill tool`,
+        );
       }
     });
   });

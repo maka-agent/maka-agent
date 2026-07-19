@@ -283,33 +283,6 @@
   }
 }
 
-.settingsSegmented {
-  justify-self: start;
-  width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-0-5);
-  border-radius: var(--radius-pill);
-  background: var(--foreground-5);
-  padding: var(--space-0-5);
-}
-
-.settingsSegmented button {
-  min-height: 22px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--foreground-secondary);
-  padding: 0 var(--space-2);
-  font-size: var(--font-size-caption);
-}
-
-.settingsSegmented button[data-pressed] {
-  background: var(--background);
-  color: var(--foreground);
-  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.08);
-}
-
 .settingsUsageSummary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -329,42 +302,12 @@
    SimpleStatsTable in usage-settings-page.tsx (inline Tailwind classes,
    no public primitive — a single HTML <table> consumer did not justify one). */
 
-.settingsRow {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border: 0;
-  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
-  border-radius: 0;
-  background: transparent;
-  transition: background var(--duration-base) var(--ease-out-strong);
-}
-
-/* Detail audit + alignment-governance round: bare Switch controls sat at
-   the value column's START (x≈mid-page) while inputs/selects hug the right
-   rail. The original fix tag-qualified the selector with a button prefix, but
-   Base UI renders the Switch root as a SPAN — the selector matched nothing
-   and rotted silently. Tag-AGNOSTIC by rule: role is the contract, the
-   rendered tag never is. */
-.settingsRow > [role="switch"] {
-  justify-self: end;
-}
+/* .settingsRow / .settingsRows moved to rows.css — the single style home
+   for the settings-rows.tsx primitives (PR-SETTINGS-ROWS-CONVERGENCE-0). */
 
 /* #520 PR9: .settingsBadge retired onto the Chip primitive variant="neutral"
    (packages/ui/src/primitives/chip.tsx, size="sm"). Generic settings labels
    stay squared (radius-control), not pill Badge. */
-
-/* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
-   card pattern as `.settingsStructuredPage` — outer card + hairline
-   dividers, no per-row chrome. */
-.settingsRows {
-  display: grid;
-  gap: 0;
-  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
-  overflow: hidden;
-}
 
 /* Per-connection card on AccountSettingsPage. Status badge tone derives
  * from the closed-form ConnectionUiStatus enum:
@@ -385,4 +328,122 @@
 .settingsConnectionList > li {
   margin: 0;
   padding: 0;
+}
+
+.settingsBotActionStack {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settingsBotInfoNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--info) l c h / 0.10);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.settingsBotInfoNoticeIcon {
+  font-style: normal;
+  font-weight: var(--font-weight-medium);
+  color: var(--info-text);
+  line-height: var(--leading-snug);
+}
+
+.settingsBotScanLoginModal {
+  background: var(--background);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-modal);
+  padding: var(--space-3) var(--space-4);
+  width: min(320px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: var(--shadow-minimal);
+}
+
+.settingsBotScanLoginBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2-5);
+  text-align: center;
+}
+
+.settingsBotScanLoginQr {
+  width: 180px;
+  height: 180px;
+  border-radius: var(--radius-surface);
+  background: white;
+  padding: var(--space-2);
+  border: var(--border-width-hairline) solid var(--border);
+  object-fit: contain;
+}
+
+.settingsBotScanLoginQrPlaceholder {
+  width: 180px;
+  height: 180px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-surface);
+  background: var(--foreground-5);
+  border: var(--border-width-hairline) dashed var(--border);
+  color: var(--muted-foreground);
+  font-size: 1.6em;
+}
+
+.settingsBotScanLoginStatus {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--foreground-secondary);
+}
+
+.settingsBotScanLoginStatus[data-status="confirmed"] { color: var(--success-text); }
+.settingsBotScanLoginStatus[data-status="error"] { color: var(--destructive-text); }
+.settingsBotScanLoginStatus[data-status="expired"] { color: var(--info-text); }
+
+.settingsBotScanLoginActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2-5);
+}
+
+.settingsBotAdvanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+
+.settingsBotAdvancedToggle {
+  align-self: flex-start;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: var(--space-1) 0;
+  font-size: var(--font-size-ui);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.settingsBotAdvancedToggle:hover {
+  color: var(--foreground);
+}
+
+.settingsBotAdvancedBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: var(--border-width-thick) solid var(--border);
 }

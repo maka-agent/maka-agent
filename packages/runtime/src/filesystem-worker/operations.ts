@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { glob as nodeGlob } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { isPathInside } from '../path-containment.js';
 import { additionalPermissionAllowsPath } from '@maka/core/additional-permissions';
 
 import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
 import { computeEditedSource } from '../edit-replace.js';
+import { isSupportedImagePath, readWorkspaceImage } from '../image-file.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   type FilesystemWorkerErrorCode,
@@ -46,7 +48,10 @@ export async function executeFilesystemWorkerRequest(
 ): Promise<FilesystemWorkerResponse> {
   try {
     if (request.permissionsHash !== hashAdditionalPermissionProfile(request.operationPermission)) {
-      throw operationError('invalid_request', 'Filesystem operation permission hash did not match.');
+      throw operationError(
+        'invalid_request',
+        'Filesystem operation permission hash did not match.',
+      );
     }
     await assertTargetUnchanged(request.operation.path, request.expectedTarget);
     return {
@@ -77,27 +82,68 @@ export async function executeFilesystemOperation(
 ): Promise<FilesystemWorkerResult> {
   switch (operation.kind) {
     case 'read': {
-      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Read', 'read', operationPermission);
+      const path = await resolveExistingAllowed(
+        operation.cwd,
+        operation.path,
+        'Read',
+        'read',
+        operationPermission,
+      );
+      if (isSupportedImagePath(path)) {
+        try {
+          const image = await readWorkspaceImage(path);
+          return {
+            kind: 'read_image',
+            base64: Buffer.from(image.bytes).toString('base64'),
+            mimeType: image.mimeType,
+          };
+        } catch (error) {
+          throw operationError(
+            'filesystem_error',
+            error instanceof Error ? error.message : 'Image could not be read.',
+          );
+        }
+      }
       const content = await fs.readFile(path, 'utf8');
-      if (operation.offset === undefined && operation.limit === undefined) return { kind: 'read', content };
+      if (operation.offset === undefined && operation.limit === undefined)
+        return { kind: 'read', content };
       const lines = content.split('\n');
       const start = operation.offset ?? 0;
       const end = operation.limit ? start + operation.limit : lines.length;
       return { kind: 'read', content: lines.slice(start, end).join('\n') };
     }
     case 'write': {
-      const path = await resolveWritableAllowed(operation.cwd, operation.path, 'Write', operationPermission);
+      const path = await resolveWritableAllowed(
+        operation.cwd,
+        operation.path,
+        'Write',
+        operationPermission,
+      );
       await fs.writeFile(path, operation.content, 'utf8');
       return { kind: 'write', ok: true, path, bytes: Buffer.byteLength(operation.content, 'utf8') };
     }
     case 'edit': {
-      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Edit', 'write', operationPermission);
+      const path = await resolveExistingAllowed(
+        operation.cwd,
+        operation.path,
+        'Edit',
+        'write',
+        operationPermission,
+      );
       const content = await fs.readFile(path, 'utf8');
       let edited: ReturnType<typeof computeEditedSource>;
       try {
-        edited = computeEditedSource(content, operation.oldString, operation.newString, operation.path);
+        edited = computeEditedSource(
+          content,
+          operation.oldString,
+          operation.newString,
+          operation.path,
+        );
       } catch (error) {
-        throw operationError('edit_conflict', error instanceof Error ? error.message : 'Edit could not be applied.');
+        throw operationError(
+          'edit_conflict',
+          error instanceof Error ? error.message : 'Edit could not be applied.',
+        );
       }
       await fs.writeFile(path, edited.content, 'utf8');
       return {
@@ -111,7 +157,13 @@ export async function executeFilesystemOperation(
       };
     }
     case 'format_json': {
-      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'FormatJson', 'write', operationPermission);
+      const path = await resolveExistingAllowed(
+        operation.cwd,
+        operation.path,
+        'FormatJson',
+        'write',
+        operationPermission,
+      );
       const original = await fs.readFile(path, 'utf8');
       const bytesBefore = Buffer.byteLength(original, 'utf8');
       let parsed: unknown;
@@ -145,7 +197,13 @@ export async function executeFilesystemOperation(
     }
     case 'glob': {
       assertContainedGlobPattern(operation.pattern);
-      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Glob cwd', 'read', operationPermission);
+      const path = await resolveExistingAllowed(
+        operation.cwd,
+        operation.path,
+        'Glob cwd',
+        'read',
+        operationPermission,
+      );
       const files: string[] = [];
       const limit = operation.limit ?? DEFAULT_GLOB_LIMIT;
       for await (const file of nodeGlob(operation.pattern, { cwd: path })) {
@@ -155,8 +213,15 @@ export async function executeFilesystemOperation(
       return { kind: 'glob', files };
     }
     case 'grep': {
-      const path = await resolveExistingAllowed(operation.cwd, operation.path, 'Grep', 'read', operationPermission);
-      if (!dependencies.grepExecutable) throw operationError('grep_unavailable', 'Grep is unavailable in this runtime.');
+      const path = await resolveExistingAllowed(
+        operation.cwd,
+        operation.path,
+        'Grep',
+        'read',
+        operationPermission,
+      );
+      if (!dependencies.grepExecutable)
+        throw operationError('grep_unavailable', 'Grep is unavailable in this runtime.');
       const args = ['-n', '--no-heading', `--max-count=${operation.maxCountPerFile}`];
       if (operation.glob) args.push('--glob', operation.glob);
       args.push(operation.pattern, path);
@@ -167,20 +232,30 @@ export async function executeFilesystemOperation(
         timeoutMs: operation.timeoutMs,
       });
       if (result.exitCode === 1) return { kind: 'grep', matches: [] };
-      if (result.exitCode !== 0) throw operationError('filesystem_error', 'Grep failed while searching files.');
-      return { kind: 'grep', matches: result.stdout.split('\n').filter(Boolean).slice(0, operation.limit) };
+      if (result.exitCode !== 0)
+        throw operationError('filesystem_error', 'Grep failed while searching files.');
+      return {
+        kind: 'grep',
+        matches: result.stdout.split('\n').filter(Boolean).slice(0, operation.limit),
+      };
     }
   }
 }
 
 class FilesystemOperationError extends Error {
-  constructor(readonly code: FilesystemWorkerErrorCode, message: string) {
+  constructor(
+    readonly code: FilesystemWorkerErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = 'FilesystemOperationError';
   }
 }
 
-function operationError(code: FilesystemWorkerErrorCode, message: string): FilesystemOperationError {
+function operationError(
+  code: FilesystemWorkerErrorCode,
+  message: string,
+): FilesystemOperationError {
   return new FilesystemOperationError(code, message);
 }
 
@@ -199,16 +274,24 @@ function sortKeysDeep(value: unknown): unknown {
 function normalizeOperationError(error: unknown): FilesystemOperationError {
   if (error instanceof FilesystemOperationError) return error;
   const code = nodeErrorCode(error);
-  if (code === 'ENOENT' || code === 'ENOTDIR') return operationError('not_found', 'The requested path was not found.');
-  if (code === 'EACCES' || code === 'EPERM') return operationError('filesystem_denied', 'Filesystem access was denied.');
+  if (code === 'ENOENT' || code === 'ENOTDIR')
+    return operationError('not_found', 'The requested path was not found.');
+  if (code === 'EACCES' || code === 'EPERM')
+    return operationError('filesystem_denied', 'Filesystem access was denied.');
   return operationError('filesystem_error', 'Filesystem operation failed.');
 }
 
-async function assertTargetUnchanged(path: string, expected: FilesystemWorkerTarget): Promise<void> {
+async function assertTargetUnchanged(
+  path: string,
+  expected: FilesystemWorkerTarget,
+): Promise<void> {
   const enforcementPath = await realpathAllowMissing(path);
   const targetType = await targetTypeOf(enforcementPath);
   if (enforcementPath !== expected.enforcementPath || targetType !== expected.targetType) {
-    throw operationError('path_changed', 'The approved filesystem target changed before execution.');
+    throw operationError(
+      'path_changed',
+      'The approved filesystem target changed before execution.',
+    );
   }
 }
 
@@ -228,8 +311,11 @@ async function resolveWritableAllowed(
   }
   const parent = await fs.realpath(dirname(candidate));
   assertAllowed(root, candidate, label, 'write', permission);
-  if (!isInside(root, parent) && !exactWriteCoversParent(permission, candidate, parent)) {
-    throw operationError('path_denied', `${label} parent was not covered by the one-call permission.`);
+  if (!isPathInside(root, parent) && !exactWriteCoversParent(permission, candidate, parent)) {
+    throw operationError(
+      'path_denied',
+      `${label} parent was not covered by the one-call permission.`,
+    );
   }
   return candidate;
 }
@@ -256,8 +342,14 @@ async function resolveCandidate(
 ): Promise<{ root: string; candidate: string }> {
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate) && !additionalPermissionAllowsPath(permission, candidate, access)) {
-    throw operationError('path_denied', `${label} path was not covered by the one-call permission.`);
+  if (
+    !isPathInside(root, candidate) &&
+    !additionalPermissionAllowsPath(permission, candidate, access)
+  ) {
+    throw operationError(
+      'path_denied',
+      `${label} path was not covered by the one-call permission.`,
+    );
   }
   return { root, candidate };
 }
@@ -269,13 +361,9 @@ function assertAllowed(
   access: 'read' | 'write',
   permission: FilesystemWorkerRequest['operationPermission'],
 ): void {
-  if (isInside(root, target) || additionalPermissionAllowsPath(permission, target, access)) return;
+  if (isPathInside(root, target) || additionalPermissionAllowsPath(permission, target, access))
+    return;
   throw operationError('path_denied', `${label} path escaped its approved target.`);
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function exactWriteCoversParent(
@@ -283,12 +371,15 @@ function exactWriteCoversParent(
   target: string,
   parent: string,
 ): boolean {
-  return permission.fileSystem?.entries.some((entry) => (
-    entry.access === 'write'
-    && entry.scope === 'exact'
-    && entry.path === target
-    && dirname(entry.path) === parent
-  )) ?? false;
+  return (
+    permission.fileSystem?.entries.some(
+      (entry) =>
+        entry.access === 'write' &&
+        entry.scope === 'exact' &&
+        entry.path === target &&
+        dirname(entry.path) === parent,
+    ) ?? false
+  );
 }
 
 function assertContainedGlobPattern(pattern: string): void {
@@ -325,7 +416,9 @@ function nodeErrorCode(error: unknown): string | undefined {
   return typeof error.code === 'string' ? error.code : undefined;
 }
 
-async function runRipgrep(input: FilesystemWorkerGrepRunInput): Promise<FilesystemWorkerGrepRunResult> {
+async function runRipgrep(
+  input: FilesystemWorkerGrepRunInput,
+): Promise<FilesystemWorkerGrepRunResult> {
   return await new Promise((resolvePromise, reject) => {
     const child = spawn(input.executable, [...input.args], {
       cwd: input.cwd,

@@ -40,24 +40,36 @@ export class PtyProcessDriver {
     this.pty = pty;
     const subscriptions: IDisposable[] = [];
     try {
-      subscriptions.push(pty.onData((data) => {
-        if (this.disposed) return;
-        if (this.exited) {
-          options.onInvariantFailure(new Error('node-pty emitted data after its exit fence'));
-          return;
-        }
-        options.onData(data);
-      }));
-      subscriptions.push(pty.onExit((exit) => {
-        if (this.disposed || this.exited) return;
-        this.exited = true;
-        options.onExit(exit);
-      }));
+      subscriptions.push(
+        pty.onData((data) => {
+          if (this.disposed) return;
+          if (this.exited) {
+            options.onInvariantFailure(new Error('node-pty emitted data after its exit fence'));
+            return;
+          }
+          options.onData(data);
+        }),
+      );
+      subscriptions.push(
+        pty.onExit((exit) => {
+          if (this.disposed || this.exited) return;
+          this.exited = true;
+          options.onExit(exit);
+        }),
+      );
     } catch (error) {
       for (const subscription of subscriptions) {
-        try { subscription.dispose(); } catch { /* startup cleanup continues */ }
+        try {
+          subscription.dispose();
+        } catch {
+          /* startup cleanup continues */
+        }
       }
-      try { killPty(pty, 'SIGKILL'); } catch { /* startup cleanup continues */ }
+      try {
+        killPty(pty, 'SIGKILL');
+      } catch {
+        /* startup cleanup continues */
+      }
       throw error;
     }
     this.subscriptions = subscriptions;

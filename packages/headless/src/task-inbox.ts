@@ -1,7 +1,4 @@
-import type {
-  TaskInboxItem,
-  TaskPermissionRequest,
-} from './task-contracts.js';
+import type { TaskInboxItem, TaskPermissionRequest } from './task-contracts.js';
 
 export function approvalRequestInboxItem(input: {
   inboxItemId: string;

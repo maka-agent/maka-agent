@@ -11,27 +11,36 @@ const fixturePath = fileURLToPath(new URL('./run-command-fixture.js', import.met
 
 describe('maka run argument parsing', () => {
   test('parses prompt, target, thinking, timeout, and max steps', () => {
-    assert.deepEqual(parseMakaRunArgs([
-      'explain this',
-      '--cwd', '/repo',
-      '--connection', 'local',
-      '--model', 'model-1',
-      '--thinking', 'high',
-      '--timeout', '1.5',
-      '--max-steps', '7',
-    ]), {
-      kind: 'run',
-      options: {
-        prompt: 'explain this',
-        stdinPrompt: false,
-        cwd: '/repo',
-        connection: 'local',
-        model: 'model-1',
-        thinking: 'high',
-        timeoutMs: 1500,
-        maxSteps: 7,
+    assert.deepEqual(
+      parseMakaRunArgs([
+        'explain this',
+        '--cwd',
+        '/repo',
+        '--connection',
+        'local',
+        '--model',
+        'model-1',
+        '--thinking',
+        'high',
+        '--timeout',
+        '1.5',
+        '--max-steps',
+        '7',
+      ]),
+      {
+        kind: 'run',
+        options: {
+          prompt: 'explain this',
+          stdinPrompt: false,
+          cwd: '/repo',
+          connection: 'local',
+          model: 'model-1',
+          thinking: 'high',
+          timeoutMs: 1500,
+          maxSteps: 7,
+        },
       },
-    });
+    );
   });
 
   test('recognizes stdin prompt mode and rejects malformed limits', () => {
@@ -44,27 +53,35 @@ describe('maka run argument parsing', () => {
   });
 
   test('parses a non-interactive permission mode and repeatable exact rules', () => {
-    assert.deepEqual(parseMakaRunArgs([
-      'run tools',
-      '--permission-mode', 'execute',
-      '--allow', 'category:file_write',
-      '--allow', 'tool:WriteStdin',
-      '--deny', 'Bash(npm  test)',
-      '--allow', 'Bash(npm test)',
-    ]), {
-      kind: 'run',
-      options: {
-        prompt: 'run tools',
-        stdinPrompt: false,
-        permissionMode: 'execute',
-        permissionRules: [
-          { effect: 'allow', kind: 'category', category: 'file_write' },
-          { effect: 'allow', kind: 'tool', toolName: 'WriteStdin' },
-          { effect: 'deny', kind: 'bash_exact', command: 'npm  test' },
-          { effect: 'allow', kind: 'bash_exact', command: 'npm test' },
-        ],
+    assert.deepEqual(
+      parseMakaRunArgs([
+        'run tools',
+        '--permission-mode',
+        'execute',
+        '--allow',
+        'category:file_write',
+        '--allow',
+        'tool:WriteStdin',
+        '--deny',
+        'Bash(npm  test)',
+        '--allow',
+        'Bash(npm test)',
+      ]),
+      {
+        kind: 'run',
+        options: {
+          prompt: 'run tools',
+          stdinPrompt: false,
+          permissionMode: 'execute',
+          permissionRules: [
+            { effect: 'allow', kind: 'category', category: 'file_write' },
+            { effect: 'allow', kind: 'tool', toolName: 'WriteStdin' },
+            { effect: 'deny', kind: 'bash_exact', command: 'npm  test' },
+            { effect: 'allow', kind: 'bash_exact', command: 'npm test' },
+          ],
+        },
       },
-    });
+    );
   });
 
   test('rejects interactive ask mode and malformed permission rules', () => {
@@ -85,10 +102,7 @@ describe('maka run argument parsing', () => {
       kind: 'run',
       options: { prompt: 'next', stdinPrompt: false, continueLatest: true },
     });
-    assert.equal(
-      parseMakaRunArgs(['next', '--resume', 'session-1', '--continue']).kind,
-      'error',
-    );
+    assert.equal(parseMakaRunArgs(['next', '--resume', 'session-1', '--continue']).kind, 'error');
   });
 
   test('preserves an explicit default thinking constraint for resumed sessions', () => {
@@ -180,18 +194,24 @@ describe('maka run process contract', () => {
       { effect: 'deny', kind: 'category', category: 'read' },
       { effect: 'allow', kind: 'bash_exact', command: 'npm test' },
     ];
-    const result = await runFixture([
-      'hello',
-      '--permission-mode', 'bypass',
-      '--deny', 'category:read',
-      '--allow', 'Bash(npm test)',
-    ], {
-      input: '',
-      env: {
-        MAKA_RUN_EXPECT_PERMISSION_MODE: 'bypass',
-        MAKA_RUN_EXPECT_PERMISSION_RULES: JSON.stringify(permissionRules),
+    const result = await runFixture(
+      [
+        'hello',
+        '--permission-mode',
+        'bypass',
+        '--deny',
+        'category:read',
+        '--allow',
+        'Bash(npm test)',
+      ],
+      {
+        input: '',
+        env: {
+          MAKA_RUN_EXPECT_PERMISSION_MODE: 'bypass',
+          MAKA_RUN_EXPECT_PERMISSION_RULES: JSON.stringify(permissionRules),
+        },
       },
-    });
+    );
 
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout, 'prompt=hello\n');
@@ -213,24 +233,31 @@ describe('maka run process contract', () => {
       model: 'fixture-model',
       permissionMode: 'execute',
     });
-    const result = await runFixture([
-      'continue this',
-      '--resume', resumed.id,
-      '--connection', resumed.llmConnectionSlug,
-      '--model', resumed.model,
-      '--permission-mode', resumed.permissionMode,
-    ], {
-      input: '',
-      env: {
-        MAKA_RUN_FIXTURE_SESSIONS: JSON.stringify([resumed]),
-        MAKA_RUN_EXPECT_NO_CREATE: '1',
-        MAKA_RUN_EXPECT_SESSION_ID: resumed.id,
-        MAKA_RUN_EXPECT_CONTEXT_CWD: cwd,
-        MAKA_RUN_EXPECT_CONTEXT_CONNECTION: resumed.llmConnectionSlug,
-        MAKA_RUN_EXPECT_CONTEXT_MODEL: resumed.model,
-        MAKA_RUN_EXPECT_CWD_OVERRIDE: JSON.stringify({ sessionId: resumed.id, cwd }),
+    const result = await runFixture(
+      [
+        'continue this',
+        '--resume',
+        resumed.id,
+        '--connection',
+        resumed.llmConnectionSlug,
+        '--model',
+        resumed.model,
+        '--permission-mode',
+        resumed.permissionMode,
+      ],
+      {
+        input: '',
+        env: {
+          MAKA_RUN_FIXTURE_SESSIONS: JSON.stringify([resumed]),
+          MAKA_RUN_EXPECT_NO_CREATE: '1',
+          MAKA_RUN_EXPECT_SESSION_ID: resumed.id,
+          MAKA_RUN_EXPECT_CONTEXT_CWD: cwd,
+          MAKA_RUN_EXPECT_CONTEXT_CONNECTION: resumed.llmConnectionSlug,
+          MAKA_RUN_EXPECT_CONTEXT_MODEL: resumed.model,
+          MAKA_RUN_EXPECT_CWD_OVERRIDE: JSON.stringify({ sessionId: resumed.id, cwd }),
+        },
       },
-    });
+    );
 
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout, 'prompt=continue this\n');
@@ -238,14 +265,13 @@ describe('maka run process contract', () => {
 
   test('returns exit 2 when explicit configuration conflicts with a resumed session', async () => {
     const resumed = fixtureSession({ id: 'resume-me', cwd: process.cwd() });
-    const result = await runFixture([
-      'continue this',
-      '--resume', resumed.id,
-      '--model', 'different-model',
-    ], {
-      input: '',
-      env: { MAKA_RUN_FIXTURE_SESSIONS: JSON.stringify([resumed]) },
-    });
+    const result = await runFixture(
+      ['continue this', '--resume', resumed.id, '--model', 'different-model'],
+      {
+        input: '',
+        env: { MAKA_RUN_FIXTURE_SESSIONS: JSON.stringify([resumed]) },
+      },
+    );
 
     assert.equal(result.code, 2);
     assert.match(result.stderr, /--model conflicts with resumed session/);
@@ -304,7 +330,9 @@ describe('maka run process contract', () => {
     child.stdin.end();
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
     const ready = new Promise<void>((resolve) => {
       child.stderr.on('data', (chunk: Buffer) => {
         stderr += chunk.toString('utf8');
@@ -314,7 +342,7 @@ describe('maka run process contract', () => {
     await ready;
     child.kill('SIGINT');
 
-    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
 
     assert.equal(signal, null);
     assert.equal(code, 130, stderr);
@@ -341,8 +369,12 @@ function runFixture(
     });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
     child.on('close', (code) => resolve({ code, stdout, stderr }));
     child.stdin.end(options.input ?? '');
   });

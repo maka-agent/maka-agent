@@ -2,12 +2,18 @@ import assert from 'node:assert/strict';
 import type { IncomingMessage } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, tool } from 'ai';
+import { generateText, isStepCount, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { testConnection } from '../test-connection.js';
-import { closeAllJsonServers, readBody, respondJson, startJsonServer } from './conformance-harness.js';
+import {
+  closeAllJsonServers,
+  readBody,
+  respondJson,
+  respondOpenAIStream,
+  startJsonServer,
+} from './conformance-harness.js';
 
 after(closeAllJsonServers);
 
@@ -18,41 +24,49 @@ describe('models.dev provider conformance', () => {
       assert.equal(request.url, '/models');
       assert.equal(request.headers.authorization, 'Bearer github-account-token');
       respondJson(response, 200, {
-        data: [{
-          id: 'gpt-5.4',
-          model_picker_enabled: true,
-          supported_endpoints: ['/responses'],
-          policy: { state: 'enabled' },
-          capabilities: { supports: { tool_calls: true } },
-        }],
+        data: [
+          {
+            id: 'gpt-5.4',
+            model_picker_enabled: true,
+            supported_endpoints: ['/responses'],
+            policy: { state: 'enabled' },
+            capabilities: { supports: { tool_calls: true } },
+          },
+        ],
       });
     });
-    const result = await testConnection({
-      slug: 'github-copilot',
-      name: 'GitHub Copilot',
-      providerType: 'github-copilot',
-      baseUrl: server.url,
-      defaultModel: 'gpt-5.4',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'github-account-token');
+    const result = await testConnection(
+      {
+        slug: 'github-copilot',
+        name: 'GitHub Copilot',
+        providerType: 'github-copilot',
+        baseUrl: server.url,
+        defaultModel: 'gpt-5.4',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'github-account-token',
+    );
 
     assert.deepEqual(result, { ok: true, latencyMs: result.latencyMs, modelTested: 'gpt-5.4' });
   });
 
   test('GitHub Copilot connection probe rejects an account that cannot discover models', async () => {
     const server = await startJsonServer((_request, response) => respondJson(response, 403, {}));
-    const result = await testConnection({
-      slug: 'github-copilot',
-      name: 'GitHub Copilot',
-      providerType: 'github-copilot',
-      baseUrl: server.url,
-      defaultModel: 'gpt-5.4',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'github-account-token');
+    const result = await testConnection(
+      {
+        slug: 'github-copilot',
+        name: 'GitHub Copilot',
+        providerType: 'github-copilot',
+        baseUrl: server.url,
+        defaultModel: 'gpt-5.4',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'github-account-token',
+    );
 
     assert.equal(result.ok, false);
   });
@@ -71,13 +85,17 @@ describe('models.dev provider conformance', () => {
           created_at: 1,
           status: 'completed',
           model: 'gpt-5.5',
-          output: [{
-            type: 'message',
-            id: 'msg_gpt5',
-            status: 'completed',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: 'Responses wire.', annotations: [], logprobs: [] }],
-          }],
+          output: [
+            {
+              type: 'message',
+              id: 'msg_gpt5',
+              status: 'completed',
+              role: 'assistant',
+              content: [
+                { type: 'output_text', text: 'Responses wire.', annotations: [], logprobs: [] },
+              ],
+            },
+          ],
           usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
         });
         return;
@@ -88,11 +106,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: 'gpt-4o',
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Chat wire.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Chat wire.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
       });
     });
@@ -140,14 +160,16 @@ describe('models.dev provider conformance', () => {
           created_at: 1,
           status: 'completed',
           model: modelId,
-          output: [{
-            type: 'function_call',
-            id: 'fc_opencode_zen_echo',
-            call_id: 'call_opencode_zen_echo',
-            name: 'echo',
-            arguments: '{"text":"hello"}',
-            status: 'completed',
-          }],
+          output: [
+            {
+              type: 'function_call',
+              id: 'fc_opencode_zen_echo',
+              call_id: 'call_opencode_zen_echo',
+              name: 'echo',
+              arguments: '{"text":"hello"}',
+              status: 'completed',
+            },
+          ],
           usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -158,13 +180,17 @@ describe('models.dev provider conformance', () => {
         created_at: 2,
         status: 'completed',
         model: modelId,
-        output: [{
-          type: 'message',
-          id: 'msg_opencode_zen_final',
-          status: 'completed',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: 'Echoed hello.', annotations: [], logprobs: [] }],
-        }],
+        output: [
+          {
+            type: 'message',
+            id: 'msg_opencode_zen_final',
+            status: 'completed',
+            role: 'assistant',
+            content: [
+              { type: 'output_text', text: 'Echoed hello.', annotations: [], logprobs: [] },
+            ],
+          },
+        ],
         usage: { input_tokens: 14, output_tokens: 3, total_tokens: 17 },
       });
     });
@@ -183,7 +209,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'opencode-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -193,22 +219,33 @@ describe('models.dev provider conformance', () => {
       },
     });
 
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1].input as Array<Record<string, unknown>>).find(({ type }) => type === 'function_call_output'),
-      { type: 'function_call_output', call_id: 'call_opencode_zen_echo', output: '{"echoed":"hello"}' },
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      (requestBodies[1].input as Array<Record<string, unknown>>).find(
+        ({ type }) => type === 'function_call_output',
+      ),
+      {
+        type: 'function_call_output',
+        call_id: 'call_opencode_zen_echo',
+        output: '{"echoed":"hello"}',
+      },
     );
     assert.equal(result.text, 'Echoed hello.');
   });
 
   test('ZenMux preserves exact model ids and signed reasoning through a two-stage OpenAI Chat tool loop', async () => {
     const modelId = 'moonshotai/kimi-k2.5';
-    const reasoningDetails = [{
-      type: 'reasoning.text',
-      text: 'I should call echo with the requested text.',
-      signature: 'deterministic-test-signature',
-      format: 'anthropic-claude-v1',
-    }];
+    const reasoningDetails = [
+      {
+        type: 'reasoning.text',
+        text: 'I should call echo with the requested text.',
+        signature: 'deterministic-test-signature',
+        format: 'anthropic-claude-v1',
+      },
+    ];
     const requestBodies: Array<Record<string, unknown>> = [];
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.method, 'POST');
@@ -222,21 +259,25 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning: 'I should call echo with the requested text.',
-              reasoning_details: reasoningDetails,
-              tool_calls: [{
-                id: 'call_zenmux_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning: 'I should call echo with the requested text.',
+                reasoning_details: reasoningDetails,
+                tool_calls: [
+                  {
+                    id: 'call_zenmux_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -247,11 +288,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -269,7 +312,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -280,24 +323,33 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning: 'I should call echo with the requested text.',
         reasoning_details: reasoningDetails,
-        tool_calls: [{
-          id: 'call_zenmux_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_zenmux_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_zenmux_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -332,11 +384,10 @@ describe('models.dev provider conformance', () => {
       assert.equal((await testConnection(connection, 'opencode-test-key', modelId)).ok, true);
     }
 
-    assert.deepEqual(requests.map(({ url }) => url), [
-      '/zen/v1/responses',
-      '/zen/v1/messages',
-      '/zen/v1/models/gemini-3.5-flash:generateContent',
-    ]);
+    assert.deepEqual(
+      requests.map(({ url }) => url),
+      ['/zen/v1/responses', '/zen/v1/messages', '/zen/v1/models/gemini-3.5-flash:generateContent'],
+    );
     assert.equal(requests[0]?.headers.authorization, 'Bearer opencode-test-key');
     assert.deepEqual(requests[0]?.body.input, [{ role: 'user', content: 'Hi' }]);
     assert.equal(requests[1]?.headers['x-api-key'], 'opencode-test-key');
@@ -353,14 +404,16 @@ describe('models.dev provider conformance', () => {
         assert.equal(request.headers.authorization, undefined);
         respondJson(response, 200, {
           object: 'list',
-          data: [{
-            id: modelId,
-            name: 'Grok 4.3',
-            type: 'language',
-            tags: ['reasoning', 'tool-use'],
-            context_window: 1_000_000,
-            max_tokens: 1_000_000,
-          }],
+          data: [
+            {
+              id: modelId,
+              name: 'Grok 4.3',
+              type: 'language',
+              tags: ['reasoning', 'tool-use'],
+              context_window: 1_000_000,
+              max_tokens: 1_000_000,
+            },
+          ],
         });
         return;
       }
@@ -376,20 +429,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_vercel_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'I should call echo with the requested text.',
+                tool_calls: [
+                  {
+                    id: 'call_vercel_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -400,11 +457,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -420,19 +479,24 @@ describe('models.dev provider conformance', () => {
     };
 
     const models = await fetchProviderModels(connection, 'vercel-test-key');
-    assert.deepEqual(models, [{
-      id: modelId,
-      displayName: 'Grok 4.3',
-      contextWindow: 1_000_000,
-      maxOutputTokens: 1_000_000,
-      capabilities: { reasoning: true, functionCalling: true },
-    }]);
+    assert.deepEqual(models, [
+      {
+        id: modelId,
+        displayName: 'Grok 4.3',
+        contextWindow: 1_000_000,
+        maxOutputTokens: 1_000_000,
+        capabilities: { reasoning: true, functionCalling: true },
+      },
+    ]);
 
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'vercel-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<string, Record<string, string>>,
-      stopWhen: stepCountIs(2),
+      providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<
+        string,
+        Record<string, string>
+      >,
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -443,24 +507,33 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
     assert.equal(requestBodies[0]?.reasoning_effort, 'high');
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_vercel_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_vercel_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_vercel_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
@@ -489,20 +562,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_ollama_cloud_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning: 'I should call echo with the requested text.',
+                tool_calls: [
+                  {
+                    id: 'call_ollama_cloud_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -513,11 +590,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -541,7 +620,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'ollama-cloud-test-key', modelId }),
       prompt: 'Call echo with hello.',
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -552,27 +631,79 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
     assert.equal(requestBodies[0]?.reasoning_effort, 'high');
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_ollama_cloud_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_ollama_cloud_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ollama_cloud_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('Ollama Cloud requests usage in streamed chat completions', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      requestBody = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      respondOpenAIStream(response, [
+        {
+          id: 'chatcmpl-ollama-cloud-stream',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: 'glm-5.2',
+          choices: [
+            { index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+          ],
+          usage: { prompt_tokens: 8, completion_tokens: 1, total_tokens: 9 },
+        },
+      ]);
+    });
+    const connection: LlmConnection = {
+      slug: 'ollama-cloud',
+      name: 'Ollama Cloud',
+      providerType: 'ollama-cloud',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'glm-5.2',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const result = streamText({
+      model: getAIModel({ connection, apiKey: 'ollama-cloud-test-key', modelId: 'glm-5.2' }),
+      prompt: 'Reply ok.',
+    });
+
+    assert.equal(await result.text, 'ok');
+    assert.deepEqual(requestBody?.stream_options, { include_usage: true });
+    const usage = await result.usage;
+    assert.equal(usage.inputTokens, 8);
+    assert.equal(usage.outputTokens, 1);
+    assert.equal(usage.totalTokens, 9);
   });
 
   test('DeepInfra discovers exact model ids and completes its documented two-stage tool-call loop', async () => {
@@ -601,11 +732,13 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 2,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: 'Echoed hello.' },
-            finish_reason: 'stop',
-          }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'Echoed hello.' },
+              finish_reason: 'stop',
+            },
+          ],
           usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
         });
         return;
@@ -615,19 +748,23 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
     });
@@ -649,7 +786,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'deepinfra-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -660,14 +797,24 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      requestBodies.map((body) => body.reasoning_effort),
+      ['high', 'high'],
+    );
+    assert.deepEqual(
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+        (entry) => entry.function.name,
+      ),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -702,11 +849,13 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 2,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: 'Echoed hello.' },
-            finish_reason: 'stop',
-          }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'Echoed hello.' },
+              finish_reason: 'stop',
+            },
+          ],
           usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
         });
         return;
@@ -716,19 +865,23 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
     });
@@ -750,7 +903,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'groq-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -761,14 +914,24 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      requestBodies.map((body) => body.reasoning_effort),
+      ['high', 'high'],
+    );
+    assert.deepEqual(
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+        (entry) => entry.function.name,
+      ),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -803,11 +966,13 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 2,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: 'Echoed hello.' },
-            finish_reason: 'stop',
-          }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'Echoed hello.' },
+              finish_reason: 'stop',
+            },
+          ],
           usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
         });
         return;
@@ -817,19 +982,23 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
     });
@@ -851,7 +1020,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'openrouter-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -862,14 +1031,24 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      requestBodies.map((body) => body.reasoning_effort),
+      ['high', 'high'],
+    );
+    assert.deepEqual(
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+        (entry) => entry.function.name,
+      ),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -884,10 +1063,7 @@ describe('models.dev provider conformance', () => {
     const server = await startJsonServer(async (request, response) => {
       assert.equal(request.headers.authorization, 'Bearer cloudflare-workers-ai-test-token');
       assert.equal(request.method, 'POST');
-      assert.equal(
-        request.url,
-        '/client/v4/accounts/account-123/ai/v1/chat/completions',
-      );
+      assert.equal(request.url, '/client/v4/accounts/account-123/ai/v1/chat/completions');
       const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
       requestBodies.push(body);
       const messages = body.messages as Array<{ role: string }>;
@@ -897,11 +1073,13 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 2,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: 'Echoed hello.' },
-            finish_reason: 'stop',
-          }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'Echoed hello.' },
+              finish_reason: 'stop',
+            },
+          ],
           usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
         });
         return;
@@ -911,20 +1089,24 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            reasoning: 'I should call echo and use its result.',
-            tool_calls: [{
-              id: 'call_cloudflare_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning: 'I should call echo and use its result.',
+              tool_calls: [
+                {
+                  id: 'call_cloudflare_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
     });
@@ -939,10 +1121,7 @@ describe('models.dev provider conformance', () => {
       updatedAt: 1,
     };
 
-    const models = await fetchProviderModels(
-      connection,
-      'cloudflare-workers-ai-test-token',
-    );
+    const models = await fetchProviderModels(connection, 'cloudflare-workers-ai-test-token');
     assert.equal(requestBodies.length, 0, 'snapshot fallback must not invent a discovery request');
     assert.equal(models[0]?.id, modelId);
     assert.ok(models.every((model) => model.id.startsWith('@cf/')));
@@ -955,7 +1134,7 @@ describe('models.dev provider conformance', () => {
       }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -966,10 +1145,18 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(requestBodies.map((body) => body.reasoning_effort), ['high', 'high']);
     assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      requestBodies.map((body) => body.reasoning_effort),
+      ['high', 'high'],
+    );
+    assert.deepEqual(
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+        (entry) => entry.function.name,
+      ),
       ['echo'],
     );
     const secondMessages = requestBodies[1]?.messages as Array<{
@@ -1031,20 +1218,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should call echo and use its result.',
-              tool_calls: [{
-                id: 'call_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'I should call echo and use its result.',
+                tool_calls: [
+                  {
+                    id: 'call_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -1055,11 +1246,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 5, total_tokens: 19 },
       });
     });
@@ -1080,7 +1273,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'hf-test-token', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1091,7 +1284,10 @@ describe('models.dev provider conformance', () => {
     });
 
     assert.equal(requestBodies.length, 2);
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
+    assert.deepEqual(
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
     const secondMessages = requestBodies[1]?.messages as Array<{
       role: string;
       content: unknown;
@@ -1125,20 +1321,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_tencent_coding_plan_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'I should call echo with the requested text.',
+                tool_calls: [
+                  {
+                    id: 'call_tencent_coding_plan_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -1149,11 +1349,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -1169,17 +1371,15 @@ describe('models.dev provider conformance', () => {
     };
 
     const models = await fetchProviderModels(connection, 'tencent-coding-plan-test-key');
-    assert.deepEqual(models.map(({ id }) => id), [
-      'tc-code-latest',
-      'glm-5',
-      'minimax-m2.5',
-      'kimi-k2.5',
-    ]);
+    assert.deepEqual(
+      models.map(({ id }) => id),
+      ['tc-code-latest', 'glm-5', 'minimax-m2.5', 'kimi-k2.5'],
+    );
 
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'tencent-coding-plan-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1191,23 +1391,36 @@ describe('models.dev provider conformance', () => {
 
     assert.equal(requestBodies.length, 2);
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_tencent_coding_plan_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_tencent_coding_plan_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
-      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_tencent_coding_plan_echo' },
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
+      {
+        role: 'tool',
+        content: '{"echoed":"hello"}',
+        tool_call_id: 'call_tencent_coding_plan_echo',
+      },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
@@ -1229,20 +1442,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_volcengine_coding_plan_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'I should call echo with the requested text.',
+                tool_calls: [
+                  {
+                    id: 'call_volcengine_coding_plan_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -1253,11 +1470,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -1273,25 +1492,28 @@ describe('models.dev provider conformance', () => {
     };
 
     const models = await fetchProviderModels(connection, 'volcengine-coding-plan-test-key');
-    assert.deepEqual(models.map(({ id }) => id), [
-      'ark-code-latest',
-      'doubao-seed-2.0-code',
-      'doubao-seed-2.0-pro',
-      'doubao-seed-2.0-lite',
-      'doubao-seed-code',
-      'minimax-m2.7',
-      'minimax-m3',
-      'glm-5.2',
-      'deepseek-v4-flash',
-      'deepseek-v4-pro',
-      'kimi-k2.6',
-      'kimi-k2.7-code',
-    ]);
+    assert.deepEqual(
+      models.map(({ id }) => id),
+      [
+        'ark-code-latest',
+        'doubao-seed-2.0-code',
+        'doubao-seed-2.0-pro',
+        'doubao-seed-2.0-lite',
+        'doubao-seed-code',
+        'minimax-m2.7',
+        'minimax-m3',
+        'glm-5.2',
+        'deepseek-v4-flash',
+        'deepseek-v4-pro',
+        'kimi-k2.6',
+        'kimi-k2.7-code',
+      ],
+    );
 
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'volcengine-coding-plan-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1303,23 +1525,36 @@ describe('models.dev provider conformance', () => {
 
     assert.equal(requestBodies.length, 2);
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_volcengine_coding_plan_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_volcengine_coding_plan_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
-      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_volcengine_coding_plan_echo' },
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
+      {
+        role: 'tool',
+        content: '{"echoed":"hello"}',
+        tool_call_id: 'call_volcengine_coding_plan_echo',
+      },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
@@ -1341,20 +1576,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_tencent_token_plan_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'I should call echo with the requested text.',
+                tool_calls: [
+                  {
+                    id: 'call_tencent_token_plan_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -1365,11 +1604,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -1385,24 +1626,30 @@ describe('models.dev provider conformance', () => {
     };
 
     const models = await fetchProviderModels(connection, 'tencent-token-plan-test-key');
-    assert.deepEqual(models.map(({ id }) => id), [
-      'tc-code-latest',
-      'deepseek-v4-flash-202605',
-      'deepseek-v4-pro-202606',
-      'minimax-m2.5',
-      'minimax-m2.7',
-      'glm-5',
-      'glm-5.1',
-      'kimi-k2.5',
-      'hy3',
-      'hy3-preview',
-    ]);
+    assert.deepEqual(
+      models.map(({ id }) => id),
+      [
+        'tc-code-latest',
+        'deepseek-v4-flash-202605',
+        'deepseek-v4-pro-202606',
+        'minimax-m2.5',
+        'minimax-m2.7',
+        'glm-5',
+        'glm-5.1',
+        'kimi-k2.5',
+        'hy3',
+        'hy3-preview',
+      ],
+    );
 
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'tencent-token-plan-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<string, Record<string, string>>,
-      stopWhen: stepCountIs(2),
+      providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<
+        string,
+        Record<string, string>
+      >,
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1415,22 +1662,31 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.equal(requestBodies[0]?.reasoning_effort, 'high');
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_tencent_token_plan_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_tencent_token_plan_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_tencent_token_plan_echo' },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
@@ -1441,113 +1697,131 @@ describe('models.dev provider conformance', () => {
   for (const stepfun of [
     { label: 'StepFun China', providerType: 'stepfun', apiKey: 'stepfun-test-key' },
     { label: 'StepFun Global', providerType: 'stepfun-ai', apiKey: 'stepfun-global-test-key' },
-  ] as const) test(`${stepfun.label} preserves its exact model id through discovery and the documented two-stage tool-call loop`, async () => {
-    const modelId = 'step-3.7-flash';
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, `Bearer ${stepfun.apiKey}`);
-      if (request.method === 'GET' && request.url === '/v1/models') {
-        respondJson(response, 200, { object: 'list', data: [{ id: modelId }] });
-        return;
-      }
+  ] as const)
+    test(`${stepfun.label} preserves its exact model id through discovery and the documented two-stage tool-call loop`, async () => {
+      const modelId = 'step-3.7-flash';
+      const requestBodies: Array<Record<string, unknown>> = [];
+      const server = await startJsonServer(async (request, response) => {
+        assert.equal(request.headers.authorization, `Bearer ${stepfun.apiKey}`);
+        if (request.method === 'GET' && request.url === '/v1/models') {
+          respondJson(response, 200, { object: 'list', data: [{ id: modelId }] });
+          return;
+        }
 
-      assert.equal(request.method, 'POST');
-      assert.equal(request.url, '/v1/chat/completions');
-      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
-      requestBodies.push(body);
-      if (requestBodies.length === 1) {
+        assert.equal(request.method, 'POST');
+        assert.equal(request.url, '/v1/chat/completions');
+        const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+        requestBodies.push(body);
+        if (requestBodies.length === 1) {
+          respondJson(response, 200, {
+            id: 'chatcmpl-stepfun-tool',
+            object: 'chat.completion',
+            created: 1,
+            model: modelId,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: '',
+                  reasoning: 'I should call echo with the requested text.',
+                  tool_calls: [
+                    {
+                      id: 'call_stepfun_echo',
+                      type: 'function',
+                      function: { name: 'echo', arguments: '{"text":"hello"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+          });
+          return;
+        }
+
         respondJson(response, 200, {
-          id: 'chatcmpl-stepfun-tool',
+          id: 'chatcmpl-stepfun-final',
           object: 'chat.completion',
-          created: 1,
+          created: 2,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: '',
-              reasoning: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_stepfun_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'Echoed hello.' },
+              finish_reason: 'stop',
             },
-            finish_reason: 'stop',
-          }],
-          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+          ],
+          usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
         });
-        return;
-      }
-
-      respondJson(response, 200, {
-        id: 'chatcmpl-stepfun-final',
-        object: 'chat.completion',
-        created: 2,
-        model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
-        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
+      const connection: LlmConnection = {
+        slug: stepfun.providerType,
+        name: stepfun.label,
+        providerType: stepfun.providerType,
+        baseUrl: `${server.url}/v1`,
+        defaultModel: modelId,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+
+      const models = await fetchProviderModels(connection, stepfun.apiKey);
+      assert.deepEqual(models, [{ id: modelId }]);
+
+      const result = await generateText({
+        model: getAIModel({ connection, apiKey: stepfun.apiKey, modelId: models[0]!.id }),
+        prompt: 'Call echo with hello.',
+        stopWhen: isStepCount(2),
+        tools: {
+          echo: tool({
+            description: 'Echo text',
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => ({ echoed: text }),
+          }),
+        },
+      });
+
+      assert.equal(requestBodies.length, 2);
+      assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+      assert.deepEqual(
+        requestBodies.map((body) => body.model),
+        [modelId, modelId],
+      );
+      assert.deepEqual(
+        (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+          (entry) => entry.function.name,
+        ),
+        ['echo'],
+      );
+      assert.deepEqual(
+        (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+          ({ role }) => role === 'tool',
+        ),
+        { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_stepfun_echo' },
+      );
+      assert.deepEqual(
+        (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+          ({ role }) => role === 'assistant',
+        ),
+        {
+          role: 'assistant',
+          content: null,
+          reasoning_content: 'I should call echo with the requested text.',
+          tool_calls: [
+            {
+              id: 'call_stepfun_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            },
+          ],
+        },
+      );
+      assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
+      assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+      assert.equal(result.text, 'Echoed hello.');
     });
-    const connection: LlmConnection = {
-      slug: stepfun.providerType,
-      name: stepfun.label,
-      providerType: stepfun.providerType,
-      baseUrl: `${server.url}/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    const models = await fetchProviderModels(connection, stepfun.apiKey);
-    assert.deepEqual(models, [{ id: modelId }]);
-
-    const result = await generateText({
-      model: getAIModel({ connection, apiKey: stepfun.apiKey, modelId: models[0]!.id }),
-      prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
-      tools: {
-        echo: tool({
-          description: 'Echo text',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text }) => ({ echoed: text }),
-        }),
-      },
-    });
-
-    assert.equal(requestBodies.length, 2);
-    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
-      ['echo'],
-    );
-    assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
-      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_stepfun_echo' },
-    );
-    assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
-      {
-        role: 'assistant',
-        content: null,
-        reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_stepfun_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
-      },
-    );
-    assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
-    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
-    assert.equal(result.text, 'Echoed hello.');
-  });
 
   for (const stepfunPlan of [
     {
@@ -1564,103 +1838,130 @@ describe('models.dev provider conformance', () => {
       apiKey: 'stepfun-global-step-plan-test-key',
       models: ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
     },
-  ] as const) test(`StepFun Step Plan ${stepfunPlan.label} preserves its snapshot model through the documented two-stage tool-call loop`, async () => {
-    const modelId = 'step-3.7-flash';
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const server = await startJsonServer(async (request, response) => {
-      assert.equal(request.headers.authorization, `Bearer ${stepfunPlan.apiKey}`);
-      assert.equal(request.method, 'POST');
-      assert.equal(request.url, '/step_plan/v1/chat/completions');
-      const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
-      requestBodies.push(body);
-      if (requestBodies.length === 1) {
+  ] as const)
+    test(`StepFun Step Plan ${stepfunPlan.label} preserves its snapshot model through the documented two-stage tool-call loop`, async () => {
+      const modelId = 'step-3.7-flash';
+      const requestBodies: Array<Record<string, unknown>> = [];
+      const server = await startJsonServer(async (request, response) => {
+        assert.equal(request.headers.authorization, `Bearer ${stepfunPlan.apiKey}`);
+        assert.equal(request.method, 'POST');
+        assert.equal(request.url, '/step_plan/v1/chat/completions');
+        const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
+        requestBodies.push(body);
+        if (requestBodies.length === 1) {
+          respondJson(response, 200, {
+            id: 'chatcmpl-stepfun-step-plan-tool',
+            object: 'chat.completion',
+            created: 1,
+            model: modelId,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: '',
+                  reasoning: 'I should call echo with the requested text.',
+                  tool_calls: [
+                    {
+                      id: 'call_stepfun_step_plan_echo',
+                      type: 'function',
+                      function: { name: 'echo', arguments: '{"text":"hello"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+          });
+          return;
+        }
+
         respondJson(response, 200, {
-          id: 'chatcmpl-stepfun-step-plan-tool',
+          id: 'chatcmpl-stepfun-step-plan-final',
           object: 'chat.completion',
-          created: 1,
+          created: 2,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: '',
-              reasoning: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_stepfun_step_plan_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'Echoed hello.' },
+              finish_reason: 'stop',
             },
-            finish_reason: 'tool_calls',
-          }],
-          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+          ],
+          usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
         });
-        return;
-      }
-
-      respondJson(response, 200, {
-        id: 'chatcmpl-stepfun-step-plan-final',
-        object: 'chat.completion',
-        created: 2,
-        model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
-        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
+      const connection: LlmConnection = {
+        slug: stepfunPlan.providerType,
+        name: stepfunPlan.name,
+        providerType: stepfunPlan.providerType,
+        baseUrl: `${server.url}/step_plan/v1`,
+        defaultModel: modelId,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+
+      const models = await fetchProviderModels(connection, stepfunPlan.apiKey);
+      assert.deepEqual(
+        models.map((model) => model.id),
+        [...stepfunPlan.models],
+      );
+
+      const result = await generateText({
+        model: getAIModel({ connection, apiKey: stepfunPlan.apiKey, modelId: models[0]!.id }),
+        prompt: 'Call echo with hello.',
+        stopWhen: isStepCount(2),
+        tools: {
+          echo: tool({
+            description: 'Echo text',
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => ({ echoed: text }),
+          }),
+        },
+      });
+
+      assert.equal(
+        requestBodies.length,
+        2,
+        'snapshot discovery must not call an undocumented /models endpoint',
+      );
+      assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
+      assert.deepEqual(
+        requestBodies.map((body) => body.model),
+        [modelId, modelId],
+      );
+      assert.deepEqual(
+        (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+          ({ role }) => role === 'tool',
+        ),
+        {
+          role: 'tool',
+          content: '{"echoed":"hello"}',
+          tool_call_id: 'call_stepfun_step_plan_echo',
+        },
+      );
+      assert.deepEqual(
+        (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+          ({ role }) => role === 'assistant',
+        ),
+        {
+          role: 'assistant',
+          content: null,
+          reasoning_content: 'I should call echo with the requested text.',
+          tool_calls: [
+            {
+              id: 'call_stepfun_step_plan_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            },
+          ],
+        },
+      );
+      assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+      assert.equal(result.text, 'Echoed hello.');
     });
-    const connection: LlmConnection = {
-      slug: stepfunPlan.providerType,
-      name: stepfunPlan.name,
-      providerType: stepfunPlan.providerType,
-      baseUrl: `${server.url}/step_plan/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    const models = await fetchProviderModels(connection, stepfunPlan.apiKey);
-    assert.deepEqual(models.map((model) => model.id), [...stepfunPlan.models]);
-
-    const result = await generateText({
-      model: getAIModel({ connection, apiKey: stepfunPlan.apiKey, modelId: models[0]!.id }),
-      prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
-      tools: {
-        echo: tool({
-          description: 'Echo text',
-          inputSchema: z.object({ text: z.string() }),
-          execute: async ({ text }) => ({ echoed: text }),
-        }),
-      },
-    });
-
-    assert.equal(requestBodies.length, 2, 'snapshot discovery must not call an undocumented /models endpoint');
-    assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
-    assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
-      { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_stepfun_step_plan_echo' },
-    );
-    assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
-      {
-        role: 'assistant',
-        content: null,
-        reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_stepfun_step_plan_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
-      },
-    );
-    assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
-    assert.equal(result.text, 'Echoed hello.');
-  });
 
   test('Volcengine Ark preserves its snapshot model id through the documented two-stage tool-call loop', async () => {
     const modelId = 'doubao-seed-2-0-pro-260215';
@@ -1677,20 +1978,24 @@ describe('models.dev provider conformance', () => {
           object: 'chat.completion',
           created: 1,
           model: modelId,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'I should call echo with the requested text.',
-              tool_calls: [{
-                id: 'call_ark_echo',
-                type: 'function',
-                function: { name: 'echo', arguments: '{"text":"hello"}' },
-              }],
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'I should call echo with the requested text.',
+                tool_calls: [
+                  {
+                    id: 'call_ark_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
             },
-            finish_reason: 'tool_calls',
-          }],
+          ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         });
         return;
@@ -1701,11 +2006,13 @@ describe('models.dev provider conformance', () => {
         object: 'chat.completion',
         created: 2,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: 'Echoed hello.' },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Echoed hello.' },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
       });
     });
@@ -1727,7 +2034,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'ark-test-key', modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
       providerOptions: buildProviderOptions(connection, modelId),
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1740,31 +2047,41 @@ describe('models.dev provider conformance', () => {
     assert.equal(requestBodies.length, 2);
     assert.deepEqual(requestBodies[0]?.thinking, { type: 'enabled' });
     assert.equal(result.steps[0]?.reasoningText, 'I should call echo with the requested text.');
-    assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
     assert.deepEqual(
-      (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+      requestBodies.map((body) => body.model),
+      [modelId, modelId],
+    );
+    assert.deepEqual(
+      (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+        (entry) => entry.function.name,
+      ),
       ['echo'],
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+      (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+        ({ role }) => role === 'tool',
+      ),
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ark_echo' },
     );
     assert.deepEqual(
-      (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+      (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+        ({ role }) => role === 'assistant',
+      ),
       {
         role: 'assistant',
         content: null,
         reasoning_content: 'I should call echo with the requested text.',
-        tool_calls: [{
-          id: 'call_ark_echo',
-          type: 'function',
-          function: { name: 'echo', arguments: '{"text":"hello"}' },
-        }],
+        tool_calls: [
+          {
+            id: 'call_ark_echo',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"hello"}' },
+          },
+        ],
       },
     );
     assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
     assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
     assert.equal(result.text, 'Echoed hello.');
   });
-
 });

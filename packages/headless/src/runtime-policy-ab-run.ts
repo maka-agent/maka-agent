@@ -5,9 +5,14 @@ import {
   type HarborTaskRunner,
 } from './fixed-prompt-controller.js';
 import { renderAbComparisonMarkdown } from './ab-render.js';
-import { buildAbRunManifest } from './ab-manifest.js';
+import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.js';
 import { runAbComparison } from './ab-run.js';
-import type { AbArmSpec, AbComparisonSummary, AbRunManifest, AbRunManifestInput } from './ab-types.js';
+import type {
+  AbArmSpec,
+  AbComparisonSummary,
+  AbRunManifest,
+  AbRunManifestInput,
+} from './ab-types.js';
 import type { Config } from './contracts.js';
 import { withAbRunLock } from './ab-run-lock.js';
 import type { RuntimePolicyAbExecutionProfile } from './runtime-policy-ab-profile.js';
@@ -15,7 +20,7 @@ import {
   HARBOR_CELL_CONTEXT_ENV_KEYS,
   normalizeHarborCellContextEnv,
   type HarborCellContextEnvKey,
-} from './harbor-cell.js';
+} from './harbor-cell-context-budget-env.js';
 
 export const RUNTIME_POLICY_CONTEXT_ENV_KEYS = HARBOR_CELL_CONTEXT_ENV_KEYS;
 export const RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS = [
@@ -26,7 +31,7 @@ export const RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS = [
 ] as const;
 
 export type RuntimePolicyContextEnvKey = HarborCellContextEnvKey;
-export type RuntimePolicySharedAgentEnvKey = typeof RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS[number];
+export type RuntimePolicySharedAgentEnvKey = (typeof RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS)[number];
 
 export interface RuntimePolicyAbArmInput {
   id: string;
@@ -55,7 +60,17 @@ export interface RunRuntimePolicyAbComparisonInput {
 
 export type RuntimePolicyAbComparisonSummary = AbComparisonSummary;
 
-export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput, 'experimentKind' | 'arms' | 'taskBudgetSec' | 'harborTimeoutMs' | 'observedCostStopUsd' | 'maxConcurrency' | 'maxConcurrentAttempts'> {
+export interface RuntimePolicyAbRunManifestInput
+  extends Omit<
+    AbRunManifestInput,
+    | 'experimentKind'
+    | 'arms'
+    | 'taskBudgetSec'
+    | 'harborTimeoutMs'
+    | 'observedCostStopUsd'
+    | 'maxConcurrency'
+    | 'maxConcurrentAttempts'
+  > {
   arms: readonly [RuntimePolicyAbArmInput, RuntimePolicyAbArmInput];
   promptHash: string;
   sharedAgentEnv?: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>;
@@ -64,8 +79,16 @@ export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput
 
 export type RuntimePolicyAbRunManifest = AbRunManifest;
 
-export function buildRuntimePolicyAbRunManifest(input: RuntimePolicyAbRunManifestInput): RuntimePolicyAbRunManifest {
-  const { arms, promptHash, executionProfile, sharedAgentEnv: rawSharedAgentEnv, ...abInput } = input;
+export function buildRuntimePolicyAbRunManifest(
+  input: RuntimePolicyAbRunManifestInput,
+): RuntimePolicyAbRunManifest {
+  const {
+    arms,
+    promptHash,
+    executionProfile,
+    sharedAgentEnv: rawSharedAgentEnv,
+    ...abInput
+  } = input;
   const maxConcurrency = pairConcurrency(executionProfile.maxConcurrentAttempts);
   const sharedAgentEnv = sanitizeSharedAgentEnv(rawSharedAgentEnv ?? {});
   const sharedMetadata = {
@@ -84,10 +107,7 @@ export function buildRuntimePolicyAbRunManifest(input: RuntimePolicyAbRunManifes
     maxConcurrency,
     maxConcurrentAttempts: executionProfile.maxConcurrentAttempts,
     experimentKind: 'runtime',
-    arms: [
-      runtimeArmSpec(arms[0], sharedMetadata),
-      runtimeArmSpec(arms[1], sharedMetadata),
-    ],
+    arms: [runtimeArmSpec(arms[0], sharedMetadata), runtimeArmSpec(arms[1], sharedMetadata)],
   });
 }
 
@@ -112,7 +132,9 @@ export async function runRuntimePolicyAbComparisonUnlocked(
     observedCostStopUsd: input.executionProfile.observedCostStopUsd,
     ...(input.roundIdPrefix ? { roundIdPrefix: input.roundIdPrefix } : {}),
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
-    ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
+    ...(input.nonInferiorityMargin !== undefined
+      ? { nonInferiorityMargin: input.nonInferiorityMargin }
+      : {}),
     runArm: async ({ roundId, arm, task }) => {
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
       if (!runtimeArm) throw new Error(`runtime policy A/B arm ${arm.id} is not configured`);
@@ -129,36 +151,57 @@ export async function runRuntimePolicyAbComparisonUnlocked(
         tasks: [task],
         requireExecutionIdentity: true,
         expectedPricingProfile: input.executionProfile.id,
+        ...(input.executionProfile.billingMode
+          ? { billingMode: input.executionProfile.billingMode }
+          : {}),
         resumeFingerprint,
         harborRunner: (runnerInput) => input.harborRunner({ ...runnerInput, agentEnv }),
         ...(input.now ? { now: input.now } : {}),
         ...(input.newId ? { newId: input.newId } : {}),
       });
       const event = result.events.find((candidate) => candidate.taskId === task.id);
-      if (!event) throw new Error(`runtime policy A/B arm ${roundId} produced no event for ${task.id}`);
+      if (!event)
+        throw new Error(`runtime policy A/B arm ${roundId} produced no event for ${task.id}`);
       return event;
     },
   });
 }
 
 function pairConcurrency(maxConcurrentAttempts: number): number {
-  if (!Number.isSafeInteger(maxConcurrentAttempts) || maxConcurrentAttempts < 2 || maxConcurrentAttempts % 2 !== 0) {
-    throw new Error('maxConcurrentAttempts must be an even integer of at least 2 so each A/B pair starts together');
+  if (
+    !Number.isSafeInteger(maxConcurrentAttempts) ||
+    maxConcurrentAttempts < 2 ||
+    maxConcurrentAttempts % 2 !== 0
+  ) {
+    throw new Error(
+      'maxConcurrentAttempts must be an even integer of at least 2 so each A/B pair starts together',
+    );
   }
   return maxConcurrentAttempts / 2;
 }
 
-function assertProfileIdentity(profile: RuntimePolicyAbExecutionProfile, config: Pick<Config, 'llmConnectionSlug' | 'model'>): void {
+function assertProfileIdentity(
+  profile: RuntimePolicyAbExecutionProfile,
+  config: Pick<Config, 'llmConnectionSlug' | 'model'>,
+): void {
   if (config.llmConnectionSlug !== profile.llmConnectionSlug || config.model !== profile.model) {
     throw new Error(`runtime policy A/B config must match execution profile ${profile.id}`);
   }
 }
 
-export function renderRuntimePolicyAbComparisonMarkdown(summary: RuntimePolicyAbComparisonSummary): string {
-  return renderAbComparisonMarkdown(summary).replace('# A/B Comparison', '# Runtime Policy A/B Comparison');
+export function renderRuntimePolicyAbComparisonMarkdown(
+  summary: RuntimePolicyAbComparisonSummary,
+): string {
+  return renderAbComparisonMarkdown(summary).replace(
+    '# A/B Comparison',
+    '# Runtime Policy A/B Comparison',
+  );
 }
 
-function runtimeArmSpec(arm: RuntimePolicyAbArmInput, sharedMetadata: Record<string, unknown> = {}): AbArmSpec {
+function runtimeArmSpec(
+  arm: RuntimePolicyAbArmInput,
+  sharedMetadata: Record<string, unknown> = {},
+): AbArmSpec {
   const contextEnv = sanitizeContextEnv(arm.contextEnv);
   return {
     id: arm.id,
@@ -170,9 +213,12 @@ function runtimeArmSpec(arm: RuntimePolicyAbArmInput, sharedMetadata: Record<str
 
 function sanitizeContextEnv(
   env: Partial<Record<RuntimePolicyContextEnvKey, string>>,
-): Record<RuntimePolicyContextEnvKey, string> | Partial<Record<RuntimePolicyContextEnvKey, string>> {
+):
+  | Record<RuntimePolicyContextEnvKey, string>
+  | Partial<Record<RuntimePolicyContextEnvKey, string>> {
   for (const key of Object.keys(env)) {
-    if (!key.startsWith('MAKA_CONTEXT_')) throw new Error(`unsupported runtime policy env key: ${key}`);
+    if (!key.startsWith('MAKA_CONTEXT_'))
+      throw new Error(`unsupported runtime policy env key: ${key}`);
   }
   return normalizeHarborCellContextEnv(env);
 }
@@ -194,11 +240,17 @@ function sanitizeSharedAgentEnv(
 }
 
 function contextEnvFingerprint(env: Partial<Record<RuntimePolicyContextEnvKey, string>>): string {
-  return `sha256:${createHash('sha256').update(canonicalJson(sanitizeContextEnv(env))).digest('hex')}`;
+  return `sha256:${createHash('sha256')
+    .update(canonicalJson(sanitizeContextEnv(env)))
+    .digest('hex')}`;
 }
 
-function sharedAgentEnvFingerprint(env: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>): string {
-  return `sha256:${createHash('sha256').update(canonicalJson(sanitizeSharedAgentEnv(env))).digest('hex')}`;
+function sharedAgentEnvFingerprint(
+  env: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>,
+): string {
+  return `sha256:${createHash('sha256')
+    .update(canonicalJson(sanitizeSharedAgentEnv(env)))
+    .digest('hex')}`;
 }
 
 function runtimePolicySharedConfigFingerprint(config: Config): string {
@@ -206,28 +258,49 @@ function runtimePolicySharedConfigFingerprint(config: Config): string {
   return `sha256:${createHash('sha256').update(canonicalJson(effectiveConfig)).digest('hex')}`;
 }
 
+function runtimePolicyExecutionFingerprint(profile: RuntimePolicyAbExecutionProfile): string {
+  const {
+    observedCostStopUsd: _observedCostStopUsd,
+    maxConcurrentAttempts: _maxConcurrentAttempts,
+    ...cellSemantics
+  } = profile;
+  return buildRunManifestFingerprint(cellSemantics);
+}
+
 function runtimePolicyResumeFingerprint(input: {
   sharedConfigFingerprint: string;
+  executionProfileFingerprint: string;
   sharedAgentEnvFingerprint: string;
   armContextEnvFingerprint: string;
   callerResumeFingerprint?: string;
 }): string {
-  return `sha256:${createHash('sha256').update(canonicalJson({
-    version: 'maka-runtime-policy-resume-v1',
-    sharedConfigFingerprint: input.sharedConfigFingerprint,
-    sharedAgentEnvFingerprint: input.sharedAgentEnvFingerprint,
-    armContextEnvFingerprint: input.armContextEnvFingerprint,
-    callerResumeFingerprint: input.callerResumeFingerprint,
-  })).digest('hex')}`;
+  return `sha256:${createHash('sha256')
+    .update(
+      canonicalJson({
+        version: 'maka-runtime-policy-resume-v2',
+        sharedConfigFingerprint: input.sharedConfigFingerprint,
+        executionProfileFingerprint: input.executionProfileFingerprint,
+        sharedAgentEnvFingerprint: input.sharedAgentEnvFingerprint,
+        armContextEnvFingerprint: input.armContextEnvFingerprint,
+        callerResumeFingerprint: input.callerResumeFingerprint,
+      }),
+    )
+    .digest('hex')}`;
 }
 
 export function runtimePolicyArmResumeFingerprint(
-  input: Pick<RunRuntimePolicyAbComparisonInput, 'config' | 'sharedAgentEnv' | 'resumeFingerprint'>,
+  input: Pick<
+    RunRuntimePolicyAbComparisonInput,
+    'config' | 'executionProfile' | 'sharedAgentEnv' | 'resumeFingerprint'
+  >,
   arm: RuntimePolicyAbArmInput,
 ): string {
   return runtimePolicyResumeFingerprint({
     sharedConfigFingerprint: runtimePolicySharedConfigFingerprint(input.config),
-    sharedAgentEnvFingerprint: sharedAgentEnvFingerprint(sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {})),
+    executionProfileFingerprint: runtimePolicyExecutionFingerprint(input.executionProfile),
+    sharedAgentEnvFingerprint: sharedAgentEnvFingerprint(
+      sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {}),
+    ),
     armContextEnvFingerprint: contextEnvFingerprint(sanitizeContextEnv(arm.contextEnv)),
     callerResumeFingerprint: input.resumeFingerprint,
   });

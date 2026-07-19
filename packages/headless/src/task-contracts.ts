@@ -89,17 +89,44 @@ export function taxonomyFromResultRecord(record: ResultRecord): AutonomousResult
   }
   if (includesAny(failureText, ['blocked', 'waiting_permission'])) return 'blocked';
   if (includesAny(failureText, ['policy', 'permission', 'denied'])) return 'policy_denied';
-  if (includesAny(failureText, ['incomplete', 'tool_calls', 'tool_step_cap', 'no_submit', 'truncated'])) return 'agent_incomplete';
+  if (
+    includesAny(failureText, [
+      'incomplete',
+      'tool_calls',
+      'tool_step_cap',
+      'no_submit',
+      'truncated',
+    ])
+  )
+    return 'agent_incomplete';
   if (includesAny(failureText, ['verification_error'])) return 'verification_error';
   if (includesAny(failureText, ['verification_failed'])) return 'verification_failed';
   if (includesAny(failureText, ['unsupported_adapter'])) return 'unsupported_adapter';
   if (includesAny(failureText, ['invalid_setup'])) return 'invalid_setup';
-  if (includesAny(failureText, ['isolation_required', 'isolated executor'])) return 'isolation_required';
+  if (includesAny(failureText, ['isolation_required', 'isolated executor']))
+    return 'isolation_required';
   if (includesAny(failureText, ['setup', 'fixture', 'config', 'preflight'])) return 'setup_failed';
-  if (includesAny(failureText, ['infra', 'infrastructure', 'harbor', 'container', 'docker', 'fetch', 'materialize', 'network'])) {
+  if (
+    includesAny(failureText, [
+      'infra',
+      'infrastructure',
+      'harbor',
+      'container',
+      'docker',
+      'fetch',
+      'materialize',
+      'network',
+    ])
+  ) {
     return 'infra_failed';
   }
-  if (errorClass.includes('backend') || errorClass.includes('agent') || errorClass.includes('runtime') || record.sessionId || record.runId) {
+  if (
+    errorClass.includes('backend') ||
+    errorClass.includes('agent') ||
+    errorClass.includes('runtime') ||
+    record.sessionId ||
+    record.runId
+  ) {
     return 'agent_failed';
   }
   return 'setup_failed';
@@ -230,7 +257,10 @@ export interface TaskRunArtifact {
   metadata?: Record<string, unknown>;
 }
 
-export type TaskRunArtifactDescriptor = Omit<TaskRunArtifact, 'schemaVersion' | 'artifactId' | 'taskRunId' | 'ts'> & {
+export type TaskRunArtifactDescriptor = Omit<
+  TaskRunArtifact,
+  'schemaVersion' | 'artifactId' | 'taskRunId' | 'ts'
+> & {
   artifactId?: string;
   taskRunId?: string;
   ts?: number;
@@ -325,7 +355,13 @@ export interface HeavyTaskInventoryState {
 export interface HeavyTaskTodoItem {
   id: string;
   content: string;
-  kind?: 'inspect' | 'implement' | 'runnable_artifact' | 'public_check' | 'repair' | 'final_self_check';
+  kind?:
+    | 'inspect'
+    | 'implement'
+    | 'runnable_artifact'
+    | 'public_check'
+    | 'repair'
+    | 'final_self_check';
   status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
   priority: 'high' | 'medium' | 'low';
   evidence?: string;
@@ -498,8 +534,20 @@ export interface HeavyTaskSelfCheckProjection extends HeavyTaskSemanticSelfCheck
 
 export interface HeavyTaskAcceptanceCheck {
   id: string;
-  kind: 'required_artifact' | 'artifact_parse' | 'public_command' | 'fresh_context' | 'workspace_hygiene' | 'task_family_hint';
-  source: 'task_instruction' | 'task_metadata' | 'todo' | 'self_check_plan' | 'terminal_bench_hint' | 'generic_heavy_task';
+  kind:
+    | 'required_artifact'
+    | 'artifact_parse'
+    | 'public_command'
+    | 'fresh_context'
+    | 'workspace_hygiene'
+    | 'task_family_hint';
+  source:
+    | 'task_instruction'
+    | 'task_metadata'
+    | 'todo'
+    | 'self_check_plan'
+    | 'terminal_bench_hint'
+    | 'generic_heavy_task';
   description: string;
   evidenceRequired: 'command' | 'artifact' | 'command_or_artifact';
   path?: string;
@@ -523,7 +571,14 @@ export interface HeavyTaskSelfCheckGateState {
 }
 
 export type HeavyTaskEvidenceKind = 'tool' | 'check' | 'artifact';
-export type HeavyTaskToolEvidenceName = 'Bash' | 'Read' | 'Grep' | 'Write' | 'Edit' | 'Glob' | string;
+export type HeavyTaskToolEvidenceName =
+  | 'Bash'
+  | 'Read'
+  | 'Grep'
+  | 'Write'
+  | 'Edit'
+  | 'Glob'
+  | string;
 
 export interface HeavyTaskTruncationRef {
   truncated: boolean;
@@ -649,7 +704,11 @@ export interface ToolExecutorIdentity {
 }
 
 export type PermissionDecision = 'allow' | 'deny' | 'timeout' | 'expired';
-export type PermissionDecisionSource = 'ci_policy' | 'desktop_user' | 'test_fixture' | 'policy_engine';
+export type PermissionDecisionSource =
+  | 'ci_policy'
+  | 'desktop_user'
+  | 'test_fixture'
+  | 'policy_engine';
 
 export interface PermissionResourceScope {
   kind: 'workspace_path' | 'network' | 'secret' | 'command' | 'tool' | 'budget';

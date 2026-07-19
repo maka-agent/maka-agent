@@ -48,7 +48,8 @@ const PATTERNS: Pattern[] = [
   // Slack tokens: xox[abprs]-...
   {
     label: 'provider api key',
-    regex: /\b(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{30,}|gh[opusr]_[A-Za-z0-9]{30,}|xox[abprs]-[A-Za-z0-9-]{16,})\b/g,
+    regex:
+      /\b(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{30,}|gh[opusr]_[A-Za-z0-9]{30,}|xox[abprs]-[A-Za-z0-9-]{16,})\b/g,
   },
   // Long high-entropy hex/base64 strings (40+ chars) — best-effort catch.
   // Conservative: require word boundaries and the whole match to be one

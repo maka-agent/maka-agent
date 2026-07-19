@@ -14,8 +14,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { generalizedErrorMessageChinese, type LlmConnection, type OnboardingState, type SessionSummary } from '@maka/core';
-import type { OnboardingSnapshot } from '../global';
+import { generalizedErrorMessage, generalizedErrorMessageChinese, type LlmConnection, type OnboardingState, type SessionSummary, type UiLocale } from '@maka/core';
+import { useUiLocale } from '@maka/ui';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
+import { getOnboardingCopy } from './locales/onboarding-copy.js';
 
 /**
  * Hook return type — `snapshot` is `null` while the initial getSnapshot
@@ -83,6 +85,9 @@ export function useOnboardingSnapshotImpl(
   deps: UseOnboardingSnapshotDeps,
   initialSnapshot: OnboardingSnapshot | null = null,
 ): UseOnboardingSnapshotResult {
+  const locale = useUiLocale();
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
   const [snapshotState, setSnapshotState] = useState(() => createOnboardingSnapshotState(initialSnapshot));
   const [error, setError] = useState<string | null>(null);
   const sessionsRef = useRef<SessionSummary[] | null>(initialSnapshot?.sessions ?? null);
@@ -102,7 +107,7 @@ export function useOnboardingSnapshotImpl(
       onError: (message) => {
         setError(message);
       },
-    });
+    }, () => localeRef.current);
   }
 
   useEffect(() => {
@@ -161,6 +166,7 @@ export interface OnboardingSnapshotPoller {
 export function createOnboardingSnapshotPoller(
   deps: Pick<UseOnboardingSnapshotDeps, 'getSnapshot'>,
   callbacks: OnboardingSnapshotPollerCallbacks,
+  getLocale: () => UiLocale,
 ): OnboardingSnapshotPoller {
   let inflightTicket = 0;
   let active = true;
@@ -188,7 +194,7 @@ export function createOnboardingSnapshotPoller(
         emitSnapshot(next);
       } catch (err) {
         if (!active || ticket !== inflightTicket) return;
-        emitError(onboardingSnapshotErrorMessage(err));
+        emitError(onboardingSnapshotErrorMessage(err, getLocale()));
       }
     },
     dispose(): void {
@@ -198,8 +204,9 @@ export function createOnboardingSnapshotPoller(
   };
 }
 
-function onboardingSnapshotErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '首次使用状态暂时不可用，请稍后重试。');
+export function onboardingSnapshotErrorMessage(error: unknown, locale: UiLocale): string {
+  const fallback = getOnboardingCopy(locale).snapshotErrorFallback;
+  return locale === 'zh' ? generalizedErrorMessageChinese(error, fallback) : generalizedErrorMessage(error, fallback);
 }
 
 /**

@@ -116,11 +116,13 @@ describe('semantic pointer action script', () => {
     assert.doesNotMatch(prepare, /\.focus\s*\(/);
     assert.match(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT, /__makaComputerUseReadElement/);
     assert.deepEqual(
-      parseCuaFocusedPageElement(JSON.stringify({
-        editable: true,
-        value: 'ready',
-        tagName: 'textarea',
-      })),
+      parseCuaFocusedPageElement(
+        JSON.stringify({
+          editable: true,
+          value: 'ready',
+          tagName: 'textarea',
+        }),
+      ),
       {
         editable: true,
         value: 'ready',
@@ -131,14 +133,16 @@ describe('semantic pointer action script', () => {
 
   it('parses only explicit semantic pointer result objects', () => {
     assert.deepEqual(
-      parseCuaSemanticPointerResult(JSON.stringify({
-        supported: true,
-        ok: true,
-        kind: 'left_click',
-        effect: 'mutation',
-        clickEvents: 1,
-        mutations: 1,
-      })),
+      parseCuaSemanticPointerResult(
+        JSON.stringify({
+          supported: true,
+          ok: true,
+          kind: 'left_click',
+          effect: 'mutation',
+          clickEvents: 1,
+          mutations: 1,
+        }),
+      ),
       {
         supported: true,
         ok: true,

@@ -48,12 +48,17 @@ test('chip converge (#520 PR9)', async () => {
     'apps/desktop/src/renderer/settings/web-search-settings-page.tsx',
     'apps/desktop/src/renderer/settings/memory-settings-page.tsx',
     'apps/desktop/src/renderer/settings/account-settings-page.tsx',
-    'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
+    // #1042: the Chip call sites in the OAuth section moved with
+    // ClaudeSubscriptionCard into its own file.
+    'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',
     // Round 1 convergence (#520 follow-up): hand-rolled status-chip recipes
     // collapsed onto Chip. These call sites GAIN Chip coverage — the retired
     // CSS labels (settingsBotStatusPill, providerCatalogBadge.is-state, and
     // the packages/ui status labels) now render the primitive.
-    'apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx',
+    // #1042: the bot-chat page split; the dotted Chip rows live in the
+    // overview + detail views now.
+    'apps/desktop/src/renderer/settings/bot-chat-overview.tsx',
+    'apps/desktop/src/renderer/settings/bot-chat-detail.tsx',
     'apps/desktop/src/renderer/settings/provider-catalog.tsx',
     'packages/ui/src/skills-panel.tsx',
     'packages/ui/src/plan-reminder-panel.tsx',
@@ -72,8 +77,13 @@ test('chip converge (#520 PR9)', async () => {
     /data-slot="chip-dot"[\s\S]*bg-current[\s\S]*opacity-70/,
     'Chip dot must be a currentColor round dot at 70% alpha',
   );
-  const botChatSrc = read('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx');
+  const botChatSrc = read('apps/desktop/src/renderer/settings/bot-chat-detail.tsx');
   assert.match(botChatSrc, /<Chip\s+dot\b/, 'BotStatusPill must render a dotted Chip');
+  assert.match(
+    read('apps/desktop/src/renderer/settings/bot-chat-overview.tsx'),
+    /<Chip\s+dot\b/,
+    'BotStatusPill must render a dotted Chip in the overview rows',
+  );
   assert.doesNotMatch(
     read('apps/desktop/src/renderer/styles/settings/bot.css'),
     /\.settingsBotStatusPillDot\s*\{/,

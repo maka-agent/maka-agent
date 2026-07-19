@@ -27,7 +27,15 @@ import { lookupModelMetadata } from './model-metadata.js';
  */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-export const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+export const THINKING_LEVELS: readonly ThinkingLevel[] = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === 'string' && (THINKING_LEVELS as readonly string[]).includes(value);
@@ -63,7 +71,9 @@ export interface ThinkingOptions {
  * `ThinkingLevel`) are dropped. Returns `[]` for models with no declared
  * options (miss → no thinking menu, fallback default).
  */
-export function deriveThinkingChoices(options: ThinkingOptions | undefined): readonly ThinkingLevel[] {
+export function deriveThinkingChoices(
+  options: ThinkingOptions | undefined,
+): readonly ThinkingLevel[] {
   if (!options) return [];
   const choices = new Set<ThinkingLevel>();
   if (options.offBehavior) choices.add('off');

@@ -3,7 +3,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { BackendRegistry, FakeBackend, SessionManager, type AgentBackend, type SessionStore } from '@maka/runtime';
+import {
+  BackendRegistry,
+  FakeBackend,
+  SessionManager,
+  type AgentBackend,
+  type SessionStore,
+} from '@maka/runtime';
 import {
   isTerminalRuntimeEvent,
   type AgentRunHeader,
@@ -30,8 +36,9 @@ const fakeConfig: Config = {
 };
 
 const registerFakeBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
@@ -39,7 +46,9 @@ class ReportingBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
 
-  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+  constructor(
+    private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+  ) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -86,7 +95,16 @@ class ReportingBackend implements AgentBackend {
       reasoning: 2,
       total: 17,
       costUsd: 0.123,
-      contextBudget: { policyName: 'unit-budget', droppedTurns: 1 } as never,
+      contextBudget: {
+        enabled: true,
+        policyName: 'unit-budget',
+        estimatedTokensBefore: 20,
+        estimatedTokensAfter: 10,
+        keptTurns: 1,
+        droppedTurns: 1,
+        keptEvents: 2,
+        droppedEvents: 1,
+      },
     };
     yield { type: 'complete', id: 'report-complete', turnId, ts, stopReason: 'end_turn' };
   }
@@ -97,8 +115,10 @@ class ReportingBackend implements AgentBackend {
 }
 
 const registerReportingBackend = (registry: BackendRegistry): void => {
-  registry.register('ai-sdk', (ctx) =>
-    new ReportingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'ai-sdk',
+    (ctx) =>
+      new ReportingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
@@ -106,7 +126,9 @@ class ProtectedTamperBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
 
-  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+  constructor(
+    private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+  ) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -123,7 +145,14 @@ class ProtectedTamperBackend implements AgentBackend {
       text: 'tampered with verifier asset',
       modelId: this.ctx.header.model,
     });
-    yield { type: 'text_complete', id: 'tamper-text', turnId, ts, messageId, text: 'tampered with verifier asset' };
+    yield {
+      type: 'text_complete',
+      id: 'tamper-text',
+      turnId,
+      ts,
+      messageId,
+      text: 'tampered with verifier asset',
+    };
     yield { type: 'complete', id: 'tamper-complete', turnId, ts, stopReason: 'end_turn' };
   }
 
@@ -133,8 +162,14 @@ class ProtectedTamperBackend implements AgentBackend {
 }
 
 const registerProtectedTamperBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new ProtectedTamperBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) =>
+      new ProtectedTamperBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+      }),
   );
 };
 
@@ -188,7 +223,13 @@ class IncompleteBackend implements AgentBackend {
       output: 2,
       rawFinishReason: 'tool_calls',
     };
-    yield { type: 'complete', id: 'incomplete-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
+    yield {
+      type: 'complete',
+      id: 'incomplete-complete',
+      turnId: input.turnId,
+      ts,
+      stopReason: 'end_turn',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -204,7 +245,11 @@ class PermissionRequestBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
 
-  constructor(sessionId: string, private readonly onRespond: () => void, private readonly command: string) {
+  constructor(
+    sessionId: string,
+    private readonly onRespond: () => void,
+    private readonly command: string,
+  ) {
     this.sessionId = sessionId;
   }
 
@@ -224,7 +269,13 @@ class PermissionRequestBackend implements AgentBackend {
       args: { command: this.command },
       rememberForTurnAllowed: true,
     };
-    yield { type: 'complete', id: 'permission-complete', turnId: input.turnId, ts, stopReason: 'permission_handoff' };
+    yield {
+      type: 'complete',
+      id: 'permission-complete',
+      turnId: input.turnId,
+      ts,
+      stopReason: 'permission_handoff',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -235,19 +286,26 @@ class PermissionRequestBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerPermissionRequestBackend = (onRespond: () => void, command = 'rm -rf /tmp/example') => (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) => new PermissionRequestBackend(ctx.sessionId, onRespond, command));
-};
+const registerPermissionRequestBackend =
+  (onRespond: () => void, command = 'rm -rf /tmp/example') =>
+  (registry: BackendRegistry): void => {
+    registry.register(
+      'fake',
+      (ctx) => new PermissionRequestBackend(ctx.sessionId, onRespond, command),
+    );
+  };
 
 class ProgressToolBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
 
-  constructor(private readonly ctx: {
-    sessionId: string;
-    header: SessionHeader;
-    tools: ReturnType<typeof buildIsolatedHeadlessTools>;
-  }) {
+  constructor(
+    private readonly ctx: {
+      sessionId: string;
+      header: SessionHeader;
+      tools: ReturnType<typeof buildIsolatedHeadlessTools>;
+    },
+  ) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -255,7 +313,9 @@ class ProgressToolBackend implements AgentBackend {
     const bash = this.ctx.tools.find((tool) => tool.name === 'Bash');
     const inventorySubmit = this.ctx.tools.find((tool) => tool.name === 'inventory_submit');
     const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
-    const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
+    const selfCheckPlanSubmit = this.ctx.tools.find(
+      (tool) => tool.name === 'self_check_plan_submit',
+    );
     const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
     assert.ok(bash);
     assert.ok(inventorySubmit);
@@ -271,41 +331,69 @@ class ProgressToolBackend implements AgentBackend {
       emitOutput: () => {},
     };
     await bash.impl({ command: 'npm test' }, { ...toolCtx, toolCallId: 'bash-tool-call' });
-    await inventorySubmit.impl({
-      summary: 'Inspected public files.',
-      items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
-    }, toolCtx);
-    await todoUpdate.impl({
-      items: [
-        { id: 'artifact', kind: 'runnable_artifact', content: 'Patch first runnable artifact', status: 'in_progress', priority: 'high' },
-        { id: 'check', kind: 'public_check', content: 'Run public check after artifact exists', status: 'pending', priority: 'high' },
-      ],
-    }, toolCtx);
-    await selfCheckPlanSubmit.impl({
-      finalArtifacts: [{
-        path: '/app/README.md',
-        purpose: 'visible public artifact inspected by the check',
-        publicReason: 'visible task notes are public',
-      }],
-      selfCheckScratch: {
-        root: '/tmp/maka-self-check/progress',
-        expectedGeneratedPaths: ['/tmp/maka-self-check/progress/check.log'],
-        publicReason: 'public check outputs stay under scratch',
+    await inventorySubmit.impl(
+      {
+        summary: 'Inspected public files.',
+        items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
       },
-      workspaceGuardPlan: {
-        checkedPaths: ['/app/README.md'],
-        expectedAddedPaths: [],
-        expectedGeneratedPathsOutsideScratch: [],
-        publicReason: 'public guard checks visible artifact paths',
+      toolCtx,
+    );
+    await todoUpdate.impl(
+      {
+        items: [
+          {
+            id: 'artifact',
+            kind: 'runnable_artifact',
+            content: 'Patch first runnable artifact',
+            status: 'in_progress',
+            priority: 'high',
+          },
+          {
+            id: 'check',
+            kind: 'public_check',
+            content: 'Run public check after artifact exists',
+            status: 'pending',
+            priority: 'high',
+          },
+        ],
       },
-      publicReason: 'plan is derived from visible public task files',
-    }, toolCtx);
-    await selfCheckSubmit.impl({
-      status: 'pass',
-      publicReason: 'npm test passed using public README.md-backed fixture state.',
-      commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
-      artifactEvidence: [{ path: '/app/README.md', kind: 'file', exists: true }],
-    }, toolCtx);
+      toolCtx,
+    );
+    await selfCheckPlanSubmit.impl(
+      {
+        finalArtifacts: [
+          {
+            path: '/app/README.md',
+            purpose: 'visible public artifact inspected by the check',
+            publicReason: 'visible task notes are public',
+          },
+        ],
+        selfCheckScratch: {
+          root: '/tmp/maka-self-check/progress',
+          expectedGeneratedPaths: ['/tmp/maka-self-check/progress/check.log'],
+          publicReason: 'public check outputs stay under scratch',
+        },
+        workspaceGuardPlan: {
+          checkedPaths: ['/app/README.md'],
+          expectedAddedPaths: [],
+          expectedGeneratedPathsOutsideScratch: [],
+          publicReason: 'public guard checks visible artifact paths',
+        },
+        publicReason: 'plan is derived from visible public task files',
+      },
+      toolCtx,
+    );
+    await selfCheckSubmit.impl(
+      {
+        status: 'pass',
+        publicReason: 'npm test passed using public README.md-backed fixture state.',
+        commandEvidence: [
+          { command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' },
+        ],
+        artifactEvidence: [{ path: '/app/README.md', kind: 'file', exists: true }],
+      },
+      toolCtx,
+    );
     const ts = Date.now();
     yield {
       type: 'tool_start',
@@ -343,7 +431,13 @@ class ProgressToolBackend implements AgentBackend {
       isError: false,
       content: { kind: 'text', text: 'self-check accepted' },
     };
-    yield { type: 'complete', id: 'progress-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
+    yield {
+      type: 'complete',
+      id: 'progress-complete',
+      turnId: input.turnId,
+      ts,
+      stopReason: 'end_turn',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -351,31 +445,41 @@ class ProgressToolBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerProgressToolBackend = (seen: HeadlessBackendContext[]) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
-  seen.push(context);
-  assert.ok(context.toolExecutor);
-  registry.register('ai-sdk', (ctx) => new ProgressToolBackend({
-    sessionId: ctx.sessionId,
-    header: ctx.header,
-    tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
-      ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
-      ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
-      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
-    }),
-  }));
-};
+const registerProgressToolBackend =
+  (seen: HeadlessBackendContext[]) =>
+  (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+    seen.push(context);
+    assert.ok(context.toolExecutor);
+    registry.register(
+      'ai-sdk',
+      (ctx) =>
+        new ProgressToolBackend({
+          sessionId: ctx.sessionId,
+          header: ctx.header,
+          tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
+            ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+            ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+            ...(context.heavyTaskSelfCheck
+              ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck }
+              : {}),
+          }),
+        }),
+    );
+  };
 
 class GateRepairBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
 
-  constructor(private readonly ctx: {
-    sessionId: string;
-    header: SessionHeader;
-    tools: ReturnType<typeof buildIsolatedHeadlessTools>;
-    prompts: string[];
-    repairSubmitsSelfCheck: boolean;
-  }) {
+  constructor(
+    private readonly ctx: {
+      sessionId: string;
+      header: SessionHeader;
+      tools: ReturnType<typeof buildIsolatedHeadlessTools>;
+      prompts: string[];
+      repairSubmitsSelfCheck: boolean;
+    },
+  ) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -385,7 +489,9 @@ class GateRepairBackend implements AgentBackend {
     const turnNumber = this.ctx.prompts.length;
     if (turnNumber === 2 && this.ctx.repairSubmitsSelfCheck) {
       const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
-      const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
+      const selfCheckPlanSubmit = this.ctx.tools.find(
+        (tool) => tool.name === 'self_check_plan_submit',
+      );
       const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
       assert.ok(todoUpdate);
       assert.ok(selfCheckPlanSubmit);
@@ -398,80 +504,106 @@ class GateRepairBackend implements AgentBackend {
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
       };
-      await todoUpdate.impl({
-        items: [
-          {
-            id: 'artifact',
-            kind: 'runnable_artifact',
-            content: 'Keep marker.txt as the runnable artifact',
-            status: 'completed',
-            priority: 'high',
-            evidence: 'test -f marker.txt passed.',
-          },
-          {
-            id: 'check',
-            kind: 'public_check',
-            content: 'Run public marker check',
-            status: 'completed',
-            priority: 'high',
-            evidence: 'test -f marker.txt passed.',
-          },
-        ],
-      }, toolCtx);
-      await selfCheckPlanSubmit.impl({
-        finalArtifacts: [{
-          path: 'marker.txt',
-          purpose: 'visible runnable artifact',
-          publicReason: 'visible task asks for marker.txt to exist',
-        }],
-        selfCheckScratch: {
-          root: '/tmp/maka-self-check/gate-repair',
-          expectedGeneratedPaths: ['/tmp/maka-self-check/gate-repair/check.log'],
-          publicReason: 'public check outputs stay under scratch',
+      await todoUpdate.impl(
+        {
+          items: [
+            {
+              id: 'artifact',
+              kind: 'runnable_artifact',
+              content: 'Keep marker.txt as the runnable artifact',
+              status: 'completed',
+              priority: 'high',
+              evidence: 'test -f marker.txt passed.',
+            },
+            {
+              id: 'check',
+              kind: 'public_check',
+              content: 'Run public marker check',
+              status: 'completed',
+              priority: 'high',
+              evidence: 'test -f marker.txt passed.',
+            },
+          ],
         },
-        workspaceGuardPlan: {
-          checkedPaths: ['marker.txt'],
-          expectedAddedPaths: [],
-          expectedGeneratedPathsOutsideScratch: [],
-          publicReason: 'public guard checks marker.txt',
-        },
-        publicReason: 'plan is derived from visible public task evidence',
-      }, toolCtx);
-      await selfCheckSubmit.impl({
-        status: 'pass',
-        publicReason: 'test -f marker.txt passed from public workspace evidence.',
-        commandEvidence: [{
-          command: 'test -f marker.txt',
-          exitCode: 0,
-          outputExcerpt: 'marker present',
-          artifactRefs: ['marker.txt'],
-        }],
-        artifactEvidence: [{ path: 'marker.txt', kind: 'file', exists: true }],
-        executionHygiene: {
-          sandbox: {
+        toolCtx,
+      );
+      await selfCheckPlanSubmit.impl(
+        {
+          finalArtifacts: [
+            {
+              path: 'marker.txt',
+              purpose: 'visible runnable artifact',
+              publicReason: 'visible task asks for marker.txt to exist',
+            },
+          ],
+          selfCheckScratch: {
             root: '/tmp/maka-self-check/gate-repair',
-            strategy: 'read_only_deliverable_refs',
-            commandCwd: '/tmp/maka-self-check/gate-repair',
-            outputPolicy: 'scratch_only',
+            expectedGeneratedPaths: ['/tmp/maka-self-check/gate-repair/check.log'],
+            publicReason: 'public check outputs stay under scratch',
           },
-          scratchUsed: true,
-          scratchPath: '/tmp/maka-self-check/gate-repair',
-          cleanupPerformed: true,
-          workspaceSideEffects: 'none',
-          workspaceGuard: {
-            checked: true,
+          workspaceGuardPlan: {
             checkedPaths: ['marker.txt'],
-            beforeListingCommand: 'find . -maxdepth 1 -type f | sort',
-            afterListingCommand: 'find . -maxdepth 1 -type f | sort',
-            addedPaths: [],
-            modifiedPaths: [],
-            removedPaths: [],
+            expectedAddedPaths: [],
+            expectedGeneratedPathsOutsideScratch: [],
+            publicReason: 'public guard checks marker.txt',
+          },
+          publicReason: 'plan is derived from visible public task evidence',
+        },
+        toolCtx,
+      );
+      await selfCheckSubmit.impl(
+        {
+          status: 'pass',
+          publicReason: 'test -f marker.txt passed from public workspace evidence.',
+          commandEvidence: [
+            {
+              command: 'test -f marker.txt',
+              exitCode: 0,
+              outputExcerpt: 'marker present',
+              artifactRefs: ['marker.txt'],
+            },
+          ],
+          artifactEvidence: [{ path: 'marker.txt', kind: 'file', exists: true }],
+          executionHygiene: {
+            sandbox: {
+              root: '/tmp/maka-self-check/gate-repair',
+              strategy: 'read_only_deliverable_refs',
+              commandCwd: '/tmp/maka-self-check/gate-repair',
+              outputPolicy: 'scratch_only',
+            },
+            scratchUsed: true,
+            scratchPath: '/tmp/maka-self-check/gate-repair',
+            cleanupPerformed: true,
+            workspaceSideEffects: 'none',
+            workspaceGuard: {
+              checked: true,
+              checkedPaths: ['marker.txt'],
+              beforeListingCommand: 'find . -maxdepth 1 -type f | sort',
+              afterListingCommand: 'find . -maxdepth 1 -type f | sort',
+              addedPaths: [],
+              modifiedPaths: [],
+              removedPaths: [],
+            },
           },
         },
-      }, toolCtx);
+        toolCtx,
+      );
     }
-    yield { type: 'text_complete', id: `gate-text-${turnNumber}`, turnId: input.turnId, ts, messageId: `gate-message-${turnNumber}`, text: 'done' };
-    yield { type: 'complete', id: `gate-complete-${turnNumber}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+    yield {
+      type: 'text_complete',
+      id: `gate-text-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      messageId: `gate-message-${turnNumber}`,
+      text: 'done',
+    };
+    yield {
+      type: 'complete',
+      id: `gate-complete-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      stopReason: 'end_turn',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -479,34 +611,41 @@ class GateRepairBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerGateRepairBackend = (
-  prompts: string[],
-  repairSubmitsSelfCheck: boolean,
-) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
-  assert.ok(context.toolExecutor);
-  registry.register('ai-sdk', (ctx) => new GateRepairBackend({
-    sessionId: ctx.sessionId,
-    header: ctx.header,
-    tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
-      ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
-      ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
-      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
-    }),
-    prompts,
-    repairSubmitsSelfCheck,
-  }));
-};
+const registerGateRepairBackend =
+  (prompts: string[], repairSubmitsSelfCheck: boolean) =>
+  (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+    assert.ok(context.toolExecutor);
+    registry.register(
+      'ai-sdk',
+      (ctx) =>
+        new GateRepairBackend({
+          sessionId: ctx.sessionId,
+          header: ctx.header,
+          tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
+            ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+            ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+            ...(context.heavyTaskSelfCheck
+              ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck }
+              : {}),
+          }),
+          prompts,
+          repairSubmitsSelfCheck,
+        }),
+    );
+  };
 
 class GateLaunderBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
 
-  constructor(private readonly ctx: {
-    sessionId: string;
-    header: SessionHeader;
-    tools: ReturnType<typeof buildIsolatedHeadlessTools>;
-    prompts: string[];
-  }) {
+  constructor(
+    private readonly ctx: {
+      sessionId: string;
+      header: SessionHeader;
+      tools: ReturnType<typeof buildIsolatedHeadlessTools>;
+      prompts: string[];
+    },
+  ) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -514,7 +653,9 @@ class GateLaunderBackend implements AgentBackend {
     this.ctx.prompts.push(input.text);
     const ts = Date.now();
     const turnNumber = this.ctx.prompts.length;
-    const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
+    const selfCheckPlanSubmit = this.ctx.tools.find(
+      (tool) => tool.name === 'self_check_plan_submit',
+    );
     const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
     assert.ok(selfCheckPlanSubmit);
     assert.ok(selfCheckSubmit);
@@ -526,64 +667,88 @@ class GateLaunderBackend implements AgentBackend {
       abortSignal: new AbortController().signal,
       emitOutput: () => {},
     };
-    await selfCheckPlanSubmit.impl({
-      finalArtifacts: [{
-        path: '/app/polyglot/main.py.c',
-        purpose: 'single-file polyglot source',
-        publicReason: 'visible task asks for this final file',
-      }],
-      selfCheckScratch: {
-        root: '/tmp/maka-self-check/polyglot',
-        expectedGeneratedPaths: ['/tmp/maka-self-check/polyglot/cmain'],
-        publicReason: 'compile checks should stay under scratch',
-      },
-      workspaceGuardPlan: {
-        checkedPaths: ['/app/polyglot'],
-        expectedAddedPaths: [],
-        expectedGeneratedPathsOutsideScratch: turnNumber === 1 ? [] : ['/app/polyglot/cmain'],
-        publicReason: turnNumber === 1
-          ? 'first plan only declares the final source file'
-          : 'repair attempt tries to launder the observed cmain path',
-      },
-      publicReason: 'public polyglot self-check plan',
-    }, toolCtx);
-    await selfCheckSubmit.impl({
-      status: 'pass',
-      publicReason: 'python and gcc checks passed, but cmain remains in /app/polyglot',
-      commandEvidence: [{
-        command: 'gcc /app/polyglot/main.py.c -o /app/polyglot/cmain && /app/polyglot/cmain 10',
-        exitCode: 0,
-        outputExcerpt: '55',
-        artifactRefs: ['/app/polyglot/main.py.c', '/app/polyglot/cmain'],
-      }],
-      artifactEvidence: [
-        { path: '/app/polyglot/main.py.c', kind: 'file', exists: true },
-        { path: '/app/polyglot/cmain', kind: 'file', exists: true },
-      ],
-      executionHygiene: {
-        sandbox: {
+    await selfCheckPlanSubmit.impl(
+      {
+        finalArtifacts: [
+          {
+            path: '/app/polyglot/main.py.c',
+            purpose: 'single-file polyglot source',
+            publicReason: 'visible task asks for this final file',
+          },
+        ],
+        selfCheckScratch: {
           root: '/tmp/maka-self-check/polyglot',
-          strategy: 'copied_inputs',
-          commandCwd: '/tmp/maka-self-check/polyglot',
-          outputPolicy: 'scratch_only',
+          expectedGeneratedPaths: ['/tmp/maka-self-check/polyglot/cmain'],
+          publicReason: 'compile checks should stay under scratch',
         },
-        scratchUsed: true,
-        scratchPath: '/tmp/maka-self-check/polyglot',
-        cleanupPerformed: true,
-        workspaceSideEffects: 'present',
-        workspaceGuard: {
-          checked: true,
+        workspaceGuardPlan: {
           checkedPaths: ['/app/polyglot'],
-          beforeListingCommand: 'find /app/polyglot -maxdepth 1',
-          afterListingCommand: 'find /app/polyglot -maxdepth 1',
-          addedPaths: ['/app/polyglot/cmain'],
-          modifiedPaths: [],
-          removedPaths: [],
+          expectedAddedPaths: [],
+          expectedGeneratedPathsOutsideScratch: turnNumber === 1 ? [] : ['/app/polyglot/cmain'],
+          publicReason:
+            turnNumber === 1
+              ? 'first plan only declares the final source file'
+              : 'repair attempt tries to launder the observed cmain path',
+        },
+        publicReason: 'public polyglot self-check plan',
+      },
+      toolCtx,
+    );
+    await selfCheckSubmit.impl(
+      {
+        status: 'pass',
+        publicReason: 'python and gcc checks passed, but cmain remains in /app/polyglot',
+        commandEvidence: [
+          {
+            command: 'gcc /app/polyglot/main.py.c -o /app/polyglot/cmain && /app/polyglot/cmain 10',
+            exitCode: 0,
+            outputExcerpt: '55',
+            artifactRefs: ['/app/polyglot/main.py.c', '/app/polyglot/cmain'],
+          },
+        ],
+        artifactEvidence: [
+          { path: '/app/polyglot/main.py.c', kind: 'file', exists: true },
+          { path: '/app/polyglot/cmain', kind: 'file', exists: true },
+        ],
+        executionHygiene: {
+          sandbox: {
+            root: '/tmp/maka-self-check/polyglot',
+            strategy: 'copied_inputs',
+            commandCwd: '/tmp/maka-self-check/polyglot',
+            outputPolicy: 'scratch_only',
+          },
+          scratchUsed: true,
+          scratchPath: '/tmp/maka-self-check/polyglot',
+          cleanupPerformed: true,
+          workspaceSideEffects: 'present',
+          workspaceGuard: {
+            checked: true,
+            checkedPaths: ['/app/polyglot'],
+            beforeListingCommand: 'find /app/polyglot -maxdepth 1',
+            afterListingCommand: 'find /app/polyglot -maxdepth 1',
+            addedPaths: ['/app/polyglot/cmain'],
+            modifiedPaths: [],
+            removedPaths: [],
+          },
         },
       },
-    }, toolCtx);
-    yield { type: 'text_complete', id: `launder-text-${turnNumber}`, turnId: input.turnId, ts, messageId: `launder-message-${turnNumber}`, text: 'done' };
-    yield { type: 'complete', id: `launder-complete-${turnNumber}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+      toolCtx,
+    );
+    yield {
+      type: 'text_complete',
+      id: `launder-text-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      messageId: `launder-message-${turnNumber}`,
+      text: 'done',
+    };
+    yield {
+      type: 'complete',
+      id: `launder-complete-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      stopReason: 'end_turn',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -591,23 +756,31 @@ class GateLaunderBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerGateLaunderBackend = (
-  prompts: string[],
-) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
-  assert.ok(context.toolExecutor);
-  registry.register('ai-sdk', (ctx) => new GateLaunderBackend({
-    sessionId: ctx.sessionId,
-    header: ctx.header,
-    tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
-      ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
-      ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
-      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
-    }),
-    prompts,
-  }));
-};
+const registerGateLaunderBackend =
+  (prompts: string[]) =>
+  (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+    assert.ok(context.toolExecutor);
+    registry.register(
+      'ai-sdk',
+      (ctx) =>
+        new GateLaunderBackend({
+          sessionId: ctx.sessionId,
+          header: ctx.header,
+          tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
+            ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+            ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+            ...(context.heavyTaskSelfCheck
+              ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck }
+              : {}),
+          }),
+          prompts,
+        }),
+    );
+  };
 
-async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
+async function withDirs<T>(
+  fn: (fixtureDir: string, storageRoot: string) => Promise<T>,
+): Promise<T> {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'maka-task-controller-fx-'));
   const storageRoot = await mkdtemp(join(tmpdir(), 'maka-task-controller-store-'));
   try {
@@ -618,13 +791,32 @@ async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Prom
   }
 }
 
-async function readRuntimeEventLedger(storageRoot: string, sessionId: string, runId: string): Promise<RuntimeEvent[]> {
-  const runtimeEventsPath = join(storageRoot, 'sessions', sessionId, 'runs', runId, 'runtime-events.jsonl');
+async function readRuntimeEventLedger(
+  storageRoot: string,
+  sessionId: string,
+  runId: string,
+): Promise<RuntimeEvent[]> {
+  const runtimeEventsPath = join(
+    storageRoot,
+    'sessions',
+    sessionId,
+    'runs',
+    runId,
+    'runtime-events.jsonl',
+  );
   const content = await readFile(runtimeEventsPath, 'utf8');
-  return content.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as RuntimeEvent);
+  return content
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as RuntimeEvent);
 }
 
-async function readAgentRunHeader(storageRoot: string, sessionId: string, runId: string): Promise<AgentRunHeader> {
+async function readAgentRunHeader(
+  storageRoot: string,
+  sessionId: string,
+  runId: string,
+): Promise<AgentRunHeader> {
   const runPath = join(storageRoot, 'sessions', sessionId, 'runs', runId, 'run.json');
   return JSON.parse(await readFile(runPath, 'utf8')) as AgentRunHeader;
 }
@@ -679,7 +871,9 @@ describe('runTaskOnce', () => {
         assert.equal(result.projection.isolation?.mode, 'inert_fake_backend');
         assert.equal(result.projection.workspaceLease?.taskRunId, result.taskRunId);
         assert.equal(result.projection.toolExecutors[0]?.isolationMode, 'inert_fake_backend');
-        const tools = result.projection.latestScoreResult?.details?.tools as Record<string, unknown> | undefined;
+        const tools = result.projection.latestScoreResult?.details?.tools as
+          | Record<string, unknown>
+          | undefined;
         assert.ok(tools, 'score details should include tool economy summary');
         assert.equal(tools.actualToolCalls, 0);
         assert.deepEqual(tools.actualToolNames, []);
@@ -748,13 +942,17 @@ describe('runTaskOnce', () => {
         verification: { command: 'test -f marker.txt', protectedPaths: [] },
       };
 
-      const result = await runTaskOnce({
-        ...fakeConfig,
-        economyTaskMode: { enabled: true, reason: 'declared simple task' },
-      }, task, {
-        storageRoot,
-        registerBackends: registerFakeBackend,
-      });
+      const result = await runTaskOnce(
+        {
+          ...fakeConfig,
+          economyTaskMode: { enabled: true, reason: 'declared simple task' },
+        },
+        task,
+        {
+          storageRoot,
+          registerBackends: registerFakeBackend,
+        },
+      );
 
       assert.equal(result.projection.economyTaskMode?.enabled, true);
       assert.equal(result.projection.economyTaskMode?.triggerSource, 'config');
@@ -816,35 +1014,49 @@ describe('runTaskOnce', () => {
         JSON.stringify({
           warnings: result.projection.warnings,
           selfCheck: result.projection.latestHeavyTaskSelfCheck,
-          evidenceLinks: result.projection.events.filter((event) => event.type === 'heavy_task_self_check_evidence_linked'),
+          evidenceLinks: result.projection.events.filter(
+            (event) => event.type === 'heavy_task_self_check_evidence_linked',
+          ),
           observations: result.projection.heavyTaskWorkspaceObservations,
         }),
       );
       assert.ok(result.projection.latestHeavyTaskSelfCheck?.provenance?.runtimeCoverage);
       assert.ok(result.projection.latestHeavyTaskSelfCheck?.provenance?.taskCoverage);
-      assert.equal(result.projection.latestHeavyTaskSelfCheck?.provenance?.workspace?.kind, 'manifest');
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_evidence_linked').length,
+        result.projection.latestHeavyTaskSelfCheck?.provenance?.workspace?.kind,
+        'manifest',
+      );
+      assert.equal(
+        result.projection.events.filter(
+          (event) => event.type === 'heavy_task_self_check_evidence_linked',
+        ).length,
         result.projection.heavyTaskSelfChecks.length,
       );
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
+        result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded')
+          .length,
         2,
       );
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_todos_recorded').length,
+        result.projection.events.filter((event) => event.type === 'heavy_task_todos_recorded')
+          .length,
         2,
       );
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_plan_recorded').length,
+        result.projection.events.filter(
+          (event) => event.type === 'heavy_task_self_check_plan_recorded',
+        ).length,
         2,
       );
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_recorded').length,
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_recorded')
+          .length,
         2,
       );
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_gate_recorded').length,
+        result.projection.events.filter(
+          (event) => event.type === 'heavy_task_self_check_gate_recorded',
+        ).length,
         2,
       );
       const linkedEvidence = result.projection.heavyTaskEvidence.filter((item) => item.provenance);
@@ -852,20 +1064,26 @@ describe('runTaskOnce', () => {
         result.projection.executionLineage.map((item) => item.execution?.agentRunId),
       );
       assert.ok(linkedEvidence.length > 0);
-      assert.ok(linkedEvidence.every((item) => {
-        const provenance = item.provenance;
-        return provenance !== undefined
-          && linkedAgentRuns.has(provenance.execution?.agentRunId)
-          && provenance.execution?.turnId === item.source.turnId
-          && Boolean(provenance.runtimeCoverage?.highWater.eventId);
-      }));
+      assert.ok(
+        linkedEvidence.every((item) => {
+          const provenance = item.provenance;
+          return (
+            provenance !== undefined &&
+            linkedAgentRuns.has(provenance.execution?.agentRunId) &&
+            provenance.execution?.turnId === item.source.turnId &&
+            Boolean(provenance.runtimeCoverage?.highWater.eventId)
+          );
+        }),
+      );
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_evidence_provenance_linked').length,
+        result.projection.events.filter(
+          (event) => event.type === 'heavy_task_evidence_provenance_linked',
+        ).length,
         linkedEvidence.length,
       );
-      const replayDerivedSelfCheckEvidence = result.projection.heavyTaskEvidence.filter((item) => (
-        item.evidenceId.includes(':compact-')
-      ));
+      const replayDerivedSelfCheckEvidence = result.projection.heavyTaskEvidence.filter((item) =>
+        item.evidenceId.includes(':compact-'),
+      );
       assert.ok(replayDerivedSelfCheckEvidence.length > 0);
       assert.ok(replayDerivedSelfCheckEvidence.every((item) => item.provenance === undefined));
     });
@@ -909,13 +1127,18 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.resultRecord.passed, true);
       assert.equal(result.projection.attempts[0]?.executionLineage.length, 2);
-      assert.equal(new Set(
-        result.projection.attempts[0]?.executionLineage.map((ref) => ref.execution?.agentRunId),
-      ).size, 2);
+      assert.equal(
+        new Set(
+          result.projection.attempts[0]?.executionLineage.map((ref) => ref.execution?.agentRunId),
+        ).size,
+        2,
+      );
       const gateIndexes = result.projection.events
-        .map((event, index) => event.type === 'heavy_task_self_check_gate_recorded' ? index : -1)
+        .map((event, index) => (event.type === 'heavy_task_self_check_gate_recorded' ? index : -1))
         .filter((index) => index >= 0);
-      const verifyingIndex = result.projection.events.findIndex((event) => event.type === 'task_run_verifying');
+      const verifyingIndex = result.projection.events.findIndex(
+        (event) => event.type === 'task_run_verifying',
+      );
       assert.equal(gateIndexes.length, 2);
       assert.ok(gateIndexes.every((index) => index < verifyingIndex));
     });
@@ -953,13 +1176,21 @@ describe('runTaskOnce', () => {
 
       assert.equal(prompts.length, 2);
       assert.equal(result.projection.latestHeavyTaskSelfCheck, undefined);
-      assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
-      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /missing accepted public self-check/);
+      assert.equal(
+        result.projection.latestHeavyTaskSelfCheckGate?.action,
+        'allow_official_verifier_after_bounded_attempt',
+      );
+      assert.match(
+        result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '',
+        /missing accepted public self-check/,
+      );
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
       assert.equal(result.resultRecord.passed, true);
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_gate_recorded').length,
+        result.projection.events.filter(
+          (event) => event.type === 'heavy_task_self_check_gate_recorded',
+        ).length,
         2,
       );
     });
@@ -999,14 +1230,26 @@ describe('runTaskOnce', () => {
       });
 
       assert.equal(prompts.length, 2);
-      assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
-      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /\/app\/polyglot\/cmain/);
-      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /unplanned_added_path/);
+      assert.equal(
+        result.projection.latestHeavyTaskSelfCheckGate?.action,
+        'allow_official_verifier_after_bounded_attempt',
+      );
+      assert.match(
+        result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '',
+        /\/app\/polyglot\/cmain/,
+      );
+      assert.match(
+        result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '',
+        /unplanned_added_path/,
+      );
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
       assert.equal(result.resultRecord.status, 'completed');
       assert.equal(result.resultRecord.passed, true);
-      assert.equal(result.projection.events.some((event) => event.type === 'task_run_verifying'), true);
+      assert.equal(
+        result.projection.events.some((event) => event.type === 'task_run_verifying'),
+        true,
+      );
     });
   });
 
@@ -1132,7 +1375,10 @@ describe('runTaskOnce', () => {
 
       assert.equal(result.resultRecord.passed, true);
       assert.equal(result.resultRecord.scored, true);
-      assert.equal(result.projection.latestVerifierResult?.authority?.source, 'official_harbor_verifier');
+      assert.equal(
+        result.projection.latestVerifierResult?.authority?.source,
+        'official_harbor_verifier',
+      );
       assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
       assert.equal(result.projection.artifacts.length, 5);
       assert.equal(result.projection.artifacts[0]?.workspacePath, '/app');
@@ -1166,9 +1412,14 @@ describe('runTaskOnce', () => {
       assert.equal(result.resultRecord.passed, false);
       assert.equal(result.resultRecord.scored, true);
       assert.equal(result.projection.latestVerifierResult?.exitCode, 1);
-      const snapshot = result.projection.latestScoreResult?.details?.submittedSnapshot as { snapshotPath?: string } | undefined;
+      const snapshot = result.projection.latestScoreResult?.details?.submittedSnapshot as
+        | { snapshotPath?: string }
+        | undefined;
       assert.ok(snapshot?.snapshotPath, 'expected submitted snapshot metadata in score details');
-      assert.equal(await readFile(join(snapshot.snapshotPath, 'check.mjs'), 'utf8'), 'process.exit(0);\n');
+      assert.equal(
+        await readFile(join(snapshot.snapshotPath, 'check.mjs'), 'utf8'),
+        'process.exit(0);\n',
+      );
     });
   });
 
@@ -1234,8 +1485,13 @@ describe('runTaskOnce', () => {
           }
           return backingRuntimeEventStore.appendRuntimeEvent(sessionId, runId, event);
         },
-        readRuntimeEvents: (sessionId, runId) => backingRuntimeEventStore.readRuntimeEvents(sessionId, runId),
-        readSessionRuntimeEvents: (sessionId) => backingRuntimeEventStore.readSessionRuntimeEvents(sessionId),
+        ensureTerminalRuntimeEventDurable() {
+          throw new Error('terminal append failed');
+        },
+        readRuntimeEvents: (sessionId, runId) =>
+          backingRuntimeEventStore.readRuntimeEvents(sessionId, runId),
+        readSessionRuntimeEvents: (sessionId) =>
+          backingRuntimeEventStore.readSessionRuntimeEvents(sessionId),
       };
 
       const result = await runTaskOnce(fakeConfig, task, {
@@ -1246,9 +1502,16 @@ describe('runTaskOnce', () => {
 
       assert.equal(result.invocation.status, 'failed');
       assert.equal(result.invocation.failure?.message, 'terminal append failed');
-      const runtimeEvents = await runtimeEventStore.readRuntimeEvents(result.invocation.sessionId, result.invocation.runId);
+      const runtimeEvents = await runtimeEventStore.readRuntimeEvents(
+        result.invocation.sessionId,
+        result.invocation.runId,
+      );
       assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
-      const runHeader = await readAgentRunHeader(storageRoot, result.invocation.sessionId, result.invocation.runId);
+      const runHeader = await readAgentRunHeader(
+        storageRoot,
+        result.invocation.sessionId,
+        result.invocation.runId,
+      );
       assert.notEqual(runHeader.status, 'completed');
       assert.notEqual(runHeader.status, 'failed');
       assert.notEqual(runHeader.status, 'cancelled');
@@ -1287,16 +1550,24 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.permissionRequests.length, 1);
       assert.equal(result.projection.permissionRequests[0]?.toolName, 'Bash');
       assert.equal(result.projection.permissionRequests[0]?.resourceScope.kind, 'command');
-      const runtimeEvents = await readRuntimeEventLedger(storageRoot, result.invocation.sessionId, result.invocation.runId);
+      const runtimeEvents = await readRuntimeEventLedger(
+        storageRoot,
+        result.invocation.sessionId,
+        result.invocation.runId,
+      );
       assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
       assert.ok(
-        runtimeEvents.some((event) => event.actions?.permissionRequest?.requestId === 'permission-request-1'),
+        runtimeEvents.some(
+          (event) => event.actions?.permissionRequest?.requestId === 'permission-request-1',
+        ),
         'expected the permission request fact to stay in the runtime ledger',
       );
       assert.equal(result.projection.inboxItems[0]?.kind, 'approval_request');
       assert.equal(result.projection.inboxItems[0]?.status, 'resolved');
       assert.ok(
-        result.projection.events.some((event) => event.type === 'permission_decision_recorded' && event.decision === 'deny'),
+        result.projection.events.some(
+          (event) => event.type === 'permission_decision_recorded' && event.decision === 'deny',
+        ),
         'expected a fail-closed permission denial event',
       );
     });
@@ -1346,10 +1617,14 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.permissionGrants.length, 1);
       assert.equal(result.projection.permissionGrants[0]?.grantId, 'grant-posthoc');
       assert.equal(
-        result.projection.events.some((event) => event.type === 'permission_decision_recorded' && event.decision === 'allow'),
+        result.projection.events.some(
+          (event) => event.type === 'permission_decision_recorded' && event.decision === 'allow',
+        ),
         false,
       );
-      const denyDecision = result.projection.events.find((event) => event.type === 'permission_decision_recorded');
+      const denyDecision = result.projection.events.find(
+        (event) => event.type === 'permission_decision_recorded',
+      );
       assert.ok(denyDecision);
       if (denyDecision.type !== 'permission_decision_recorded') {
         throw new Error('expected permission_decision_recorded event');
@@ -1382,10 +1657,11 @@ describe('runTaskOnce', () => {
       const serializedPermissionFacts = JSON.stringify({
         permissionRequests: result.projection.permissionRequests,
         inboxItems: result.projection.inboxItems,
-        permissionEvents: result.projection.events.filter((event) =>
-          event.type === 'permission_request_recorded' ||
-          event.type === 'task_inbox_item_recorded' ||
-          event.type === 'task_inbox_item_resolved',
+        permissionEvents: result.projection.events.filter(
+          (event) =>
+            event.type === 'permission_request_recorded' ||
+            event.type === 'task_inbox_item_recorded' ||
+            event.type === 'task_inbox_item_resolved',
         ),
       });
       assert.equal(serializedPermissionFacts.includes(secret), false);
@@ -1446,15 +1722,32 @@ describe('runTaskOnce', () => {
       const feedback = result.projection.feedback.find((entry) => entry.source === 'runtime');
       assert.ok(feedback?.details);
       assert.equal((feedback.details.isolation as { label?: string }).label, 'unit isolation');
-      assert.equal((feedback.details.runtimeRefs as { runId?: string }).runId, result.invocation.runId);
-      assert.ok((feedback.details.runtimeRefs as { runtimeEventIds?: string[] }).runtimeEventIds?.includes('report-usage'));
+      assert.equal(
+        (feedback.details.runtimeRefs as { runId?: string }).runId,
+        result.invocation.runId,
+      );
+      assert.ok(
+        (feedback.details.runtimeRefs as { runtimeEventIds?: string[] }).runtimeEventIds?.includes(
+          'report-usage',
+        ),
+      );
       assert.deepEqual(feedback.details.artifactRefs, [
         { runtimeEventId: 'report-artifact', artifactId: 'artifact-1', toolCallId: 'tool-1' },
       ]);
-      assert.equal(((feedback.details.budget as { totals: { input: number } }).totals.input), 10);
-      assert.deepEqual(result.projection.latestScoreResult?.details?.artifactRefs, feedback.details.artifactRefs);
+      assert.equal((feedback.details.budget as { totals: { input: number } }).totals.input, 10);
+      assert.deepEqual(
+        result.projection.latestScoreResult?.details?.artifactRefs,
+        feedback.details.artifactRefs,
+      );
 
-      const runtimeEventsPath = join(storageRoot, 'sessions', result.invocation.sessionId, 'runs', result.invocation.runId, 'runtime-events.jsonl');
+      const runtimeEventsPath = join(
+        storageRoot,
+        'sessions',
+        result.invocation.sessionId,
+        'runs',
+        result.invocation.runId,
+        'runtime-events.jsonl',
+      );
       const runtimeEvents = await readFile(runtimeEventsPath, 'utf8');
       assert.match(runtimeEvents, /report-usage/);
       assert.match(runtimeEvents, /report-artifact/);

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useCallback } from 'react';
 import type {
   LlmConnection,
   SettingsSection,
@@ -9,7 +9,7 @@ import type {
 import { SearchModal } from '@maka/ui';
 import { KeyboardHelpModal } from './keyboard-help';
 import { CommandPalette } from './command-palette';
-import { buildAppShellCommandList, type AppShellCommandListOptions } from './app-shell-command-actions';
+import { useAppShellCommands, type AppShellCommandListOptions } from './app-shell-command-actions';
 import type { UiLocaleUpdateGate } from './settings/ui-locale-update-gate';
 
 // Settings is a large surface (providers, OAuth, network, bots, daily-review,
@@ -94,6 +94,17 @@ export function AppShellOverlays(props: {
     themePref,
   } = props;
 
+  // #1045: base commands freeze per open/close; session rows stay live on
+  // visibleSessions/activeId. run() closures read latest options via ref.
+  const commands = useAppShellCommands(paletteOpen, commandOptions);
+  const openSearchModal = useCallback(
+    (query: string) => {
+      closePalette();
+      paletteOnOpenSearchModal(query);
+    },
+    [closePalette, paletteOnOpenSearchModal],
+  );
+
   return (
     <>
       {settingsOpen && (
@@ -130,11 +141,8 @@ export function AppShellOverlays(props: {
         <CommandPalette
           onClose={closePalette}
           onSelectSession={paletteOnSelectSession}
-          onOpenSearchModal={(query) => {
-            closePalette();
-            paletteOnOpenSearchModal(query);
-          }}
-          commands={buildAppShellCommandList(commandOptions)}
+          onOpenSearchModal={openSearchModal}
+          commands={commands}
         />
       )}
     </>

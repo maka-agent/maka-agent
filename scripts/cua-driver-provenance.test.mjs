@@ -47,12 +47,15 @@ test('download streams to disk with a hard byte ceiling and incremental SHA-256'
     const chunks = [Buffer.from('abc'), Buffer.from('def')];
     const result = await downloadFileWithSha256('https://example.test/cua-driver', destination, {
       maxBytes: 6,
-      fetchImpl: async () => new Response(new ReadableStream({
-        start(controller) {
-          for (const chunk of chunks) controller.enqueue(chunk);
-          controller.close();
-        },
-      })),
+      fetchImpl: async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        ),
     });
     assert.deepEqual(result, {
       bytes: 6,
@@ -64,13 +67,16 @@ test('download streams to disk with a hard byte ceiling and incremental SHA-256'
     await assert.rejects(
       downloadFileWithSha256('https://example.test/oversized', oversized, {
         maxBytes: 5,
-        fetchImpl: async () => new Response(new ReadableStream({
-          start(controller) {
-            controller.enqueue(Buffer.from('abc'));
-            controller.enqueue(Buffer.from('def'));
-            controller.close();
-          },
-        })),
+        fetchImpl: async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(Buffer.from('abc'));
+                controller.enqueue(Buffer.from('def'));
+                controller.close();
+              },
+            }),
+          ),
       }),
       /received more than 5 bytes/,
     );
@@ -87,10 +93,7 @@ test('Mach-O, architecture, and signature gates run before the binary version', 
   const directory = await mkdtemp(join(tmpdir(), 'maka-cua-binary-gate-test-'));
   try {
     const binaryPath = join(directory, 'cua-driver');
-    await writeFile(binaryPath, Buffer.concat([
-      Buffer.from('cafebabe', 'hex'),
-      Buffer.alloc(4),
-    ]));
+    await writeFile(binaryPath, Buffer.concat([Buffer.from('cafebabe', 'hex'), Buffer.alloc(4)]));
     const entry = {
       binarySizeBytes: 8,
       architectures: ['arm64', 'x86_64'],
@@ -139,20 +142,18 @@ test('tar entry validation rejects path traversal before extraction', () => {
     'drwxr-xr-x user/group 0 2026-01-01 00:00 bundle/',
     '-rwxr-xr-x user/group 1 2026-01-01 00:00 bundle/cua-driver',
   ]);
-  assert.throws(() => assertSafeTarListing([
-    'lrwxr-xr-x user/group 0 2026-01-01 00:00 bundle/link -> /tmp/escape',
-  ]));
+  assert.throws(() =>
+    assertSafeTarListing(['lrwxr-xr-x user/group 0 2026-01-01 00:00 bundle/link -> /tmp/escape']),
+  );
 });
 
 test('tracked license and source metadata match the manifest pins', async () => {
-  const license = await readFile(new URL(
-    '../apps/desktop/resources/licenses/cua-driver/LICENSE.md',
-    import.meta.url,
-  ));
-  const sourceBytes = await readFile(new URL(
-    '../apps/desktop/resources/licenses/cua-driver/SOURCE.json',
-    import.meta.url,
-  ));
+  const license = await readFile(
+    new URL('../apps/desktop/resources/licenses/cua-driver/LICENSE.md', import.meta.url),
+  );
+  const sourceBytes = await readFile(
+    new URL('../apps/desktop/resources/licenses/cua-driver/SOURCE.json', import.meta.url),
+  );
   assert.equal(sha256(license), cua.licenseSha256);
   assert.equal(sha256(sourceBytes), cua.sourceSha256);
   const source = JSON.parse(sourceBytes.toString('utf8'));

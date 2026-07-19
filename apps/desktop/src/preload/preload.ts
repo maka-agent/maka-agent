@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { encodeIngestItems } from '../main/attachment-ingest-payload.js';
+import { encodeIngestItems } from './attachment-ingest-payload.js';
+import type {
+  ExpertTeamStartResult,
+  ExpertTeamSummary,
+  MakaBridge,
+  OnboardingSnapshot,
+  PermissionActionResult,
+  QuickChatResult,
+  RendererIngestInput,
+  WorkspaceInstructionsState,
+} from './bridge-contract.js';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -79,84 +89,22 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
+  McpConfigFile,
+  McpServerConfig,
+  McpServerStatus,
+  McpTestResult,
+} from '@maka/core/mcp';
+import type {
   AttachmentRef,
-  OnboardingMilestone,
   OnboardingMilestoneId,
-  OnboardingState,
   QuickChatMode,
 } from '@maka/core';
-
-// PR110b: Quick Chat result discriminated union — mirrors the
-// definition in main.ts. The renderer side type-checks against this
-// shape so a future contract change requires updates on both sides.
-//
-// @xuan PR110b review: the success branch carries ONLY `sessionId`.
-// No `firstMessageId` — that was a misnamed turnId in an earlier
-// draft. PR110c can add `firstTurnId` if the UI ever needs a scroll
-// anchor.
-export type QuickChatResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; reason: 'setup_required'; state: OnboardingState }
-  | { ok: false; reason: 'send_failed'; message: string };
-
-// Expert-team IPC shapes. Duplicated (not imported from main) so preload stays
-// free of main-process deps; keep in sync with `global.d.ts` + `main.ts`.
-export interface ExpertTeamMemberSummary {
-  id: string;
-  name: string;
-  description: string;
-  whenToUse?: string;
-}
-export interface ExpertTeamSummary {
-  id: string;
-  name: string;
-  description: string;
-  members: ExpertTeamMemberSummary[];
-}
-export type ExpertTeamStartResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; reason: 'unknown_team'; teamId: string }
-  | { ok: false; reason: 'setup_required'; state: OnboardingState }
-  | { ok: false; reason: 'send_failed'; message: string };
-
-export interface OnboardingSnapshot {
-  state: OnboardingState;
-  milestones: OnboardingMilestone[];
-  sessions: SessionSummary[];
-  connections: LlmConnection[];
-  defaultSlug: string | null;
-}
 
 type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
-type RendererIngestInput =
-  | { approvalId: string; name: string; mimeType?: string }
-  | { file: File };
-
-export type WorkspaceInstructionFileStatus =
-  | 'available'
-  | 'missing'
-  | 'blocked'
-  | 'empty'
-  | 'unreadable';
-
-export interface WorkspaceInstructionFileState {
-  file: string;
-  status: WorkspaceInstructionFileStatus;
-  chars: number;
-  truncated: boolean;
-}
-
-export interface WorkspaceInstructionsState {
-  files: WorkspaceInstructionFileState[];
-  detectedCount: number;
-  fileCharLimit: number;
-  promptCharLimit: number;
-}
-
-contextBridge.exposeInMainWorld('maka', {
+const makaBridge = {
   tasks: {
     list(sessionId: string): Promise<Task[]> {
       return ipcRenderer.invoke('tasks:list', sessionId);
@@ -321,6 +269,40 @@ contextBridge.exposeInMainWorld('maka', {
       return () => ipcRenderer.off('connections:event', listener);
     },
   },
+  mcp: {
+    getConfig(): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:getConfig');
+    },
+    listStatuses(): Promise<McpServerStatus[]> {
+      return ipcRenderer.invoke('mcp:listStatuses');
+    },
+    setConfig(config: McpConfigFile): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:setConfig', config);
+    },
+    upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:upsert', serverId, config);
+    },
+    install(serverId: string, config: McpServerConfig): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:install', serverId, config);
+    },
+    remove(serverId: string): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:remove', serverId);
+    },
+    cancelInstall(serverId: string): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:cancelInstall', serverId);
+    },
+    test(serverId: string): Promise<McpTestResult> {
+      return ipcRenderer.invoke('mcp:test', serverId);
+    },
+    reconnect(serverId: string): Promise<McpServerStatus> {
+      return ipcRenderer.invoke('mcp:reconnect', serverId);
+    },
+    subscribeChanges(handler: (statuses: McpServerStatus[]) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: McpServerStatus[]) => handler(payload);
+      ipcRenderer.on('mcp:changed', listener);
+      return () => ipcRenderer.off('mcp:changed', listener);
+    },
+  },
   // PR110b: onboarding snapshot + milestone IPCs. Renderer polls
   // `getSnapshot()` on app load and re-polls when
   // `sessions:changed` / `connections:changed` / settings change
@@ -364,14 +346,10 @@ contextBridge.exposeInMainWorld('maka', {
     getSnapshot(): Promise<PermissionSnapshot> {
       return ipcRenderer.invoke('permissions:getSnapshot');
     },
-    openSystemSettings(permId: string): Promise<
-      { ok: true } | { ok: false; reason: string; message?: string }
-    > {
+    openSystemSettings(permId: string): Promise<PermissionActionResult> {
       return ipcRenderer.invoke('permissions:openSystemSettings', permId);
     },
-    requestAccess(permId: string): Promise<
-      { ok: true } | { ok: false; reason: string; message?: string }
-    > {
+    requestAccess(permId: string): Promise<PermissionActionResult> {
       return ipcRenderer.invoke('permissions:requestAccess', permId);
     },
   },
@@ -844,9 +822,9 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('window:setThemeSource', themePref);
     },
     // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
-    // color/symbolColor to the current app theme. No-op on non-Windows.
-    setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
-      return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
+    // color/symbolColor to the resolved app surface. No-op on non-Windows.
+    setTitleBarOverlayTheme(theme: { isDark: boolean; backgroundColor: string }): Promise<void> {
+      return ipcRenderer.invoke('window:setTitleBarOverlayTheme', theme);
     },
     // PR-SHOW-AFTER-FIRST-COMMIT: tell main the renderer finished its first
     // React commit so the hidden window can be revealed. Fire-and-forget.
@@ -894,8 +872,15 @@ contextBridge.exposeInMainWorld('maka', {
     }> {
       return ipcRenderer.invoke('app:info');
     },
+    sessionProjectInfo(sessionId: string): Promise<{
+      projectPath: string;
+      projectGit: { isGitRepo: boolean; branch?: string };
+    }> {
+      return ipcRenderer.invoke('app:sessionProjectInfo', sessionId);
+    },
     openPath(
       key: 'workspace' | 'skills' | 'memory' | 'project',
+      sessionId?: string,
     ): Promise<
       | { ok: true; opened: string }
       | {
@@ -903,7 +888,7 @@ contextBridge.exposeInMainWorld('maka', {
           reason: 'unknown-key' | 'not-allowed' | 'missing' | 'not-a-directory' | 'open-failed';
         }
     > {
-      return ipcRenderer.invoke('app:openPath', key);
+      return ipcRenderer.invoke('app:openPath', key, sessionId);
     },
     selectProjectDirectory(): Promise<
       | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
@@ -923,22 +908,22 @@ contextBridge.exposeInMainWorld('maka', {
     > {
       return ipcRenderer.invoke('app:resolveProjectGitInfo', projectPath);
     },
-    listGitBranches(): Promise<{
+    listGitBranches(sessionId?: string): Promise<{
       ok: boolean;
       branches?: string[];
       current?: string;
       reason?: string;
       message?: string;
     }> {
-      return ipcRenderer.invoke('app:listGitBranches');
+      return ipcRenderer.invoke('app:listGitBranches', sessionId);
     },
-    checkoutGitBranch(branch: string): Promise<{
+    checkoutGitBranch(branch: string, sessionId?: string): Promise<{
       ok: boolean;
       branch?: string;
       reason?: string;
       message?: string;
     }> {
-      return ipcRenderer.invoke('app:checkoutGitBranch', branch);
+      return ipcRenderer.invoke('app:checkoutGitBranch', branch, sessionId);
     },
     openArtifactPath(
       artifactId: string,
@@ -959,12 +944,12 @@ contextBridge.exposeInMainWorld('maka', {
     /** Composer `@` mention popup: list workspace files matching `query`. */
     searchFiles(
       query: string,
-      limit?: number,
+      options?: { sessionId?: string; limit?: number },
     ): Promise<
       | { ok: true; files: Array<{ relativePath: string }> }
       | { ok: false; reason: 'no_project' | 'search_failed' }
     > {
-      return ipcRenderer.invoke('workspace:searchFiles', { query, limit });
+      return ipcRenderer.invoke('workspace:searchFiles', { query, ...options });
     },
   },
   visualSmoke: {
@@ -1126,4 +1111,6 @@ contextBridge.exposeInMainWorld('maka', {
       return () => ipcRenderer.off('browser:live', listener);
     },
   },
-});
+} satisfies MakaBridge;
+
+contextBridge.exposeInMainWorld('maka', makaBridge);

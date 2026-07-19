@@ -39,7 +39,10 @@ export class BoundedChunkBuffer<T> {
     const sequenceOf = this.options.sequence;
     if (sequenceOf) {
       const sequence = sequenceOf(chunk);
-      if (this.discardedThroughSequence !== undefined && sequence <= this.discardedThroughSequence) {
+      if (
+        this.discardedThroughSequence !== undefined &&
+        sequence <= this.discardedThroughSequence
+      ) {
         return false;
       }
       for (let index = this.head; index < this.chunks.length; index += 1) {
@@ -98,9 +101,10 @@ export class BoundedChunkBuffer<T> {
 
   private dropFirst(chunk: T, chars: number): void {
     const sequence = this.options.sequence?.(chunk);
-    if (sequence !== undefined && (
-      this.discardedThroughSequence === undefined || this.discardedThroughSequence < sequence
-    )) {
+    if (
+      sequence !== undefined &&
+      (this.discardedThroughSequence === undefined || this.discardedThroughSequence < sequence)
+    ) {
       this.discardedThroughSequence = sequence;
     }
     this.chunks[this.head] = undefined;
@@ -120,7 +124,7 @@ export class BoundedChunkBuffer<T> {
 function unicodeSafePrefixLength(text: string, minimum: number): number {
   const before = text.charCodeAt(minimum - 1);
   const after = text.charCodeAt(minimum);
-  const splitsSurrogatePair = before >= 0xd800 && before <= 0xdbff
-    && after >= 0xdc00 && after <= 0xdfff;
+  const splitsSurrogatePair =
+    before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
   return splitsSurrogatePair ? minimum + 1 : minimum;
 }

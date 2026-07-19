@@ -1,8 +1,16 @@
 import { isAbsolute, join } from 'node:path';
 import type { Task, TaskVerification, VerifierSpec } from './contracts.js';
 import { runVerification, type EvaluationResult } from './evaluator.js';
-import type { TaskRunArtifact, TaskRunArtifactDescriptor, VerifierResult } from './task-contracts.js';
-import { resolveBenchmarkAdapter, type BenchmarkAdapterRegistry, type BenchmarkVerifierOutput } from './benchmark-adapters.js';
+import type {
+  TaskRunArtifact,
+  TaskRunArtifactDescriptor,
+  VerifierResult,
+} from './task-contracts.js';
+import {
+  resolveBenchmarkAdapter,
+  type BenchmarkAdapterRegistry,
+  type BenchmarkVerifierOutput,
+} from './benchmark-adapters.js';
 import { runTerminalBenchTestCommand, terminalBenchDetails } from './terminal-bench-adapter.js';
 
 export function normalizeVerifier(task: Task): VerifierSpec {
@@ -25,7 +33,9 @@ export function normalizeVerifier(task: Task): VerifierSpec {
       };
     case 'terminal_bench':
       if (verifier.adapter !== 'terminal-bench' || !verifier.instanceId) {
-        throw new Error(`task "${task.id}": terminal_bench verifier requires adapter and instanceId`);
+        throw new Error(
+          `task "${task.id}": terminal_bench verifier requires adapter and instanceId`,
+        );
       }
       validateOptionalString(task.id, verifier.dataset, 'dataset');
       validateOptionalString(task.id, verifier.datasetPath, 'datasetPath');
@@ -39,13 +49,19 @@ export function normalizeVerifier(task: Task): VerifierSpec {
       } else {
         validateProtectedPaths(task.id, verifier.protectedPaths ?? []);
       }
-      return { ...verifier, protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : undefined };
+      return {
+        ...verifier,
+        protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : undefined,
+      };
     case 'swe_bench':
       if (verifier.adapter !== 'swe-bench' || !verifier.instanceId) {
         throw new Error(`task "${task.id}": swe_bench verifier requires adapter and instanceId`);
       }
       validateProtectedPaths(task.id, verifier.protectedPaths ?? []);
-      return { ...verifier, protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : undefined };
+      return {
+        ...verifier,
+        protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : undefined,
+      };
   }
 }
 
@@ -65,16 +81,23 @@ export async function runVerifier(input: {
   benchmarkAdapters?: BenchmarkAdapterRegistry;
 }): Promise<VerifierResult> {
   if (input.verifier.kind !== 'command') {
-    const output = input.verifier.kind === 'terminal_bench' && input.verifier.testCommand
-      ? await runTerminalBenchTestCommand({ verifier: input.verifier, workspaceDir: input.workspaceDir })
-      : await resolveBenchmarkAdapter(input.benchmarkAdapters, input.verifier.adapter)?.runVerifier({
-          verifier: input.verifier,
-          workspaceDir: input.workspaceDir,
-          taskRunId: input.taskRunId,
-          attemptId: input.attemptId,
-          submittedSnapshotId: input.submittedSnapshotId,
-          scoringWorkspaceId: input.scoringWorkspaceId,
-        });
+    const output =
+      input.verifier.kind === 'terminal_bench' && input.verifier.testCommand
+        ? await runTerminalBenchTestCommand({
+            verifier: input.verifier,
+            workspaceDir: input.workspaceDir,
+          })
+        : await resolveBenchmarkAdapter(
+            input.benchmarkAdapters,
+            input.verifier.adapter,
+          )?.runVerifier({
+            verifier: input.verifier,
+            workspaceDir: input.workspaceDir,
+            taskRunId: input.taskRunId,
+            attemptId: input.attemptId,
+            submittedSnapshotId: input.submittedSnapshotId,
+            scoringWorkspaceId: input.scoringWorkspaceId,
+          });
     if (output) {
       return verifierResultFromBenchmarkOutput({
         output,
@@ -97,17 +120,24 @@ export async function runVerifier(input: {
       exitCode: null,
       error: `${input.verifier.kind} verifier adapter is not implemented`,
       errorClass: 'unsupported_adapter',
-      authority: { source: 'self_check', authoritative: false, label: 'unsupported local benchmark placeholder' },
-      details: input.verifier.kind === 'terminal_bench'
-        ? { ...terminalBenchDetails(input.verifier), verificationPlaceholder: true }
-        : { verificationPlaceholder: true },
+      authority: {
+        source: 'self_check',
+        authoritative: false,
+        label: 'unsupported local benchmark placeholder',
+      },
+      details:
+        input.verifier.kind === 'terminal_bench'
+          ? { ...terminalBenchDetails(input.verifier), verificationPlaceholder: true }
+          : { verificationPlaceholder: true },
       submittedSnapshotId: input.submittedSnapshotId,
       scoringWorkspaceId: input.scoringWorkspaceId,
     };
   }
 
   const startedAt = Date.now();
-  const cwd = input.verifier.cwd ? join(input.workspaceDir, input.verifier.cwd) : input.workspaceDir;
+  const cwd = input.verifier.cwd
+    ? join(input.workspaceDir, input.verifier.cwd)
+    : input.workspaceDir;
   const evaluation = await runVerification(
     input.verifier.command,
     cwd,
@@ -175,10 +205,14 @@ function materializeArtifacts(input: {
   if (!input.descriptors || input.descriptors.length === 0) return undefined;
   return input.descriptors.map((descriptor, index) => {
     if (descriptor.taskRunId && descriptor.taskRunId !== input.taskRunId) {
-      throw new Error(`benchmark artifact taskRunId mismatch: ${descriptor.taskRunId} !== ${input.taskRunId}`);
+      throw new Error(
+        `benchmark artifact taskRunId mismatch: ${descriptor.taskRunId} !== ${input.taskRunId}`,
+      );
     }
     if (descriptor.attemptId && descriptor.attemptId !== input.attemptId) {
-      throw new Error(`benchmark artifact attemptId mismatch: ${descriptor.attemptId} !== ${input.attemptId ?? '<none>'}`);
+      throw new Error(
+        `benchmark artifact attemptId mismatch: ${descriptor.attemptId} !== ${input.attemptId ?? '<none>'}`,
+      );
     }
     return {
       schemaVersion: 1,
@@ -210,11 +244,12 @@ export function verifierResultFromEvaluation(input: {
   submittedSnapshotId?: string;
   scoringWorkspaceId?: string;
 }): VerifierResult {
-  const errorClass = input.evaluation.timedOut || input.evaluation.exitCode === null
-    ? 'verification_error'
-    : input.evaluation.passed
-      ? undefined
-      : 'verification_failed';
+  const errorClass =
+    input.evaluation.timedOut || input.evaluation.exitCode === null
+      ? 'verification_error'
+      : input.evaluation.passed
+        ? undefined
+        : 'verification_failed';
   return {
     id: input.id,
     taskRunId: input.taskRunId,
@@ -245,7 +280,10 @@ function verifierFromLegacy(verification: TaskVerification | undefined): Verifie
   };
 }
 
-function validateProtectedPaths(taskId: string, protectedPaths: unknown): asserts protectedPaths is string[] {
+function validateProtectedPaths(
+  taskId: string,
+  protectedPaths: unknown,
+): asserts protectedPaths is string[] {
   if (!Array.isArray(protectedPaths)) {
     throw new Error(
       `task "${taskId}": verification.protectedPaths is required (an array; use [] when the verification reads nothing the agent can forge)`,
@@ -253,16 +291,24 @@ function validateProtectedPaths(taskId: string, protectedPaths: unknown): assert
   }
   for (const rel of protectedPaths) {
     if (typeof rel !== 'string') {
-      throw new Error(`task "${taskId}": protectedPaths entry must be a workspace-relative path: ${String(rel)}`);
+      throw new Error(
+        `task "${taskId}": protectedPaths entry must be a workspace-relative path: ${String(rel)}`,
+      );
     }
     assertWorkspaceRelativePath(taskId, rel, 'protectedPaths entry');
   }
 }
 
-function validateOptionalWorkspaceRelativePath(taskId: string, value: unknown, field: string): void {
+function validateOptionalWorkspaceRelativePath(
+  taskId: string,
+  value: unknown,
+  field: string,
+): void {
   if (value === undefined) return;
   if (typeof value !== 'string') {
-    throw new Error(`task "${taskId}": command verifier ${field} must be a workspace-relative path: ${String(value)}`);
+    throw new Error(
+      `task "${taskId}": command verifier ${field} must be a workspace-relative path: ${String(value)}`,
+    );
   }
   assertWorkspaceRelativePath(taskId, value, `command verifier ${field}`);
 }
@@ -275,12 +321,16 @@ function assertWorkspaceRelativePath(taskId: string, value: string, label: strin
 
 function validateOptionalString(taskId: string, value: unknown, field: string): void {
   if (value !== undefined && typeof value !== 'string') {
-    throw new Error(`task "${taskId}": terminal_bench verifier ${field} must be a string when provided`);
+    throw new Error(
+      `task "${taskId}": terminal_bench verifier ${field} must be a string when provided`,
+    );
   }
 }
 
 function validateOptionalPositiveInteger(taskId: string, value: unknown, field: string): void {
   if (value !== undefined && (!Number.isInteger(value) || Number(value) < 1)) {
-    throw new Error(`task "${taskId}": terminal_bench verifier ${field} must be a positive integer when provided`);
+    throw new Error(
+      `task "${taskId}": terminal_bench verifier ${field} must be a positive integer when provided`,
+    );
   }
 }

@@ -1,7 +1,8 @@
-import type { QuickChatMode } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { QuickChatMode, UiLocale } from '@maka/core';
 import { saveGlobalInputHistoryEntry } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
+import { showSessionWorkspaceUnavailableToast } from './session-workspace-errors.js';
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -25,6 +26,7 @@ export interface AppShellQuickChatActions {
 }
 
 export function createAppShellQuickChatActions(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   captureComposerImportOwner: () => ComposerImportOwner;
   composerRef: RefBox<ComposerFocusHandle | null>;
@@ -37,6 +39,7 @@ export function createAppShellQuickChatActions(deps: {
   toastApi: ToastApi;
 }): AppShellQuickChatActions {
   const {
+    uiLocale,
     activeIdRef,
     captureComposerImportOwner,
     composerRef,
@@ -48,6 +51,7 @@ export function createAppShellQuickChatActions(deps: {
     setQuickChatPending,
     toastApi,
   } = deps;
+  const copy = getShellCopy(uiLocale).chatActions;
 
   async function handleQuickChatSubmit(prompt: string, mode?: QuickChatMode): Promise<boolean> {
     if (quickChatPendingRef.current) return false;
@@ -74,16 +78,27 @@ export function createAppShellQuickChatActions(deps: {
       } else if (result.reason === 'setup_required') {
         refreshOnboarding();
         return false;
+      } else if (result.reason === 'workspace_unavailable') {
+        if (isShellSurfaceOwnerActive(owner)) {
+          showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+        }
+        return false;
       } else {
         await refreshSessions();
         if (isShellSurfaceOwnerActive(owner)) {
-          toastApi.error('开始对话失败', result.message);
+          toastApi.error(
+            copy.quickChatFailedTitle,
+            uiLocale === 'zh' ? result.message : copy.quickChatFailedFallback,
+          );
         }
         return false;
       }
     } catch (error) {
       if (isShellSurfaceOwnerActive(owner)) {
-        toastApi.error('开始对话失败', generalizedErrorMessageChinese(error, '对话暂时无法开始，请稍后重试。'));
+        toastApi.error(
+          copy.quickChatFailedTitle,
+          localizedShellErrorMessage(error, copy.quickChatFailedFallback, uiLocale),
+        );
       }
       return false;
     } finally {
@@ -98,7 +113,10 @@ export function createAppShellQuickChatActions(deps: {
     quickChatPendingRef.current = true;
     setQuickChatPending(true);
     try {
-      const result = await window.maka.expertTeam.start({ teamId, prompt: prompt ?? '' });
+      const result = await window.maka.expertTeam.start({
+        teamId,
+        prompt: prompt ?? '',
+      });
       if (result.ok) {
         if (prompt && prompt.trim()) saveGlobalInputHistoryEntry(prompt);
         if (isShellSurfaceOwnerActive(owner)) {
@@ -113,19 +131,30 @@ export function createAppShellQuickChatActions(deps: {
       } else if (result.reason === 'setup_required') {
         refreshOnboarding();
         return false;
+      } else if (result.reason === 'workspace_unavailable') {
+        if (isShellSurfaceOwnerActive(owner)) {
+          showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+        }
+        return false;
       } else {
         await refreshSessions();
         if (isShellSurfaceOwnerActive(owner)) {
-          toastApi.error(
-            '开始专家团失败',
-            result.reason === 'unknown_team' ? '找不到该专家团。' : result.message,
-          );
+          const description =
+            result.reason === 'unknown_team'
+              ? copy.expertTeamNotFound
+              : uiLocale === 'zh'
+                ? result.message
+                : copy.expertTeamFailedFallback;
+          toastApi.error(copy.expertTeamFailedTitle, description);
         }
         return false;
       }
     } catch (error) {
       if (isShellSurfaceOwnerActive(owner)) {
-        toastApi.error('开始专家团失败', generalizedErrorMessageChinese(error, '专家团暂时无法开始，请稍后重试。'));
+        toastApi.error(
+          copy.expertTeamFailedTitle,
+          localizedShellErrorMessage(error, copy.expertTeamFailedFallback, uiLocale),
+        );
       }
       return false;
     } finally {

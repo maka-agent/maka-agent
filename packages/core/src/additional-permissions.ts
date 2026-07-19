@@ -8,10 +8,10 @@ import {
 } from './permission-profile.js';
 
 export const ADDITIONAL_PERMISSION_ACCESS_MODES = ['read', 'write'] as const;
-export type AdditionalPermissionAccess = typeof ADDITIONAL_PERMISSION_ACCESS_MODES[number];
+export type AdditionalPermissionAccess = (typeof ADDITIONAL_PERMISSION_ACCESS_MODES)[number];
 
 export const ADDITIONAL_PERMISSION_SCOPES = ['exact', 'subtree'] as const;
-export type AdditionalPermissionScope = typeof ADDITIONAL_PERMISSION_SCOPES[number];
+export type AdditionalPermissionScope = (typeof ADDITIONAL_PERMISSION_SCOPES)[number];
 
 export const MAX_ADDITIONAL_FILESYSTEM_ENTRIES = 32;
 export const MAX_ADDITIONAL_PERMISSION_PATH_CHARS = 4096;
@@ -54,7 +54,8 @@ export type AdditionalPermissionValidationResult =
 export function validateAdditionalPermissionProfile(
   input: unknown,
 ): AdditionalPermissionValidationResult {
-  if (!isRecord(input)) return invalid('invalid_profile', 'Additional permission profile must be an object.');
+  if (!isRecord(input))
+    return invalid('invalid_profile', 'Additional permission profile must be an object.');
   if (hasUnexpectedKeys(input, ['fileSystem', 'network'])) {
     return invalid('invalid_profile', 'Additional permission profile contains unsupported fields.');
   }
@@ -64,7 +65,10 @@ export function validateAdditionalPermissionProfile(
   const networkResult = validateNetwork(input.network);
   if (!networkResult.ok) return networkResult;
   if (entriesResult.entries.length === 0 && !networkResult.enabled) {
-    return invalid('empty_profile', 'Additional permission profile must contain at least one permission.');
+    return invalid(
+      'empty_profile',
+      'Additional permission profile must contain at least one permission.',
+    );
   }
 
   const profile: AdditionalPermissionProfile = {
@@ -74,7 +78,10 @@ export function validateAdditionalPermissionProfile(
     ...(networkResult.enabled ? { network: { enabled: true as const } } : {}),
   };
   if (serializedByteLength(profile) > MAX_ADDITIONAL_PERMISSION_SERIALIZED_BYTES) {
-    return invalid('payload_too_large', 'Additional permission profile exceeds the serialized size limit.');
+    return invalid(
+      'payload_too_large',
+      'Additional permission profile exceeds the serialized size limit.',
+    );
   }
   return { ok: true, profile };
 }
@@ -111,9 +118,11 @@ export function additionalPermissionAllowsPath(
   path: string,
   access: AdditionalPermissionAccess,
 ): boolean {
-  return profile.fileSystem?.entries.some((entry) => (
-    additionalPermissionMatchesPath(entry, path, access)
-  )) ?? false;
+  return (
+    profile.fileSystem?.entries.some((entry) =>
+      additionalPermissionMatchesPath(entry, path, access),
+    ) ?? false
+  );
 }
 
 export function applyAdditionalPermissionProfile(
@@ -154,9 +163,7 @@ export function additionalPermissionRequiredForPath(input: {
     : !canReadPath(input.profile, input.path, input.context);
 }
 
-export function serializeAdditionalPermissionProfile(
-  profile: AdditionalPermissionProfile,
-): string {
+export function serializeAdditionalPermissionProfile(profile: AdditionalPermissionProfile): string {
   const validated = validateAdditionalPermissionProfile(profile);
   if (!validated.ok) throw new Error(validated.message);
   return JSON.stringify(validated.profile);
@@ -164,31 +171,50 @@ export function serializeAdditionalPermissionProfile(
 
 function validateFilesystem(
   input: unknown,
-): { ok: true; entries: AdditionalFileSystemPermission[] } | Extract<AdditionalPermissionValidationResult, { ok: false }> {
+):
+  | { ok: true; entries: AdditionalFileSystemPermission[] }
+  | Extract<AdditionalPermissionValidationResult, { ok: false }> {
   if (input === undefined) return { ok: true, entries: [] };
   if (!isRecord(input) || hasUnexpectedKeys(input, ['entries']) || !Array.isArray(input.entries)) {
     return invalid('invalid_profile', 'fileSystem must contain an entries array.');
   }
   if (input.entries.length > MAX_ADDITIONAL_FILESYSTEM_ENTRIES) {
-    return invalid('too_many_entries', `Additional filesystem permissions are limited to ${MAX_ADDITIONAL_FILESYSTEM_ENTRIES} entries.`);
+    return invalid(
+      'too_many_entries',
+      `Additional filesystem permissions are limited to ${MAX_ADDITIONAL_FILESYSTEM_ENTRIES} entries.`,
+    );
   }
   const entries: AdditionalFileSystemPermission[] = [];
   for (const candidate of input.entries) {
     if (!isRecord(candidate) || hasUnexpectedKeys(candidate, ['path', 'access', 'scope'])) {
-      return invalid('invalid_entry', 'Additional filesystem permission contains unsupported fields.');
+      return invalid(
+        'invalid_entry',
+        'Additional filesystem permission contains unsupported fields.',
+      );
     }
     if (
-      typeof candidate.path !== 'string'
-      || !ADDITIONAL_PERMISSION_ACCESS_MODES.includes(candidate.access as AdditionalPermissionAccess)
-      || !ADDITIONAL_PERMISSION_SCOPES.includes(candidate.scope as AdditionalPermissionScope)
+      typeof candidate.path !== 'string' ||
+      !ADDITIONAL_PERMISSION_ACCESS_MODES.includes(
+        candidate.access as AdditionalPermissionAccess,
+      ) ||
+      !ADDITIONAL_PERMISSION_SCOPES.includes(candidate.scope as AdditionalPermissionScope)
     ) {
-      return invalid('invalid_entry', 'Additional filesystem permission must contain path, access, and scope.');
+      return invalid(
+        'invalid_entry',
+        'Additional filesystem permission must contain path, access, and scope.',
+      );
     }
     if (!isNormalizedAbsolutePath(candidate.path)) {
-      return invalid('invalid_path', 'Additional filesystem permission path must be a normalized absolute POSIX path.');
+      return invalid(
+        'invalid_path',
+        'Additional filesystem permission path must be a normalized absolute POSIX path.',
+      );
     }
     if (candidate.path.length > MAX_ADDITIONAL_PERMISSION_PATH_CHARS) {
-      return invalid('path_too_long', 'Additional filesystem permission path exceeds the length limit.');
+      return invalid(
+        'path_too_long',
+        'Additional filesystem permission path exceeds the length limit.',
+      );
     }
     entries.push({
       path: trimTrailingSlashes(candidate.path),
@@ -220,16 +246,23 @@ function permissionCovers(
   return pathWithinRoot(candidate.path, existing.path);
 }
 
-function compareEntries(a: AdditionalFileSystemPermission, b: AdditionalFileSystemPermission): number {
-  return a.path.localeCompare(b.path)
-    || (a.scope === b.scope ? 0 : a.scope === 'subtree' ? -1 : 1)
-    || (a.access === b.access ? 0 : a.access === 'write' ? -1 : 1);
+function compareEntries(
+  a: AdditionalFileSystemPermission,
+  b: AdditionalFileSystemPermission,
+): number {
+  return (
+    a.path.localeCompare(b.path) ||
+    (a.scope === b.scope ? 0 : a.scope === 'subtree' ? -1 : 1) ||
+    (a.access === b.access ? 0 : a.access === 'write' ? -1 : 1)
+  );
 }
 
 function isNormalizedAbsolutePath(path: string): boolean {
   if (!path.startsWith('/') || path.includes('\0') || path.includes('\\')) return false;
   if (path.length > 1 && path.endsWith('/')) return false;
-  return !path.split('/').some((segment, index) => index > 0 && (segment === '' || segment === '.' || segment === '..'));
+  return !path
+    .split('/')
+    .some((segment, index) => index > 0 && (segment === '' || segment === '.' || segment === '..'));
 }
 
 function pathWithinRoot(path: string, root: string): boolean {

@@ -41,7 +41,12 @@ describe('bot event contract', () => {
   test('builds stable source event keys from platform chat and source message id', () => {
     assert.equal(botSourceEventKey(message), 'telegram:chat-1:m1');
     assert.equal(
-      botSourceEventKey({ ...message, platform: 'discord', chatId: 'chan-1', sourceMessageId: 'msg-99' }),
+      botSourceEventKey({
+        ...message,
+        platform: 'discord',
+        chatId: 'chan-1',
+        sourceMessageId: 'msg-99',
+      }),
       'discord:chan-1:msg-99',
     );
   });
@@ -121,7 +126,11 @@ describe('isPlaintextHelpCommand', () => {
 
   test('matches the canonical help phrases in DMs', () => {
     for (const phrase of BOT_PLAINTEXT_HELP_COMMANDS) {
-      assert.equal(isPlaintextHelpCommand({ ...dm, text: phrase }), true, `should match: ${phrase}`);
+      assert.equal(
+        isPlaintextHelpCommand({ ...dm, text: phrase }),
+        true,
+        `should match: ${phrase}`,
+      );
     }
   });
 
@@ -184,10 +193,7 @@ describe('humanizeBotStatusReason', () => {
       humanizeBotStatusReason('  Bad Request: chat not found  '),
       'Bad Request: chat not found',
     );
-    assert.equal(
-      humanizeBotStatusReason('Unauthorized'),
-      'Unauthorized',
-    );
+    assert.equal(humanizeBotStatusReason('Unauthorized'), 'Unauthorized');
   });
 
   test('length-caps unknown reasons to 200 chars defensively', () => {
@@ -269,7 +275,14 @@ describe('nonTextMessageAck', () => {
 
   test('all messages explain that Maka only handles text (consistent contract)', () => {
     const kinds: BotAttachmentKind[] = [
-      'photo', 'voice', 'audio', 'sticker', 'video', 'animation', 'document', 'unknown',
+      'photo',
+      'voice',
+      'audio',
+      'sticker',
+      'video',
+      'animation',
+      'document',
+      'unknown',
     ];
     for (const kind of kinds) {
       assert.match(nonTextMessageAck(kind), /Maka/, `${kind} ack should mention Maka by name`);

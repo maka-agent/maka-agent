@@ -1,9 +1,25 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { lookupModelMetadata, openAiAdapterApiProtocol, resolveModelVisionSupport } from '../model-metadata.js';
+import {
+  lookupModelMetadata,
+  openAiAdapterApiProtocol,
+  resolveModelVisionSupport,
+} from '../model-metadata.js';
 import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '../llm-connections.js';
 
 describe('model-metadata vision capability', () => {
+  it('publishes the Kimi K3 Coding Plan limits and sole supported effort', () => {
+    assert.deepEqual(lookupModelMetadata('kimi-coding-plan', 'k3'), {
+      displayName: 'Kimi K3',
+      lifecycle: 'active',
+      docsUrl: 'https://www.kimi.com/code/docs/en/kimi-code/models.html',
+      contextWindow: 1_048_576,
+      maxOutputTokens: 131_072,
+      capabilities: { reasoning: true, functionCalling: true, vision: true },
+      thinkingOptions: { efforts: ['max'] },
+    });
+  });
+
   it('uses Volcengine Coding Plan model facts for its exact fallback allowlist', () => {
     for (const modelId of PROVIDER_DEFAULTS['volcengine-coding-plan'].fallbackModels) {
       assert.equal(
@@ -25,26 +41,44 @@ describe('model-metadata vision capability', () => {
       lookupModelMetadata('minimax-coding-plan', 'MiniMax-M3'),
       lookupModelMetadata('MiniMax', 'MiniMax-M3'),
     );
-    assert.equal(lookupModelMetadata('minimax-coding-plan', 'MiniMax-M3').capabilities?.vision, true);
+    assert.equal(
+      lookupModelMetadata('minimax-coding-plan', 'MiniMax-M3').capabilities?.vision,
+      true,
+    );
   });
 
   it('uses synchronized facts while preserving access-path overrides', () => {
     const metadata = lookupModelMetadata('anthropic', 'claude-sonnet-4-5');
     assert.equal(metadata.contextWindow, 200_000);
-    assert.equal(lookupModelMetadata('anthropic', 'claude-sonnet-4-5-20250929').contextWindow, 200_000);
-    assert.deepEqual(metadata.thinkingOptions, { toggle: true, offBehavior: 'anthropic-thinking-disabled' });
+    assert.equal(
+      lookupModelMetadata('anthropic', 'claude-sonnet-4-5-20250929').contextWindow,
+      200_000,
+    );
+    assert.deepEqual(metadata.thinkingOptions, {
+      toggle: true,
+      offBehavior: 'anthropic-thinking-disabled',
+    });
   });
 
   it('reports vision true for vision-capable models', () => {
-    assert.equal(lookupModelMetadata('anthropic', 'claude-sonnet-4-5-20250929').capabilities?.vision, true);
+    assert.equal(
+      lookupModelMetadata('anthropic', 'claude-sonnet-4-5-20250929').capabilities?.vision,
+      true,
+    );
     assert.equal(lookupModelMetadata('anthropic', 'claude-opus-4-8').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('openai', 'gpt-4o').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('openai', 'gpt-5.5').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('google', 'gemini-2.5-pro').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('zai-coding-plan', 'glm-5v-turbo').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('moonshot', 'kimi-k2.6').capabilities?.vision, true);
-    assert.equal(lookupModelMetadata('kimi-coding-plan', 'kimi-for-coding').capabilities?.vision, true);
-    assert.equal(lookupModelMetadata('kimi-coding-plan', 'kimi-for-coding-highspeed').capabilities?.vision, true);
+    assert.equal(
+      lookupModelMetadata('kimi-coding-plan', 'kimi-for-coding').capabilities?.vision,
+      true,
+    );
+    assert.equal(
+      lookupModelMetadata('kimi-coding-plan', 'kimi-for-coding-highspeed').capabilities?.vision,
+      true,
+    );
   });
 
   it('reports vision false for text-only models', () => {
@@ -82,21 +116,47 @@ describe('resolveModelVisionSupport', () => {
   });
 
   it('falls back to in-repo metadata when stored models are bare ids (post-fetch)', () => {
-    assert.equal(resolveModelVisionSupport('anthropic', [{ id: 'claude-sonnet-4-5-20250929' }], 'claude-sonnet-4-5-20250929'), true);
-    assert.equal(resolveModelVisionSupport('deepseek', [{ id: 'deepseek-chat' }], 'deepseek-chat'), false);
+    assert.equal(
+      resolveModelVisionSupport(
+        'anthropic',
+        [{ id: 'claude-sonnet-4-5-20250929' }],
+        'claude-sonnet-4-5-20250929',
+      ),
+      true,
+    );
+    assert.equal(
+      resolveModelVisionSupport('deepseek', [{ id: 'deepseek-chat' }], 'deepseek-chat'),
+      false,
+    );
     assert.equal(resolveModelVisionSupport('moonshot', [{ id: 'kimi-k2.6' }], 'kimi-k2.6'), true);
-    assert.equal(resolveModelVisionSupport('kimi-coding-plan', [{ id: 'kimi-for-coding' }], 'kimi-for-coding'), true);
+    assert.equal(
+      resolveModelVisionSupport('kimi-coding-plan', [{ id: 'kimi-for-coding' }], 'kimi-for-coding'),
+      true,
+    );
   });
 
   it('falls back to metadata when the model list is empty or missing', () => {
-    assert.equal(resolveModelVisionSupport('zai-coding-plan' as ProviderType, [], 'glm-5v-turbo'), true);
-    assert.equal(resolveModelVisionSupport('zai-coding-plan' as ProviderType, undefined, 'glm-5.2'), false);
+    assert.equal(
+      resolveModelVisionSupport('zai-coding-plan' as ProviderType, [], 'glm-5v-turbo'),
+      true,
+    );
+    assert.equal(
+      resolveModelVisionSupport('zai-coding-plan' as ProviderType, undefined, 'glm-5.2'),
+      false,
+    );
   });
 });
 
 describe('openAiAdapterApiProtocol', () => {
   it('routes every gpt-5* family to the Responses wire', () => {
-    for (const modelId of ['gpt-5', 'gpt-5-codex', 'gpt-5.5', 'gpt-5.6-sol', 'GPT-5', ' gpt-5.4 ']) {
+    for (const modelId of [
+      'gpt-5',
+      'gpt-5-codex',
+      'gpt-5.5',
+      'gpt-5.6-sol',
+      'GPT-5',
+      ' gpt-5.4 ',
+    ]) {
       assert.equal(openAiAdapterApiProtocol(modelId), 'openai-responses', modelId);
     }
   });

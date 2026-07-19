@@ -1,5 +1,6 @@
-import type { DailyReviewSummary } from '@maka/core';
+import type { DailyReviewSummary, UiLocale } from '@maka/core';
 import { dailyReviewActionErrorMessage, dailyReviewExportDefaultName } from './daily-review-actions';
+import { getShellCopy } from './locales/shell-copy.js';
 
 type ToastApi = {
   success(title: string, description?: string): void;
@@ -23,39 +24,32 @@ type DailyReviewFeedbackOptions = {
 };
 
 export interface AppShellDailyReviewActions {
-  copyDailyReviewMarkdown(
-    input: DailyReviewMarkdownInput,
-    options?: DailyReviewFeedbackOptions,
-  ): Promise<void>;
+  copyDailyReviewMarkdown(input: DailyReviewMarkdownInput, options?: DailyReviewFeedbackOptions): Promise<void>;
   appendDailyReviewMarkdown(input: DailyReviewMarkdownInput): void;
-  saveDailyReviewMarkdown(
-    input: DailyReviewMarkdownInput,
-    options?: DailyReviewFeedbackOptions,
-  ): Promise<void>;
+  saveDailyReviewMarkdown(input: DailyReviewMarkdownInput, options?: DailyReviewFeedbackOptions): Promise<void>;
 }
 
 export function createAppShellDailyReviewActions(deps: {
+  uiLocale: UiLocale;
   composerRef: RefBox<ComposerAppendHandle | null>;
   toastApi: ToastApi;
 }): AppShellDailyReviewActions {
-  const { composerRef, toastApi } = deps;
+  const { uiLocale, composerRef, toastApi } = deps;
+  const copy = getShellCopy(uiLocale).commandActions;
 
-  async function copyDailyReviewMarkdown(
-    input: DailyReviewMarkdownInput,
-    options: DailyReviewFeedbackOptions = {},
-  ) {
+  async function copyDailyReviewMarkdown(input: DailyReviewMarkdownInput, options: DailyReviewFeedbackOptions = {}) {
     const shouldShowFeedback = options.shouldShowFeedback ?? (() => true);
     try {
       await navigator.clipboard.writeText(input.markdown);
       if (shouldShowFeedback()) {
         toastApi.success(
-          `已复制${input.label}回顾`,
-          `${input.summary.totals.sessionCount} 个对话 · ${input.summary.totals.requestCount} 个请求`,
+          copy.reviewCopied(input.label),
+          copy.reviewSummary(input.summary.totals.sessionCount, input.summary.totals.requestCount),
         );
       }
     } catch (error) {
       if (shouldShowFeedback()) {
-        toastApi.error('复制失败', dailyReviewActionErrorMessage(error, '剪贴板不可用或被系统拒绝'));
+        toastApi.error(copy.copyFailedTitle, dailyReviewActionErrorMessage(error, copy.clipboardDenied, uiLocale));
       }
     }
   }
@@ -63,15 +57,12 @@ export function createAppShellDailyReviewActions(deps: {
   function appendDailyReviewMarkdown(input: DailyReviewMarkdownInput): void {
     composerRef.current?.appendText(input.markdown);
     toastApi.success(
-      `已追加${input.label}回顾到输入框`,
-      `${input.summary.totals.sessionCount} 个对话 · ${input.summary.totals.requestCount} 个请求`,
+      copy.reviewPasted(input.label),
+      copy.reviewSummary(input.summary.totals.sessionCount, input.summary.totals.requestCount),
     );
   }
 
-  async function saveDailyReviewMarkdown(
-    input: DailyReviewMarkdownInput,
-    options: DailyReviewFeedbackOptions = {},
-  ) {
+  async function saveDailyReviewMarkdown(input: DailyReviewMarkdownInput, options: DailyReviewFeedbackOptions = {}) {
     const shouldShowFeedback = options.shouldShowFeedback ?? (() => true);
     try {
       const result = await window.maka.dailyReview.saveMarkdownToFile({
@@ -81,20 +72,20 @@ export function createAppShellDailyReviewActions(deps: {
       if (result.ok) {
         if (shouldShowFeedback()) {
           toastApi.success(
-            `已保存${input.label}回顾`,
-            `${input.summary.totals.sessionCount} 个对话 · ${input.summary.totals.requestCount} 个请求`,
+            copy.reviewSaved(input.label),
+            copy.reviewSummary(input.summary.totals.sessionCount, input.summary.totals.requestCount),
           );
         }
       } else if (result.reason === 'canceled') {
         // User dismissed the dialog, no toast.
       } else if (result.reason === 'invalid_input') {
-        if (shouldShowFeedback()) toastApi.error('保存失败', '导出内容无效');
+        if (shouldShowFeedback()) toastApi.error(copy.saveFailedTitle, copy.invalidExport);
       } else {
-        if (shouldShowFeedback()) toastApi.error('保存失败', '无法写入选择的位置');
+        if (shouldShowFeedback()) toastApi.error(copy.saveFailedTitle, copy.writeFailed);
       }
     } catch (err) {
       if (shouldShowFeedback()) {
-        toastApi.error('保存失败', dailyReviewActionErrorMessage(err, '保存每日回顾失败，请稍后重试。'));
+        toastApi.error(copy.saveFailedTitle, dailyReviewActionErrorMessage(err, copy.reviewSaveFallback, uiLocale));
       }
     }
   }

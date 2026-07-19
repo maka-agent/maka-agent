@@ -89,7 +89,6 @@ describe('PermissionEngine.evaluate — allow path', () => {
     });
     expect(r3.kind).toBe('prompt');
   });
-
 });
 
 describe('PermissionEngine.evaluate — invocation-local rules', () => {
@@ -401,7 +400,8 @@ describe('PermissionEngine — turn lifecycle', () => {
       args: {},
       mode: 'ask',
     });
-    const parkedPromise = r.kind === 'prompt' ? r.parked.catch((e: Error) => e) : Promise.resolve(null);
+    const parkedPromise =
+      r.kind === 'prompt' ? r.parked.catch((e: Error) => e) : Promise.resolve(null);
     expect(engine.pendingCount('t1')).toBe(1);
     engine.endTurn('t1');
     await parkedPromise;
@@ -430,7 +430,9 @@ describe('PermissionEngine — turn lifecycle', () => {
     assert.deepEqual(expired, { category: 'file_write', toolUseId: 'tu1' });
     expect(engine.pendingCount('t1')).toBe(0);
     expect(await parkedPromise).toBe('rejected:permission timed out');
-    expect(engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'allow' })).toBeNull();
+    expect(
+      engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'allow' }),
+    ).toBeNull();
   });
 
   test('allow + rememberForTurn absorbs other parked requests sharing the scope', async () => {
@@ -438,13 +440,31 @@ describe('PermissionEngine — turn lifecycle', () => {
     engine.beginTurn('t1');
     // Two writes to the same path parked in parallel — neither answered yet, so
     // the second still prompts (the scope is not yet remembered).
-    const r1 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu1', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
-    const r2 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu2', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    const r1 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Write',
+      args: { path: '/x' },
+      mode: 'ask',
+    });
+    const r2 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'Write',
+      args: { path: '/x' },
+      mode: 'ask',
+    });
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
     expect(engine.pendingCount('t1')).toBe(2);
 
     // Answer the first with allow + remember-for-turn.
-    engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow', rememberForTurn: true });
+    engine.recordResponse('t1', {
+      requestId: r1.event.requestId,
+      decision: 'allow',
+      rememberForTurn: true,
+    });
 
     // The second resolves on its own (no second prompt), as allow, under its own id.
     const resolved2 = await r2.parked;
@@ -456,8 +476,22 @@ describe('PermissionEngine — turn lifecycle', () => {
   test('allow WITHOUT remember leaves other parked requests untouched', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
-    const r1 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu1', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
-    const r2 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu2', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    const r1 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Write',
+      args: { path: '/x' },
+      mode: 'ask',
+    });
+    const r2 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'Write',
+      args: { path: '/x' },
+      mode: 'ask',
+    });
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
     engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow' }); // no rememberForTurn
     expect(engine.pendingCount('t1')).toBe(1); // r2 still parked
@@ -479,11 +513,12 @@ describe('PermissionEngine — turn lifecycle', () => {
     assert.equal(first.event.rememberForTurnAllowed, false);
 
     assert.throws(
-      () => engine.recordResponse('t1', {
-        requestId: first.event.requestId,
-        decision: 'allow',
-        rememberForTurn: true,
-      }),
+      () =>
+        engine.recordResponse('t1', {
+          requestId: first.event.requestId,
+          decision: 'allow',
+          rememberForTurn: true,
+        }),
       /cannot be remembered/,
     );
     assert.equal(engine.pendingCount('t1'), 1);
@@ -546,25 +581,45 @@ describe('PermissionEngine — turn lifecycle', () => {
         return 'Example';
       },
     };
-    assert.throws(() => engine.evaluate({
-      sessionId: 's1',
-      turnId: 't1',
-      toolUseId: 'tu1',
-      toolName: 'maka_computer',
-      args,
-      categoryHint: 'computer_use',
-      mode: 'execute',
-    }));
+    assert.throws(() =>
+      engine.evaluate({
+        sessionId: 's1',
+        turnId: 't1',
+        toolUseId: 'tu1',
+        toolName: 'maka_computer',
+        args,
+        categoryHint: 'computer_use',
+        mode: 'execute',
+      }),
+    );
     assert.equal(reads, 0);
   });
 
   test('remember does not absorb a parked request in a different scope', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
-    const r1 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu1', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
-    const r2 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu2', toolName: 'Write', args: { path: '/y' }, mode: 'ask' });
+    const r1 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Write',
+      args: { path: '/x' },
+      mode: 'ask',
+    });
+    const r2 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'Write',
+      args: { path: '/y' },
+      mode: 'ask',
+    });
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
-    engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow', rememberForTurn: true });
+    engine.recordResponse('t1', {
+      requestId: r1.event.requestId,
+      decision: 'allow',
+      rememberForTurn: true,
+    });
     expect(engine.pendingCount('t1')).toBe(1); // different path → different scope → still parked
   });
 
@@ -600,11 +655,20 @@ describe('PermissionEngine — recordResponse edge cases', () => {
     if (r.kind !== 'prompt') throw new Error('expected prompt');
 
     assert.throws(
-      () => engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'approve' } as unknown as PermissionResponse),
+      () =>
+        engine.recordResponse('t1', {
+          requestId: r.event.requestId,
+          decision: 'approve',
+        } as unknown as PermissionResponse),
       /Invalid permission response/,
     );
     assert.throws(
-      () => engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'allow', rememberForTurn: 'yes' } as unknown as PermissionResponse),
+      () =>
+        engine.recordResponse('t1', {
+          requestId: r.event.requestId,
+          decision: 'allow',
+          rememberForTurn: 'yes',
+        } as unknown as PermissionResponse),
       /Invalid permission response/,
     );
     expect(engine.pendingCount('t1')).toBe(1);

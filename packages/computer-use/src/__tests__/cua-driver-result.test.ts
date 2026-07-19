@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import {
-  normalizeCuaDriverOutcome,
-  type JsonRpcToolResult,
-} from '../cua-driver-result.js';
+import { normalizeCuaDriverOutcome, type JsonRpcToolResult } from '../cua-driver-result.js';
 
 function result(structuredContent: Record<string, unknown>): JsonRpcToolResult {
   return { content: [], structuredContent };
@@ -13,11 +10,13 @@ function result(structuredContent: Record<string, unknown>): JsonRpcToolResult {
 describe('normalizeCuaDriverOutcome', () => {
   it('maps AX confirmed evidence to a verified AX success', () => {
     assert.deepEqual(
-      normalizeCuaDriverOutcome(result({
-        path: 'ax',
-        verified: true,
-        effect: 'confirmed',
-      })),
+      normalizeCuaDriverOutcome(
+        result({
+          path: 'ax',
+          verified: true,
+          effect: 'confirmed',
+        }),
+      ),
       {
         ok: true,
         tier: 'ax',
@@ -29,15 +28,17 @@ describe('normalizeCuaDriverOutcome', () => {
 
   it('maps CGEvent unverifiable evidence to an unverified background success', () => {
     assert.deepEqual(
-      normalizeCuaDriverOutcome(result({
-        path: 'cgevent',
-        verified: false,
-        effect: 'unverifiable',
-        escalation: {
-          recommended: 'foreground',
-          reason: 'background delivery was dropped',
-        },
-      })),
+      normalizeCuaDriverOutcome(
+        result({
+          path: 'cgevent',
+          verified: false,
+          effect: 'unverifiable',
+          escalation: {
+            recommended: 'foreground',
+            reason: 'background delivery was dropped',
+          },
+        }),
+      ),
       {
         ok: true,
         tier: 'coordinate-background',
@@ -52,11 +53,13 @@ describe('normalizeCuaDriverOutcome', () => {
 
   it('maps page/CDP evidence to semantic background dispatch', () => {
     assert.deepEqual(
-      normalizeCuaDriverOutcome(result({
-        path: 'cdp',
-        verified: true,
-        effect: 'confirmed',
-      })),
+      normalizeCuaDriverOutcome(
+        result({
+          path: 'cdp',
+          verified: true,
+          effect: 'confirmed',
+        }),
+      ),
       {
         ok: true,
         tier: 'semantic-background',
@@ -91,11 +94,13 @@ describe('normalizeCuaDriverOutcome', () => {
   });
 
   it('ignores malformed escalation evidence instead of inventing a fallback', () => {
-    const outcome = normalizeCuaDriverOutcome(result({
-      path: 'cgevent',
-      effect: 'unverifiable',
-      escalation: 'foreground',
-    }));
+    const outcome = normalizeCuaDriverOutcome(
+      result({
+        path: 'cgevent',
+        effect: 'unverifiable',
+        escalation: 'foreground',
+      }),
+    );
 
     assert.equal(outcome.ok, true);
     assert.deepEqual(outcome.evidence, {
@@ -106,11 +111,13 @@ describe('normalizeCuaDriverOutcome', () => {
 
   it('rejects every foreground path suffix instead of accepting focus steal', () => {
     for (const path of ['cgevent_fg', 'ax_fg', 'key_events_fg']) {
-      const outcome = normalizeCuaDriverOutcome(result({
-        path,
-        verified: false,
-        effect: 'unverifiable',
-      }));
+      const outcome = normalizeCuaDriverOutcome(
+        result({
+          path,
+          verified: false,
+          effect: 'unverifiable',
+        }),
+      );
       assert.equal(outcome.ok, false);
       if (!outcome.ok) {
         assert.equal(outcome.error, 'unsupported_action');
@@ -121,7 +128,9 @@ describe('normalizeCuaDriverOutcome', () => {
 
   it('derives verification from a recognized effect when the boolean is absent', () => {
     const confirmed = normalizeCuaDriverOutcome(result({ path: 'ax', effect: 'confirmed' }));
-    const unverifiable = normalizeCuaDriverOutcome(result({ path: 'cgevent', effect: 'unverifiable' }));
+    const unverifiable = normalizeCuaDriverOutcome(
+      result({ path: 'cgevent', effect: 'unverifiable' }),
+    );
 
     assert.equal(confirmed.ok, true);
     if (confirmed.ok) assert.equal(confirmed.verified, true);

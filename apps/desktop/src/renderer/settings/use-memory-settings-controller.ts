@@ -5,7 +5,7 @@ import {
   findLocalMemoryEntryDraftRange,
   setLocalMemoryEntryStatusDraft,
 } from '@maka/core';
-import { useToast } from '@maka/ui';
+import { useToast, useUiLocale } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import {
@@ -16,6 +16,7 @@ import {
   memoryOriginLabel,
 } from './memory-settings-labels';
 import { deriveMemorySettingsViewModel } from './memory-settings-view-model';
+import { useKeyedActionGuard } from './use-action-guard';
 
 export interface MemoryDocumentControllerProps {
   settings: AppSettings;
@@ -24,14 +25,8 @@ export interface MemoryDocumentControllerProps {
 
 /** Owns the MEMORY.md document lifecycle; workspace instructions have a separate authority. */
 export function useMemoryDocumentController(props: MemoryDocumentControllerProps) {
-  type MemoryWriteAction =
-    | 'reload'
-    | 'enable'
-    | 'agent-read'
-    | 'save'
-    | 'reset'
-    | 'restore'
-    | 'entry-status';
+  const locale = useUiLocale();
+  type MemoryWriteAction = 'reload' | 'enable' | 'agent-read' | 'save' | 'reset' | 'restore' | 'entry-status';
 
   const [state, setState] = useState<LocalMemoryState | null>(null);
   const [draft, setDraft] = useState('');
@@ -39,14 +34,20 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
   const [newMemoryTags, setNewMemoryTags] = useState('');
   const [newMemoryContent, setNewMemoryContent] = useState('');
   const [memoryEntryQuery, setMemoryEntryQuery] = useState('');
-  const [lastSaveSummary, setLastSaveSummary] = useState<{ title: string; detail: string; savedAt: number } | null>(null);
+  const [lastSaveSummary, setLastSaveSummary] = useState<{
+    title: string;
+    detail: string;
+    savedAt: number;
+  } | null>(null);
   const [loadingMemory, setLoadingMemory] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pendingMemoryWriteAction, setPendingMemoryWriteAction] = useState<MemoryWriteAction | null>(null);
   const [pendingMemoryActions, setPendingMemoryActions] = useState<Set<string>>(() => new Set());
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const memoryWriteBusyRef = useRef(false);
-  const pendingMemoryActionKeysRef = useRef<Set<string>>(new Set());
+  // One keyed guard holds both the single write latch (key 'write', the old
+  // memoryWriteBusyRef) and the per-action latches (the old
+  // pendingMemoryActionKeysRef set) with owner-checked releases.
+  const memoryActionGuard = useKeyedActionGuard<string>();
   const memoryPageMountedRef = useRef(false);
   const memoryPageLifecycleRef = useRef(0);
   const memoryReloadTicketRef = useRef(0);
@@ -60,8 +61,6 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
       if (memoryPageLifecycleRef.current !== lifecycle) return;
       memoryPageMountedRef.current = false;
       memoryReloadTicketRef.current += 1;
-      memoryWriteBusyRef.current = false;
-      pendingMemoryActionKeysRef.current.clear();
     };
   }, []);
 
@@ -73,9 +72,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     action: MemoryWriteAction,
     run: (isCurrent: () => boolean) => Promise<T>,
   ): Promise<T | undefined> {
-    if (memoryWriteBusyRef.current) return undefined;
+    const releaseWrite = memoryActionGuard.begin('write');
+    if (!releaseWrite) return undefined;
     const lifecycle = memoryPageLifecycleRef.current;
-    memoryWriteBusyRef.current = true;
     setPendingMemoryWriteAction(action);
     setBusy(true);
     try {
@@ -84,7 +83,7 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
       if (!isMemoryPageCurrent(lifecycle)) return undefined;
       throw error;
     } finally {
-      memoryWriteBusyRef.current = false;
+      releaseWrite();
       if (isMemoryPageCurrent(lifecycle)) {
         setPendingMemoryWriteAction(null);
         setBusy(false);
@@ -96,9 +95,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     key: string,
     action: (isCurrent: () => boolean) => Promise<T>,
   ): Promise<T | undefined> {
-    if (pendingMemoryActionKeysRef.current.has(key)) return undefined;
+    const release = memoryActionGuard.begin(key);
+    if (!release) return undefined;
     const lifecycle = memoryPageLifecycleRef.current;
-    pendingMemoryActionKeysRef.current.add(key);
     setPendingMemoryActions((current) => new Set(current).add(key));
     try {
       return await action(() => isMemoryPageCurrent(lifecycle));
@@ -106,7 +105,7 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
       if (!isMemoryPageCurrent(lifecycle)) return undefined;
       throw error;
     } finally {
-      pendingMemoryActionKeysRef.current.delete(key);
+      release();
       if (isMemoryPageCurrent(lifecycle)) {
         setPendingMemoryActions((current) => {
           const next = new Set(current);
@@ -191,11 +190,19 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
           toast.error('保存被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
         } else if (redacted) {
           const detail = `写入前已替换疑似 token、API key 或密码；${formatLocalMemorySaveSummary(next)}`;
-          setLastSaveSummary({ title: '已保存并遮蔽敏感字段', detail, savedAt: Date.now() });
+          setLastSaveSummary({
+            title: '已保存并遮蔽敏感字段',
+            detail,
+            savedAt: Date.now(),
+          });
           toast.success('已保存并遮蔽敏感字段', detail);
         } else {
           const detail = formatLocalMemorySaveSummary(next);
-          setLastSaveSummary({ title: '已保存 MEMORY.md', detail, savedAt: Date.now() });
+          setLastSaveSummary({
+            title: '已保存 MEMORY.md',
+            detail,
+            savedAt: Date.now(),
+          });
           toast.success('已保存 MEMORY.md', detail);
         }
       });
@@ -319,7 +326,8 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
           toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, result.message);
         }
       } catch (error) {
-        if (isCurrent()) toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, settingsActionErrorMessage(error));
+        if (isCurrent())
+          toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, settingsActionErrorMessage(error));
       }
     });
   }
@@ -330,10 +338,11 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
         const result = await window.maka.app.openPath('memory');
         if (!isCurrent()) return;
         if (!result.ok) {
-          toast.error(`打开${openPathActionLabel('memory')}失败`, openPathFailureCopy(result.reason));
+          toast.error(`打开${openPathActionLabel('memory', locale)}失败`, openPathFailureCopy(result.reason, locale));
         }
       } catch (error) {
-        if (isCurrent()) toast.error(`打开${openPathActionLabel('memory')}失败`, settingsActionErrorMessage(error));
+        if (isCurrent())
+          toast.error(`打开${openPathActionLabel('memory', locale)}失败`, settingsActionErrorMessage(error));
       }
     });
   }
@@ -385,7 +394,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
         entry.createdAt === undefined ? '' : `Created: ${new Date(entry.createdAt).toISOString()}`,
         entry.updatedAt === undefined ? '' : `Updated: ${new Date(entry.updatedAt).toISOString()}`,
         entry.tags.length > 0 ? `Tags: ${entry.tags.join(', ')}` : '',
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
       try {
         await navigator.clipboard.writeText(reference);
         if (isCurrent()) toast.success('已复制记忆引用', entry.id);
@@ -404,7 +415,10 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     requestAnimationFrame(() => {
       editorRef.current?.focus();
       editorRef.current?.setSelectionRange(range.start, range.end);
-      editorRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      editorRef.current?.scrollIntoView({
+        block: 'center',
+        behavior: 'smooth',
+      });
     });
   }
 
@@ -438,7 +452,10 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     });
   }
 
-  async function updateMemoryEntryStatus(entry: LocalMemoryState['activeEntries'][number], status: 'active' | 'archived') {
+  async function updateMemoryEntryStatus(
+    entry: LocalMemoryState['activeEntries'][number],
+    status: 'active' | 'archived',
+  ) {
     const result = setLocalMemoryEntryStatusDraft(draft, {
       id: entry.id,
       status,
@@ -481,7 +498,8 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
   }
 
   const viewModel = useMemo(
-    () => deriveMemorySettingsViewModel({
+    () =>
+      deriveMemorySettingsViewModel({
       state,
       localMemorySettings: props.settings.localMemory,
       draft,

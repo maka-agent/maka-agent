@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ConnectionTestResult, LlmConnection } from '@maka/core';
-import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
+import { useEffect, useState } from 'react';
+import type { LlmConnection } from '@maka/core';
+import { deriveProviderAuthContractFromConnection } from '@maka/core';
 import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
-import { Button, Chip, RelativeTime, useMountedRef, useToast } from '@maka/ui';
+import { Button, Chip, RelativeTime, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import {
   deriveAccountAuthActions,
   presentAccountAuthState,
@@ -15,37 +15,28 @@ import {
 } from '../connection-status';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
-import { connectionLastTestMessageDisplay } from './provider-panel-shared';
+import {
+  connectionLastTestMessageDisplay,
+  connectionTestFailureMessage,
+} from './provider-panel-shared';
+import { useActionGuard } from './use-action-guard';
+import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
 
 type AccountSecretProbeStatus = boolean | 'loading' | 'error';
 type AccountSecretProbeResult =
   | { slug: string; status: boolean }
   | { slug: string; status: 'error'; message: string };
 
-function accountConnectionTestFailureMessage(result: ConnectionTestResult): string {
-  const fallback = accountConnectionTestFailureFallback(result);
-  if (!result.errorMessage) return fallback;
-  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
-}
-
-function accountConnectionTestFailureFallback(result: ConnectionTestResult): string {
-  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
-  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
-  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
-    return '鉴权失败，请检查模型密钥、订阅账号登录或凭据配置后重试。';
-  }
-  if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
-    return '模型服务暂时不可用，请稍后重试。';
-  }
-  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
-  return '连接测试失败，请检查模型连接配置后重试。';
-}
-
+// Account-page troubleshooting copy is broader than the Models sheet: a
+// single list spans API-key and OAuth providers, so auth/recheck guidance
+// cannot mention a specific field like the connection-detail sheet does.
 export function AccountSettingsPage(props: {
   connections: LlmConnection[];
   defaultSlug: string | null;
   onRefresh(): Promise<void>;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).account;
   // Backend (xuan, 5ca1f8a) persists per-connection lastTestStatus. UI
   // derives the display status from `enabled + hasSecret + defaultModel +
   // lastTestStatus + authKind` per @kenji's status-contract priority list,
@@ -53,15 +44,9 @@ export function AccountSettingsPage(props: {
   const [secretMap, setSecretMap] = useState<Record<string, AccountSecretProbeStatus>>({});
   const [secretProbeError, setSecretProbeError] = useState<string | null>(null);
   const [testingSlug, setTestingSlug] = useState<string | null>(null);
-  const testingSlugRef = useRef<string | null>(null);
+  const connectionTestGuard = useActionGuard<string>();
   const accountPageMountedRef = useMountedRef();
   const toast = useToast();
-
-  useEffect(() => {
-    return () => {
-      testingSlugRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +56,7 @@ export function AccountSettingsPage(props: {
           const has = await window.maka.connections.hasSecret(connection.slug);
           return { slug: connection.slug, status: has };
         } catch (error) {
-          return { slug: connection.slug, status: 'error', message: settingsActionErrorMessage(error) };
+          return { slug: connection.slug, status: 'error', message: settingsActionErrorMessage(error, locale) };
         }
       }),
     ).then((entries) => {
@@ -82,7 +67,7 @@ export function AccountSettingsPage(props: {
       );
       if (failure) {
         setSecretProbeError(failure.message);
-        toast.error('读取模型凭据状态失败', failure.message);
+        toast.error(copy.credentialReadFailed, failure.message);
       } else {
         setSecretProbeError(null);
       }
@@ -90,44 +75,43 @@ export function AccountSettingsPage(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.connections]);
+  }, [copy.credentialReadFailed, locale, props.connections, toast]);
 
   async function testConnection(slug: string) {
-    if (testingSlugRef.current !== null) return;
-    testingSlugRef.current = slug;
+    if (!connectionTestGuard.begin(slug)) return;
     setTestingSlug(slug);
     try {
       const result = await window.maka.connections.test(slug);
-      if (!accountPageMountedRef.current || testingSlugRef.current !== slug) return;
+      if (!accountPageMountedRef.current || connectionTestGuard.current !== slug) return;
       if (result.ok) {
-        toast.success('连接已验证', `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`);
+        toast.success(copy.verified, copy.latency(result.latencyMs ?? '?', result.modelTested));
       } else {
-        toast.error('连接测试失败', accountConnectionTestFailureMessage(result));
+        toast.error(copy.connectionTestFailed, connectionTestFailureMessage(result, copy.testCopy));
       }
     } catch (error) {
       // Main is supposed to return a structured result; if something escapes
       // to throw form, surface the generalized message anyway.
-      if (accountPageMountedRef.current && testingSlugRef.current === slug) {
-        toast.error('测试出错', settingsActionErrorMessage(error));
+      if (accountPageMountedRef.current && connectionTestGuard.current === slug) {
+        toast.error(copy.testError, settingsActionErrorMessage(error, locale));
       }
     } finally {
       // Pull the freshest lastTestStatus/lastTestAt/lastTestMessage so the
       // row re-renders with the new derived status without a Settings reopen.
-      if (accountPageMountedRef.current && testingSlugRef.current === slug) {
+      if (accountPageMountedRef.current && connectionTestGuard.current === slug) {
         try {
           await props.onRefresh();
         } catch (error) {
-          if (accountPageMountedRef.current && testingSlugRef.current === slug) {
-            toast.error('刷新模型连接状态失败', settingsActionErrorMessage(error));
+          if (accountPageMountedRef.current && connectionTestGuard.current === slug) {
+            toast.error(copy.refreshFailed, settingsActionErrorMessage(error, locale));
           }
         } finally {
-          testingSlugRef.current = null;
+          connectionTestGuard.finish();
           if (accountPageMountedRef.current) {
             setTestingSlug(null);
           }
         }
-      } else if (testingSlugRef.current === slug) {
-        testingSlugRef.current = null;
+      } else if (connectionTestGuard.current === slug) {
+        connectionTestGuard.finish();
       }
     }
   }
@@ -138,37 +122,37 @@ export function AccountSettingsPage(props: {
     <div className="settingsStructuredPage">
       <SettingsRows>
         <SettingRow
-          title="默认权限模式"
-          detail="新会话默认从询问权限开始；可在输入框左下角切到自动执行或跳过确认。"
-          value="询问权限"
+          title={copy.defaultPermission}
+          detail={copy.defaultPermissionDetail}
+          value={copy.askPermission}
         />
         <SettingRow
-          title="凭据保护"
-          detail="模型密钥保存在本机凭据文件内；订阅账号令牌交给系统安全存储。"
-          value="启用"
+          title={copy.credentialProtection}
+          detail={copy.credentialProtectionDetail}
+          value={copy.enabled}
         />
         <SettingRow
-          title="审计日志"
-          detail="每个会话都会在本机保留消息、工具调用、权限决策与模式变更记录。"
-          value="本地"
+          title={copy.auditLog}
+          detail={copy.auditLogDetail}
+          value={copy.local}
         />
       </SettingsRows>
 
-      <h3 className="settingsSubheading">模型连接</h3>
+      <h3 className="settingsSubheading">{copy.modelConnections}</h3>
       {secretProbeError && (
         <div className="settingsNotice" role="alert">
-          模型凭据状态暂时没刷新成功，已避免把未知状态显示成待配置。{secretProbeError}
+          {copy.credentialProbeNotice} {secretProbeError}
         </div>
       )}
       {totalCount === 0 ? (
-        <div className="settingsEmptyState">等待添加模型连接。可在 设置 · 模型 添加。</div>
+        <div className="settingsEmptyState">{copy.empty}</div>
       ) : (
         /* PR-CONNECTION-LIST-A11Y-0 (round 17/30): same fix as
            rounds 7 and 16. Was `<div role="list">` containing
            `<div role="listitem">` rows — invalid ARIA layering.
            Semantic `<ul>` / `<li>` so screen readers get the
            relationship from the elements themselves. */
-        <ul className="settingsConnectionList" aria-label="模型连接列表">
+        <ul className="settingsConnectionList" aria-label={copy.connectionList}>
           {props.connections.map((connection) => (
             <li key={connection.slug}>
               <AccountConnectionRow
@@ -184,8 +168,7 @@ export function AccountSettingsPage(props: {
         </ul>
       )}
       <p className="settingsHelpText">
-        共 {totalCount} 个连接 · {enabledCount} 已启用。修改模型密钥、服务地址或默认模型会清掉「已验证」状态，
-        需要重新测试。失败的测试不会自动禁用连接 —— 禁用始终是用户动作。
+        {copy.summary(totalCount, enabledCount)}
       </p>
 
       {/*
@@ -208,6 +191,8 @@ function AccountConnectionRow(props: {
   canTest: boolean;
   onTest(): void;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).account;
   const requiresSecret = providerAuthRequiresSecret(props.connection.providerType);
   const secretProbePending = requiresSecret && (props.secretStatus === 'loading' || props.secretStatus === 'error');
   const hasSecretForKnownStatus = props.secretStatus === true;
@@ -217,29 +202,29 @@ function AccountConnectionRow(props: {
   );
   const presentation = secretProbePending
     ? {
-        label: props.secretStatus === 'loading' ? '读取凭据状态…' : '凭据状态未知',
+        label: props.secretStatus === 'loading' ? copy.loadingCredential : copy.unknownCredential,
         detail: props.secretStatus === 'loading'
-          ? '正在读取本机凭据状态；不会把读取中显示成待配置。'
-          : '暂时无法读取本机凭据状态；请刷新或到模型设置查看。',
+          ? copy.loadingCredentialDetail
+          : copy.unknownCredentialDetail,
         tone: props.secretStatus === 'loading' ? 'info' as const : 'warning' as const,
       }
-    : presentConnectionUiStatus(status);
+    : presentConnectionUiStatus(status, locale);
   const authContract = secretProbePending
     ? undefined
     : deriveProviderAuthContractFromConnection(props.connection, hasSecretForKnownStatus);
   const authPresentation = authContract
-    ? presentAccountAuthState(authContract)
+    ? presentAccountAuthState(authContract, locale)
     : {
-        label: '凭据状态读取中',
+        label: copy.credentialStateLoading,
         detail: props.secretStatus === 'loading'
-          ? '正在读取本机凭据和账号登录状态。'
-          : '读取本机凭据和账号登录状态失败，当前不会显示为待配置。',
-        stateLabel: props.secretStatus === 'loading' ? '读取中' : '读取失败',
+          ? copy.credentialStateLoadingDetail
+          : copy.credentialStateErrorDetail,
+        stateLabel: props.secretStatus === 'loading' ? copy.loading : copy.readFailed,
         tone: props.secretStatus === 'loading' ? 'info' as const : 'warning' as const,
       };
-  const authActions = authContract ? deriveAccountAuthActions(authContract) : [];
+  const authActions = authContract ? deriveAccountAuthActions(authContract, locale) : [];
   const authContractState = authContract?.state ?? (props.secretStatus === 'loading' ? 'loading' : 'error');
-  const subtitle = `${props.connection.providerType} · ${props.connection.defaultModel || '未设默认模型'}`;
+  const subtitle = `${props.connection.providerType} · ${props.connection.defaultModel || copy.noDefaultModel}`;
   const lastTestAtMs = props.connection.lastTestAt
     ? Date.parse(props.connection.lastTestAt)
     : NaN;
@@ -255,7 +240,7 @@ function AccountConnectionRow(props: {
           <div className="settingsConnectionRowName">
             <strong>{props.connection.name}</strong>
             {props.isDefault && (
-              <span className="settingsConnectionDefaultBadge" aria-label="默认连接">默认</span>
+              <span className="settingsConnectionDefaultBadge" aria-label={copy.defaultConnection}>{copy.defaultBadge}</span>
             )}
           </div>
           <small>{subtitle}</small>
@@ -283,7 +268,7 @@ function AccountConnectionRow(props: {
         </p>
       )}
       {authActions.length > 0 && (
-        <div className="settingsConnectionActions" role="group" aria-label={`${props.connection.name} 账号操作`}>
+        <div className="settingsConnectionActions" role="group" aria-label={copy.accountActions(props.connection.name)}>
           {authActions.map((action) => (
             <AccountAuthActionView
               key={action.action}
@@ -305,6 +290,7 @@ function AccountAuthActionView(props: {
   testing: boolean;
   onTest(): void;
 }) {
+  const copy = getSettingsPreferencesCopy(useUiLocale()).account;
   if (props.action.executable && props.action.action === 'test_credentials') {
     return (
       <Button
@@ -315,7 +301,7 @@ function AccountAuthActionView(props: {
         onClick={props.onTest}
         title={props.action.detail}
       >
-        {props.testing ? '测试中…' : props.action.label}
+        {props.testing ? copy.testing : props.action.label}
       </Button>
     );
   }

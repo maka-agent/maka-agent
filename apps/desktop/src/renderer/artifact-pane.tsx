@@ -40,15 +40,8 @@ import {
   Copy,
   Trash2,
 } from '@maka/ui/icons';
-import type {
-  ArtifactKind,
-  ArtifactRecord,
-} from '@maka/core';
-import {
-  formatRelativeTimestamp,
-  generalizedErrorMessageChinese,
-  redactSecrets,
-} from '@maka/core';
+import type { ArtifactKind, ArtifactRecord } from '@maka/core';
+import { formatRelativeTimestamp, generalizedErrorMessageChinese, redactSecrets } from '@maka/core';
 import {
   Alert,
   AlertAction,
@@ -88,7 +81,10 @@ export function ArtifactPane(props: {
   const [records, setRecords] = useState<ArtifactRecord[]>([]);
   const [recordsSessionId, setRecordsSessionId] = useState<string | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [listError, setListError] = useState<{ sessionId: string; message: string } | null>(null);
+  const [listError, setListError] = useState<{
+    sessionId: string;
+    message: string;
+  } | null>(null);
   const [pendingArtifactListRetry, setPendingArtifactListRetry] = useState(false);
   const [pendingArtifactAction, setPendingArtifactAction] = useState<string | null>(null);
   const artifactListRequestSeqRef = useRef(0);
@@ -120,7 +116,9 @@ export function ArtifactPane(props: {
       return;
     }
     try {
-      const next = await window.maka.artifacts.list(sessionId, { includeDeleted: true });
+      const next = await window.maka.artifacts.list(sessionId, {
+        includeDeleted: true,
+      });
       if (artifactPaneMountedRef.current && requestSeq === artifactListRequestSeqRef.current) {
         recordsSessionIdRef.current = sessionId;
         setRecordsSessionId(sessionId);
@@ -232,7 +230,7 @@ export function ArtifactPane(props: {
       const result = await window.maka.app.openArtifactPath(artifactId);
       if (!isArtifactActionSurfaceActive(actionSessionId)) return;
       if (!result.ok) {
-        toast.error('无法在 Finder 中打开生成文件', openPathFailureCopy(result.reason));
+        toast.error('无法在 Finder 中打开生成文件', openPathFailureCopy(result.reason, locale));
       }
     } catch (error) {
       if (!isArtifactActionSurfaceActive(actionSessionId)) return;
@@ -317,9 +315,7 @@ export function ArtifactPane(props: {
     // Defer to the next frame so the Esc handler doesn't unfocus + refocus
     // in the same tick.
     requestAnimationFrame(() => {
-      const composer = document.querySelector<HTMLTextAreaElement>(
-        '.maka-composer textarea, [data-composer-textarea]',
-      );
+      const composer = document.querySelector<HTMLTextAreaElement>('.maka-composer textarea, [data-composer-textarea]');
       composer?.focus();
     });
   }
@@ -364,11 +360,7 @@ export function ArtifactPane(props: {
   }
 
   return (
-    <div
-      className="maka-artifact-pane"
-      aria-label="生成文件预览面板"
-      onKeyDown={handlePaneKeyDown}
-    >
+    <div className="maka-artifact-pane" aria-label="生成文件预览面板" onKeyDown={handlePaneKeyDown}>
       {activeListError && (
             <Alert variant="error" className="maka-artifact-list-error">
               <AlertTriangle size={14} aria-hidden="true" />
@@ -422,10 +414,14 @@ export function ArtifactPane(props: {
                   <span className="maka-artifact-row-name">{record.name}</span>
                   <span className="maka-artifact-row-meta">
                     <span className="maka-artifact-row-size">{formatBytes(record.sizeBytes)}</span>
-                    <span className="maka-artifact-row-time">{formatRelativeTimestamp(record.createdAt, Date.now(), locale)}</span>
+                <span className="maka-artifact-row-time">
+                  {formatRelativeTimestamp(record.createdAt, Date.now(), locale)}
+                </span>
                   </span>
                   {record.status === 'deleted' && (
-                    <Badge variant="destructive" className="maka-artifact-row-badge">已删除</Badge>
+                <Badge variant="destructive" className="maka-artifact-row-badge">
+                  已删除
+                </Badge>
                   )}
                 </BaseButton>
               </li>
@@ -459,7 +455,9 @@ export function ArtifactPane(props: {
                     <FileText aria-hidden="true" />
                   </EmptyMedia>
                   <EmptyTitle>{activeRecords.length > 0 ? '暂未选中文件' : '暂无生成文件'}</EmptyTitle>
-                  <EmptyDescription>{activeRecords.length > 0 ? '从上方列表选择文件查看预览。' : '助手生成文件后会显示在这里。'}</EmptyDescription>
+              <EmptyDescription>
+                {activeRecords.length > 0 ? '从上方列表选择文件查看预览。' : '助手生成文件后会显示在这里。'}
+              </EmptyDescription>
                 </EmptyHeader>
               </Empty>
             )}
@@ -523,7 +521,9 @@ export function ArtifactPane(props: {
                         readers (visually hidden); the Tooltip mirrors it for
                         mouse hover, replacing the native hover tooltip this
                         button lost in the tooltip migration. */}
-                    <span className="maka-artifact-toolbar-destructive-label">{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
+                <span className="maka-artifact-toolbar-destructive-label">
+                  {pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}
+                </span>
                   </TooltipTrigger>
                   <TooltipContent>{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</TooltipContent>
                 </Tooltip>

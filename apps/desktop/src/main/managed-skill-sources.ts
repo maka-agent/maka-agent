@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
-import { validateSkillMetadata, type SkillValidationIssue } from '@maka/runtime';
+import { isPathInside, isSafeSkillId, validateSkillMetadata, type SkillValidationIssue } from '@maka/runtime';
 
 /**
  * Fixed marketplace taxonomy. A source's `category:` front-matter is
@@ -183,7 +183,7 @@ export async function readManagedSkillSource(
     const sourceStat = await lstat(sourcePath);
     if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const sourceReal = await realpath(sourcePath);
-    if (!isContainedPath(sourceDirReal.path, sourceReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(sourceDirReal.path, sourceReal)) return { ok: false, reason: 'blocked_path' };
     const bytes = await readFile(sourcePath);
     const contentSha256 = `sha256:${sha256(bytes)}`;
     const content = bytes.toString('utf8');
@@ -236,7 +236,7 @@ async function resolveContainedDirectory(rootReal: string, directory: string): P
     const directoryStat = await lstat(directory);
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const directoryReal = await realpath(directory);
-    if (!isContainedPath(rootReal, directoryReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, directoryReal)) return { ok: false, reason: 'blocked_path' };
     return { ok: true, path: directoryReal };
   } catch {
     return { ok: false, reason: 'not_found' };
@@ -260,7 +260,7 @@ async function writeContainedBufferFile(
       if (options.failIfExists) return false;
       if (!existing.isFile() || existing.isSymbolicLink()) return false;
       const fileReal = await realpath(filePath);
-      if (!isContainedPath(rootReal, fileReal)) return false;
+      if (!isPathInside(rootReal, fileReal)) return false;
     }
     await writeFile(tempPath, bytes, { flag: 'wx', mode: 0o600 });
     const tempStat = await lstat(tempPath);
@@ -269,7 +269,7 @@ async function writeContainedBufferFile(
       return false;
     }
     const tempReal = await realpath(tempPath);
-    if (!isContainedPath(rootReal, tempReal)) {
+    if (!isPathInside(rootReal, tempReal)) {
       await unlink(tempPath).catch(() => {});
       return false;
     }
@@ -311,13 +311,4 @@ function parseSkillFrontMatterForSource(text: string): { name?: string; descript
 
 function sha256(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
-}
-
-function isSafeSkillId(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(value);
-}
-
-function isContainedPath(root: string, child: string): boolean {
-  const rel = relative(root, child);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
 }

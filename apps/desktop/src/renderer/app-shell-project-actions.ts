@@ -1,12 +1,24 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { UiLocale } from '@maka/core';
 import { basenameFromPath, openPathActionErrorMessage, selectProjectDirectoryFailureCopy } from './app-shell-copy';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 import { MAX_RECENT_PATHS, saveComposerDefaults } from './composer-defaults';
+import { isSessionWorkspaceUnavailableError, showSessionWorkspaceUnavailableToast } from './session-workspace-errors';
 
 export interface RendererAppInfo {
   projectPath: string;
   projectGit: { isGitRepo: boolean; branch?: string };
+}
+
+export interface SessionProjectInfoState extends RendererAppInfo {
+  sessionId: string;
+}
+
+export interface ProjectBranchListState {
+  contextKey: string | null;
+  branches: string[];
+  current?: string;
 }
 
 type RefBox<T> = { current: T };
@@ -23,41 +35,58 @@ export interface AppShellProjectActions {
   openProjectFolder(): Promise<void>;
   openWorkspaceFolder(): Promise<void>;
   openSkillsFolder(): Promise<void>;
-  listGitBranches(): Promise<{ branches: string[]; current?: string } | null>;
-  checkoutGitBranch(branch: string): Promise<void>;
+  listGitBranches(sessionId?: string): Promise<{ branches: string[]; current?: string } | null>;
+  checkoutGitBranch(branch: string, sessionId?: string): Promise<void>;
 }
 
 export function createAppShellProjectActions(deps: {
+  uiLocale: UiLocale;
   projectPickerPendingRef: RefBox<boolean>;
   projectPickerRequestRef: RefBox<number>;
   rendererMountedRef: RefBox<boolean>;
   setAppInfo: Dispatch<SetStateAction<RendererAppInfo | null>>;
+  setSessionProjectInfo: Dispatch<SetStateAction<SessionProjectInfoState | null>>;
   setProjectPickerPending: Dispatch<SetStateAction<boolean>>;
   setBranchPending: Dispatch<SetStateAction<boolean>>;
-  setBranchList: Dispatch<SetStateAction<{ branches: string[]; current?: string } | null>>;
+  setBranchList: Dispatch<SetStateAction<ProjectBranchListState | null>>;
   setRecentProjectPaths: Dispatch<SetStateAction<string[]>>;
   recentProjectPaths: string[];
+  projectInfo: RendererAppInfo | null;
+  sessionId?: string;
+  onProjectSelected(ownerSessionId?: string): void;
   toastApi: ToastApi;
 }): AppShellProjectActions {
   const {
+    uiLocale,
     projectPickerPendingRef,
     projectPickerRequestRef,
     rendererMountedRef,
     setAppInfo,
+    setSessionProjectInfo,
     setProjectPickerPending,
     setBranchPending,
     setBranchList,
     setRecentProjectPaths,
     recentProjectPaths,
+    projectInfo,
+    sessionId,
+    onProjectSelected,
     toastApi,
   } = deps;
+  const copy = getShellCopy(uiLocale).projectActions;
 
   async function refreshAppInfo() {
     try {
       const next = await window.maka.app.info();
-      setAppInfo({ projectPath: next.projectPath, projectGit: next.projectGit });
+      setAppInfo({
+        projectPath: next.projectPath,
+        projectGit: next.projectGit,
+      });
     } catch (error) {
-      toastApi.error('读取项目路径失败', generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。'));
+      toastApi.error(
+        copy.readPathFailedTitle,
+        localizedShellErrorMessage(error, copy.readPathFailedFallback, uiLocale),
+      );
     }
   }
 
@@ -73,25 +102,33 @@ export function createAppShellProjectActions(deps: {
     projectPickerRequestRef.current = requestId;
     projectPickerPendingRef.current = true;
     setProjectPickerPending(true);
-    const isCurrentProjectPickerRequest = () => rendererMountedRef.current && projectPickerRequestRef.current === requestId;
+    const isCurrentProjectPickerRequest = () =>
+      rendererMountedRef.current && projectPickerRequestRef.current === requestId;
     try {
       const result = await window.maka.app.selectProjectDirectory();
       if (!isCurrentProjectPickerRequest()) return;
       if (!result.ok) {
         if (result.reason !== 'cancelled') {
-          toastApi.error('选择工作目录失败', selectProjectDirectoryFailureCopy(result.reason));
+          toastApi.error(copy.selectDirectoryFailedTitle, selectProjectDirectoryFailureCopy(result.reason, uiLocale));
         }
         return;
       }
-      setAppInfo({ projectPath: result.projectPath, projectGit: result.projectGit });
+      setAppInfo({
+        projectPath: result.projectPath,
+        projectGit: result.projectGit,
+      });
       setBranchList(null);
       // Persist so the next "新任务" inherits the folder (and it survives reload).
       saveComposerDefaults({ projectPath: result.projectPath });
       addRecentProjectPath(result.projectPath);
-      toastApi.success('已切换工作目录', basenameFromPath(result.projectPath));
+      onProjectSelected(sessionId);
+      toastApi.success(copy.directorySwitchedTitle, basenameFromPath(result.projectPath, uiLocale));
     } catch (error) {
       if (isCurrentProjectPickerRequest()) {
-        toastApi.error('选择工作目录失败', generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。'));
+        toastApi.error(
+          copy.selectDirectoryFailedTitle,
+          localizedShellErrorMessage(error, copy.readPathFailedFallback, uiLocale),
+        );
       }
     } finally {
       if (projectPickerRequestRef.current === requestId) {
@@ -107,22 +144,30 @@ export function createAppShellProjectActions(deps: {
     projectPickerRequestRef.current = requestId;
     projectPickerPendingRef.current = true;
     setProjectPickerPending(true);
-    const isCurrentProjectPickerRequest = () => rendererMountedRef.current && projectPickerRequestRef.current === requestId;
+    const isCurrentProjectPickerRequest = () =>
+      rendererMountedRef.current && projectPickerRequestRef.current === requestId;
     try {
       const result = await window.maka.app.selectProjectRoot(path);
       if (!isCurrentProjectPickerRequest()) return;
       if (!result.ok) {
-        toastApi.error('选择工作目录失败', '所选路径不存在或不可读。');
+        toastApi.error(copy.selectDirectoryFailedTitle, copy.selectedPathUnreadable);
         return;
       }
-      setAppInfo({ projectPath: result.projectPath, projectGit: result.projectGit });
+      setAppInfo({
+        projectPath: result.projectPath,
+        projectGit: result.projectGit,
+      });
       setBranchList(null);
       saveComposerDefaults({ projectPath: result.projectPath });
       addRecentProjectPath(result.projectPath);
-      toastApi.success('已切换工作目录', basenameFromPath(result.projectPath));
+      onProjectSelected(sessionId);
+      toastApi.success(copy.directorySwitchedTitle, basenameFromPath(result.projectPath, uiLocale));
     } catch (error) {
       if (isCurrentProjectPickerRequest()) {
-        toastApi.error('选择工作目录失败', generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。'));
+        toastApi.error(
+          copy.selectDirectoryFailedTitle,
+          localizedShellErrorMessage(error, copy.readPathFailedFallback, uiLocale),
+        );
       }
     } finally {
       if (projectPickerRequestRef.current === requestId) {
@@ -136,21 +181,37 @@ export function createAppShellProjectActions(deps: {
     try {
       const result = await window.maka.app.openPath('skills');
       if (!result.ok) {
-        toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathFailureCopy(result.reason));
+        toastApi.error(
+          copy.openFailedTitle(openPathActionLabel('skills', uiLocale)),
+          openPathFailureCopy(result.reason, uiLocale),
+        );
       }
     } catch (error) {
-      toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathActionErrorMessage(error, 'skills'));
+      toastApi.error(
+        copy.openFailedTitle(openPathActionLabel('skills', uiLocale)),
+        openPathActionErrorMessage(error, 'skills', uiLocale),
+      );
     }
   }
 
   async function openProjectFolder() {
     try {
-      const result = await window.maka.app.openPath('project');
+      const result = await window.maka.app.openPath('project', sessionId);
       if (!result.ok) {
-        toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathFailureCopy(result.reason));
+        toastApi.error(
+          copy.openFailedTitle(openPathActionLabel('project', uiLocale)),
+          openPathFailureCopy(result.reason, uiLocale),
+        );
       }
     } catch (error) {
-      toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathActionErrorMessage(error, 'project'));
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+      } else {
+        toastApi.error(
+          copy.openFailedTitle(openPathActionLabel('project', uiLocale)),
+          openPathActionErrorMessage(error, 'project', uiLocale),
+        );
+      }
     }
   }
 
@@ -158,46 +219,75 @@ export function createAppShellProjectActions(deps: {
     try {
       const result = await window.maka.app.openPath('workspace');
       if (!result.ok) {
-        toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+        toastApi.error(
+          copy.openFailedTitle(openPathActionLabel('workspace', uiLocale)),
+          openPathFailureCopy(result.reason, uiLocale),
+        );
       }
     } catch (error) {
-      toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathActionErrorMessage(error, 'workspace'));
+      toastApi.error(
+        copy.openFailedTitle(openPathActionLabel('workspace', uiLocale)),
+        openPathActionErrorMessage(error, 'workspace', uiLocale),
+      );
     }
   }
 
-  async function listGitBranches(): Promise<{ branches: string[]; current?: string } | null> {
+  async function listGitBranches(sessionId?: string): Promise<{ branches: string[]; current?: string } | null> {
     try {
-      const result = await window.maka.app.listGitBranches();
+      const result = await window.maka.app.listGitBranches(sessionId);
       if (!result.ok || !result.branches) {
         if (result.reason && result.reason !== 'not-a-repo') {
-          toastApi.error('读取分支列表失败', result.message ?? '无法读取本地分支,请稍后重试。');
+          toastApi.error(copy.branchListFailedTitle, result.message ?? copy.branchListFallback);
         }
         return null;
       }
       const next = { branches: result.branches, current: result.current };
-      setBranchList(next);
+      setBranchList({ contextKey: sessionId ?? null, ...next });
       return next;
     } catch (error) {
-      toastApi.error('读取分支列表失败', generalizedErrorMessageChinese(error, '无法读取本地分支,请稍后重试。'));
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+      } else {
+        toastApi.error(
+          copy.branchListFailedTitle,
+          localizedShellErrorMessage(error, copy.branchListFallback, uiLocale),
+        );
+      }
       return null;
     }
   }
 
-  async function checkoutGitBranch(branch: string): Promise<void> {
+  async function checkoutGitBranch(branch: string, sessionId?: string): Promise<void> {
     if (!branch) return;
     setBranchPending(true);
     try {
-      const result = await window.maka.app.checkoutGitBranch(branch);
+      const result = await window.maka.app.checkoutGitBranch(branch, sessionId);
       if (!result.ok) {
-        toastApi.error('切换分支失败', result.message ?? `无法切换到分支 ${branch}。`);
+        toastApi.error(copy.branchCheckoutFailedTitle, result.message ?? copy.branchCheckoutFallback(branch));
         return;
       }
+      const nextBranch = result.branch ?? branch;
       setAppInfo((prev) =>
-        prev ? { ...prev, projectGit: { isGitRepo: true, branch: result.branch ?? branch } } : prev,
+        prev && prev.projectPath === projectInfo?.projectPath
+          ? { ...prev, projectGit: { isGitRepo: true, branch: nextBranch } }
+          : prev,
       );
-      toastApi.success('已切换分支', result.branch ?? branch);
+      setSessionProjectInfo((prev) =>
+        prev && prev.projectPath === projectInfo?.projectPath
+          ? { ...prev, projectGit: { isGitRepo: true, branch: nextBranch } }
+          : prev,
+      );
+      setBranchList((prev) => (prev?.contextKey === (sessionId ?? null) ? { ...prev, current: nextBranch } : prev));
+      toastApi.success(copy.branchCheckoutSuccessTitle, nextBranch);
     } catch (error) {
-      toastApi.error('切换分支失败', generalizedErrorMessageChinese(error, `无法切换到分支 ${branch}。`));
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+      } else {
+        toastApi.error(
+          copy.branchCheckoutFailedTitle,
+          localizedShellErrorMessage(error, copy.branchCheckoutFallback(branch), uiLocale),
+        );
+      }
     } finally {
       setBranchPending(false);
     }

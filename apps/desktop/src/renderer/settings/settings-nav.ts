@@ -16,16 +16,16 @@ import {
   ShieldCheck,
   type LucideProps,
 } from '@maka/ui/icons';
-import type { SettingsSection } from '@maka/core';
-import { safeLocalStorageGet } from '../browser-storage';
+import type { SettingsSection, UiLocale } from '@maka/core';
+import { safeLocalStorageGet } from '../browser-storage.js';
+import { getSettingsNavigationCopy } from '../locales/settings-navigation-copy.js';
 import {
   NAV_GROUP_ORDER,
   type SettingsNavGroup,
-} from './nav-group-summary';
+} from './nav-group-summary.js';
 
 type SettingsNavItem = {
   id: SettingsSection;
-  label: string;
   Icon: ComponentType<LucideProps>;
   enabled: boolean;
   /** Group label rendered as a small uppercase divider above this item. */
@@ -36,7 +36,6 @@ type SettingsNavItem = {
    * carries this per-tab meta line; maka previously had only the bare
    * label. Helps the user understand "where am I?" at the page top.
    */
-  description?: string;
   /**
    * PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): render a small
    * "Beta" chip next to the nav label. Reference uses this for the
@@ -55,7 +54,7 @@ type AccountSecretProbeResult =
 // Palette, and Segmented radiogroups. Theme + Palette migrated to the
 // Base UI `RadioGroup`-backed `ChoiceCard` primitive in PR #263;
 // Segmented migrated to the Base UI `ToggleGroup`-backed
-// `SettingsSegmented` primitive in PR yuejing/settings-segmented-primitive.
+// `Segmented` primitive in PR yuejing/settings-segmented-primitive.
 // Both primitives now provide the same keyboard contract for free, so
 // these helpers are gone. The provider detail dialog also dropped its
 // hand-rolled default-model radiogroup in favor of a native enabled-model list.
@@ -79,50 +78,35 @@ export type { SettingsNavGroup };
 // Mirrors reference's tighter grouping (1 big group + a couple small
 // ones) instead of 5 categories with only 1-3 items each.
 export const SETTINGS_NAV: SettingsNavItem[] = [
-  // Group 1: 通用
-  { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true, group: '通用',
-    description: '隐身、启动、对话默认与网络代理等系统偏好。' },
-  { id: 'appearance', label: '外观', Icon: Palette, enabled: true, group: '通用',
-    description: '主题与配色。' },
-  // Group 2: AI 与集成 — models, usage, memory, daily-review, voice+gateway, bots, search
-  { id: 'models', label: '模型', Icon: Cpu, enabled: true, group: 'AI 与集成',
-    description: '模型连接、API key 与 OAuth 订阅管理。' },
-  { id: 'usage', label: '使用统计', Icon: BarChart3, enabled: true, group: 'AI 与集成',
-    description: 'token、模型、工具使用走势与配额追踪。' },
-  { id: 'memory', label: '记忆', Icon: Brain, enabled: true, group: 'AI 与集成',
-    description: '本地 MEMORY.md、项目指令文件与上下文注入开关。' },
-  { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, group: 'AI 与集成',
-    description: '每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。' },
-  { id: 'voice', label: '语音', Icon: Mic, enabled: true, group: 'AI 与集成',
-    description: '语音转写、麦克风权限与本地音频管线设置。' },
-  { id: 'open-gateway', label: '开放网关', Icon: Network, enabled: true, group: 'AI 与集成',
-    description: 'Maka 开放网关 SSE/HTTP 接入、token 管理与运行时状态。' },
-  { id: 'bot-chat', label: '远程接入', Icon: Bot, enabled: true, group: 'AI 与集成',
-    description: '通过 Telegram、飞书、微信等消息平台从其他设备与 Maka 对话。' },
-  { id: 'search', label: '联网搜索', Icon: Search, enabled: true, group: 'AI 与集成',
-    description: '联网搜索供应商（如 Tavily）凭据与隐私边界。',
-    badge: 'Beta' },
-  // Group 3: 系统 — data, permissions, health, about
-  { id: 'data', label: '数据', Icon: Database, enabled: true, group: '系统',
-    description: '本地工作区路径、备份与恢复。' },
-  { id: 'permissions', label: '权限与能力', Icon: ShieldCheck, enabled: true, group: '系统',
-    description: '系统权限授予状态与 Maka 能力运行时检查。' },
-  { id: 'health', label: '健康', Icon: Activity, enabled: true, group: '系统',
-    description: '运行时连接、模型探针与本地健康状态。' },
-  { id: 'about', label: '关于', Icon: Info, enabled: true, group: '系统',
-    description: '版本、运行环境与隐私承诺。' },
+  { id: 'general', Icon: SettingsIcon, enabled: true, group: 'general' },
+  { id: 'appearance', Icon: Palette, enabled: true, group: 'general' },
+  { id: 'models', Icon: Cpu, enabled: true, group: 'ai-integrations' },
+  { id: 'usage', Icon: BarChart3, enabled: true, group: 'ai-integrations' },
+  { id: 'memory', Icon: Brain, enabled: true, group: 'ai-integrations' },
+  { id: 'daily-review', Icon: CalendarDays, enabled: true, group: 'ai-integrations' },
+  { id: 'voice', Icon: Mic, enabled: true, group: 'ai-integrations' },
+  { id: 'open-gateway', Icon: Network, enabled: true, group: 'ai-integrations' },
+  { id: 'bot-chat', Icon: Bot, enabled: true, group: 'ai-integrations' },
+  { id: 'search', Icon: Search, enabled: true, group: 'ai-integrations', badge: 'Beta' },
+  { id: 'data', Icon: Database, enabled: true, group: 'system' },
+  { id: 'permissions', Icon: ShieldCheck, enabled: true, group: 'system' },
+  { id: 'health', Icon: Activity, enabled: true, group: 'system' },
+  { id: 'about', Icon: Info, enabled: true, group: 'system' },
 ];
 
+export type LocalizedSettingsNavItem = SettingsNavItem & { label: string; description: string };
+
 /** Order-preserving grouping used by the nav renderer. */
-export function groupedNav(): Array<{ group: SettingsNavGroup; items: SettingsNavItem[] }> {
-  const byGroup = new Map<SettingsNavGroup, SettingsNavItem[]>();
+export function groupedNav(locale: UiLocale): Array<{ group: SettingsNavGroup; label: string; items: LocalizedSettingsNavItem[] }> {
+  const copy = getSettingsNavigationCopy(locale);
+  const byGroup = new Map<SettingsNavGroup, LocalizedSettingsNavItem[]>();
   for (const item of SETTINGS_NAV) {
     if (!byGroup.has(item.group)) byGroup.set(item.group, []);
-    byGroup.get(item.group)!.push(item);
+    byGroup.get(item.group)!.push({ ...item, ...copy.sections[item.id] });
   }
   return NAV_GROUP_ORDER.flatMap((group) => {
     const items = byGroup.get(group);
-    return items && items.length > 0 ? [{ group, items }] : [];
+    return items && items.length > 0 ? [{ group, label: copy.groups[group], items }] : [];
   });
 }
 
@@ -134,12 +118,13 @@ export function readLastSettingsSection(): SettingsSection {
   // page lands on 语音 (the more user-frequent of the two split
   // pages) instead of being silently bounced back to 模型.
   if (value === 'voice-gateway') return 'voice';
+  if (value === 'mcp') return 'models';
   if (SETTINGS_NAV.some((item) => item.id === value)) {
     return value as SettingsSection;
   }
   return 'models';
 }
 
-export function navLabel(section: SettingsSection): string {
-  return SETTINGS_NAV.find((item) => item.id === section)?.label ?? section;
+export function navLabel(section: SettingsSection, locale: UiLocale): string {
+  return getSettingsNavigationCopy(locale).sections[section].label;
 }

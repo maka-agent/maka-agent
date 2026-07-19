@@ -2,11 +2,12 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 async function readMainSource(): Promise<string> {
-  return readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+  return readMainProcessCombinedSource();
 }
 
 function extractIpcHandler(source: string, channel: string): string {
@@ -18,6 +19,28 @@ function extractIpcHandler(source: string, channel: string): string {
 }
 
 describe('session thinking-level main IPC contract', () => {
+  it('generates titles with the sticky session model and emits the existing rename event', async () => {
+    const main = await readMainSource();
+
+    assert.match(
+      main,
+      /generateSessionTitle: async \(\{ sessionId, header, sourceText \}\) => \{[\s\S]*getReadyConnection\(header\.llmConnectionSlug, header\.model\)/,
+    );
+    assert.match(main, /providerOptions: buildProviderOptions\(connection, model\)/);
+    assert.doesNotMatch(main, /generateSessionTitle:[\s\S]{0,1200}thinkingLevel/);
+    assert.match(main, /onSessionTitleChanged: \(sessionId\) => emitSessionsChanged\('renamed', sessionId\)/);
+  });
+
+  it('creates first-message Desktop sessions with the canonical default title', async () => {
+    const chatActions = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell-chat-actions.ts'),
+      'utf8',
+    );
+
+    assert.match(chatActions, /window\.maka\.sessions\.create\(\{[\s\S]*?name: DEFAULT_SESSION_NAME/);
+    assert.doesNotMatch(chatActions, /name: text\.slice\(0, 42\)/);
+  });
+
   it('validates new-chat thinkingLevel against the ready provider/model before persisting it', async () => {
     const main = await readMainSource();
     const createHandler = extractIpcHandler(main, 'sessions:create');
@@ -36,7 +59,7 @@ describe('session thinking-level main IPC contract', () => {
     );
     assert.match(
       createHandler,
-      /runtime\.createSession\(\{[\s\S]*model,[\s\S]*\.\.\.\(thinkingLevel !== undefined \? \{ thinkingLevel \} : \{\}\),/,
+      /createSession\(\{[\s\S]*model,[\s\S]*\.\.\.\(thinkingLevel !== undefined \? \{ thinkingLevel \} : \{\}\),/,
       'sessions:create must persist the supported thinkingLevel into the session header so the first turn providerOptions use it',
     );
     assert.match(

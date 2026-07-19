@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import {
   Accessibility as AccessibilityIcon,
   Bell,
@@ -22,6 +22,7 @@ import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, Sta
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
+import { useActionGuard } from './use-action-guard';
 
 /**
  * PR-UI-8 — Permission Center read-only page. Consumes `window.maka.permissions.getSnapshot()`
@@ -110,13 +111,7 @@ export function PermissionCenterPage() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const toast = useToast();
   const mountedRef = useMountedRef();
-  const pendingPermActionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      pendingPermActionRef.current = null;
-    };
-  }, []);
+  const permissionActionGuard = useActionGuard<string>();
 
   useEffect(() => {
     let cancelled = false;
@@ -147,8 +142,7 @@ export function PermissionCenterPage() {
     kind: 'request' | 'openSettings',
   ) {
     const actionKey = `${permId}:${kind}`;
-    if (pendingPermActionRef.current) return;
-    pendingPermActionRef.current = actionKey;
+    if (!permissionActionGuard.begin(actionKey)) return;
     setPendingPermAction(actionKey);
     try {
       const result =
@@ -165,8 +159,8 @@ export function PermissionCenterPage() {
     } catch (err) {
       if (mountedRef.current) toast.error('权限操作失败', settingsActionErrorMessage(err));
     } finally {
-      if (pendingPermActionRef.current === actionKey) {
-        pendingPermActionRef.current = null;
+      if (permissionActionGuard.current === actionKey) {
+        permissionActionGuard.finish();
       }
       if (mountedRef.current) setPendingPermAction(null);
     }
@@ -344,21 +338,14 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
   const { capability } = props;
   const toast = useToast();
   const [copyingOfficeCliInstall, setCopyingOfficeCliInstall] = useState(false);
-  const copyingOfficeCliInstallRef = useRef(false);
+  const copyOfficeCliInstallGuard = useActionGuard<'copy'>();
   const capabilityRowMountedRef = useMountedRef();
   const readinessCopy = CAPABILITY_READINESS_COPY[capability.readiness];
   const showOfficeCliInstallActions =
     capability.id === 'office_documents' && capability.runtimeProbe.state !== 'healthy';
 
-  useEffect(() => {
-    return () => {
-      copyingOfficeCliInstallRef.current = false;
-    };
-  }, []);
-
   async function copyOfficeCliInstallCommand() {
-    if (copyingOfficeCliInstallRef.current) return;
-    copyingOfficeCliInstallRef.current = true;
+    if (!copyOfficeCliInstallGuard.begin('copy')) return;
     setCopyingOfficeCliInstall(true);
     try {
       await navigator.clipboard.writeText(OFFICECLI_INSTALL_COMMAND);
@@ -370,7 +357,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
         toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
       }
     } finally {
-      copyingOfficeCliInstallRef.current = false;
+      copyOfficeCliInstallGuard.finish();
       if (capabilityRowMountedRef.current) {
         setCopyingOfficeCliInstall(false);
       }

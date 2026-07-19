@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
 
 // Minimal valid V3 stream: start then immediately finish. Annotated so the
 // 'stop' / 'stream-start' literals are checked against the part union.
-const STREAM_PARTS: LanguageModelV3StreamPart[] = [
+const STREAM_PARTS: LanguageModelV4StreamPart[] = [
   { type: 'stream-start', warnings: [] },
   { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
 ];
@@ -59,7 +59,7 @@ async function toolNamesSeenByProvider(activeNames: ReadonlySet<string>): Promis
   }
 
   let seen: string[] = [];
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     doStream: async ({ tools }) => {
       seen = (tools ?? []).map((t) => t.name);
       return { stream: convertArrayToReadableStream(STREAM_PARTS) };
@@ -76,7 +76,7 @@ async function toolNamesSeenByProvider(activeNames: ReadonlySet<string>): Promis
     repairToolCall: async () => null,
   });
   // Drain the stream so streamText materializes the provider call.
-  for await (const _chunk of result.fullStream) {
+  for await (const _chunk of result.stream) {
     void _chunk;
   }
   return seen;

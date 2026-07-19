@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PlanReminder } from '@maka/core';
+import type { PlanReminder, UiLocale } from '@maka/core';
 import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, SkillEntry } from '@maka/ui';
 import { createAppShellPlanActions, type AppShellPlanActions } from './app-shell-plan-actions';
 import { createAppShellSkillActions, type AppShellSkillActions } from './app-shell-skill-actions';
@@ -27,6 +27,7 @@ type ToastApi = {
  * getter reads the latest reminders on each call.
  */
 export function useAppShellModuleData(options: {
+  uiLocale: UiLocale;
   isSkillsSurfaceActive: () => boolean;
   isAutomationsSurfaceActive: () => boolean;
   toastApi: ToastApi;
@@ -36,7 +37,7 @@ export function useAppShellModuleData(options: {
   bundledSkillCatalog: BundledSkillCatalogEntry[];
   planReminders: PlanReminder[];
 } {
-  const { isSkillsSurfaceActive, isAutomationsSurfaceActive, toastApi } = options;
+  const { uiLocale, isSkillsSurfaceActive, isAutomationsSurfaceActive, toastApi } = options;
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
   const [bundledSkillCatalog, setBundledSkillCatalog] = useState<BundledSkillCatalogEntry[]>([]);
@@ -50,6 +51,7 @@ export function useAppShellModuleData(options: {
   });
 
   const skillActions = createAppShellSkillActions({
+    uiLocale,
     isSkillsSurfaceActive,
     setSkills,
     setManagedSkillSources,

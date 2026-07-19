@@ -10,7 +10,14 @@ const DEFAULT_MAX_TOOL_FAILURE_JSONL_LINES = 10_000;
 const DEFAULT_MAX_TOOL_FAILURE_EVENTS_PER_TASK = 1_000;
 const DEFAULT_MAX_TOOL_FAILURE_ARGS_KEYS = 8;
 
-export type RsiTaskOutcome = 'pass' | 'fail' | 'unscored' | 'infra' | 'budget' | 'plumbing' | 'missing';
+export type RsiTaskOutcome =
+  | 'pass'
+  | 'fail'
+  | 'unscored'
+  | 'infra'
+  | 'budget'
+  | 'plumbing'
+  | 'missing';
 
 export interface RsiTaskTransition {
   taskId: string;
@@ -33,41 +40,46 @@ export interface RsiToolFailureCluster {
 
 export type RsiTraceUnavailableSource = 'runtime' | 'trace';
 
-export type RsiTraceUnavailableReason = 'missing_path' | 'missing_file' | 'invalid_jsonl' | 'input_limit_exceeded' | 'unreadable';
+export type RsiTraceUnavailableReason =
+  | 'missing_path'
+  | 'missing_file'
+  | 'invalid_jsonl'
+  | 'input_limit_exceeded'
+  | 'unreadable';
 
 export type RsiAnalysisSignal =
   | {
-    id: string;
-    kind: 'transition';
-    taskIds: string[];
-    basis: 'last_kept' | 'previous_candidate';
-    transition: RsiTaskTransition;
-  }
+      id: string;
+      kind: 'transition';
+      taskIds: string[];
+      basis: 'last_kept' | 'previous_candidate';
+      transition: RsiTaskTransition;
+    }
   | {
-    id: string;
-    kind: 'coverage_regression';
-    taskIds: string[];
-  }
+      id: string;
+      kind: 'coverage_regression';
+      taskIds: string[];
+    }
   | {
-    id: string;
-    kind: 'error_class';
-    taskIds: string[];
-    errorClass: string;
-    count: number;
-  }
+      id: string;
+      kind: 'error_class';
+      taskIds: string[];
+      errorClass: string;
+      count: number;
+    }
   | {
-    id: string;
-    kind: 'tool_failure_cluster';
-    taskIds: string[];
-    cluster: RsiToolFailureCluster;
-  }
+      id: string;
+      kind: 'tool_failure_cluster';
+      taskIds: string[];
+      cluster: RsiToolFailureCluster;
+    }
   | {
-    id: string;
-    kind: 'trace_unavailable';
-    taskIds: string[];
-    source: RsiTraceUnavailableSource;
-    reason: RsiTraceUnavailableReason;
-  };
+      id: string;
+      kind: 'trace_unavailable';
+      taskIds: string[];
+      source: RsiTraceUnavailableSource;
+      reason: RsiTraceUnavailableReason;
+    };
 
 export interface RsiRoundAnalysis {
   heldInTaskSetHash: string;
@@ -124,21 +136,17 @@ export async function analyzeRsiRound(input: AnalyzeRsiRoundInput): Promise<RsiR
   const heldInTaskIds = sortedUnique(input.heldInTaskIds);
   const lastKeptByTask = eventsByHeldInTask(input.lastKeptEvents, heldInTaskIds);
   const candidateByTask = eventsByHeldInTask(input.candidateEvents, heldInTaskIds);
-  const transitionVsLastKept = taskTransitions(
-    heldInTaskIds,
-    lastKeptByTask,
-    candidateByTask,
-  );
+  const transitionVsLastKept = taskTransitions(heldInTaskIds, lastKeptByTask, candidateByTask);
   const transitionVsPreviousCandidate = input.previousCandidateEvents
     ? taskTransitions(
-      heldInTaskIds,
-      eventsByHeldInTask(input.previousCandidateEvents, heldInTaskIds),
-      candidateByTask,
-    )
+        heldInTaskIds,
+        eventsByHeldInTask(input.previousCandidateEvents, heldInTaskIds),
+        candidateByTask,
+      )
     : [];
-  const coverageRegressionTaskIds = heldInTaskIds.filter((taskId) => (
-    isCovered(lastKeptByTask.get(taskId)) && !isCovered(candidateByTask.get(taskId))
-  ));
+  const coverageRegressionTaskIds = heldInTaskIds.filter(
+    (taskId) => isCovered(lastKeptByTask.get(taskId)) && !isCovered(candidateByTask.get(taskId)),
+  );
   const errorGroups = safeErrorClassGroups(heldInTaskIds, candidateByTask);
   const toolFailures = await toolFailureClusters(
     heldInTaskIds,
@@ -164,7 +172,9 @@ export async function analyzeRsiRound(input: AnalyzeRsiRoundInput): Promise<RsiR
 }
 
 export function heldInTaskSetHash(taskIds: readonly string[]): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(sortedUnique(taskIds))).digest('hex')}`;
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify(sortedUnique(taskIds)))
+    .digest('hex')}`;
 }
 
 function taskTransitions(
@@ -201,7 +211,11 @@ function safeErrorClassGroups(
     const errorClass = events.get(taskId)?.errorClass;
     if (!errorClass) continue;
     const safeErrorClass = promptSafeToken(errorClass, 'unknown_error');
-    const current = groups.get(safeErrorClass) ?? { errorClass: safeErrorClass, count: 0, taskIds: [] };
+    const current = groups.get(safeErrorClass) ?? {
+      errorClass: safeErrorClass,
+      count: 0,
+      taskIds: [],
+    };
     current.count += 1;
     current.taskIds.push(taskId);
     groups.set(safeErrorClass, current);
@@ -223,32 +237,45 @@ function analysisSignals(input: {
     ...input.transitionVsLastKept.map((transition) => transition.taskId),
     ...input.transitionVsPreviousCandidate.map((transition) => transition.taskId),
   ]);
-  const toolFailureEvidenceClusters = input.toolFailureClusters
-    .filter((cluster) => cluster.taskIds.every((taskId) => !transitionTaskIds.has(taskId)));
+  const toolFailureEvidenceClusters = input.toolFailureClusters.filter((cluster) =>
+    cluster.taskIds.every((taskId) => !transitionTaskIds.has(taskId)),
+  );
   return [
     ...input.transitionVsLastKept.map((transition) => transitionSignal('last_kept', transition)),
-    ...input.transitionVsPreviousCandidate.map((transition) => transitionSignal('previous_candidate', transition)),
+    ...input.transitionVsPreviousCandidate.map((transition) =>
+      transitionSignal('previous_candidate', transition),
+    ),
     ...(input.coverageRegressionTaskIds.length > 0
-      ? [withSignalId({ kind: 'coverage_regression' as const, taskIds: [...input.coverageRegressionTaskIds] })]
+      ? [
+          withSignalId({
+            kind: 'coverage_regression' as const,
+            taskIds: [...input.coverageRegressionTaskIds],
+          }),
+        ]
       : []),
-    ...input.errorGroups
-      .map(({ errorClass, count, taskIds }) => withSignalId({
+    ...input.errorGroups.map(({ errorClass, count, taskIds }) =>
+      withSignalId({
         kind: 'error_class' as const,
         taskIds: [...taskIds],
         errorClass,
         count,
-      })),
-    ...toolFailureEvidenceClusters.map((cluster) => withSignalId({
-      kind: 'tool_failure_cluster' as const,
-      taskIds: cluster.taskIds,
-      cluster,
-    })),
-    ...input.traceUnavailable.map((unavailable) => withSignalId({
-      kind: 'trace_unavailable' as const,
-      taskIds: unavailable.taskIds,
-      source: unavailable.source,
-      reason: unavailable.reason,
-    })),
+      }),
+    ),
+    ...toolFailureEvidenceClusters.map((cluster) =>
+      withSignalId({
+        kind: 'tool_failure_cluster' as const,
+        taskIds: cluster.taskIds,
+        cluster,
+      }),
+    ),
+    ...input.traceUnavailable.map((unavailable) =>
+      withSignalId({
+        kind: 'trace_unavailable' as const,
+        taskIds: unavailable.taskIds,
+        source: unavailable.source,
+        reason: unavailable.reason,
+      }),
+    ),
   ];
 }
 
@@ -306,7 +333,9 @@ async function toolFailureClusters(
     }
     const callsById = await functionCallsById(event.runtimeEventsPath, limits);
     if (!callsById.ok) addTraceUnavailable(traceUnavailable, taskId, 'runtime', callsById.reason);
-    const calls = callsById.ok ? callsById.value : new Map<string, { name: string; argsPreview: string }>();
+    const calls = callsById.ok
+      ? callsById.value
+      : new Map<string, { name: string; argsPreview: string }>();
     let failureEvents = 0;
     for (const traceEvent of traceEvents.events) {
       if (failureEvents >= limits.maxEventsPerTask) break;
@@ -353,7 +382,12 @@ async function functionCallsById(
   for (const event of runtimeEvents.events) {
     if (!isRecord(event) || !isRecord(event.content)) continue;
     const content = event.content;
-    if (content.kind !== 'function_call' || typeof content.id !== 'string' || typeof content.name !== 'string') continue;
+    if (
+      content.kind !== 'function_call' ||
+      typeof content.id !== 'string' ||
+      typeof content.name !== 'string'
+    )
+      continue;
     calls.set(content.id, {
       name: promptSafeToken(content.name, 'unknown_tool'),
       argsPreview: argsPreview(content.args, limits.maxArgsKeys),
@@ -396,7 +430,10 @@ async function readProjectedJsonl(
   return { ok: true, events };
 }
 
-async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimits): Promise<BoundedJsonlResult> {
+async function readBoundedJsonl(
+  path: string,
+  limits: NormalizedToolFailureLimits,
+): Promise<BoundedJsonlResult> {
   let size: number;
   try {
     size = (await stat(path)).size;
@@ -429,9 +466,7 @@ async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimit
 }
 
 function isFunctionCallEvent(event: unknown): boolean {
-  return isRecord(event)
-    && isRecord(event.content)
-    && event.content.kind === 'function_call';
+  return isRecord(event) && isRecord(event.content) && event.content.kind === 'function_call';
 }
 
 function toolFailureDigest(
@@ -444,23 +479,29 @@ function toolFailureDigest(
   const call = typeof data.toolUseId === 'string' ? callsById.get(data.toolUseId) : undefined;
   return {
     name: promptSafeToken(data.toolName, 'unknown_tool'),
-    ...(typeof data.errorClass === 'string' ? { errorClass: promptSafeToken(data.errorClass, 'unknown_error') } : {}),
+    ...(typeof data.errorClass === 'string'
+      ? { errorClass: promptSafeToken(data.errorClass, 'unknown_error') }
+      : {}),
     ...(call?.argsPreview ? { argsPreview: call.argsPreview } : {}),
   };
 }
 
 function compareToolFailureClusters(a: RsiToolFailureCluster, b: RsiToolFailureCluster): number {
-  return b.count - a.count
-    || compareStrings(a.name, b.name)
-    || compareStrings(a.errorClass ?? '', b.errorClass ?? '')
-    || compareStrings(a.argsPreview ?? '', b.argsPreview ?? '')
-    || compareStrings(a.taskIds.join(','), b.taskIds.join(','));
+  return (
+    b.count - a.count ||
+    compareStrings(a.name, b.name) ||
+    compareStrings(a.errorClass ?? '', b.errorClass ?? '') ||
+    compareStrings(a.argsPreview ?? '', b.argsPreview ?? '') ||
+    compareStrings(a.taskIds.join(','), b.taskIds.join(','))
+  );
 }
 
 function compareTraceUnavailable(a: RsiTraceUnavailableGroup, b: RsiTraceUnavailableGroup): number {
-  return compareStrings(a.source, b.source)
-    || compareStrings(a.reason, b.reason)
-    || compareStrings(a.taskIds.join(','), b.taskIds.join(','));
+  return (
+    compareStrings(a.source, b.source) ||
+    compareStrings(a.reason, b.reason) ||
+    compareStrings(a.taskIds.join(','), b.taskIds.join(','))
+  );
 }
 
 function argsPreview(args: unknown, maxKeys: number): string {
@@ -485,15 +526,21 @@ function addTraceUnavailable(
   groups.set(key, current);
 }
 
-function hasRuntimePath(event: FixedPromptTaskWalEvent): event is FixedPromptTaskWalEvent & { runtimeEventsPath: string } {
+function hasRuntimePath(
+  event: FixedPromptTaskWalEvent,
+): event is FixedPromptTaskWalEvent & { runtimeEventsPath: string } {
   return 'runtimeEventsPath' in event && typeof event.runtimeEventsPath === 'string';
 }
 
-function hasTracePath(event: FixedPromptTaskWalEvent): event is FixedPromptTaskWalEvent & { traceEventsPath: string } {
+function hasTracePath(
+  event: FixedPromptTaskWalEvent,
+): event is FixedPromptTaskWalEvent & { traceEventsPath: string } {
   return 'traceEventsPath' in event && typeof event.traceEventsPath === 'string';
 }
 
-function normalizeToolFailureLimits(limits: AnalyzeRsiRoundInput['limits']): NormalizedToolFailureLimits {
+function normalizeToolFailureLimits(
+  limits: AnalyzeRsiRoundInput['limits'],
+): NormalizedToolFailureLimits {
   return {
     maxClusters: nonNegativeInt(limits?.maxToolFailureClusters, DEFAULT_MAX_TOOL_FAILURE_CLUSTERS),
     maxJsonlBytes: DEFAULT_MAX_TOOL_FAILURE_JSONL_BYTES,

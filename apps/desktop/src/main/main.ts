@@ -1,28 +1,15 @@
-import { app, ipcMain, nativeImage, powerMonitor, safeStorage, shell } from 'electron';
+import { app, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir, readFile, realpath } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
-import { release as osRelease, arch as osArch } from 'node:os';
 import {
-  generalizedErrorMessage,
-  generalizedErrorMessageChinese,
-  redactSecrets,
+  DEFAULT_SESSION_NAME,
   filterModelVisibleTaskLedgerTasks,
-  sanitizeTaskLedgerTask,
-  buildHealthSnapshot,
-  healthSignalFromCapability,
-  healthSignalFromConnection,
-  healthSignalFromConnectionRuntime,
-  isPermissionMode,
   isDeepResearchSession,
-  isThinkingLevel,
-  thinkingVariantsForModel,
   resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   expertTeamIdFromLabels,
-  expertTeamLabel,
-  botDisplayLabel,
 } from '@maka/core';
 import type {
   AppSettings,
@@ -33,12 +20,6 @@ import type {
   SessionChangedEvent,
   SessionChangedReason,
   SessionEvent,
-  SessionHeader,
-  SessionListFilter,
-  ThinkingLevel,
-  StoredMessage,
-  SettingsTestResult,
-  UpdateAppSettingsResult,
   UpdateAppSettingsInput,
 } from '@maka/core';
 import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
@@ -49,28 +30,15 @@ import {
   persistArchivedToolResultToArtifacts,
   readArchivedToolResultFromArtifacts,
 } from './tool-result-archive-artifacts.js';
-import {
-  normalizeBranchFromTurnInput,
-  normalizePermissionResponse,
-  normalizeRegenerateTurnInput,
-  normalizeSessionSendCommand,
-  normalizeStopSessionInput,
-  normalizeUserQuestionResponse,
-} from './permission-response-guard.js';
-import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
+import { importLegacyOAuthTokenFiles } from './oauth/shared-credential-bridge.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
-import type {
-  TestProxyInput,
-  TestProxyResult,
-} from '@maka/core/settings/network-settings';
-import { SENSITIVE_PLACEHOLDER } from '@maka/core/settings/network-settings';
-import { err, ok, tryResult, type Result } from '@maka/core/settings/result';
+import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import { ok } from '@maka/core/settings/result';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -78,53 +46,59 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildMcpTools,
   buildAskUserQuestionTool,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
   buildChildAgentTools,
+  buildAgentTeamChildTools,
+  buildAgentTeamLeadTools,
   buildExpertDispatchToolForTeamId,
-  buildSubagentProjectionTools,
-  buildSubagentSpawnTool,
+  buildParentAgentTools,
   buildSubagentToolGroup,
   createLocalContinuationSafetyInspector,
   getAIModel,
-  getExpertTeam,
-  listExpertTeams,
+  generateSessionTitle as generateRuntimeSessionTitle,
   buildProviderOptions,
   recordLlmCall,
   recordToolInvocation,
   buildPricingLookup,
   BotRegistry,
-  getWechatBridgeQrCode,
-  testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
   ShellRunProcessManager,
+  SessionActivityRegistry,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
   BotStatus,
+  GoalTurnOutcome,
   MakaTool,
+  SessionActivityLease,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
   ToolResultArchiveReadResult,
   ToolResultArchiveRecorderInput,
 } from '@maka/runtime';
-import { testProxyConnection } from '@maka/runtime/network/proxy-test';
-import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
-import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
+import type { LlmConnection } from '@maka/core/llm-connections';
 import {
   createAgentRunStore,
+  createAgentMailboxStore,
+  createAttachmentByteReader,
   createArtifactStore,
+  createReadImageSnapshotter,
   createConnectionStore,
   createPlanReminderStore,
   openRuntimeEventPersistence,
   createSessionStore,
   createSettingsStore,
+  createMcpConfigStore,
   createShellRunStore,
   createTelemetryRepo,
 } from '@maka/storage';
+import { McpClientManager } from '@maka/mcp';
+import { registerMcpIpcMain } from './mcp-ipc-main.js';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -132,35 +106,17 @@ import {
   errorReason,
   requireReadyConnection,
 } from './chat-readiness.js';
-import {
-  sessionReadMessagesFailureMessage,
-} from './session-read-error-copy.js';
 import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
-import { handleExpertTeamStart as runExpertTeamStart } from './expert-team-start.js';
-import { probeOfficeCli } from './officecli-probe.js';
-import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { resolveProjectGitInfo, resolveProjectRoot, resolveSkillDiscoveryPaths } from '@maka/runtime';
-import { listLocalBranches, checkoutBranch } from './git-branch.js';
-import { searchWorkspaceFiles } from './workspace-file-search.js';
+import { resolveSkillDiscoveryPaths } from '@maka/runtime';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
-import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
+import { preserveSensitivePlaceholders } from './settings-ipc-helpers.js';
 import {
   buildSkillAgentTool,
 } from './skills.js';
-import {
-  createWorkspaceInstructionFile,
-  getWorkspaceInstructionsState,
-  resolveWorkspaceInstructionFileForOpen,
-  type WorkspaceInstructionCreateFailureReason,
-  type WorkspaceInstructionOpenFailureReason,
-} from './workspace-instructions.js';
-import { buildCapabilitySnapshotCollection, buildPermissionSnapshot } from './capability-snapshot.js';
-import { openSystemPermissionPane, requestPermissionAccess } from './permissions-actions.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
 import {
-  getVisualSmokeState,
   resolveVisualSmokeFixture,
   seedVisualSmokeFixture,
 } from './visual-smoke-fixture.js';
@@ -168,9 +124,6 @@ import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
 import { createAttachmentApprovalRegistry } from './attachment-approval.js';
-import { createAttachmentByteReader } from './attachment-reader.js';
-import { resizeImageForAttachment } from './attachment-resize-native.js';
-import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
@@ -195,7 +148,6 @@ import {
   computerUseToolsForModel,
 } from './computer-use-model-tools.js';
 import { createComputerUseOverlayHook } from '@maka/computer-use';
-import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
@@ -206,12 +158,10 @@ import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createMainGoalWiring } from './goal-wiring.js';
-import { handleGoalContinuation } from '@maka/runtime';
+import { startDesktopSessionTurn, type SessionGoalBoundary } from './session-turn-stream.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
-  applyNetworkPatch,
   maskNetworkSettings,
-  toAppNetworkPatch,
   toContractNetworkSettings,
 } from './network-settings-main.js';
 import { registerMemoryIpc } from './memory-ipc-main.js';
@@ -225,6 +175,27 @@ import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
 import { registerNotificationsIpc } from './notifications-ipc-main.js';
+import { registerAppIpc } from './app-ipc-main.js';
+import { registerGitIpc } from './git-ipc-main.js';
+import { registerWorkspaceSearchIpc } from './workspace-search-ipc-main.js';
+import { registerWorkspaceInstructionsIpc } from './workspace-instructions-ipc-main.js';
+import { registerOnboardingIpc } from './onboarding-ipc-main.js';
+import { registerSessionEntryIpc } from './session-entry-ipc-main.js';
+import { registerPermissionsIpc } from './permissions-ipc-main.js';
+import { registerSettingsIpc } from './settings-ipc-main.js';
+import { createKeepSystemAwakeController } from './keep-system-awake.js';
+import { registerGatewayIpc } from './gateway-ipc-main.js';
+import { registerSessionsIpc } from './sessions-ipc-main.js';
+import {
+  assertSessionCanSendFromHeader,
+  isSessionLifecycleError,
+  sessionLifecycleErrorFromReadFailure,
+} from './session-lifecycle.js';
+import { createProjectRootController } from './project-root-controller.js';
+import {
+  assertSessionWorkspaceAvailable,
+  resolveProjectContextRoot,
+} from './project-context-root.js';
 
 // E2E switches must never fire in a packaged build, and must never run against
 // the real user data: a stray MAKA_E2E on a build/dev machine would otherwise
@@ -286,6 +257,12 @@ try {
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
 let configWatcher: ConfigFileWatcher | undefined;
+// 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
+// `powerSaveBlocker` so in-process scheduled tasks keep firing while the
+// machine would otherwise sleep. Injected with electron's blocker; the
+// controller owns the id + double-start guard. The blocker dies with the
+// process, so quit needs no special teardown.
+const keepSystemAwake = createKeepSystemAwakeController(powerSaveBlocker);
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimePersistence = await openRuntimeEventPersistence({
@@ -296,9 +273,23 @@ const runtimeEventStore = runtimePersistence.runtimeEventStore;
 const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
+const mcpConfigStore = createMcpConfigStore(workspaceRoot);
+const mcpManager = new McpClientManager({ clientName: 'maka-desktop', clientVersion: app.getVersion() });
+let mcpStartup: Promise<void> | undefined;
+function ensureMcpReady(): Promise<void> {
+  if (!mcpStartup) {
+    const startup = mcpConfigStore.get().then((config) => mcpManager.sync(config));
+    mcpStartup = startup;
+    void startup.catch(() => {
+      if (mcpStartup === startup) mcpStartup = undefined;
+    });
+  }
+  return mcpStartup;
+}
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
 const dailyReviewArchiveStore = createDailyReviewArchiveStore(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
+const storeReadImage = createReadImageSnapshotter(artifactStore);
 const attachmentApprovals = createAttachmentApprovalRegistry();
 const credentialStore = createFileCredentialStore(workspaceRoot);
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
@@ -371,14 +362,33 @@ function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {
 }
 const cursorSubscription = new CursorSubscriptionService({
   userDataDir: app.getPath('userData'),
+  credentialStore,
 });
 const antigravitySubscription = new AntigravitySubscriptionService({
   userDataDir: app.getPath('userData'),
+  credentialStore,
 });
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
+const agentMailboxStore = createAgentMailboxStore(workspaceRoot);
+
+interface StreamEventsOptions {
+  turnId: string;
+  goalBoundary: SessionGoalBoundary;
+  activity?: SessionActivityLease;
+  observeEvent?: (event: SessionEvent) => void;
+}
+
+interface StreamEventsResult {
+  turnId: string;
+  ok: boolean;
+  error?: string;
+  outcome: GoalTurnOutcome;
+}
+
+const sessionActivities = new SessionActivityRegistry();
 
 // Unified Automation — single "Automation" tool for heartbeat + cron.
 // Deps are resolved lazily since runtime/store aren't ready at this point.
@@ -394,12 +404,16 @@ const automationWiring = createMainAutomationWiring({
   },
   // Heartbeat: inject into the automation's own session; resolve after the stream.
   async injectTurn(sessionId: string, prompt: string, automationId: string) {
+    await ensureSessionCanSend(sessionId);
     const turnId = randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
     });
-    const r = await streamEvents(sessionId, iterator, turnId);
-    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+    const r = await streamEvents(sessionId, iterator, {
+      turnId,
+      goalBoundary: 'external',
+    });
+    return { runId: turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
   // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
   // run the prompt there, so each fire is a first-class session + run.
@@ -407,7 +421,7 @@ const automationWiring = createMainAutomationWiring({
     const slug = await connectionStore.getDefault();
     const { connection, model } = await getReadyConnection(slug, undefined);
     const cwd = await resolveCurrentProjectRoot();
-    const session = await runtime.createSession({
+    const session = await createDesktopSession({
       cwd,
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
@@ -417,17 +431,23 @@ const automationWiring = createMainAutomationWiring({
       labels: ['automation', 'cron'],
     });
     emitSessionsChanged('created', session.id);
+    await ensureSessionCanSend(session.id);
     const turnId = randomUUID();
     const iterator = runtime.sendMessage(session.id, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
     });
-    const r = await streamEvents(session.id, iterator, turnId);
+    const r = await streamEvents(session.id, iterator, {
+      turnId,
+      goalBoundary: 'external',
+    });
     // Archive the fresh cron session after its run finalizes so recurring crons
     // do not accumulate an unbounded pile of active sessions. The session (with
     // its run/trace) is preserved under the archive, labelled automation/cron.
-    await runtime.archive(session.id).catch(() => {});
-    emitSessionsChanged('archived', session.id);
-    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+    try {
+      await goalWiring.archiveSession(session.id, () => runtime.archive(session.id));
+      emitSessionsChanged('archived', session.id);
+    } catch {}
+    return { runId: turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
 });
 
@@ -464,24 +484,33 @@ const goalWiring = createMainGoalWiring({
     }
     return total;
   },
-  injectTurn: (sessionId, text) => {
+  admitTurn: (sessionId, text) => {
+    const whenIdle = sessionActivities.whenIdle(sessionId);
+    if (whenIdle) return { kind: 'busy', whenIdle };
+    const reservation = sessionActivities.reserve(sessionId);
     const turnId = randomUUID();
-    const iterator = runtime.sendMessage(sessionId, { turnId, text });
-    void streamEvents(sessionId, iterator, turnId);
-  },
-  canContinue: async (sessionId) => {
-    const header = await store.readHeader(sessionId);
-    if (!header || header.archivedAt) return false;
-    // Never auto-continue into a session that is running (mid-turn), aborted,
-    // blocked, or parked waiting on the user — injecting a turn there would
-    // race the live turn or override the human the agent is waiting on.
-    if (
-      header.status === 'running' ||
-      header.status === 'blocked' ||
-      header.status === 'aborted' ||
-      header.status === 'waiting_for_user'
-    ) return false;
-    return true;
+    return {
+      kind: 'prepared',
+      turnId,
+      start: async (): Promise<GoalTurnOutcome> => {
+        try {
+          await ensureSessionCanSend(sessionId);
+          const iterator = runtime.sendMessage(sessionId, { turnId, text });
+          return (await streamEvents(sessionId, iterator, {
+            turnId,
+            goalBoundary: 'coordinator',
+            activity: reservation,
+          })).outcome;
+        } catch (error) {
+          reservation.release();
+          return {
+            kind: 'errored',
+            turnId,
+            reason: `Goal continuation could not start: ${errorMessage(error)}`,
+          };
+        }
+      },
+    };
   },
   // Surface every goal transition to the renderer so an active autonomous loop
   // is visible (badge + clear affordance) — never a silent token burn.
@@ -562,7 +591,6 @@ function focusOrCreateMainWindow(): void {
     void mainWindowController.createWindow();
   }
 }
-app.on('second-instance', focusOrCreateMainWindow);
 const safeSendToRenderer = mainWindowController.send;
 taskLedgerStore.subscribe((event) => safeSendToRenderer('tasks:changed', event));
 const openGateway = new OpenGatewayService({
@@ -576,7 +604,10 @@ const openGateway = new OpenGatewayService({
       turnId,
       text: input.text,
     });
-    void streamEvents(sessionId, iterator, turnId);
+    void streamEvents(sessionId, iterator, {
+      turnId,
+      goalBoundary: 'external',
+    });
     return { turnId };
   },
   searchThread: (query) =>
@@ -669,10 +700,17 @@ const computerUseTools = applyComputerUseRealModelPolicy(
       )
     : undefined,
 );
-const agentTools: MakaTool[] = [
-  buildSubagentSpawnTool({ taskLedger: taskLedgerStore }),
-  ...buildSubagentProjectionTools(),
-];
+const agentTools: MakaTool[] = buildParentAgentTools({
+  taskLedger: taskLedgerStore,
+});
+const agentTeamLeadTools = buildAgentTeamLeadTools({
+  mailbox: agentMailboxStore,
+  taskLedger: taskLedgerStore,
+});
+const agentTeamChildTools = buildAgentTeamChildTools({
+  mailbox: agentMailboxStore,
+  taskLedger: taskLedgerStore,
+});
 const deferredTools: MakaTool[] = [
   ...riveTools,
   ...officeTools,
@@ -708,6 +746,7 @@ const builtinTools: MakaTool[] = [
     runtimeResources: shellRuns,
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
+    snapshotImage: snapshotReadImage,
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker ? {
       filesystemWorker,
@@ -746,6 +785,7 @@ const builtinTools: MakaTool[] = [
 // maka://runtime/background-tasks/<id> are not part of their tool surface.
 const childAgentTools = buildChildAgentTools([
   ...buildBuiltinTools({
+    snapshotImage: snapshotReadImage,
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker ? {
       filesystemWorker,
@@ -754,6 +794,7 @@ const childAgentTools = buildChildAgentTools([
     } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   webSearchTool,
+  ...agentTeamChildTools,
 ]);
 let lookupPricing = buildPricingLookup();
 // Track the last status fields that affect persisted diagnostics. The reason
@@ -761,11 +802,20 @@ let lookupPricing = buildPricingLookup();
 // newer, more useful failure replaces the previous one.
 const previousBotStatus = new Map<BotProvider, Pick<BotStatus, 'readiness' | 'reason'>>();
 let botIncoming: ReturnType<typeof createBotIncomingMainService>;
-// botIncoming is wired at module load, before registerIpc() defines the
-// current-project-root resolver. registerIpc reassigns this once the resolver
-// exists; until then the launch directory is the safe fallback. Unifying
-// project-root resolution is tracked as a follow-up.
-let resolveCurrentProjectRoot: () => Promise<string> = async () => process.cwd();
+// Single authority for the "current project root" selection, shared across the
+// app/window, git, workspace-search, workspace-instructions, and session-entry
+// IPC surfaces. botIncoming, automation cron runs, and quick-chat read the
+// current selection through the thin `resolveCurrentProjectRoot` adapter below.
+const projectRootController = createProjectRootController({
+  lastProjectPathFile: join(workspaceRoot, 'last-project-path.json'),
+  fallbackRoots: () => [process.cwd(), app.getAppPath()],
+});
+const resolveCurrentProjectRoot: () => Promise<string> = () => projectRootController.current();
+const resolveProjectRootForContext = (sessionId: unknown): Promise<string> =>
+  resolveProjectContextRoot(sessionId, {
+    currentProjectRoot: resolveCurrentProjectRoot,
+    readSessionCwd: async (id) => (await store.readHeader(id)).cwd,
+  });
 const botRegistry = new BotRegistry({
   onIncomingMessage: (message: BotIncomingMessage) => {
     // Only log incoming bot messages in dev — production stdout leaking
@@ -851,6 +901,23 @@ async function persistToolArtifacts(cwd: string, event: ToolArtifactRecorderInpu
   }
 }
 
+async function snapshotReadImage(input: {
+  sessionId: string;
+  turnId: string;
+  name: string;
+  bytes: Uint8Array;
+  mimeType: string;
+}) {
+  const ref = await storeReadImage(input);
+  safeSendToRenderer('artifacts:changed', {
+    reason: 'created',
+    artifactId: ref.relativePath,
+    sessionId: ref.sessionId,
+    ts: Date.now(),
+  });
+  return ref;
+}
+
 async function persistArchivedToolResult(
   event: ToolResultArchiveRecorderInput,
 ): Promise<{ artifactId: string }> {
@@ -878,22 +945,6 @@ async function resolveToolArtifactSourcePath(cwd: string, sourcePath: string): P
   return isInsideOrSamePath(root, target) ? target : null;
 }
 
-/**
- * Sanitize a single path segment for use under `screenshots/`. Allows
- * only `[a-zA-Z0-9._-]`; rejects everything else (slashes, `..`, NUL,
- * UTF-8 letters). Returns null when the input is empty after sanitization
- * so the capture IPC can fail-closed rather than write to an attacker-
- * controlled relative path.
- */
-function sanitizeSegment(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > 128) return null;
-  if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) return null;
-  if (trimmed === '.' || trimmed === '..') return null;
-  return trimmed;
-}
-
 function isInsideOrSamePath(root: string, target: string): boolean {
   if (target === root) return true;
   const rel = relative(root, target);
@@ -905,13 +956,18 @@ function modelSupportsVision(connection: LlmConnection, model: string): boolean 
 }
 
 backends.register('ai-sdk', async (ctx) => {
+  // MCP is optional. A corrupt mcp.json remains visible in the MCP module,
+  // but must not prevent builtin-only conversations from creating a backend.
+  await ensureMcpReady().catch(() => {});
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
   const candidateTools = isComputerUseRealModelE2e
     ? computerUseTools
-    : [...(ctx.tools ?? builtinTools)];
+    : ctx.tools
+      ? [...ctx.tools]
+      : [...builtinTools, ...buildMcpTools(mcpManager)];
   const candidateToolAvailability = isComputerUseRealModelE2e
     ? { economy: false, groups: [] }
     : toolAvailability;
@@ -920,7 +976,12 @@ backends.register('ai-sdk', async (ctx) => {
   // Child turns receive scoped `ctx.tools` and inherit the label, but must NOT
   // get expert_dispatch — members cannot spawn nested teams.
   const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
-  const expertDispatchTool = expertTeamId ? buildExpertDispatchToolForTeamId(expertTeamId) : undefined;
+  const expertDispatchTool = expertTeamId
+    ? buildExpertDispatchToolForTeamId(expertTeamId, { taskLedger: taskLedgerStore })
+    : undefined;
+  const agentTeam = ctx.agentTeam ?? (expertTeamId
+    ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
+    : undefined);
   const backendTools = computerUseToolsForModel(
     candidateTools,
     computerUseTools,
@@ -940,7 +1001,10 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: expertDispatchTool ? [...backendTools, expertDispatchTool] : backendTools,
+    tools: expertDispatchTool
+      ? [...backendTools, expertDispatchTool, ...agentTeamLeadTools]
+      : backendTools,
+    agentTeam,
     toolAvailability: backendToolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
@@ -1008,18 +1072,6 @@ backends.register('ai-sdk', async (ctx) => {
   });
 });
 
-async function tryWeChatQrResult<T>(fn: () => Promise<T>, errorCode: string): Promise<Result<T>> {
-  try {
-    return ok(await fn());
-  } catch (error) {
-    return err(errorCode, weChatQrFailureMessage(error));
-  }
-}
-
-function weChatQrFailureMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '微信扫码登录暂时不可用，请稍后重试。');
-}
-
 backends.register('fake', (ctx) =>
   new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
 );
@@ -1060,11 +1112,14 @@ const runtime = new SessionManager({
         shellRuns.listSessionUpdates(sessionId),
         runStore.listSessionRuns(sessionId),
       ]);
-      return shellUpdates.some((update) => update.result.status === 'running')
-        || runs.some((run) => (
-          run.parentRunId !== undefined
-          && ['created', 'running', 'waiting_permission'].includes(run.status)
-        ));
+      return (
+        shellUpdates.some((update) => update.result.status === 'running') ||
+        runs.some(
+          (run) =>
+            run.parentRunId !== undefined &&
+            ['created', 'running', 'waiting_permission'].includes(run.status),
+        )
+      );
     },
   }),
   listArtifactsForTurn: async (sessionId, turnId) =>
@@ -1078,8 +1133,32 @@ const runtime = new SessionManager({
       onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
     });
   },
+  generateSessionTitle: async ({ sessionId, header, sourceText }) => {
+    const { connection, apiKey, model } = await getReadyConnection(header.llmConnectionSlug, header.model);
+    return generateRuntimeSessionTitle({
+      model: getAIModel({
+        connection,
+        apiKey: apiKey ?? '',
+        modelId: model,
+        fetch: buildSubscriptionModelFetch(connection, sessionId, model),
+      }),
+      providerOptions: buildProviderOptions(connection, model),
+      sourceText,
+    });
+  },
+  onSessionTitleChanged: (sessionId) => emitSessionsChanged('renamed', sessionId),
   newId: randomUUID,
   now: Date.now,
+});
+let mcpToolSnapshot = JSON.stringify(mcpManager.tools());
+mcpManager.onChange(() => {
+  safeSendToRenderer('mcp:changed', mcpManager.statuses());
+  const nextSnapshot = JSON.stringify(mcpManager.tools());
+  if (nextSnapshot === mcpToolSnapshot) return;
+  mcpToolSnapshot = nextSnapshot;
+  void runtime.refreshIdleBackends().catch((error) => {
+    console.warn('[mcp] failed to refresh backend tool snapshots:', error);
+  });
 });
 const dailyReview = createDailyReviewMainService({
   archiveStore: dailyReviewArchiveStore,
@@ -1091,16 +1170,25 @@ const dailyReview = createDailyReviewMainService({
 });
 botIncoming = createBotIncomingMainService({
   runtime,
+  createSession: createDesktopSession,
   botRegistry,
   getCurrentProjectRoot: () => resolveCurrentProjectRoot(),
   getDefaultConnectionSlug: () => connectionStore.getDefault(),
   getReadyConnection,
-  readSessionHeader: (sessionId) => store.readHeader(sessionId),
+  readSessionHeader: async (sessionId) => {
+    try {
+      return await store.readHeader(sessionId);
+    } catch (error) {
+      throw sessionLifecycleErrorFromReadFailure(error) ?? error;
+    }
+  },
   ensureSessionCanSend,
   emitSessionsChanged,
-  sendToRenderer: safeSendToRenderer,
-  isStatusChangingSessionEvent,
-  isTurnStatusChangingSessionEvent,
+  runAgentTurn: ({ sessionId, iterator, turnId, onEvent }) => streamEvents(sessionId, iterator, {
+    turnId,
+    goalBoundary: 'external',
+    observeEvent: onEvent,
+  }),
 });
 
 // PR110b: onboarding service composes existing stores + runtime to
@@ -1120,412 +1208,64 @@ const onboardingService = createOnboardingService(
   }),
 );
 
-function workspaceInstructionOpenFailureCopy(reason: WorkspaceInstructionOpenFailureReason | 'open-failed'): string {
-  switch (reason) {
-    case 'unknown-file':
-      return '只能打开 AGENTS.md / CLAUDE.md / GEMINI.md。';
-    case 'missing':
-      return '项目指令文件不存在。';
-    case 'blocked':
-      return '项目指令文件不在当前工作区范围内。';
-    case 'not-a-file':
-      return '项目指令路径不是普通文件。';
-    case 'open-failed':
-      return '系统未能打开这个文件。';
-  }
-}
-
-function workspaceInstructionCreateFailureCopy(reason: WorkspaceInstructionCreateFailureReason): string {
-  switch (reason) {
-    case 'unknown-file':
-      return '只能创建 AGENTS.md / CLAUDE.md / GEMINI.md。';
-    case 'exists':
-      return '项目指令文件已经存在。';
-    case 'blocked':
-      return '当前工作区路径不可写或不在允许范围内。';
-    case 'write-failed':
-      return '写入项目指令文件失败。';
-  }
-}
-
-
-
-function proxyTestFailureMessage(result: TestProxyResult): string {
-  const raw = redactSecrets(result.error ?? '').trim();
-  const lower = raw.toLowerCase();
-  if (lower.includes('proxy disabled')) return '代理未启用，请先打开代理开关。';
-  if (lower.includes('proxy host/port required')) return '请填写代理服务器地址和端口后再测试。';
-  if (lower.includes('proxy test timeout') || lower.includes('timeout')) return '代理测试超时，请检查代理服务是否可达。';
-  if (result.status) return `代理测试返回 HTTP ${result.status}，请检查代理服务或测试地址。`;
-  const classified = generalizedErrorMessageChinese(raw, '');
-  if (classified) return classified;
-  if (raw && /[\u4E00-\u9FFF]/.test(raw)) return raw;
-  return '代理不可达，请检查代理服务器地址、端口或认证信息。';
-}
-
 function registerIpc(): void {
-  const LAST_PROJECT_PATH_FILE = join(workspaceRoot, 'last-project-path.json');
+  const currentProjectRoot = resolveCurrentProjectRoot;
+  registerMcpIpcMain({
+    ipcMain,
+    store: mcpConfigStore,
+    manager: mcpManager,
+    ensureReady: ensureMcpReady,
+    refreshIdleBackends: () => runtime.refreshIdleBackends(),
+    emitChanged: (statuses) => safeSendToRenderer('mcp:changed', statuses),
+  });
 
-  let selectedProjectRoot: string | null = null;
-
-  async function loadPersistedProjectRoot(): Promise<string | null> {
-    try {
-      const raw = await readFile(LAST_PROJECT_PATH_FILE, 'utf8');
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof parsed.projectPath === 'string' && parsed.projectPath) {
-        await stat(parsed.projectPath);
-        return await resolveProjectRoot([parsed.projectPath]);
-      }
-    } catch {
-      // File missing, invalid, or points at a deleted directory.
-    }
-    return null;
-  }
-  const persistedProjectRootPromise = loadPersistedProjectRoot();
-
-  async function saveLastProjectPath(projectPath: string): Promise<void> {
-    try {
-      await writeFile(LAST_PROJECT_PATH_FILE, JSON.stringify({ projectPath }), 'utf8');
-    } catch {
-      // Best-effort; failure should not block the selection.
-    }
-  }
-
-  async function currentProjectRoot(): Promise<string> {
-    if (selectedProjectRoot) return selectedProjectRoot;
-    const persistedProjectRoot = await persistedProjectRootPromise;
-    if (persistedProjectRoot) {
-      selectedProjectRoot = persistedProjectRoot;
-      return persistedProjectRoot;
-    }
-    return resolveProjectRoot([process.cwd(), app.getAppPath()]);
-  }
-  resolveCurrentProjectRoot = currentProjectRoot;
-
-  async function resolveExplicitProjectRoot(projectPath: unknown): Promise<
-    | { ok: true; projectPath: string }
-    | { ok: false; reason: 'invalid-path' | 'not-found' }
-  > {
-    if (typeof projectPath !== 'string' || !projectPath) {
-      return { ok: false, reason: 'invalid-path' };
-    }
-    try {
-      await stat(projectPath);
-    } catch {
-      return { ok: false, reason: 'not-found' };
-    }
-    return { ok: true, projectPath: await resolveProjectRoot([projectPath]) };
-  }
-
-  ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
-    mainWindowController.setTitlebarControlsVisible(event.sender, visible);
+  registerAppIpc({
+    mainWindowController,
+    projectRoot: projectRootController,
+    getSessionProjectRoot: async (sessionId) => (await store.readHeader(sessionId)).cwd,
+    getProjectRoot: resolveProjectRootForContext,
+    workspaceRoot,
+    buildInfo,
+    visualSmokeFixture,
   });
-  // PR-SHOW-AFTER-FIRST-COMMIT: the renderer signals its first React commit so
-  // the hidden window (main-window.ts show: false) is revealed only once real
-  // content can paint. Idempotent + visual-smoke-safe inside the controller.
-  ipcMain.handle('window:notifyRendererReady', (): void => {
-    mainWindowController.notifyRendererReady();
-  });
-  ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
-    mainWindowController.setThemeSource(event.sender, themePref);
-  });
-  // PR-WINDOW-TITLEBAR-0: re-sync the native titleBarOverlay color when the
-  // renderer resolves a new light/dark theme (user toggle or `auto` following
-  // the system). No-op outside Windows.
-  ipcMain.handle('window:setTitleBarOverlayTheme', (event, isDark: unknown): void => {
-    mainWindowController.setTitleBarOverlayTheme(event.sender, isDark);
-  });
-  ipcMain.handle('app:info', async () => {
-    const projectPath = await currentProjectRoot();
-    return {
-      appVersion: app.getVersion(),
-      electronVersion: process.versions.electron ?? '',
-      nodeVersion: process.versions.node ?? '',
-      chromeVersion: process.versions.chrome ?? '',
-      platform: process.platform,
-      arch: osArch(),
-      osRelease: osRelease(),
-      workspacePath: workspaceRoot,
-      projectPath,
-      projectGit: await resolveProjectGitInfo(projectPath),
-      buildMode: buildInfo.mode,
-      buildCommit: buildInfo.commit,
-    };
-  });
-  ipcMain.handle('app:openPath', async (_event, key: string): Promise<OpenPathResult> => {
-    const resolved = await resolveOpenPath({ key, workspaceRoot, projectRoot: await currentProjectRoot() });
-    if (!resolved.ok) return resolved;
-    const error = await shell.openPath(resolved.path);
-    if (error) return { ok: false, reason: 'open-failed' };
-    return { ok: true, opened: resolved.key };
-  });
-  ipcMain.handle(
-    'app:selectProjectDirectory',
-    async (): Promise<
-      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
-      | { ok: false; reason: 'cancelled' | 'missing-selection' }
-    > => {
-      const result = await mainWindowController.showOpenDialog({
-        title: '选择工作目录',
-        properties: ['openDirectory'],
-      });
-      const selectedPath = result.filePaths[0];
-      if (result.canceled) return { ok: false, reason: 'cancelled' };
-      if (!selectedPath) return { ok: false, reason: 'missing-selection' };
-      const projectPath = await resolveProjectRoot([selectedPath]);
-      selectedProjectRoot = projectPath;
-      void saveLastProjectPath(projectPath);
-      return {
-        ok: true,
-        projectPath,
-        projectGit: await resolveProjectGitInfo(projectPath),
-      };
-    },
-  );
-  ipcMain.handle(
-    'app:selectProjectRoot',
-    async (_event, projectPath: unknown): Promise<
-      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
-      | { ok: false; reason: 'invalid-path' | 'not-found' }
-    > => {
-      const explicitRoot = await resolveExplicitProjectRoot(projectPath);
-      if (!explicitRoot.ok) return explicitRoot;
-      const resolved = explicitRoot.projectPath;
-      selectedProjectRoot = resolved;
-      void saveLastProjectPath(resolved);
-      return {
-        ok: true,
-        projectPath: resolved,
-        projectGit: await resolveProjectGitInfo(resolved),
-      };
-    },
-  );
-  ipcMain.handle(
-    'app:resolveProjectGitInfo',
-    async (
-      _event,
-      projectPath: unknown,
-    ): Promise<
-      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
-      | { ok: false; reason: 'invalid-path' | 'not-found' }
-    > => {
-      if (projectPath !== undefined) {
-        const explicitRoot = await resolveExplicitProjectRoot(projectPath);
-        if (!explicitRoot.ok) return explicitRoot;
-        const resolved = explicitRoot.projectPath;
-        return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
-      }
-      const resolved = await currentProjectRoot();
-      return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
-    },
-  );
-  ipcMain.handle('app:listGitBranches', async () => {
-    const projectPath = await currentProjectRoot();
-    return listLocalBranches(projectPath);
-  });
-  ipcMain.handle(
-    'app:checkoutGitBranch',
-    async (_event, branch: unknown): Promise<{ ok: boolean; branch?: string; reason?: string; message?: string }> => {
-      if (typeof branch !== 'string' || !branch) {
-        return { ok: false, reason: 'failed', message: '无效的分支名' };
-      }
-      const projectPath = await currentProjectRoot();
-      return checkoutBranch(projectPath, branch);
-    },
-  );
-  // Composer `@` mention popup: list workspace files under the same project
-  // root that app:info reports. Git repos honor .gitignore + untracked via
-  // `git ls-files`; other trees fall back to a bounded walk. See
-  // workspace-file-search.ts.
-  ipcMain.handle(
-    'workspace:searchFiles',
-    async (_event, input: unknown) => {
-      const request = (input ?? {}) as { query?: unknown; limit?: unknown };
-      const projectPath = await currentProjectRoot();
-      return searchWorkspaceFiles(projectPath, { query: request.query, limit: request.limit });
-    },
-  );
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
   registerNotificationsIpc({ settingsStore, mainWindowController, e2e: isE2e });
-  ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
-  ipcMain.handle(
-    'workspaceInstructions:openFile',
-    async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const resolved = await resolveWorkspaceInstructionFileForOpen(await currentProjectRoot(), typeof file === 'string' ? file : '');
-      if (!resolved.ok) return { ok: false, message: workspaceInstructionOpenFailureCopy(resolved.reason) };
-      const error = await shell.openPath(resolved.path);
-      return error ? { ok: false, message: workspaceInstructionOpenFailureCopy('open-failed') } : { ok: true };
-    },
-  );
-  ipcMain.handle(
-    'workspaceInstructions:createFile',
-    async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const created = await createWorkspaceInstructionFile(await currentProjectRoot(), typeof file === 'string' ? file : '');
-      if (!created.ok) return { ok: false, message: workspaceInstructionCreateFailureCopy(created.reason) };
-      return { ok: true };
-    },
-  );
+  registerWorkspaceInstructionsIpc({ getCurrentProjectRoot: currentProjectRoot });
   registerWorkspaceResourcesIpc({
     workspaceRoot,
     artifactStore,
     mainWindowController,
     sendToRenderer: safeSendToRenderer,
   });
-  ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
-  /**
-   * PR-IR-01 screenshot capture (dev/test-only).
-   *
-   * Available only when `MAKA_VISUAL_SMOKE_FIXTURE` is set — refuses
-   * otherwise so real users / packaged builds can't be coerced into
-   * dumping the renderer to disk. The capture script
-   * (`scripts/capture-screenshots.mjs`) drives this IPC after the
-   * fixture finishes settling.
-   *
-   * Returns the absolute path of the written file or a structured
-   * failure reason. The renderer never sees absolute paths (per the
-   * filesystem-boundary contract); the script reads the result back
-   * over IPC because it owns the screenshot directory.
-   */
-  ipcMain.handle(
-    'visualSmoke:capture',
-    async (
-      _event,
-      input: { scenario: string; variant: string },
-    ): Promise<
-      | { ok: true; path: string }
-      | { ok: false; reason: 'not_in_fixture_mode' | 'invalid_input' | 'capture_failed' | 'write_failed' }
-    > => {
-      if (!visualSmokeFixture) return { ok: false, reason: 'not_in_fixture_mode' };
-      const scenario = sanitizeSegment(input?.scenario);
-      const variant = sanitizeSegment(input?.variant);
-      if (!scenario || !variant) return { ok: false, reason: 'invalid_input' };
-      let image: Electron.NativeImage;
-      try {
-        const capture = await mainWindowController.capturePage();
-        if (!capture) return { ok: false, reason: 'capture_failed' };
-        image = capture;
-      } catch {
-        return { ok: false, reason: 'capture_failed' };
-      }
-      const dir = join(workspaceRoot, 'screenshots', scenario);
-      try {
-        await mkdir(dir, { recursive: true });
-      } catch {
-        return { ok: false, reason: 'write_failed' };
-      }
-      const filePath = join(dir, `${variant}.png`);
-      try {
-        const { writeFile } = await import('node:fs/promises');
-        await writeFile(filePath, image.toPNG());
-      } catch {
-        return { ok: false, reason: 'write_failed' };
-      }
-      // Deterministic stdout marker so the driver script
-      // (`scripts/capture-screenshots.mjs`) can match on the line and
-      // know the capture completed without polling the filesystem.
-      // The line is single-token whitespace-separated so it's easy to
-      // parse by regex.
-      console.log(`[visual-smoke] captured scenario=${scenario} variant=${variant} path=${filePath}`);
-      return { ok: true, path: filePath };
-    },
-  );
+  registerWorkspaceSearchIpc({ getProjectRoot: resolveProjectRootForContext });
+  registerGitIpc({ getProjectRoot: resolveProjectRootForContext });
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
-  ipcMain.handle('shell-runs:list', (_event, sessionId: string) => runtime.listShellRunUpdates(sessionId));
-  ipcMain.handle('tasks:list', async (_event, sessionId: string) => {
-    const tasks = await taskLedgerStore.list(sessionId, {
-      includeTerminal: true,
-      includeArchived: false,
-      classifyResumeTrust: true,
-      ...(visualSmokeFixture ? { now: getVisualSmokeState(visualSmokeFixture)?.now ?? Date.now() } : {}),
-    });
-    return tasks.map(sanitizeTaskLedgerTask);
+  registerSessionsIpc({
+    runtime,
+    store,
+    taskLedgerStore,
+    goalWiring,
+    automationManager: automationWiring.manager,
+    computerUseOverlay,
+    computerUseTools,
+    artifactStore,
+    attachmentApprovals,
+    settingsStore,
+    connectionStore,
+    mainWindowController,
+    visualSmokeFixture,
+    emitSessionsChanged,
+    ensureSessionCanSend,
+    invalidateSessionBindings: (sessionId) => botIncoming.invalidateSessionBindings(sessionId),
+    ensureSessionWorkspaceAvailable,
+    createSession: createDesktopSession,
+    getReadyConnection,
+    streamEvents,
+    getCurrentProjectRoot: currentProjectRoot,
+    getWorkspacePrivacyContext,
+    canCreateFakeSession: canCreateFakeSessionFromRenderer,
   });
-  ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
-  ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
-    const cwd = input?.cwd ?? (await currentProjectRoot());
-    if (input?.backend === 'fake') {
-      if (!canCreateFakeSessionFromRenderer()) {
-        throw new Error('FakeBackend sessions are only available in development.');
-      }
-      const session = await runtime.createSession({
-        cwd,
-        backend: 'fake',
-        llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
-        model: input.model ?? 'fake-model',
-        permissionMode: input.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
-        name: input.name ?? 'New Chat',
-        labels: input.labels,
-      });
-      emitSessionsChanged('created', session.id);
-      return session;
-    }
-
-    const requestedSlug = input?.llmConnectionSlug ?? (await connectionStore.getDefault());
-    const { connection, model } = await getReadyConnection(requestedSlug, input?.model);
-    const thinkingLevel = normalizeSupportedSessionThinkingLevel(input?.thinkingLevel, connection.providerType, model);
-
-    const session = await runtime.createSession({
-      cwd,
-      backend: 'ai-sdk',
-      llmConnectionSlug: connection.slug,
-      model,
-      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
-      permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
-      name: input?.name ?? 'New Chat',
-      labels: input?.labels,
-    });
-    emitSessionsChanged('created', session.id);
-    return session;
-  });
-  ipcMain.handle('sessions:readMessages', async (_event, sessionId: string) => {
-    if (visualSmokeFixture) return store.readMessages(sessionId);
-    let messages: StoredMessage[];
-    try {
-      messages = await runtime.getMessages(sessionId);
-    } catch (error) {
-      throw new Error(sessionReadMessagesFailureMessage(error));
-    }
-    try {
-      await runtime.markSessionRead(sessionId, latestStoredMessageTs(messages));
-    } catch {
-      // Reading the content already succeeded. Leave the persisted unread
-      // state for a later refresh instead of turning this into a load error.
-    }
-    return messages;
-  });
-  ipcMain.handle('sessions:listTurns', (_event, sessionId: string) => runtime.listTurns(sessionId));
-  // Goal kill-switch surface: the renderer reads the active goal to badge a
-  // session running an autonomous loop, and clears it to stop the loop. `get`
-  // returns null when no goal is set; `clear` settles it (continuation stops
-  // after the current turn). Both are pure local state, so no permission gate.
-  ipcMain.handle('goal:get', (_event, sessionId: string) => goalWiring.manager.get(sessionId) ?? null);
-  ipcMain.handle('goal:clear', (_event, sessionId: string) => {
-    goalWiring.manager.clear(sessionId);
-  });
-  // PR-SEARCH-2: local thread search. Renderer-facing channel; the pure
-  // helper in `./search/thread-search.ts` enforces all gates (G1 snippet
-  // redaction, G2 fake-backend exclude, G4 caps, G5 case-fold + NFC,
-  // G9 tool_result scan cap, G10 system/meta exclusion). The helper
-  // receives the runtime via DI so unit tests stay Electron-agnostic.
-  // We deliberately do NOT log the request body — query text never enters
-  // telemetry.
-  // ===========================================================
-  // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth IPC.
-  // All handlers return either `SubscriptionAccountState` or
-  // `SubscriptionActionResult` — never raw tokens (xuan G-X3).
-  //
-  // kenji `1da909d5` blocking concern: Anthropic does not permit
-  // third-party developers to offer Claude.ai login on behalf of
-  // users. Until product/legal sign-off, the entire feature is
-  // gated behind `MAKA_CLAUDE_SUBSCRIPTION_EXPERIMENTAL=1`. The
-  // Settings UI also hides the card; this guard is the second line
-  // of defense (a DevTools-triggered call to `window.maka` still
-  // hits the experimental gate).
-  // ===========================================================
-  // kenji `45b31e16`: use the dedicated `experimental_disabled`
-  // reason so the user-visible state is clearly "this feature is
-  // not enabled by Maka" — NOT "Anthropic rejected my account".
   registerSubscriptionIpc({
     connectionStore,
     claudeSubscription,
@@ -1540,222 +1280,8 @@ function registerIpc(): void {
     syncGitHubCopilotConnection,
     emitConnectionListChanged,
   });
-
   registerWebSearchIpc({ settingsStore, getWorkspacePrivacyContext });
-
-  ipcMain.handle('search:thread', async (_event, request: unknown) => {
-    // PR-SEARCH-2 review fixup (@xuan `2f1aba55`): pass `unknown`
-    // through to the helper, which runs an object-shape guard and
-    // returns an `invalid_query` error envelope for null / non-object
-    // / missing-field payloads. Never throws across the IPC boundary.
-    //
-    // PR-SEARCH-2.5 (@xuan `2c55b975`): wire `getPrivacyContext` to
-    // the main-authority workspace privacy state.
-    //
-    // This is the main-owned workspace privacy source, not a renderer
-    // self-attestation. The helper validates whatever shape is returned
-    // via `validateWorkspacePrivacyContext`, so a future drift in
-    // authority source is automatically fail-closed.
-    return runThreadSearch(request, {
-      listSessions: () => runtime.listSessions(),
-      readMessages: (sessionId: string) => runtime.getMessages(sessionId),
-      getPrivacyContext: getWorkspacePrivacyContext,
-    });
-  });
-  ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
-    emitSessionsChanged('status-change', sessionId);
-    emitSessionsChanged('turn-status-change', sessionId);
-    emitSessionsChanged('message-appended', sessionId);
-  });
-  ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
-    runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
-  );
-  ipcMain.handle('sessions:respondToUserQuestion', (_event, sessionId: string, response) =>
-    runtime.respondToUserQuestion(sessionId, normalizeUserQuestionResponse(response)),
-  );
-  ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
-    const sendCommand = normalizeSessionSendCommand(command);
-    if (!sendCommand) return;
-    const { turnId, attachments } = await resolveSessionSend({
-      sessionId,
-      senderId: event.sender.id,
-      command: sendCommand,
-      ensureCanSend: ensureSessionCanSend,
-      readHeader: (id) => store.readHeader(id),
-      approvals: attachmentApprovals,
-      stat: async (path) => ({ size: (await stat(path)).size }),
-      artifactStore,
-      resizeImage: resizeImageForAttachment,
-    });
-    const iterator = runtime.sendMessage(sessionId, {
-      turnId,
-      text: sendCommand.text,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    });
-    void streamEvents(sessionId, iterator, turnId);
-    return { turnId, attachments };
-  });
-  ipcMain.handle(
-    'attachments:pickFiles',
-    async (event): Promise<
-      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
-      | { ok: false; reason: 'cancelled' }
-    > => {
-      const result = await mainWindowController.showOpenDialog({
-        title: '添加附件',
-        properties: ['openFile', 'multiSelections'],
-      });
-      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
-      const chosen = await Promise.all(
-        result.filePaths.map(async (path) => ({ path, name: basename(path), size: (await stat(path)).size })),
-      );
-      // Paths stay in main; the renderer only gets one-shot opaque tokens.
-      return { ok: true, files: attachmentApprovals.issueApprovals(event.sender.id, chosen) };
-    },
-  );
-  ipcMain.handle(
-    'attachments:readBytes',
-    async (_event, sessionId: string, relativePath: string): Promise<
-      | { ok: true; base64: string; mimeType: string }
-      | { ok: false; reason: string }
-    > => {
-      // Session-scoped read: only attachments filed under this session.
-      const record = await artifactStore.get(relativePath).catch(() => null);
-      if (!record || record.sessionId !== sessionId) return { ok: false, reason: 'not_found' };
-      const result = await artifactStore.readBinary(relativePath);
-      if (!result.ok) return result;
-      return { ok: true, base64: result.base64, mimeType: result.mimeType };
-    },
-  );
-  ipcMain.handle('sessions:compact', async (_event, sessionId: string) => {
-    await ensureSessionCanSend(sessionId);
-    const turnId = randomUUID();
-    void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), turnId);
-  });
-  ipcMain.handle('sessions:resumeLatest', async (_event, sessionId: string) => {
-    const plan = await runtime.planLatestAuthoritativeSafeBoundaryContinuation(sessionId);
-    if (!plan.continuation) {
-      return {
-        disposition: 'park' as const,
-        rejectionReasons: plan.rejectionReasons,
-        diagnostics: plan.diagnostics,
-      };
-    }
-    const iterator = runtime.resumeSafeBoundaryContinuation(plan.continuation);
-    void streamEvents(sessionId, iterator, plan.continuation.turnId);
-    return {
-      disposition: 'started' as const,
-      runId: plan.continuation.runId,
-      turnId: plan.continuation.turnId,
-    };
-  });
-  ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
-    await ensureSessionCanSend(sessionId);
-    const normalized = normalizeRegenerateTurnInput(input);
-    const turnId = normalized.turnId ?? randomUUID();
-    void streamEvents(sessionId, runtime.regenerateTurn(sessionId, { ...normalized, turnId }), turnId);
-  });
-  ipcMain.handle('sessions:branchFromTurn', async (_event, sessionId: string, input: unknown) => {
-    const session = await runtime.branchFromTurn(sessionId, normalizeBranchFromTurnInput(input));
-    emitSessionsChanged('created', session.id);
-    return session;
-  });
-  ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    await runtime.archive(sessionId);
-    // An archived conversation is no longer shown: drop its browser connection
-    // and view so it does not keep a live Chromium page in the background.
-    await releaseBrowserSession(sessionId);
-    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
-    goalWiring.manager.remove(sessionId);
-    automationWiring.manager.removeAllForSession(sessionId);
-    emitSessionsChanged('archived', sessionId);
-  });
-  ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
-    await runtime.unarchive(sessionId);
-    emitSessionsChanged('updated', sessionId);
-  });
-  ipcMain.handle('sessions:setFlagged', async (_event, sessionId: string, isFlagged: boolean) => {
-    await runtime.setFlagged(sessionId, isFlagged);
-    emitSessionsChanged('pinned', sessionId);
-  });
-  ipcMain.handle('sessions:rename', async (_event, sessionId: string, name: string) => {
-    await runtime.renameSession(sessionId, name);
-    emitSessionsChanged('renamed', sessionId);
-  });
-  ipcMain.handle('sessions:setPermissionMode', (_event, sessionId: string, mode: unknown) => {
-    if (!isPermissionMode(mode)) {
-      throw new Error(`Invalid permission mode: ${String(mode)}`);
-    }
-    return runtime.setPermissionMode(sessionId, mode).then((session) => {
-      emitSessionsChanged('mode-change', sessionId);
-      return session;
-    });
-  });
-  ipcMain.handle('sessions:setModel', async (_event, sessionId: string, input: unknown) => {
-    const { llmConnectionSlug, model } = normalizeSessionModelSelection(input);
-    const header = await store.readHeader(sessionId);
-    if (header.status === 'running') {
-      throw new Error('当前对话正在运行，等结束后再切换模型。');
-    }
-    if (header.status === 'waiting_for_user') {
-      throw new Error('当前有工具调用正在等待确认，处理后再切换模型。');
-    }
-    const ready = await getReadyConnection(llmConnectionSlug, model);
-    const next = await runtime.updateSession(sessionId, {
-      backend: 'ai-sdk',
-      llmConnectionSlug: ready.connection.slug,
-      model: ready.model,
-      // Switching model clears the per-model thinking variant (see model-thinking.ts).
-      thinkingLevel: undefined,
-      connectionLocked: true,
-      status: 'active',
-      blockedReason: undefined,
-      statusUpdatedAt: Date.now(),
-    });
-    emitSessionsChanged('updated', sessionId, {
-      connectionSlug: ready.connection.slug,
-      modelId: ready.model,
-    });
-    return next;
-  });
-  ipcMain.handle('sessions:setThinkingLevel', async (_event, sessionId: string, input: unknown) => {
-    const header = await store.readHeader(sessionId);
-    if (header.status === 'running') {
-      throw new Error('当前对话正在运行，等结束后再切换思考级别。');
-    }
-    if (header.status === 'waiting_for_user') {
-      throw new Error('当前有工具调用正在等待确认，处理后再切换思考级别。');
-    }
-    const connection = await connectionStore.get(header.llmConnectionSlug);
-    if (!connection) {
-      throw new Error(`Unknown connection: ${header.llmConnectionSlug}`);
-    }
-    const nextThinkingLevel = normalizeSupportedSessionThinkingLevel(input, connection.providerType, header.model);
-    const next = await runtime.updateSession(sessionId, nextThinkingLevel === undefined ? { thinkingLevel: undefined } : { thinkingLevel: nextThinkingLevel });
-    emitSessionsChanged('updated', sessionId);
-    return next;
-  });
-  ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    await runtime.remove(sessionId);
-    // Drop the conversation's browser connection and destroy its view (no-op
-    // if it never opened one). releaseBrowserSession disposes the view via the
-    // host, covering both agent-driven and hand-opened views.
-    await releaseBrowserSession(sessionId);
-    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
-    goalWiring.manager.remove(sessionId);
-    automationWiring.manager.removeAllForSession(sessionId);
-    emitSessionsChanged('deleted', sessionId);
-  });
-
   registerBrowserIpc({ mainWindowController });
-
   registerConnectionsIpc({
     connectionStore,
     credentialStore,
@@ -1764,214 +1290,32 @@ function registerIpc(): void {
     hasConnectionSecret,
     emitConnectionListChanged,
   });
-
-  // PR110b: Onboarding snapshot + milestone IPCs. Renderer polls via
-  // these on app load and whenever `sessions:changed` /
-  // `connections:changed` / settings change events fire. No push from
-  // main.
-  ipcMain.handle('onboarding:getSnapshot', async () => onboardingService.getSnapshot());
-  ipcMain.handle('onboarding:setMilestone', async (_event, id: unknown, status: unknown) => {
-    // Service throws INVALID_MILESTONE_ID / INVALID_MILESTONE_STATUS
-    // for bad inputs; let the error propagate so the renderer sees
-    // it as a typed reject rather than silently swallowing.
-    return onboardingService.setMilestone(id, status);
+  registerOnboardingIpc({ onboardingService });
+  registerSessionEntryIpc({
+    runtime,
+    getReadyConnection,
+    getCurrentProjectRoot: currentProjectRoot,
+    getOnboardingState: async () => (await onboardingService.getSnapshot()).state,
+    emitSessionsChanged,
+    ensureSessionCanSend,
+    createSession: createDesktopSession,
+    streamEvents,
+    quickChatStart: (input) => handleQuickChatStart(input, currentProjectRoot),
   });
-  ipcMain.handle('onboarding:clearMilestone', async (_event, id: unknown) => {
-    return onboardingService.clearMilestone(id);
+  registerPermissionsIpc({
+    settingsStore,
+    connectionStore,
+    telemetryRepo,
+    botRegistry,
+    getComputerUseCapabilityInput: computerUseCapabilityInput,
   });
-  // PR110b: Quick Chat entry. Input shape is intentionally minimal —
-  // `{ prompt?: string }` — to keep readiness gating airtight. Override
-  // surfaces (connectionSlug / model) will land in PR110c/d when the
-  // model-picker UI is ready.
-  ipcMain.handle('quickChat:start', async (_event, input: unknown) => {
-    return handleQuickChatStart(input, currentProjectRoot);
+  registerSettingsIpc({
+    settingsStore,
+    botRegistry,
+    normalizeSettingsPatch,
+    applySettingsRuntimeEffects,
   });
-
-  // Expert teams: list the built-in teams and start a labeled team session.
-  // A team session is a normal session tagged `mode:expert-team:<teamId>`; the
-  // label activates the lead persona + expert_dispatch tool (see the backend
-  // factory). The lead runs read-only (explore) and dispatches read-only members.
-  ipcMain.handle('expertTeam:list', async () => ({
-    teams: listExpertTeams().map((team) => ({
-      id: team.id,
-      name: team.name,
-      description: team.description,
-      members: team.members.map((member) => ({
-        id: member.id,
-        name: member.name,
-        description: member.description,
-        ...(member.whenToUse ? { whenToUse: member.whenToUse } : {}),
-      })),
-    })),
-  }));
-  ipcMain.handle('expertTeam:start', async (_event, input: unknown) => {
-    return runExpertTeamStart(input, {
-      isKnownTeam: (teamId) => getExpertTeam(teamId) !== undefined,
-      getOnboardingState: async () => (await onboardingService.getSnapshot()).state,
-      createSession: async ({ teamId, defaultConnectionSlug, defaultModel }) => {
-        const ready = await getReadyConnection(defaultConnectionSlug, defaultModel);
-        const team = getExpertTeam(teamId);
-        return runtime.createSession({
-          cwd: await currentProjectRoot(),
-          backend: 'ai-sdk',
-          llmConnectionSlug: ready.connection.slug,
-          model: ready.model,
-          // Shipped teams are read-only review crews: the lead reads + dispatches
-          // read-only members, so the whole session stays in explore mode.
-          permissionMode: 'explore',
-          name: team ? team.name : 'Expert Team',
-          labels: [expertTeamLabel(teamId)],
-        });
-      },
-      emitCreated: (sessionId) => emitSessionsChanged('created', sessionId),
-      ensureCanSend: (sessionId) => ensureSessionCanSend(sessionId),
-      sendFirstMessage: async (sessionId, text) => {
-        const turnId = randomUUID();
-        const iterator = runtime.sendMessage(sessionId, { turnId, text });
-        void streamEvents(sessionId, iterator, turnId);
-      },
-    });
-  });
-
-  ipcMain.handle('permissions:getSnapshot', () => buildPermissionSnapshot());
-  ipcMain.handle('permissions:openSystemSettings', async (_event, permId: unknown) => {
-    return openSystemPermissionPane(permId);
-  });
-  ipcMain.handle('permissions:requestAccess', async (_event, permId: unknown) => {
-    return requestPermissionAccess(permId);
-  });
-  ipcMain.handle('capabilities:getSnapshot', async () => {
-    const permissions = buildPermissionSnapshot();
-    const settings = await settingsStore.get();
-    const officeCliProbe = await probeOfficeCli({ now: permissions.checkedAt });
-    return buildCapabilitySnapshotCollection({
-      settings,
-      permissions,
-      botStatuses: botRegistry.allStatuses(),
-      officeCliProbe,
-      computerUse: computerUseCapabilityInput(),
-      now: permissions.checkedAt,
-    });
-  });
-  ipcMain.handle('health:getSnapshot', async () => {
-    const now = Date.now();
-    const permissions = buildPermissionSnapshot(now);
-    const settings = await settingsStore.get();
-    const officeCliProbe = await probeOfficeCli({ now });
-    const capabilitySnapshot = buildCapabilitySnapshotCollection({
-      settings,
-      permissions,
-      botStatuses: botRegistry.allStatuses(),
-      officeCliProbe,
-      computerUse: computerUseCapabilityInput(),
-      now,
-    });
-    const connections = await connectionStore.list();
-    const connectionSignals = connections.flatMap((connection) => [
-      healthSignalFromConnection(connection, now),
-      healthSignalFromConnectionRuntime(
-        connection,
-        telemetryRepo.latestLlmRuntimeProbe(connection.slug, connection.defaultModel),
-        now,
-      ),
-    ].filter((signal): signal is NonNullable<typeof signal> => Boolean(signal)));
-    return buildHealthSnapshot(now, [
-      ...connectionSignals,
-      ...capabilitySnapshot.capabilities.map(healthSignalFromCapability),
-    ]);
-  });
-
-  ipcMain.handle('settings:get', async () => maskAppSettings(await settingsStore.get()));
-  ipcMain.handle('settings:update', async (_event, patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult> => {
-    const normalizedPatch = await normalizeSettingsPatch(patch);
-    const next = await settingsStore.update(normalizedPatch);
-    await applySettingsRuntimeEffects(next, patch);
-    return buildSettingsUpdateResult(next, patch);
-  });
-  ipcMain.handle('gateway:status', async () => openGateway.getStatus());
-  ipcMain.handle('settings:testNetworkProxy', async (_event, input: TestProxyInput = {}) => {
-    const started = Date.now();
-    const stored = toContractNetworkSettings((await settingsStore.get()).network).proxy;
-    const proxy = input.proxy?.password === SENSITIVE_PLACEHOLDER
-      ? { ...input.proxy, password: stored.password }
-      : input.proxy;
-    const testedProxy = proxy ?? stored;
-    const result = await testProxyConnection({ ...input, proxy }, stored);
-    const latencyMs = result.latencyMs ?? (Date.now() - started);
-    if (!result.ok) {
-      return {
-        ok: false,
-        message: proxyTestFailureMessage(result),
-        latencyMs,
-      } satisfies SettingsTestResult;
-    }
-    return {
-      ok: true,
-      message: result.ip
-        ? `代理配置有效：${testedProxy.type}://${testedProxy.host}:${testedProxy.port} · ${result.countryFlag ?? ''} ${result.ip}`.trim()
-        : `代理配置有效：${testedProxy.type}://${testedProxy.host}:${testedProxy.port}`,
-      latencyMs,
-      details: {
-        status: result.status,
-        ip: result.ip,
-        countryCode: result.countryCode,
-        countryFlag: result.countryFlag,
-        bypassList: testedProxy.bypassList,
-      },
-    } satisfies SettingsTestResult;
-  });
-  ipcMain.handle('settings:testBotChannel', async (_event, provider: BotProvider) => {
-    const settings = await settingsStore.get();
-    const result = await testRuntimeBotChannel(provider, settings.botChat.channels[provider]);
-    await settingsStore.update({
-      botChat: {
-        channels: {
-          [provider]: {
-            connected: result.ok,
-            readiness: result.ok ? 'credentials_valid' : 'configured',
-            readinessReason: result.ok ? undefined : botTestErrorMessage(provider, result.error),
-            readinessUpdatedAt: Date.now(),
-            lastTestAt: Date.now(),
-            lastError: result.ok ? undefined : botTestErrorMessage(provider, result.error),
-          },
-        },
-      },
-    });
-    const next = await settingsStore.get();
-    await applySettingsRuntimeEffects(next, { botChat: { channels: { [provider]: {} } } });
-    return toSettingsTestResult(provider, result);
-  });
-  ipcMain.handle('settings:bots:listStatuses', () =>
-    tryResult(async () => botRegistry.allStatuses(), 'BOTS_STATUS_FAILED'),
-  );
-  ipcMain.handle('settings:bots:restart', (_event, provider: BotProvider) =>
-    tryResult(async () => {
-      const settings = await settingsStore.get();
-      await botRegistry.applySettings(settings.botChat);
-      return botRegistry.getStatus(provider);
-    }, 'BOTS_RESTART_FAILED'),
-  );
-
-  // PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): WeChat ClawBot
-  // scan-login. Renderer triggers the QR fetch from the modal, then
-  // polls the status endpoint until 'confirmed' or 'expired'. Main
-  // process owns the actual HTTP calls so the renderer never sees
-  // raw response bodies.
-  ipcMain.handle('settings:bots:wechat:fetchQrcode', () =>
-    tryWeChatQrResult(async () => fetchWeChatQrcode(), 'WECHAT_QR_FETCH_FAILED'),
-  );
-  ipcMain.handle('settings:bots:wechat:pollQrcodeStatus', (_event, qrToken: unknown) =>
-    tryWeChatQrResult(async () => {
-      if (typeof qrToken !== 'string' || !qrToken) {
-        throw new Error('qrToken must be a non-empty string');
-      }
-      return pollWeChatQrcodeStatus(qrToken);
-    }, 'WECHAT_QR_STATUS_FAILED'),
-  );
-  ipcMain.handle('settings:bots:wechatQrCode', async () => {
-    const settings = await settingsStore.get();
-    return getWechatBridgeQrCode(settings.botChat.channels.wechat);
-  });
+  registerGatewayIpc({ openGateway });
   registerDailyReviewIpc({ dailyReview, dailyReviewArchiveStore, mainWindowController });
   registerUsageIpc({
     settingsStore,
@@ -1981,7 +1325,6 @@ function registerIpc(): void {
     },
     sendToRenderer: safeSendToRenderer,
   });
-
 }
 
 function canCreateFakeSessionFromRenderer(): boolean {
@@ -2013,6 +1356,11 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
   if (patch.chatDefaults?.permissionMode) {
     await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
   }
+  if (patch.system) {
+    // Start/stop the power-save blocker the instant the toggle flips so the
+    // capability reflects the user's choice without waiting for a relaunch.
+    keepSystemAwake.apply(settings.system.keepSystemAwake);
+  }
 }
 
 async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
@@ -2038,6 +1386,7 @@ async function handleExternalSettingsChange(): Promise<void> {
       network: settings.network,
       botChat: settings.botChat,
       openGateway: settings.openGateway,
+      system: settings.system,
     };
     await applySettingsRuntimeEffects(settings, fullPatch);
   } catch (error) {
@@ -2047,26 +1396,27 @@ async function handleExternalSettingsChange(): Promise<void> {
   safeSendToRenderer('settings:externalChanged', { ts: Date.now() });
 }
 
-async function streamEvents(
+function streamEvents(
   sessionId: string,
   iterator: AsyncIterable<SessionEvent>,
-  fallbackTurnId?: string,
-): Promise<{ turnId: string; ok: boolean; error?: string }> {
+  options: StreamEventsOptions,
+): Promise<StreamEventsResult> {
   let userAppendBroadcasted = false;
-  let finalAppendBroadcasted = false;
-  let turnAborted = false;
-  let turnError: string | undefined;
-  const turnId = fallbackTurnId ?? randomUUID();
-  try {
-    for await (const event of iterator) {
+  const turnId = options.turnId;
+  const started = startDesktopSessionTurn({
+    sessionId,
+    events: iterator,
+    turnId,
+    goalBoundary: options.goalBoundary,
+    activities: sessionActivities,
+    ...(options.activity ? { activity: options.activity } : {}),
+    beginExternalTurn: (externalSessionId, externalTurnId) =>
+      goalWiring.coordinator.beginExternalTurn(externalSessionId, externalTurnId),
+    onEvent: (event) => {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
       }
-      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
-        turnAborted = true;
-      }
-      turnError = turnError ?? turnFailureMessageFromSessionEvent(event);
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
@@ -2077,43 +1427,42 @@ async function streamEvents(
         computerUseOverlay.clearForSession(sessionId);
         computerUseTools.clearSession(sessionId);
       }
-    }
-    if (!finalAppendBroadcasted) {
+      options.observeEvent?.(event);
+    },
+    onStreamError: (error) => {
+      const event = {
+        type: 'error',
+        id: randomUUID(),
+        turnId,
+        ts: Date.now(),
+        recoverable: false,
+        code: errorCode(error),
+        reason: errorReason(error),
+        message: errorMessage(error),
+      } satisfies SessionEvent;
+      safeSendToRenderer(`sessions:event:${sessionId}`, event);
+      openGateway.publishSessionEvent(sessionId, event);
+      emitSessionsChanged('status-change', sessionId);
+      emitSessionsChanged('turn-status-change', sessionId);
+      computerUseOverlay.clearForSession(sessionId);
+      computerUseTools.clearSession(sessionId);
+    },
+    onDrained: () => {
       emitSessionsChanged('message-appended', sessionId);
-      finalAppendBroadcasted = true;
-    }
-    // Goal auto-continuation: after a turn completes cleanly, evaluate the
-    // active goal and continue, hand off to polling, or stop. Skip on a
-    // user-abort (the Stop button must halt the loop) OR an errored turn —
-    // re-injecting into a failing connection would spin ~maxIterations failing
-    // turns. Failures never surface to the turn.
-    if (!turnAborted && !turnError) {
-      void handleGoalContinuation(goalWiring.continuationDeps, sessionId, turnId).catch(() => {});
-    }
-    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
-  } catch (error) {
-    const event = {
-      type: 'error',
-      id: randomUUID(),
-      turnId: fallbackTurnId ?? randomUUID(),
-      ts: Date.now(),
-      recoverable: false,
-      code: errorCode(error),
-      reason: errorReason(error),
-      message: errorMessage(error),
-    } satisfies SessionEvent;
-    safeSendToRenderer(`sessions:event:${sessionId}`, event);
-    openGateway.publishSessionEvent(sessionId, event);
-    emitSessionsChanged('status-change', sessionId);
-    emitSessionsChanged('turn-status-change', sessionId);
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    if (!finalAppendBroadcasted) {
-      emitSessionsChanged('message-appended', sessionId);
-      finalAppendBroadcasted = true;
-    }
-    return { turnId, ok: false, error: errorMessage(error) };
-  }
+    },
+  });
+  if (started.kind === 'unavailable') throw new Error(started.reason);
+  return started.completion.then((outcome) => {
+    const failureReason = outcome.kind === 'errored' || outcome.kind === 'suspended'
+      ? outcome.reason
+      : undefined;
+    return {
+      turnId,
+      ok: outcome.kind === 'completed',
+      ...(failureReason ? { error: failureReason } : {}),
+      outcome,
+    };
+  });
 }
 
 function isStatusChangingSessionEvent(event: SessionEvent): boolean {
@@ -2124,20 +1473,12 @@ function isStatusChangingSessionEvent(event: SessionEvent): boolean {
     event.type === 'error';
 }
 
-function latestStoredMessageTs(messages: readonly StoredMessage[]): number | undefined {
-  let latest: number | undefined;
-  for (const message of messages) {
-    if (Number.isFinite(message.ts)) latest = latest === undefined ? message.ts : Math.max(latest, message.ts);
-  }
-  return latest;
-}
-
 function isTurnStatusChangingSessionEvent(event: SessionEvent): boolean {
   return event.type === 'complete' || event.type === 'abort' || event.type === 'error';
 }
 
 async function ensureSessionCanSend(sessionId: string): Promise<void> {
-  const header = await store.readHeader(sessionId);
+  const header = await readAvailableSessionHeader(sessionId);
   let result: Awaited<ReturnType<typeof ensureSessionCanSendOrRebind>>;
   try {
     result = await ensureSessionCanSendOrRebind(sessionId, header, {
@@ -2152,6 +1493,7 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
       }),
     });
   } catch (error) {
+    if (isSessionLifecycleError(error)) throw error;
     await runtime.setSessionStatus(sessionId, 'blocked', 'NO_REAL_CONNECTION').catch(() => {});
     emitSessionsChanged('status-change', sessionId);
     throw error;
@@ -2164,6 +1506,29 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
   }
 }
 
+async function readAvailableSessionHeader(sessionId: string) {
+  let header;
+  try {
+    header = await store.readHeader(sessionId);
+  } catch (error) {
+    const lifecycleError = sessionLifecycleErrorFromReadFailure(error);
+    if (lifecycleError) throw lifecycleError;
+    throw error;
+  }
+  assertSessionCanSendFromHeader(header);
+  await assertSessionWorkspaceAvailable(header.cwd);
+  return header;
+}
+
+async function ensureSessionWorkspaceAvailable(sessionId: string): Promise<void> {
+  await readAvailableSessionHeader(sessionId);
+}
+
+async function createDesktopSession(input: CreateSessionInput) {
+  await assertSessionWorkspaceAvailable(input.cwd);
+  return runtime.createSession(input);
+}
+
 const readyConnectionDeps = {
   getConnection: (slug: string) => connectionStore.get(slug),
   getApiKey: (slug: string) => resolveConnectionSecret(slug),
@@ -2171,22 +1536,6 @@ const readyConnectionDeps = {
 
 function getReadyConnection(slug: string | null | undefined, model?: string) {
   return requireReadyConnection(slug, readyConnectionDeps, model);
-}
-
-function normalizeSupportedSessionThinkingLevel(
-  input: unknown,
-  providerType: ProviderType,
-  model: string,
-): ThinkingLevel | undefined {
-  const thinkingLevel = input === undefined || input === null ? undefined : input;
-  if (thinkingLevel === undefined) return undefined;
-  if (!isThinkingLevel(thinkingLevel)) {
-    throw new Error(`Invalid thinking level: ${String(input)}`);
-  }
-  if (!thinkingVariantsForModel(providerType, model).includes(thinkingLevel)) {
-    throw new Error(`当前模型不支持思考级别：${thinkingLevel}`);
-  }
-  return thinkingLevel;
 }
 
 /**
@@ -2216,13 +1565,13 @@ async function handleQuickChatStart(
           ? Promise.resolve<PermissionMode>('explore')
           : resolveDefaultPermissionMode(() => settingsStore.get()),
       ]);
-      return runtime.createSession({
+      return createDesktopSession({
         cwd: await getCurrentProjectRoot(),
         backend: 'ai-sdk',
         llmConnectionSlug: ready.connection.slug,
         model: ready.model,
         permissionMode,
-        name: input.mode === 'deep_research' ? 'Deep Research' : 'New Chat',
+        name: input.mode === 'deep_research' ? 'Deep Research' : DEFAULT_SESSION_NAME,
         labels: input.mode === 'deep_research' ? [DEEP_RESEARCH_SESSION_LABEL] : [],
       });
     },
@@ -2235,7 +1584,10 @@ async function handleQuickChatStart(
       // id is generated inside `runtime.sendMessage()`.
       const turnId = randomUUID();
       const iterator = runtime.sendMessage(sessionId, { turnId, text });
-      void streamEvents(sessionId, iterator, turnId);
+      void streamEvents(sessionId, iterator, {
+        turnId,
+        goalBoundary: 'external',
+      });
     },
   });
 }
@@ -2265,22 +1617,6 @@ function emitSessionsChanged(
   safeSendToRenderer('sessions:changed', event);
 }
 
-function normalizeSessionModelSelection(input: unknown): { llmConnectionSlug: string; model: string } {
-  if (!input || typeof input !== 'object') {
-    throw new Error('Invalid model selection');
-  }
-  const record = input as Record<string, unknown>;
-  const llmConnectionSlug = typeof record.llmConnectionSlug === 'string' ? record.llmConnectionSlug.trim() : '';
-  const model = typeof record.model === 'string' ? record.model.trim() : '';
-  if (!llmConnectionSlug) {
-    throw new Error('Missing model connection');
-  }
-  if (!model) {
-    throw new Error('Missing model');
-  }
-  return { llmConnectionSlug, model };
-}
-
 async function recoverInterruptedSessionsOnStartup(): Promise<void> {
   try {
     await runtime.recoverInterruptedSessions();
@@ -2289,7 +1625,10 @@ async function recoverInterruptedSessionsOnStartup(): Promise<void> {
       const plan = await runtime.planLatestAuthoritativeSafeBoundaryContinuation(session.id);
       if (!plan.continuation) continue;
       const iterator = runtime.resumeSafeBoundaryContinuation(plan.continuation);
-      void streamEvents(session.id, iterator, plan.continuation.turnId);
+      void streamEvents(session.id, iterator, {
+        turnId: plan.continuation.turnId,
+        goalBoundary: 'none',
+      });
     }
   } catch {
     // Best-effort: startup should still reach the renderer so users can inspect
@@ -2358,18 +1697,31 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Launch the window as early as possible so the user sees the app
-  // chrome (preload skeleton + backgroundColor) within milliseconds of
-  // launch. Everything below — credential migration, connection
-  // bootstrapping, telemetry/pricing load, interrupted-session recovery,
-  // bot bridges, gateway, schedulers — runs concurrently in the
-  // background and never blocks the first paint. The renderer's first
+  // Credential migration is the one startup phase that must finish before an
+  // interactive window exists: OAuth logout is otherwise able to race the
+  // one-shot legacy import. The work is local and normally a missing-file
+  // check; all non-critical startup below still runs behind the first paint.
+  // The renderer's first
   // IPC calls (session enumeration, settings read, connection listing)
   // all read from stores that are initialized synchronously at module load,
   // so they succeed regardless of whether background startup has
   // settled. Any state that background startup mutates is pushed to the
   // renderer via the existing `sessions:changed` / `connections:event`
   // / `settings:bots:statusChanged` channels, so the UI converges lazily.
+  // Visual-smoke fixture mode wipes and reseeds the whole workspace
+  // (`rm -rf` first). That wipe must finish BEFORE the window opens and
+  // before background startup touches the workspace: createWindow reads
+  // the settings store, and a concurrent wipe lands inside the store's
+  // read-or-create write (mkdir → tmp → rename), rejecting createWindow
+  // so the window never appears. Fixture runs trade first-paint latency
+  // for determinism by definition; production launches skip this await.
+  if (visualSmokeFixture) {
+    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
+    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
+  }
+  await runCredentialStartup();
+  app.on('second-instance', focusOrCreateMainWindow);
+  app.on('activate', focusOrCreateMainWindow);
   const backgroundStartup = runBackgroundStartup();
   await mainWindowController.createWindow();
   // Keep the process alive until background work settles so schedulers
@@ -2377,18 +1729,7 @@ app.whenReady().then(async () => {
   await backgroundStartup;
 });
 
-/**
- * Non-critical startup work that must NOT block the first window paint.
- *
- * Order matters within this routine: `migrateLegacyCredentials` and
- * `ensureBootstrapConnection` touch the credential store, so they run
- * first; `setActiveProxy` must be applied before any network-bearing
- * step (`botRegistry.applySettings`, `openGateway.sync`); pricing depends
- * on `telemetryRepo.load()`. Everything here is best-effort and logged
- * on failure — none of it should prevent the user from seeing and
- * interacting with the app shell.
- */
-async function runBackgroundStartup(): Promise<void> {
+async function runCredentialStartup(): Promise<void> {
   // One-time migration of credentials.json off Electron safeStorage so
   // the pure-Node runtime can read it (issue #32). Runs before any
   // credential read/write below; failure is non-fatal (legacy file is
@@ -2398,14 +1739,51 @@ async function runBackgroundStartup(): Promise<void> {
   } catch (error) {
     console.error('[credentials] migration off safeStorage failed; legacy file left intact:', error);
   }
-  if (visualSmokeFixture) {
-    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
-    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
-  } else {
+  // One-shot import of pre-#1125 safeStorage-encrypted OAuth token
+  // files into the shared CredentialStore, which is the only token
+  // authority from here on. Best-effort like the migration above:
+  // files that cannot be decrypted are left intact for a later start.
+  try {
+    const userDataDir = app.getPath('userData');
+    const reports = await importLegacyOAuthTokenFiles({
+      credentialStore,
+      decryptor: safeStorage,
+      files: [
+        { slug: 'claude-subscription', filePath: join(userDataDir, '.claude_subscription_token') },
+        { slug: 'codex-subscription', filePath: join(userDataDir, '.codex_subscription_token') },
+        { slug: 'cursor-subscription', filePath: join(userDataDir, '.cursor_subscription_token') },
+        { slug: 'antigravity-subscription', filePath: join(userDataDir, '.antigravity_subscription_token') },
+      ],
+    });
+    for (const report of reports) {
+      const log = report.outcome === 'failed' ? console.error : console.log;
+      log(`[credentials] legacy OAuth token file for ${report.slug}: ${report.outcome}`, report.error ?? '');
+    }
+  } catch (error) {
+    console.error('[credentials] legacy OAuth token import failed; files left intact:', error);
+  }
+}
+
+/**
+ * Non-critical startup work that must NOT block the first window paint.
+ *
+ * `setActiveProxy` must be applied before any network-bearing step
+ * (`botRegistry.applySettings`, `openGateway.sync`); pricing depends on
+ * `telemetryRepo.load()`. Everything here is best-effort and logged on
+ * failure — none of it should prevent the user from seeing and interacting
+ * with the app shell.
+ */
+async function runBackgroundStartup(): Promise<void> {
+  // Visual-smoke seeding happens synchronously in `whenReady` before the
+  // window opens (see there for why); only the real bootstrap runs here.
+  if (!visualSmokeFixture) {
     await ensureBootstrapConnection();
   }
   const settings = await settingsStore.get();
   setActiveProxy(toContractNetworkSettings(settings.network).proxy);
+  // Re-hold the power-save blocker at launch if the user left it enabled, so
+  // scheduled tasks survive machine sleep across restarts.
+  keepSystemAwake.apply(settings.system.keepSystemAwake);
   await telemetryRepo.load();
   lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
   await recoverInterruptedSessionsOnStartup();
@@ -2441,6 +1819,7 @@ app.on('before-quit', (event) => {
 
 async function runBeforeQuitCleanup(): Promise<void> {
   automationWiring.scheduler.dispose();
+  goalWiring.coordinator.dispose();
   goalWiring.manager.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
@@ -2452,6 +1831,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
     openGateway.stop(),
     Promise.resolve(mainWindowController.disposeBrowserViews()),
     shellRuns.terminateAll(),
+    mcpManager.close(),
   ]);
   for (const result of results) {
     if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
@@ -2466,5 +1846,3 @@ function computerUseCapabilityInput() {
     health: computerUseServiceHealth(computerUse.backendId, serviceState),
   };
 }
-
-app.on('activate', focusOrCreateMainWindow);

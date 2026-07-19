@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 
 import {
@@ -14,7 +14,7 @@ import { ModelAdapter } from '../model-adapter.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
 import type { MakaTool } from '../tool-runtime.js';
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
@@ -29,7 +29,7 @@ describe('active current-turn tool-result pruning', () => {
       archiveToolResult: () => ({ artifactId: 'unused' }),
     });
     const aboveDefault = await rewriteActiveToolResultsInMessages({
-      messages: [largeTextToolMessage('Read', 'tool-large', 'a'.repeat((2048 * 4) + 4))],
+      messages: [largeTextToolMessage('Read', 'tool-large', 'a'.repeat(2048 * 4 + 4))],
       policy: { enabled: true },
       stepNumber: 1,
       turnId: 'turn-1',
@@ -66,7 +66,7 @@ describe('active current-turn tool-result pruning', () => {
       stepNumber: 1,
       model: {},
       messages: originalMessages,
-      experimental_context: undefined,
+      runtimeContext: undefined,
     });
 
     assert.deepEqual(result?.activeTools, ['Read', LOAD_TOOLS_NAME]);
@@ -76,23 +76,41 @@ describe('active current-turn tool-result pruning', () => {
 
   test('oversized eligible current-turn tool result is archived and replaced', async () => {
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(20);
-    const archiveRequests: Array<{ serializedResult: string; bodySha256: string; toolCallId: string }> = [];
+    const archiveRequests: Array<{
+      serializedResult: string;
+      bodySha256: string;
+      toolCallId: string;
+    }> = [];
     const prompts: unknown[] = [];
     let step = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ prompt }) => {
         step += 1;
         prompts.push(prompt);
-        const parts: LanguageModelV3StreamPart[] = step === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({}) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
-            ];
+        const parts: LanguageModelV4StreamPart[] =
+          step === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Read',
+                  input: JSON.stringify({}),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: ZERO_USAGE,
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: ZERO_USAGE,
+                },
+              ];
         return { stream: convertArrayToReadableStream(parts) };
       },
     });
@@ -131,7 +149,7 @@ describe('active current-turn tool-result pruning', () => {
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    await drain(result.fullStream);
+    await drain(result.stream);
 
     assert.equal(prompts.length, 2, 'expected a tool step and a follow-up step');
     assert.equal(archiveRequests.length, 1);
@@ -167,7 +185,11 @@ describe('active current-turn tool-result pruning', () => {
     const messages = [largeToolMessage('Read', 'tool-1', 'KEEP_ME'.repeat(20))];
     const rewritten = await rewriteActiveToolResultsInMessages({
       messages,
-      policy: { enabled: true, maxCurrentResultEstimatedTokens: 1, archiveRequired: false } as never,
+      policy: {
+        enabled: true,
+        maxCurrentResultEstimatedTokens: 1,
+        archiveRequired: false,
+      } as never,
       stepNumber: 1,
       turnId: 'turn-1',
       charsPerToken: 1,
@@ -222,21 +244,25 @@ describe('active current-turn tool-result pruning', () => {
     const messages: ModelMessage[] = [
       {
         role: 'tool',
-        content: [{
-          type: 'tool-result',
-          toolCallId: 'tool-json',
-          toolName: 'Read',
-          output: { type: 'json', value: placeholder as never },
-        }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tool-json',
+            toolName: 'Read',
+            output: { type: 'json', value: placeholder as never },
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{
-          type: 'tool-result',
-          toolCallId: 'tool-text',
-          toolName: 'Read',
-          output: { type: 'text', value: JSON.stringify(placeholder) },
-        }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tool-text',
+            toolName: 'Read',
+            output: { type: 'text', value: JSON.stringify(placeholder) },
+          },
+        ],
       },
     ];
     const archivedToolCallIds: string[] = [];
@@ -297,9 +323,13 @@ describe('active current-turn tool-result pruning', () => {
       charsPerToken: 1,
       archiveToolResult: () => ({ artifactId: 'artifact-tool-1' }),
     });
-    const placeholderPart = (rewritten.messages[0] as Extract<ModelMessage, { role: 'tool' }>).content[0];
+    const placeholderPart = (rewritten.messages[0] as Extract<ModelMessage, { role: 'tool' }>)
+      .content[0];
     const differentPart = (
-      largeTextToolMessage('Read', 'tool-1', 'DIFFERENT'.repeat(20)) as Extract<ModelMessage, { role: 'tool' }>
+      largeTextToolMessage('Read', 'tool-1', 'DIFFERENT'.repeat(20)) as Extract<
+        ModelMessage,
+        { role: 'tool' }
+      >
     ).content[0];
 
     assert.deepEqual(
@@ -373,19 +403,33 @@ describe('active current-turn tool-result pruning', () => {
     );
     const plan = runtime.prepare([]);
     const toolsPerStep: string[][] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ tools }) => {
         toolsPerStep.push((tools ?? []).map((tool) => tool.name));
-        const parts: LanguageModelV3StreamPart[] = toolsPerStep.length === 1
-          ? [
-              { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'load-1', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
-            ]
-          : [
-              { type: 'stream-start', warnings: [] },
-              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
-            ];
+        const parts: LanguageModelV4StreamPart[] =
+          toolsPerStep.length === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'load-1',
+                  toolName: LOAD_TOOLS_NAME,
+                  input: JSON.stringify({ group: 'rive' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: ZERO_USAGE,
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: ZERO_USAGE,
+                },
+              ];
         return { stream: convertArrayToReadableStream(parts) };
       },
     });
@@ -395,11 +439,19 @@ describe('active current-turn tool-result pruning', () => {
       aiSdkTools[tool.name] = {
         description: tool.description,
         inputSchema: tool.parameters,
-        execute: tool.name === LOAD_TOOLS_NAME ? () => ({ loaded: ['RiveWorkflow'] }) : () => ({ ok: true }),
+        execute:
+          tool.name === LOAD_TOOLS_NAME
+            ? () => ({ loaded: ['RiveWorkflow'] })
+            : () => ({ ok: true }),
       };
     }
 
-    const activePrune = async (options: Parameters<NonNullable<typeof plan.prepareStep>>[0] & { messages: ModelMessage[]; stepNumber: number }) => {
+    const activePrune = async (
+      options: Parameters<NonNullable<typeof plan.prepareStep>>[0] & {
+        messages: ModelMessage[];
+        stepNumber: number;
+      },
+    ) => {
       const rewritten = await rewriteActiveToolResultsInMessages({
         messages: options.messages,
         policy: { enabled: true, maxCurrentResultEstimatedTokens: 1024 },
@@ -419,7 +471,7 @@ describe('active current-turn tool-result pruning', () => {
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    await drain(result.fullStream);
+    await drain(result.stream);
 
     assert.ok(!toolsPerStep[0]?.includes('RiveWorkflow'), 'step 0 hides the group tool');
     assert.ok(toolsPerStep[1]?.includes('RiveWorkflow'), 'step 1 advertises the loaded group tool');
@@ -429,24 +481,28 @@ describe('active current-turn tool-result pruning', () => {
 function largeToolMessage(toolName: string, toolCallId: string, body: string): ModelMessage {
   return {
     role: 'tool',
-    content: [{
-      type: 'tool-result',
-      toolCallId,
-      toolName,
-      output: { type: 'json', value: { body } },
-    }],
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId,
+        toolName,
+        output: { type: 'json', value: { body } },
+      },
+    ],
   };
 }
 
 function largeTextToolMessage(toolName: string, toolCallId: string, body: string): ModelMessage {
   return {
     role: 'tool',
-    content: [{
-      type: 'tool-result',
-      toolCallId,
-      toolName,
-      output: { type: 'text', value: body },
-    }],
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId,
+        toolName,
+        output: { type: 'text', value: body },
+      },
+    ],
   };
 }
 

@@ -1,12 +1,15 @@
 import { promises as fs } from 'node:fs';
 import { exec } from 'node:child_process';
 import { glob as nodeGlob } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { isPathInside } from './path-containment.js';
 import { promisify } from 'node:util';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import { runProcessWithBoundedTail, runShellWithBoundedTail } from './shell-exec.js';
 import type { ChildFdInput } from './child-fd-input.js';
 import type { ShellPlan } from './shell-detect.js';
+import { isSupportedImagePath, readWorkspaceImage } from './image-file.js';
+import type { ImageMimeType } from './image-file.js';
 
 const execAsync = promisify(exec);
 
@@ -55,9 +58,16 @@ export interface WorkspaceReadFileInput {
   limit?: number;
 }
 
-export interface WorkspaceReadFileResult {
+export interface WorkspaceReadTextResult {
   content: string;
 }
+
+export interface WorkspaceReadImageResult {
+  bytes: Uint8Array;
+  mimeType: ImageMimeType;
+}
+
+export type WorkspaceReadFileResult = WorkspaceReadTextResult | WorkspaceReadImageResult;
 
 export interface WorkspaceWriteFileInput {
   cwd: string;
@@ -153,33 +163,28 @@ export interface WorkspaceGrepFilesExecutor {
 
 export type WorkspaceBashExecutor = WorkspaceExecutorFactsProvider & WorkspaceCommandExecutor;
 
-export type WorkspaceReadExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceReadFileExecutor;
+export type WorkspaceReadExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceReadFileExecutor;
 
-export type WorkspaceWriteExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceWritablePathResolver
-  & WorkspaceWriteLockProvider
-  & WorkspaceWriteFileExecutor;
+export type WorkspaceWriteExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceWritablePathResolver &
+  WorkspaceWriteLockProvider &
+  WorkspaceWriteFileExecutor;
 
-export type WorkspaceEditExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceWriteLockProvider
-  & WorkspaceReadFileExecutor
-  & WorkspaceWriteFileExecutor;
+export type WorkspaceEditExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceWriteLockProvider &
+  WorkspaceReadFileExecutor &
+  WorkspaceWriteFileExecutor;
 
-export type WorkspaceGlobExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceGlobFilesExecutor;
+export type WorkspaceGlobExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceGlobFilesExecutor;
 
-export type WorkspaceGrepExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceGrepFilesExecutor;
+export type WorkspaceGrepExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceGrepFilesExecutor;
 
 export type WorkspaceSearchExecutor = WorkspaceGlobExecutor & WorkspaceGrepExecutor;
 
@@ -219,6 +224,9 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   }
 
   async readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult> {
+    if (isSupportedImagePath(input.path)) {
+      return await readWorkspaceImage(input.path);
+    }
     const content = await fs.readFile(input.path, 'utf8');
     if (input.offset === undefined && input.limit === undefined) return { content };
     const lines = content.split('\n');
@@ -286,39 +294,42 @@ function shellEscape(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
 }
 
-async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+async function resolveWritableInsideCwd(
+  cwd: string,
+  inputPath: string,
+  label: string,
+): Promise<string> {
   if (isAbsolute(inputPath)) {
     throw new Error(`${label} path must be relative to session cwd`);
   }
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
+  if (!isPathInside(root, candidate)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   const parent = await fs.realpath(dirname(candidate));
-  if (!isInside(root, parent)) {
+  if (!isPathInside(root, parent)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   return candidate;
 }
 
-async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+async function resolveExistingInsideCwd(
+  cwd: string,
+  inputPath: string,
+  label: string,
+): Promise<string> {
   if (isAbsolute(inputPath)) {
     throw new Error(`${label} path must be relative to session cwd`);
   }
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
+  if (!isPathInside(root, candidate)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   const target = await fs.realpath(candidate);
-  if (!isInside(root, target)) {
+  if (!isPathInside(root, target)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   return target;
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }

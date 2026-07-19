@@ -136,6 +136,52 @@ describe('ToolActivity result preview contract', () => {
         },
         expected: [/data-kind="subagent"/, /Research Agent/, /结果摘要/],
       },
+      {
+        kind: 'agent_swarm',
+        content: {
+          kind: 'agent_swarm',
+          status: 'partial',
+          items: [
+            {
+              itemId: 'auth',
+              index: 0,
+              profile: 'local_read',
+              started: true,
+              agentName: 'Local Read',
+              turnId: 'turn-auth',
+              runId: 'run-auth',
+              status: 'completed',
+              summary: `Mapped auth boundaries ${SECRET}`,
+              artifactIds: ['artifact-auth'],
+              durationMs: 1_250,
+            },
+            {
+              itemId: 'tests',
+              index: 1,
+              profile: 'local_read',
+              started: true,
+              turnId: 'turn-tests',
+              runId: 'run-tests',
+              status: 'failed',
+              summary: 'Test inspection failed.',
+              artifactIds: [],
+              durationMs: 500,
+              failureClass: 'ChildFailed',
+            },
+          ],
+          startedAt: 10,
+          completedAt: 1_260,
+          durationMs: 1_250,
+        },
+        expected: [
+          /data-kind="agent_swarm"/,
+          /部分完成/,
+          /auth/,
+          /run run-auth/,
+          /turn turn-tests/,
+          /ChildFailed/,
+        ],
+      },
     ];
 
     for (const item of cases) {
@@ -210,7 +256,7 @@ describe('ToolActivity result preview contract', () => {
 
 function renderPreview(content: ToolResultContent): string {
   return renderToStaticMarkup(createElement(LocaleProvider, {
-    preference: 'zh',
+    locale: 'zh',
     children: createElement(OverlayHost, { content, onClose: () => {} }),
   }));
 }

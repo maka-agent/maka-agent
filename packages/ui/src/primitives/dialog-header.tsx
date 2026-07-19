@@ -21,6 +21,8 @@
 import type { ReactNode } from 'react';
 import { X } from '../icons.js';
 import { Button } from '../ui.js';
+import { useUiLocale } from '../locale-context.js';
+import { getShellControlsCopy } from '../shell-controls-copy.js';
 
 export interface DialogHeaderProps {
   /** Optional leading glyph, rendered at 16px in muted ink. */
@@ -37,7 +39,8 @@ export interface DialogHeaderProps {
   closeLabel?: string;
 }
 
-export function DialogHeader({ icon, title, titleId, subtitle, onClose, closeLabel = '关闭' }: DialogHeaderProps) {
+export function DialogHeader({ icon, title, titleId, subtitle, onClose, closeLabel }: DialogHeaderProps) {
+  const copy = getShellControlsCopy(useUiLocale());
   return (
     <header
       className="flex items-start gap-2 border-b border-border px-4 py-2.5"
@@ -73,7 +76,7 @@ export function DialogHeader({ icon, title, titleId, subtitle, onClose, closeLab
         type="button"
         variant="quiet"
         size="icon-sm"
-        aria-label={closeLabel}
+        aria-label={closeLabel ?? copy.shared.close}
         onClick={onClose}
         data-slot="dialog-header-close"
       >

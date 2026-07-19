@@ -2,22 +2,12 @@ import { _electron as electron, chromium } from '@playwright/test';
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
-import {
-  cp,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  evaluateCuE2eScenarioState,
-  getCuE2eScenario,
-} from './cu-e2e-scenarios.mjs';
+import { evaluateCuE2eScenarioState, getCuE2eScenario } from './cu-e2e-scenarios.mjs';
 import { validateRealReport } from './cu-provider-matrix.mjs';
 import {
   sanitizeCuActionRecord,
@@ -41,16 +31,12 @@ const sourceWorkspace = join(
   'workspaces',
   'default',
 );
-const scenario = getCuE2eScenario(
-  process.env.MAKA_CU_E2E_SCENARIO ?? 'l0-observe-only',
-);
+const scenario = getCuE2eScenario(process.env.MAKA_CU_E2E_SCENARIO ?? 'l0-observe-only');
 if (!scenario.realRunEnabled) {
   throw new Error(`scenario ${scenario.id} is not enabled for real-model runs`);
 }
 if (scenario.runner) {
-  throw new Error(
-    `scenario ${scenario.id} requires dedicated runner ${scenario.runner}`,
-  );
+  throw new Error(`scenario ${scenario.id} requires dedicated runner ${scenario.runner}`);
 }
 const availableCapabilities = new Set(
   String(process.env.MAKA_CU_EXECUTION_CAPABILITIES ?? '')
@@ -60,25 +46,17 @@ const availableCapabilities = new Set(
 );
 for (const capability of scenario.requiresExecutionCapabilities) {
   if (!availableCapabilities.has(capability)) {
-    throw new Error(
-      `scenario ${scenario.id} requires unavailable capability ${capability}`,
-    );
+    throw new Error(`scenario ${scenario.id} requires unavailable capability ${capability}`);
   }
 }
 
 const timeoutMs = Number(process.env.MAKA_CU_REAL_MODEL_TIMEOUT_MS ?? 180_000);
 const keepProfile = process.env.MAKA_CU_KEEP_PROFILE === '1';
 const providerOverride = process.env.MAKA_CU_PROVIDER;
-const reportPath = process.env.MAKA_CU_REAL_MODEL_REPORT
-  ?? join(
-    repoRoot,
-    '.agents-workspace-data',
-    'cu-real-model',
-    `report-${Date.now()}.json`,
-  );
-const runPrompt =
-  'Use the maka_computer tool to complete this task. '
-  + scenario.prompt;
+const reportPath =
+  process.env.MAKA_CU_REAL_MODEL_REPORT ??
+  join(repoRoot, '.agents-workspace-data', 'cu-real-model', `report-${Date.now()}.json`);
+const runPrompt = 'Use the maka_computer tool to complete this task. ' + scenario.prompt;
 
 async function reportLineage() {
   const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
@@ -151,16 +129,14 @@ async function prepareProviderProfile(workspace) {
 async function waitForLine(child, marker, timeout) {
   return new Promise((resolve, reject) => {
     let stdout = '';
-    const timer = setTimeout(
-      () => reject(new Error(`timed out waiting for ${marker}`)),
-      timeout,
-    );
+    const timer = setTimeout(() => reject(new Error(`timed out waiting for ${marker}`)), timeout);
     const onData = (chunk) => {
       stdout += String(chunk);
       process.stdout.write(chunk);
-      const matched = marker === 'CU_FIXTURE_READY'
-        ? /^CU_FIXTURE_READY\s+\d+\s*$/m.test(stdout)
-        : stdout.includes(marker);
+      const matched =
+        marker === 'CU_FIXTURE_READY'
+          ? /^CU_FIXTURE_READY\s+\d+\s*$/m.test(stdout)
+          : stdout.includes(marker);
       if (matched) {
         clearTimeout(timer);
         child.stdout.off('data', onData);
@@ -178,17 +154,14 @@ async function waitForLine(child, marker, timeout) {
 }
 
 export function parseFixtureReady(text, childPid) {
-  const matches = typeof text === 'string'
-    ? [...text.matchAll(/^CU_FIXTURE_READY\s+(\d+)\s*$/gm)]
-    : [];
+  const matches =
+    typeof text === 'string' ? [...text.matchAll(/^CU_FIXTURE_READY\s+(\d+)\s*$/gm)] : [];
   if (matches.length !== 1) {
     throw new Error('fixture READY identity is missing or ambiguous');
   }
   const readyPid = Number(matches[0][1]);
   if (!Number.isInteger(childPid) || childPid <= 0 || readyPid !== childPid) {
-    throw new Error(
-      `fixture READY pid ${readyPid} does not match launcher child pid ${childPid}`,
-    );
+    throw new Error(`fixture READY pid ${readyPid} does not match launcher child pid ${childPid}`);
   }
   return readyPid;
 }
@@ -204,10 +177,10 @@ export function parseTargetEvidence(text) {
     try {
       const value = JSON.parse(candidate);
       if (
-        value
-        && typeof value === 'object'
-        && Number.isInteger(value.pid)
-        && Number.isInteger(value.window_id)
+        value &&
+        typeof value === 'object' &&
+        Number.isInteger(value.pid) &&
+        Number.isInteger(value.window_id)
       ) {
         return {
           ...(typeof value.observation_id === 'string'
@@ -234,31 +207,30 @@ export function actionRecords(events) {
     if (event.type === 'tool_result' && starts.has(event.toolUseId)) {
       const start = starts.get(event.toolUseId);
       const text = event.content?.kind === 'text' ? event.content.text : undefined;
-      const resultCode = typeof text === 'string'
-        ? text.match(/\bfailed:\s*([a-z][a-z0-9_]{1,63})\b/i)?.[1]
-        : undefined;
+      const resultCode =
+        typeof text === 'string'
+          ? text.match(/\bfailed:\s*([a-z][a-z0-9_]{1,63})\b/i)?.[1]
+          : undefined;
       const target = parseTargetEvidence(text);
-      records.push(sanitizeCuActionRecord({
-        action: start.args,
-        toolCallId: event.toolUseId,
-        sourceObservationId: start.args?.observation_id,
-        resultObservationId: target?.observationId,
-        targetPid: target?.pid,
-        targetWindowId: target?.windowId,
-        durationMs: event.durationMs,
-        text,
-        success: event.isError === false && !resultCode,
-      }));
+      records.push(
+        sanitizeCuActionRecord({
+          action: start.args,
+          toolCallId: event.toolUseId,
+          sourceObservationId: start.args?.observation_id,
+          resultObservationId: target?.observationId,
+          targetPid: target?.pid,
+          targetWindowId: target?.windowId,
+          durationMs: event.durationMs,
+          text,
+          success: event.isError === false && !resultCode,
+        }),
+      );
     }
   }
   return records;
 }
 
-export async function waitForTraceFlush(
-  path,
-  expectedToolCallIds,
-  timeoutMs = 2_000,
-) {
+export async function waitForTraceFlush(path, expectedToolCallIds, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const current = await readFile(path, 'utf8').catch((error) => {
@@ -276,14 +248,11 @@ export async function waitForTraceFlush(
       }
     }
     const observedToolCallIds = new Set(
-      traces
-        .filter((trace) => trace.type === 'dispatch')
-        .map((trace) => trace.toolCallId),
+      traces.filter((trace) => trace.type === 'dispatch').map((trace) => trace.toolCallId),
     );
     if (
-      !incompleteTrace
-      && expectedToolCallIds.every((toolCallId) =>
-        observedToolCallIds.has(toolCallId))
+      !incompleteTrace &&
+      expectedToolCallIds.every((toolCallId) => observedToolCallIds.has(toolCallId))
     ) {
       return traces;
     }
@@ -297,11 +266,7 @@ export async function waitForTraceFlush(
 export async function discoverFixtureIdentity(
   fixturePid,
   windowSpecs,
-  {
-    listApps,
-    timeoutMs = 2_000,
-    pollIntervalMs = 50,
-  } = {},
+  { listApps, timeoutMs = 2_000, pollIntervalMs = 50 } = {},
 ) {
   if (!Number.isInteger(fixturePid) || fixturePid <= 0) {
     throw new Error('fixture discovery requires a valid launcher-owned pid');
@@ -311,10 +276,10 @@ export async function discoverFixtureIdentity(
   }
   const expectedTitles = windowSpecs?.map((window) => window.title);
   if (
-    !Array.isArray(expectedTitles)
-    || expectedTitles.length === 0
-    || expectedTitles.some((title) => typeof title !== 'string' || title.length === 0)
-    || new Set(expectedTitles).size !== expectedTitles.length
+    !Array.isArray(expectedTitles) ||
+    expectedTitles.length === 0 ||
+    expectedTitles.some((title) => typeof title !== 'string' || title.length === 0) ||
+    new Set(expectedTitles).size !== expectedTitles.length
   ) {
     throw new Error('fixture discovery requires unique expected window titles');
   }
@@ -327,16 +292,14 @@ export async function discoverFixtureIdentity(
       ? apps.filter((app) => Number(app?.pid) === fixturePid)
       : [];
     if (fixtureApps.length === 1) {
-      const windows = Array.isArray(fixtureApps[0].windows)
-        ? fixtureApps[0].windows
-        : [];
+      const windows = Array.isArray(fixtureApps[0].windows) ? fixtureApps[0].windows : [];
       const windowIds = [];
       let complete = true;
       for (const title of expectedTitles) {
-        const matches = windows.filter((window) =>
-          window?.title === title
-          && Number.isInteger(window?.windowId)
-          && window.windowId > 0);
+        const matches = windows.filter(
+          (window) =>
+            window?.title === title && Number.isInteger(window?.windowId) && window.windowId > 0,
+        );
         if (matches.length !== 1) {
           complete = false;
           lastFailure = `expected one fixture window "${title}", got ${matches.length}`;
@@ -346,10 +309,12 @@ export async function discoverFixtureIdentity(
       }
       if (complete && new Set(windowIds).size === windowIds.length) {
         return {
-          instances: [{
-            pid: fixturePid,
-            windowIds,
-          }],
+          instances: [
+            {
+              pid: fixturePid,
+              windowIds,
+            },
+          ],
         };
       }
       if (complete) lastFailure = 'fixture discovery returned duplicate window ids';
@@ -371,10 +336,10 @@ async function discoverLauncherFixtureIdentity(fixturePid, windowSpecs) {
   const expectedServerVersion = manifest?.cuaDriver?.expectedVersion;
   const expectedProtocolVersion = manifest?.cuaDriver?.expectedProtocolVersion;
   if (
-    typeof expectedBinarySha256 !== 'string'
-    || !/^[a-f0-9]{64}$/.test(expectedBinarySha256)
-    || typeof expectedServerVersion !== 'string'
-    || typeof expectedProtocolVersion !== 'string'
+    typeof expectedBinarySha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(expectedBinarySha256) ||
+    typeof expectedServerVersion !== 'string' ||
+    typeof expectedProtocolVersion !== 'string'
   ) {
     throw new Error('fixture discovery cannot verify bundled cua-driver identity');
   }
@@ -399,10 +364,10 @@ async function discoverLauncherFixtureIdentity(fixturePid, windowSpecs) {
 
 function safeEvent(event) {
   if (event.type === 'tool_start') {
-    const safeToolName = event.toolName === 'load_tools'
-      || event.toolName === 'maka_computer'
-      ? event.toolName
-      : 'other';
+    const safeToolName =
+      event.toolName === 'load_tools' || event.toolName === 'maka_computer'
+        ? event.toolName
+        : 'other';
     return {
       type: event.type,
       toolName: safeToolName,
@@ -420,14 +385,10 @@ function safeEvent(event) {
       ts: event.ts,
     };
   }
-  if (
-    event.type === 'complete'
-    || event.type === 'abort'
-    || event.type === 'error'
-  ) {
-    const safeCode = [event.code, event.reason].find((value) =>
-      typeof value === 'string'
-      && /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/.test(value));
+  if (event.type === 'complete' || event.type === 'abort' || event.type === 'error') {
+    const safeCode = [event.code, event.reason].find(
+      (value) => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/.test(value),
+    );
     return {
       type: event.type,
       ...(event.stopReason ? { stopReason: event.stopReason } : {}),
@@ -442,9 +403,11 @@ function safeFailureMetadata(message) {
   if (typeof message !== 'string') return undefined;
   const status = message.match(/\b([45]\d\d)\b/)?.[1];
   const errorName = message.match(/\b([A-Z][A-Za-z]+Error)\b/)?.[1];
-  const providerType = message.match(
-    /\b(api_error|authentication_error|billing_error|invalid_request_error|overloaded_error|permission_error|rate_limit_error)\b/i,
-  )?.[1]?.toLowerCase();
+  const providerType = message
+    .match(
+      /\b(api_error|authentication_error|billing_error|invalid_request_error|overloaded_error|permission_error|rate_limit_error)\b/i,
+    )?.[1]
+    ?.toLowerCase();
   const result = {
     ...(status ? { httpStatus: Number(status) } : {}),
     ...(errorName ? { errorName } : {}),
@@ -468,18 +431,22 @@ async function run() {
     await mkdir(dirname(reportPath), { recursive: true });
     await prepareProviderProfile(workspace);
 
-    fixture = spawn(electronBinary, [
-      `--remote-debugging-port=${fixturePort}`,
-      '--remote-allow-origins=*',
-      join(here, 'cu-real-model-fixture.mjs'),
-    ], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        MAKA_CU_E2E_SCENARIO: scenario.id,
+    fixture = spawn(
+      electronBinary,
+      [
+        `--remote-debugging-port=${fixturePort}`,
+        '--remote-allow-origins=*',
+        join(here, 'cu-real-model-fixture.mjs'),
+      ],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          MAKA_CU_E2E_SCENARIO: scenario.id,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    );
     const readyOutput = await waitForLine(fixture, 'CU_FIXTURE_READY', 30_000);
     const fixturePid = parseFixtureReady(readyOutput, fixture.pid);
     const fixtureIdentity = await discoverLauncherFixtureIdentity(
@@ -497,12 +464,11 @@ async function run() {
         MAKA_CU_REAL_MODEL_POLICY: JSON.stringify({
           allowedActions: scenario.allowedActions,
           maxTotalActions: scenario.maxTotalActions,
-          maxActionCounts: scenario.maxActionCounts ?? Object.fromEntries(
-            scenario.allowedActions.map((action) => [
-              action,
-              scenario.maxTotalActions,
-            ]),
-          ),
+          maxActionCounts:
+            scenario.maxActionCounts ??
+            Object.fromEntries(
+              scenario.allowedActions.map((action) => [action, scenario.maxTotalActions]),
+            ),
           allowedApps: activeWindowSpecs(scenario).map((window) => window.title),
         }),
         MAKA_CU_REAL_MODEL_TRACE: tracePath,
@@ -512,66 +478,57 @@ async function run() {
     const page = await desktop.firstWindow();
     await page.waitForFunction(() => Boolean(window.maka?.sessions));
 
-    const runResult = await page.evaluate(async ({ prompt, timeout }) => {
-      const connections = await window.maka.connections.list();
-      const defaultSlug = await window.maka.connections.getDefault();
-      const connection = connections.find((entry) => entry.slug === defaultSlug);
-      if (!connection?.defaultModel) {
-        throw new Error('isolated profile has no ready default model');
-      }
-      const session = await window.maka.sessions.create({
-        backend: 'ai-sdk',
-        llmConnectionSlug: connection.slug,
-        model: connection.defaultModel,
-        permissionMode: 'bypass',
-        name: 'Computer Use real-model E2E',
-        labels: ['computer-use', 'real-model-e2e'],
-      });
-      const events = [];
-      const terminal = new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error('real-model turn timed out')),
-          timeout,
-        );
-        const unsubscribe = window.maka.sessions.subscribeEvents(
-          session.id,
-          (event) => {
+    const runResult = await page.evaluate(
+      async ({ prompt, timeout }) => {
+        const connections = await window.maka.connections.list();
+        const defaultSlug = await window.maka.connections.getDefault();
+        const connection = connections.find((entry) => entry.slug === defaultSlug);
+        if (!connection?.defaultModel) {
+          throw new Error('isolated profile has no ready default model');
+        }
+        const session = await window.maka.sessions.create({
+          backend: 'ai-sdk',
+          llmConnectionSlug: connection.slug,
+          model: connection.defaultModel,
+          permissionMode: 'bypass',
+          name: 'Computer Use real-model E2E',
+          labels: ['computer-use', 'real-model-e2e'],
+        });
+        const events = [];
+        const terminal = new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('real-model turn timed out')), timeout);
+          const unsubscribe = window.maka.sessions.subscribeEvents(session.id, (event) => {
             events.push(event);
-            if (
-              event.type === 'complete'
-              || event.type === 'abort'
-              || event.type === 'error'
-            ) {
+            if (event.type === 'complete' || event.type === 'abort' || event.type === 'error') {
               clearTimeout(timer);
               unsubscribe();
               resolve(event);
             }
+          });
+        });
+        const turnId = crypto.randomUUID();
+        await window.maka.sessions.send(session.id, {
+          type: 'send',
+          turnId,
+          text: prompt,
+        });
+        const terminalEvent = await terminal;
+        return {
+          connection: {
+            slug: connection.slug,
+            providerType: connection.providerType,
+            model: connection.defaultModel,
           },
-        );
-      });
-      const turnId = crypto.randomUUID();
-      await window.maka.sessions.send(session.id, {
-        type: 'send',
-        turnId,
-        text: prompt,
-      });
-      const terminalEvent = await terminal;
-      return {
-        connection: {
-          slug: connection.slug,
-          providerType: connection.providerType,
-          model: connection.defaultModel,
-        },
-        sessionId: session.id,
-        turnId,
-        events,
-        terminalEvent,
-      };
-    }, { prompt: runPrompt, timeout: timeoutMs });
-
-    fixtureBrowser = await chromium.connectOverCDP(
-      `http://127.0.0.1:${fixturePort}`,
+          sessionId: session.id,
+          turnId,
+          events,
+          terminalEvent,
+        };
+      },
+      { prompt: runPrompt, timeout: timeoutMs },
     );
+
+    fixtureBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${fixturePort}`);
     const fixturePages = fixtureBrowser.contexts().flatMap((context) => context.pages());
     const fixtureState = {};
     for (const windowSpec of activeWindowSpecs(scenario)) {
@@ -580,8 +537,7 @@ async function run() {
           candidate,
           title: await candidate.title(),
         })),
-      ).then((entries) =>
-        entries.find((entry) => entry.title === windowSpec.title)?.candidate);
+      ).then((entries) => entries.find((entry) => entry.title === windowSpec.title)?.candidate);
       if (!pageForTitle) throw new Error(`missing fixture page ${windowSpec.title}`);
       fixtureState[windowSpec.id] = await pageForTitle.evaluate(
         () => globalThis.__makaCuFixtureState?.() ?? null,
@@ -591,65 +547,56 @@ async function run() {
     const events = runResult.events.map(safeEvent).filter(Boolean);
     const rawActions = actionRecords(runResult.events);
     const expectedDispatchToolCallIds = rawActions
-      .filter((action) =>
-        action.success === true
-        && !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action.type))
+      .filter(
+        (action) =>
+          action.success === true &&
+          !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action.type),
+      )
       .map((action) => action.toolCallId)
       .filter((toolCallId) => typeof toolCallId === 'string');
-    const driverTraces = await waitForTraceFlush(
-      tracePath,
-      expectedDispatchToolCallIds,
-    );
-    const actions = bindActionTargets(
-      rawActions,
-      driverTraces,
-      fixtureIdentity,
-    );
+    const driverTraces = await waitForTraceFlush(tracePath, expectedDispatchToolCallIds);
+    const actions = bindActionTargets(rawActions, driverTraces, fixtureIdentity);
     const runStore = createAgentRunStore(workspace);
-    const runHeader = await waitForRunHeader(
-      runStore,
-      runResult.sessionId,
-      runResult.turnId,
+    const runHeader = await waitForRunHeader(runStore, runResult.sessionId, runResult.turnId);
+    const qualifyingActions = actions.filter(
+      (action) =>
+        action.success === true &&
+        action.targetOwned === true &&
+        scenario.allowedActions.includes(action.type),
     );
-    const qualifyingActions = actions.filter((action) =>
-      action.success === true
-      && action.targetOwned === true
-      && scenario.allowedActions.includes(action.type));
-    const actionCounts = Object.fromEntries(actions.reduce((counts, action) => {
-      counts.set(action.type, (counts.get(action.type) ?? 0) + 1);
-      return counts;
-    }, new Map()));
+    const actionCounts = Object.fromEntries(
+      actions.reduce((counts, action) => {
+        counts.set(action.type, (counts.get(action.type) ?? 0) + 1);
+        return counts;
+      }, new Map()),
+    );
     const qualifyingActionCounts = Object.fromEntries(
       scenario.allowedActions.map((action) => [
         action,
         qualifyingActions.filter((record) => record.type === action).length,
       ]),
     );
-    const minimumActionsPassed = Object.entries(
-      scenario.minimumActionCounts ?? {},
-    ).every(([action, minimum]) => (qualifyingActionCounts[action] ?? 0) >= minimum);
-    const terminalPassed =
-      runResult.terminalEvent.type === 'complete'
-      && runResult.terminalEvent.stopReason === 'end_turn';
-    const actionsWithinBudget =
-      actions.length <= scenario.maxTotalActions
-      && actions.every((action) =>
-        scenario.allowedActions.includes(action.type))
-      && Object.entries(scenario.maxActionCounts ?? {}).every(
-        ([action, maximum]) =>
-          actions.filter((record) => record.type === action).length <= maximum,
-      );
-    const dispatchPathPassed = requiredDispatchPathPassed(
-      scenario,
-      driverTraces,
+    const minimumActionsPassed = Object.entries(scenario.minimumActionCounts ?? {}).every(
+      ([action, minimum]) => (qualifyingActionCounts[action] ?? 0) >= minimum,
     );
+    const terminalPassed =
+      runResult.terminalEvent.type === 'complete' &&
+      runResult.terminalEvent.stopReason === 'end_turn';
+    const actionsWithinBudget =
+      actions.length <= scenario.maxTotalActions &&
+      actions.every((action) => scenario.allowedActions.includes(action.type)) &&
+      Object.entries(scenario.maxActionCounts ?? {}).every(
+        ([action, maximum]) => actions.filter((record) => record.type === action).length <= maximum,
+      );
+    const dispatchPathPassed = requiredDispatchPathPassed(scenario, driverTraces);
     const ownershipPassed = allActionTargetsOwned(actions);
-    const localChecksPassed = terminalPassed
-      && minimumActionsPassed
-      && actionsWithinBudget
-      && dispatchPathPassed
-      && ownershipPassed
-      && evaluation.pass;
+    const localChecksPassed =
+      terminalPassed &&
+      minimumActionsPassed &&
+      actionsWithinBudget &&
+      dispatchPathPassed &&
+      ownershipPassed &&
+      evaluation.pass;
     const reportInput = {
       schemaVersion: 1,
       ...lineage,
@@ -669,9 +616,10 @@ async function run() {
             status: runHeader.status,
             failureClass: runHeader.failureClass,
             failure: safeFailureMetadata(runHeader.failureMessage),
-            durationMs: runHeader.completedAt !== undefined
-              ? Math.max(0, runHeader.completedAt - runHeader.createdAt)
-              : undefined,
+            durationMs:
+              runHeader.completedAt !== undefined
+                ? Math.max(0, runHeader.completedAt - runHeader.createdAt)
+                : undefined,
           }
         : undefined,
       actionAttempts: actions.length,
@@ -684,9 +632,7 @@ async function run() {
       fixtureState,
       expectedState: evaluation.expected,
       forbiddenEffects: {
-        status: evaluation.forbidden.every((entry) => entry.pass)
-          ? 'pass'
-          : 'fail',
+        status: evaluation.forbidden.every((entry) => entry.pass) ? 'pass' : 'fail',
         violations: evaluation.forbidden.filter((entry) => !entry.pass),
       },
       status: localChecksPassed
@@ -769,60 +715,68 @@ async function handleRunFailure(error) {
 }
 
 function requiredDispatchPathPassed(scenario, traces) {
-  const mutationActions = scenario.allowedActions.filter((action) =>
-    !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action));
+  const mutationActions = scenario.allowedActions.filter(
+    (action) => !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action),
+  );
   if (mutationActions.length === 0) return true;
-  return traces.some((trace) =>
-    trace.type === 'dispatch'
-    && (
-      trace.address === 'ax'
-      || trace.address === 'semantic'
-    ));
+  return traces.some(
+    (trace) =>
+      trace.type === 'dispatch' && (trace.address === 'ax' || trace.address === 'semantic'),
+  );
 }
 
 function fixtureOwnsTarget(fixtureIdentity, pid, windowId) {
-  return fixtureIdentity?.instances?.some((instance) =>
-    instance.pid === pid
-    && instance.windowIds?.includes(windowId)) === true;
+  return (
+    fixtureIdentity?.instances?.some(
+      (instance) => instance.pid === pid && instance.windowIds?.includes(windowId),
+    ) === true
+  );
 }
 
 export function bindActionTargets(actions, traces, fixtureIdentity) {
-  const dispatches = traces.filter((trace) =>
-    trace.type === 'dispatch'
-    && (
-      trace.address === 'ax'
-      || trace.address === 'semantic'
-    ));
+  const dispatches = traces.filter(
+    (trace) =>
+      trace.type === 'dispatch' && (trace.address === 'ax' || trace.address === 'semantic'),
+  );
   const observationTargets = new Map(
     actions.flatMap((action) =>
-      (action.type === 'observe' || action.type === 'screenshot')
-      && typeof action.resultObservationId === 'string'
-      && Number.isInteger(action.targetPid)
-      && Number.isInteger(action.targetWindowId)
-        ? [[action.resultObservationId, {
-            pid: action.targetPid,
-            windowId: action.targetWindowId,
-          }]]
-        : []),
+      (action.type === 'observe' || action.type === 'screenshot') &&
+      typeof action.resultObservationId === 'string' &&
+      Number.isInteger(action.targetPid) &&
+      Number.isInteger(action.targetWindowId)
+        ? [
+            [
+              action.resultObservationId,
+              {
+                pid: action.targetPid,
+                windowId: action.targetWindowId,
+              },
+            ],
+          ]
+        : [],
+    ),
   );
   const consumed = new Set();
   return actions.map((action) => {
     if (['list_apps', 'wait', 'cursor_position'].includes(action.type)) {
       return { ...action, targetOwned: false };
     }
-    const index = dispatches.findIndex((trace, traceIndex) =>
-      !consumed.has(traceIndex)
-      && trace.toolCallId === action.toolCallId
-      && trace.actionType === action.type);
+    const index = dispatches.findIndex(
+      (trace, traceIndex) =>
+        !consumed.has(traceIndex) &&
+        trace.toolCallId === action.toolCallId &&
+        trace.actionType === action.type,
+    );
     if (index >= 0) consumed.add(index);
     const dispatch = index >= 0 ? dispatches[index] : undefined;
-    const sourceTarget = typeof action.sourceObservationId === 'string'
-      ? observationTargets.get(action.sourceObservationId)
-      : undefined;
+    const sourceTarget =
+      typeof action.sourceObservationId === 'string'
+        ? observationTargets.get(action.sourceObservationId)
+        : undefined;
     const directObservationTarget =
-      (action.type === 'observe' || action.type === 'screenshot')
-      && Number.isInteger(action.targetPid)
-      && Number.isInteger(action.targetWindowId)
+      (action.type === 'observe' || action.type === 'screenshot') &&
+      Number.isInteger(action.targetPid) &&
+      Number.isInteger(action.targetWindowId)
         ? { pid: action.targetPid, windowId: action.targetWindowId }
         : undefined;
     const target = dispatch
@@ -832,9 +786,7 @@ export function bindActionTargets(actions, traces, fixtureIdentity) {
         : directObservationTarget;
     return {
       ...action,
-      targetOwned: target
-        ? fixtureOwnsTarget(fixtureIdentity, target.pid, target.windowId)
-        : false,
+      targetOwned: target ? fixtureOwnsTarget(fixtureIdentity, target.pid, target.windowId) : false,
       ...(target
         ? {
             targetPid: target.pid,
@@ -846,15 +798,14 @@ export function bindActionTargets(actions, traces, fixtureIdentity) {
 }
 
 export function allActionTargetsOwned(actions) {
-  return actions.every((action) =>
-    ['list_apps', 'wait', 'cursor_position'].includes(action.type)
-    || action.targetOwned === true);
+  return actions.every(
+    (action) =>
+      ['list_apps', 'wait', 'cursor_position'].includes(action.type) || action.targetOwned === true,
+  );
 }
 
 function activeWindowSpecs(scenario) {
-  const specs = new Map(
-    scenario.fixtureSetup.windows.map((window) => [window.id, window]),
-  );
+  const specs = new Map(scenario.fixtureSetup.windows.map((window) => [window.id, window]));
   for (const transition of scenario.fixtureSetup.transitions ?? []) {
     specs.delete(transition.removeWindowId);
     specs.set(transition.addWindow.id, transition.addWindow);
@@ -866,22 +817,19 @@ async function waitForRunHeader(store, sessionId, turnId) {
   const deadline = Date.now() + 2_000;
   let latest;
   do {
-    latest = (await store.listSessionRuns(sessionId))
-      .find((entry) => entry.turnId === turnId);
+    latest = (await store.listSessionRuns(sessionId)).find((entry) => entry.turnId === turnId);
     if (
-      latest
-      && latest.status !== 'created'
-      && latest.status !== 'running'
-      && latest.status !== 'waiting_permission'
-    ) return latest;
+      latest &&
+      latest.status !== 'created' &&
+      latest.status !== 'running' &&
+      latest.status !== 'waiting_permission'
+    )
+      return latest;
     await new Promise((resolve) => setTimeout(resolve, 50));
   } while (Date.now() < deadline);
   return latest;
 }
 
-if (
-  process.argv[1]
-  && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))
-) {
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   run().catch(handleRunFailure);
 }

@@ -41,10 +41,7 @@ describe('OpenAIResponsesTransport', () => {
       queryParams: { region: 'us', store: false, omitted: undefined },
     });
 
-    const result = await transport.create(
-      request(),
-      new AbortController().signal,
-    );
+    const result = await transport.create(request(), new AbortController().signal);
 
     assert.deepEqual(observedBody, request());
     assert.deepEqual(result, { id: 'resp_1', output: [] });
@@ -79,11 +76,13 @@ describe('OpenAIResponsesTransport', () => {
     const server = await startServer((_request, response) => {
       response.statusCode = 401;
       response.statusMessage = `Unauthorized ${apiKey}`;
-      response.end(JSON.stringify({
-        error: `authorization Bearer ${apiKey}`,
-        query: querySecret,
-        padding: 'x'.repeat(2_000),
-      }));
+      response.end(
+        JSON.stringify({
+          error: `authorization Bearer ${apiKey}`,
+          query: querySecret,
+          padding: 'x'.repeat(2_000),
+        }),
+      );
     });
     const transport = new OpenAIResponsesTransport({
       baseUrl: server.url,
@@ -146,10 +145,9 @@ describe('OpenAIResponsesTransport', () => {
     });
     const transport = new OpenAIResponsesTransport({ baseUrl: server.url });
 
-    await assert.rejects(
-      () => transport.create(request(), new AbortController().signal),
-      { message: 'openai_responses_body_too_large' },
-    );
+    await assert.rejects(() => transport.create(request(), new AbortController().signal), {
+      message: 'openai_responses_body_too_large',
+    });
   });
 });
 
@@ -166,9 +164,10 @@ async function startServer(
   if (!address || typeof address === 'string') throw new Error('test server did not bind');
   const tracked = {
     url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
   servers.push(tracked);
   return tracked;

@@ -8,7 +8,7 @@ export { HistoryCompactSummarizerError } from './history-compact-error.js';
 
 export interface AiSdkGenerateTextOptions {
   model: unknown;
-  system: string;
+  instructions: string;
   messages: ModelMessage[];
   providerOptions?: Record<string, unknown>;
   maxOutputTokens?: number;
@@ -62,7 +62,8 @@ const SUMMARIZATION_SYSTEM_PROMPT = [
 
 export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOptions) {
   return async (input: HistoryCompactSummaryInput): Promise<string | undefined> => {
-    const newlyFoldedRuntimeEvents = input.newlyFoldedRuntimeEvents ?? input.source.foldedRuntimeEvents;
+    const newlyFoldedRuntimeEvents =
+      input.newlyFoldedRuntimeEvents ?? input.source.foldedRuntimeEvents;
     if (newlyFoldedRuntimeEvents.length === 0) return input.previousCheckpoint?.summary;
     try {
       const plan = buildRuntimeEventModelReplayPlan(newlyFoldedRuntimeEvents);
@@ -70,18 +71,22 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
       if (input.previousCheckpoint) {
         messages.unshift({
           role: 'user',
-          content: [{
-            type: 'text',
-            text: `Previous continuation summary:\n${input.previousCheckpoint.summary}\n\nUpdate it using the newer conversation events that follow.`,
-          }],
+          content: [
+            {
+              type: 'text',
+              text: `Previous continuation summary:\n${input.previousCheckpoint.summary}\n\nUpdate it using the newer conversation events that follow.`,
+            },
+          ],
         });
       }
       const generateText = options.generateText ?? (await loadAiSdkGenerateText());
       const result = await generateText({
         model: options.resolveModel(),
-        system: SUMMARIZATION_SYSTEM_PROMPT,
+        instructions: SUMMARIZATION_SYSTEM_PROMPT,
         messages,
-        ...(options.providerOptions !== undefined ? { providerOptions: options.providerOptions } : {}),
+        ...(options.providerOptions !== undefined
+          ? { providerOptions: options.providerOptions }
+          : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
       if (result.finishReason === 'length') {
@@ -97,7 +102,9 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
 
 async function loadAiSdkGenerateText(): Promise<AiSdkGenerateTextLike> {
   const ai = await import('ai').catch((err) => {
-    throw new Error(`Failed to load 'ai' package for history summarization. Run \`npm install ai\`. Inner: ${(err as Error).message}`);
+    throw new Error(
+      `Failed to load 'ai' package for history summarization. Run \`npm install ai\`. Inner: ${(err as Error).message}`,
+    );
   });
   const { generateText } = ai as { generateText: AiSdkGenerateTextLike };
   return generateText;
@@ -105,7 +112,7 @@ async function loadAiSdkGenerateText(): Promise<AiSdkGenerateTextLike> {
 
 type ReplayPlanItems = ReturnType<typeof buildRuntimeEventModelReplayPlan>['items'];
 
-function replayPlanItemsToModelMessages(items: ReplayPlanItems): ModelMessage[] {
+export function replayPlanItemsToModelMessages(items: ReplayPlanItems): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const item of items) {
     if (item.kind === 'text') {
@@ -120,13 +127,25 @@ function replayPlanItemsToModelMessages(items: ReplayPlanItems): ModelMessage[] 
       out.push({
         role: 'assistant',
         content: [
-          { type: 'tool-call', toolCallId: item.toolCallId, toolName: item.toolName, input: item.input },
+          {
+            type: 'tool-call',
+            toolCallId: item.toolCallId,
+            toolName: item.toolName,
+            input: item.input,
+          },
         ],
       });
     } else if (item.kind === 'tool_result') {
       out.push({
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: item.toolCallId, toolName: item.toolName, output: toolResultOutput(item.output, item.isError) }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: item.toolCallId,
+            toolName: item.toolName,
+            output: toolResultOutput(item.output, item.isError),
+          },
+        ],
       });
     }
     // thinking entries are intentionally skipped for summarization

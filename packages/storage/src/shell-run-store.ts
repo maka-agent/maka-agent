@@ -91,7 +91,10 @@ class FileShellRunStore implements ShellRunStore {
         throw new Error(`ShellRun already exists: ${record.shellRunId}`);
       }
       await mkdir(this.shellRunDir(record.sessionId, record.shellRunId), { recursive: true });
-      await writeAtomic(this.shellRunPath(record.sessionId, record.shellRunId), JSON.stringify(normalized, sanitizeJson) + '\n');
+      await writeAtomic(
+        this.shellRunPath(record.sessionId, record.shellRunId),
+        JSON.stringify(normalized, sanitizeJson) + '\n',
+      );
     });
     return normalized;
   }
@@ -108,9 +111,10 @@ class FileShellRunStore implements ShellRunStore {
       if (patch.output && patch.output.mode !== current.output.mode) {
         throw new Error(`ShellRun output mode is immutable: ${current.output.mode}`);
       }
-      const effectivePatch = current.observedAt !== undefined && Object.hasOwn(patch, 'observedAt')
-        ? { ...patch, observedAt: current.observedAt }
-        : patch;
+      const effectivePatch =
+        current.observedAt !== undefined && Object.hasOwn(patch, 'observedAt')
+          ? { ...patch, observedAt: current.observedAt }
+          : patch;
       const candidate = normalizeShellRunRecord(
         { ...current, ...effectivePatch, sessionId, shellRunId, revision: current.revision },
         sessionId,
@@ -125,7 +129,10 @@ class FileShellRunStore implements ShellRunStore {
         sessionId,
         shellRunId,
       );
-      await writeAtomic(this.shellRunPath(sessionId, shellRunId), JSON.stringify(next, sanitizeJson) + '\n');
+      await writeAtomic(
+        this.shellRunPath(sessionId, shellRunId),
+        JSON.stringify(next, sanitizeJson) + '\n',
+      );
     });
     if (!next) throw new Error(`Failed to update shell run ${shellRunId}`);
     return next;
@@ -153,10 +160,15 @@ class FileShellRunStore implements ShellRunStore {
         // Malformed shell run folders should not hide healthy runs.
       }
     }
-    return records.sort((a, b) => a.startedAt - b.startedAt || a.shellRunId.localeCompare(b.shellRunId));
+    return records.sort(
+      (a, b) => a.startedAt - b.startedAt || a.shellRunId.localeCompare(b.shellRunId),
+    );
   }
 
-  private async readShellRunUnlocked(sessionId: string, shellRunId: string): Promise<ShellRunRecord> {
+  private async readShellRunUnlocked(
+    sessionId: string,
+    shellRunId: string,
+  ): Promise<ShellRunRecord> {
     assertSessionId(sessionId);
     assertShellRunId(shellRunId);
     return normalizeShellRunRecord(
@@ -180,7 +192,11 @@ class FileShellRunStore implements ShellRunStore {
     return join(this.shellRunDir(sessionId, shellRunId), 'shell-run.json');
   }
 
-  private withQueue(sessionId: string, shellRunId: string, operation: () => Promise<void>): Promise<void> {
+  private withQueue(
+    sessionId: string,
+    shellRunId: string,
+    operation: () => Promise<void>,
+  ): Promise<void> {
     assertSessionId(sessionId);
     assertShellRunId(shellRunId);
     const key = `${sessionId}:${shellRunId}`;
@@ -205,11 +221,16 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: string): ShellRunRecord {
+function normalizeShellRunRecord(
+  value: unknown,
+  sessionId: string,
+  shellRunId: string,
+): ShellRunRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: expected an object`);
   }
-  const record = (normalizeLegacyShellRunRecord(value, sessionId, shellRunId) ?? value) as Partial<ShellRunRecord>;
+  const record = (normalizeLegacyShellRunRecord(value, sessionId, shellRunId) ??
+    value) as Partial<ShellRunRecord>;
   const requiredStrings = [
     record.shellRunId,
     record.sessionId,
@@ -218,11 +239,9 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
     record.cwd,
     record.command,
   ];
-  const optionalStrings = [
-    record.sourceRunId,
-    record.failureMessage,
-  ];
-  const valid = hasOnlyKeys(record, SHELL_RUN_RECORD_KEYS) &&
+  const optionalStrings = [record.sourceRunId, record.failureMessage];
+  const valid =
+    hasOnlyKeys(record, SHELL_RUN_RECORD_KEYS) &&
     requiredStrings.every((item) => typeof item === 'string') &&
     record.sessionId === sessionId &&
     record.shellRunId === shellRunId &&
@@ -255,40 +274,42 @@ function normalizeLegacyShellRunRecord(
   if (!hasOnlyKeys(value, LEGACY_SHELL_RUN_RECORD_KEYS)) return undefined;
   const record = value as Record<string, unknown>;
   if (
-    record.output !== undefined
-    || record.revision !== undefined
-    || record.shellRunId !== shellRunId
-    || record.sessionId !== sessionId
-    || typeof record.sourceTurnId !== 'string'
-    || typeof record.sourceToolCallId !== 'string'
-    || typeof record.cwd !== 'string'
-    || typeof record.command !== 'string'
-    || !isShellRunStatus(record.status)
-    || !isFiniteNumber(record.startedAt)
-    || !isFiniteNumber(record.updatedAt)
-    || typeof record.stdoutTail !== 'string'
-    || typeof record.stderrTail !== 'string'
-    || typeof record.stdoutTruncated !== 'boolean'
-    || typeof record.stderrTruncated !== 'boolean'
-    || (record.sourceRunId !== undefined && typeof record.sourceRunId !== 'string')
-    || (record.completedAt !== undefined && !isFiniteNumber(record.completedAt))
-    || (record.timeoutMs !== undefined && !isFiniteNumber(record.timeoutMs))
-    || (record.exitCode !== undefined && !isFiniteNumber(record.exitCode))
-    || (record.failureMessage !== undefined && typeof record.failureMessage !== 'string')
-    || (record.observedAt !== undefined && !isFiniteNumber(record.observedAt))
-    || (record.orphanedReason !== undefined && typeof record.orphanedReason !== 'string')
-    || (record.pid !== undefined && !isFiniteNumber(record.pid))
-    || (record.latestOutputStream !== undefined
-      && record.latestOutputStream !== 'stdout'
-      && record.latestOutputStream !== 'stderr')
-    || !isValidLegacyShellRunState(record)
-  ) return undefined;
+    record.output !== undefined ||
+    record.revision !== undefined ||
+    record.shellRunId !== shellRunId ||
+    record.sessionId !== sessionId ||
+    typeof record.sourceTurnId !== 'string' ||
+    typeof record.sourceToolCallId !== 'string' ||
+    typeof record.cwd !== 'string' ||
+    typeof record.command !== 'string' ||
+    !isShellRunStatus(record.status) ||
+    !isFiniteNumber(record.startedAt) ||
+    !isFiniteNumber(record.updatedAt) ||
+    typeof record.stdoutTail !== 'string' ||
+    typeof record.stderrTail !== 'string' ||
+    typeof record.stdoutTruncated !== 'boolean' ||
+    typeof record.stderrTruncated !== 'boolean' ||
+    (record.sourceRunId !== undefined && typeof record.sourceRunId !== 'string') ||
+    (record.completedAt !== undefined && !isFiniteNumber(record.completedAt)) ||
+    (record.timeoutMs !== undefined && !isFiniteNumber(record.timeoutMs)) ||
+    (record.exitCode !== undefined && !isFiniteNumber(record.exitCode)) ||
+    (record.failureMessage !== undefined && typeof record.failureMessage !== 'string') ||
+    (record.observedAt !== undefined && !isFiniteNumber(record.observedAt)) ||
+    (record.orphanedReason !== undefined && typeof record.orphanedReason !== 'string') ||
+    (record.pid !== undefined && !isFiniteNumber(record.pid)) ||
+    (record.latestOutputStream !== undefined &&
+      record.latestOutputStream !== 'stdout' &&
+      record.latestOutputStream !== 'stderr') ||
+    !isValidLegacyShellRunState(record)
+  )
+    return undefined;
 
-  const failureMessage = typeof record.failureMessage === 'string'
-    ? record.failureMessage
-    : record.status === 'orphaned'
-      ? record.orphanedReason as string
-      : undefined;
+  const failureMessage =
+    typeof record.failureMessage === 'string'
+      ? record.failureMessage
+      : record.status === 'orphaned'
+        ? (record.orphanedReason as string)
+        : undefined;
   return {
     shellRunId,
     sessionId,
@@ -341,11 +362,12 @@ function isSandboxExecution(value: unknown): boolean {
   if (!hasOnlyKeys(value, new Set(['type', 'enforced']))) return false;
   const execution = value as Record<string, unknown>;
   return (
-    execution.type === 'none'
-    || execution.type === 'macos-seatbelt'
-    || execution.type === 'linux'
-  ) && typeof execution.enforced === 'boolean'
-    && execution.enforced === (execution.type !== 'none');
+    (execution.type === 'none' ||
+      execution.type === 'macos-seatbelt' ||
+      execution.type === 'linux') &&
+    typeof execution.enforced === 'boolean' &&
+    execution.enforced === (execution.type !== 'none')
+  );
 }
 
 function isSandboxEscalation(value: unknown, execution: unknown): boolean {
@@ -353,11 +375,13 @@ function isSandboxEscalation(value: unknown, execution: unknown): boolean {
   if (!hasOnlyKeys(value, new Set(['commandHash', 'unsandboxed']))) return false;
   const escalation = value as Record<string, unknown>;
   const sandbox = execution as { type?: unknown; enforced?: unknown } | undefined;
-  return typeof escalation.commandHash === 'string'
-    && escalation.commandHash.length > 0
-    && escalation.unsandboxed === true
-    && sandbox?.type === 'none'
-    && sandbox.enforced === false;
+  return (
+    typeof escalation.commandHash === 'string' &&
+    escalation.commandHash.length > 0 &&
+    escalation.unsandboxed === true &&
+    sandbox?.type === 'none' &&
+    sandbox.enforced === false
+  );
 }
 
 function assertShellRunPatch(patch: ShellRunPatch): void {
@@ -389,12 +413,16 @@ function canonicalShellRunRecord(record: ShellRunRecord): ShellRunRecord {
     ...(record.timeoutMs !== undefined ? { timeoutMs: record.timeoutMs } : {}),
     ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
     ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
-    ...(record.sandboxExecution !== undefined ? {
-      sandboxExecution: { ...record.sandboxExecution },
-    } : {}),
-    ...(record.sandboxEscalation !== undefined ? {
-      sandboxEscalation: { ...record.sandboxEscalation },
-    } : {}),
+    ...(record.sandboxExecution !== undefined
+      ? {
+          sandboxExecution: { ...record.sandboxExecution },
+        }
+      : {}),
+    ...(record.sandboxEscalation !== undefined
+      ? {
+          sandboxEscalation: { ...record.sandboxEscalation },
+        }
+      : {}),
     revision: record.revision,
     ...(record.observedAt !== undefined ? { observedAt: record.observedAt } : {}),
     output: canonicalShellOutput(record.output),

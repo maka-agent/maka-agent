@@ -16,21 +16,32 @@ function repoSource(file: string): string {
 describe('reactive locale foundation', () => {
   it('owns one persisted preference and one test override in AppShell state', () => {
     const source = rendererSource('app-shell.tsx');
+    const shellAppearance = rendererSource('use-shell-appearance.ts');
     const html = rendererSource('index.html');
 
     assert.match(source, /useState<UiLocalePreference>\('auto'\)/);
     assert.match(source, /useState<UiLocale \| null>\(null\)/);
-    assert.match(source, /setUiLocalePreference\(preference\)/);
-    assert.match(source, /setUiLocaleOverride\(smoke\?\.locale \?\? null\)/);
     assert.match(
       source,
-      /<LocaleProvider preference=\{uiLocalePreference\} override=\{uiLocaleOverride\}>[\s\S]*?<AppShellOverlays/,
+      /const uiLocale = resolveUiLocale\(uiLocalePreference, uiLocaleOverride\)/,
+    );
+    assert.equal(
+      (source.match(/resolveUiLocale\(/g) ?? []).length,
+      1,
+      'AppShell must derive one locale exactly once',
+    );
+    assert.match(shellAppearance, /setUiLocalePreference\(preference\)/);
+    assert.match(shellAppearance, /setUiLocaleOverride\(smoke\?\.locale \?\? null\)/);
+    assert.match(
+      source,
+      /<LocaleProvider locale=\{uiLocale\} override=\{uiLocaleOverride\}>[\s\S]*?<AppShellOverlays/,
     );
     assert.match(html, /<html lang="zh">/, 'the pre-React document must match auto -> zh');
   });
 
   it('feeds the persisted settings result back into React without a DOM side channel', () => {
     const appShell = rendererSource('app-shell.tsx');
+    const shellAppearance = rendererSource('use-shell-appearance.ts');
     const overlays = rendererSource('app-shell-overlays.tsx');
     const modal = rendererSource('settings/SettingsModal.tsx');
     const surface = rendererSource('settings/settings-surface.tsx');
@@ -39,9 +50,9 @@ describe('reactive locale foundation', () => {
 
     assert.match(overlays, /setUiLocalePreference: \(preference: UiLocalePreference\) => void/);
     assert.match(modal, /onUiLocalePreferenceChange\(preference: UiLocalePreference\): void/);
-    assert.match(appShell, /const \[uiLocaleUpdateGate\] = useState\(createUiLocaleUpdateGate\)/);
-    assert.match(appShell, /uiLocaleUpdateGate\.beginHydration\(\)/);
-    assert.match(appShell, /uiLocaleUpdateGate\.commitHydration\(/);
+    assert.match(shellAppearance, /const \[uiLocaleUpdateGate\] = useState\(createUiLocaleUpdateGate\)/);
+    assert.match(shellAppearance, /uiLocaleUpdateGate\.beginHydration\(\)/);
+    assert.match(shellAppearance, /uiLocaleUpdateGate\.commitHydration\(/);
     assert.match(appShell, /uiLocaleUpdateGate=\{uiLocaleUpdateGate\}/);
     assert.match(surface, /uiLocaleUpdateGate: UiLocaleUpdateGate/);
     assert.doesNotMatch(surface, /useState\(createUiLocaleUpdateGate\)/);
@@ -56,14 +67,14 @@ describe('reactive locale foundation', () => {
 
   it('keeps visual-smoke locale overrides in the same provider path', () => {
     const source = rendererSource('app-shell-visual-smoke.ts');
-    const appShell = rendererSource('app-shell.tsx');
+    const shellAppearance = rendererSource('use-shell-appearance.ts');
 
     assert.match(source, /setUiLocaleOverride: Dispatch<SetStateAction<UiLocale \| null>>/);
     assert.match(source, /setUiLocaleOverride\(state\.locale \?\? null\)/);
     assert.doesNotMatch(source, /data-maka-visual-smoke-locale/);
     assert.ok(
-      appShell.indexOf('setUiLocaleOverride(smoke?.locale ?? null)')
-        < appShell.indexOf('uiLocaleUpdateGate.commitHydration('),
+      shellAppearance.indexOf('setUiLocaleOverride(smoke?.locale ?? null)')
+        < shellAppearance.indexOf('uiLocaleUpdateGate.commitHydration('),
       'visual-smoke override hydration must not be gated by persisted preference hydration',
     );
   });

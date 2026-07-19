@@ -2,7 +2,7 @@
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { cn } from "../utils.js";
-import { ChevronRightIcon } from "../icons.js";
+import { Check, ChevronRightIcon } from "../icons.js";
 import type * as React from "react";
 
 export const MenuCreateHandle: typeof MenuPrimitive.createHandle =
@@ -163,20 +163,7 @@ export function MenuCheckboxItem({
       ) : (
         <>
           <MenuPrimitive.CheckboxItemIndicator className="col-start-1 -ms-0.5">
-            <svg
-              aria-hidden="true"
-              fill="none"
-              height="24"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              width="24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path d="M5.252 12.7 10.2 18.63 18.748 5.37" />
-            </svg>
+            <Check aria-hidden="true" />
           </MenuPrimitive.CheckboxItemIndicator>
           <span className="col-start-2">{children}</span>
         </>
@@ -206,20 +193,7 @@ export function MenuRadioItem({
       {...props}
     >
       <MenuPrimitive.RadioItemIndicator className="col-start-1 -ms-0.5">
-        <svg
-          aria-hidden="true"
-          fill="none"
-          height="24"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-          width="24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M5.252 12.7 10.2 18.63 18.748 5.37" />
-        </svg>
+        <Check aria-hidden="true" />
       </MenuPrimitive.RadioItemIndicator>
       <span className="col-start-2">{children}</span>
     </MenuPrimitive.RadioItem>

@@ -33,10 +33,7 @@ describe('prompt acceptance policy', () => {
             completed('in-c', false),
             completed('in-d', false),
           ],
-          heldOutEvents: [
-            completed('out-a', true),
-            completed('out-b', false),
-          ],
+          heldOutEvents: [completed('out-a', true), completed('out-b', false)],
         },
         {
           heldInEvents: [
@@ -45,10 +42,7 @@ describe('prompt acceptance policy', () => {
             completed('in-c', true),
             completed('in-d', false),
           ],
-          heldOutEvents: [
-            completed('out-a', true),
-            completed('out-b', true),
-          ],
+          heldOutEvents: [completed('out-a', true), completed('out-b', true)],
         },
       ],
     });
@@ -73,78 +67,65 @@ describe('prompt acceptance policy', () => {
 
   test('rejects incomplete baseline calibration runs', () => {
     assert.throws(
-      () => calibratePromptAcceptanceBaseline({
-        heldInTaskIds: ['in-a', 'in-b'],
-        heldOutTaskIds: ['out-a', 'out-b'],
-        baselineRuns: [
-          {
-            heldInEvents: [
-              completed('in-a', true),
-              plumbingFailed('in-b'),
-            ],
-            heldOutEvents: [
-              completed('out-a', true),
-            ],
-          },
-        ],
-      }),
+      () =>
+        calibratePromptAcceptanceBaseline({
+          heldInTaskIds: ['in-a', 'in-b'],
+          heldOutTaskIds: ['out-a', 'out-b'],
+          baselineRuns: [
+            {
+              heldInEvents: [completed('in-a', true), plumbingFailed('in-b')],
+              heldOutEvents: [completed('out-a', true)],
+            },
+          ],
+        }),
       /baseline held-in run 1 is incomplete/,
     );
 
     assert.throws(
-      () => calibratePromptAcceptanceBaseline({
-        heldInTaskIds: ['in-a', 'in-b'],
-        heldOutTaskIds: ['out-a', 'out-b'],
-        baselineRuns: [
-          {
-            heldInEvents: [
-              completed('in-a', true),
-              completed('in-b', false),
-            ],
-            heldOutEvents: [
-              completed('out-a', true),
-            ],
-          },
-        ],
-      }),
+      () =>
+        calibratePromptAcceptanceBaseline({
+          heldInTaskIds: ['in-a', 'in-b'],
+          heldOutTaskIds: ['out-a', 'out-b'],
+          baselineRuns: [
+            {
+              heldInEvents: [completed('in-a', true), completed('in-b', false)],
+              heldOutEvents: [completed('out-a', true)],
+            },
+          ],
+        }),
       /baseline held-out run 1 is incomplete/,
     );
 
     assert.throws(
-      () => calibratePromptAcceptanceBaseline({
-        heldInTaskIds: ['in-a', 'in-b'],
-        heldOutTaskIds: ['out-a'],
-        baselineRuns: [
-          {
-            heldInEvents: [
-              completed('in-a', true),
-              infraFailed('in-b'),
-            ],
-            heldOutEvents: [
-              completed('out-a', true),
-            ],
-          },
-        ],
-      }),
+      () =>
+        calibratePromptAcceptanceBaseline({
+          heldInTaskIds: ['in-a', 'in-b'],
+          heldOutTaskIds: ['out-a'],
+          baselineRuns: [
+            {
+              heldInEvents: [completed('in-a', true), infraFailed('in-b')],
+              heldOutEvents: [completed('out-a', true)],
+            },
+          ],
+        }),
       /baseline held-in run 1 is incomplete/,
     );
 
     assert.throws(
-      () => calibratePromptAcceptanceBaseline({
-        heldInTaskIds: ['in-a', 'in-b'],
-        heldOutTaskIds: ['out-a'],
-        baselineRuns: [
-          {
-            heldInEvents: [
-              completed('in-a', true),
-              completed('in-b', false, { scored: false, errorClass: 'max_tokens' }),
-            ],
-            heldOutEvents: [
-              completed('out-a', true),
-            ],
-          },
-        ],
-      }),
+      () =>
+        calibratePromptAcceptanceBaseline({
+          heldInTaskIds: ['in-a', 'in-b'],
+          heldOutTaskIds: ['out-a'],
+          baselineRuns: [
+            {
+              heldInEvents: [
+                completed('in-a', true),
+                completed('in-b', false, { scored: false, errorClass: 'max_tokens' }),
+              ],
+              heldOutEvents: [completed('out-a', true)],
+            },
+          ],
+        }),
       /baseline held-in run 1 is incomplete/,
     );
   });
@@ -203,15 +184,60 @@ describe('prompt acceptance policy', () => {
 
   test('classifies capability-limit and high-flip tasks from kept-prompt history', () => {
     const keptPromptEvents = [
-      completed('stable', true, { id: 'stable-0', roundId: 'round-0', promptHash: 'prompt-0', ts: 1 }),
-      completed('capability', false, { id: 'capability-0', roundId: 'round-0', promptHash: 'prompt-0', ts: 2 }),
-      completed('flaky', true, { id: 'flaky-0', roundId: 'round-0', promptHash: 'prompt-0', ts: 3 }),
-      completed('stable', true, { id: 'stable-1', roundId: 'round-1', promptHash: 'prompt-1', ts: 4 }),
-      completed('capability', false, { id: 'capability-1', roundId: 'round-1', promptHash: 'prompt-1', ts: 5 }),
-      completed('flaky', false, { id: 'flaky-1', roundId: 'round-1', promptHash: 'prompt-1', ts: 6 }),
-      completed('stable', false, { id: 'stable-2', roundId: 'round-2', promptHash: 'prompt-2', ts: 7 }),
-      completed('capability', false, { id: 'capability-2', roundId: 'round-2', promptHash: 'prompt-2', ts: 8 }),
-      completed('flaky', true, { id: 'flaky-2', roundId: 'round-2', promptHash: 'prompt-2', ts: 9 }),
+      completed('stable', true, {
+        id: 'stable-0',
+        roundId: 'round-0',
+        promptHash: 'prompt-0',
+        ts: 1,
+      }),
+      completed('capability', false, {
+        id: 'capability-0',
+        roundId: 'round-0',
+        promptHash: 'prompt-0',
+        ts: 2,
+      }),
+      completed('flaky', true, {
+        id: 'flaky-0',
+        roundId: 'round-0',
+        promptHash: 'prompt-0',
+        ts: 3,
+      }),
+      completed('stable', true, {
+        id: 'stable-1',
+        roundId: 'round-1',
+        promptHash: 'prompt-1',
+        ts: 4,
+      }),
+      completed('capability', false, {
+        id: 'capability-1',
+        roundId: 'round-1',
+        promptHash: 'prompt-1',
+        ts: 5,
+      }),
+      completed('flaky', false, {
+        id: 'flaky-1',
+        roundId: 'round-1',
+        promptHash: 'prompt-1',
+        ts: 6,
+      }),
+      completed('stable', false, {
+        id: 'stable-2',
+        roundId: 'round-2',
+        promptHash: 'prompt-2',
+        ts: 7,
+      }),
+      completed('capability', false, {
+        id: 'capability-2',
+        roundId: 'round-2',
+        promptHash: 'prompt-2',
+        ts: 8,
+      }),
+      completed('flaky', true, {
+        id: 'flaky-2',
+        roundId: 'round-2',
+        promptHash: 'prompt-2',
+        ts: 9,
+      }),
     ];
 
     const result = selectAddressablePromptTasks({
@@ -286,10 +312,7 @@ describe('prompt acceptance policy', () => {
       heldInPassRateNoiseBand: 0.05,
       heldOutPassRateNoiseBand: 0.05,
       rewardHackScan: { decision: 'clean' },
-      originalEvents: [
-        completed('out-a', true),
-        completed('out-b', true),
-      ],
+      originalEvents: [completed('out-a', true), completed('out-b', true)],
       lastKeptEvents: [
         completed('in-a', true),
         completed('in-b', false),
@@ -381,14 +404,8 @@ describe('prompt acceptance policy', () => {
       originalHeldOutPassEligibleRate: null,
       heldInPassRateNoiseBand: 0.05,
       heldOutPassRateNoiseBand: 0.05,
-      lastKeptEvents: [
-        completed('in-a', true),
-        completed('in-b', false),
-      ],
-      candidateEvents: [
-        completed('in-a', true),
-        completed('in-b', true),
-      ],
+      lastKeptEvents: [completed('in-a', true), completed('in-b', false)],
+      candidateEvents: [completed('in-a', true), completed('in-b', true)],
     });
 
     assert.equal(decision.decision, 'keep');
@@ -398,12 +415,15 @@ describe('prompt acceptance policy', () => {
   });
 
   test('summarizes pass over eligible separately from coverage', () => {
-    const summary = summarizePromptAcceptancePartition([
-      completed('task-a', true),
-      completed('task-b', false),
-      completed('task-c', true, { scored: false }),
-      infraFailed('task-d'),
-    ], ['task-a', 'task-b', 'task-c', 'task-d']);
+    const summary = summarizePromptAcceptancePartition(
+      [
+        completed('task-a', true),
+        completed('task-b', false),
+        completed('task-c', true, { scored: false }),
+        infraFailed('task-d'),
+      ],
+      ['task-a', 'task-b', 'task-c', 'task-d'],
+    );
 
     assert.deepEqual(summary, {
       taskCount: 4,
@@ -425,10 +445,7 @@ describe('prompt acceptance policy', () => {
       ...baseDecisionInput(),
       previousHeldInReferencePassEligibleRate: 0.5,
       heldInPassRateNoiseBand: 0.1,
-      lastKeptEvents: [
-        completed('in-a', true),
-        completed('in-b', false),
-      ],
+      lastKeptEvents: [completed('in-a', true), completed('in-b', false)],
       candidateEvents: [
         completed('in-a', true),
         completed('in-b', false),
@@ -446,10 +463,7 @@ describe('prompt acceptance policy', () => {
       ...baseDecisionInput(),
       previousHeldInReferencePassEligibleRate: 1,
       heldInPassRateNoiseBand: 0.05,
-      lastKeptEvents: [
-        completed('in-a', true),
-        completed('in-b', true),
-      ],
+      lastKeptEvents: [completed('in-a', true), completed('in-b', true)],
       candidateEvents: [
         completed('in-a', true),
         completed('in-b', false),
@@ -464,15 +478,8 @@ describe('prompt acceptance policy', () => {
   test('discards candidate coverage degradation, including infra failures', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
-      lastKeptEvents: [
-        completed('in-a', true),
-        infraFailed('in-b'),
-      ],
-      candidateEvents: [
-        completed('in-a', true),
-        infraFailed('in-b'),
-        completed('out-a', true),
-      ],
+      lastKeptEvents: [completed('in-a', true), infraFailed('in-b')],
+      candidateEvents: [completed('in-a', true), infraFailed('in-b'), completed('out-a', true)],
     });
 
     assert.equal(decision.decision, 'discard');
@@ -485,11 +492,7 @@ describe('prompt acceptance policy', () => {
       ...baseDecisionInput(),
       heldInTaskIds: ['in-a', 'in-b', 'in-c'],
       previousHeldInReferencePassEligibleRate: 0.5,
-      lastKeptEvents: [
-        completed('in-a', true),
-        completed('in-b', false),
-        completed('in-c', false),
-      ],
+      lastKeptEvents: [completed('in-a', true), completed('in-b', false), completed('in-c', false)],
       candidateEvents: [
         completed('in-a', true),
         completed('in-b', true),
@@ -509,11 +512,7 @@ describe('prompt acceptance policy', () => {
       ...baseDecisionInput(),
       heldOutTaskIds: ['out-a'],
       originalEvents: [],
-      candidateEvents: [
-        completed('in-a', true),
-        completed('in-b', true),
-        completed('out-a', true),
-      ],
+      candidateEvents: [completed('in-a', true), completed('in-b', true), completed('out-a', true)],
     });
 
     assert.equal(decision.decision, 'discard');
@@ -524,10 +523,7 @@ describe('prompt acceptance policy', () => {
   test('discards candidates with missing task results', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
-      candidateEvents: [
-        completed('in-a', true),
-        completed('out-a', true),
-      ],
+      candidateEvents: [completed('in-a', true), completed('out-a', true)],
     });
 
     assert.equal(decision.decision, 'discard');
@@ -538,11 +534,7 @@ describe('prompt acceptance policy', () => {
   test('discards candidates with plumbing failures', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
-      candidateEvents: [
-        completed('in-a', true),
-        plumbingFailed('in-b'),
-        completed('out-a', true),
-      ],
+      candidateEvents: [completed('in-a', true), plumbingFailed('in-b'), completed('out-a', true)],
     });
 
     assert.equal(decision.decision, 'discard');
@@ -611,14 +603,8 @@ describe('prompt acceptance policy', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
       heldOutTaskIds: ['out-a', 'out-b'],
-      originalEvents: [
-        completed('out-a', true),
-        completed('out-b', true),
-      ],
-      lastKeptEvents: [
-        completed('in-a', true),
-        completed('in-b', false),
-      ],
+      originalEvents: [completed('out-a', true), completed('out-b', true)],
+      lastKeptEvents: [completed('in-a', true), completed('in-b', false)],
       candidateEvents: [
         completed('in-a', true),
         completed('in-b', true),
@@ -637,10 +623,7 @@ describe('prompt acceptance policy', () => {
       heldOutTaskIds: ['out-a', 'out-b'],
       originalHeldOutPassEligibleRate: 0.75,
       heldOutPassRateNoiseBand: 0.1,
-      originalEvents: [
-        completed('out-a', true),
-        completed('out-b', false),
-      ],
+      originalEvents: [completed('out-a', true), completed('out-b', false)],
       candidateEvents: [
         completed('in-a', true),
         completed('in-b', true),
@@ -685,10 +668,10 @@ describe('prompt acceptance policy', () => {
 
       const events = await readFixedPromptWal(resultsJsonlPath);
       assert.equal(events.length, 2);
-      assert.deepEqual(events.map((event) => event.type), [
-        'prompt_candidate_decided',
-        'prompt_candidate_decided',
-      ]);
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ['prompt_candidate_decided', 'prompt_candidate_decided'],
+      );
       assert.deepEqual(promptAcceptanceStateFromWal(events, 'original-0'), {
         lastKeptCommitSha: 'candidate-2',
         heldInReferencePassEligibleRate: 0.95,

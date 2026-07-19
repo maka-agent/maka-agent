@@ -38,7 +38,11 @@ export interface AutomationSchedulerDeps {
    * Inject a turn into the automation's own session (heartbeat kind).
    * Resolves with the run outcome AFTER the turn's stream finishes.
    */
-  injectTurn: (sessionId: string, prompt: string, automationId: string) => Promise<AutomationFireResult>;
+  injectTurn: (
+    sessionId: string,
+    prompt: string,
+    automationId: string,
+  ) => Promise<AutomationFireResult>;
   /**
    * Spawn a fresh session and run the prompt there (cron kind).
    * Resolves with the run outcome AFTER the run's stream finishes.
@@ -113,9 +117,11 @@ export class AutomationScheduler {
     if (this.disposed) return;
     this.tickTimer = this.deps.setTimeout(() => {
       if (this.disposed) return;
-      this.checkAndFire().catch(() => {}).finally(() => {
-        if (!this.disposed) this.scheduleTick();
-      });
+      this.checkAndFire()
+        .catch(() => {})
+        .finally(() => {
+          if (!this.disposed) this.scheduleTick();
+        });
     }, FIRE_CHECK_INTERVAL_MS);
   }
 
@@ -124,7 +130,7 @@ export class AutomationScheduler {
     const active = this.deps.automationManager.listActive();
 
     // Prune defer bookkeeping for automations that no longer exist.
-    const activeIds = new Set(active.map(a => a.id));
+    const activeIds = new Set(active.map((a) => a.id));
     for (const id of this.deferStates.keys()) {
       if (!activeIds.has(id)) this.deferStates.delete(id);
     }
@@ -225,28 +231,34 @@ export class AutomationScheduler {
     // Dispatch WITHOUT awaiting the tick — the run resolves its outcome later.
     // The outcome (success/failure) is committed only after the stream finishes,
     // so a failed or aborted fire is never recorded as a success.
-    const dispatch = automation.kind === 'heartbeat'
-      ? this.deps.injectTurn(automation.sessionId, `[Automation: ${automation.name}]\n\n${automation.prompt}`, id)
-      : this.deps.createFreshRun!(automation.prompt, id);
+    const dispatch =
+      automation.kind === 'heartbeat'
+        ? this.deps.injectTurn(
+            automation.sessionId,
+            `[Automation: ${automation.name}]\n\n${automation.prompt}`,
+            id,
+          )
+        : this.deps.createFreshRun!(automation.prompt, id);
 
-    void dispatch.then((result) => {
-      this.inFlight.delete(id);
-      if (this.disposed) return;
-      if (result.ok) {
-        this.deps.automationManager.attemptSucceeded(id, result.runId);
-      } else {
-        this.deps.automationManager.attemptFailed(id, result.error ?? 'Automation run failed');
-      }
-      this.deps.onStateChange?.();
-    }).catch((err) => {
-      this.inFlight.delete(id);
-      if (this.disposed) return;
-      const message = err instanceof Error ? err.message : String(err);
-      this.deps.automationManager.attemptFailed(id, message);
-      this.deps.onStateChange?.();
-    });
+    void dispatch
+      .then((result) => {
+        this.inFlight.delete(id);
+        if (this.disposed) return;
+        if (result.ok) {
+          this.deps.automationManager.attemptSucceeded(id, result.runId);
+        } else {
+          this.deps.automationManager.attemptFailed(id, result.error ?? 'Automation run failed');
+        }
+        this.deps.onStateChange?.();
+      })
+      .catch((err) => {
+        this.inFlight.delete(id);
+        if (this.disposed) return;
+        const message = err instanceof Error ? err.message : String(err);
+        this.deps.automationManager.attemptFailed(id, message);
+        this.deps.onStateChange?.();
+      });
   }
 }
 
 export { FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS, BACKOFF_BASE_MS, BACKOFF_MAX_MS };
-

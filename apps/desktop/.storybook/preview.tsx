@@ -24,7 +24,7 @@ const withMakaRoot: Decorator = (Story, context) => {
   }
 
   return (
-    <LocaleProvider preference="zh">
+    <LocaleProvider locale="zh">
       <div className="h-screen w-screen overflow-y-auto bg-background p-6 text-foreground antialiased">
         <Story />
       </div>

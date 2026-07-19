@@ -160,7 +160,7 @@ Maka 默认把 workspace 数据放在 Electron `userData` 下：
 
 - 会话和连接元数据保存在本地文件系统；
 - API key、bot token、proxy password 等运行凭据当前保存在本地 plaintext `credentials.json`，依赖 OS 账号边界，并在 POSIX 上强制目录 `0700`、文件 `0600`；
-- Claude 和 Codex 在 Electron `safeStorage` 中保留桌面副本，同时为纯 Node runtime best-effort 导出一份 plaintext `oauth_token` 到 `credentials.json`；Cursor 和 Antigravity 仍是不可用的 preview integration；
+- 订阅 OAuth token（Claude、Codex、GitHub Copilot 以及 Cursor/Antigravity preview）统一存放在同一份 `credentials.json`，它是 desktop、TUI、headless 的唯一凭据权威；Electron `safeStorage` 仅在 desktop 启动时一次性解密迁移历史遗留 token 文件（#1125）；
 - Renderer 不接收明文凭据；文件写入、Shell 和危险工具调用需要经过 permission engine；
 - Headless real-model eval 默认 fail closed，要求调用方显式提供外部隔离边界。
 

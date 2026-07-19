@@ -1,4 +1,6 @@
-export const ATTACHMENT_IMAGE_MAX_EDGE = 2000;
+import { MAX_MODEL_IMAGE_EDGE } from '@maka/core';
+
+export const ATTACHMENT_IMAGE_MAX_EDGE = MAX_MODEL_IMAGE_EDGE;
 
 /**
  * Compute the target size to scale an image down so its longest edge fits

@@ -8,12 +8,18 @@ import type { Config, Task } from '../contracts.js';
 import { runMatrix, type ExperimentSpec } from '../matrix.js';
 
 const registerFakeBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
-const config = (id: string): Config => ({ id, backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' });
+const config = (id: string): Config => ({
+  id,
+  backend: 'fake',
+  llmConnectionSlug: 'fake',
+  model: 'fake-model',
+});
 
 describe('runMatrix', () => {
   test('runs the full Config × Task cross product and scores each cell', async () => {
@@ -33,11 +39,16 @@ describe('runMatrix', () => {
         workspaceDir: fixtureDir,
         verification: { command: 'test -f nope.txt', protectedPaths: [] },
       };
-      const spec: ExperimentSpec = { configs: [config('a'), config('b')], tasks: [passTask, failTask] };
+      const spec: ExperimentSpec = {
+        configs: [config('a'), config('b')],
+        tasks: [passTask, failTask],
+      };
 
       const seen: string[] = [];
-      const records = await runMatrix(spec, { storageRoot, registerBackends: registerFakeBackend }, (r) =>
-        seen.push(`${r.taskId}:${r.configId}`),
+      const records = await runMatrix(
+        spec,
+        { storageRoot, registerBackends: registerFakeBackend },
+        (r) => seen.push(`${r.taskId}:${r.configId}`),
       );
 
       assert.equal(records.length, 4); // 2 tasks × 2 configs

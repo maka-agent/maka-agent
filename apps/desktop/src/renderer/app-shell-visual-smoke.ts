@@ -143,6 +143,8 @@ export function createAppShellVisualSmokeActions(options: {
       setNavSelection({ section: 'automations' });
     } else if (state.sidebarSection === 'skills') {
       setNavSelection({ section: 'skills' });
+    } else if (state.sidebarSection === 'mcp') {
+      setNavSelection({ section: 'mcp' });
     } else if (state.sidebarSection === 'daily-review') {
       setNavSelection({ section: 'daily-review' });
     } else if (state.sidebarSection === 'sessions') {

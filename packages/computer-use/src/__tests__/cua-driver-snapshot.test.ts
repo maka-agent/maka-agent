@@ -68,18 +68,24 @@ describe('cua-driver snapshot coordinate authority', () => {
   });
 
   it('rejects malformed or out-of-bounds window snapshot transforms', () => {
-    assert.equal(windowPointFromSnapshot({
-      screenPoint: { x: 99, y: 100 },
-      windowBounds: { x: 100, y: 50, width: 500, height: 400 },
-      screenshotWidthPx: 1000,
-      screenshotHeightPx: 800,
-    }), undefined);
-    assert.equal(windowPointFromSnapshot({
-      screenPoint: { x: 200, y: 100 },
-      windowBounds: { x: 100, y: 50, width: 0, height: 400 },
-      screenshotWidthPx: 1000,
-      screenshotHeightPx: 800,
-    }), undefined);
+    assert.equal(
+      windowPointFromSnapshot({
+        screenPoint: { x: 99, y: 100 },
+        windowBounds: { x: 100, y: 50, width: 500, height: 400 },
+        screenshotWidthPx: 1000,
+        screenshotHeightPx: 800,
+      }),
+      undefined,
+    );
+    assert.equal(
+      windowPointFromSnapshot({
+        screenPoint: { x: 200, y: 100 },
+        windowBounds: { x: 100, y: 50, width: 0, height: 400 },
+        screenshotWidthPx: 1000,
+        screenshotHeightPx: 800,
+      }),
+      undefined,
+    );
   });
 });
 

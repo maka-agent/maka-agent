@@ -148,25 +148,32 @@ export type ActiveFullCompactSelection =
     }
   | {
       decision: 'unchanged' | 'failedOpen';
-      reason: ActiveFullCompactFailOpenReason | 'disabled' | 'below_min_step' | 'below_high_water' | 'no_candidate';
+      reason:
+        | ActiveFullCompactFailOpenReason
+        | 'disabled'
+        | 'below_min_step'
+        | 'below_high_water'
+        | 'no_candidate';
       skippedReasonCounts: Readonly<Record<string, number>>;
     };
 
-export type ActiveCompactionSafeSpanSelection = ActiveFullCompactSelection | {
-  decision: 'unchanged' | 'failedOpen';
-  reason:
-    | ActiveFullCompactFailOpenReason
-    | 'disabled'
-    | 'below_min_step'
-    | 'below_high_water'
-    | 'below_min_safe_prefix'
-    | 'no_candidate'
-    | 'head_anchor_mismatch'
-    | 'head_anchor_exceeds_capacity'
-    | 'unexpected_user_after_head_anchor'
-    | 'no_safe_completed_span';
-  skippedReasonCounts: Readonly<Record<string, number>>;
-};
+export type ActiveCompactionSafeSpanSelection =
+  | ActiveFullCompactSelection
+  | {
+      decision: 'unchanged' | 'failedOpen';
+      reason:
+        | ActiveFullCompactFailOpenReason
+        | 'disabled'
+        | 'below_min_step'
+        | 'below_high_water'
+        | 'below_min_safe_prefix'
+        | 'no_candidate'
+        | 'head_anchor_mismatch'
+        | 'head_anchor_exceeds_capacity'
+        | 'unexpected_user_after_head_anchor'
+        | 'no_safe_completed_span';
+      skippedReasonCounts: Readonly<Record<string, number>>;
+    };
 
 export interface ActiveFullCompactSummary {
   schemaVersion: 1;
@@ -210,7 +217,12 @@ export interface ActiveFullCompactBlock {
   highWaterName: string;
   highWaterSeq: number;
   trigger: {
-    reason: 'high_water' | 'force_ratio' | 'predictive_growth' | 'reactive_prompt_too_long' | 'manual_test';
+    reason:
+      | 'high_water'
+      | 'force_ratio'
+      | 'predictive_growth'
+      | 'reactive_prompt_too_long'
+      | 'manual_test';
     stepNumber?: number;
     estimatedTokensBefore?: number;
     thresholdTokens?: number;
@@ -268,7 +280,9 @@ export function buildActiveCompactionHeadAnchor(
 ): ActiveCompactionHeadAnchor {
   const message = messages[messageIndex];
   if (!message || (message as { role?: unknown }).role !== 'user') {
-    throw new Error(`active compaction head anchor must reference a user message at index ${messageIndex}`);
+    throw new Error(
+      `active compaction head anchor must reference a user message at index ${messageIndex}`,
+    );
   }
   const body = stableStringify(message);
   return {
@@ -351,50 +365,56 @@ export function buildActiveFullCompactSourceIndex(
       activeCompactMessageIndexes.push(messageIndex);
     }
     if (typeof content === 'string') {
-      entries.push(entryFromProviderPart({
-        sourceId: providerSourceId(messageIndex),
-        messageIndex,
-        role,
-        turnId: input.turnId,
-        runId: input.runId,
-        invocationId: input.invocationId,
-        contentKind: 'text',
-        body: content,
-        charsPerToken,
-        runtimeIndex,
-      }));
+      entries.push(
+        entryFromProviderPart({
+          sourceId: providerSourceId(messageIndex),
+          messageIndex,
+          role,
+          turnId: input.turnId,
+          runId: input.runId,
+          invocationId: input.invocationId,
+          contentKind: 'text',
+          body: content,
+          charsPerToken,
+          runtimeIndex,
+        }),
+      );
       return;
     }
 
     if (!Array.isArray(content)) {
-      entries.push(entryFromProviderPart({
-        sourceId: providerSourceId(messageIndex),
-        messageIndex,
-        role,
-        turnId: input.turnId,
-        runId: input.runId,
-        invocationId: input.invocationId,
-        contentKind: 'unknown',
-        body: content,
-        charsPerToken,
-        runtimeIndex,
-      }));
+      entries.push(
+        entryFromProviderPart({
+          sourceId: providerSourceId(messageIndex),
+          messageIndex,
+          role,
+          turnId: input.turnId,
+          runId: input.runId,
+          invocationId: input.invocationId,
+          contentKind: 'unknown',
+          body: content,
+          charsPerToken,
+          runtimeIndex,
+        }),
+      );
       return;
     }
 
     content.forEach((part, partIndex) => {
-      entries.push(entryFromProviderPart({
-        sourceId: providerSourceId(messageIndex, partIndex),
-        messageIndex,
-        partIndex,
-        role,
-        turnId: input.turnId,
-        runId: input.runId,
-        invocationId: input.invocationId,
-        ...providerPartBody(part),
-        charsPerToken,
-        runtimeIndex,
-      }));
+      entries.push(
+        entryFromProviderPart({
+          sourceId: providerSourceId(messageIndex, partIndex),
+          messageIndex,
+          partIndex,
+          role,
+          turnId: input.turnId,
+          runId: input.runId,
+          invocationId: input.invocationId,
+          ...providerPartBody(part),
+          charsPerToken,
+          runtimeIndex,
+        }),
+      );
     });
   });
 
@@ -454,14 +474,18 @@ export function selectActiveFullCompactCoveredSpan(
   const minRecentMessages = Math.max(0, Math.floor(policy.minRecentMessages ?? 1));
   const endExclusive = Math.max(0, index.providerMessageCount - minRecentMessages);
   const latestActiveCompactMessageIndex = latestActiveFullCompactMessageIndex(index);
-  const entries = index.entries.filter((entry) =>
-    entry.messageIndex > latestActiveCompactMessageIndex && entry.messageIndex < endExclusive
+  const entries = index.entries.filter(
+    (entry) =>
+      entry.messageIndex > latestActiveCompactMessageIndex && entry.messageIndex < endExclusive,
   );
   if (entries.length === 0) return skippedSelection('unchanged', 'no_candidate');
   if (entries.some((entry) => !nonEmpty(entry.sourceId) || !nonEmpty(entry.bodySha256))) {
     return skippedSelection('failedOpen', 'source_missing');
   }
-  if (policy.archiveRequired === true && entries.some((entry) => !entry.runtimeEventId && !entry.archiveRef)) {
+  if (
+    policy.archiveRequired === true &&
+    entries.some((entry) => !entry.runtimeEventId && !entry.archiveRef)
+  ) {
     return skippedSelection('failedOpen', 'provider_message_only_when_runtime_required');
   }
   if (toolPairSplit(entries, index.entries)) {
@@ -492,15 +516,17 @@ export function selectActiveCompactionSafeSpan(input: {
   afterMessageIndex?: number;
 }): ActiveCompactionSafeSpanSelection {
   const { index, messages, policy, headAnchor } = input;
-  if (policy?.enabled !== true || policy.mode === 'off') return safeSpanSkipped('unchanged', 'disabled');
+  if (policy?.enabled !== true || policy.mode === 'off')
+    return safeSpanSkipped('unchanged', 'disabled');
   const minStepNumber = Math.max(0, Math.floor(policy.minStepNumber ?? 1));
-  if ((index.stepNumber ?? 0) < minStepNumber) return safeSpanSkipped('unchanged', 'below_min_step');
+  if ((index.stepNumber ?? 0) < minStepNumber)
+    return safeSpanSkipped('unchanged', 'below_min_step');
 
   const anchorMessage = messages[headAnchor.messageIndex];
   if (
-    !anchorMessage
-    || (anchorMessage as { role?: unknown }).role !== 'user'
-    || activeCompactionMessageSignature(anchorMessage) !== headAnchor.messageSignature
+    !anchorMessage ||
+    (anchorMessage as { role?: unknown }).role !== 'user' ||
+    activeCompactionMessageSignature(anchorMessage) !== headAnchor.messageSignature
   ) {
     return safeSpanSkipped('failedOpen', 'head_anchor_mismatch');
   }
@@ -508,8 +534,8 @@ export function selectActiveCompactionSafeSpan(input: {
   const highWaterRatio = finiteRatio(policy.highWaterRatio, 0.8);
   const maxActiveEstimatedTokens = finitePositive(policy.maxActiveEstimatedTokens);
   if (
-    maxActiveEstimatedTokens !== undefined
-    && index.estimatedTokens <= Math.floor(maxActiveEstimatedTokens * highWaterRatio)
+    maxActiveEstimatedTokens !== undefined &&
+    index.estimatedTokens <= Math.floor(maxActiveEstimatedTokens * highWaterRatio)
   ) {
     return safeSpanSkipped('unchanged', 'below_high_water');
   }
@@ -545,10 +571,12 @@ export function selectActiveCompactionSafeSpan(input: {
       assistantEnd += 1;
       assistantEntries.push(...nextEntries);
     }
-    const toolCallIds = uniqueSorted(assistantEntries
-      .filter((entry) => entry.contentKind === 'function_call')
-      .map((entry) => entry.toolCallId)
-      .filter(nonEmpty));
+    const toolCallIds = uniqueSorted(
+      assistantEntries
+        .filter((entry) => entry.contentKind === 'function_call')
+        .map((entry) => entry.toolCallId)
+        .filter(nonEmpty),
+    );
     if (toolCallIds.length === 0) {
       completedEpisodes.push({ startMessageIndex: episodeStart, endMessageIndex: assistantEnd });
       cursor = assistantEnd + 1;
@@ -562,11 +590,12 @@ export function selectActiveCompactionSafeSpan(input: {
       if (providerMessageRole(messages[tailCursor], resultEntries) !== 'tool') break;
       for (const entry of resultEntries) {
         if (
-          entry.toolCallId
-          && (entry.contentKind === 'function_response'
-            || entry.contentKind === 'tool_result'
-            || entry.contentKind === 'active_archive_placeholder')
-        ) resultIds.add(entry.toolCallId);
+          entry.toolCallId &&
+          (entry.contentKind === 'function_response' ||
+            entry.contentKind === 'tool_result' ||
+            entry.contentKind === 'active_archive_placeholder')
+        )
+          resultIds.add(entry.toolCallId);
       }
       tailCursor += 1;
     }
@@ -593,19 +622,26 @@ function safeSpanSelected(
   endMessageIndex: number,
   policy: ActiveCompactionSafeSpanPolicy,
 ): ActiveCompactionSafeSpanSelection {
-  const entries = index.entries.filter((entry) =>
-    entry.messageIndex >= startMessageIndex && entry.messageIndex <= endMessageIndex
+  const entries = index.entries.filter(
+    (entry) => entry.messageIndex >= startMessageIndex && entry.messageIndex <= endMessageIndex,
   );
   if (entries.length === 0) return safeSpanSkipped('unchanged', 'no_candidate');
   if (entries.some((entry) => !nonEmpty(entry.sourceId) || !nonEmpty(entry.bodySha256))) {
     return safeSpanSkipped('failedOpen', 'source_missing');
   }
-  if (policy.archiveRequired === true && entries.some((entry) => !entry.runtimeEventId && !entry.archiveRef)) {
+  if (
+    policy.archiveRequired === true &&
+    entries.some((entry) => !entry.runtimeEventId && !entry.archiveRef)
+  ) {
     return safeSpanSkipped('failedOpen', 'provider_message_only_when_runtime_required');
   }
-  if (toolPairSplit(entries, index.entries)) return safeSpanSkipped('failedOpen', 'tool_pair_split');
+  if (toolPairSplit(entries, index.entries))
+    return safeSpanSkipped('failedOpen', 'tool_pair_split');
   const estimatedTokens = estimateActiveFullCompactTokens(entries);
-  const minSafePrefixEstimatedTokens = Math.max(0, Math.floor(policy.minSafePrefixEstimatedTokens ?? 0));
+  const minSafePrefixEstimatedTokens = Math.max(
+    0,
+    Math.floor(policy.minSafePrefixEstimatedTokens ?? 0),
+  );
   if (estimatedTokens < minSafePrefixEstimatedTokens) {
     return safeSpanSkipped('unchanged', 'below_min_safe_prefix');
   }
@@ -637,7 +673,10 @@ function providerMessageRole(
 
 function safeSpanSkipped(
   decision: 'unchanged' | 'failedOpen',
-  reason: Extract<ActiveCompactionSafeSpanSelection, { decision: 'unchanged' | 'failedOpen' }>['reason'],
+  reason: Extract<
+    ActiveCompactionSafeSpanSelection,
+    { decision: 'unchanged' | 'failedOpen' }
+  >['reason'],
 ): Extract<ActiveCompactionSafeSpanSelection, { decision: 'unchanged' | 'failedOpen' }> {
   return { decision, reason, skippedReasonCounts: { [reason]: 1 } };
 }
@@ -651,21 +690,29 @@ export function buildActiveFullCompactBlockFromSummary(
   const createdAt = input.now ?? Date.now();
   const highWaterSeq = input.highWaterSeq ?? input.trigger?.stepNumber ?? createdAt;
   const summary = normalizeSummary(input.summary);
-  const archiveRefs = uniqueArchiveRefs(input.entries.map((entry) => entry.archiveRef).filter(isArchiveRef));
-  const sourceRefs = input.entries.map((entry): ActiveFullCompactSourceRef => ({
-    kind: entry.archiveRef ? 'active_archive_placeholder' : entry.runtimeEventId ? 'runtime_event' : 'provider_message',
-    sourceId: entry.sourceId,
-    messageIndex: entry.messageIndex,
-    ...(entry.partIndex !== undefined ? { partIndex: entry.partIndex } : {}),
-    sessionId: input.sessionId,
-    turnId: entry.turnId,
-    ...(entry.runtimeEventId ? { runtimeEventId: entry.runtimeEventId } : {}),
-    ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
-    ...(entry.toolName ? { toolName: entry.toolName } : {}),
-    contentKind: entry.contentKind,
-    bodySha256: entry.bodySha256,
-    ...(entry.archiveRef ? { archiveRef: entry.archiveRef } : {}),
-  }));
+  const archiveRefs = uniqueArchiveRefs(
+    input.entries.map((entry) => entry.archiveRef).filter(isArchiveRef),
+  );
+  const sourceRefs = input.entries.map(
+    (entry): ActiveFullCompactSourceRef => ({
+      kind: entry.archiveRef
+        ? 'active_archive_placeholder'
+        : entry.runtimeEventId
+          ? 'runtime_event'
+          : 'provider_message',
+      sourceId: entry.sourceId,
+      messageIndex: entry.messageIndex,
+      ...(entry.partIndex !== undefined ? { partIndex: entry.partIndex } : {}),
+      sessionId: input.sessionId,
+      turnId: entry.turnId,
+      ...(entry.runtimeEventId ? { runtimeEventId: entry.runtimeEventId } : {}),
+      ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
+      ...(entry.toolName ? { toolName: entry.toolName } : {}),
+      contentKind: entry.contentKind,
+      bodySha256: entry.bodySha256,
+      ...(entry.archiveRef ? { archiveRef: entry.archiveRef } : {}),
+    }),
+  );
   const blockDraft = {
     sessionId: input.sessionId,
     turnId: input.turnId,
@@ -698,12 +745,16 @@ export function buildActiveFullCompactBlockFromSummary(
       ...(input.limitations ?? []),
       'Active full compact uses a deterministic source-bounded process/task summary for provider-visible active-step replacement.',
       ...(archiveRefs.length === 0
-        ? ['No active archive refs are attached; source coverage is by provider source ids and optional RuntimeEvent ids.']
+        ? [
+            'No active archive refs are attached; source coverage is by provider source ids and optional RuntimeEvent ids.',
+          ]
         : []),
     ],
     sourceRefs,
     ...(archiveRefs.length > 0 ? { archiveRefs } : {}),
-    ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
+    ...(input.requestShapeHashBefore
+      ? { requestShapeHashBefore: input.requestShapeHashBefore }
+      : {}),
     ...(input.requestShapeHashAfter ? { requestShapeHashAfter: input.requestShapeHashAfter } : {}),
     ...(input.preActiveContextEstimatedTokens !== undefined
       ? { preActiveContextEstimatedTokens: input.preActiveContextEstimatedTokens }
@@ -742,12 +793,20 @@ export function buildDeterministicProcessStateActiveFullCompactSummary(input: {
   const entries = input.selection.entries;
   const slices = selectedSourceSlices(input.selection, input.messages, input.runtimeEvents ?? []);
   const providerMessages = uniqueSorted(entries.map((entry) => String(entry.messageIndex)));
-  const archiveRefs = uniqueSorted(entries.map((entry) => entry.archiveRef?.artifactId).filter(nonEmpty));
+  const archiveRefs = uniqueSorted(
+    entries.map((entry) => entry.archiveRef?.artifactId).filter(nonEmpty),
+  );
   const toolCalls = uniqueSorted(entries.map((entry) => entry.toolCallId).filter(nonEmpty));
   const contentKinds = uniqueSorted(entries.map((entry) => entry.contentKind));
   const runtimeEvents = uniqueSorted(entries.map((entry) => entry.runtimeEventId).filter(nonEmpty));
-  const commandsTried = extractProcessCommandAttempts(input.selection, input.messages, input.runtimeEvents ?? []);
-  const operationalSlices = slices.filter((slice) => slice.role !== 'system' && slice.role !== 'user');
+  const commandsTried = extractProcessCommandAttempts(
+    input.selection,
+    input.messages,
+    input.runtimeEvents ?? [],
+  );
+  const operationalSlices = slices.filter(
+    (slice) => slice.role !== 'system' && slice.role !== 'user',
+  );
   const processState = extractFactLines(operationalSlices, PROCESS_FACT_PATTERN, 8, 220);
   const vmState = extractFactLines(operationalSlices, VM_FACT_PATTERN, 8, 220);
   const artifactPaths = extractArtifactPathsFromSlices(slices, 8);
@@ -756,11 +815,12 @@ export function buildDeterministicProcessStateActiveFullCompactSummary(input: {
   const failedHypotheses = extractFailedHypotheses(slices, 8);
   const currentHypothesis = extractCurrentHypothesis(slices);
   const nextActions = extractNextActions(slices, 8);
-  const hasProcessFacts = processState.length > 0
-    || vmState.length > 0
-    || artifactPaths.length > 0
-    || commandsTried.length > 0
-    || latestVerifierFailure !== undefined;
+  const hasProcessFacts =
+    processState.length > 0 ||
+    vmState.length > 0 ||
+    artifactPaths.length > 0 ||
+    commandsTried.length > 0 ||
+    latestVerifierFailure !== undefined;
   const text = boundedSummaryText(
     [
       hasProcessFacts
@@ -774,24 +834,35 @@ export function buildDeterministicProcessStateActiveFullCompactSummary(input: {
     charsPerToken,
   );
 
-  return fitActiveFullCompactSummaryToBudget({
-    schemaVersion: 1,
-    text,
-    ...(processState.length > 0 ? { processState } : {}),
-    ...(vmState.length > 0 ? { vmState } : {}),
-    ...(artifactPaths.length > 0 ? { artifactPaths } : {}),
-    ...(commandsTried.length > 0 ? { commandsTried } : {}),
-    ...(latestVerifierFailure ? { latestVerifierFailure } : {}),
-    ...(constraints.length > 0
-      ? { constraints }
-      : { constraints: ['Provider-visible raw covered payloads were replaced with this source-bearing compact block.'] }),
-    ...(failedHypotheses.length > 0 ? { failedHypotheses } : {}),
-    ...(currentHypothesis ? { currentHypothesis } : {}),
-    nextActions: nextActions.length > 0
-      ? nextActions
-      : ['Continue from the preserved recent active provider messages after this compact block.'],
-    ...(archiveRefs.length > 0 ? { archiveRefs } : {}),
-  }, maxSummaryEstimatedTokens, charsPerToken);
+  return fitActiveFullCompactSummaryToBudget(
+    {
+      schemaVersion: 1,
+      text,
+      ...(processState.length > 0 ? { processState } : {}),
+      ...(vmState.length > 0 ? { vmState } : {}),
+      ...(artifactPaths.length > 0 ? { artifactPaths } : {}),
+      ...(commandsTried.length > 0 ? { commandsTried } : {}),
+      ...(latestVerifierFailure ? { latestVerifierFailure } : {}),
+      ...(constraints.length > 0
+        ? { constraints }
+        : {
+            constraints: [
+              'Provider-visible raw covered payloads were replaced with this source-bearing compact block.',
+            ],
+          }),
+      ...(failedHypotheses.length > 0 ? { failedHypotheses } : {}),
+      ...(currentHypothesis ? { currentHypothesis } : {}),
+      nextActions:
+        nextActions.length > 0
+          ? nextActions
+          : [
+              'Continue from the preserved recent active provider messages after this compact block.',
+            ],
+      ...(archiveRefs.length > 0 ? { archiveRefs } : {}),
+    },
+    maxSummaryEstimatedTokens,
+    charsPerToken,
+  );
 }
 
 export function activeFullCompactBlockToModelMessage(block: ActiveFullCompactBlock): ModelMessage {
@@ -833,9 +904,10 @@ export function rewriteActiveFullCompactInMessages(
 
   if (selection.decision !== 'selected') {
     const maxActiveEstimatedTokens = finitePositive(input.policy?.maxActiveEstimatedTokens);
-    const headAnchorExceedsCapacity = input.headAnchor !== undefined
-      && maxActiveEstimatedTokens !== undefined
-      && input.headAnchor.estimatedTokens >= maxActiveEstimatedTokens;
+    const headAnchorExceedsCapacity =
+      input.headAnchor !== undefined &&
+      maxActiveEstimatedTokens !== undefined &&
+      input.headAnchor.estimatedTokens >= maxActiveEstimatedTokens;
     if (headAnchorExceedsCapacity) {
       const capacitySelection = safeSpanSkipped('failedOpen', 'head_anchor_exceeds_capacity');
       return {
@@ -884,13 +956,17 @@ export function rewriteActiveFullCompactInMessages(
     maxSummaryEstimatedTokens: input.policy?.maxSummaryEstimatedTokens,
     charsPerToken: input.charsPerToken,
   });
-  const renderedSummaryTokens = estimateTokens(stableStringify(summary).length, input.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN);
+  const renderedSummaryTokens = estimateTokens(
+    stableStringify(summary).length,
+    input.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN,
+  );
   const maxSummaryTokens = finitePositive(input.policy?.maxSummaryEstimatedTokens);
   if (maxSummaryTokens !== undefined && renderedSummaryTokens > maxSummaryTokens) {
     return failedOpenRewrite(messages, selection, index, 'summary_too_large');
   }
 
-  const requestShapeHashBefore = input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
+  const requestShapeHashBefore =
+    input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
   const block = buildActiveFullCompactBlockFromSummary({
     sessionId: input.sessionId,
     turnId: input.turnId,
@@ -905,7 +981,11 @@ export function rewriteActiveFullCompactInMessages(
       stepNumber: input.stepNumber,
       estimatedTokensBefore: index.estimatedTokens,
       ...(input.policy?.maxActiveEstimatedTokens !== undefined
-        ? { thresholdTokens: Math.floor(input.policy.maxActiveEstimatedTokens * finiteRatio(input.policy.highWaterRatio, 0.8)) }
+        ? {
+            thresholdTokens: Math.floor(
+              input.policy.maxActiveEstimatedTokens * finiteRatio(input.policy.highWaterRatio, 0.8),
+            ),
+          }
         : {}),
     },
     preservedAnchor: preservedAnchorAfterSelection(index, selection),
@@ -924,7 +1004,9 @@ export function rewriteActiveFullCompactInMessages(
     turnId: input.turnId,
     archiveRequired: input.policy?.archiveRequired,
     maxSummaryEstimatedTokens: input.policy?.maxSummaryEstimatedTokens,
-    maxBlockEstimatedTokens: maxActiveFullCompactBlockTokens(input.policy?.maxSummaryEstimatedTokens),
+    maxBlockEstimatedTokens: maxActiveFullCompactBlockTokens(
+      input.policy?.maxSummaryEstimatedTokens,
+    ),
     charsPerToken: input.charsPerToken,
   });
   if (!validation.valid) {
@@ -1031,37 +1113,40 @@ export function validateActiveFullCompactBlockShape(
 ): value is ActiveFullCompactBlock {
   if (!value || typeof value !== 'object') return false;
   const block = value as Partial<ActiveFullCompactBlock>;
-  return block.kind === 'maka.active_full_compact_block'
-    && block.version === 1
-    && nonEmpty(block.blockId)
-    && nonEmpty(block.sessionId)
-    && (sessionId === undefined || block.sessionId === sessionId)
-    && nonEmpty(block.turnId)
-    && Number.isFinite(block.createdAt)
-    && nonEmpty(block.highWaterName)
-    && Number.isFinite(block.highWaterSeq)
-    && !!block.trigger
-    && isTriggerReason(block.trigger.reason)
-    && !!block.coverage
-    && Array.isArray(block.coverage.turnIds)
-    && Array.isArray(block.coverage.runtimeEventIds)
-    && Array.isArray(block.coverage.providerMessageSourceIds)
-    && Array.isArray(block.coverage.toolCallIds)
-    && Array.isArray(block.coverage.contentKinds)
-    && Array.isArray(block.coverage.bodySha256)
-    && allNonEmpty(block.coverage.turnIds)
-    && allNonEmpty(block.coverage.providerMessageSourceIds)
-    && allNonEmpty(block.coverage.contentKinds)
-    && allNonEmpty(block.coverage.bodySha256)
-    && !!block.summary
-    && block.summary.schemaVersion === 1
-    && nonEmpty(block.summary.text)
-    && Array.isArray(block.limitations)
-    && Array.isArray(block.sourceRefs)
-    && block.sourceRefs.length > 0
-    && block.sourceRefs.every(isValidSourceRef)
-    && (block.archiveRefs === undefined || (Array.isArray(block.archiveRefs) && block.archiveRefs.every(isArchiveRef)))
-    && optionalNonNegativeFiniteNumber(block.estimatedTokens);
+  return (
+    block.kind === 'maka.active_full_compact_block' &&
+    block.version === 1 &&
+    nonEmpty(block.blockId) &&
+    nonEmpty(block.sessionId) &&
+    (sessionId === undefined || block.sessionId === sessionId) &&
+    nonEmpty(block.turnId) &&
+    Number.isFinite(block.createdAt) &&
+    nonEmpty(block.highWaterName) &&
+    Number.isFinite(block.highWaterSeq) &&
+    !!block.trigger &&
+    isTriggerReason(block.trigger.reason) &&
+    !!block.coverage &&
+    Array.isArray(block.coverage.turnIds) &&
+    Array.isArray(block.coverage.runtimeEventIds) &&
+    Array.isArray(block.coverage.providerMessageSourceIds) &&
+    Array.isArray(block.coverage.toolCallIds) &&
+    Array.isArray(block.coverage.contentKinds) &&
+    Array.isArray(block.coverage.bodySha256) &&
+    allNonEmpty(block.coverage.turnIds) &&
+    allNonEmpty(block.coverage.providerMessageSourceIds) &&
+    allNonEmpty(block.coverage.contentKinds) &&
+    allNonEmpty(block.coverage.bodySha256) &&
+    !!block.summary &&
+    block.summary.schemaVersion === 1 &&
+    nonEmpty(block.summary.text) &&
+    Array.isArray(block.limitations) &&
+    Array.isArray(block.sourceRefs) &&
+    block.sourceRefs.length > 0 &&
+    block.sourceRefs.every(isValidSourceRef) &&
+    (block.archiveRefs === undefined ||
+      (Array.isArray(block.archiveRefs) && block.archiveRefs.every(isArchiveRef))) &&
+    optionalNonNegativeFiniteNumber(block.estimatedTokens)
+  );
 }
 
 export function validateActiveFullCompactBlockForSourceIndex(
@@ -1087,30 +1172,38 @@ export function validateActiveFullCompactBlockForSourceIndex(
     add('invalid_schema_version');
     if (value && typeof value === 'object') {
       const partial = value as Partial<ActiveFullCompactBlock>;
-      if (partial.sessionId !== undefined && (partial.sessionId !== index.sessionId || (options.sessionId && partial.sessionId !== options.sessionId))) {
+      if (
+        partial.sessionId !== undefined &&
+        (partial.sessionId !== index.sessionId ||
+          (options.sessionId && partial.sessionId !== options.sessionId))
+      ) {
         add('session_mismatch');
       }
-      if (partial.turnId !== undefined && (partial.turnId !== index.turnId || (options.turnId && partial.turnId !== options.turnId))) {
+      if (
+        partial.turnId !== undefined &&
+        (partial.turnId !== index.turnId || (options.turnId && partial.turnId !== options.turnId))
+      ) {
         add('turn_mismatch');
       }
-      const summaryText = partial.summary && typeof partial.summary === 'object'
-        ? (partial.summary as Partial<ActiveFullCompactSummary>).text
-        : undefined;
+      const summaryText =
+        partial.summary && typeof partial.summary === 'object'
+          ? (partial.summary as Partial<ActiveFullCompactSummary>).text
+          : undefined;
       if (!nonEmpty(summaryText)) add('summary_missing');
       const maxSummaryTokens = finitePositive(options.maxSummaryEstimatedTokens);
       if (
-        maxSummaryTokens !== undefined
-        && partial.summary !== undefined
-        && estimateTokens(stableStringify(partial.summary).length, charsPerToken) > maxSummaryTokens
+        maxSummaryTokens !== undefined &&
+        partial.summary !== undefined &&
+        estimateTokens(stableStringify(partial.summary).length, charsPerToken) > maxSummaryTokens
       ) {
         add('summary_too_large');
       }
       const maxBlockTokens = finitePositive(options.maxBlockEstimatedTokens);
       if (
-        maxBlockTokens !== undefined
-        && typeof partial.estimatedTokens === 'number'
-        && Number.isFinite(partial.estimatedTokens)
-        && partial.estimatedTokens > maxBlockTokens
+        maxBlockTokens !== undefined &&
+        typeof partial.estimatedTokens === 'number' &&
+        Number.isFinite(partial.estimatedTokens) &&
+        partial.estimatedTokens > maxBlockTokens
       ) {
         add('max_block_tokens');
       }
@@ -1124,7 +1217,10 @@ export function validateActiveFullCompactBlockForSourceIndex(
     };
   }
   const block = value;
-  if (block.sessionId !== index.sessionId || (options.sessionId && block.sessionId !== options.sessionId)) {
+  if (
+    block.sessionId !== index.sessionId ||
+    (options.sessionId && block.sessionId !== options.sessionId)
+  ) {
     add('session_mismatch');
   }
   if (block.turnId !== index.turnId || (options.turnId && block.turnId !== options.turnId)) {
@@ -1132,7 +1228,10 @@ export function validateActiveFullCompactBlockForSourceIndex(
   }
   if (!nonEmpty(block.summary?.text)) add('summary_missing');
   const maxSummaryTokens = finitePositive(options.maxSummaryEstimatedTokens);
-  if (maxSummaryTokens !== undefined && estimateTokens(stableStringify(block.summary).length, charsPerToken) > maxSummaryTokens) {
+  if (
+    maxSummaryTokens !== undefined &&
+    estimateTokens(stableStringify(block.summary).length, charsPerToken) > maxSummaryTokens
+  ) {
     add('summary_too_large');
   }
   const maxBlockTokens = finitePositive(options.maxBlockEstimatedTokens);
@@ -1151,14 +1250,20 @@ export function validateActiveFullCompactBlockForSourceIndex(
     }
     selectedEntries.push(entry);
     if (!block.coverage.turnIds.includes(entry.turnId)) add('coverage_miss');
-    if (entry.runtimeEventId && !block.coverage.runtimeEventIds.includes(entry.runtimeEventId)) add('coverage_miss');
-    if (entry.toolCallId && !block.coverage.toolCallIds.includes(entry.toolCallId)) add('coverage_miss');
+    if (entry.runtimeEventId && !block.coverage.runtimeEventIds.includes(entry.runtimeEventId))
+      add('coverage_miss');
+    if (entry.toolCallId && !block.coverage.toolCallIds.includes(entry.toolCallId))
+      add('coverage_miss');
     if (!block.coverage.contentKinds.includes(entry.contentKind)) add('coverage_miss');
     if (!block.coverage.bodySha256.includes(entry.bodySha256)) add('source_hash_mismatch');
     if (options.requireRuntimeEventCoverage === true && !entry.runtimeEventId) {
       add('provider_message_only_when_runtime_required');
     }
-    if (options.archiveRequired === true && entry.contentKind === 'active_archive_placeholder' && !entry.archiveRef) {
+    if (
+      options.archiveRequired === true &&
+      entry.contentKind === 'active_archive_placeholder' &&
+      !entry.archiveRef
+    ) {
       add('archive_missing');
     }
   }
@@ -1233,21 +1338,29 @@ export function activeFullCompactDecisionDiagnosticPatch(input: {
     boundaryKind: 'activeFullCompact',
     decision: input.decision,
     ...(input.boundaryIds ? { boundaryIds: input.boundaryIds } : {}),
-    ...(input.coverage ? {
-      coverage: {
-        turnIds: input.coverage.turnIds,
-        runtimeEventIds: input.coverage.runtimeEventIds,
-        toolCallIds: input.coverage.toolCallIds,
-        contentKinds: input.coverage.contentKinds,
-        bodySha256: input.coverage.bodySha256,
-      },
-    } : {}),
-    ...(input.estimatedTokensBefore !== undefined ? { estimatedTokensBefore: input.estimatedTokensBefore } : {}),
-    ...(input.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: input.estimatedTokensAfter } : {}),
+    ...(input.coverage
+      ? {
+          coverage: {
+            turnIds: input.coverage.turnIds,
+            runtimeEventIds: input.coverage.runtimeEventIds,
+            toolCallIds: input.coverage.toolCallIds,
+            contentKinds: input.coverage.contentKinds,
+            bodySha256: input.coverage.bodySha256,
+          },
+        }
+      : {}),
+    ...(input.estimatedTokensBefore !== undefined
+      ? { estimatedTokensBefore: input.estimatedTokensBefore }
+      : {}),
+    ...(input.estimatedTokensAfter !== undefined
+      ? { estimatedTokensAfter: input.estimatedTokensAfter }
+      : {}),
     ...(input.reason ? { reason: input.reason } : {}),
     ...(input.failOpenReason ? { failOpenReason: input.failOpenReason } : {}),
     ...(input.skippedReasonCounts ? { skippedReasonCounts: input.skippedReasonCounts } : {}),
-    ...(input.validationReasonCounts ? { validationReasonCounts: input.validationReasonCounts } : {}),
+    ...(input.validationReasonCounts
+      ? { validationReasonCounts: input.validationReasonCounts }
+      : {}),
   });
 }
 
@@ -1267,7 +1380,9 @@ function failedOpenRewrite(
     ...(validation ? { validation } : {}),
     diagnosticPatch: activeFullCompactDecisionDiagnosticPatch({
       decision: 'failedOpen',
-      ...(block ? { boundaryIds: [block.blockId], coverage: block.coverage } : { coverage: selection.coverage }),
+      ...(block
+        ? { boundaryIds: [block.blockId], coverage: block.coverage }
+        : { coverage: selection.coverage }),
       estimatedTokensBefore: index.estimatedTokens,
       estimatedTokensAfter: index.estimatedTokens,
       failOpenReason,
@@ -1278,20 +1393,22 @@ function failedOpenRewrite(
 }
 
 function isFailOpenReason(reason: string): reason is ActiveFullCompactFailOpenReason {
-  return reason === 'invalid_schema_version'
-    || reason === 'session_mismatch'
-    || reason === 'turn_mismatch'
-    || reason === 'source_missing'
-    || reason === 'coverage_miss'
-    || reason === 'source_hash_mismatch'
-    || reason === 'tool_pair_split'
-    || reason === 'archive_missing'
-    || reason === 'archive_mismatch'
-    || reason === 'summary_missing'
-    || reason === 'summary_too_large'
-    || reason === 'max_block_tokens'
-    || reason === 'head_anchor_exceeds_capacity'
-    || reason === 'provider_message_only_when_runtime_required';
+  return (
+    reason === 'invalid_schema_version' ||
+    reason === 'session_mismatch' ||
+    reason === 'turn_mismatch' ||
+    reason === 'source_missing' ||
+    reason === 'coverage_miss' ||
+    reason === 'source_hash_mismatch' ||
+    reason === 'tool_pair_split' ||
+    reason === 'archive_missing' ||
+    reason === 'archive_mismatch' ||
+    reason === 'summary_missing' ||
+    reason === 'summary_too_large' ||
+    reason === 'max_block_tokens' ||
+    reason === 'head_anchor_exceeds_capacity' ||
+    reason === 'provider_message_only_when_runtime_required'
+  );
 }
 
 function selectionCoversContiguousWholeMessages(
@@ -1326,7 +1443,11 @@ function latestActiveFullCompactMessageIndex(index: ActiveFullCompactSourceIndex
 
 function latestSemanticCompactMessageIndex(messages: readonly ModelMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (stableStringify((messages[index] as { content?: unknown }).content).includes('<maka_semantic_compact_block')) {
+    if (
+      stableStringify((messages[index] as { content?: unknown }).content).includes(
+        '<maka_semantic_compact_block',
+      )
+    ) {
       return index;
     }
   }
@@ -1343,9 +1464,13 @@ function preservedAnchorAfterSelection(
   index: ActiveFullCompactSourceIndex,
   selection: Extract<ActiveFullCompactSelection, { decision: 'selected' }>,
 ): ActiveFullCompactBlock['preservedAnchor'] {
-  const tailEntries = index.entries.filter((entry) => entry.messageIndex > selection.endMessageIndex);
+  const tailEntries = index.entries.filter(
+    (entry) => entry.messageIndex > selection.endMessageIndex,
+  );
   return {
-    tailRuntimeEventIds: uniqueSorted(tailEntries.map((entry) => entry.runtimeEventId).filter(nonEmpty)),
+    tailRuntimeEventIds: uniqueSorted(
+      tailEntries.map((entry) => entry.runtimeEventId).filter(nonEmpty),
+    ),
     tailProviderMessageSourceIds: uniqueSorted(tailEntries.map((entry) => entry.sourceId)),
     tailTurnIds: uniqueSorted(tailEntries.map((entry) => entry.turnId)),
   };
@@ -1367,10 +1492,15 @@ function estimateActiveFullCompactProviderTokens(
   block: ActiveFullCompactBlock,
   charsPerToken?: number,
 ): number {
-  return estimateTokens(renderActiveFullCompactBlock(block).length, charsPerToken ?? DEFAULT_CHARS_PER_TOKEN);
+  return estimateTokens(
+    renderActiveFullCompactBlock(block).length,
+    charsPerToken ?? DEFAULT_CHARS_PER_TOKEN,
+  );
 }
 
-function maxActiveFullCompactBlockTokens(maxSummaryEstimatedTokens: number | undefined): number | undefined {
+function maxActiveFullCompactBlockTokens(
+  maxSummaryEstimatedTokens: number | undefined,
+): number | undefined {
   const summaryTokens = finitePositive(maxSummaryEstimatedTokens);
   if (summaryTokens === undefined) return undefined;
   return Math.max(summaryTokens * 8, summaryTokens + 2048);
@@ -1382,7 +1512,8 @@ function replacementShapeValid(
   selection: Extract<ActiveFullCompactSelection, { decision: 'selected' }>,
   replacementMessage: ModelMessage,
 ): boolean {
-  const expectedLength = original.length - (selection.endMessageIndex - selection.startMessageIndex + 1) + 1;
+  const expectedLength =
+    original.length - (selection.endMessageIndex - selection.startMessageIndex + 1) + 1;
   if (replacement.length !== expectedLength) return false;
   if (replacement[selection.startMessageIndex] !== replacementMessage) return false;
   for (let index = 0; index < selection.startMessageIndex; index += 1) {
@@ -1402,16 +1533,22 @@ interface SelectedSourceSlice {
   sourceId: string;
 }
 
-const PROCESS_FACT_PATTERN = /\b(pid|process|listening|listen|port|127\.0\.0\.1|localhost|nc -l|server|service|background|foreground|timeout|url)\b/i;
-const VM_FACT_PATTERN = /\b(vm|guest|boot|booted|login|kernel|panic|mount|reachable|refused|guest ip|hostfwd)\b/i;
-const OUTCOME_FACT_PATTERN = /\b(exit code|exit=|status|failed|failure|error|timeout|assert|missing|listening|pid|port|reachable|refused|boot|login|self-check)\b/i;
+const PROCESS_FACT_PATTERN =
+  /\b(pid|process|listening|listen|port|127\.0\.0\.1|localhost|nc -l|server|service|background|foreground|timeout|url)\b/i;
+const VM_FACT_PATTERN =
+  /\b(vm|guest|boot|booted|login|kernel|panic|mount|reachable|refused|guest ip|hostfwd)\b/i;
+const OUTCOME_FACT_PATTERN =
+  /\b(exit code|exit=|status|failed|failure|error|timeout|assert|missing|listening|pid|port|reachable|refused|boot|login|self-check)\b/i;
 const VERIFIER_CONTEXT_PATTERN = /\b(verifier|self-check|self check|test|assert|check)\b/i;
 const FAILURE_PATTERN = /\b(fail|failed|failure|error|assert|expected|missing|timeout|red)\b/i;
-const CONSTRAINT_PATTERN = /\b(constraint|do not|must|only|without|avoid|no hidden|no task-specific|preserve|keep)\b/i;
-const FAILED_HYPOTHESIS_PATTERN = /\b(failed hypothesis|abandoned|hypothesis.+failed|tried.+failed|failed because|not enough|does not work|did not work)\b/i;
+const CONSTRAINT_PATTERN =
+  /\b(constraint|do not|must|only|without|avoid|no hidden|no task-specific|preserve|keep)\b/i;
+const FAILED_HYPOTHESIS_PATTERN =
+  /\b(failed hypothesis|abandoned|hypothesis.+failed|tried.+failed|failed because|not enough|does not work|did not work)\b/i;
 const CURRENT_HYPOTHESIS_PATTERN = /\b(current hypothesis|working theory|next i think|i think)\b/i;
 const NEXT_ACTION_PATTERN = /\b(next action|next:|next i|retry|rerun|continue|check|inspect)\b/i;
-const PATH_PATTERN = /(?:\/[A-Za-z0-9._~+@%=-]+(?:\/[A-Za-z0-9._~+@%=-]+)+|(?:\.{1,2}\/)?[A-Za-z0-9._~+@%=-]+(?:\/[A-Za-z0-9._~+@%=-]+)+)/g;
+const PATH_PATTERN =
+  /(?:\/[A-Za-z0-9._~+@%=-]+(?:\/[A-Za-z0-9._~+@%=-]+)+|(?:\.{1,2}\/)?[A-Za-z0-9._~+@%=-]+(?:\/[A-Za-z0-9._~+@%=-]+)+)/g;
 const SHELL_TOOL_PATTERN = /\b(bash|shell|exec|terminal|run|command|cmd|sh|powershell|zsh)\b/i;
 
 function selectedSourceSlices(
@@ -1455,14 +1592,17 @@ function extractProcessCommandAttempts(
     if (!part || typeof part !== 'object') continue;
     const record = part as Record<string, unknown>;
     if (record.type !== 'tool-call') continue;
-    const toolName = typeof record.toolName === 'string' ? record.toolName : entry.toolName ?? 'tool';
+    const toolName =
+      typeof record.toolName === 'string' ? record.toolName : (entry.toolName ?? 'tool');
     const input = 'input' in record ? record.input : record.args;
     const command = commandTextFromToolInput(toolName, input);
     const key = entry.toolCallId ?? `${entry.sourceId}:${command}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const related = slices.filter((slice) =>
-      (entry.toolCallId && slice.entry.toolCallId === entry.toolCallId) || slice.sourceId === entry.sourceId
+    const related = slices.filter(
+      (slice) =>
+        (entry.toolCallId && slice.entry.toolCallId === entry.toolCallId) ||
+        slice.sourceId === entry.sourceId,
     );
     commands.push({
       command,
@@ -1483,16 +1623,21 @@ function commandTextFromToolInput(toolName: string, input: unknown): string {
 }
 
 function commandOutcome(slices: readonly SelectedSourceSlice[]): string {
-  const archiveRefs = uniqueSorted(slices.map((slice) => slice.entry.archiveRef?.artifactId).filter(nonEmpty));
+  const archiveRefs = uniqueSorted(
+    slices.map((slice) => slice.entry.archiveRef?.artifactId).filter(nonEmpty),
+  );
   const factLines = extractLinesFromText(
     slices.map((slice) => slice.text).join('\n'),
     OUTCOME_FACT_PATTERN,
     2,
     220,
   );
-  const archiveText = archiveRefs.length > 0 ? `raw result archived as ${archiveRefs.join(', ')}` : '';
-  return [factLines.join(' | '), archiveText].filter(nonEmpty).join('; ')
-    || 'completed; detailed output covered by active full compact source refs';
+  const archiveText =
+    archiveRefs.length > 0 ? `raw result archived as ${archiveRefs.join(', ')}` : '';
+  return (
+    [factLines.join(' | '), archiveText].filter(nonEmpty).join('; ') ||
+    'completed; detailed output covered by active full compact source refs'
+  );
 }
 
 function extractFactLines(
@@ -1501,10 +1646,15 @@ function extractFactLines(
   maxItems: number,
   maxChars: number,
 ): string[] {
-  return uniqueInOrder(slices.flatMap((slice) => extractLinesFromText(slice.text, pattern, maxItems, maxChars))).slice(0, maxItems);
+  return uniqueInOrder(
+    slices.flatMap((slice) => extractLinesFromText(slice.text, pattern, maxItems, maxChars)),
+  ).slice(0, maxItems);
 }
 
-function extractArtifactPathsFromSlices(slices: readonly SelectedSourceSlice[], maxItems: number): string[] {
+function extractArtifactPathsFromSlices(
+  slices: readonly SelectedSourceSlice[],
+  maxItems: number,
+): string[] {
   const paths: string[] = [];
   for (const slice of slices) {
     for (const match of slice.text.matchAll(PATH_PATTERN)) {
@@ -1527,18 +1677,30 @@ function extractLatestVerifierFailure(slices: readonly SelectedSourceSlice[]): s
   return undefined;
 }
 
-function extractConstraintLines(slices: readonly SelectedSourceSlice[], maxItems: number): string[] {
-  return uniqueInOrder(slices
-    .filter((slice) => slice.role === 'system' || slice.role === 'user' || slice.role === 'assistant')
-    .flatMap((slice) => extractLinesFromText(slice.text, CONSTRAINT_PATTERN, maxItems, 220)))
-    .slice(0, maxItems);
+function extractConstraintLines(
+  slices: readonly SelectedSourceSlice[],
+  maxItems: number,
+): string[] {
+  return uniqueInOrder(
+    slices
+      .filter(
+        (slice) => slice.role === 'system' || slice.role === 'user' || slice.role === 'assistant',
+      )
+      .flatMap((slice) => extractLinesFromText(slice.text, CONSTRAINT_PATTERN, maxItems, 220)),
+  ).slice(0, maxItems);
 }
 
-function extractFailedHypotheses(slices: readonly SelectedSourceSlice[], maxItems: number): string[] {
-  return uniqueInOrder(slices
-    .filter((slice) => slice.role === 'assistant')
-    .flatMap((slice) => extractLinesFromText(slice.text, FAILED_HYPOTHESIS_PATTERN, maxItems, 220)))
-    .slice(0, maxItems);
+function extractFailedHypotheses(
+  slices: readonly SelectedSourceSlice[],
+  maxItems: number,
+): string[] {
+  return uniqueInOrder(
+    slices
+      .filter((slice) => slice.role === 'assistant')
+      .flatMap((slice) =>
+        extractLinesFromText(slice.text, FAILED_HYPOTHESIS_PATTERN, maxItems, 220),
+      ),
+  ).slice(0, maxItems);
 }
 
 function extractCurrentHypothesis(slices: readonly SelectedSourceSlice[]): string | undefined {
@@ -1552,10 +1714,11 @@ function extractCurrentHypothesis(slices: readonly SelectedSourceSlice[]): strin
 }
 
 function extractNextActions(slices: readonly SelectedSourceSlice[], maxItems: number): string[] {
-  return uniqueInOrder(slices
-    .filter((slice) => slice.role === 'assistant')
-    .flatMap((slice) => extractLinesFromText(slice.text, NEXT_ACTION_PATTERN, maxItems, 220)))
-    .slice(0, maxItems);
+  return uniqueInOrder(
+    slices
+      .filter((slice) => slice.role === 'assistant')
+      .flatMap((slice) => extractLinesFromText(slice.text, NEXT_ACTION_PATTERN, maxItems, 220)),
+  ).slice(0, maxItems);
 }
 
 function fitActiveFullCompactSummaryToBudget(
@@ -1584,14 +1747,19 @@ function fitActiveFullCompactSummaryToBudget(
   if (estimateTokens(stableStringify(fitted).length, charsPerToken) <= maxTokens) return fitted;
 
   const baseOverhead = stableStringify({ ...fitted, text: '' }).length;
-  const maxTextChars = Math.max(1, (maxTokens * charsPerToken) - baseOverhead);
+  const maxTextChars = Math.max(1, maxTokens * charsPerToken - baseOverhead);
   return {
     schemaVersion: 1,
     text: clip(fitted.text, maxTextChars),
   };
 }
 
-function extractLinesFromText(text: string, pattern: RegExp, maxItems: number, maxChars: number): string[] {
+function extractLinesFromText(
+  text: string,
+  pattern: RegExp,
+  maxItems: number,
+  maxChars: number,
+): string[] {
   const lines: string[] = [];
   for (const line of splitCandidateLines(text)) {
     if (!pattern.test(line)) continue;
@@ -1609,12 +1777,13 @@ function splitCandidateLines(text: string): string[] {
     .replaceAll('\r', '\n')
     .split('\n')
     .map(sanitizeFactLine)
-    .filter((line) =>
-      line.length > 0
-      && line.length <= 1000
-      && !isPlaceholderMetadataLine(line)
-      && !isTaskRunMetadataLine(line)
-      && !isLowSignalRawLogLine(line)
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        line.length <= 1000 &&
+        !isPlaceholderMetadataLine(line) &&
+        !isTaskRunMetadataLine(line) &&
+        !isLowSignalRawLogLine(line),
     );
 }
 
@@ -1634,21 +1803,28 @@ function sanitizePath(value: string): string | undefined {
 }
 
 function isPlaceholderMetadataLine(line: string): boolean {
-  return line.includes('maka.active_archived_tool_result')
-    || line.includes('rewriteVersion')
-    || line.includes('bodySha256')
-    || line.includes('originalEstimatedTokens');
+  return (
+    line.includes('maka.active_archived_tool_result') ||
+    line.includes('rewriteVersion') ||
+    line.includes('bodySha256') ||
+    line.includes('originalEstimatedTokens')
+  );
 }
 
 function isTaskRunMetadataLine(line: string): boolean {
   const normalized = line.toLowerCase();
-  if (/\btask_run_(created|queued|started|updated|completed|failed|cancelled)\b/.test(normalized)) return true;
-  if (/\b(taskrunid|task_run_id|runtimeeventid|runtime_event_id|invocationid|invocation_id)\b/.test(normalized)) {
+  if (/\btask_run_(created|queued|started|updated|completed|failed|cancelled)\b/.test(normalized))
+    return true;
+  if (
+    /\b(taskrunid|task_run_id|runtimeeventid|runtime_event_id|invocationid|invocation_id)\b/.test(
+      normalized,
+    )
+  ) {
     return !containsOperationalSignal(normalized);
   }
   if (
-    /["'](?:sessionid|session_id|turnid|turn_id|runid|run_id)["']?\s*[:=]/i.test(line)
-    && /["'](?:status|taxonomy|event|type|createdat|created_at)["']?\s*[:=]/i.test(line)
+    /["'](?:sessionid|session_id|turnid|turn_id|runid|run_id)["']?\s*[:=]/i.test(line) &&
+    /["'](?:status|taxonomy|event|type|createdat|created_at)["']?\s*[:=]/i.test(line)
   ) {
     return !containsOperationalSignal(normalized);
   }
@@ -1656,24 +1832,31 @@ function isTaskRunMetadataLine(line: string): boolean {
 }
 
 function isLowSignalRawLogLine(line: string): boolean {
-  return /\b(noise|spam|debug spam)\b/i.test(line)
-    || /\braw\b.*\b(log|output|noise|spam)\b/i.test(line)
-    || /do[_-]?not[_-]?leak/i.test(line);
+  return (
+    /\b(noise|spam|debug spam)\b/i.test(line) ||
+    /\braw\b.*\b(log|output|noise|spam)\b/i.test(line) ||
+    /do[_-]?not[_-]?leak/i.test(line)
+  );
 }
 
 function containsOperationalSignal(normalizedLine: string): boolean {
-  return /\b(command|cmd|qemu|xorriso|mount|boot|kernel|initramfs|ssh|sshd|port|pid|exit code|failure|failed|timeout)\b/.test(normalizedLine)
-    || /(?:^|[\s"'])\/(?:app|boot|tmp|workspace|etc|var)\//.test(normalizedLine);
+  return (
+    /\b(command|cmd|qemu|xorriso|mount|boot|kernel|initramfs|ssh|sshd|port|pid|exit code|failure|failed|timeout)\b/.test(
+      normalizedLine,
+    ) || /(?:^|[\s"'])\/(?:app|boot|tmp|workspace|etc|var)\//.test(normalizedLine)
+  );
 }
 
 function isLowSignalInternalPath(path: string): boolean {
-  return /\/maka-task-run\//.test(path)
-    || /\/runs\/sessions\//.test(path)
-    || /\/exports\/harbor-/.test(path)
-    || /\/runtime-events\.jsonl$/.test(path)
-    || /\/events\.jsonl$/.test(path)
-    || /\/task-run\.json$/.test(path)
-    || /\/result\.json$/.test(path);
+  return (
+    /\/maka-task-run\//.test(path) ||
+    /\/runs\/sessions\//.test(path) ||
+    /\/exports\/harbor-/.test(path) ||
+    /\/runtime-events\.jsonl$/.test(path) ||
+    /\/events\.jsonl$/.test(path) ||
+    /\/task-run\.json$/.test(path) ||
+    /\/result\.json$/.test(path)
+  );
 }
 
 function uniqueInOrder(values: readonly string[]): string[] {
@@ -1690,19 +1873,26 @@ function uniqueInOrder(values: readonly string[]): string[] {
 function sortedSelectedEntries(
   selection: Extract<ActiveFullCompactSelection, { decision: 'selected' }>,
 ): ActiveFullCompactSourceEntry[] {
-  return [...selection.entries].sort((left, right) =>
-    left.messageIndex - right.messageIndex
-    || (left.partIndex ?? -1) - (right.partIndex ?? -1)
-    || left.sourceId.localeCompare(right.sourceId)
+  return [...selection.entries].sort(
+    (left, right) =>
+      left.messageIndex - right.messageIndex ||
+      (left.partIndex ?? -1) - (right.partIndex ?? -1) ||
+      left.sourceId.localeCompare(right.sourceId),
   );
 }
 
-function providerEntryText(entry: ActiveFullCompactSourceEntry, messages: readonly ModelMessage[]): string {
+function providerEntryText(
+  entry: ActiveFullCompactSourceEntry,
+  messages: readonly ModelMessage[],
+): string {
   const part = providerEntryPart(entry, messages);
   return partText(part);
 }
 
-function providerEntryPart(entry: ActiveFullCompactSourceEntry, messages: readonly ModelMessage[]): unknown {
+function providerEntryPart(
+  entry: ActiveFullCompactSourceEntry,
+  messages: readonly ModelMessage[],
+): unknown {
   const message = messages[entry.messageIndex] as { content?: unknown } | undefined;
   const content = message?.content;
   if (!Array.isArray(content)) return content;
@@ -1715,7 +1905,10 @@ function partText(part: unknown): string {
   if (typeof part !== 'object') return stableStringify(part);
   const record = part as Record<string, unknown>;
   if (record.type === 'text' && typeof record.text === 'string') return record.text;
-  if ((record.type === 'reasoning' || record.type === 'thinking') && typeof (record.text ?? record.reasoning) === 'string') {
+  if (
+    (record.type === 'reasoning' || record.type === 'thinking') &&
+    typeof (record.text ?? record.reasoning) === 'string'
+  ) {
     return String(record.text ?? record.reasoning);
   }
   if (record.type === 'tool-call') return stableStringify(record.input ?? record.args ?? record);
@@ -1734,11 +1927,14 @@ function matchingRuntimeEventForEntry(
 ): RuntimeEvent | undefined {
   if (!entry.toolCallId) return undefined;
   const candidates = runtimeByToolCallId.get(entry.toolCallId) ?? [];
-  const preferredKind = entry.contentKind === 'function_call'
-    ? 'function_call'
-    : entry.contentKind === 'function_response' || entry.contentKind === 'tool_result' || entry.contentKind === 'active_archive_placeholder'
-      ? 'function_response'
-      : undefined;
+  const preferredKind =
+    entry.contentKind === 'function_call'
+      ? 'function_call'
+      : entry.contentKind === 'function_response' ||
+          entry.contentKind === 'tool_result' ||
+          entry.contentKind === 'active_archive_placeholder'
+        ? 'function_response'
+        : undefined;
   return candidates.find((event) => event.content?.kind === preferredKind) ?? candidates[0];
 }
 
@@ -1768,7 +1964,11 @@ function stringField(value: unknown, keys: readonly string[]): string | undefine
   return undefined;
 }
 
-function boundedSummaryText(text: string, maxEstimatedTokens: number, charsPerToken: number): string {
+function boundedSummaryText(
+  text: string,
+  maxEstimatedTokens: number,
+  charsPerToken: number,
+): string {
   const maxChars = Math.max(1, maxEstimatedTokens * charsPerToken);
   return clip(text, maxChars);
 }
@@ -1831,16 +2031,22 @@ function entryFromProviderPart(input: {
     role: input.role,
     ...(runtimeEvent?.id ? { runtimeEventId: runtimeEvent.id } : {}),
     turnId: runtimeEvent?.turnId ?? input.placeholder?.turnId ?? input.turnId,
-    ...(runtimeEvent?.runId ?? input.runId ? { runId: runtimeEvent?.runId ?? input.runId } : {}),
-    ...(runtimeEvent?.invocationId ?? input.invocationId
+    ...((runtimeEvent?.runId ?? input.runId) ? { runId: runtimeEvent?.runId ?? input.runId } : {}),
+    ...((runtimeEvent?.invocationId ?? input.invocationId)
       ? { invocationId: runtimeEvent?.invocationId ?? input.invocationId }
       : {}),
-    ...(input.toolCallId ?? runtimeToolCallId(runtimeEvent) ? { toolCallId: input.toolCallId ?? runtimeToolCallId(runtimeEvent) } : {}),
-    ...(input.toolName ?? runtimeToolName(runtimeEvent) ? { toolName: input.toolName ?? runtimeToolName(runtimeEvent) } : {}),
+    ...((input.toolCallId ?? runtimeToolCallId(runtimeEvent))
+      ? { toolCallId: input.toolCallId ?? runtimeToolCallId(runtimeEvent) }
+      : {}),
+    ...((input.toolName ?? runtimeToolName(runtimeEvent))
+      ? { toolName: input.toolName ?? runtimeToolName(runtimeEvent) }
+      : {}),
     contentKind,
     bodySha256,
     estimatedTokens: estimateTokens(bodyText.length, input.charsPerToken),
-    ...(input.placeholder ? { originalEstimatedTokens: input.placeholder.originalEstimatedTokens } : {}),
+    ...(input.placeholder
+      ? { originalEstimatedTokens: input.placeholder.originalEstimatedTokens }
+      : {}),
     ...(input.placeholder ? { originalBytes: input.placeholder.originalBytes } : {}),
     ...(archiveRef ? { archiveRef } : {}),
   };
@@ -1890,7 +2096,9 @@ function toolResultPayload(part: Record<string, unknown>): unknown {
   return output ?? part;
 }
 
-function activePlaceholderFromPayload(payload: unknown): ActiveArchivedToolResultPlaceholder | undefined {
+function activePlaceholderFromPayload(
+  payload: unknown,
+): ActiveArchivedToolResultPlaceholder | undefined {
   if (isActiveArchivedToolResultPlaceholder(payload)) return payload;
   if (typeof payload === 'string') {
     try {
@@ -1908,7 +2116,10 @@ interface RuntimeEventIndex {
   byBodySha256: Map<string, RuntimeEvent[]>;
 }
 
-function buildRuntimeEventIndex(events: readonly RuntimeEvent[], charsPerToken: number): RuntimeEventIndex {
+function buildRuntimeEventIndex(
+  events: readonly RuntimeEvent[],
+  charsPerToken: number,
+): RuntimeEventIndex {
   const byToolCallId = new Map<string, RuntimeEvent[]>();
   const byBodySha256 = new Map<string, RuntimeEvent[]>();
   for (const event of events) {
@@ -1923,18 +2134,21 @@ function matchRuntimeEvent(
   index: RuntimeEventIndex,
   input: { bodySha256: string; toolCallId?: string; contentKind: ActiveFullCompactContentKind },
 ): RuntimeEvent | undefined {
-  const toolMatches = input.toolCallId ? index.byToolCallId.get(input.toolCallId) ?? [] : [];
+  const toolMatches = input.toolCallId ? (index.byToolCallId.get(input.toolCallId) ?? []) : [];
   const bodyMatches = index.byBodySha256.get(input.bodySha256) ?? [];
   const candidates = [...toolMatches, ...bodyMatches];
   if (candidates.length === 0) return undefined;
-  const preferredKind = input.contentKind === 'function_call'
-    ? 'function_call'
-    : input.contentKind === 'tool_result' || input.contentKind === 'active_archive_placeholder'
-      ? 'function_response'
-      : input.contentKind;
-  return candidates.find((event) => event.content?.kind === preferredKind)
-    ?? bodyMatches[0]
-    ?? toolMatches[0];
+  const preferredKind =
+    input.contentKind === 'function_call'
+      ? 'function_call'
+      : input.contentKind === 'tool_result' || input.contentKind === 'active_archive_placeholder'
+        ? 'function_response'
+        : input.contentKind;
+  return (
+    candidates.find((event) => event.content?.kind === preferredKind) ??
+    bodyMatches[0] ??
+    toolMatches[0]
+  );
 }
 
 function runtimeEventBodySha256(event: RuntimeEvent, charsPerToken: number): string {
@@ -1956,13 +2170,15 @@ function runtimeEventBodySha256(event: RuntimeEvent, charsPerToken: number): str
 
 function runtimeToolCallId(event: RuntimeEvent | undefined): string | undefined {
   if (!event) return undefined;
-  if (event.content?.kind === 'function_call' || event.content?.kind === 'function_response') return event.content.id;
+  if (event.content?.kind === 'function_call' || event.content?.kind === 'function_response')
+    return event.content.id;
   return event.refs?.toolCallId;
 }
 
 function runtimeToolName(event: RuntimeEvent | undefined): string | undefined {
   if (!event) return undefined;
-  if (event.content?.kind === 'function_call' || event.content?.kind === 'function_response') return event.content.name;
+  if (event.content?.kind === 'function_call' || event.content?.kind === 'function_response')
+    return event.content.name;
   return undefined;
 }
 
@@ -1971,22 +2187,30 @@ function toolPairSplit(
   allEntries: readonly ActiveFullCompactSourceEntry[],
 ): boolean {
   const selectedSourceIds = new Set(selectedEntries.map((entry) => entry.sourceId));
-  const toolCallIds = uniqueSorted(selectedEntries.map((entry) => entry.toolCallId).filter(nonEmpty));
+  const toolCallIds = uniqueSorted(
+    selectedEntries.map((entry) => entry.toolCallId).filter(nonEmpty),
+  );
   for (const toolCallId of toolCallIds) {
     const allKinds = allEntries
       .filter((entry) => entry.toolCallId === toolCallId)
       .map((entry) => entry.contentKind);
     const hasCall = allKinds.includes('function_call');
-    const hasResult = allKinds.some((kind) =>
-      kind === 'function_response' || kind === 'tool_result' || kind === 'active_archive_placeholder'
+    const hasResult = allKinds.some(
+      (kind) =>
+        kind === 'function_response' ||
+        kind === 'tool_result' ||
+        kind === 'active_archive_placeholder',
     );
     if (!hasCall || !hasResult) continue;
     const selectedKinds = allEntries
       .filter((entry) => entry.toolCallId === toolCallId && selectedSourceIds.has(entry.sourceId))
       .map((entry) => entry.contentKind);
     const selectedHasCall = selectedKinds.includes('function_call');
-    const selectedHasResult = selectedKinds.some((kind) =>
-      kind === 'function_response' || kind === 'tool_result' || kind === 'active_archive_placeholder'
+    const selectedHasResult = selectedKinds.some(
+      (kind) =>
+        kind === 'function_response' ||
+        kind === 'tool_result' ||
+        kind === 'active_archive_placeholder',
     );
     if (selectedHasCall !== selectedHasResult) return true;
   }
@@ -2007,11 +2231,14 @@ function renderSummarySections(summary: ActiveFullCompactSummary): string[] {
   pushSection(lines, 'vm_state', summary.vmState);
   pushSection(lines, 'artifact_paths', summary.artifactPaths);
   if (summary.commandsTried && summary.commandsTried.length > 0) {
-    lines.push(`commands_tried: ${summary.commandsTried.map((command) =>
-      `${command.command} => ${command.outcome}`
-    ).join('; ')}`);
+    lines.push(
+      `commands_tried: ${summary.commandsTried
+        .map((command) => `${command.command} => ${command.outcome}`)
+        .join('; ')}`,
+    );
   }
-  if (summary.latestVerifierFailure) lines.push(`latest_verifier_failure: ${summary.latestVerifierFailure}`);
+  if (summary.latestVerifierFailure)
+    lines.push(`latest_verifier_failure: ${summary.latestVerifierFailure}`);
   pushSection(lines, 'constraints', summary.constraints);
   pushSection(lines, 'failed_hypotheses', summary.failedHypotheses);
   if (summary.currentHypothesis) lines.push(`current_hypothesis: ${summary.currentHypothesis}`);
@@ -2032,7 +2259,9 @@ function renderProviderVisibleArchiveRefs(refs: readonly ActiveFullCompactArchiv
     : visible;
 }
 
-function activeArchiveRefToBoundaryArchiveRef(ref: ActiveFullCompactArchiveRef): CompactionArchiveRef {
+function activeArchiveRefToBoundaryArchiveRef(
+  ref: ActiveFullCompactArchiveRef,
+): CompactionArchiveRef {
   return {
     kind: ref.kind === 'toolResult' ? 'toolResult' : 'compactSource',
     ...(ref.sessionId ? { sessionId: ref.sessionId } : {}),
@@ -2042,7 +2271,9 @@ function activeArchiveRefToBoundaryArchiveRef(ref: ActiveFullCompactArchiveRef):
     ...(ref.toolName ? { toolName: ref.toolName } : {}),
     artifactId: ref.artifactId,
     bodySha256: ref.bodySha256,
-    ...(ref.originalEstimatedTokens !== undefined ? { originalEstimatedTokens: ref.originalEstimatedTokens } : {}),
+    ...(ref.originalEstimatedTokens !== undefined
+      ? { originalEstimatedTokens: ref.originalEstimatedTokens }
+      : {}),
     ...(ref.originalBytes !== undefined ? { originalBytes: ref.originalBytes } : {}),
   };
 }
@@ -2050,62 +2281,81 @@ function activeArchiveRefToBoundaryArchiveRef(ref: ActiveFullCompactArchiveRef):
 function skippedSelection(
   decision: 'unchanged' | 'failedOpen',
   reason: ActiveFullCompactSelection extends infer T
-    ? T extends { reason: infer R } ? R : never
+    ? T extends { reason: infer R }
+      ? R
+      : never
     : never,
 ): ActiveFullCompactSelection {
   return { decision, reason, skippedReasonCounts: { [reason]: 1 } } as ActiveFullCompactSelection;
 }
 
 function isTriggerReason(value: unknown): value is ActiveFullCompactBlock['trigger']['reason'] {
-  return value === 'high_water'
-    || value === 'force_ratio'
-    || value === 'predictive_growth'
-    || value === 'reactive_prompt_too_long'
-    || value === 'manual_test';
+  return (
+    value === 'high_water' ||
+    value === 'force_ratio' ||
+    value === 'predictive_growth' ||
+    value === 'reactive_prompt_too_long' ||
+    value === 'manual_test'
+  );
 }
 
 function isValidSourceRef(value: unknown): value is ActiveFullCompactSourceRef {
   if (!value || typeof value !== 'object') return false;
   const ref = value as Partial<ActiveFullCompactSourceRef>;
-  return (ref.kind === 'provider_message' || ref.kind === 'runtime_event' || ref.kind === 'active_archive_placeholder')
-    && nonEmpty(ref.sourceId)
-    && Number.isFinite(ref.messageIndex)
-    && nonEmpty(ref.sessionId)
-    && nonEmpty(ref.turnId)
-    && isContentKind(ref.contentKind)
-    && nonEmpty(ref.bodySha256);
+  return (
+    (ref.kind === 'provider_message' ||
+      ref.kind === 'runtime_event' ||
+      ref.kind === 'active_archive_placeholder') &&
+    nonEmpty(ref.sourceId) &&
+    Number.isFinite(ref.messageIndex) &&
+    nonEmpty(ref.sessionId) &&
+    nonEmpty(ref.turnId) &&
+    isContentKind(ref.contentKind) &&
+    nonEmpty(ref.bodySha256)
+  );
 }
 
 function isArchiveRef(value: unknown): value is ActiveFullCompactArchiveRef {
   if (!value || typeof value !== 'object') return false;
   const ref = value as Partial<ActiveFullCompactArchiveRef>;
-  return (ref.kind === 'toolResult' || ref.kind === 'compactSource')
-    && nonEmpty(ref.artifactId)
-    && nonEmpty(ref.bodySha256)
-    && optionalNonNegativeFiniteNumber(ref.originalEstimatedTokens)
-    && optionalNonNegativeFiniteNumber(ref.originalBytes);
+  return (
+    (ref.kind === 'toolResult' || ref.kind === 'compactSource') &&
+    nonEmpty(ref.artifactId) &&
+    nonEmpty(ref.bodySha256) &&
+    optionalNonNegativeFiniteNumber(ref.originalEstimatedTokens) &&
+    optionalNonNegativeFiniteNumber(ref.originalBytes)
+  );
 }
 
 function isContentKind(value: unknown): value is ActiveFullCompactContentKind {
-  return value === 'text'
-    || value === 'thinking'
-    || value === 'function_call'
-    || value === 'function_response'
-    || value === 'tool_result'
-    || value === 'active_archive_placeholder'
-    || value === 'unknown';
+  return (
+    value === 'text' ||
+    value === 'thinking' ||
+    value === 'function_call' ||
+    value === 'function_response' ||
+    value === 'tool_result' ||
+    value === 'active_archive_placeholder' ||
+    value === 'unknown'
+  );
 }
 
-function archiveRefsEqual(left: ActiveFullCompactArchiveRef | undefined, right: ActiveFullCompactArchiveRef): boolean {
-  return Boolean(left)
-    && left?.kind === right.kind
-    && left.artifactId === right.artifactId
-    && left.bodySha256 === right.bodySha256
-    && left.toolCallId === right.toolCallId
-    && left.toolName === right.toolName;
+function archiveRefsEqual(
+  left: ActiveFullCompactArchiveRef | undefined,
+  right: ActiveFullCompactArchiveRef,
+): boolean {
+  return (
+    Boolean(left) &&
+    left?.kind === right.kind &&
+    left.artifactId === right.artifactId &&
+    left.bodySha256 === right.bodySha256 &&
+    left.toolCallId === right.toolCallId &&
+    left.toolName === right.toolName
+  );
 }
 
-function uniqueArchiveRefs(refs: readonly ActiveFullCompactArchiveRef[]): ActiveFullCompactArchiveRef[] {
+function uniqueArchiveRefs(
+  refs: readonly ActiveFullCompactArchiveRef[],
+): ActiveFullCompactArchiveRef[] {
   const seen = new Set<string>();
   const result: ActiveFullCompactArchiveRef[] = [];
   for (const ref of refs) {
@@ -2145,7 +2395,10 @@ function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? '';
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const object = value as Record<string, unknown>;
-  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`).join(',')}}`;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+    .join(',')}}`;
 }
 
 function sha256(text: string): string {

@@ -9,7 +9,10 @@ import {
   normalizeAdditionalPermissionProfile,
   type AdditionalPermissionGrant,
 } from '../additional-permissions.js';
-import { FilesystemWorkerClient, FilesystemWorkerClientError } from '../filesystem-worker/client.js';
+import {
+  FilesystemWorkerClient,
+  FilesystemWorkerClientError,
+} from '../filesystem-worker/client.js';
 import { createFilesystemWorkerLaunchSpecProvider } from '../filesystem-worker/launch-spec.js';
 import { createDefaultSandboxManager } from '../sandbox/default-sandbox-manager.js';
 
@@ -54,7 +57,8 @@ describe('macOS filesystem worker smoke', { skip: process.platform !== 'darwin' 
         cwd: workspace,
         mode: 'ask',
       }),
-      (error: unknown) => error instanceof FilesystemWorkerClientError && error.reason === 'path_denied',
+      (error: unknown) =>
+        error instanceof FilesystemWorkerClientError && error.reason === 'path_denied',
     );
   });
 
@@ -69,7 +73,8 @@ describe('macOS filesystem worker smoke', { skip: process.platform !== 'darwin' 
         mode: 'ask',
         additionalGrant: grant,
       }),
-      (error: unknown) => error instanceof FilesystemWorkerClientError && error.reason === 'path_denied',
+      (error: unknown) =>
+        error instanceof FilesystemWorkerClientError && error.reason === 'path_denied',
     );
     await client.execute({
       operation: { kind: 'write', path: allowedPath, content: 'outside-ok' },

@@ -19,7 +19,7 @@ Four export surfaces, in the order to look:
 
 ## `data-slot` hooks
 
-Most primitives expose a stable `data-slot="<name>"` attribute so renderer CSS can target a slot (e.g. `[data-slot="dialog-header"]`) rather than a drifting class. Exceptions without one: `choice-card`, `spinner`, `scroll-area`, `settings-segmented` — their styling lives on the consumer's class or an underlying Base UI component, so a `[data-slot="..."]` selector won't match. New primitives should still expose a `data-slot`.
+Most primitives expose a stable `data-slot="<name>"` attribute so renderer CSS can target a slot (e.g. `[data-slot="dialog-header"]`) rather than a drifting class. Exceptions without one: `choice-card`, `spinner`, `scroll-area`, `segmented` — their styling lives on the consumer's class or an underlying Base UI component, so a `[data-slot="..."]` selector won't match. New primitives should still expose a `data-slot`.
 
 ## Consuming
 

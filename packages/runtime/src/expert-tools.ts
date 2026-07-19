@@ -15,7 +15,7 @@
  */
 
 import { z } from 'zod';
-import type { ToolResultContent } from '@maka/core';
+import type { TaskAgentOutcome, TaskLedgerStore, TaskOwner, ToolResultContent } from '@maka/core';
 import type { MakaTool } from './tool-runtime.js';
 import {
   type ExpertTeamDefinition,
@@ -29,6 +29,10 @@ export const EXPERT_DISPATCH_TOOL_NAME = 'expert_dispatch';
 
 type SubagentToolResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 
+export interface ExpertDispatchToolDeps {
+  taskLedger?: TaskLedgerStore;
+}
+
 function memberEnum(team: ExpertTeamDefinition): [string, ...string[]] {
   const ids = team.members.map((member) => member.id);
   return [ids[0]!, ...ids.slice(1)];
@@ -39,7 +43,10 @@ function memberEnum(team: ExpertTeamDefinition): [string, ...string[]] {
  * the roster embedded in the description are the team's members, so the model
  * can only dispatch valid members and sees each member's lens and tool scope.
  */
-export function buildExpertDispatchTool(team: ExpertTeamDefinition): MakaTool<
+export function buildExpertDispatchTool(
+  team: ExpertTeamDefinition,
+  deps: ExpertDispatchToolDeps = {},
+): MakaTool<
   {
     member: string;
     task: string;
@@ -53,7 +60,7 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition): MakaTool<
     description: [
       `Dispatch a member of the "${team.name}" to a bounded task and return its result.`,
       'The member runs as a tool-scoped child agent with its own fresh context — it sees only the task you pass, so make each task self-contained (exact files/scope + what to look for).',
-      'Run members concurrently by emitting several expert_dispatch calls in a single turn. Members do not talk to each other; synthesize their results yourself.',
+      'Run members concurrently by emitting several expert_dispatch calls in a single turn. Members may exchange bounded mailbox messages, but you remain responsible for synthesis and final task completion.',
       '',
       'Members:',
       roster,
@@ -64,7 +71,9 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition): MakaTool<
         .string()
         .min(1)
         .max(60_000)
-        .describe('The bounded, self-contained task for the member, including the exact scope and evidence to return.'),
+        .describe(
+          'The bounded, self-contained task for the member, including the exact scope and evidence to return.',
+        ),
     }),
     permissionRequired: true,
     categoryHint: 'subagent',
@@ -78,14 +87,55 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition): MakaTool<
         throw new Error('spawnChildAgent capability is unavailable in this runtime context');
       }
       const definition = materializeExpertAgentDefinition(team, member);
-      const result = (await ctx.spawnChildAgent({
-        spec: {
-          id: buildExpertAgentId(team.id, member.id),
-          name: definition.name,
-          systemPrompt: definition.systemPrompt,
-        },
-        prompt: input.task,
-      })) as Omit<SubagentToolResult, 'kind'>;
+      let ready: { turnId: string; agentId: string } | undefined;
+      let result: Omit<SubagentToolResult, 'kind'>;
+      try {
+        result = (await ctx.spawnChildAgent({
+          spec: {
+            id: buildExpertAgentId(team.id, member.id),
+            name: definition.name,
+            systemPrompt: definition.systemPrompt,
+          },
+          prompt: input.task,
+          ...(deps.taskLedger
+            ? {
+                onReady: ({ turnId, agentId }) => {
+                  ready = { turnId, agentId };
+                },
+              }
+            : {}),
+        })) as Omit<SubagentToolResult, 'kind'>;
+      } catch (error) {
+        if (deps.taskLedger && ready) {
+          await settleSelfClaimedTasks(
+            deps.taskLedger,
+            ctx.sessionId,
+            ready,
+            {
+              status: 'failed',
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : 'Expert-team member failed before returning a result',
+            },
+            ctx.toolCallId,
+          );
+        }
+        throw error;
+      }
+      if (deps.taskLedger && ready) {
+        await settleSelfClaimedTasks(
+          deps.taskLedger,
+          ctx.sessionId,
+          ready,
+          {
+            status: result.status,
+            ...(result.runId ? { runId: result.runId } : {}),
+            reason: result.failureClass ?? result.summary,
+          },
+          ctx.toolCallId,
+        );
+      }
       return {
         kind: 'subagent',
         ...result,
@@ -95,7 +145,51 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition): MakaTool<
 }
 
 /** Build the dispatch tool for a team id, or `undefined` if the team is unknown. */
-export function buildExpertDispatchToolForTeamId(teamId: string): MakaTool | undefined {
+export function buildExpertDispatchToolForTeamId(
+  teamId: string,
+  deps: ExpertDispatchToolDeps = {},
+): MakaTool | undefined {
   const team = getExpertTeam(teamId);
-  return team ? (buildExpertDispatchTool(team) as MakaTool) : undefined;
+  return team ? (buildExpertDispatchTool(team, deps) as MakaTool) : undefined;
+}
+
+async function settleSelfClaimedTasks(
+  taskLedger: TaskLedgerStore,
+  sessionId: string,
+  ready: { turnId: string; agentId: string },
+  result: { status: TaskAgentOutcome['status']; runId?: string; reason?: string },
+  toolCallId: string,
+): Promise<void> {
+  const claimed = (await taskLedger.list(sessionId, { includeTerminal: false })).filter(
+    (task) =>
+      task.owner?.actor === 'child_agent' &&
+      task.owner.agentId === ready.agentId &&
+      task.owner.turnId === ready.turnId,
+  );
+  for (const task of claimed) {
+    const runId = result.runId ?? task.owner?.runId;
+    const owner: TaskOwner = {
+      actor: 'child_agent',
+      agentId: ready.agentId,
+      ...(runId ? { runId } : {}),
+      turnId: ready.turnId,
+    };
+    await taskLedger.settleAgentOutcome(
+      sessionId,
+      task.id,
+      {
+        status: result.status,
+        owner,
+        reason: result.reason,
+      },
+      {
+        runId,
+        turnId: ready.turnId,
+        toolCallId,
+        source: 'system',
+        actor: 'child_agent',
+        reason: result.reason,
+      },
+    );
+  }
 }

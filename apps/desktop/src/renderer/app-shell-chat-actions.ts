@@ -1,5 +1,12 @@
-import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel, UserQuestionResponse } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type {
+  PermissionResponse,
+  SessionSummary,
+  StoredMessage,
+  ThinkingLevel,
+  UiLocale,
+  UserQuestionResponse,
+} from '@maka/core';
+import { DEFAULT_SESSION_NAME } from '@maka/core';
 import {
   armLiveTurn,
   dequeueInteractionByRequestId,
@@ -7,8 +14,14 @@ import {
   type LiveTurnProjection,
   type NavSelection,
 } from '@maka/ui';
+import type { RendererIngestInput } from '../preload/bridge-contract.js';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
+import {
+  isSessionWorkspaceUnavailableError,
+  showSessionWorkspaceUnavailableToast,
+} from './session-workspace-errors.js';
 
 export type PendingAttachment = {
   displayName: string;
@@ -34,7 +47,9 @@ type ComposerImportOwner = {
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
-type LiveTurnRecordUpdater = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => void;
+type LiveTurnRecordUpdater = (
+  updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>,
+) => void;
 type MessageListUpdater = (next: StoredMessage[] | ((current: StoredMessage[]) => StoredMessage[])) => void;
 type MessageLoadErrorUpdater = (updater: (current: Record<string, string>) => Record<string, string>) => void;
 type InteractionQueueUpdater = (updater: (current: InteractionQueues) => InteractionQueues) => void;
@@ -64,7 +79,10 @@ async function readMessagesForRefresh(
 ): Promise<{ messages: StoredMessage[]; settled: boolean }> {
   const requiredMessageId = options.requiredAssistantMessageId;
   if (!requiredMessageId) {
-    return { messages: await window.maka.sessions.readMessages(sessionId), settled: true };
+    return {
+      messages: await window.maka.sessions.readMessages(sessionId),
+      settled: true,
+    };
   }
 
   let lastError: unknown;
@@ -98,12 +116,17 @@ export interface AppShellChatActions {
 function toIngestItems(pending: readonly PendingAttachment[]): RendererIngestInput[] {
   return pending.map((p) =>
     p.source.type === 'approval'
-      ? { approvalId: p.source.approvalId, name: p.source.name, ...(p.mimeType ? { mimeType: p.mimeType } : {}) }
+      ? {
+          approvalId: p.source.approvalId,
+          name: p.source.name,
+          ...(p.mimeType ? { mimeType: p.mimeType } : {}),
+        }
       : { file: p.source.file },
   );
 }
 
 export function createAppShellChatActions(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   addPendingSessionAction: (
     sessionId: string,
@@ -139,6 +162,7 @@ export function createAppShellChatActions(deps: {
   pendingNewChatThinkingLevel: PendingNewChatThinkingLevel;
 }): AppShellChatActions {
   const {
+    uiLocale,
     activeIdRef,
     addPendingSessionAction,
     captureComposerImportOwner,
@@ -161,6 +185,7 @@ export function createAppShellChatActions(deps: {
     validPendingNewChatModel,
     pendingNewChatThinkingLevel,
   } = deps;
+  const copy = getShellCopy(uiLocale).chatActions;
 
   function optimisticUserMessage(
     turnId: string,
@@ -236,13 +261,16 @@ export function createAppShellChatActions(deps: {
     try {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
-        if (pending && pending.length > 0) preflightAttachmentItems(pending);
+        if (pending && pending.length > 0) preflightAttachmentItems(pending, uiLocale);
         const session = await window.maka.sessions.create({
           // Omit permissionMode so main.ts's sessions:create resolves the
           // configured chatDefaults.permissionMode as the single authority.
-          name: text.slice(0, 42) || '新建对话',
+          name: DEFAULT_SESSION_NAME,
           ...(validPendingNewChatModel
-            ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
+            ? {
+                llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug,
+                model: validPendingNewChatModel.model,
+              }
             : {}),
           ...(pendingNewChatThinkingLevel ? { thinkingLevel: pendingNewChatThinkingLevel } : {}),
         });
@@ -252,7 +280,12 @@ export function createAppShellChatActions(deps: {
         armTurnActive(session.id, turnId);
         restoreOptimisticStatus = markSessionRunningOptimistic(session.id);
         const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
-        const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
+        const sendResult = await window.maka.sessions.send(session.id, {
+          type: 'send',
+          turnId,
+          text,
+          ...(attachmentItems ? { attachmentItems } : {}),
+        });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
@@ -270,7 +303,12 @@ export function createAppShellChatActions(deps: {
       armTurnActive(sessionId, turnId);
       restoreOptimisticStatus = markSessionRunningOptimistic(sessionId);
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
-      const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
+      const sendResult = await window.maka.sessions.send(sessionId, {
+        type: 'send',
+        turnId,
+        text,
+        ...(attachmentItems ? { attachmentItems } : {}),
+      });
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
       await refreshMessagesUntilTurn(sessionId, turnId);
       return true;
@@ -286,17 +324,17 @@ export function createAppShellChatActions(deps: {
       if (optimisticSessionId && optimisticTurnId) disarmTurnActive(optimisticSessionId, optimisticTurnId);
       restoreOptimisticStatus?.();
       const feedbackSessionId = optimisticSessionId ?? initialSessionId;
-      const sendStillOwnsCurrentSurface = feedbackSessionId
-        ? activeIdRef.current === feedbackSessionId
-        : newChatOwner
-          ? isNewChatSendSurfaceActive(newChatOwner)
-          : activeIdRef.current === initialSessionId;
+      const sendStillOwnsCurrentSurface =
+        (feedbackSessionId !== undefined && activeIdRef.current === feedbackSessionId) ||
+        (newChatOwner !== null && isNewChatSendSurfaceActive(newChatOwner));
       if (!sendStillOwnsCurrentSurface) return false;
       if (isNoRealConnectionError(error)) {
         const reason = noRealConnectionReasonFromError(error);
-        showModelSetupToast(noRealConnectionSetupDescription(reason), reason);
+        showModelSetupToast(noRealConnectionSetupDescription(reason, uiLocale), reason);
+      } else if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
       } else {
-        toastApi.error('发送失败', generalizedErrorMessageChinese(error, '消息暂时无法发送，请稍后重试。'));
+        toastApi.error(copy.sendFailedTitle, localizedShellErrorMessage(error, copy.sendFailedFallback, uiLocale));
       }
       return false;
     }
@@ -311,7 +349,15 @@ export function createAppShellChatActions(deps: {
       // Same fire-and-forget call site as stop(), wrap so a failed
       // permission response (main process busy / session dropped)
       // surfaces instead of dying as UnhandledPromiseRejection.
-      if (activeIdRef.current === sessionId) toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      if (activeIdRef.current !== sessionId) return;
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+      } else {
+        toastApi.error(
+          copy.responseFailedTitle,
+          localizedShellErrorMessage(error, copy.responseFailedFallback, uiLocale),
+        );
+      }
     }
   }
 
@@ -322,7 +368,15 @@ export function createAppShellChatActions(deps: {
       await window.maka.sessions.respondToUserQuestion(sessionId, response);
       setInteractionBySession((current) => dequeueInteractionByRequestId(current, sessionId, response.requestId));
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      if (activeIdRef.current !== sessionId) return;
+      if (isSessionWorkspaceUnavailableError(error)) {
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
+      } else {
+        toastApi.error(
+          copy.responseFailedTitle,
+          localizedShellErrorMessage(error, copy.responseFailedFallback, uiLocale),
+        );
+      }
     }
   }
 
@@ -343,9 +397,12 @@ export function createAppShellChatActions(deps: {
       return result.settled;
     } catch (error) {
       if (activeIdRef.current === sessionId) {
-        const message = messageRefreshErrorMessage(error);
-        setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
-        toastApi.error('刷新对话失败', message);
+        const message = messageRefreshErrorMessage(error, uiLocale);
+        setMessageLoadErrorBySession((current) => ({
+          ...current,
+          [sessionId]: message,
+        }));
+        toastApi.error(copy.refreshFailedTitle, message);
       }
       return false;
     }

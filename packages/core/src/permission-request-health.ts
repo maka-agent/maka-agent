@@ -1,10 +1,6 @@
-export const PERMISSION_REQUEST_HEALTH_STATUSES = [
-  'fresh',
-  'stale',
-  'expired',
-] as const;
+export const PERMISSION_REQUEST_HEALTH_STATUSES = ['fresh', 'stale', 'expired'] as const;
 
-export type PermissionRequestHealthStatus = typeof PERMISSION_REQUEST_HEALTH_STATUSES[number];
+export type PermissionRequestHealthStatus = (typeof PERMISSION_REQUEST_HEALTH_STATUSES)[number];
 
 export const PERMISSION_REQUEST_STALE_AFTER_MS = 2 * 60_000;
 export const PERMISSION_REQUEST_EXPIRED_AFTER_MS = 10 * 60_000;
@@ -14,8 +10,13 @@ export interface PermissionRequestHealth {
   ageMs: number;
 }
 
-export function isPermissionRequestHealthStatus(value: unknown): value is PermissionRequestHealthStatus {
-  return typeof value === 'string' && (PERMISSION_REQUEST_HEALTH_STATUSES as readonly string[]).includes(value);
+export function isPermissionRequestHealthStatus(
+  value: unknown,
+): value is PermissionRequestHealthStatus {
+  return (
+    typeof value === 'string' &&
+    (PERMISSION_REQUEST_HEALTH_STATUSES as readonly string[]).includes(value)
+  );
 }
 
 export function derivePermissionRequestHealth(input: {

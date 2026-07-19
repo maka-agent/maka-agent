@@ -117,10 +117,7 @@ describe('mid-turn safe boundary selection', () => {
   });
 
   test('reports no safe completed span when the whole pool is one atomic pair', () => {
-    const events = [
-      call('c1', 'call-1', 'turn-1'),
-      result('r1', 'call-1', 'turn-1'),
-    ];
+    const events = [call('c1', 'call-1', 'turn-1'), result('r1', 'call-1', 'turn-1')];
     // Reserving 1 tail forces maxCut=1, which straddles the only pair → no safe span.
     const boundary = selectMidTurnSafeBoundary(events, { reserveTailEvents: 1 });
     assert.deepEqual(boundary, { ok: false, reason: 'no_safe_completed_span' });
@@ -141,7 +138,9 @@ describe('plan mid-turn capacity compaction', () => {
       result('res-b', 'cb', 'turn-1'),
     ];
   }
-  function planInput(over: Partial<PlanMidTurnCapacityCompactionInput> = {}): PlanMidTurnCapacityCompactionInput {
+  function planInput(
+    over: Partial<PlanMidTurnCapacityCompactionInput> = {},
+  ): PlanMidTurnCapacityCompactionInput {
     return {
       sessionId: 'session-1',
       orderedEvents: longTurnEvents(),
@@ -158,7 +157,9 @@ describe('plan mid-turn capacity compaction', () => {
   }
 
   test('skips below the high-water threshold', async () => {
-    const result = await planMidTurnCapacityCompaction(planInput({ estimatedNextRequestTokens: 100_000 }));
+    const result = await planMidTurnCapacityCompaction(
+      planInput({ estimatedNextRequestTokens: 100_000 }),
+    );
     assert.deepEqual(result, { decision: 'skip', reason: 'below_high_water' });
   });
 
@@ -209,17 +210,25 @@ describe('plan mid-turn capacity compaction', () => {
   });
 
   test('fails open below the window when the summarizer fails', async () => {
-    const result = await planMidTurnCapacityCompaction(planInput({
-      estimatedNextRequestTokens: 120_000, // over high-water, under window
-      summarize: () => { throw new Error('summarizer down'); },
-    }));
+    const result = await planMidTurnCapacityCompaction(
+      planInput({
+        estimatedNextRequestTokens: 120_000, // over high-water, under window
+        summarize: () => {
+          throw new Error('summarizer down');
+        },
+      }),
+    );
     assert.deepEqual(result, { decision: 'fail_open', reason: 'summarizer_failed' });
   });
 
   test('preserves a typed summarizer failure as the mid-turn diagnostic reason', async () => {
-    const result = await planMidTurnCapacityCompaction(planInput({
-      summarize: () => { throw new HistoryCompactSummarizerError('provider_error'); },
-    }));
+    const result = await planMidTurnCapacityCompaction(
+      planInput({
+        summarize: () => {
+          throw new HistoryCompactSummarizerError('provider_error');
+        },
+      }),
+    );
     assert.deepEqual(result, {
       decision: 'fail_open',
       reason: 'summarizer_failed',
@@ -230,22 +239,30 @@ describe('plan mid-turn capacity compaction', () => {
   test('fails open (never terminates) above the window when the summarizer fails', async () => {
     // The engine is a pure shaper: the over-window pass/terminate verdict is
     // issued by the backend's final-request estimate owner, never here.
-    const result = await planMidTurnCapacityCompaction(planInput({
-      estimatedNextRequestTokens: 130_000, // over the window itself
-      summarize: () => '',
-    }));
+    const result = await planMidTurnCapacityCompaction(
+      planInput({
+        estimatedNextRequestTokens: 130_000, // over the window itself
+        summarize: () => '',
+      }),
+    );
     assert.deepEqual(result, { decision: 'fail_open', reason: 'summarizer_failed' });
   });
 
   test('fails open with no_safe_completed_span when the pool has no safe cut past the anchor', async () => {
     // Only the head anchor and one open call/result pair; reserving the tail
     // leaves no safe completed span that also covers a step past the anchor.
-    const events = [user('anchor', 'turn-1'), call('c', 'c1', 'turn-1'), result('r', 'c1', 'turn-1')];
-    const outcome = await planMidTurnCapacityCompaction(planInput({
-      orderedEvents: events,
-      estimatedNextRequestTokens: 130_000,
-      reserveTailEvents: 1,
-    }));
+    const events = [
+      user('anchor', 'turn-1'),
+      call('c', 'c1', 'turn-1'),
+      result('r', 'c1', 'turn-1'),
+    ];
+    const outcome = await planMidTurnCapacityCompaction(
+      planInput({
+        orderedEvents: events,
+        estimatedNextRequestTokens: 130_000,
+        reserveTailEvents: 1,
+      }),
+    );
     assert.deepEqual(outcome, { decision: 'fail_open', reason: 'no_safe_completed_span' });
   });
 
@@ -257,11 +274,13 @@ describe('plan mid-turn capacity compaction', () => {
     // still-over-window request. The engine therefore makes NO window claim
     // after folding: it returns the shape and the backend owner re-measures
     // the actual replacement payload.
-    const outcome = await planMidTurnCapacityCompaction(planInput({
-      estimatedNextRequestTokens: 10_000,
-      contextWindow: 1_000,
-      reserveTokens: 100,
-    }));
+    const outcome = await planMidTurnCapacityCompaction(
+      planInput({
+        estimatedNextRequestTokens: 10_000,
+        contextWindow: 1_000,
+        reserveTokens: 100,
+      }),
+    );
     assert.equal(outcome.decision, 'compacted');
   });
 
@@ -272,22 +291,26 @@ describe('plan mid-turn capacity compaction', () => {
 
   test('rolls forward from a matching previous checkpoint (only the new span is summarized)', async () => {
     const events = longTurnEvents();
-    const first = await planMidTurnCapacityCompaction(planInput({
-      orderedEvents: events.slice(0, 5), // fold through res-a
-    }));
+    const first = await planMidTurnCapacityCompaction(
+      planInput({
+        orderedEvents: events.slice(0, 5), // fold through res-a
+      }),
+    );
     assert.equal(first.decision, 'compacted');
     if (first.decision !== 'compacted') return;
 
     let seenNewlyFolded: string[] = [];
-    const second = await planMidTurnCapacityCompaction(planInput({
-      orderedEvents: events,
-      previousCheckpoint: first.checkpoint,
-      summarize: ({ newlyFoldedRuntimeEvents, previousCheckpoint }) => {
-        seenNewlyFolded = newlyFoldedRuntimeEvents.map((event) => event.id);
-        assert.equal(previousCheckpoint?.checkpointId, first.checkpoint.checkpointId);
-        return 'rolled-forward summary';
-      },
-    }));
+    const second = await planMidTurnCapacityCompaction(
+      planInput({
+        orderedEvents: events,
+        previousCheckpoint: first.checkpoint,
+        summarize: ({ newlyFoldedRuntimeEvents, previousCheckpoint }) => {
+          seenNewlyFolded = newlyFoldedRuntimeEvents.map((event) => event.id);
+          assert.equal(previousCheckpoint?.checkpointId, first.checkpoint.checkpointId);
+          return 'rolled-forward summary';
+        },
+      }),
+    );
     assert.equal(second.decision, 'compacted');
     if (second.decision !== 'compacted') return;
     // First folded through `anchor`; the second folds through `res-a`, so only
@@ -299,8 +322,13 @@ describe('plan mid-turn capacity compaction', () => {
 
 function base(id: string, turnId: string): Omit<RuntimeEvent, 'role' | 'author' | 'content'> {
   return {
-    id, sessionId: 'session-1', runId: 'run-1', turnId, invocationId: 'run-1',
-    ts: 1_800_000_000_000, partial: false,
+    id,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    turnId,
+    invocationId: 'run-1',
+    ts: 1_800_000_000_000,
+    partial: false,
   };
 }
 function user(id: string, turnId: string): RuntimeEvent {
@@ -311,13 +339,17 @@ function model(id: string, turnId: string, text: string = id): RuntimeEvent {
 }
 function call(id: string, callId: string, turnId: string): RuntimeEvent {
   return {
-    ...base(id, turnId), role: 'model', author: 'agent',
+    ...base(id, turnId),
+    role: 'model',
+    author: 'agent',
     content: { kind: 'function_call', id: callId, name: 'tool', args: {} },
   };
 }
 function result(id: string, callId: string, turnId: string, payload: string = 'ok'): RuntimeEvent {
   return {
-    ...base(id, turnId), role: 'tool', author: 'tool',
+    ...base(id, turnId),
+    role: 'tool',
+    author: 'tool',
     content: { kind: 'function_response', id: callId, name: 'tool', result: payload },
   };
 }

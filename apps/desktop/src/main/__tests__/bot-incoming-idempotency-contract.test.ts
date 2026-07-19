@@ -81,7 +81,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
     const newSessionBranch = block.match(/if \(!sessionId\) \{[\s\S]*?const ready = await (?:deps\.)?getReadyConnection/);
     assert.ok(newSessionBranch, 'new bot conversation branch must exist');
     assert.ok(
-      block.indexOf('consumeBotConversationToken(conversationKey)') < block.indexOf('runtime.createSession'),
+      block.indexOf('consumeBotConversationToken(conversationKey)') < block.indexOf('deps.createSession'),
       'rate limit must run before creating a bot session',
     );
     assert.ok(
@@ -89,7 +89,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
       'rate limit must run before runtime.sendMessage',
     );
     assert.ok(
-      block.indexOf('botConversationSessions.size >= BOT_CONVERSATION_SESSION_LIMIT') < block.indexOf('runtime.createSession'),
+      block.indexOf('botConversationSessions.size >= BOT_CONVERSATION_SESSION_LIMIT') < block.indexOf('deps.createSession'),
       'new bot binding cap must run before creating the 501st session',
     );
     assert.ok(
@@ -118,7 +118,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
     assert.ok(guard, 'ensureBotSessionExploreMode guard must exist');
     const block = processBlock![0];
     assert.ok(
-      block.indexOf('ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS)') < block.indexOf('ensureSessionCanSend(sessionId)'),
+      block.indexOf('ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS)') < block.lastIndexOf('ensureSessionCanSend(sessionId)'),
       'existing bot sessions must be permission-checked before generic send readiness',
     );
     assert.ok(

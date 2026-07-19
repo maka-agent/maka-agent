@@ -47,12 +47,10 @@ export function projectOpenAIStrictFunctionArgs(input: {
     throw new Error(`openai_strict_function_unknown_action:${action}`);
   }
   const args = Object.fromEntries(
-    Object.entries(record).filter(([key, value]) =>
-      value !== null && allowedKeys.includes(key)),
+    Object.entries(record).filter(([key, value]) => value !== null && allowedKeys.includes(key)),
   );
   const discardedKeys = Object.entries(record)
-    .filter(([key, value]) =>
-      value !== null && !allowedKeys.includes(key))
+    .filter(([key, value]) => value !== null && !allowedKeys.includes(key))
     .map(([key]) => key)
     .sort();
   return { args, discardedKeys };
@@ -64,9 +62,7 @@ function nullableSchema(schema: Record<string, unknown>): Record<string, unknown
     return { ...schema, type: [type, 'null'] };
   }
   if (Array.isArray(type)) {
-    return type.includes('null')
-      ? schema
-      : { ...schema, type: [...type, 'null'] };
+    return type.includes('null') ? schema : { ...schema, type: [...type, 'null'] };
   }
   return { anyOf: [schema, { type: 'null' }] };
 }

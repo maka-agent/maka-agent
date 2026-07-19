@@ -3,10 +3,7 @@ import { readdirSync } from 'node:fs';
 
 import type { PermissionProfile } from '@maka/core/permission-profile';
 
-import {
-  detectLinuxSandboxCapability,
-  type LinuxSandboxCapability,
-} from './linux-capability.js';
+import { detectLinuxSandboxCapability, type LinuxSandboxCapability } from './linux-capability.js';
 import type {
   SandboxBackend,
   SandboxCommand,
@@ -15,14 +12,7 @@ import type {
   SandboxTransformResult,
 } from './types.js';
 
-const DEFAULT_READ_ONLY_HOST_PATHS = [
-  '/usr',
-  '/bin',
-  '/sbin',
-  '/lib',
-  '/lib64',
-  '/etc',
-] as const;
+const DEFAULT_READ_ONLY_HOST_PATHS = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc'] as const;
 
 export interface LinuxBubblewrapBackendOptions {
   capability?: LinuxSandboxCapability;
@@ -128,8 +118,9 @@ export class LinuxBubblewrapBackend implements SandboxBackend {
 
     let nestedProtectedPaths: readonly string[];
     try {
-      nestedProtectedPaths = (this.options.discoverProtectedMetadataPaths
-        ?? discoverNestedProtectedMetadataPaths)({
+      nestedProtectedPaths = (
+        this.options.discoverProtectedMetadataPaths ?? discoverNestedProtectedMetadataPaths
+      )({
         writableRoots: roots.protectedWritableRoots,
         names: roots.protectedMetadataNames,
       });
@@ -209,15 +200,18 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
     ...roots.readableRoots,
     ...roots.writableRoots,
   ];
-  const extraProgramDirectories = programDirectory
-    && !isCoveredByAnyRoot(programDirectory, profileCoverage)
-    ? [programDirectory]
-    : [];
-  const extraRuntimeRoots = removeNestedRoots((command.pathContext.minimalRoots ?? []).filter((root) => (
-    posix.isAbsolute(root)
-    && posix.normalize(root) !== '/'
-    && !isCoveredByAnyRoot(root, profileCoverage)
-  )));
+  const extraProgramDirectories =
+    programDirectory && !isCoveredByAnyRoot(programDirectory, profileCoverage)
+      ? [programDirectory]
+      : [];
+  const extraRuntimeRoots = removeNestedRoots(
+    (command.pathContext.minimalRoots ?? []).filter(
+      (root) =>
+        posix.isAbsolute(root) &&
+        posix.normalize(root) !== '/' &&
+        !isCoveredByAnyRoot(root, profileCoverage),
+    ),
+  );
   const mountRoots = uniqueRoots([
     ...extraProgramDirectories,
     ...extraRuntimeRoots,
@@ -261,7 +255,9 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
  */
 export function buildNetworkSeccompFilter(arch: NodeJS.Architecture = process.arch): Uint8Array {
   const syscall = networkSyscalls(arch);
-  const instructions: ReadonlyArray<readonly [code: number, jt: number, jf: number, value: number]> = [
+  const instructions: ReadonlyArray<
+    readonly [code: number, jt: number, jf: number, value: number]
+  > = [
     [0x20, 0, 0, 4],
     [0x15, 1, 0, syscall.auditArch],
     [0x06, 0, 0, 0x80000000],
@@ -315,10 +311,7 @@ function failure(
   };
 }
 
-function resolveRoots(
-  profile: PermissionProfile,
-  context: SandboxPathContext,
-): ResolvedLinuxRoots {
+function resolveRoots(profile: PermissionProfile, context: SandboxPathContext): ResolvedLinuxRoots {
   if (profile.type !== 'managed' || profile.fileSystem.kind !== 'restricted') {
     return {
       readableRoots: [],
@@ -343,8 +336,8 @@ function resolveRoots(
     }
 
     const roots = rootsForEntry(entry, context);
-    const isTemp = entry.kind === 'special'
-      && (entry.special === ':tmpdir' || entry.special === ':slash_tmp');
+    const isTemp =
+      entry.kind === 'special' && (entry.special === ':tmpdir' || entry.special === ':slash_tmp');
 
     if (entry.access === 'write' && isTemp) {
       addUnique(tempRoots, roots);
@@ -370,7 +363,10 @@ function resolveRoots(
   };
 }
 
-type ProfileEntry = Extract<PermissionProfile, { type: 'managed' }>['fileSystem']['entries'][number];
+type ProfileEntry = Extract<
+  PermissionProfile,
+  { type: 'managed' }
+>['fileSystem']['entries'][number];
 
 function rootsForEntry(entry: ProfileEntry, context: SandboxPathContext): readonly string[] {
   if (entry.kind === 'path') return [entry.path];
@@ -413,9 +409,11 @@ export function linuxExecutableRoots(input: {
   const roots: string[] = [];
   if (posix.isAbsolute(input.execPath)) {
     const executableDirectory = posix.dirname(posix.normalize(input.execPath));
-    roots.push(posix.basename(executableDirectory) === 'bin'
-      ? posix.dirname(executableDirectory)
-      : executableDirectory);
+    roots.push(
+      posix.basename(executableDirectory) === 'bin'
+        ? posix.dirname(executableDirectory)
+        : executableDirectory,
+    );
   }
   for (const entry of input.path?.split(':') ?? []) {
     if (posix.isAbsolute(entry) && posix.normalize(entry) !== '/') {
@@ -432,15 +430,19 @@ function isCoveredByAnyRoot(path: string, roots: readonly string[]): boolean {
   });
 }
 
-function removeCoveredRoots(roots: readonly string[], covering: readonly string[]): readonly string[] {
+function removeCoveredRoots(
+  roots: readonly string[],
+  covering: readonly string[],
+): readonly string[] {
   return roots.filter((root) => !covering.includes(root));
 }
 
 function removeNestedRoots(roots: readonly string[]): readonly string[] {
   const unique = [...new Set(roots.map((root) => posix.normalize(root)))];
-  return unique.filter((root) => !unique.some((candidate) => (
-    candidate !== root && isCoveredByAnyRoot(root, [candidate])
-  )));
+  return unique.filter(
+    (root) =>
+      !unique.some((candidate) => candidate !== root && isCoveredByAnyRoot(root, [candidate])),
+  );
 }
 
 function requiredParentDirectories(roots: readonly string[]): readonly string[] {

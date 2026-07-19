@@ -25,13 +25,17 @@ describe('runtime resume desktop routing contract', () => {
   });
 
   it('main plans from authoritative state and streams only an approved latest continuation', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/main/sessions-ipc-main.ts'),
+      'utf8',
+    );
     const handler = main.match(/ipcMain\.handle\('sessions:resumeLatest'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
     assert.match(handler, /runtime\.planLatestAuthoritativeSafeBoundaryContinuation\(sessionId\)/);
     assert.match(handler, /if \(!plan\.continuation\)/);
     assert.match(handler, /runtime\.resumeSafeBoundaryContinuation\(plan\.continuation\)/);
-    assert.match(handler, /streamEvents\(sessionId, iterator, plan\.continuation\.turnId\)/);
+    assert.match(handler, /streamEvents\(sessionId, iterator, \{/);
+    assert.match(handler, /turnId: plan\.continuation\.turnId/);
   });
 
   it('preload exposes resumeLatest without accepting renderer safety facts', async () => {
@@ -49,6 +53,7 @@ describe('runtime resume desktop routing contract', () => {
     assert.match(recovery, /MAKA_RUNTIME_SAFE_BOUNDARY_RESUME !== '1'/);
     assert.match(recovery, /runtime\.planLatestAuthoritativeSafeBoundaryContinuation\(session\.id\)/);
     assert.match(recovery, /runtime\.resumeSafeBoundaryContinuation\(plan\.continuation\)/);
-    assert.match(recovery, /streamEvents\(session\.id, iterator, plan\.continuation\.turnId\)/);
+    assert.match(recovery, /streamEvents\(session\.id, iterator, \{/);
+    assert.match(recovery, /turnId: plan\.continuation\.turnId/);
   });
 });

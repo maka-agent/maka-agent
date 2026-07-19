@@ -14,6 +14,8 @@
  */
 
 import type { TurnLineageBadge } from '@maka/ui';
+import type { UiLocale } from '@maka/core';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 
 export interface TurnLineageBadgeInput {
   turnId: string;
@@ -25,17 +27,19 @@ export interface TurnLineageBadgeInput {
   regeneratedToTurnId?: string;
   /** True when the target turn id still exists in the materialized view. */
   existsTurn(turnId: string): boolean;
+  locale?: UiLocale;
 }
 
 export function deriveTurnLineageBadges(input: TurnLineageBadgeInput): TurnLineageBadge[] {
+  const copy = getDesktopConversationCopy(input.locale ?? 'zh').lineage;
   const badges: TurnLineageBadge[] = [];
 
   const forwardFrom = input.regeneratedFromTurnId ?? input.retriedFromTurnId;
   if (forwardFrom && input.existsTurn(forwardFrom)) {
     badges.push({
       id: `forward-regen-${input.turnId}`,
-      label: `重新生成自旧回答`,
-      tooltip: `这是重新生成的并行回答，点击查看被保留的旧回答`,
+      label: copy.regeneratedFrom,
+      tooltip: copy.regeneratedFromTooltip,
       targetTurnId: forwardFrom,
       direction: 'forward',
     });
@@ -45,8 +49,8 @@ export function deriveTurnLineageBadges(input: TurnLineageBadgeInput): TurnLinea
   if (reverseTo && input.existsTurn(reverseTo)) {
     badges.push({
       id: `reverse-regen-${input.turnId}`,
-      label: `已重新生成 → 新回答`,
-      tooltip: `点击跳转到重新生成的新回答`,
+      label: copy.regeneratedTo,
+      tooltip: copy.regeneratedToTooltip,
       targetTurnId: reverseTo,
       direction: 'reverse',
     });

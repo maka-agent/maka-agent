@@ -26,11 +26,17 @@ describe('computeEditedSource — exact match', () => {
   });
 
   test('throws with the where label when old_string is absent', () => {
-    assert.throws(() => computeEditedSource('hello', 'absent', 'x', 'src/a.txt'), /old_string not found in src\/a\.txt/);
+    assert.throws(
+      () => computeEditedSource('hello', 'absent', 'x', 'src/a.txt'),
+      /old_string not found in src\/a\.txt/,
+    );
   });
 
   test('throws with the match count when old_string is not unique', () => {
-    assert.throws(() => computeEditedSource('a a a', 'a', 'b', 'b.txt'), /old_string is not unique in b\.txt \(3 matches\)/);
+    assert.throws(
+      () => computeEditedSource('a a a', 'a', 'b', 'b.txt'),
+      /old_string is not unique in b\.txt \(3 matches\)/,
+    );
   });
 
   test('rejects identical old_string and new_string', () => {
@@ -46,7 +52,12 @@ describe('computeEditedSource — fuzzy cascade', () => {
   test('line-trimmed: tolerates indentation drift on a multi-line block', () => {
     const content = 'function f() {\n    return 1;\n}\n'; // 4-space body
     const oldString = 'function f() {\n  return 1;\n}'; // model used 2-space body
-    const result = computeEditedSource(content, oldString, 'function f() {\n    return 2;\n}', 'f.ts');
+    const result = computeEditedSource(
+      content,
+      oldString,
+      'function f() {\n    return 2;\n}',
+      'f.ts',
+    );
     assert.equal(result.matchedVia, 'line-trimmed');
     assert.equal(result.content, 'function f() {\n    return 2;\n}\n');
     assert.equal(result.startLine, 1);
@@ -92,13 +103,19 @@ describe('computeEditedSource — anti-corruption guards', () => {
   test('rejects multiple distinct fuzzy candidates instead of guessing', () => {
     const content = 'function a() {\n  x;\n}\nfunction a() {\n   x;\n}\n';
     const oldString = 'function a() {\n    x;\n}'; // matches both blocks by trimmed lines
-    assert.throws(() => computeEditedSource(content, oldString, 'Y', 'a.ts'), /different line-trimmed candidates/);
+    assert.throws(
+      () => computeEditedSource(content, oldString, 'Y', 'a.ts'),
+      /different line-trimmed candidates/,
+    );
   });
 
   test('rejects a fuzzy span that occurs more than once', () => {
     const content = 'function a() {\n  x;\n}\nfunction a() {\n  x;\n}\n';
     const oldString = 'function a() {\n    x;\n}';
-    assert.throws(() => computeEditedSource(content, oldString, 'Y', 'a.ts'), /occurs more than once/);
+    assert.throws(
+      () => computeEditedSource(content, oldString, 'Y', 'a.ts'),
+      /occurs more than once/,
+    );
   });
 
   test('rejects a too-short old_string for a non-exact match', () => {
@@ -152,9 +169,16 @@ describe('computeEditedSource — oversized / binary fuzzy guards', () => {
 describe('computeEditedSource — serialized embedding', () => {
   test('serialized source is standalone and reproduces the full cascade', () => {
     assert.equal(typeof COMPUTE_EDITED_SOURCE_FN_SOURCE, 'string');
-    const embedded = new Function(`return (${COMPUTE_EDITED_SOURCE_FN_SOURCE})`)() as typeof computeEditedSource;
+    const embedded = new Function(
+      `return (${COMPUTE_EDITED_SOURCE_FN_SOURCE})`,
+    )() as typeof computeEditedSource;
     // exercise a fuzzy path to prove nested helpers survive serialization
-    const result = embedded('function f() {\n    return 1;\n}\n', 'function f() {\n  return 1;\n}', 'function f() {\n    return 2;\n}', 'x.ts');
+    const result = embedded(
+      'function f() {\n    return 1;\n}\n',
+      'function f() {\n  return 1;\n}',
+      'function f() {\n    return 2;\n}',
+      'x.ts',
+    );
     assert.equal(result.matchedVia, 'line-trimmed');
     assert.equal(result.content, 'function f() {\n    return 2;\n}\n');
   });

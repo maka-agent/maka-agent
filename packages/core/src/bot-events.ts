@@ -77,13 +77,20 @@ export function nonTextMessageAck(kind: BotAttachmentKind): string {
 
 export function botDisplayLabel(platform: BotPlatform): string {
   switch (platform) {
-    case 'telegram': return 'Telegram';
-    case 'feishu': return '飞书';
-    case 'wecom': return '企业微信';
-    case 'wechat': return '微信';
-    case 'discord': return 'Discord';
-    case 'dingtalk': return '钉钉';
-    case 'qq': return 'QQ';
+    case 'telegram':
+      return 'Telegram';
+    case 'feishu':
+      return '飞书';
+    case 'wecom':
+      return '企业微信';
+    case 'wechat':
+      return '微信';
+    case 'discord':
+      return 'Discord';
+    case 'dingtalk':
+      return '钉钉';
+    case 'qq':
+      return 'QQ';
   }
 }
 
@@ -198,11 +205,13 @@ export function formatBotMessageForSession(
 }
 
 function sanitizeBotUserName(value: string): string {
-  return value
-    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ')
-    .replace(/[\p{Cf}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim() || 'unknown';
+  return (
+    value
+      .replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ')
+      .replace(/[\p{Cf}]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || 'unknown'
+  );
 }
 
 /**
@@ -228,14 +237,14 @@ const BOT_REASON_HUMANIZE: Record<string, string | undefined> = {
   'get-me-failed': '凭据探测失败；请检查 Bot Token',
   // Non-error states surface elsewhere in the UI — return undefined so
   // we do not overwrite a real lastError with a benign status change.
-  'disabled': undefined,
-  'stopped': undefined,
+  disabled: undefined,
+  stopped: undefined,
   'no-token': undefined,
   'missing-feishu-credentials': undefined,
   'feishu-domain-required': undefined,
   'feishu-events-not-connected': undefined,
   'scaffold-only': undefined,
-  'unimplemented': undefined,
+  unimplemented: undefined,
 };
 
 /**
@@ -254,7 +263,10 @@ const BOT_REASON_HUMANIZE_PATTERNS: Array<{ pattern: RegExp; format: (code: stri
   { pattern: /^connections-open-(\d+)$/, format: (code) => `Stream 订阅打开失败（HTTP ${code}）` },
   { pattern: /^stream-closed-(\d+)$/, format: (code) => `Stream 连接关闭（${code}）；正在重连` },
   { pattern: /^send-failed-(\d+)$/, format: (code) => `发送失败（HTTP ${code}）` },
-  { pattern: /^getAppAccessToken-(\d+)$/, format: (code) => `获取 access_token 失败（HTTP ${code}）` },
+  {
+    pattern: /^getAppAccessToken-(\d+)$/,
+    format: (code) => `获取 access_token 失败（HTTP ${code}）`,
+  },
 ];
 
 export function humanizeBotStatusReason(reason: string | undefined): string | undefined {

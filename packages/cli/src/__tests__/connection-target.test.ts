@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { listReadyModelChoices, resolveDefaultSessionTarget, selectableModelIdsForTarget } from '../connection-target.js';
+import {
+  listReadyModelChoices,
+  resolveDefaultSessionTarget,
+  selectableModelIdsForTarget,
+} from '../connection-target.js';
 
 describe('default session target resolver', () => {
   test('resolves OpenCode Go credentials without rewriting its exact model id', async () => {
@@ -15,10 +19,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'opencode-go',
-        get: async (slug) => slug === 'opencode-go' ? connection : null,
+        get: async (slug) => (slug === 'opencode-go' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'opencode-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'opencode-test-key' : null),
       },
     });
 
@@ -38,10 +42,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'volcengine-coding-plan',
-        get: async (slug) => slug === 'volcengine-coding-plan' ? connection : null,
+        get: async (slug) => (slug === 'volcengine-coding-plan' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'volcengine-coding-plan-test-key' : null,
+        getSecret: async (_slug, kind) =>
+          kind === 'api_key' ? 'volcengine-coding-plan-test-key' : null,
       },
     });
 
@@ -62,10 +67,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'volcengine-ark',
-        get: async (slug) => slug === 'volcengine-ark' ? connection : null,
+        get: async (slug) => (slug === 'volcengine-ark' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'ark-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'ark-test-key' : null),
       },
     });
 
@@ -85,10 +90,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'fireworks-ai',
-        get: async (slug) => slug === 'fireworks-ai' ? connection : null,
+        get: async (slug) => (slug === 'fireworks-ai' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'fireworks-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'fireworks-test-key' : null),
       },
     });
 
@@ -108,10 +113,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'stepfun',
-        get: async (slug) => slug === 'stepfun' ? connection : null,
+        get: async (slug) => (slug === 'stepfun' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'stepfun-test-key' : null),
       },
     });
 
@@ -131,10 +136,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'stepfun-step-plan',
-        get: async (slug) => slug === 'stepfun-step-plan' ? connection : null,
+        get: async (slug) => (slug === 'stepfun-step-plan' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-step-plan-test-key' : null,
+        getSecret: async (_slug, kind) =>
+          kind === 'api_key' ? 'stepfun-step-plan-test-key' : null,
       },
     });
 
@@ -154,10 +160,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'stepfun-ai-step-plan',
-        get: async (slug) => slug === 'stepfun-ai-step-plan' ? connection : null,
+        get: async (slug) => (slug === 'stepfun-ai-step-plan' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-global-step-plan-test-key' : null,
+        getSecret: async (_slug, kind) =>
+          kind === 'api_key' ? 'stepfun-global-step-plan-test-key' : null,
       },
     });
 
@@ -177,10 +184,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'stepfun-ai',
-        get: async (slug) => slug === 'stepfun-ai' ? connection : null,
+        get: async (slug) => (slug === 'stepfun-ai' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'stepfun-global-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'stepfun-global-test-key' : null),
       },
     });
 
@@ -200,10 +207,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'tencent-tokenhub',
-        get: async (slug) => slug === 'tencent-tokenhub' ? connection : null,
+        get: async (slug) => (slug === 'tencent-tokenhub' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'tencent-tokenhub-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'tencent-tokenhub-test-key' : null),
       },
     });
 
@@ -223,10 +230,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'tencent-coding-plan',
-        get: async (slug) => slug === 'tencent-coding-plan' ? connection : null,
+        get: async (slug) => (slug === 'tencent-coding-plan' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'tencent-coding-plan-test-key' : null,
+        getSecret: async (_slug, kind) =>
+          kind === 'api_key' ? 'tencent-coding-plan-test-key' : null,
       },
     });
 
@@ -246,10 +254,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'tencent-token-plan',
-        get: async (slug) => slug === 'tencent-token-plan' ? connection : null,
+        get: async (slug) => (slug === 'tencent-token-plan' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'tencent-token-plan-test-key' : null,
+        getSecret: async (_slug, kind) =>
+          kind === 'api_key' ? 'tencent-token-plan-test-key' : null,
       },
     });
 
@@ -273,10 +282,11 @@ describe('default session target resolver', () => {
       const target = await resolveDefaultSessionTarget({
         connectionStore: {
           getDefault: async () => providerType,
-          get: async (slug) => slug === providerType ? connection : null,
+          get: async (slug) => (slug === providerType ? connection : null),
         },
         credentialStore: {
-          getSecret: async (_slug, kind) => kind === 'api_key' ? `${providerType}-test-key` : null,
+          getSecret: async (_slug, kind) =>
+            kind === 'api_key' ? `${providerType}-test-key` : null,
         },
       });
 
@@ -301,10 +311,11 @@ describe('default session target resolver', () => {
       const target = await resolveDefaultSessionTarget({
         connectionStore: {
           getDefault: async () => providerType,
-          get: async (slug) => slug === providerType ? connection : null,
+          get: async (slug) => (slug === providerType ? connection : null),
         },
         credentialStore: {
-          getSecret: async (_slug, kind) => kind === 'api_key' ? `${providerType}-test-key` : null,
+          getSecret: async (_slug, kind) =>
+            kind === 'api_key' ? `${providerType}-test-key` : null,
         },
       });
 
@@ -330,10 +341,11 @@ describe('default session target resolver', () => {
       const target = await resolveDefaultSessionTarget({
         connectionStore: {
           getDefault: async () => providerType,
-          get: async (slug) => slug === providerType ? connection : null,
+          get: async (slug) => (slug === providerType ? connection : null),
         },
         credentialStore: {
-          getSecret: async (_slug, kind) => kind === 'api_key' ? `${providerType}-test-key` : null,
+          getSecret: async (_slug, kind) =>
+            kind === 'api_key' ? `${providerType}-test-key` : null,
         },
       });
 
@@ -355,7 +367,7 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'lm-studio',
-        get: async (slug) => slug === 'lm-studio' ? connection : null,
+        get: async (slug) => (slug === 'lm-studio' ? connection : null),
       },
       credentialStore: {
         getSecret: async () => {
@@ -384,7 +396,7 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'localai',
-        get: async (slug) => slug === 'localai' ? connection : null,
+        get: async (slug) => (slug === 'localai' ? connection : null),
       },
       credentialStore: {
         getSecret: async (_slug, kind) => {
@@ -411,10 +423,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'cerebras',
-        get: async (slug) => slug === 'cerebras' ? connection : null,
+        get: async (slug) => (slug === 'cerebras' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'cerebras-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'cerebras-test-key' : null),
       },
     });
 
@@ -434,10 +446,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'together',
-        get: async (slug) => slug === 'together' ? connection : null,
+        get: async (slug) => (slug === 'together' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'together-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'together-test-key' : null),
       },
     });
 
@@ -458,10 +470,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'deepinfra',
-        get: async (slug) => slug === 'deepinfra' ? connection : null,
+        get: async (slug) => (slug === 'deepinfra' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'deepinfra-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'deepinfra-test-key' : null),
       },
     });
 
@@ -482,10 +494,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'groq',
-        get: async (slug) => slug === 'groq' ? connection : null,
+        get: async (slug) => (slug === 'groq' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'groq-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'groq-test-key' : null),
       },
     });
 
@@ -506,10 +518,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'openrouter',
-        get: async (slug) => slug === 'openrouter' ? connection : null,
+        get: async (slug) => (slug === 'openrouter' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'openrouter-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'openrouter-test-key' : null),
       },
     });
 
@@ -530,12 +542,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'ollama-cloud',
-        get: async (slug) => slug === 'ollama-cloud' ? connection : null,
+        get: async (slug) => (slug === 'ollama-cloud' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (slug, kind) => slug === 'ollama-cloud' && kind === 'api_key'
-          ? 'ollama-cloud-test-key'
-          : null,
+        getSecret: async (slug, kind) =>
+          slug === 'ollama-cloud' && kind === 'api_key' ? 'ollama-cloud-test-key' : null,
       },
     });
 
@@ -558,12 +569,11 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'cloudflare-workers-ai',
-        get: async (slug) => slug === 'cloudflare-workers-ai' ? connection : null,
+        get: async (slug) => (slug === 'cloudflare-workers-ai' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => (
-          kind === 'api_key' ? 'cloudflare-workers-ai-test-token' : null
-        ),
+        getSecret: async (_slug, kind) =>
+          kind === 'api_key' ? 'cloudflare-workers-ai-test-token' : null,
       },
     });
 
@@ -585,10 +595,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'nvidia',
-        get: async (slug) => slug === 'nvidia' ? connection : null,
+        get: async (slug) => (slug === 'nvidia' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'nvidia-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'nvidia-test-key' : null),
       },
     });
 
@@ -608,10 +618,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'minimax-plan',
-        get: async (slug) => slug === 'minimax-plan' ? connection : null,
+        get: async (slug) => (slug === 'minimax-plan' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'minimax-plan-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'minimax-plan-test-key' : null),
       },
     });
 
@@ -631,10 +641,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'xai',
-        get: async (slug) => slug === 'xai' ? connection : null,
+        get: async (slug) => (slug === 'xai' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'xai-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'xai-test-key' : null),
       },
     });
 
@@ -654,10 +664,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'mistral',
-        get: async (slug) => slug === 'mistral' ? connection : null,
+        get: async (slug) => (slug === 'mistral' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'mistral-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'mistral-test-key' : null),
       },
     });
 
@@ -677,10 +687,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'cohere',
-        get: async (slug) => slug === 'cohere' ? connection : null,
+        get: async (slug) => (slug === 'cohere' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'cohere-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'cohere-test-key' : null),
       },
     });
 
@@ -701,10 +711,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'huggingface',
-        get: async (slug) => slug === 'huggingface' ? connection : null,
+        get: async (slug) => (slug === 'huggingface' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'hf-test-token' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'hf-test-token' : null),
       },
     });
 
@@ -728,10 +738,11 @@ describe('default session target resolver', () => {
       const target = await resolveDefaultSessionTarget({
         connectionStore: {
           getDefault: async () => provider.type,
-          get: async (slug) => slug === provider.type ? connection : null,
+          get: async (slug) => (slug === provider.type ? connection : null),
         },
         credentialStore: {
-          getSecret: async (_slug, kind) => kind === 'api_key' ? `${provider.type}-test-key` : null,
+          getSecret: async (_slug, kind) =>
+            kind === 'api_key' ? `${provider.type}-test-key` : null,
         },
       });
 
@@ -752,10 +763,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'siliconflow',
-        get: async (slug) => slug === 'siliconflow' ? connection : null,
+        get: async (slug) => (slug === 'siliconflow' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'sf-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'sf-test-key' : null),
       },
     });
 
@@ -775,10 +786,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'vercel',
-        get: async (slug) => slug === 'vercel' ? connection : null,
+        get: async (slug) => (slug === 'vercel' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'vercel-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'vercel-test-key' : null),
       },
     });
 
@@ -798,10 +809,10 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'zenmux',
-        get: async (slug) => slug === 'zenmux' ? connection : null,
+        get: async (slug) => (slug === 'zenmux' ? connection : null),
       },
       credentialStore: {
-        getSecret: async (_slug, kind) => kind === 'api_key' ? 'zenmux-test-key' : null,
+        getSecret: async (_slug, kind) => (kind === 'api_key' ? 'zenmux-test-key' : null),
       },
     });
 
@@ -821,7 +832,7 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'local',
-        get: async (slug) => slug === 'local' ? connection : null,
+        get: async (slug) => (slug === 'local' ? connection : null),
       },
       credentialStore: {
         getSecret: async () => null,
@@ -844,15 +855,16 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'openai-codex',
-        get: async (slug) => slug === 'openai-codex' ? connection : null,
+        get: async (slug) => (slug === 'openai-codex' ? connection : null),
       },
       credentialStore: {
-        getSecret: async () => JSON.stringify({
-          access_token: 'oauth-access-token',
-          refresh_token: 'oauth-refresh-token',
-          expires_at: Date.now() + 10 * 60_000,
-          account_id: 'acct_123',
-        }),
+        getSecret: async () =>
+          JSON.stringify({
+            access_token: 'oauth-access-token',
+            refresh_token: 'oauth-refresh-token',
+            expires_at: Date.now() + 10 * 60_000,
+            account_id: 'acct_123',
+          }),
       },
     });
 
@@ -878,7 +890,7 @@ describe('default session target resolver', () => {
     const target = await resolveDefaultSessionTarget({
       connectionStore: {
         getDefault: async () => 'openai-codex',
-        get: async (slug) => slug === 'openai-codex' ? connection : null,
+        get: async (slug) => (slug === 'openai-codex' ? connection : null),
       },
       credentialStore: {
         getSecret: async () => stored,
@@ -916,12 +928,13 @@ describe('default session target resolver', () => {
         get: async () => connection,
       },
       credentialStore: {
-        getSecret: async () => JSON.stringify({
-          access_token: 'github-account-token',
-          refresh_token: 'github-account-token',
-          expires_at: Date.now() + 10 * 60_000,
-          base_url: 'https://api.business.githubcopilot.com',
-        }),
+        getSecret: async () =>
+          JSON.stringify({
+            access_token: 'github-account-token',
+            refresh_token: 'github-account-token',
+            expires_at: Date.now() + 10 * 60_000,
+            base_url: 'https://api.business.githubcopilot.com',
+          }),
       },
     });
 
@@ -947,7 +960,7 @@ describe('default session target resolver', () => {
         resolveDefaultSessionTarget({
           connectionStore: {
             getDefault: async () => 'openai-codex',
-            get: async (slug) => slug === 'openai-codex' ? connection : null,
+            get: async (slug) => (slug === 'openai-codex' ? connection : null),
           },
           credentialStore: {
             getSecret: async () => secret,
@@ -990,10 +1003,10 @@ describe('selectableModelIdsForTarget', () => {
 
     // The session is currently on glm-5-air: it stays selectable even though
     // the user curated it out; the rest of the catalog (glm-4.6) stays hidden.
-    assert.deepEqual(
-      selectableModelIdsForTarget({ connection, model: 'glm-5-air' }),
-      ['glm-5-air', 'glm-5.2'],
-    );
+    assert.deepEqual(selectableModelIdsForTarget({ connection, model: 'glm-5-air' }), [
+      'glm-5-air',
+      'glm-5.2',
+    ]);
   });
 
   test('legacy connections without enabledModelIds collapse to the default model, never the full catalog', () => {
@@ -1003,10 +1016,7 @@ describe('selectableModelIdsForTarget', () => {
       models: [{ id: 'glm-5.2' }, { id: 'glm-5-air' }],
     });
 
-    assert.deepEqual(
-      selectableModelIdsForTarget({ connection, model: 'glm-5.2' }),
-      ['glm-5.2'],
-    );
+    assert.deepEqual(selectableModelIdsForTarget({ connection, model: 'glm-5.2' }), ['glm-5.2']);
   });
 });
 
@@ -1033,7 +1043,10 @@ describe('listReadyModelChoices', () => {
 
     // glm-5-air is discovered but curated out on desktop, so the TUI picker
     // must not offer it either.
-    assert.deepEqual(choices.map((choice) => choice.model), ['glm-5.2']);
+    assert.deepEqual(
+      choices.map((choice) => choice.model),
+      ['glm-5.2'],
+    );
   });
 
   test('lists models across every ready connection and skips fake / not-ready', async () => {
@@ -1058,7 +1071,12 @@ describe('listReadyModelChoices', () => {
       providerType: 'openai',
       defaultModel: 'gpt-5.5',
     });
-    const fake = makeConnection({ slug: 'fake', name: 'Fake', providerType: 'ollama', defaultModel: 'x' });
+    const fake = makeConnection({
+      slug: 'fake',
+      name: 'Fake',
+      providerType: 'ollama',
+      defaultModel: 'x',
+    });
 
     const choices = await listReadyModelChoices({
       connectionStore: {
@@ -1079,11 +1097,23 @@ describe('listReadyModelChoices', () => {
       choices.filter((choice) => choice.connectionSlug === 'openai').map((choice) => choice.model),
       ['gpt-5.5'],
     );
-    assert.equal(choices.some((choice) => choice.connectionSlug === 'openai-2'), false);
-    assert.equal(choices.some((choice) => choice.connectionSlug === 'fake'), false);
+    assert.equal(
+      choices.some((choice) => choice.connectionSlug === 'openai-2'),
+      false,
+    );
+    assert.equal(
+      choices.some((choice) => choice.connectionSlug === 'fake'),
+      false,
+    );
     // The default connection is flagged so the picker can mark it.
-    assert.equal(choices.find((choice) => choice.connectionSlug === 'zai')?.isDefaultConnection, true);
-    assert.equal(choices.find((choice) => choice.connectionSlug === 'openai')?.isDefaultConnection, false);
+    assert.equal(
+      choices.find((choice) => choice.connectionSlug === 'zai')?.isDefaultConnection,
+      true,
+    );
+    assert.equal(
+      choices.find((choice) => choice.connectionSlug === 'openai')?.isDefaultConnection,
+      false,
+    );
     assert.equal(choices.find((choice) => choice.connectionSlug === 'zai')?.connectionName, 'Z.ai');
   });
 
@@ -1120,8 +1150,14 @@ describe('listReadyModelChoices', () => {
 
     // The broken connection is skipped; the keyless local model still lists, so
     // startup (which awaits this) survives an unrelated corrupt credential file.
-    assert.deepEqual(choices.map((choice) => choice.connectionSlug), ['local']);
-    assert.deepEqual(choices.map((choice) => choice.model), ['qwen']);
+    assert.deepEqual(
+      choices.map((choice) => choice.connectionSlug),
+      ['local'],
+    );
+    assert.deepEqual(
+      choices.map((choice) => choice.model),
+      ['qwen'],
+    );
   });
 });
 

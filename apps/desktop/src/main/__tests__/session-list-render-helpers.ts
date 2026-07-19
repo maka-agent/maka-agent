@@ -37,7 +37,7 @@ export function renderSessionListPanel(options: {
   };
 
   return renderToStaticMarkup(createElement(LocaleProvider, {
-    preference: 'zh',
+    locale: 'zh',
     children: createElement(SessionListPanel, {
       selection: { section: 'sessions', filter: 'chats' },
       sessions: options.sessions ?? [makeSessionSummary(options.session)],

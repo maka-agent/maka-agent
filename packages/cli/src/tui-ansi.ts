@@ -43,13 +43,14 @@ export type DiscTone = 'ok' | 'muted' | 'accent' | 'danger';
 const DISC_GLYPH = '●';
 
 export function disc(tone: DiscTone): string {
-  const color = tone === 'ok'
-    ? ansi.green
-    : tone === 'muted'
-      ? ansi.muted
-      : tone === 'accent'
-        ? ansi.accent
-        : ansi.red;
+  const color =
+    tone === 'ok'
+      ? ansi.green
+      : tone === 'muted'
+        ? ansi.muted
+        : tone === 'accent'
+          ? ansi.accent
+          : ansi.red;
   return color(DISC_GLYPH);
 }
 
@@ -141,7 +142,10 @@ function detectColorLevelFromEnv(env: {
  * - level 2: nearest 256-color cube entry
  * - level 1: nearest 16-color (ANSI 30-37 + bright via 90-97)
  */
-function colorFn(rgb: readonly [number, number, number], level: 1 | 2 | 3): (text: string) => string {
+function colorFn(
+  rgb: readonly [number, number, number],
+  level: 1 | 2 | 3,
+): (text: string) => string {
   if (level === 3) return rgb24(...rgb);
   if (level === 2) return rgb256(...rgb);
   return rgb16(...rgb);
@@ -190,21 +194,21 @@ function nearestIndex(value: number, stops: readonly number[]): number {
 function rgb16(red: number, green: number, blue: number): (text: string) => string {
   // Standard 16-color palette (RGB approximations).
   const palette: ReadonlyArray<readonly [number, number, number]> = [
-    [0, 0, 0],       // 0 black
-    [128, 0, 0],     // 1 red
-    [0, 128, 0],     // 2 green
-    [128, 128, 0],   // 3 yellow
-    [0, 0, 128],     // 4 blue
-    [128, 0, 128],   // 5 magenta
-    [0, 128, 128],   // 6 cyan
+    [0, 0, 0], // 0 black
+    [128, 0, 0], // 1 red
+    [0, 128, 0], // 2 green
+    [128, 128, 0], // 3 yellow
+    [0, 0, 128], // 4 blue
+    [128, 0, 128], // 5 magenta
+    [0, 128, 128], // 6 cyan
     [192, 192, 192], // 7 white
     [128, 128, 128], // 8 bright black (grey)
-    [255, 0, 0],     // 9 bright red
-    [0, 255, 0],     // 10 bright green
-    [255, 255, 0],   // 11 bright yellow
-    [0, 0, 255],     // 12 bright blue
-    [255, 0, 255],   // 13 bright magenta
-    [0, 255, 255],   // 14 bright cyan
+    [255, 0, 0], // 9 bright red
+    [0, 255, 0], // 10 bright green
+    [255, 255, 0], // 11 bright yellow
+    [0, 0, 255], // 12 bright blue
+    [255, 0, 255], // 13 bright magenta
+    [0, 255, 255], // 14 bright cyan
     [255, 255, 255], // 15 bright white
   ];
   let best = 0;

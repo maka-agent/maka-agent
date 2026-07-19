@@ -14,18 +14,23 @@ export async function runTerminalBenchTestCommand(input: {
       exitCode: null,
       error: 'terminal_bench verifier adapter is not implemented',
       errorClass: 'unsupported_adapter',
-      authority: { source: 'self_check', authoritative: false, label: 'unsupported local benchmark placeholder' },
+      authority: {
+        source: 'self_check',
+        authoritative: false,
+        label: 'unsupported local benchmark placeholder',
+      },
       details: { ...terminalBenchDetails(input.verifier), verificationPlaceholder: true },
     };
   }
 
   const startedAt = Date.now();
   const evaluation = await runVerification(command, input.workspaceDir, timeoutMs(input.verifier));
-  const errorClass = evaluation.timedOut || evaluation.exitCode === null
-    ? 'verification_error'
-    : evaluation.passed
-      ? undefined
-      : 'verification_failed';
+  const errorClass =
+    evaluation.timedOut || evaluation.exitCode === null
+      ? 'verification_error'
+      : evaluation.passed
+        ? undefined
+        : 'verification_failed';
   return {
     kind: 'terminal_bench',
     passed: evaluation.passed,
@@ -37,7 +42,11 @@ export async function runTerminalBenchTestCommand(input: {
     ...(errorClass ? { errorClass } : {}),
     score: evaluation.passed ? 1 : 0,
     maxScore: 1,
-    authority: { source: 'self_check', authoritative: false, label: 'local Terminal-Bench testCommand self-check' },
+    authority: {
+      source: 'self_check',
+      authoritative: false,
+      label: 'local Terminal-Bench testCommand self-check',
+    },
     details: {
       ...terminalBenchDetails(input.verifier),
       testCommand: command,
@@ -55,8 +64,12 @@ export function terminalBenchDetails(verifier: TerminalBenchVerifierSpec): Recor
     ...(verifier.datasetPath ? { datasetPath: verifier.datasetPath } : {}),
     ...(verifier.taskDir ? { taskDir: verifier.taskDir } : {}),
     ...(verifier.taskDescriptionKey ? { taskDescriptionKey: verifier.taskDescriptionKey } : {}),
-    ...(verifier.maxAgentTimeoutSec !== undefined ? { maxAgentTimeoutSec: verifier.maxAgentTimeoutSec } : {}),
-    ...(verifier.maxTestTimeoutSec !== undefined ? { maxTestTimeoutSec: verifier.maxTestTimeoutSec } : {}),
+    ...(verifier.maxAgentTimeoutSec !== undefined
+      ? { maxAgentTimeoutSec: verifier.maxAgentTimeoutSec }
+      : {}),
+    ...(verifier.maxTestTimeoutSec !== undefined
+      ? { maxTestTimeoutSec: verifier.maxTestTimeoutSec }
+      : {}),
     ...(verifier.adapterOptions ? { adapterOptions: { ...verifier.adapterOptions } } : {}),
   };
 }

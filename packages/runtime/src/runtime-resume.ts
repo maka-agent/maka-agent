@@ -6,10 +6,7 @@ import {
   type RuntimeEventFunctionCallContent,
   type RuntimeEventFunctionResponseContent,
 } from '@maka/core/runtime-event';
-import {
-  resolveRuntimeRecovery,
-  type RuntimeRecoveryResolution,
-} from './recovery-resolver.js';
+import { resolveRuntimeRecovery, type RuntimeRecoveryResolution } from './recovery-resolver.js';
 
 export type ToolOperationStatus =
   | 'succeeded'
@@ -28,9 +25,7 @@ export interface ToolOperation {
   responseIsError?: boolean;
 }
 
-export type ResumePlanDisposition =
-  | 'safe_replay'
-  | 'blocked';
+export type ResumePlanDisposition = 'safe_replay' | 'blocked';
 
 export type RuntimeContinuationRevalidationCode =
   | 'continuation_claim_conflict'
@@ -168,14 +163,42 @@ export interface RuntimeResumeFailpointSpec {
  */
 export const RUNTIME_RESUME_FAILPOINTS = [
   { id: 'P0', boundary: 'before tool preparation (T1)', committedPrefix: 'before_function_call' },
-  { id: 'P1', boundary: 'function_call committed before prepared journal', committedPrefix: 'after_function_call' },
-  { id: 'P2', boundary: 'prepared journal committed before implementation', committedPrefix: 'after_function_call' },
+  {
+    id: 'P1',
+    boundary: 'function_call committed before prepared journal',
+    committedPrefix: 'after_function_call',
+  },
+  {
+    id: 'P2',
+    boundary: 'prepared journal committed before implementation',
+    committedPrefix: 'after_function_call',
+  },
   { id: 'P3', boundary: 'tool implementation in progress', committedPrefix: 'after_function_call' },
-  { id: 'P4', boundary: 'side effect completed before outcome transaction (T2)', committedPrefix: 'after_function_call' },
-  { id: 'P5', boundary: 'function_response committed before outcome journal', committedPrefix: 'after_function_response' },
-  { id: 'P6', boundary: 'outcome transaction committed before model result delivery', committedPrefix: 'after_function_response' },
-  { id: 'P7', boundary: 'tool result delivered before the next provider step', committedPrefix: 'after_function_response' },
-  { id: 'P8', boundary: 'terminal RuntimeEvent commit', committedPrefix: 'after_function_response' },
+  {
+    id: 'P4',
+    boundary: 'side effect completed before outcome transaction (T2)',
+    committedPrefix: 'after_function_call',
+  },
+  {
+    id: 'P5',
+    boundary: 'function_response committed before outcome journal',
+    committedPrefix: 'after_function_response',
+  },
+  {
+    id: 'P6',
+    boundary: 'outcome transaction committed before model result delivery',
+    committedPrefix: 'after_function_response',
+  },
+  {
+    id: 'P7',
+    boundary: 'tool result delivered before the next provider step',
+    committedPrefix: 'after_function_response',
+  },
+  {
+    id: 'P8',
+    boundary: 'terminal RuntimeEvent commit',
+    committedPrefix: 'after_function_response',
+  },
   { id: 'P9', boundary: 'terminal run header commit', committedPrefix: 'after_terminal_event' },
   { id: 'P10', boundary: 'recovery decision commit', committedPrefix: 'after_terminal_event' },
   { id: 'P11', boundary: 'continuation run creation', committedPrefix: 'after_terminal_event' },
@@ -264,7 +287,10 @@ export interface RuntimeContinuationPlannerInput {
 }
 
 export interface RuntimeContinuationPlannerDeps {
-  readSourceRun(sessionId: string, runId: string): Promise<{
+  readSourceRun(
+    sessionId: string,
+    runId: string,
+  ): Promise<{
     cwd: string;
     status: string;
     continuationSource?: {
@@ -298,11 +324,16 @@ export class RuntimeContinuationPlanner {
     try {
       events = await this.deps.readRuntimeEvents(input.sessionId, input.sourceRunId);
     } catch {
-      return parkedPlan('runtime_ledger_unreadable', 'RuntimeEvent ledger could not be read reliably');
+      return parkedPlan(
+        'runtime_ledger_unreadable',
+        'RuntimeEvent ledger could not be read reliably',
+      );
     }
-    if (events.some((event) => (
-      event.sessionId !== input.sessionId || event.runId !== input.sourceRunId
-    ))) {
+    if (
+      events.some(
+        (event) => event.sessionId !== input.sessionId || event.runId !== input.sourceRunId,
+      )
+    ) {
       return parkedPlan(
         'runtime_identity_mismatch',
         'RuntimeEvent ledger does not belong to the requested source run',
@@ -359,7 +390,9 @@ export class RuntimeContinuationPlanner {
 
   private async readPriorRuntimeContext(
     sessionId: string,
-    initial: Awaited<ReturnType<RuntimeContinuationPlannerDeps['readSourceRun']>>['continuationSource'],
+    initial: Awaited<
+      ReturnType<RuntimeContinuationPlannerDeps['readSourceRun']>
+    >['continuationSource'],
   ): Promise<RuntimeEvent[]> {
     const segments: RuntimeEvent[][] = [];
     const seen = new Set<string>();
@@ -376,12 +409,15 @@ export class RuntimeContinuationPlanner {
         throw new Error('continuation ancestor high-water is unavailable');
       }
       const prefix = events.slice(0, current.sourceRuntimeEventHighWater);
-      if (prefix.some((event) =>
-        event.sessionId !== sessionId
-        || event.invocationId !== current.sourceInvocationId
-        || event.runId !== current.sourceRunId
-        || event.turnId !== current.sourceTurnId
-      )) {
+      if (
+        prefix.some(
+          (event) =>
+            event.sessionId !== sessionId ||
+            event.invocationId !== current.sourceInvocationId ||
+            event.runId !== current.sourceRunId ||
+            event.turnId !== current.sourceTurnId,
+        )
+      ) {
         throw new Error('continuation ancestor identity mismatch');
       }
       segments.unshift(buildResumeReplayRuntimeEvents(prefix));
@@ -400,9 +436,9 @@ function hasConsistentTerminalBoundary(
   events: readonly RuntimeEvent[],
 ): boolean {
   if (!isTerminalRunStatus(runStatus)) return false;
-  const terminalEvents = events.filter((event) => (
-    !isPartialRuntimeEvent(event) && isTerminalRuntimeEvent(event)
-  ));
+  const terminalEvents = events.filter(
+    (event) => !isPartialRuntimeEvent(event) && isTerminalRuntimeEvent(event),
+  );
   if (terminalEvents.length !== 1) return false;
   const eventStatus = terminalEvents[0]?.status;
   if (eventStatus === 'aborted' || eventStatus === 'cancelled') {
@@ -428,30 +464,38 @@ function projectToolOperations(
   events: readonly RuntimeEvent[],
   recovery: RuntimeRecoveryResolution,
 ): ToolOperation[] {
-  const callsByEventId = new Map(events.flatMap((event) =>
-    event.content?.kind === 'function_call' ? [[event.id, event.content] as const] : []));
+  const callsByEventId = new Map(
+    events.flatMap((event) =>
+      event.content?.kind === 'function_call' ? [[event.id, event.content] as const] : [],
+    ),
+  );
   return recovery.decisions.flatMap((decision) => {
     if (!decision.callRuntimeEventId) return [];
     const call = callsByEventId.get(decision.callRuntimeEventId);
     if (!call) return [];
-    const status: ToolOperationStatus = decision.status === 'completed'
-      ? (decision.responseIsError ? 'failed' : 'succeeded')
-      : decision.status === 'definitely_not_dispatched'
-        ? 'not_dispatched'
-        : decision.status;
-    return [{
-      toolCallId: decision.toolCallId,
-      toolName: call.name,
-      args: call.args,
-      status,
-      callRuntimeEventId: decision.callRuntimeEventId,
-      ...(decision.responseRuntimeEventId
-        ? { responseRuntimeEventId: decision.responseRuntimeEventId }
-        : {}),
-      ...(decision.responseIsError !== undefined
-        ? { responseIsError: decision.responseIsError }
-        : {}),
-    }];
+    const status: ToolOperationStatus =
+      decision.status === 'completed'
+        ? decision.responseIsError
+          ? 'failed'
+          : 'succeeded'
+        : decision.status === 'definitely_not_dispatched'
+          ? 'not_dispatched'
+          : decision.status;
+    return [
+      {
+        toolCallId: decision.toolCallId,
+        toolName: call.name,
+        args: call.args,
+        status,
+        callRuntimeEventId: decision.callRuntimeEventId,
+        ...(decision.responseRuntimeEventId
+          ? { responseRuntimeEventId: decision.responseRuntimeEventId }
+          : {}),
+        ...(decision.responseIsError !== undefined
+          ? { responseIsError: decision.responseIsError }
+          : {}),
+      },
+    ];
   });
 }
 
@@ -481,9 +525,7 @@ export function buildResumePlanFromRuntimeEvents(
   };
 }
 
-export function buildResumeReplayRuntimeEvents(
-  events: readonly RuntimeEvent[],
-): RuntimeEvent[] {
+export function buildResumeReplayRuntimeEvents(events: readonly RuntimeEvent[]): RuntimeEvent[] {
   const pairedCallIds = collectPairedCallIds(events);
   const replayEvents: RuntimeEvent[] = [];
 
@@ -512,12 +554,10 @@ export function buildSafeBoundaryContinuationPlan(
   events: readonly RuntimeEvent[],
   facts: SafeBoundaryContinuationFacts,
 ): SafeBoundaryContinuationPlan {
-  const expectedRuntimeEventHighWater = facts.workspaceCheckpoint?.runtimeEventHighWater
-    ?? facts.expectedRuntimeEventHighWater;
+  const expectedRuntimeEventHighWater =
+    facts.workspaceCheckpoint?.runtimeEventHighWater ?? facts.expectedRuntimeEventHighWater;
   const replayPlan = buildResumePlanFromRuntimeEvents(events, {
-    ...(expectedRuntimeEventHighWater !== undefined
-      ? { expectedRuntimeEventHighWater }
-      : {}),
+    ...(expectedRuntimeEventHighWater !== undefined ? { expectedRuntimeEventHighWater } : {}),
   });
   const phaseOneDiagnostics = collectPendingPermissionDiagnostics(events);
   const phaseOneRejectionReasons: ResumeRejectionReason[] = [];
@@ -530,11 +570,12 @@ export function buildSafeBoundaryContinuationPlan(
     });
     phaseOneRejectionReasons.push('runtime_ledger_empty');
   } else {
-    const mismatchedEvent = events.find((event) =>
-      event.sessionId !== source.sessionId
-      || event.invocationId !== source.invocationId
-      || event.runId !== source.runId
-      || event.turnId !== source.turnId
+    const mismatchedEvent = events.find(
+      (event) =>
+        event.sessionId !== source.sessionId ||
+        event.invocationId !== source.invocationId ||
+        event.runId !== source.runId ||
+        event.turnId !== source.turnId,
     );
     if (mismatchedEvent) {
       phaseOneDiagnostics.push({
@@ -545,9 +586,9 @@ export function buildSafeBoundaryContinuationPlan(
       phaseOneRejectionReasons.push('runtime_identity_mismatch');
     }
     if (
-      facts.continuationIdentity.invocationId === source.invocationId
-      || facts.continuationIdentity.runId === source.runId
-      || facts.continuationIdentity.turnId === source.turnId
+      facts.continuationIdentity.invocationId === source.invocationId ||
+      facts.continuationIdentity.runId === source.runId ||
+      facts.continuationIdentity.turnId === source.turnId
     ) {
       phaseOneDiagnostics.push({
         code: 'continuation_identity_reused',
@@ -617,11 +658,13 @@ export function buildSafeBoundaryContinuationPlan(
     ...replayPlan.replayRuntimeEvents,
   ];
   const availableToolNames = new Set(facts.availableToolNames);
-  const unavailableToolNames = [...new Set(
-    modelRuntimeContext
-      .flatMap((event) => event.content?.kind === 'function_call' ? [event.content.name] : [])
-      .filter((toolName) => !availableToolNames.has(toolName)),
-  )].sort();
+  const unavailableToolNames = [
+    ...new Set(
+      modelRuntimeContext
+        .flatMap((event) => (event.content?.kind === 'function_call' ? [event.content.name] : []))
+        .filter((toolName) => !availableToolNames.has(toolName)),
+    ),
+  ].sort();
   if (unavailableToolNames.length > 0) {
     phaseOneDiagnostics.push({
       code: 'tool_catalog_mismatch',
@@ -632,9 +675,9 @@ export function buildSafeBoundaryContinuationPlan(
   }
   const firstModelVisibleEvent = modelRuntimeContext.find(runtimeEventHasModelVisibleContent);
   if (
-    source
-    && !phaseOneRejectionReasons.includes('runtime_identity_mismatch')
-    && firstModelVisibleEvent?.role !== 'user'
+    source &&
+    !phaseOneRejectionReasons.includes('runtime_identity_mismatch') &&
+    firstModelVisibleEvent?.role !== 'user'
   ) {
     phaseOneDiagnostics.push({
       code: 'provider_resume_head_unsupported',
@@ -646,10 +689,10 @@ export function buildSafeBoundaryContinuationPlan(
   }
   const lastModelVisibleEvent = findLastModelVisibleEvent(modelRuntimeContext);
   if (
-    source
-    && !phaseOneRejectionReasons.includes('runtime_identity_mismatch')
-    && lastModelVisibleEvent?.role !== 'user'
-    && lastModelVisibleEvent?.role !== 'tool'
+    source &&
+    !phaseOneRejectionReasons.includes('runtime_identity_mismatch') &&
+    lastModelVisibleEvent?.role !== 'user' &&
+    lastModelVisibleEvent?.role !== 'tool'
   ) {
     phaseOneDiagnostics.push({
       code: 'provider_resume_boundary_unsupported',
@@ -686,12 +729,14 @@ export function buildSafeBoundaryContinuationPlan(
         workspaceIdentity: facts.currentWorkspaceIdentity,
         backgroundOperationsSettled: true,
         availableToolNames: [...new Set(facts.availableToolNames)].sort(),
-        ...(facts.workspaceCheckpoint?.ref ? {
-          workspaceCheckpoint: {
-            ref: facts.workspaceCheckpoint.ref,
-            runtimeEventHighWater: facts.workspaceCheckpoint.runtimeEventHighWater,
-          },
-        } : {}),
+        ...(facts.workspaceCheckpoint?.ref
+          ? {
+              workspaceCheckpoint: {
+                ref: facts.workspaceCheckpoint.ref,
+                runtimeEventHighWater: facts.workspaceCheckpoint.runtimeEventHighWater,
+              },
+            }
+          : {}),
       },
     },
   };
@@ -718,14 +763,10 @@ function collectPendingPermissionDiagnostics(
 
 function normalizeCwd(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
-  return /^[A-Za-z]:\//.test(normalized)
-    ? normalized.toLowerCase()
-    : normalized;
+  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
-function findLastModelVisibleEvent(
-  events: readonly RuntimeEvent[],
-): RuntimeEvent | undefined {
+function findLastModelVisibleEvent(events: readonly RuntimeEvent[]): RuntimeEvent | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (event && runtimeEventHasModelVisibleContent(event)) return event;
@@ -754,8 +795,8 @@ function collectResumeDiagnostics(
   const diagnostics: ResumePlanDiagnostic[] = [];
   const operationsById = new Map(operations.map((operation) => [operation.toolCallId, operation]));
   if (
-    options.expectedRuntimeEventHighWater !== undefined
-    && options.expectedRuntimeEventHighWater !== events.length
+    options.expectedRuntimeEventHighWater !== undefined &&
+    options.expectedRuntimeEventHighWater !== events.length
   ) {
     diagnostics.push({
       code: 'runtime_offset_mismatch',
@@ -805,10 +846,11 @@ function collectResumeDiagnostics(
 
   for (const decision of recovery.decisions) {
     if (
-      decision.status !== 'corruption'
-      || decision.callRuntimeEventId
-      || decision.reason === 'orphan_response'
-    ) continue;
+      decision.status !== 'corruption' ||
+      decision.callRuntimeEventId ||
+      decision.reason === 'orphan_response'
+    )
+      continue;
     diagnostics.push({
       code: 'tool_recovery_corruption',
       message: `tool recovery fact is corrupt: ${decision.reason}`,

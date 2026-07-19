@@ -37,7 +37,12 @@ export async function ensurePromptOptimizationPromptRepo(
       await commitSeed(input.promptRepoDir);
       return { agentCwdPath, programPath, systemPromptPath };
     }
-    const seedCommitSha = await gitOutput(input.promptRepoDir, 'rev-list', '--max-parents=0', 'HEAD');
+    const seedCommitSha = await gitOutput(
+      input.promptRepoDir,
+      'rev-list',
+      '--max-parents=0',
+      'HEAD',
+    );
     await assertSeedCommitFilesMatchInput(input, seedCommitSha);
     return { agentCwdPath, programPath, systemPromptPath };
   }
@@ -154,8 +159,10 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'ENOENT';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
 }

@@ -18,13 +18,14 @@ import type {
 import type {
   BotIncomingMessage,
   BotRegistry,
+  GoalTurnOutcome,
   SessionManager,
 } from '@maka/runtime';
+import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
 import {
-  errorCode,
-  errorMessage,
-  errorReason,
-} from './chat-readiness.js';
+  assertSessionCanSendFromHeader,
+  isSessionLifecycleError,
+} from './session-lifecycle.js';
 
 const BOT_RECENT_SOURCE_EVENT_LIMIT = 1_000;
 const BOT_RECENT_SOURCE_EVENT_TTL_MS = 60 * 60 * 1_000;
@@ -41,10 +42,14 @@ interface BotConversationRateBucket {
 
 export interface BotIncomingMainService {
   handleBotIncomingMessage(message: BotIncomingMessage): Promise<void>;
+  invalidateSessionBindings(sessionId: string): void;
 }
 
 interface BotIncomingMainServiceDeps {
   runtime: SessionManager;
+  createSession: (
+    input: Parameters<SessionManager['createSession']>[0],
+  ) => ReturnType<SessionManager['createSession']>;
   botRegistry: BotRegistry;
   getCurrentProjectRoot(): Promise<string>;
   getDefaultConnectionSlug(): Promise<string | null>;
@@ -52,16 +57,23 @@ interface BotIncomingMainServiceDeps {
     slug: string | null | undefined,
     model?: string,
   ): Promise<{ connection: { slug: string }; model: string }>;
-  readSessionHeader(sessionId: string): Promise<{ permissionMode: string }>;
+  readSessionHeader(sessionId: string): Promise<{
+    permissionMode: string;
+    isArchived: boolean;
+    status: string;
+  }>;
   ensureSessionCanSend(sessionId: string): Promise<void>;
   emitSessionsChanged(
     reason: SessionChangedReason,
     sessionId?: string,
     extra?: Pick<SessionChangedEvent, 'connectionSlug' | 'modelId'>,
   ): void;
-  sendToRenderer(channel: string, ...args: unknown[]): void;
-  isStatusChangingSessionEvent(event: SessionEvent): boolean;
-  isTurnStatusChangingSessionEvent(event: SessionEvent): boolean;
+  runAgentTurn(input: {
+    sessionId: string;
+    iterator: AsyncIterable<SessionEvent>;
+    turnId: string;
+    onEvent: (event: SessionEvent) => void;
+  }): Promise<{ outcome: GoalTurnOutcome; error?: string }>;
 }
 
 export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): BotIncomingMainService {
@@ -69,6 +81,14 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
   const botConversationQueues = new Map<string, Promise<void>>();
   const botRecentSourceEventKeys = new Map<string, number>();
   const botConversationRateBuckets = new Map<string, BotConversationRateBucket>();
+
+  function invalidateSessionBindings(sessionId: string): void {
+    for (const [conversationKey, boundSessionId] of botConversationSessions) {
+      if (boundSessionId !== sessionId) continue;
+      botConversationSessions.delete(conversationKey);
+      botConversationRateBuckets.delete(conversationKey);
+    }
+  }
 
   async function handleBotIncomingMessage(message: BotIncomingMessage): Promise<void> {
     if (rememberBotSourceEvent(message)) return;
@@ -169,6 +189,35 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
     ).catch(() => null);
   }
 
+  async function createBotConversationSession(
+    conversationKey: string,
+    message: BotIncomingMessage,
+    noticeTtlMs: number,
+  ): Promise<string | undefined> {
+    if (botConversationSessions.size >= BOT_CONVERSATION_SESSION_LIMIT) {
+      await sendTransientBotNotice(message, 'Maka 当前机器人会话数量已达上限，请重置或清理旧会话后再试。', noticeTtlMs);
+      return undefined;
+    }
+    if (!consumeBotConversationToken(conversationKey)) {
+      await sendTransientBotNotice(message, 'Maka 收到的机器人消息过于频繁，请稍后再试。', noticeTtlMs);
+      return undefined;
+    }
+    const ready = await deps.getReadyConnection(await deps.getDefaultConnectionSlug(), undefined);
+    const summary = await deps.createSession({
+      cwd: await deps.getCurrentProjectRoot(),
+      backend: 'ai-sdk',
+      llmConnectionSlug: ready.connection.slug,
+      model: ready.model,
+      permissionMode: 'explore',
+      name: `${botDisplayLabel(message.platform)} 对话`,
+      labels: ['bot', message.platform],
+    });
+    botConversationSessions.set(conversationKey, summary.id);
+    deps.emitSessionsChanged('created', summary.id);
+    await deps.ensureSessionCanSend(summary.id);
+    return summary.id;
+  }
+
   async function processBotIncomingMessage(
     conversationKey: string,
     message: BotIncomingMessage,
@@ -234,7 +283,7 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
           return;
         }
         const ready = await deps.getReadyConnection(await deps.getDefaultConnectionSlug(), undefined);
-        const summary = await deps.runtime.createSession({
+        const summary = await deps.createSession({
           cwd: await deps.getCurrentProjectRoot(),
           backend: 'ai-sdk',
           llmConnectionSlug: ready.connection.slug,
@@ -248,11 +297,21 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
         sessionId = summary.id;
         botConversationSessions.set(conversationKey, sessionId);
         deps.emitSessionsChanged('created', sessionId);
-      } else {
-        const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
-        if (!permissionModeOk) return;
         await deps.ensureSessionCanSend(sessionId);
-        if (!consumeBotConversationToken(conversationKey)) {
+      } else {
+        let rebound = false;
+        try {
+          const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
+          if (!permissionModeOk) return;
+          await deps.ensureSessionCanSend(sessionId);
+        } catch (error) {
+          if (!isSessionLifecycleError(error)) throw error;
+          invalidateSessionBindings(sessionId);
+          sessionId = await createBotConversationSession(conversationKey, message, SYSTEM_NOTICE_TTL_MS);
+          if (!sessionId) return;
+          rebound = true;
+        }
+        if (!rebound && !consumeBotConversationToken(conversationKey)) {
           await sendTransientBotNotice(
             message,
             'Maka 收到的机器人消息过于频繁，请稍后再试。',
@@ -322,7 +381,9 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
         }
       }
     } catch (error) {
-      const detail = generalizedErrorMessage(error, '机器人对话处理失败');
+      const detail = isSessionWorkspaceUnavailableError(error)
+        ? '工作目录不可用，请在桌面端选择有效目录后重试'
+        : generalizedErrorMessage(error, '机器人对话处理失败');
       const replyOptions = {
         ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
         // Error notice: same 5-minute TTL as the other transient system
@@ -344,6 +405,7 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
     noticeTtlMs: number,
   ): Promise<boolean> {
     const header = await deps.readSessionHeader(sessionId);
+    assertSessionCanSendFromHeader(header);
     if (header.permissionMode === 'explore') return true;
     try {
       await deps.runtime.updateSession(sessionId, { permissionMode: 'explore' });
@@ -362,58 +424,25 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
   async function collectBotReply(
     sessionId: string,
     iterator: AsyncIterable<SessionEvent>,
-    fallbackTurnId: string,
+    turnId: string,
   ): Promise<string> {
-    let userAppendBroadcasted = false;
-    let finalAppendBroadcasted = false;
     let latestText = '';
-    let earlyReply: string | undefined;
-    try {
-      for await (const event of iterator) {
-        if (!userAppendBroadcasted) {
-          deps.emitSessionsChanged('message-appended', sessionId);
-          userAppendBroadcasted = true;
-        }
-        deps.sendToRenderer(`sessions:event:${sessionId}`, event);
+    const result = await deps.runAgentTurn({
+      sessionId,
+      iterator,
+      turnId,
+      onEvent: (event) => {
         if (event.type === 'text_complete') latestText = event.text;
-        if (event.type === 'permission_request') {
-          return '这条请求需要在 Maka 桌面端审批后才能继续。';
-        }
-        if (event.type === 'error') {
-          earlyReply = `Maka 处理失败：${event.message}`;
-        }
-        if (deps.isStatusChangingSessionEvent(event)) {
-          deps.emitSessionsChanged('status-change', sessionId);
-        }
-        if (deps.isTurnStatusChangingSessionEvent(event)) {
-          deps.emitSessionsChanged('turn-status-change', sessionId);
-        }
-      }
-      if (!finalAppendBroadcasted) {
-        deps.emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
-    } catch (error) {
-      deps.sendToRenderer(`sessions:event:${sessionId}`, {
-        type: 'error',
-        id: randomUUID(),
-        turnId: fallbackTurnId,
-        ts: Date.now(),
-        recoverable: false,
-        code: errorCode(error),
-        reason: errorReason(error),
-        message: errorMessage(error),
-      } satisfies SessionEvent);
-      deps.emitSessionsChanged('status-change', sessionId);
-      deps.emitSessionsChanged('turn-status-change', sessionId);
-      if (!finalAppendBroadcasted) {
-        deps.emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
-      return `Maka 处理失败：${errorMessage(error)}`;
+      },
+    });
+    if (result.outcome.kind === 'suspended') {
+      return '这条请求需要在 Maka 桌面端审批后才能继续。';
     }
-    return earlyReply ?? latestText;
+    if (result.outcome.kind === 'errored') {
+      return `Maka 处理失败：${result.error ?? result.outcome.reason}`;
+    }
+    return latestText;
   }
 
-  return { handleBotIncomingMessage };
+  return { handleBotIncomingMessage, invalidateSessionBindings };
 }

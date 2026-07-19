@@ -18,16 +18,33 @@ import {
 import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+import type { InvocableSkillEntry } from '@maka/runtime';
+import type { ProviderType } from '@maka/core/llm-connections';
 import type { ModelChoice } from './connection-target.js';
-import { ansi, editorTheme, stripAnsi } from './tui-ansi.js';
+import type { OnboardableProvider } from './onboarding.js';
+import { skillInvocationPrefixAt } from './skill-token.js';
+import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 
 export class MakaAutocompleteProvider implements AutocompleteProvider {
   private readonly fileProvider: CombinedAutocompleteProvider;
   private readonly slashCommands: readonly MakaSlashCommandMetadata[];
+  private readonly listSkills?: () => Promise<readonly InvocableSkillEntry[]>;
 
-  constructor(basePath: string, slashCommands: readonly MakaSlashCommandMetadata[]) {
+  // The kind of suggestions last returned by getSuggestions: 'skill' when the
+  // active list was mid-message `/skill:` completions, null otherwise. The
+  // Editor runs getSuggestions before applyCompletion and snapshot-guards the
+  // request, so this reliably disambiguates a mid-message skill selection (no
+  // `/` in prefix) from a file selection sharing the same prefix.
+  private lastSlashKind: 'skill' | null = null;
+
+  constructor(
+    basePath: string,
+    slashCommands: readonly MakaSlashCommandMetadata[],
+    listSkills?: () => Promise<readonly InvocableSkillEntry[]>,
+  ) {
     this.fileProvider = new CombinedAutocompleteProvider([], basePath);
     this.slashCommands = slashCommands;
+    this.listSkills = listSkills;
   }
 
   async getSuggestions(
@@ -36,6 +53,46 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
     options: { signal: AbortSignal; force?: boolean },
   ): Promise<AutocompleteSuggestions | null> {
+    this.lastSlashKind = null;
+    // `/skill:<query>` takes precedence everywhere - including at line start,
+    // where it would otherwise parse as a (non-matching) slash command — and
+    // it suppresses file completion: the token charset looks path-like.
+    const skillPrefix = skillInvocationPrefixAt(lines, cursorLine, cursorCol);
+    if (skillPrefix !== null && this.listSkills && !options.force) {
+      // Skill completion is first-line only, matching pi-tui's isSlashMenuAllowed.
+      if (cursorLine !== 0) return null;
+      const query = skillPrefix.query.toLowerCase();
+      const skills = await this.listSkills();
+      if (options.signal.aborted) return null;
+      const items = skills
+        .filter(
+          (skill) =>
+            skill.id.toLowerCase().startsWith(query) || skill.name.toLowerCase().includes(query),
+        )
+        .map((skill) => ({
+          value: skill.id,
+          label: `/skill:${skill.id}`,
+          description: skill.description ? `${skill.name} · ${skill.description}` : skill.name,
+        }));
+      if (items.length > 0) {
+        // Line-start keeps `/skill:query` so pi-tui auto-submits on select (the
+        // existing "select to invoke" UX). Mid-message drops the `/skill:` head
+        // (just the query) so selection inserts and returns instead of
+        // submitting - pi-tui submits only when `autocompletePrefix` starts with `/`.
+        this.lastSlashKind = 'skill';
+        const currentLine = lines[cursorLine] || '';
+        const textBeforeCursor = currentLine.slice(0, cursorCol);
+        const atLineStart =
+          textBeforeCursor.slice(0, textBeforeCursor.length - skillPrefix.prefix.length).trim() ===
+          '';
+        return { items, prefix: atLineStart ? skillPrefix.prefix : skillPrefix.query };
+      }
+      return null;
+    }
+    if (skillPrefix !== null && !options.force) {
+      // Inside a token but no skill surface: never fall through to path completion.
+      return null;
+    }
     const slashPrefix = slashCommandPrefix(lines, cursorLine, cursorCol);
     if (slashPrefix !== null && !options.force) {
       const query = slashPrefix.slice(1).toLowerCase();
@@ -47,6 +104,44 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
           description: command.description,
         }));
       return items.length > 0 ? { items, prefix: slashPrefix } : null;
+    }
+    // A bare mid-message `/`-token (not `/skill:`, handled above): offer
+    // `/skill:xxx` completions so typing `/` surfaces skills immediately. Plain
+    // commands are not offered here - they only execute at line start.
+    const midSlash = midMessageSlashToken(lines, cursorLine, cursorCol);
+    if (midSlash !== null && this.listSkills && !options.force) {
+      // Keep the raw query as the replacement prefix; toLowerCase can change
+      // UTF-16 length (e.g. "İ" -> "i̇", len 1 -> 2), and applyCompletion slices
+      // by prefix.length, so a lowercased prefix would over-delete the original.
+      const rawQuery = midSlash.slice(1);
+      const query = rawQuery.toLowerCase();
+      const skills = await this.listSkills();
+      if (options.signal.aborted) return null;
+      const items = skills
+        .filter(
+          (skill) =>
+            skill.id.toLowerCase().startsWith(query) || skill.name.toLowerCase().includes(query),
+        )
+        .map((skill) => ({
+          value: `skill:${skill.id}`,
+          label: `/skill:${skill.id}`,
+          description: skill.description ? `${skill.name} · ${skill.description}` : skill.name,
+        }));
+      if (items.length > 0) {
+        // Prefix is the raw text after `/` (no leading `/`) so pi-tui's
+        // select-confirm guard does not auto-submit. applyCompletion reuses the
+        // mid-message skill path: beforePrefix ends with `/`, item.value is
+        // `skill:<id>`, so `${beforePrefix}${item.value} ` yields `/skill:<id> `.
+        this.lastSlashKind = 'skill';
+        return { items, prefix: rawQuery };
+      }
+      // No skill matched. Do NOT fall through to the file provider: a mid-message
+      // `/`-token's file completion would carry a `/`-prefixed prefix, and pi-tui's
+      // select-confirm guard auto-submits when `prefix.startsWith("/")` - so
+      // selecting it would send the unfinished message. Mid-message `/`-path
+      // completion was not available before this PR either (pi-tui excludes `/`
+      // from triggerCharacters), so returning null restores the prior behavior.
+      return null;
     }
     return this.fileProvider.getSuggestions(lines, cursorLine, cursorCol, options);
   }
@@ -60,6 +155,15 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
   ): { lines: string[]; cursorLine: number; cursorCol: number } {
     const currentLine = lines[cursorLine] || '';
     const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
+    if (prefix.startsWith('/skill:')) {
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}/skill:${item.value} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + item.value.length + 8,
+      };
+    }
     if (prefix.startsWith('/') && beforePrefix.trim() === '') {
       const nextLines = [...lines];
       nextLines[cursorLine] = `${beforePrefix}/${item.value} ${currentLine.slice(cursorCol)}`;
@@ -69,11 +173,75 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
         cursorCol: beforePrefix.length + item.value.length + 2,
       };
     }
+    if (this.lastSlashKind === 'skill') {
+      // Mid-message skill: prefix is just the query (no `/skill:`); the
+      // `/skill:` head sits at the end of beforePrefix. Insert
+      // `/skill:<value> ` and leave the cursor after the space; pi-tui will not
+      // auto-submit because the prefix did not start with `/`.
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}${item.value} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + item.value.length + 1,
+      };
+    }
     return this.fileProvider.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
   }
 
   shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    if (skillInvocationPrefixAt(lines, cursorLine, cursorCol) !== null) return false;
     return this.fileProvider.shouldTriggerFileCompletion(lines, cursorLine, cursorCol);
+  }
+}
+
+/** Autocomplete surface for `/move`: reuse path completion but expose folders only. */
+export class DirectoryAutocompleteProvider implements AutocompleteProvider {
+  private readonly provider: CombinedAutocompleteProvider;
+
+  constructor(basePath: string) {
+    this.provider = new CombinedAutocompleteProvider([], basePath);
+  }
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { signal: AbortSignal; force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const suggestions = await this.provider.getSuggestions(lines, cursorLine, cursorCol, options);
+    if (!suggestions) return null;
+    const items = suggestions.items.filter((item) => item.label.endsWith('/'));
+    return items.length > 0 ? { ...suggestions, items } : null;
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    const currentLine = lines[cursorLine] || '';
+    const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
+    if (prefix.startsWith('/') && beforePrefix.trim() === '') {
+      // Directory completion is path syntax even when the editor sees a
+      // slash-prefixed token. Do not route an absolute path through the
+      // slash-command completion rule, which would add a second slash.
+      const completed = item.value.startsWith('/') ? item.value : `/${item.value}`;
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}${completed} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + completed.length + 1,
+      };
+    }
+    return this.provider.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+  }
+
+  shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    return this.provider.shouldTriggerFileCompletion(lines, cursorLine, cursorCol);
   }
 }
 
@@ -83,13 +251,36 @@ export interface MakaSlashCommandMetadata {
 }
 
 export interface MakaSlashCommand extends MakaSlashCommandMetadata {
-  run(parts: string[]): void;
+  run(parts: string[], rawTail?: string): void;
+  /** Alternate names that dispatch to this command without appearing in
+   *  completion or the /help menu (e.g. /quit as an alias of /exit). */
+  aliases?: readonly string[];
 }
 
 function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
   const currentLine = lines[cursorLine] || '';
   const textBeforeCursor = currentLine.slice(0, cursorCol);
-  return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ') ? textBeforeCursor : null;
+  return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ')
+    ? textBeforeCursor
+    : null;
+}
+
+// A `/`-token that begins mid-message (after whitespace) on the first line,
+// excluding the `/skill:` form (handled by skillInvocationPrefixAt above) and
+// line-start (handled by slashCommandPrefix). Used to offer `/skill:xxx`
+// completions from a bare `/` so typing `/` surfaces skills immediately.
+function midMessageSlashToken(
+  lines: string[],
+  cursorLine: number,
+  cursorCol: number,
+): string | null {
+  if (cursorLine !== 0) return null;
+  const currentLine = lines[cursorLine] || '';
+  const textBeforeCursor = currentLine.slice(0, cursorCol);
+  const match = /(?:\s)(\/\S*)$/.exec(textBeforeCursor);
+  if (!match) return null;
+  const token = match[1];
+  return token.startsWith('/skill:') ? null : token;
 }
 
 export class PickerOverlay implements Component {
@@ -119,6 +310,59 @@ export class PickerOverlay implements Component {
       padLine(ansi.dim(this.input.hint ?? 'enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
+  }
+}
+
+export class DirectoryPickerOverlay implements Component {
+  private readonly editor: Editor;
+
+  constructor(
+    tui: TUI,
+    private readonly input: {
+      currentCwd: string;
+      basePath: string;
+      onSubmit: (cwd: string) => void;
+      onCancel: () => void;
+    },
+  ) {
+    this.editor = new Editor(tui, editorTheme(), { paddingX: 0, autocompleteMaxVisible: 8 });
+    this.editor.setAutocompleteProvider(new DirectoryAutocompleteProvider(input.basePath));
+    this.editor.onSubmit = (value) => {
+      const cwd = value.trim();
+      if (cwd) this.input.onSubmit(cwd);
+    };
+  }
+
+  invalidate(): void {
+    this.editor.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    this.editor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    this.editor.focused = true;
+    const label = 'Directory ';
+    const labelWidth = visibleWidth(label);
+    const editorLines = this.editor.render(Math.max(1, safeWidth - labelWidth)).slice(1, -1);
+    return [
+      padLine('Move Session', safeWidth),
+      padLine(ansi.dim('Type a directory · Tab complete · Enter confirm · Esc cancel'), safeWidth),
+      padLine(ansi.dim(`Current: ${this.input.currentCwd}`), safeWidth),
+      padLine('', safeWidth),
+      ...(editorLines.length > 0
+        ? editorLines.map((line, index) =>
+            padLine(`${index === 0 ? label : ' '.repeat(labelWidth)}${line}`, safeWidth),
+          )
+        : [padLine(label, safeWidth)]),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
   }
@@ -261,13 +505,16 @@ export class UserQuestionOverlay implements Component {
     if (editorLines.length === 0) {
       return [padLine(`${prefix}${ansi.dim(this.input.placeholder)}`, width)];
     }
-    return editorLines.map((line, index) => (
-      padLine(`${index === 0 ? prefix : '  '}${line}`, width)
-    ));
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? prefix : '  '}${line}`, width),
+    );
   }
 }
 
-export function modelPickerItems(currentModel: string, models: readonly string[] | undefined): SelectItem[] {
+export function modelPickerItems(
+  currentModel: string,
+  models: readonly string[] | undefined,
+): SelectItem[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const candidate of [currentModel, ...(models ?? [])]) {
@@ -294,7 +541,8 @@ export function modelChoicePickerItems(
   current: { model: string; connectionSlug: string },
 ): SelectItem[] {
   return choices.map((choice, index) => {
-    const isCurrent = choice.model === current.model && choice.connectionSlug === current.connectionSlug;
+    const isCurrent =
+      choice.model === current.model && choice.connectionSlug === current.connectionSlug;
     const tags = [choice.connectionName || choice.connectionSlug];
     if (isCurrent) tags.push('current');
     else if (choice.isDefaultConnection) tags.push('default');
@@ -307,6 +555,29 @@ export function permissionModePickerItems(currentMode: PermissionMode): SelectIt
     value: mode,
     label: mode,
     ...(mode === currentMode ? { description: 'current' } : {}),
+  }));
+}
+
+/**
+ * `/skill` picker items (issue #1148). The value is the skill id (that's what
+ * the inserted `/skill:<id>` token resolves by); the description carries the
+ * id too, since CJK display names alone don't tell the user what to type.
+ */
+export function skillPickerItems(skills: readonly InvocableSkillEntry[]): SelectItem[] {
+  return skills.map((skill) => ({
+    value: skill.id,
+    label: skill.name,
+    description: skill.description ? `${skill.id} · ${skill.description}` : skill.id,
+  }));
+}
+
+export function onboardableProviderPickerItems(
+  providers: readonly OnboardableProvider[],
+): SelectItem[] {
+  return providers.map((provider) => ({
+    value: provider.providerType,
+    label: provider.label,
+    description: provider.providerType,
   }));
 }
 
@@ -325,7 +596,11 @@ export function thinkingLevelPickerItems(
   current: ThinkingLevel | undefined,
 ): SelectItem[] {
   return [
-    { value: 'default', label: '默认', ...(current === undefined ? { description: 'current' } : {}) },
+    {
+      value: 'default',
+      label: '默认',
+      ...(current === undefined ? { description: 'current' } : {}),
+    },
     ...levels.map((level) => ({
       value: level,
       label: THINKING_LEVEL_LABELS[level],
@@ -343,4 +618,225 @@ function padLine(text: string, width: number): string {
   const safeWidth = Math.max(1, width);
   const trimmed = visibleWidth(text) > safeWidth ? truncateToWidth(text, safeWidth, '') : text;
   return `${trimmed}${' '.repeat(Math.max(0, safeWidth - visibleWidth(trimmed)))}`;
+}
+
+export type OnboardingWizardPhase = 'search' | 'key';
+
+export type OnboardingWizardStatus =
+  | { kind: 'prompt' }
+  | { kind: 'verifying' }
+  | { kind: 'error'; text: string };
+
+export interface OnboardingWizardInput {
+  providers: readonly OnboardableProvider[];
+  /** search→key: the user picked a provider. The runner records it for setup. */
+  onPickProvider: (providerType: ProviderType) => void;
+  /** key submit: the runner runs onboarding.setup with the recorded provider. */
+  onSubmitKey: (apiKey: string) => void;
+  /** search Esc: the runner closes the wizard (and the TUI on first run). */
+  onCancel: () => void;
+  /** key Esc: the wizard already returned to search; the runner may react. */
+  onBack: () => void;
+}
+
+/**
+ * One input field, two phases. The same overlay is the search box (filter the
+ * provider list as you type) and then the key field, so onboarding never pushes
+ * its prompt/verifying/failure notices into the transcript. Status lives in a
+ * single status line beside the field instead of the top entry flow (#1098 UX).
+ */
+export class OnboardingWizard implements Component {
+  private phase: OnboardingWizardPhase = 'search';
+  private picked: OnboardableProvider | undefined;
+  private status: OnboardingWizardStatus = { kind: 'prompt' };
+  private readonly searchEditor: Editor;
+  private readonly keyEditor: Editor;
+  private filtered: readonly OnboardableProvider[];
+  private list: SelectList;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly input: OnboardingWizardInput,
+  ) {
+    this.filtered = input.providers;
+    this.list = this.buildList();
+    this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    // editor.onChange fires on every keystroke: refilter the provider list in
+    // place. SelectList has no setItems, so rebuild it; the next render picks
+    // the new instance up.
+    this.searchEditor.onChange = (text) => this.applyQuery(text);
+    this.keyEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.keyEditor.onSubmit = (value) => {
+      if (this.picked && value) this.input.onSubmitKey(value);
+    };
+  }
+
+  private buildList(): SelectList {
+    const list = new SelectList(
+      onboardableProviderPickerItems(this.filtered),
+      10,
+      selectListTheme(),
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
+    );
+    list.onSelect = (item) => {
+      const provider = this.filtered.find((p) => p.providerType === item.value);
+      if (!provider) return;
+      this.picked = provider;
+      this.phase = 'key';
+      this.status = { kind: 'prompt' };
+      this.keyEditor.setText('');
+      this.keyEditor.disableSubmit = false;
+      this.searchEditor.setText('');
+      this.input.onPickProvider(provider.providerType);
+    };
+    return list;
+  }
+
+  private applyQuery(text: string): void {
+    const query = text.trim().toLowerCase();
+    const next = query
+      ? this.input.providers.filter(
+          (p) =>
+            p.label.toLowerCase().includes(query) || p.providerType.toLowerCase().includes(query),
+        )
+      : this.input.providers;
+    if (next === this.filtered) return;
+    this.filtered = next;
+    this.list = this.buildList();
+  }
+
+  /** Runner hook: the probe is in flight. Lock the key field and show progress. */
+  setVerifying(): void {
+    if (this.phase !== 'key') return;
+    this.status = { kind: 'verifying' };
+    this.keyEditor.disableSubmit = true;
+  }
+
+  /** Runner hook: the probe settled. An error re-arms the key field in place. */
+  setResult(result: { kind: 'error'; text: string }): void {
+    this.status = result;
+    if (result.kind === 'error') {
+      this.keyEditor.disableSubmit = false;
+      this.keyEditor.setText('');
+    }
+  }
+
+  invalidate(): void {
+    this.searchEditor.invalidate();
+    this.keyEditor.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (this.phase === 'key') {
+      this.handleKeyInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    // Arrows and Enter drive the list (selecting a provider); everything else
+    // is typed into the search field. The search editor therefore never owns
+    // history navigation during the wizard.
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (isKeyRepeat(data)) return;
+      this.list.handleInput(data);
+      return;
+    }
+    this.searchEditor.handleInput(data);
+  }
+
+  private handleKeyInput(data: string): void {
+    // Ctrl+C cancels the whole wizard (the overlay cancel contract binds both
+    // keys); Esc only returns to the provider search. Both fire while a probe
+    // is in flight, matching pi-tui `tui.select.cancel = [escape, ctrl+c]`.
+    if (matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.escape)) {
+      this.phase = 'search';
+      this.picked = undefined;
+      this.status = { kind: 'prompt' };
+      this.keyEditor.setText('');
+      this.keyEditor.disableSubmit = false;
+      this.input.onBack();
+      return;
+    }
+    // The probe owns the key field while it is in flight: disableSubmit only
+    // blocks Enter, so swallow the rest too — otherwise typed text renders and
+    // is then silently wiped by the error path's setText('').
+    if (this.status.kind === 'verifying') return;
+    this.keyEditor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    return this.phase === 'search' ? this.renderSearch(safeWidth) : this.renderKey(safeWidth);
+  }
+
+  private renderSearch(width: number): string[] {
+    this.searchEditor.focused = true;
+    this.keyEditor.focused = false;
+    return [
+      padLine(
+        `Set Up Provider ${ansi.dim('· 1/2')} ${ansi.accent(String(this.filtered.length))}`,
+        width,
+      ),
+      padLine(ansi.dim('搜索服务商，↑↓ 选择 · Enter 确认 · Esc 取消'), width),
+      padLine('', width),
+      ...this.renderFieldRow(this.searchEditor, '搜索', width),
+      padLine('', width),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的服务商'), width)]
+        : this.list.render(width).map((line) => formatPickerItemLine(line, width))),
+      padLine(ansi.accent('-'.repeat(width)), width),
+    ];
+  }
+
+  private renderKey(width: number): string[] {
+    this.searchEditor.focused = false;
+    // The cursor stays hidden while the probe is in flight; only an editable
+    // or errored key field takes focus.
+    this.keyEditor.focused = this.status.kind === 'prompt' || this.status.kind === 'error';
+    const label = this.picked?.label ?? '';
+    return [
+      padLine(`Set Up Provider ${ansi.dim('· 2/2')} ${ansi.accent(label)}`, width),
+      padLine(ansi.dim('输入 API key · 仅本机存储 · Esc 返回选择服务商'), width),
+      padLine('', width),
+      ...this.renderFieldRow(this.keyEditor, 'API key', width),
+      padLine('', width),
+      padLine(this.renderStatusLine(), width),
+      padLine(ansi.accent('-'.repeat(width)), width),
+    ];
+  }
+
+  private renderStatusLine(): string {
+    switch (this.status.kind) {
+      case 'prompt':
+        return ansi.dim('Enter 提交');
+      case 'verifying':
+        return `${ansi.yellow('⠋')} 正在验证 key…`;
+      case 'error':
+        return ansi.red(`✗ ${this.status.text}`);
+    }
+  }
+
+  private renderFieldRow(editor: Editor, label: string, width: number): string[] {
+    const prefix = `${label} `;
+    const prefixWidth = visibleWidth(prefix);
+    const contentWidth = Math.max(1, width - prefixWidth);
+    const editorLines = editor.render(contentWidth).slice(1, -1);
+    if (editorLines.length === 0) {
+      return [padLine(prefix, width)];
+    }
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width),
+    );
+  }
 }

@@ -65,18 +65,24 @@ describe('AppShell effect stability contract', () => {
     const calls: string[] = [];
     const event = { provider: 'sentinel' } as unknown as ConnectionEvent;
 
-    await render(root, createElement(BootstrapSubscriptionProbe, {
+    await render(
+      root,
+      createElement(BootstrapSubscriptionProbe, {
       effects,
       onConnectionEvent: () => calls.push('first'),
       refs,
-    }));
+      }),
+    );
     assert.equal(captured.connectionSubscribeCount, 1);
 
-    await render(root, createElement(BootstrapSubscriptionProbe, {
+    await render(
+      root,
+      createElement(BootstrapSubscriptionProbe, {
       effects,
       onConnectionEvent: () => calls.push('second'),
       refs,
-    }));
+      }),
+    );
     assert.equal(captured.connectionSubscribeCount, 1, 'rerendering with a new handler must not resubscribe');
 
     await act(async () => {
@@ -98,18 +104,24 @@ describe('AppShell effect stability contract', () => {
     const calls: string[] = [];
     const event = { type: 'sentinel' } as unknown as SessionEvent;
 
-    await render(root, createElement(ActiveSessionEventProbe, {
+    await render(
+      root,
+      createElement(ActiveSessionEventProbe, {
       effects,
       onSessionEvent: () => calls.push('first'),
       refs,
-    }));
+      }),
+    );
     assert.equal(captured.activeSessionSubscribeCount, 1);
 
-    await render(root, createElement(ActiveSessionEventProbe, {
+    await render(
+      root,
+      createElement(ActiveSessionEventProbe, {
       effects,
       onSessionEvent: () => calls.push('second'),
       refs,
-    }));
+      }),
+    );
     assert.equal(captured.activeSessionSubscribeCount, 1, 'rerendering with a new handler must not resubscribe');
 
     await act(async () => {
@@ -131,7 +143,9 @@ describe('AppShell effect stability contract', () => {
     const navSections: string[] = [];
     let toastAction: (() => void) | undefined;
 
-    await render(root, createElement(BootstrapSubscriptionProbe, {
+    await render(
+      root,
+      createElement(BootstrapSubscriptionProbe, {
       effects,
       onConnectionEvent: () => {},
       onNavSelection: () => navSections.push('first'),
@@ -139,10 +153,13 @@ describe('AppShell effect stability contract', () => {
         toastAction = action;
       },
       refs,
-    }));
+      }),
+    );
     assert.equal(captured.planDueSubscribeCount, 1);
 
-    await render(root, createElement(BootstrapSubscriptionProbe, {
+    await render(
+      root,
+      createElement(BootstrapSubscriptionProbe, {
       effects,
       onConnectionEvent: () => {},
       onNavSelection: (selection) => navSections.push(selection.section),
@@ -150,7 +167,8 @@ describe('AppShell effect stability contract', () => {
         toastAction = action;
       },
       refs,
-    }));
+      }),
+    );
     assert.equal(captured.planDueSubscribeCount, 1, 'rerendering with a new handler must not resubscribe');
 
     await act(async () => {
@@ -181,6 +199,7 @@ function BootstrapSubscriptionProbe(props: {
   refs: ReturnType<typeof createBootstrapRefs>;
 }) {
   props.effects.useAppShellBootstrapSubscriptions({
+    uiLocale: 'zh',
     activeIdRef: props.refs.activeIdRef,
     applyVisualSmokeFixture: async () => {},
     bootstrapSessions: async () => {},
@@ -229,6 +248,7 @@ function ActiveSessionEventProbe(props: {
   refs: { activeIdRef: RefBox<string | undefined> };
 }) {
   props.effects.useActiveSessionEvents({
+    uiLocale: 'zh',
     activeId: 'session-1',
     activeIdRef: props.refs.activeIdRef,
     handleEvent: props.onSessionEvent,
@@ -258,7 +278,7 @@ async function importAppShellEffects(): Promise<AppShellEffectsModule> {
     target: 'node20',
     logLevel: 'silent',
   });
-  return await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as AppShellEffectsModule;
+  return (await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`)) as AppShellEffectsModule;
 }
 
 function createBootstrapRefs() {
@@ -266,7 +286,9 @@ function createBootstrapRefs() {
     activeIdRef: { current: 'session-1' as string | undefined },
     pendingPermissionModeChangesRef: { current: new Set<string>() },
     pendingSessionModelChangesRef: { current: new Set<string>() },
-    pendingTurnActionTimersRef: { current: new Map<string, ReturnType<typeof setTimeout>>() },
+    pendingTurnActionTimersRef: {
+      current: new Map<string, ReturnType<typeof setTimeout>>(),
+    },
     pendingTurnActionsRef: { current: new Set<string>() },
     projectPickerPendingRef: { current: false },
     projectPickerRequestRef: { current: 0 },
@@ -349,9 +371,11 @@ function installFakeDom(): void {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
   const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
-  const previousActEnvironment = (globalThis as typeof globalThis & {
+  const previousActEnvironment = (
+    globalThis as typeof globalThis & {
     IS_REACT_ACT_ENVIRONMENT?: boolean;
-  }).IS_REACT_ACT_ENVIRONMENT;
+    }
+  ).IS_REACT_ACT_ENVIRONMENT;
   const fakeDocument = createFakeDocument();
   const fakeWindow = {
     document: fakeDocument,
@@ -407,7 +431,10 @@ class FakeElement {
   parentNode: FakeElement | null = null;
   textContent = '';
 
-  constructor(tagName: string, readonly ownerDocument: Document) {
+  constructor(
+    tagName: string,
+    readonly ownerDocument: Document,
+  ) {
     this.tagName = tagName.toUpperCase();
     this.nodeName = this.tagName;
   }
@@ -449,7 +476,10 @@ class FakeText {
   readonly nodeType = 3;
   parentNode: FakeElement | null = null;
 
-  constructor(readonly nodeValue: string, readonly ownerDocument: Document) {}
+  constructor(
+    readonly nodeValue: string,
+    readonly ownerDocument: Document,
+  ) {}
 }
 
 function noop(): void {}

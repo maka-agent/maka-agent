@@ -24,6 +24,7 @@ _INFRA_LINE_PREFIXES = (
     "e: unable to fetch some archives",
     "e: failed to fetch http://",
     "e: failed to fetch https://",
+    "curl: (35) openssl ssl_connect: ssl_error_syscall in connection to astral.sh:443",
 )
 
 
@@ -53,7 +54,7 @@ class _TimedVerifierEnvironment:
             return await self._environment.exec(command, **kwargs)
         wrapped = (
             "timeout --signal=KILL --kill-after=5s "
-            f"{self._timeout_sec:g}s sh -lc {shlex.quote(command)}"
+            f"{self._timeout_sec:g}s bash -lc {shlex.quote(command)}"
         )
         result = await self._environment.exec(
             wrapped,

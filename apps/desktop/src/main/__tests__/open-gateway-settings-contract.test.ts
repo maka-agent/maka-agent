@@ -57,8 +57,7 @@ describe('Open Gateway Settings endpoint contract', () => {
 
   it('surfaces clipboard failures for every Open Gateway copy action', () => {
     const helper = settingsSource.match(/async function copyGatewayText[\s\S]*?async function copyBaseUrl/)?.[0] ?? '';
-    assert.match(helper, /copyingGatewayActionRef\.current/);
-    assert.match(helper, /if \(copyingGatewayActionRef\.current\) return/);
+    assert.match(helper, /if \(!gatewayCopyGuard\.begin\(action\)\) return/);
     assert.match(helper, /setCopyingGatewayAction\(action\)/);
     assert.match(helper, /if \(openGatewayMountedRef\.current\) \{[\s\S]*setCopyingGatewayAction\(null\)/);
     assert.match(helper, /try \{[\s\S]*navigator\.clipboard\.writeText\(text\)[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.success\(successTitle, successDetail\)/);
@@ -99,8 +98,8 @@ describe('Open Gateway Settings endpoint contract', () => {
 
     assert.match(
       gatewayBlock,
-      /const openGatewayMountedRef = useMountedRef\(\);[\s\S]*return \(\) => \{[\s\S]*copyingGatewayActionRef\.current = null;/,
-      'Open Gateway Settings must release copy ownership when the page closes',
+      /const gatewayCopyGuard = useActionGuard<string>\(\);[\s\S]*mountedRef: openGatewayMountedRef,/,
+      'Open Gateway Settings must track mounted ownership (from the shared draft hook) and hold copy ownership in the shared guard (released on unmount)',
     );
     assert.match(
       helper,
@@ -114,8 +113,8 @@ describe('Open Gateway Settings endpoint contract', () => {
     );
     assert.match(
       helper,
-      /finally \{[\s\S]*copyingGatewayActionRef\.current = null;[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setCopyingGatewayAction\(null\);/,
-      'Open Gateway copy cleanup must release the ref but not write React state after unmount',
+      /finally \{[\s\S]*gatewayCopyGuard\.finish\(\);[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setCopyingGatewayAction\(null\);/,
+      'Open Gateway copy cleanup must release the guard but not write React state after unmount',
     );
   });
 

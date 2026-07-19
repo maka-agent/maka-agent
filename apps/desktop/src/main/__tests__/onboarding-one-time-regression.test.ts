@@ -97,10 +97,7 @@ describe('onboarding one-time regression — SkipButton error recovery', () => {
 
     assert.match(onSkip, /try\s*\{/, 'onSkip must have try block');
     assert.match(onSkip, /catch\s*\(/, 'onSkip must have catch block');
-    assert.match(
-      onSkip,
-      /toastApi\.error\(['"]跳过失败['"]/,
-      'onSkip must toast "跳过失败" on error',
-    );
+    assert.match(onSkip, /toastApi\.error\([\s\S]*shellCopy\.skipErrorTitle/);
+    assert.match(onSkip, /localizedShellErrorMessage\(error, shellCopy\.tryAgainLater, uiLocale\)/);
   });
 });

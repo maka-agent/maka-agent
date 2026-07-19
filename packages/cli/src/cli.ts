@@ -4,15 +4,25 @@ import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
-import { handleGoalContinuation, resolveSelectedModelContextWindow } from '@maka/runtime';
-import { createMakaSessionDriver } from './session-driver.js';
+import {
+  fetchProviderModels,
+  resolveSelectedModelContextWindow,
+  SessionActivityRegistry,
+} from '@maka/runtime';
+import {
+  createConnectionStore,
+  createFileCredentialStore,
+  createSessionStore,
+} from '@maka/storage';
+import { createMakaSessionDriver, type MakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
-import { runMakaPiTui } from './pi-tui-runner.js';
+import { runMakaPiTui, type MakaPiTuiGoalLifecycle } from './pi-tui-runner.js';
+import { createApiKeyOnboardingSurface } from './onboarding.js';
 
 export type MakaCliCommand =
-  | { kind: 'tui' }
+  | { kind: 'tui'; resumeSessionId?: string }
   | { kind: 'run'; args: string[] }
   | { kind: 'eval'; args: string[] }
   | { kind: 'inspect'; args: string[] }
@@ -25,6 +35,17 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
   const [first] = argv;
   if (first === '--help' || first === '-h') return { kind: 'help', text: helpText() };
   if (first === '--version' || first === '-v') return { kind: 'version', text: version };
+  if (first === '--resume') {
+    const sessionId = argv[1];
+    if (!sessionId || sessionId.startsWith('-')) {
+      return { kind: 'error', message: '--resume requires a session id', exitCode: 2 };
+    }
+    const extra = argv[2];
+    if (extra !== undefined) {
+      return { kind: 'error', message: `Unexpected argument: ${extra}`, exitCode: 2 };
+    }
+    return { kind: 'tui', resumeSessionId: sessionId };
+  }
   if (first === 'run' || first === '-p') return { kind: 'run', args: argv.slice(1) };
   if (first === 'eval') return { kind: 'eval', args: argv.slice(1) };
   if (first === 'inspect') return { kind: 'inspect', args: argv.slice(1) };
@@ -45,7 +66,7 @@ export function resolveMakaCliExitCode(
 }
 
 export function formatMakaCliFatalError(error: unknown): string {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 let processExitTimer: NodeJS.Timeout | undefined;
@@ -84,7 +105,55 @@ function helpText(): string {
     'Options:',
     '  -h, --help        Show help',
     '  -v, --version     Show version',
+    '  --resume <session-id>  Reopen a previous session in the TUI',
   ].join('\n');
+}
+
+export function formatResumeHint(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  return `Resume this session with:\n  maka --resume ${sessionId}`;
+}
+
+/** The connection/model a resumed session's stored header requests, used to
+ *  anchor startup before `createMakaCliRuntimeContext` resolves any connection. */
+export interface TuiResumeTarget {
+  requestedConnectionSlug: string;
+  requestedModel: string;
+}
+
+/**
+ * Pre-check a `--resume` target before the runtime context — and its
+ * default-connection resolution — is created. Without this, `tui` startup
+ * always resolved the *default* connection first and only switched onto the
+ * resumed session's connection/model afterward (inside the runner, via
+ * `switchSession`); a session resumed on a non-default (or the only ready)
+ * connection could misfire onboarding or fail outright before `switchSession`
+ * ever ran. Reading the stored header here lets startup anchor the
+ * connection/model to the session being resumed instead, so the later
+ * `switchSession` call (still exercising the same transcript/header
+ * validation) has a live driver to switch.
+ *
+ * Returns `undefined` when the header can't be read (session missing,
+ * corrupt, etc.) — that failure is not reported here. `runMakaPiTui`'s
+ * `switchSession` call already owns the user-visible resume-failure path
+ * (a "Could not resume session ...: ... Starting fresh." notice, falling
+ * back to a fresh session); this pre-check silently falls back to starting
+ * the TUI against the default connection so that path runs and reports it.
+ */
+export async function resolveTuiResumeTarget(
+  workspaceRoot: string,
+  sessionId: string,
+): Promise<TuiResumeTarget | undefined> {
+  const store = createSessionStore(workspaceRoot);
+  try {
+    const header = await store.readHeader(sessionId);
+    return {
+      requestedConnectionSlug: header.llmConnectionSlug,
+      requestedModel: header.model,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -114,22 +183,52 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       return command.exitCode;
     case 'tui': {
       const workspaceRoot = resolveMakaWorkspaceRoot();
+      let sessionTitleListener: ((sessionId: string) => void) | undefined;
+      const resumeTarget = command.resumeSessionId
+        ? await resolveTuiResumeTarget(workspaceRoot, command.resumeSessionId)
+        : undefined;
+      const contextInput = {
+        surface: 'tui' as const,
+        workspaceRoot,
+        cwd: process.cwd(),
+        onSessionTitleChanged: (sessionId: string) => sessionTitleListener?.(sessionId),
+        ...(resumeTarget
+          ? {
+              requestedConnectionSlug: resumeTarget.requestedConnectionSlug,
+              requestedModel: resumeTarget.requestedModel,
+            }
+          : {}),
+      };
       let context;
       try {
-        context = await createMakaCliRuntimeContext({
-          surface: 'tui',
-          workspaceRoot,
-          cwd: process.cwd(),
-        });
+        context = await createMakaCliRuntimeContext(contextInput);
       } catch (error) {
-        // A missing / misconfigured connection is the first thing a new user
-        // hits. Translate the raw `NO_REAL_CONNECTION:<reason>` throw into
-        // actionable guidance; let anything else propagate to the top-level
-        // handler unchanged.
-        const guidance = formatStartupConnectionError(error, workspaceRoot);
-        if (guidance === null) throw error;
-        process.stderr.write(`${guidance}\n`);
-        return 1;
+        const { matched, reason } = parseNoRealConnectionError(error);
+        const isFirstRun = matched && reason === 'missing_default_connection';
+        if (!isFirstRun) {
+          const guidance = formatStartupConnectionError(error, workspaceRoot);
+          if (guidance === null) throw error;
+          process.stderr.write(`${guidance}\n`);
+          return 1;
+        }
+        // Fresh install with no connection: run the in-TUI onboarding wizard
+        // before giving up, then retry context creation with the new connection.
+        const configured = await runFirstRunOnboarding(workspaceRoot);
+        if (!configured) {
+          process.stderr.write(`${formatStartupConnectionError(error, workspaceRoot)}\n`);
+          return 1;
+        }
+        try {
+          context = await createMakaCliRuntimeContext(contextInput);
+        } catch (retryError) {
+          // A failure after onboarding (e.g. the saved connection still isn't
+          // ready) gets the same classified guidance as the first attempt,
+          // not a raw stack propagated to the top-level handler.
+          const guidance = formatStartupConnectionError(retryError, workspaceRoot);
+          if (guidance === null) throw retryError;
+          process.stderr.write(`${guidance}\n`);
+          return 1;
+        }
       }
       try {
         const driver = createMakaSessionDriver({
@@ -148,21 +247,29 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           modelChoices: context.modelChoices,
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
-          modelContextWindow: resolveSelectedModelContextWindow(context.target.connection, context.target.model),
+          modelContextWindow: resolveSelectedModelContextWindow(
+            context.target.connection,
+            context.target.model,
+          ),
           permissionMode: 'ask',
           subscribeShellRunUpdates: context.subscribeShellRunUpdates,
-          listShellRunUpdates: context.listShellRunUpdates,
-          onProcessExit: handleMakaCliProcessExit,
-          onTurnComplete: (turnId, injectTurn) => {
-            const sessionId = driver.getSessionId();
-            if (!sessionId) return;
-            void handleGoalContinuation(
-              { ...context.goalContinuationDeps, injectTurn: (_s, text) => injectTurn(text) },
-              sessionId,
-              turnId,
-            ).catch(() => {});
+          subscribeSessionTitleChanges: (listener) => {
+            sessionTitleListener = listener;
+            return () => {
+              if (sessionTitleListener === listener) sessionTitleListener = undefined;
+            };
           },
+          listShellRunUpdates: context.listShellRunUpdates,
+          skills: context.skills,
+          goalLifecycle: context.goalContinuation,
+          onboarding: context.onboarding,
+          recap: context.recap,
+          foreignSessions: context.foreignSessions,
+          onProcessExit: handleMakaCliProcessExit,
+          resumeSessionId: command.resumeSessionId,
         });
+        const hint = formatResumeHint(driver.getSessionId());
+        if (hint) process.stdout.write(`${hint}\n`);
         return 0;
       } finally {
         await context.close();
@@ -194,6 +301,61 @@ export function formatStartupConnectionError(error: unknown, workspaceRoot: stri
     '添加并启用一个模型连接（含 API key），然后重新运行 maka。',
     `连接与凭据存储于：${workspaceRoot}`,
   ].join('\n');
+}
+
+/** Run the first-run onboarding wizard when no connection exists yet. Returns
+ *  true if the user configured a connection, false if they cancelled. The host
+ *  owns the stores; the wizard only collects provider + key (see MakaOnboardingSurface). */
+async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
+  const connectionStore = createConnectionStore(workspaceRoot);
+  const credentialStore = createFileCredentialStore(workspaceRoot);
+  await runMakaPiTui({
+    driver: createFirstRunSessionDriver(),
+    title: 'Maka',
+    cwd: process.cwd(),
+    model: '',
+    connectionSlug: '',
+    permissionMode: 'ask',
+    firstRun: true,
+    goalLifecycle: {
+      activities: new SessionActivityRegistry(),
+      beginExternalTurn: () => ({ kind: 'registered', settle: async () => {} }),
+      bindHost: () => () => {},
+    } satisfies MakaPiTuiGoalLifecycle,
+    onboarding: createApiKeyOnboardingSurface({
+      connectionStore,
+      credentialStore,
+      fetchModels: fetchProviderModels,
+    }),
+  });
+  // Configured iff a connection was actually persisted during the wizard — the
+  // wizard only closes after a verified key (or on cancel; see runner firstRun).
+  return (await connectionStore.getDefault()) !== null;
+}
+
+/** A minimal session driver for the first-run wizard. The wizard never runs an
+ *  agent turn (the editor only collects the API key via the onboarding
+ *  intercept), so runtime/chat methods are unreachable stubs. */
+function createFirstRunSessionDriver(): MakaSessionDriver {
+  const notReady = async (): Promise<never> => {
+    throw new Error('first-run onboarding: no agent turn before a connection exists');
+  };
+  return {
+    getSessionId: () => null,
+    listSessions: async () => [],
+    preparePrompt: notReady,
+    compactSession: async function* () {},
+    respondToPermission: async () => {},
+    setModel: async () => {},
+    setThinkingLevel: async () => {},
+    setPermissionMode: async () => {},
+    renameSession: async () => {},
+    switchSession: notReady,
+    listRewindTargets: async () => [],
+    rewindToTurn: notReady,
+    startNewSession: () => {},
+    stop: async () => {},
+  };
 }
 
 async function readPackageVersion(): Promise<string> {

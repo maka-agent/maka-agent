@@ -193,19 +193,16 @@ describe('isWorkspacePrivacyContext type guard', () => {
     // documented fields are correctly typed; extras don't make a
     // value fail the guard. (Validator strips extras on canonical
     // return; guard doesn't transform.)
-    assert.equal(
-      isWorkspacePrivacyContext({ incognitoActive: true, somethingElse: 'ok' }),
-      true,
-    );
+    assert.equal(isWorkspacePrivacyContext({ incognitoActive: true, somethingElse: 'ok' }), true);
   });
 });
 
 describe('closed reason enum', () => {
   it('enumerates exactly the two reasons emitted by validateWorkspacePrivacyContext', () => {
-    assert.deepEqual([...WORKSPACE_PRIVACY_CONTEXT_INVALID_REASONS], [
-      'not_object',
-      'incognito_active_invalid',
-    ]);
+    assert.deepEqual(
+      [...WORKSPACE_PRIVACY_CONTEXT_INVALID_REASONS],
+      ['not_object', 'incognito_active_invalid'],
+    );
   });
 });
 

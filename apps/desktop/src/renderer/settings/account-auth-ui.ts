@@ -3,7 +3,9 @@ import {
   type ProviderAuthAction,
   type ProviderAuthContract,
   type ProviderAuthState,
+  type UiLocale,
 } from '@maka/core';
+import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
 
 export type AccountAuthTone = 'neutral' | 'info' | 'success' | 'warning' | 'destructive';
 
@@ -35,41 +37,44 @@ const AUTH_STATE_TONE: Record<ProviderAuthState, AccountAuthTone> = {
   preview_only: 'info',
 };
 
-const AUTH_STATE_LABEL: Record<ProviderAuthState, string> = {
-  disabled: '已关闭',
-  not_configured: '待配置',
-  configured: '待验证',
-  validated: '凭据已验证',
-  needs_reauth: '需重新授权',
-  error: '测试失败',
-  preview_only: '预览',
-};
-
 export function presentAccountAuthState(
   contract: ProviderAuthContract,
+  locale: UiLocale,
 ): AccountAuthStatePresentation {
+  const copy = getSettingsPreferencesCopy(locale).auth;
+  const noCredential = contract.setupMode === 'none';
+  const oauthValidated = contract.setupMode === 'oauth' && contract.state === 'validated';
   return {
-    stateLabel: contract.setupMode === 'oauth' && contract.state === 'validated'
-      ? 'OAuth 已验证'
-      : AUTH_STATE_LABEL[contract.state],
-    label: contract.copy.label,
-    detail: contract.copy.detail,
+    stateLabel: oauthValidated
+      ? copy.oauthValidated
+      : copy.stateLabels[contract.state],
+    label: noCredential
+      ? copy.noCredentialTitle
+      : oauthValidated
+        ? copy.oauthValidated
+        : copy.stateTitles[contract.state],
+    detail: noCredential
+      ? copy.noCredentialDetail
+      : oauthValidated
+        ? copy.oauthValidatedDetail
+        : copy.stateDetails[contract.state],
     tone: AUTH_STATE_TONE[contract.state],
   };
 }
 
 export function deriveAccountAuthActions(
   contract: ProviderAuthContract,
+  locale: UiLocale,
 ): AccountAuthActionPresentation[] {
   const actions: AccountAuthActionPresentation[] = [];
   for (const action of PROVIDER_AUTH_ACTIONS) {
     const availability = contract.actionAvailability[action];
     if (availability === 'hidden') continue;
     if (availability === 'preview_only') {
-      actions.push(previewAction(action));
+      actions.push(previewAction(action, locale));
       continue;
     }
-    actions.push(availableAction(contract, action));
+    actions.push(availableAction(contract, action, locale));
   }
   return actions;
 }
@@ -77,7 +82,9 @@ export function deriveAccountAuthActions(
 function availableAction(
   contract: ProviderAuthContract,
   action: ProviderAuthAction,
+  locale: UiLocale,
 ): AccountAuthActionPresentation {
+  const copy = getSettingsPreferencesCopy(locale).auth;
   switch (action) {
     case 'test_credentials':
       if (contract.setupMode === 'none') {
@@ -85,8 +92,7 @@ function availableAction(
           action,
           kind: 'button',
           executable: true,
-          label: '探测本地服务',
-          detail: '检查本地服务和默认模型是否可达；这不是凭据测试。',
+          ...copy.localProbe,
           tone: 'info',
         };
       }
@@ -94,10 +100,7 @@ function availableAction(
         action,
         kind: 'button',
         executable: true,
-        label: contract.setupMode === 'oauth' ? '测试 OAuth' : '测试凭据',
-        detail: contract.setupMode === 'oauth'
-          ? '只验证账号令牌和端点，不代表发送链路已完成健康检查。'
-          : '只验证凭据和端点，不代表发送链路已完成健康检查。',
+        ...(contract.setupMode === 'oauth' ? copy.testOauth : copy.testCredentials),
         tone: 'info',
       };
     case 'save_secret':
@@ -105,8 +108,7 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: '保存密钥',
-        detail: '账号页只展示状态；密钥输入仍在 设置 · 模型。',
+        ...copy.saveSecret,
         tone: 'neutral',
       };
     case 'fetch_models':
@@ -114,8 +116,8 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: contract.setupMode === 'none' ? '探测模型' : '拉取模型',
-        detail: '模型列表刷新由 设置 · 模型 的连接编辑器执行。',
+        label: contract.setupMode === 'none' ? copy.probeModels : copy.fetchModels,
+        detail: copy.fetchModelsDetail,
         tone: 'neutral',
       };
     case 'revoke_auth':
@@ -123,8 +125,8 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: contract.setupMode === 'oauth' ? '退出登录' : '替换或移除凭据',
-        detail: '凭据的替换与移除在 设置 · 模型 中执行；本页不直接写入凭据存储。',
+        label: contract.setupMode === 'oauth' ? copy.signOut : copy.replaceCredential,
+        detail: copy.revokeDetail,
         tone: 'neutral',
       };
     case 'start_oauth':
@@ -132,8 +134,7 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: '登录 OAuth',
-        detail: 'OAuth 登录入口位于 设置 · 模型 · OAuth。',
+        ...copy.loginOauth,
         tone: 'neutral',
       };
     case 'refresh_oauth':
@@ -141,28 +142,20 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: '刷新登录',
-        detail: 'OAuth 账号状态刷新位于 设置 · 模型 · OAuth。',
+        ...copy.refreshOauth,
         tone: 'neutral',
       };
   }
 }
 
-function previewAction(action: ProviderAuthAction): AccountAuthActionPresentation {
-  const labels: Record<ProviderAuthAction, string> = {
-    save_secret: '模型密钥管理',
-    test_credentials: '凭据验证',
-    fetch_models: '模型同步',
-    start_oauth: '订阅账号预览',
-    refresh_oauth: '订阅状态预览',
-    revoke_auth: '订阅管理预览',
-  };
+function previewAction(action: ProviderAuthAction, locale: UiLocale): AccountAuthActionPresentation {
+  const copy = getSettingsPreferencesCopy(locale).auth;
   return {
     action,
     kind: 'preview',
     executable: false,
-    label: labels[action],
-    detail: '受控入口当前只展示状态，不会连接登录服务或远端登录流程。',
+    label: copy.previewLabels[action],
+    detail: copy.previewDetail,
     tone: 'info',
   };
 }

@@ -213,25 +213,8 @@
 .settingsAuthActionPill[data-kind="preview"] {
     border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.30);
   }
-/* PR-SETTINGS-GROUPED-CARD-0: rows flush inside outer card, hairline
-     divider, last-child no border. Matches the reference grouped-list
-     pattern. */
-.settingsRow:last-child {
-    border-bottom: 0;
-  }
-.settingsRow:hover {
-    background: var(--state-hover-bg);
-  }
-.settingsRow > div {
-    min-width: 0;
-  }
-.settingsRow small {
-    display: block;
-    margin-top: var(--space-1);
-    color: var(--muted-foreground);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-snug);
-  }
+/* .settingsRow states + hint moved to rows.css
+   (PR-SETTINGS-ROWS-CONVERGENCE-0). */
 .providersPanel {
     min-height: 420px;
     display: grid;

@@ -19,7 +19,10 @@ describe('getEnvWithProxy', () => {
   });
 
   test('emits socks5 and IPv6 URLs', () => {
-    const out = getEnvWithProxy({}, { ...PROXY_DEFAULTS, enabled: true, type: 'socks5', host: '::1', port: 1080 });
+    const out = getEnvWithProxy(
+      {},
+      { ...PROXY_DEFAULTS, enabled: true, type: 'socks5', host: '::1', port: 1080 },
+    );
     expect(out.HTTP_PROXY).toBe('socks5://[::1]:1080');
   });
 });

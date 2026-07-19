@@ -24,9 +24,15 @@ function defaultLocalEvalRoot(repoRoot) {
 async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
   const localEvalRoot = defaultLocalEvalRoot(repoRoot);
-  const outDir = envPath('MAKA_PROMPT_CONTROL_OUT_DIR', join(localEvalRoot, 'maka-eval', 'rsi-control-runs'));
+  const outDir = envPath(
+    'MAKA_PROMPT_CONTROL_OUT_DIR',
+    join(localEvalRoot, 'maka-eval', 'rsi-control-runs'),
+  );
   const runId = process.env.MAKA_PROMPT_CONTROL_RUN_ID || `prompt-control-${Date.now()}`;
-  const keyFile = envPath('MAKA_PROMPT_KEY_FILE', join(localEvalRoot, '.local-secrets', 'deepseek-key'));
+  const keyFile = envPath(
+    'MAKA_PROMPT_KEY_FILE',
+    join(localEvalRoot, '.local-secrets', 'deepseek-key'),
+  );
   const provider = process.env.MAKA_PROMPT_PROVIDER || 'deepseek';
   const baseUrl = process.env.MAKA_PROMPT_BASE_URL || 'https://api.deepseek.com';
   const model = process.env.MAKA_PROMPT_MODEL || 'deepseek/deepseek-v4-flash';
@@ -44,13 +50,21 @@ async function main() {
   });
 
   console.log('---');
-  console.log(`decision: ${result.decision?.decision ?? 'none'} (${result.decision?.reason ?? 'none'})`);
+  console.log(
+    `decision: ${result.decision?.decision ?? 'none'} (${result.decision?.reason ?? 'none'})`,
+  );
   console.log(`learnedRulePresent: ${result.learnedRulePresent}`);
-  console.log(`held-in: ${result.heldInBefore.passEligibleRate} -> ${result.heldInAfter.passEligibleRate}`);
+  console.log(
+    `held-in: ${result.heldInBefore.passEligibleRate} -> ${result.heldInAfter.passEligibleRate}`,
+  );
   console.log(`held-out: ${result.heldOutAfter.passEligibleRate}`);
   console.log(`result -> ${result.resultPath}`);
   console.log(`report -> ${result.reportPath}`);
-  if (!result.accepted || !result.learnedRulePresent || result.heldOutAfter.passEligibleRate !== 1) {
+  if (
+    !result.accepted ||
+    !result.learnedRulePresent ||
+    result.heldOutAfter.passEligibleRate !== 1
+  ) {
     process.exitCode = 1;
   }
 }

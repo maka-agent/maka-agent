@@ -24,9 +24,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, RefreshCcw, Search, Sparkles, User } from '@maka/ui/icons';
-import { generalizedErrorMessageChinese, type AppSettings, type PlanReminder, type SettingsSection } from '@maka/core';
-import { Alert, AlertAction, AlertDescription, Button, useMountedRef, useToast } from '@maka/ui';
+import { generalizedErrorMessage, generalizedErrorMessageChinese, type AppSettings, type PlanReminder, type SettingsSection, type UiLocale } from '@maka/core';
+import { Alert, AlertAction, AlertDescription, Button, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { Button as BaseButton } from '@base-ui/react/button';
+import { getOnboardingCopy } from './locales/onboarding-copy';
 
 interface ChecklistItem {
   id: string;
@@ -46,6 +47,8 @@ export interface FirstRunChecklistProps {
 }
 
 export function FirstRunChecklist(props: FirstRunChecklistProps) {
+  const locale = useUiLocale();
+  const copy = getOnboardingCopy(locale).checklist;
   // Self-fetched so the host (main.tsx OnboardingHero wrapper) does
   // not have to thread AppSettings + planReminders down. Refreshed
   // whenever the panel remounts (which happens whenever sessions
@@ -70,13 +73,13 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   const isChecklistUnmounted = useCallback(() => !checklistMountedRef.current, []);
 
   const surfaceProbeFailure = useCallback((error: unknown) => {
-    const message = firstRunChecklistErrorMessage(error);
+    const message = firstRunChecklistErrorMessage(error, locale);
     setStatusError(message);
     if (!failureToastShownRef.current) {
       failureToastShownRef.current = true;
-      toast.error('刷新首次使用清单失败', message);
+      toast.error(copy.refreshFailedTitle, message);
     }
-  }, [toast]);
+  }, [copy.refreshFailedTitle, locale, toast]);
 
   const refreshChecklistStatus = useCallback(async (isCancelled: () => boolean = isChecklistUnmounted) => {
     if (statusRefreshPendingRef.current) return;
@@ -142,30 +145,31 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
     const planStatusKnown = planReminders !== null;
     const workspaceInstructionStatusKnown = workspaceInstructionCount !== null;
     const hasPlanReminder = planStatusKnown && planReminders.length > 0;
+    const itemCopy = copy.items;
     return [
       {
         id: 'personalization',
         Icon: User,
-        title: '告诉我们怎么称呼你',
-        reason: '消息行就不会再把你显示成默认的「你」。',
+        title: itemCopy.personalization.title,
+        reason: itemCopy.personalization.reason,
         done: personalization.displayName.trim().length > 0,
         onClick: () => props.onOpenSettingsSection('appearance'),
       },
       {
         id: 'web-search',
         Icon: Search,
-        title: '开通 Tavily 联网搜索',
-        reason: '让你能直接在 Maka 里发一条搜索查询，看到真实结果。',
+        title: itemCopy['web-search'].title,
+        reason: itemCopy['web-search'].reason,
         done: tavilyConfigured,
         onClick: () => props.onOpenSettingsSection('search'),
       },
       {
         id: 'plan-reminder',
         Icon: Clock,
-        title: '建一条本地计划提醒',
+        title: itemCopy['plan-reminder'].title,
         reason: planStatusKnown
-          ? '能本地保存一条到点提醒，全程留在本机，不需要外部服务。'
-          : '计划提醒状态暂时没刷新成功，打开计划页可查看。',
+          ? itemCopy['plan-reminder'].reason
+          : itemCopy['plan-reminder'].unknownReason!,
         done: hasPlanReminder,
         trackCompletion: planStatusKnown,
         // `onStartPlanReminder` returns void, so `?.() ?? fallback()` would
@@ -178,8 +182,8 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
       {
         id: 'daily-review',
         Icon: CalendarDays,
-        title: '看看每日回顾',
-        reason: '聚合今天的对话、token 使用、Top 模型与工具。',
+        title: itemCopy['daily-review'].title,
+        reason: itemCopy['daily-review'].reason,
         // No persistence — visiting the panel doesn't strictly "complete"
         // anything. Render it as exploration, not a permanent unchecked todo.
         done: false,
@@ -189,10 +193,10 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
       {
         id: 'workspace-instructions',
         Icon: FileText,
-        title: '创建项目指令文件',
+        title: itemCopy['workspace-instructions'].title,
         reason: workspaceInstructionStatusKnown
-          ? '把这个工作区的约定写进 AGENTS.md / CLAUDE.md / GEMINI.md，之后可随时关闭。'
-          : '项目指令状态暂时没刷新成功，打开记忆设置可查看。',
+          ? itemCopy['workspace-instructions'].reason
+          : itemCopy['workspace-instructions'].unknownReason!,
         done: workspaceInstructionStatusKnown && workspaceInstructionCount > 0,
         trackCompletion: workspaceInstructionStatusKnown,
         onClick: () => props.onOpenSettingsSection('memory'),
@@ -205,8 +209,8 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         // wired memory into the agent loop yet.
         id: 'local-memory',
         Icon: BookOpen,
-        title: '写一条本地记忆',
-        reason: '透明的 MEMORY.md，agent 默认看不到；想让它记住偏好就在设置里再开一个开关。',
+        title: itemCopy['local-memory'].title,
+        reason: itemCopy['local-memory'].reason,
         done:
           settings.localMemory.enabled
           && settings.localMemory.agentReadEnabled,
@@ -221,26 +225,26 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         // checklist item.
         id: 'voice-smoke',
         Icon: Mic,
-        title: '跑一次语音录音自检',
-        reason: '请求麦克风权限、录 2 秒本地样本，确认采集链路通；不上传、不保存、不写记忆。',
+        title: itemCopy['voice-smoke'].title,
+        reason: itemCopy['voice-smoke'].reason,
         done: false,
         trackCompletion: false,
         onClick: () => props.onOpenSettingsSection('voice'),
       },
     ];
-  }, [settings, planReminders, workspaceInstructionCount, props]);
+  }, [copy.items, settings, planReminders, workspaceInstructionCount, props]);
 
   if (!settings && settingsLoadFailed) {
     return (
       <aside
         className="maka-first-run-checklist"
         role="alert"
-        aria-label="接下来可以探索暂时不可用"
+        aria-label={copy.unavailableLabel}
         aria-busy={statusRefreshPending ? 'true' : undefined}
       >
         <Alert variant="warning" className="maka-first-run-checklist-error">
           <AlertDescription>
-            首次使用清单暂时没刷新成功。{statusError ?? '请稍后重试。'}
+            {copy.unavailableBody} {statusError ?? copy.errorFallback}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -252,7 +256,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
               aria-busy={statusRefreshPending ? 'true' : undefined}
             >
               <RefreshCcw size={12} aria-hidden="true" />
-              <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
+              <span>{statusRefreshPending ? copy.refreshing : copy.retry}</span>
             </Button>
           </AlertAction>
         </Alert>
@@ -268,17 +272,17 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   return (
     <aside
       className="maka-first-run-checklist"
-      aria-label={`接下来可以探索（待完成 ${remaining} 项）`}
+      aria-label={copy.remainingAria(remaining)}
     >
       <header className="maka-first-run-checklist-header">
         <Sparkles size={16} aria-hidden="true" />
-        <strong>接下来可以探索</strong>
-        <span className="maka-first-run-checklist-count">{remaining} / {completableItems.length} 待完成</span>
+        <strong>{copy.title}</strong>
+        <span className="maka-first-run-checklist-count">{copy.remainingCount(remaining, completableItems.length)}</span>
       </header>
       {statusError && (
         <Alert variant="warning" className="maka-first-run-checklist-error">
           <AlertDescription>
-            部分状态暂时没刷新成功，已避免把未知状态计成未完成。{statusError}
+            {copy.partialFailureBody} {statusError}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -290,7 +294,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
               aria-busy={statusRefreshPending ? 'true' : undefined}
             >
               <RefreshCcw size={12} aria-hidden="true" />
-              <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
+              <span>{statusRefreshPending ? copy.refreshing : copy.retry}</span>
             </Button>
           </AlertAction>
         </Alert>
@@ -328,6 +332,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   );
 }
 
-function firstRunChecklistErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '状态服务暂时不可用，请稍后重试。');
+function firstRunChecklistErrorMessage(error: unknown, locale: UiLocale): string {
+  const fallback = getOnboardingCopy(locale).checklist.errorFallback;
+  return locale === 'zh' ? generalizedErrorMessageChinese(error, fallback) : generalizedErrorMessage(error, fallback);
 }

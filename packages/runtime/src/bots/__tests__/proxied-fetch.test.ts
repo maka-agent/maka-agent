@@ -62,7 +62,7 @@ describe('proxiedFetch', () => {
       assert.equal(await response.text(), 'ok');
     } finally {
       await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
+        server.close((error) => (error ? reject(error) : resolve()));
       });
     }
   });

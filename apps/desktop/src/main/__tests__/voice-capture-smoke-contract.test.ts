@@ -52,18 +52,18 @@ describe('voice capture smoke Settings contract', () => {
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
       voicePage!,
-      /const captureSmokeBusyRef = useRef\(false\);/,
-      'voice capture smoke needs a ref gate so fast double-clicks cannot start duplicate microphone captures before React disables the button',
+      /const captureSmokeGuard = useActionGuard<'smoke'>\(\)/,
+      'voice capture smoke needs a synchronous guard so fast double-clicks cannot start duplicate microphone captures before React disables the button',
     );
     assert.match(
       voicePage!,
-      /async function runCaptureSmoke\(\) \{\s*if \(captureSmokeBusyRef\.current\) return;[\s\S]*captureSmokeBusyRef\.current = true;[\s\S]*navigator\.mediaDevices\.getUserMedia/,
+      /async function runCaptureSmoke\(\) \{\s*if \(captureSmokeGuard\.current !== null\) return;[\s\S]*captureSmokeGuard\.begin\('smoke'\);[\s\S]*navigator\.mediaDevices\.getUserMedia/,
       'voice capture smoke must take the synchronous lock before the first getUserMedia await',
     );
     assert.match(
       voicePage!,
-      /finally \{[\s\S]*stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*captureSmokeBusyRef\.current = false;[\s\S]*setIsBusy\(false\);[\s\S]*\}/,
-      'voice capture smoke must release the ref after stopping microphone tracks',
+      /finally \{[\s\S]*stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*captureSmokeGuard\.finish\(\);[\s\S]*setIsBusy\(false\);[\s\S]*\}/,
+      'voice capture smoke must release the guard after stopping microphone tracks',
     );
     assert.match(voicePage!, /aria-busy=\{isBusy\}/, 'voice capture button must expose the pending state to assistive tech');
     assert.match(voicePage!, /data-pending=\{isBusy \? 'true' : undefined\}/, 'voice capture button must expose a stable pending hook');
@@ -74,8 +74,10 @@ describe('voice capture smoke Settings contract', () => {
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
-      src,
-      /import \{ useEffect, useId, useMemo, useRef, useState,/,
+      // Pin the voice page file itself: the combined source used to satisfy
+      // this import pattern via an unrelated page (#1042 split it away).
+      await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/voice-settings-page.tsx'), 'utf8'),
+      /import \{ useEffect, useId, useRef, useState \} from 'react';/,
       'voice capture status needs a stable React id rather than a hard-coded duplicate id',
     );
     assert.match(
@@ -101,8 +103,8 @@ describe('voice capture smoke Settings contract', () => {
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
       voicePage!,
-      /const voicePageMountedRef = useMountedRef\(\);[\s\S]*const activeVoiceCaptureStreamRef = useRef<MediaStream \| null>\(null\);[\s\S]*return \(\) => \{[\s\S]*activeVoiceCaptureStreamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*captureSmokeBusyRef\.current = false;/,
-      'voice capture smoke must track page ownership and release the pending owner when Settings closes',
+      /const captureSmokeGuard = useActionGuard<'smoke'>\(\);[\s\S]*const voicePageMountedRef = useMountedRef\(\);[\s\S]*const activeVoiceCaptureStreamRef = useRef<MediaStream \| null>\(null\);[\s\S]*return \(\) => \{[\s\S]*activeVoiceCaptureStreamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*activeVoiceCaptureStreamRef\.current = null;/,
+      'voice capture smoke must track page ownership and stop the active stream when Settings closes (the shared guard hook releases the pending owner)',
     );
     assert.match(
       voicePage!,
@@ -126,7 +128,7 @@ describe('voice capture smoke Settings contract', () => {
     );
     assert.match(
       voicePage!,
-      /finally \{[\s\S]*stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*if \(activeVoiceCaptureStreamRef\.current === stream\) \{[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*\}[\s\S]*captureSmokeBusyRef\.current = false;[\s\S]*if \(voicePageMountedRef\.current\) \{[\s\S]*setIsBusy\(false\);/,
+      /finally \{[\s\S]*stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*if \(activeVoiceCaptureStreamRef\.current === stream\) \{[\s\S]*activeVoiceCaptureStreamRef\.current = null;[\s\S]*\}[\s\S]*captureSmokeGuard\.finish\(\);[\s\S]*if \(voicePageMountedRef\.current\) \{[\s\S]*setIsBusy\(false\);/,
       'voice capture cleanup must stop microphone tracks, clear the active stream owner, and only write React state while mounted',
     );
   });

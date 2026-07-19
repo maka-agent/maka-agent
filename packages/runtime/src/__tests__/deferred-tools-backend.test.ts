@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
-import type { LlmConnection, SessionHeader } from '@maka/core';
+import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
+import type { LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 
@@ -17,12 +17,12 @@ import {
 } from '../tool-availability.js';
 import { toolSchemaCharsForDiagnostics } from '../request-shape.js';
 import { LOCAL_READ_AGENT_ID, LOCAL_READ_AGENT_PROFILE } from '../agent-catalog.js';
+import { AGENT_SWARM_TOOL_NAME } from '../agent-swarm-tools.js';
 import {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
-  buildSubagentProjectionTools,
-  buildSubagentSpawnTool,
+  buildParentAgentTools,
   buildSubagentToolGroup,
 } from '../subagent-tools.js';
 
@@ -30,7 +30,7 @@ import {
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
 // loads, and the execute-boundary guard is fed by the live snapshot.
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
@@ -47,13 +47,22 @@ const agentConfig: ToolAvailabilityConfig = {
 
 function tools(implCalls: string[]): MakaTool[] {
   return [
-    { name: 'Read', description: 'Read', parameters: z.object({ path: z.string().optional() }), permissionRequired: false, impl: () => ({ ok: true }) },
+    {
+      name: 'Read',
+      description: 'Read',
+      parameters: z.object({ path: z.string().optional() }),
+      permissionRequired: false,
+      impl: () => ({ ok: true }),
+    },
     {
       name: 'browser_click',
       description: 'Click in the browser',
       parameters: z.object({}),
       permissionRequired: false,
-      impl: () => { implCalls.push('browser_click'); return { ok: true }; },
+      impl: () => {
+        implCalls.push('browser_click');
+        return { ok: true };
+      },
     },
   ];
 }
@@ -64,9 +73,13 @@ interface BackendOpts {
   recordLlmCall?: (record: LlmCallRecord) => void;
 }
 
-function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendOpts = {}): AiSdkBackend {
+function backend(
+  model: MockLanguageModelV4,
+  implCalls: string[],
+  opts: BackendOpts = {},
+): AiSdkBackend {
   let n = 0;
-  const resolved = opts.toolAvailability === null ? undefined : opts.toolAvailability ?? config;
+  const resolved = opts.toolAvailability === null ? undefined : (opts.toolAvailability ?? config);
   return new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
@@ -85,12 +98,13 @@ function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendO
 }
 
 function agentBackend(
-  model: MockLanguageModelV3,
+  model: MockLanguageModelV4,
   spawnCalls: unknown[],
   opts: BackendOpts & { permissionMode?: SessionHeader['permissionMode'] } = {},
 ): AiSdkBackend {
   let n = 0;
-  const resolved = opts.toolAvailability === null ? undefined : opts.toolAvailability ?? agentConfig;
+  const resolved =
+    opts.toolAvailability === null ? undefined : (opts.toolAvailability ?? agentConfig);
   return new AiSdkBackend({
     sessionId: 'session-1',
     header: header(opts.permissionMode),
@@ -100,18 +114,16 @@ function agentBackend(
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
-    tools: [
-      buildSubagentSpawnTool(),
-      ...buildSubagentProjectionTools(),
-    ],
+    tools: buildParentAgentTools(),
     ...(resolved ? { toolAvailability: resolved } : {}),
     spawnChildAgent: async (input) => {
+      const childIndex = spawnCalls.length;
       spawnCalls.push(input);
       return {
         agentId: input.spec.id,
         agentName: input.spec.name,
-        runId: 'child-run',
-        turnId: 'child-turn',
+        runId: `child-run-${childIndex}`,
+        turnId: `child-turn-${childIndex}`,
         status: 'completed',
         permissionMode: 'explore',
         summary: 'done',
@@ -130,11 +142,13 @@ describe('AiSdkBackend deferred tool loading', () => {
   test('step 0 hides an unloaded group tool but advertises load_tools', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    await drain(backend(capturingModel(captured), implCalls).send({
-      turnId: 'turn-1',
-      text: 'hi',
-      context: [],
-    }));
+    await drain(
+      backend(capturingModel(captured), implCalls).send({
+        turnId: 'turn-1',
+        text: 'hi',
+        context: [],
+      }),
+    );
     assert.ok(captured[0].includes('Read'), 'ungrouped Read advertised');
     assert.ok(captured[0].includes(LOAD_TOOLS_NAME), 'load_tools advertised');
     assert.ok(!captured[0].includes('browser_click'), 'unloaded browser_click hidden');
@@ -143,12 +157,14 @@ describe('AiSdkBackend deferred tool loading', () => {
   test('durable seed: a prior-turn load re-advertises the tool at the next turn', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    await drain(backend(capturingModel(captured), implCalls).send({
-      turnId: 'turn-2',
-      text: 'click it',
-      context: [],
-      runtimeContext: priorBrowserLoad('turn-1'),
-    }));
+    await drain(
+      backend(capturingModel(captured), implCalls).send({
+        turnId: 'turn-2',
+        text: 'click it',
+        context: [],
+        runtimeContext: priorBrowserLoad('turn-1'),
+      }),
+    );
     assert.ok(
       captured[0].includes('browser_click'),
       'browser_click must be advertised at turn 2 step 0 because it was loaded in turn 1',
@@ -158,11 +174,13 @@ describe('AiSdkBackend deferred tool loading', () => {
   test('guard: same-step parallel load_tools(browser)+browser_click rejects the click (live)', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    await drain(backend(parallelLoadUseModel(captured), implCalls).send({
-      turnId: 'turn-1',
-      text: 'load and click in one step',
-      context: [],
-    }));
+    await drain(
+      backend(parallelLoadUseModel(captured), implCalls).send({
+        turnId: 'turn-1',
+        text: 'load and click in one step',
+        context: [],
+      }),
+    );
     assert.equal(captured.length, 2, 'expected two steps (parallel call step, then a final step)');
     assert.ok(!captured[0].includes('browser_click'), 'browser_click is not advertised at step 0');
     assert.deepEqual(
@@ -176,9 +194,11 @@ describe('AiSdkBackend deferred tool loading', () => {
     const records: LlmCallRecord[] = [];
     const implCalls: string[] = [];
     // step 0 loads browser; browser_click activates at step 1 via prepareStep.
-    await drain(backend(loadBrowserThenFinishModel(), implCalls, {
-      recordLlmCall: (r) => records.push(r),
-    }).send({ turnId: 'turn-1', text: 'load browser', context: [] }));
+    await drain(
+      backend(loadBrowserThenFinishModel(), implCalls, {
+        recordLlmCall: (r) => records.push(r),
+      }).send({ turnId: 'turn-1', text: 'load browser', context: [] }),
+    );
 
     assert.equal(records.length, 1, 'exactly one llm-call cost record for the turn');
     const toolSeg = records[0].promptSegments?.find((s) => s.kind === 'tool_schema');
@@ -188,11 +208,21 @@ describe('AiSdkBackend deferred tool loading', () => {
     // browser_click), not the lean step-0 set — otherwise the load turn
     // under-reports the heavy schema it actually sent on step 1. Use the real
     // runtime so the provider tool set (incl. the connector) matches the backend.
-    const providerTools = new ToolAvailabilityRuntime(tools([]), config, INVALID_FIXTURE).prepare([]).providerTools;
+    const providerTools = new ToolAvailabilityRuntime(tools([]), config, INVALID_FIXTURE).prepare(
+      [],
+    ).providerTools;
     const leanChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', LOAD_TOOLS_NAME]);
-    const loadedChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', LOAD_TOOLS_NAME, 'browser_click']);
+    const loadedChars = toolSchemaCharsForDiagnostics(providerTools, [
+      'Read',
+      LOAD_TOOLS_NAME,
+      'browser_click',
+    ]);
     assert.ok(loadedChars > leanChars, 'sanity: the loaded set is heavier than the lean set');
-    assert.equal(toolSeg.chars, loadedChars, 'recorded tool-schema chars include the loaded browser_click');
+    assert.equal(
+      toolSeg.chars,
+      loadedChars,
+      'recorded tool-schema chars include the loaded browser_click',
+    );
     assert.equal(
       records[0].requestShapeChangeReason,
       'first_turn',
@@ -203,17 +233,27 @@ describe('AiSdkBackend deferred tool loading', () => {
   test('high-water "after" hash stays consistent with the final recorded requestShapeHash across a same-turn load', async () => {
     const records: LlmCallRecord[] = [];
     const implCalls: string[] = [];
-    const be = backend(loadBrowserThenFinishModel(), implCalls, { recordLlmCall: (r) => records.push(r) });
+    const be = backend(loadBrowserThenFinishModel(), implCalls, {
+      recordLlmCall: (r) => records.push(r),
+    });
     // Real high-water reasons only arise from the synthesis-cache subsystem
     // (selectSynthesisCacheForReplay needs valid cache blocks + matching
     // history). Inject just the marker by wrapping buildPriorMessages so this
     // targets the diagnostics-consistency invariant, not that subsystem.
     type PriorReplayish = { contextBudget?: Record<string, unknown> };
-    const patch = be as unknown as { buildPriorMessages: (input: unknown) => Promise<PriorReplayish> };
+    const patch = be as unknown as {
+      buildPriorMessages: (input: unknown) => Promise<PriorReplayish>;
+    };
     const realBuildPriorMessages = patch.buildPriorMessages.bind(be);
     patch.buildPriorMessages = async (input: unknown) => {
       const prior = await realBuildPriorMessages(input);
-      return { ...prior, contextBudget: { ...(prior.contextBudget ?? {}), highWaterReason: 'synthesis_cache_select' } };
+      return {
+        ...prior,
+        contextBudget: {
+          ...(prior.contextBudget ?? {}),
+          highWaterReason: 'synthesis_cache_select',
+        },
+      };
     };
 
     await drain(be.send({ turnId: 'turn-1', text: 'load browser', context: [] }));
@@ -228,37 +268,55 @@ describe('AiSdkBackend deferred tool loading', () => {
       records[0].requestShapeHash,
       'high-water "after" must equal the final recorded requestShapeHash',
     );
-    assert.equal(cb.highWaterRequestShapeHashBefore, undefined, 'first turn has no pre-turn baseline');
+    assert.equal(
+      cb.highWaterRequestShapeHashBefore,
+      undefined,
+      'first turn has no pre-turn baseline',
+    );
   });
 
   test('economy off: every tool stays advertised, no connector', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
     // economy off ⇒ the contract is "advertise everything", no load_tools.
-    await drain(backend(capturingModel(captured), implCalls, { toolAvailability: null }).send({
-      turnId: 'turn-1',
-      text: 'hi',
-      context: [],
-    }));
-    assert.ok(captured[0].includes('browser_click'), 'a group tool is advertised when economy is off');
+    await drain(
+      backend(capturingModel(captured), implCalls, { toolAvailability: null }).send({
+        turnId: 'turn-1',
+        text: 'hi',
+        context: [],
+      }),
+    );
+    assert.ok(
+      captured[0].includes('browser_click'),
+      'a group tool is advertised when economy is off',
+    );
     assert.ok(!captured[0].includes(LOAD_TOOLS_NAME), 'no connector in full mode');
   });
 
   test('repair: a mis-cased group call after a mid-turn load repairs to the canonical name', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    await drain(backend(loadThenMiscasedClickModel(captured), implCalls).send({
-      turnId: 'turn-1',
-      text: 'load browser then click',
-      context: [],
-    }));
+    await drain(
+      backend(loadThenMiscasedClickModel(captured), implCalls).send({
+        turnId: 'turn-1',
+        text: 'load browser then click',
+        context: [],
+      }),
+    );
     // Step 0 loads browser; step 1 emits the mis-cased BROWSER_CLICK. Because the
     // repair list follows the current step's active snapshot (not the frozen
     // step-0 set), the call repairs to canonical browser_click and runs — rather
     // than routing to `invalid`, which would leave implCalls empty.
     assert.ok(captured.length >= 2, 'expected at least the load step and the click step');
-    assert.ok(captured[1].includes('browser_click'), 'browser_click is advertised at step 1 after the load');
-    assert.deepEqual(implCalls, ['browser_click'], 'the mis-cased call repaired to browser_click and ran');
+    assert.ok(
+      captured[1].includes('browser_click'),
+      'browser_click is advertised at step 1 after the load',
+    );
+    assert.deepEqual(
+      implCalls,
+      ['browser_click'],
+      'the mis-cased call repaired to browser_click and ran',
+    );
   });
 });
 
@@ -266,49 +324,100 @@ describe('AiSdkBackend deferred agent tools', () => {
   test('agent tools are hidden by default and visible after load_tools(agent)', async () => {
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];
-    await drain(agentBackend(loadAgentThenFinishModel(captured), spawnCalls).send({
-      turnId: 'turn-1',
-      text: 'load agents',
-      context: [],
-      runId: 'parent-run',
-    }));
+    await drain(
+      agentBackend(loadAgentThenFinishModel(captured), spawnCalls).send({
+        turnId: 'turn-1',
+        text: 'load agents',
+        context: [],
+        runId: 'parent-run',
+      }),
+    );
 
     assert.ok(captured[0].includes(LOAD_TOOLS_NAME), 'load_tools advertised');
     assert.ok(!captured[0].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn hidden at step 0');
+    assert.ok(!captured[0].includes(AGENT_SWARM_TOOL_NAME), 'agent_swarm hidden at step 0');
     assert.ok(!captured[0].includes(AGENT_LIST_TOOL_NAME), 'agent_list hidden at step 0');
     assert.ok(!captured[0].includes(AGENT_OUTPUT_TOOL_NAME), 'agent_output hidden at step 0');
 
-    assert.ok(captured[1].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn visible after loading the agent group');
-    assert.ok(captured[1].includes(AGENT_LIST_TOOL_NAME), 'agent_list visible after loading the agent group');
-    assert.ok(captured[1].includes(AGENT_OUTPUT_TOOL_NAME), 'agent_output visible after loading the agent group');
+    assert.ok(
+      captured[1].includes(AGENT_SPAWN_TOOL_NAME),
+      'agent_spawn visible after loading the agent group',
+    );
+    assert.ok(
+      captured[1].includes(AGENT_SWARM_TOOL_NAME),
+      'agent_swarm visible after loading the agent group',
+    );
+    assert.ok(
+      captured[1].includes(AGENT_LIST_TOOL_NAME),
+      'agent_list visible after loading the agent group',
+    );
+    assert.ok(
+      captured[1].includes(AGENT_OUTPUT_TOOL_NAME),
+      'agent_output visible after loading the agent group',
+    );
   });
 
   test('guard rejects same-step load_tools(agent)+agent_spawn before spawning a child', async () => {
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];
-    await drain(agentBackend(parallelLoadAgentAndSpawnModel(captured), spawnCalls).send({
-      turnId: 'turn-1',
-      text: 'load and spawn in one step',
-      context: [],
-      runId: 'parent-run',
-    }));
+    await drain(
+      agentBackend(parallelLoadAgentAndSpawnModel(captured), spawnCalls).send({
+        turnId: 'turn-1',
+        text: 'load and spawn in one step',
+        context: [],
+        runId: 'parent-run',
+      }),
+    );
 
-    assert.ok(!captured[0].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn is not advertised at step 0');
+    assert.ok(
+      !captured[0].includes(AGENT_SPAWN_TOOL_NAME),
+      'agent_spawn is not advertised at step 0',
+    );
     assert.deepEqual(spawnCalls, [], 'agent_spawn must not run before the agent group is active');
+  });
+
+  test('guard rejects same-step load_tools(agent)+agent_swarm before spawning children', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    await drain(
+      agentBackend(parallelLoadAgentAndSwarmModel(captured), spawnCalls).send({
+        turnId: 'turn-1',
+        text: 'load and fan out in one step',
+        context: [],
+        runId: 'parent-run',
+      }),
+    );
+
+    assert.ok(
+      !captured[0].includes(AGENT_SWARM_TOOL_NAME),
+      'agent_swarm is not advertised at step 0',
+    );
+    assert.deepEqual(spawnCalls, [], 'agent_swarm must not run before the agent group is active');
   });
 
   test('deferred agent group is prompt economy only: loaded agent_spawn still uses its permission model', async () => {
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];
-    await drain(agentBackend(loadAgentThenSpawnModel(captured), spawnCalls, { permissionMode: 'execute' }).send({
-      turnId: 'turn-1',
-      text: 'load then spawn',
-      context: [],
-      runId: 'parent-run',
-    }));
+    await drain(
+      agentBackend(loadAgentThenSpawnModel(captured), spawnCalls, {
+        permissionMode: 'execute',
+      }).send({
+        turnId: 'turn-1',
+        text: 'load then spawn',
+        context: [],
+        runId: 'parent-run',
+      }),
+    );
 
-    assert.ok(captured[1].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn is provider-visible only after load');
-    assert.equal(spawnCalls.length, 1, 'execute-mode permission still allows the loaded subagent tool to run');
+    assert.ok(
+      captured[1].includes(AGENT_SPAWN_TOOL_NAME),
+      'agent_spawn is provider-visible only after load',
+    );
+    assert.equal(
+      spawnCalls.length,
+      1,
+      'execute-mode permission still allows the loaded subagent tool to run',
+    );
     assert.deepEqual(spawnCalls[0], {
       parentRunId: 'parent-run',
       spec: {
@@ -323,7 +432,54 @@ describe('AiSdkBackend deferred agent tools', () => {
       },
       prompt: 'Inspect the runtime tests.',
       abortSignal: assertAbortSignal(spawnCalls[0]),
+      onEvent: assertOnEvent(spawnCalls[0]),
     });
+  });
+
+  test('loaded agent_swarm fans out through the shared spawn capability', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    const events = await collect(
+      agentBackend(loadAgentThenSwarmModel(captured), spawnCalls, {
+        permissionMode: 'execute',
+      }).send({
+        turnId: 'turn-1',
+        text: 'load then fan out',
+        context: [],
+        runId: 'parent-run',
+      }),
+    );
+
+    assert.ok(captured[1].includes(AGENT_SWARM_TOOL_NAME));
+    assert.equal(spawnCalls.length, 2);
+    assert.deepEqual(
+      spawnCalls.map((call) => (call as { prompt?: string }).prompt),
+      ['Inspect auth.', 'Inspect storage.'],
+    );
+    assert.ok(
+      spawnCalls.every((call) => (call as { parentRunId?: string }).parentRunId === 'parent-run'),
+    );
+    const result = events.find(
+      (
+        event,
+      ): event is Extract<SessionEvent, { type: 'tool_result' }> & {
+        content: Extract<SessionEvent, { type: 'tool_result' }>['content'] & {
+          kind: 'agent_swarm';
+        };
+      } => event.type === 'tool_result' && event.content.kind === 'agent_swarm',
+    );
+    assert.ok(result);
+    assert.deepEqual(
+      result.content.items.map((item) => ({
+        itemId: item.itemId,
+        runId: item.runId,
+        turnId: item.turnId,
+      })),
+      [
+        { itemId: 'auth', runId: 'child-run-0', turnId: 'child-turn-0' },
+        { itemId: 'storage', runId: 'child-run-1', turnId: 'child-turn-1' },
+      ],
+    );
   });
 });
 
@@ -331,11 +487,11 @@ describe('AiSdkBackend deferred agent tools', () => {
 // Mock models
 // ---------------------------------------------------------------------------
 
-function capturingModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function capturingModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
-      const parts: LanguageModelV3StreamPart[] = [
+      const parts: LanguageModelV4StreamPart[] = [
         { type: 'stream-start', warnings: [] },
         { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
       ];
@@ -344,17 +500,31 @@ function capturingModel(captured: string[][]): MockLanguageModelV3 {
   });
 }
 
-function parallelLoadUseModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function parallelLoadUseModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const first = captured.length === 1;
-      const parts: LanguageModelV3StreamPart[] = first
+      const parts: LanguageModelV4StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
-            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
-            { type: 'tool-call', toolCallId: 'tc-click', toolName: 'browser_click', input: JSON.stringify({}) },
-            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-load',
+              toolName: LOAD_TOOLS_NAME,
+              input: JSON.stringify({ group: 'browser' }),
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-click',
+              toolName: 'browser_click',
+              input: JSON.stringify({}),
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+              usage: ZERO_USAGE,
+            },
           ]
         : [
             { type: 'stream-start', warnings: [] },
@@ -374,17 +544,26 @@ const INVALID_FIXTURE: MakaTool = {
 };
 
 /** Step 0 loads the browser group, then the turn finishes (no use). */
-function loadBrowserThenFinishModel(): MockLanguageModelV3 {
+function loadBrowserThenFinishModel(): MockLanguageModelV4 {
   let step = 0;
-  return new MockLanguageModelV3({
+  return new MockLanguageModelV4({
     doStream: async () => {
       step += 1;
-      const parts: LanguageModelV3StreamPart[] =
+      const parts: LanguageModelV4StreamPart[] =
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc-load',
+                toolName: LOAD_TOOLS_NAME,
+                input: JSON.stringify({ group: 'browser' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: ZERO_USAGE,
+              },
             ]
           : [
               { type: 'stream-start', warnings: [] },
@@ -400,43 +579,74 @@ function loadBrowserThenFinishModel(): MockLanguageModelV3 {
  * (a provider that case-drifts a tool that only became active this step). The
  * AI SDK can't match the upper-cased name, so it calls the repair callback.
  */
-function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const step = captured.length;
-      const parts: LanguageModelV3StreamPart[] =
+      const parts: LanguageModelV4StreamPart[] =
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc-load',
+                toolName: LOAD_TOOLS_NAME,
+                input: JSON.stringify({ group: 'browser' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: ZERO_USAGE,
+              },
             ]
           : step === 2
             ? [
                 { type: 'stream-start', warnings: [] },
-                { type: 'tool-call', toolCallId: 'tc-click', toolName: 'BROWSER_CLICK', input: JSON.stringify({}) },
-                { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tc-click',
+                  toolName: 'BROWSER_CLICK',
+                  input: JSON.stringify({}),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: ZERO_USAGE,
+                },
               ]
             : [
                 { type: 'stream-start', warnings: [] },
-                { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: ZERO_USAGE,
+                },
               ];
       return { stream: convertArrayToReadableStream(parts) };
     },
   });
 }
 
-function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const first = captured.length === 1;
-      const parts: LanguageModelV3StreamPart[] = first
+      const parts: LanguageModelV4StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
-            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
-            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-load',
+              toolName: LOAD_TOOLS_NAME,
+              input: JSON.stringify({ group: 'agent' }),
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+              usage: ZERO_USAGE,
+            },
           ]
         : [
             { type: 'stream-start', warnings: [] },
@@ -447,17 +657,31 @@ function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV3 {
   });
 }
 
-function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const first = captured.length === 1;
-      const parts: LanguageModelV3StreamPart[] = first
+      const parts: LanguageModelV4StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
-            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
-            { type: 'tool-call', toolCallId: 'tc-spawn', toolName: AGENT_SPAWN_TOOL_NAME, input: agentSpawnInput() },
-            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-load',
+              toolName: LOAD_TOOLS_NAME,
+              input: JSON.stringify({ group: 'agent' }),
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-spawn',
+              toolName: AGENT_SPAWN_TOOL_NAME,
+              input: agentSpawnInput(),
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+              usage: ZERO_USAGE,
+            },
           ]
         : [
             { type: 'stream-start', warnings: [] },
@@ -468,27 +692,133 @@ function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModel
   });
 }
 
-function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function parallelLoadAgentAndSwarmModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const first = captured.length === 1;
+      const parts: LanguageModelV4StreamPart[] = first
+        ? [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-load',
+              toolName: LOAD_TOOLS_NAME,
+              input: JSON.stringify({ group: 'agent' }),
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'tc-swarm',
+              toolName: AGENT_SWARM_TOOL_NAME,
+              input: agentSwarmInput(),
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+              usage: ZERO_USAGE,
+            },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+          ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
+function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const step = captured.length;
-      const parts: LanguageModelV3StreamPart[] =
+      const parts: LanguageModelV4StreamPart[] =
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc-load',
+                toolName: LOAD_TOOLS_NAME,
+                input: JSON.stringify({ group: 'agent' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: ZERO_USAGE,
+              },
             ]
           : step === 2
             ? [
                 { type: 'stream-start', warnings: [] },
-                { type: 'tool-call', toolCallId: 'tc-spawn', toolName: AGENT_SPAWN_TOOL_NAME, input: agentSpawnInput() },
-                { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tc-spawn',
+                  toolName: AGENT_SPAWN_TOOL_NAME,
+                  input: agentSpawnInput(),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: ZERO_USAGE,
+                },
               ]
             : [
                 { type: 'stream-start', warnings: [] },
-                { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: ZERO_USAGE,
+                },
+              ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
+function loadAgentThenSwarmModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const step = captured.length;
+      const parts: LanguageModelV4StreamPart[] =
+        step === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc-load',
+                toolName: LOAD_TOOLS_NAME,
+                input: JSON.stringify({ group: 'agent' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: ZERO_USAGE,
+              },
+            ]
+          : step === 2
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tc-swarm',
+                  toolName: AGENT_SWARM_TOOL_NAME,
+                  input: agentSwarmInput(),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: ZERO_USAGE,
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: ZERO_USAGE,
+                },
               ];
       return { stream: convertArrayToReadableStream(parts) };
     },
@@ -499,6 +829,24 @@ function agentSpawnInput(): string {
   return JSON.stringify({
     profile: LOCAL_READ_AGENT_PROFILE,
     task: 'Inspect the runtime tests.',
+  });
+}
+
+function agentSwarmInput(): string {
+  return JSON.stringify({
+    items: [
+      {
+        item_id: 'auth',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect auth.',
+      },
+      {
+        item_id: 'storage',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect storage.',
+      },
+    ],
+    max_concurrency: 2,
   });
 }
 
@@ -513,18 +861,68 @@ function assertAbortSignal(value: unknown): AbortSignal {
   return value.abortSignal;
 }
 
+function assertOnEvent(value: unknown): (event: SessionEvent) => void {
+  assert.ok(
+    value && typeof value === 'object' && 'onEvent' in value && typeof value.onEvent === 'function',
+    'spawn input carries a child event observer',
+  );
+  return value.onEvent as (event: SessionEvent) => void;
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
 /** A complete prior turn whose model called load_tools(browser) and got a result. */
 function priorBrowserLoad(turnId: string): RuntimeEvent[] {
-  const base = { invocationId: 'inv-1', runId: 'run-1', sessionId: 'session-1', turnId, ts: 1, partial: false } as const;
+  const base = {
+    invocationId: 'inv-1',
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId,
+    ts: 1,
+    partial: false,
+  } as const;
   return [
-    { ...base, id: 'p-u', role: 'user', author: 'user', content: { kind: 'text', text: 'load browser' } },
-    { ...base, id: 'p-call', role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tc-prev', name: LOAD_TOOLS_NAME, args: { group: 'browser' } } },
-    { ...base, id: 'p-resp', role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tc-prev', name: LOAD_TOOLS_NAME, result: { loaded: ['browser_click'] } } },
-    { ...base, id: 'p-end', role: 'model', author: 'agent', status: 'completed', actions: { endInvocation: true } },
+    {
+      ...base,
+      id: 'p-u',
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'load browser' },
+    },
+    {
+      ...base,
+      id: 'p-call',
+      role: 'model',
+      author: 'agent',
+      content: {
+        kind: 'function_call',
+        id: 'tc-prev',
+        name: LOAD_TOOLS_NAME,
+        args: { group: 'browser' },
+      },
+    },
+    {
+      ...base,
+      id: 'p-resp',
+      role: 'tool',
+      author: 'tool',
+      content: {
+        kind: 'function_response',
+        id: 'tc-prev',
+        name: LOAD_TOOLS_NAME,
+        result: { loaded: ['browser_click'] },
+      },
+    },
+    {
+      ...base,
+      id: 'p-end',
+      role: 'model',
+      author: 'agent',
+      status: 'completed',
+      actions: { endInvocation: true },
+    },
   ];
 }
 
@@ -532,6 +930,12 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _ of iterable) {
     void _;
   }
+}
+
+async function collect(iterable: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
+  const events: SessionEvent[] = [];
+  for await (const event of iterable) events.push(event);
+  return events;
 }
 
 function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): SessionHeader {
@@ -542,6 +946,7 @@ function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): Sessio
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

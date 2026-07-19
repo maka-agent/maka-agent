@@ -1,0 +1,292 @@
+/* Settings row primitives — the single style home for the primitives
+   rendered by settings/settings-rows.tsx (.settingsRows / .settingsRow)
+   and the form-row family that shares the same grouped-card rhythm
+   (.settingsFormRow / .settingsField / .settingsFormGrid).
+
+   PR-SETTINGS-ROWS-CONVERGENCE-0: these rules were previously scattered
+   across bot.css (base layout), connection.css (hover + hint),
+   provider-editor.css (label/value typography), and nav-sidebar.css
+   (form rows + width variants), which let the two row kinds drift:
+   .settingsFormRow titles rendered 15px while .settingsRow titles on
+   the SAME page (通用: 默认模型 vs 隐身模式) rendered 13px, with
+   different padding. One file, one typography contract:
+
+   - row title (strong):        --font-size-heading / medium
+   - field label (span):        --font-size-ui / medium
+   - hint (small):              --font-size-base, muted
+   - value (.settingsRow span): --font-size-ui, secondary */
+
+/* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): grouped card —
+   outer card + hairline dividers, no per-row chrome. The ONLY card
+   primitive on settings pages (see .settingsStructuredPage note in
+   nav-sidebar.css). */
+.settingsRows {
+  display: grid;
+  gap: 0;
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
+  overflow: hidden;
+}
+
+/* Label/value row: title + hint stack on the left, value or a single
+   control on the right column. */
+.settingsRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  /* Same padding as .settingsFormRow below so the two row kinds read
+     as one rhythm when stacked on a page (was 16/20 vs 20/24). */
+  padding: var(--space-5) var(--space-6);
+  border: 0;
+  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+/* Detail audit + alignment-governance round: bare Switch controls sat at
+   the value column's START (x≈mid-page) while inputs/selects hug the right
+   rail. The original fix tag-qualified the selector with a button prefix, but
+   Base UI renders the Switch root as a SPAN — the selector matched nothing
+   and rotted silently. Tag-AGNOSTIC by rule: role is the contract, the
+   rendered tag never is. */
+.settingsRow > [role="switch"] {
+  justify-self: end;
+}
+
+.settingsRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsRow:hover {
+  background: var(--state-hover-bg);
+}
+
+.settingsRow > div {
+  min-width: 0;
+}
+
+/* PR-SETTINGS-ROW-SPACIOUS-0 (2026-06-23, WAWQAQ msg `f7e9d166`):
+   reference rows are MUCH more spacious than maka's. WAWQAQ's screenshot
+   of QoderWork's preferences card showed rows ~80–90px tall with
+   noticeable internal padding. Bumped: min-height 56→72, padding
+   16/20 → 20/24, gap inside row 16→20, label 14→15px, hint 12→13. */
+.settingsFormRow {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border: 0;
+  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+/* Detail audit round 3: vertical variant for full-width controls (the
+   personalization tone textarea) living inside the shared card rows. */
+.settingsFormRow[data-orient="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.settingsFormRow[data-orient="vertical"] .settingsActionRow {
+  margin: 0;
+}
+
+.settingsFormRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsFormRow:hover {
+  background: var(--state-hover-bg);
+}
+
+/* === typography ========================================================= */
+
+/* Row titles — one tier for BOTH row kinds. */
+.settingsRow strong,
+.settingsFormRow strong {
+  display: block;
+  color: var(--foreground);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-snug);
+}
+
+.settingsRow strong {
+  white-space: nowrap;
+}
+
+/* Field labels — one tier BELOW row titles so the proxy grid's 代理协议 /
+   服务器地址 / 端口 labels don't compete with the 代理服务器 row title
+   (they used to share the 15px heading tier). */
+.settingsField span,
+.settingsFormGrid label span {
+  display: block;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-snug);
+}
+
+/* Hints — the most-read body text on the page; body tier (13). */
+.settingsRow small,
+.settingsFormRow small,
+.settingsField small {
+  display: block;
+  margin-top: var(--space-1-5);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-normal);
+}
+
+.settingsRow > span {
+  /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): `tabular-nums` so
+     numeric values (version strings, model IDs, counts) align cleanly
+     when stacked vertically. baseline-ui + /typeset both require this
+     for any numeric data. */
+  min-width: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* Long machine values (workspace path): right-aligned proportional text
+   wraps into a ragged multi-line block. Mono + left-aligned + caption
+   size reads as the file path it is. */
+.settingsRow > span[data-mono="true"] {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  text-align: left;
+  line-height: var(--leading-normal);
+  word-break: break-all;
+}
+
+.settingsFieldWarning {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--warning-text, var(--info-text));
+}
+
+/* === control-width variants ============================================ */
+
+/* PR daily-review-bundled (@kenji audit finding #5): semantic width
+   bucket on the row, not a class selector keyed off the input
+   className. Different settings rows ask for different control
+   widths (time-pickers want compact, free-text selects want a 320px
+   cap); keying off the row makes the contract local and obvious. */
+.settingsRow[data-control-width="compact"] > input,
+.settingsRow[data-control-width="compact"] > .settingsTimeInput {
+  max-width: 140px;
+  justify-self: end;
+}
+
+.settingsRow[data-control-width="select"] > .settingsSelectTrigger {
+  justify-self: end;
+}
+
+/* === fields and grids =================================================== */
+
+.settingsFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.settingsFormGridProxy {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.8fr) minmax(84px, 0.5fr);
+}
+
+.settingsField,
+.settingsFormGrid label {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* PR-S2 (2026-06-23): reference-style horizontal Settings row — label
+   stack on the left (title + description), control aligned right. Use
+   `<div className="settingsField" data-orient="horizontal">` on rows
+   whose control is a single inline element (Input, Switch, Segmented,
+   Select). Leave the default vertical stack for full-width controls
+   (Textarea, multi-line forms). The 1px hairline divider between rows
+   pulls the look closer to reference's flat divider list and away from
+   the previous "each row in its own implicit card" feel. */
+.settingsField[data-orient="horizontal"] {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label control"
+    "hint  control";
+  column-gap: var(--space-4);
+  row-gap: var(--space-0-5);
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width-hairline) solid var(--border);
+}
+.settingsField[data-orient="horizontal"] > span {
+  grid-area: label;
+  align-self: end;
+}
+.settingsField[data-orient="horizontal"] > small {
+  grid-area: hint;
+  margin-top: 0;
+  align-self: start;
+}
+.settingsField[data-orient="horizontal"] > :not(span):not(small) {
+  grid-area: control;
+  justify-self: end;
+  align-self: center;
+  min-width: 0;
+}
+/* Allow inputs to take a comfortable cap width on horizontal rows so
+   the description column has space to breathe.
+   PR-SETTINGS-INPUT-POLISH-0: cap from 280 → 320 since rows are now
+   roomier (24px L/R padding). */
+.settingsField[data-orient="horizontal"] > input,
+.settingsField[data-orient="horizontal"] > .settingsSelectTrigger {
+  max-width: 320px;
+}
+/* The horizontal row above the first one shouldn't carry a top border;
+   below the last one the section footer takes over. The default
+   border-bottom is fine for the inter-row hairlines. */
+.settingsField[data-orient="horizontal"] + .settingsField[data-orient="horizontal"] {
+  border-top: 0;
+}
+
+/* === focus and motion =================================================== */
+
+/* PR-SETTINGS-A11Y-POLISH-0 (round 11/15) — keyboard-only focus ring
+   on settings rows + inputs. Reference's settings cards use a 2px
+   ring on focus-visible; maka had no visible affordance. Use the
+   accent color with 2px outline + 2px offset so it doesn't blend
+   with the row's hairline divider. */
+.settingsFormRow:focus-visible,
+.settingsRow:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  background: oklch(from var(--focus-ring) l c h / 0.04);
+}
+
+.settingsFormGrid select:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.18);
+}
+
+/* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion. The
+   interaction still fires, just instantly.
+   Justified: a11y reduced-motion override; the only `!important` in this
+   file, tracked in renderer-important-audit-contract.test.ts. */
+@media (prefers-reduced-motion: reduce) {
+  .settingsFormRow,
+  .settingsRow,
+  .settingsField input,
+  .settingsField textarea {
+    transition: none !important;
+  }
+}

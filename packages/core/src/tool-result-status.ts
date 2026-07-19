@@ -7,13 +7,12 @@ import type { ToolResultContent } from './events.js';
 export type SettledToolActivityStatus = 'completed' | 'errored' | 'interrupted';
 
 /** Terminal / shell_run results whose runtime status is explicit cancel. */
-export function isCancelledToolResultContent(
-  content: ToolResultContent | undefined,
-): boolean {
+export function isCancelledToolResultContent(content: ToolResultContent | undefined): boolean {
   if (!content) return false;
   if (content.kind === 'terminal' || content.kind === 'shell_run') {
     return content.status === 'cancelled';
   }
+  if (content.kind === 'agent_swarm') return content.status === 'cancelled';
   return false;
 }
 

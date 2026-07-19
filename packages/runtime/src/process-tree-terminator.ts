@@ -35,7 +35,11 @@ export function terminateChildProcessTree(
     signal,
     hasExited: () => child.exitCode !== null || child.signalCode !== null,
     fallback: () => {
-      try { return child.kill(signal); } catch { return false; }
+      try {
+        return child.kill(signal);
+      } catch {
+        return false;
+      }
     },
   });
 }
@@ -136,13 +140,18 @@ async function readPosixProcessesUncached(): Promise<PosixProcess[]> {
 function readPosixProcessTable(path: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     try {
-      execFile(path, ['-axo', 'pid=,ppid=,pgid='], {
-        encoding: 'utf8',
-        maxBuffer: 4 * 1024 * 1024,
-        timeout: 1_000,
-      }, (error, output) => {
-        resolve(error ? undefined : output);
-      });
+      execFile(
+        path,
+        ['-axo', 'pid=,ppid=,pgid='],
+        {
+          encoding: 'utf8',
+          maxBuffer: 4 * 1024 * 1024,
+          timeout: 1_000,
+        },
+        (error, output) => {
+          resolve(error ? undefined : output);
+        },
+      );
     } catch {
       resolve(undefined);
     }
@@ -153,10 +162,8 @@ function parsePosixProcesses(output: string): PosixProcess[] {
   const processes: PosixProcess[] = [];
   for (const line of output.split('\n')) {
     const fields = line.trim().split(/\s+/).map(Number);
-    if (
-      fields.length !== 3
-      || fields.some((value) => !Number.isSafeInteger(value) || value < 0)
-    ) continue;
+    if (fields.length !== 3 || fields.some((value) => !Number.isSafeInteger(value) || value < 0))
+      continue;
     const [pid, ppid, pgid] = fields;
     if (pid === undefined || ppid === undefined || pgid === undefined || pid === 0) continue;
     processes.push({ pid, ppid, pgid });
@@ -174,9 +181,9 @@ function invokeFallback(fallback: (() => boolean | void) | undefined): boolean {
 }
 
 function isMissingProcessError(error: unknown): boolean {
-  return error instanceof Error
-    && 'code' in error
-    && (error as NodeJS.ErrnoException).code === 'ESRCH';
+  return (
+    error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ESRCH'
+  );
 }
 
 /** Force-kill a Windows process tree and wait for taskkill's exit status. */
@@ -195,7 +202,11 @@ export function killWindowsTree(pid: number): Promise<boolean> {
       killer.once('error', () => finish(false));
       killer.once('close', (code) => finish(code === 0));
       timeout = setTimeout(() => {
-        try { killer.kill(); } catch { /* taskkill already exited */ }
+        try {
+          killer.kill();
+        } catch {
+          /* taskkill already exited */
+        }
         finish(false);
       }, WINDOWS_TASKKILL_TIMEOUT_MS);
     } catch {

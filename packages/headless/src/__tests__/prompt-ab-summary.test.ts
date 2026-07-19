@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import {
-  renderPromptAbComparisonMarkdown,
-  summarizePromptAbComparison,
-} from '../prompt-ab-run.js';
+import { renderPromptAbComparisonMarkdown, summarizePromptAbComparison } from '../prompt-ab-run.js';
 import { completed } from './helpers/ab-summary-fixtures.js';
 
 describe('summarizePromptAbComparison', () => {

@@ -40,11 +40,7 @@
 //     line + similarity) and need a tuned similarity threshold — deliberately
 //     deferred to keep wrong-location risk out.
 
-export type EditMatchStrategy =
-  | 'exact'
-  | 'line-trimmed'
-  | 'whitespace'
-  | 'escape';
+export type EditMatchStrategy = 'exact' | 'line-trimmed' | 'whitespace' | 'escape';
 
 export interface EditMatch {
   /** The full new file content after the replacement. */
@@ -114,7 +110,10 @@ export function computeEditedSource(
       `Refusing a non-exact match in ${where}: the file looks binary (contains a NUL byte). Re-read it and pass exact text.`,
     );
   }
-  if (source.length > MAX_FUZZY_SOURCE_CHARS || countOccurrences(source, '\n') + 1 > MAX_FUZZY_SOURCE_LINES) {
+  if (
+    source.length > MAX_FUZZY_SOURCE_CHARS ||
+    countOccurrences(source, '\n') + 1 > MAX_FUZZY_SOURCE_LINES
+  ) {
     throw new Error(
       `Refusing a non-exact match in ${where}: the file is too large to fuzzy-match safely. Re-read it and pass exact text.`,
     );

@@ -39,11 +39,12 @@ export const COMPUTER_USE_ERROR_CODES = [
   'outcome_unknown',
 ] as const;
 
-export type ComputerUseErrorCode = typeof COMPUTER_USE_ERROR_CODES[number];
+export type ComputerUseErrorCode = (typeof COMPUTER_USE_ERROR_CODES)[number];
 
 export function isComputerUseErrorCode(value: unknown): value is ComputerUseErrorCode {
-  return typeof value === 'string'
-    && (COMPUTER_USE_ERROR_CODES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (COMPUTER_USE_ERROR_CODES as readonly string[]).includes(value)
+  );
 }
 
 export interface CuPoint {
@@ -119,7 +120,7 @@ export interface ComputerUseBoundAction extends ComputerUseFrameIdentity {
 }
 
 export const CU_SCROLL_DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
-export type CuScrollDirection = typeof CU_SCROLL_DIRECTIONS[number];
+export type CuScrollDirection = (typeof CU_SCROLL_DIRECTIONS)[number];
 
 export const CU_ACTION_TYPES = [
   'screenshot',
@@ -142,7 +143,7 @@ export const CU_ACTION_TYPES = [
 ] as const;
 
 export const COMPUTER_USE_ACTION_TYPES = CU_ACTION_TYPES;
-export type CuActionType = typeof CU_ACTION_TYPES[number];
+export type CuActionType = (typeof CU_ACTION_TYPES)[number];
 
 export type CuAction =
   | { type: 'screenshot' }
@@ -159,12 +160,18 @@ export type CuAction =
   | { type: 'type'; text: string }
   | { type: 'key'; text: string }
   | { type: 'hold_key'; text: string; durationMs: number }
-  | { type: 'scroll'; coordinate: CuPoint; scrollDirection: CuScrollDirection; scrollAmount: number; text?: string }
+  | {
+      type: 'scroll';
+      coordinate: CuPoint;
+      scrollDirection: CuScrollDirection;
+      scrollAmount: number;
+      text?: string;
+    }
   | { type: 'wait'; durationMs: number }
   | { type: 'zoom'; region: CuRegion };
 
 export const COMPUTER_USE_FRAME_SOURCE_KINDS = ['live-capture'] as const;
-export type ComputerUseFrameSourceKind = typeof COMPUTER_USE_FRAME_SOURCE_KINDS[number];
+export type ComputerUseFrameSourceKind = (typeof COMPUTER_USE_FRAME_SOURCE_KINDS)[number];
 
 export interface ComputerUseScreenFrame {
   actionId: string;
@@ -181,15 +188,11 @@ export const COMPUTER_USE_DISPATCH_TIERS = [
   'coordinate-background',
 ] as const;
 
-export type ComputerUseDispatchTier = typeof COMPUTER_USE_DISPATCH_TIERS[number];
+export type ComputerUseDispatchTier = (typeof COMPUTER_USE_DISPATCH_TIERS)[number];
 
-export const COMPUTER_USE_EFFECTS = [
-  'confirmed',
-  'unverifiable',
-  'suspected_noop',
-] as const;
+export const COMPUTER_USE_EFFECTS = ['confirmed', 'unverifiable', 'suspected_noop'] as const;
 
-export type ComputerUseEffect = typeof COMPUTER_USE_EFFECTS[number];
+export type ComputerUseEffect = (typeof COMPUTER_USE_EFFECTS)[number];
 
 export interface ComputerUseDispatchEvidence {
   effect?: ComputerUseEffect;
@@ -237,7 +240,7 @@ export const COMPUTER_USE_APPROVAL_CLASSES = [
   'semantic_mutation',
 ] as const;
 
-export type ComputerUseApprovalClass = typeof COMPUTER_USE_APPROVAL_CLASSES[number];
+export type ComputerUseApprovalClass = (typeof COMPUTER_USE_APPROVAL_CLASSES)[number];
 
 export interface ComputerUseApprovalSummary {
   action: string;
@@ -263,12 +266,7 @@ const POINTER_ACTIONS = new Set([
 ]);
 
 const KEYBOARD_ACTIONS = new Set(['type', 'key', 'hold_key', 'press_key']);
-const SEMANTIC_ACTIONS = new Set([
-  'click_element',
-  'set_value',
-  'select_text',
-  'secondary_action',
-]);
+const SEMANTIC_ACTIONS = new Set(['click_element', 'set_value', 'select_text', 'secondary_action']);
 
 const APPROVAL_ACTIONS = new Set([
   'list_apps',
@@ -291,47 +289,42 @@ export function computerUseApprovalSummary(args: unknown): ComputerUseApprovalSu
     action === 'list_apps' || action === 'cursor_position' || action === 'wait'
       ? 'metadata_read'
       : action === 'observe'
-        ? includeScreenshot ? 'screenshot_read' : 'metadata_read'
+        ? includeScreenshot
+          ? 'screenshot_read'
+          : 'metadata_read'
         : action === 'screenshot'
           ? 'screenshot_read'
-        : POINTER_ACTIONS.has(action)
-          ? 'pointer_mutation'
-          : KEYBOARD_ACTIONS.has(action)
-            ? 'keyboard_mutation'
-            : SEMANTIC_ACTIONS.has(action)
-              ? 'semantic_mutation'
-              : 'semantic_mutation';
+          : POINTER_ACTIONS.has(action)
+            ? 'pointer_mutation'
+            : KEYBOARD_ACTIONS.has(action)
+              ? 'keyboard_mutation'
+              : SEMANTIC_ACTIONS.has(action)
+                ? 'semantic_mutation'
+                : 'semantic_mutation';
 
   const rawApp = ownDataProperty(record, 'app');
   const rawWindowId = ownDataProperty(record, 'window_id');
   const rawObservationId = ownDataProperty(record, 'observation_id');
-  const exactApp = typeof rawApp === 'string' && rawApp.length > 0
-    ? rawApp
-    : undefined;
-  const app = exactApp === undefined
-    ? undefined
-    : boundedDisplay(redactSecrets(exactApp), 256);
-  const windowId = typeof rawWindowId === 'number' && Number.isInteger(rawWindowId)
-    ? rawWindowId
-    : undefined;
-  const exactObservationId = typeof rawObservationId === 'string'
-    ? stableIdentifier(rawObservationId)
-    : undefined;
-  const observationId = exactObservationId === undefined
-    ? undefined
-    : boundedDisplay(redactSecrets(exactObservationId), 256);
+  const exactApp = typeof rawApp === 'string' && rawApp.length > 0 ? rawApp : undefined;
+  const app = exactApp === undefined ? undefined : boundedDisplay(redactSecrets(exactApp), 256);
+  const windowId =
+    typeof rawWindowId === 'number' && Number.isInteger(rawWindowId) ? rawWindowId : undefined;
+  const exactObservationId =
+    typeof rawObservationId === 'string' ? stableIdentifier(rawObservationId) : undefined;
+  const observationId =
+    exactObservationId === undefined
+      ? undefined
+      : boundedDisplay(redactSecrets(exactObservationId), 256);
   const explicitTarget = exactApp !== undefined || windowId !== undefined;
-  const targetBound = action === 'list_apps'
-    || ((action === 'observe' || action === 'screenshot') && explicitTarget)
-    || (
-      (POINTER_ACTIONS.has(action)
-        || KEYBOARD_ACTIONS.has(action)
-        || SEMANTIC_ACTIONS.has(action))
-      && exactObservationId !== undefined
-      && explicitTarget
-    );
-  const rememberForTurnAllowed =
-    knownAction && targetBound;
+  const targetBound =
+    action === 'list_apps' ||
+    ((action === 'observe' || action === 'screenshot') && explicitTarget) ||
+    ((POINTER_ACTIONS.has(action) ||
+      KEYBOARD_ACTIONS.has(action) ||
+      SEMANTIC_ACTIONS.has(action)) &&
+      exactObservationId !== undefined &&
+      explicitTarget);
+  const rememberForTurnAllowed = knownAction && targetBound;
 
   return {
     action,
@@ -350,13 +343,10 @@ export function computerUseApprovalScopeKey(args: unknown): string {
   const rawApp = ownDataProperty(record, 'app');
   const exactApp = typeof rawApp === 'string' ? rawApp : null;
   const rawWindowId = ownDataProperty(record, 'window_id');
-  const exactWindowId = typeof rawWindowId === 'number' && Number.isInteger(rawWindowId)
-    ? rawWindowId
-    : null;
+  const exactWindowId =
+    typeof rawWindowId === 'number' && Number.isInteger(rawWindowId) ? rawWindowId : null;
   const rawObservationId = ownDataProperty(record, 'observation_id');
-  const exactObservationId = typeof rawObservationId === 'string'
-    ? rawObservationId
-    : null;
+  const exactObservationId = typeof rawObservationId === 'string' ? rawObservationId : null;
   const summary = computerUseApprovalSummary(record);
   return `computer_use:${JSON.stringify([
     summary.approvalClass,
@@ -368,9 +358,7 @@ export function computerUseApprovalScopeKey(args: unknown): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object'
-    ? value as Record<string, unknown>
-    : {};
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
 function boundedDisplay(value: string, maxLength: number): string {
@@ -379,15 +367,10 @@ function boundedDisplay(value: string, maxLength: number): string {
 
 function stableIdentifier(value: string): string | undefined {
   const normalized = value.trim();
-  return /^[A-Za-z0-9._:-]{1,256}$/.test(normalized)
-    ? normalized
-    : undefined;
+  return /^[A-Za-z0-9._:-]{1,256}$/.test(normalized) ? normalized : undefined;
 }
 
-function ownDataProperty(
-  record: Record<string, unknown>,
-  key: string,
-): unknown {
+function ownDataProperty(record: Record<string, unknown>, key: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(record, key);
   if (!descriptor) return undefined;
   if (!('value' in descriptor)) {

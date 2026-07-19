@@ -22,7 +22,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { readRendererShellSources } from './renderer-shell-source-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
-import { readMainTsSource } from './main-process-contract-source-helpers.js';
+import { readMainProcessCombinedSource, readMainTsSource } from './main-process-contract-source-helpers.js';
 
 describe('default permission mode contract', () => {
   it('renderer always omits permissionMode when creating sessions', async () => {
@@ -63,10 +63,13 @@ describe('default permission mode contract', () => {
       'the resolver must live in ./permission-mode-default.ts, not inline in main.ts (so its never-rejects fallback is unit-testable)',
     );
 
-    // Both sessions:create branches (fake + ai-sdk) + quick chat must inject
-    // settingsStore.get into the resolver — proving they route through the
-    // single authority instead of reading settings inline.
-    const routedCalls = src.match(/resolveDefaultPermissionMode\(\(\) => settingsStore\.get\(\)\)/g) ?? [];
+    // Both sessions:create branches (fake + ai-sdk) live in sessions-ipc-main.ts
+    // and quick chat stays in main.ts — but all must inject settingsStore.get
+    // into the resolver, proving they route through the single authority
+    // instead of reading settings inline. Count across the combined main-process
+    // source so the split does not weaken the invariant.
+    const combined = await readMainProcessCombinedSource();
+    const routedCalls = combined.match(/resolveDefaultPermissionMode\(\(\) => settingsStore\.get\(\)\)/g) ?? [];
     assert.ok(
       routedCalls.length >= 3, // fake branch + ai-sdk branch + quick chat
       `all session-creation fallbacks must route through resolveDefaultPermissionMode(() => settingsStore.get()) (found ${routedCalls.length}, expected >= 3)`,
@@ -88,7 +91,7 @@ describe('default permission mode contract', () => {
   });
 
   it('app-shell keeps a display-only mirror, loaded on mount and re-synced when Settings closes', async () => {
-    const src = await readRendererShellSources(['app-shell.tsx']);
+    const src = await readRendererShellSources(['app-shell.tsx', 'use-shell-appearance.ts']);
 
     assert.match(
       src,
@@ -117,7 +120,7 @@ describe('default permission mode contract', () => {
 describe('General settings page 默认权限模式 picker', () => {
   it('describes the setting itself, not the currently-selected option', async () => {
     const src = await readSettingsCombinedSource();
-    const row = src.match(/<strong>默认权限模式<\/strong>([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const row = src.match(/<strong>\{copy\.defaultPermission\}<\/strong>([\s\S]*?)<\/div>/)?.[1] ?? '';
     assert.ok(row, '默认权限模式 row must exist');
 
     // Regression guard: this line used to read the SELECTED option's own
@@ -130,9 +133,11 @@ describe('General settings page 默认权限模式 picker', () => {
     );
     assert.match(
       row,
-      /<small>新对话默认使用的权限模式；可在对话内随时切换，仅影响新建对话的初始值。<\/small>/,
+      /<small>\{copy\.defaultPermissionHelp\}<\/small>/,
       '默认权限模式 row must show a fixed description of the setting itself',
     );
+    assert.match(src, /defaultPermission: '默认权限模式'/);
+    assert.match(src, /defaultPermission: 'Default permission mode'/);
   });
 
   it('renders the shared PermissionModeSelect so options and hints cannot drift from the composer picker', async () => {
@@ -150,8 +155,8 @@ describe('General settings page 默认权限模式 picker', () => {
     assert.ok(fn, 'persistPermissionMode must exist');
     assert.match(
       fn,
-      /if \(savingPermissionModeRef\.current\) return;/,
-      'overlapping settings.update calls have no ordering guarantee -- the ref guard must reject re-entrant saves like persistDefault does',
+      /const releaseSave = persistGuard\.begin\('permission-mode'\);[\s\S]*if \(!releaseSave\) return;/,
+      'overlapping settings.update calls have no ordering guarantee -- the shared keyed guard must reject re-entrant saves like persistDefault does',
     );
   });
 });

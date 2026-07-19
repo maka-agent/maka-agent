@@ -18,6 +18,7 @@ import type {
   WorkspaceWriteLockKeyResult,
 } from '@maka/runtime/workspace-executor';
 import { posix as pathPosix } from 'node:path';
+import { isPathInside } from '@maka/runtime';
 import type { IsolatedToolExecutor } from './isolation.js';
 
 export const ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
@@ -36,11 +37,10 @@ export const EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts 
   secrets: 'brokered',
 };
 
-export type IsolatedWorkspaceExecutorAdapter =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceWritablePathResolver
-  & WorkspaceWriteExecutor;
+export type IsolatedWorkspaceExecutorAdapter = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceWritablePathResolver &
+  WorkspaceWriteExecutor;
 
 export function isolatedToolExecutorToWorkspaceExecutor(
   executor: IsolatedToolExecutor,
@@ -70,7 +70,9 @@ async function isolatedWriteFile(
   input: WorkspaceWriteFileInput,
 ): Promise<WorkspaceWriteFileResult> {
   if (!executor.writeFile) {
-    throw new Error('IsolatedToolExecutor adapter requires native writeFile for WorkspaceExecutor.writeFile');
+    throw new Error(
+      'IsolatedToolExecutor adapter requires native writeFile for WorkspaceExecutor.writeFile',
+    );
   }
   return await executor.writeFile({
     cwd: input.cwd,
@@ -79,11 +81,15 @@ async function isolatedWriteFile(
   });
 }
 
-async function isolatedResolvePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
+async function isolatedResolvePath(
+  input: WorkspaceResolvePathInput,
+): Promise<WorkspaceResolvePathResult> {
   return { path: resolveIsolatedWorkspacePath(input.cwd, input.path, input.label) };
 }
 
-async function isolatedWriteLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
+async function isolatedWriteLockKey(
+  input: WorkspaceWriteLockKeyInput,
+): Promise<WorkspaceWriteLockKeyResult> {
   return {
     key: JSON.stringify([
       pathPosix.normalize(input.cwd),
@@ -115,13 +121,14 @@ function resolveIsolatedWorkspacePath(cwd: string, inputPath: string, label: str
   const target = inputPath.startsWith('/')
     ? pathPosix.normalize(inputPath)
     : pathPosix.resolve(root, inputPath);
-  if (!isInsidePosix(root, target)) {
+  if (
+    !isPathInside(root, target, {
+      relative: pathPosix.relative,
+      isAbsolute: pathPosix.isAbsolute,
+      sep: pathPosix.sep,
+    })
+  ) {
     throw new Error(`${label} must stay inside workspace`);
   }
   return target;
-}
-
-function isInsidePosix(root: string, target: string): boolean {
-  const rel = pathPosix.relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !pathPosix.isAbsolute(rel));
 }

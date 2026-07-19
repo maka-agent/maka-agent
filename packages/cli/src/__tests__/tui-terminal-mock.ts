@@ -129,7 +129,7 @@ function renderTerminalScreen(writes: readonly string[], rows: number): string {
   };
 
   for (const write of writes) {
-    for (let index = 0; index < write.length;) {
+    for (let index = 0; index < write.length; ) {
       const char = write[index]!;
       if (char === '\x1b') {
         index = consumeEscapeSequence(write, index, {

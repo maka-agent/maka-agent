@@ -7,12 +7,12 @@ describe('session row actions fail soft', () => {
   it('surfaces sidebar session action failures instead of leaving fire-and-forget rejections', async () => {
     const main = await readRendererShellCombinedSource();
 
-    assert.match(main, /async function runSessionRowAction\([\s\S]*errorTitle: string,[\s\S]*try \{[\s\S]*await action\(\);[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)/);
-    assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag', flagged \? '标记会话失败' : '取消标记失败'[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function archiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive', '归档会话失败'[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function unarchiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive', '恢复会话失败'[\s\S]*window\.maka\.sessions\.unarchive\(sessionId\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function renameSession\(sessionId: string, name: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'rename', '重命名会话失败'[\s\S]*window\.maka\.sessions\.rename\(sessionId, name\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function deleteSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'delete', '删除会话失败'[\s\S]*toastApi\.confirm\([\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.success\(`已删除 \$\{name\}`\)/);
+    assert.match(main, /async function runSessionRowAction\([\s\S]*errorTitle: string,[\s\S]*try \{[\s\S]*await action\(\);[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, localizedShellErrorMessage\(error, copy\.actionFallback, uiLocale\)\)/);
+    assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag', flagged \? copy\.flagFailedTitle : copy\.unflagFailedTitle[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function archiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive', copy\.archiveFailedTitle[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function unarchiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive', copy\.unarchiveFailedTitle[\s\S]*window\.maka\.sessions\.unarchive\(sessionId\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function renameSession\(sessionId: string, name: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'rename', copy\.renameFailedTitle[\s\S]*window\.maka\.sessions\.rename\(sessionId, name\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function deleteSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'delete', copy\.deleteFailedTitle[\s\S]*toastApi\.confirm\([\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.success\(copy\.deletedTitle\(name\)\)/);
     assert.doesNotMatch(
       main,
       /toastApi\.error\((?:flagged \? '标记会话失败' : '取消标记失败'|'归档会话失败'|'恢复会话失败'|'重命名会话失败'|'删除会话失败'), cleanErrorMessage\(error\)\)/,
@@ -32,15 +32,15 @@ describe('session row actions fail soft', () => {
     );
     assert.match(main, /const sessionPrefix = `\$\{sessionId\}:`;/);
     assert.match(main, /Array\.from\(pendingSessionRowActionsRef\.current\)\.some\(\(key\) => key\.startsWith\(sessionPrefix\)\)/);
-    assert.match(main, /pendingSessionRowActionsRef\.current\.add\(key\);[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)[\s\S]*finally \{[\s\S]*pendingSessionRowActionsRef\.current\.delete\(key\);/);
-    assert.match(main, /const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>\[0\]\['rowActions'\]>>\([\s\S]*onToggleFlag: \(sessionId, next\) => sessionRowActionHandlersRef\.current\.flagSession\(sessionId, next\),[\s\S]*onArchive: \(sessionId\) => sessionRowActionHandlersRef\.current\.archiveSession\(sessionId\),[\s\S]*onUnarchive: \(sessionId\) => sessionRowActionHandlersRef\.current\.unarchiveSession\(sessionId\),[\s\S]*onRename: \(sessionId, name\) => sessionRowActionHandlersRef\.current\.renameSession\(sessionId, name\),[\s\S]*onDelete: \(sessionId\) => sessionRowActionHandlersRef\.current\.deleteSession\(sessionId\),/);
+    assert.match(main, /pendingSessionRowActionsRef\.current\.add\(key\);[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, localizedShellErrorMessage\(error, copy\.actionFallback, uiLocale\)\)[\s\S]*finally \{[\s\S]*pendingSessionRowActionsRef\.current\.delete\(key\);/);
+    assert.match(main, /const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>\[0\]\['rowActions'\]>>\([\s\S]*onToggleFlag: \(sessionId, next\) => sessionRowActionHandlers.flagSession\(sessionId, next\),[\s\S]*onArchive: \(sessionId\) => sessionRowActionHandlers.archiveSession\(sessionId\),[\s\S]*onUnarchive: \(sessionId\) => sessionRowActionHandlers.unarchiveSession\(sessionId\),[\s\S]*onRename: \(sessionId, name\) => sessionRowActionHandlers.renameSession\(sessionId, name\),[\s\S]*onDelete: \(sessionId\) => sessionRowActionHandlers.deleteSession\(sessionId\),/);
     assert.match(main, /rowActions=\{sessionRowActions\}/);
     assert.match(sessionListBlock, /onSelectSession=\{[^}]+\}/);
     assert.match(sessionListBlock, /rowActions=\{[^}]+\}/);
     assert.doesNotMatch(sessionListBlock, /onSelectSession=\{\(sessionId\)/);
     assert.doesNotMatch(sessionListBlock, /rowActions=\{\{/);
-    assert.doesNotMatch(main, /onDelete: \(sessionId\) => void sessionRowActionHandlersRef\.current\.deleteSession\(sessionId\)/);
-    assert.doesNotMatch(main, /onToggleFlag: \(sessionId, next\) => void sessionRowActionHandlersRef\.current\.flagSession\(sessionId, next\)/);
+    assert.doesNotMatch(main, /onDelete: \(sessionId\) => void sessionRowActionHandlers.deleteSession\(sessionId\)/);
+    assert.doesNotMatch(main, /onToggleFlag: \(sessionId, next\) => void sessionRowActionHandlers.flagSession\(sessionId, next\)/);
   });
 
   it('cleans active session renderer state consistently after archive or delete', async () => {

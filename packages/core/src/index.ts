@@ -7,6 +7,8 @@
  * explicit.
  */
 
+export * from './mcp.js';
+
 // events.ts
 export type {
   SessionEvent,
@@ -37,6 +39,9 @@ export type {
   PlanSubmittedEvent,
   PlanStep,
   TokenUsageEvent,
+  SteeringMessageEvent,
+  QueueUpdateEvent,
+  QueueEnqueueOutcome,
   ErrorEvent,
   CompleteEvent,
   AbortEvent,
@@ -66,6 +71,13 @@ export {
   isCancelledToolResultContent,
   toolResultActivityStatus,
 } from './tool-result-status.js';
+
+// agent-swarm.ts — bounded projection over the canonical settled tool result.
+export type {
+  AgentSwarmResult,
+  AgentSwarmResultProjection,
+} from './agent-swarm.js';
+export { projectAgentSwarmResult } from './agent-swarm.js';
 
 // runtime-event.ts — canonical Runtime v2 event contract.
 // Subpath `@maka/core/runtime-event` is the canonical import; these barrel
@@ -101,6 +113,7 @@ export {
   isRuntimeEventRole,
   isRuntimeEventAuthor,
   isRuntimeEventStatus,
+  decodeRuntimeEvent,
   isTerminalRuntimeEventStatus,
   isTerminalRuntimeEvent,
   isPartialRuntimeEvent,
@@ -136,9 +149,8 @@ export {
 } from './execution-evidence.js';
 
 // runtime-event-store.ts
-export type {
-  RuntimeEventStore,
-} from './runtime-event-store.js';
+export type { RuntimeEventStore } from './runtime-event-store.js';
+export { DurableStoreWriteError } from './runtime-event-store.js';
 
 // session.ts
 export type {
@@ -171,7 +183,11 @@ export {
   isSessionStatus,
   isSessionBlockedReason,
   isTurnStatus,
+  decodeStoredMessageForRead,
+  decodeStoredMessageForRecovery,
+  userFacingText,
 } from './session.js';
+export { decodeCanonicalToolResultContent } from './tool-result-record-schema.js';
 
 // model-thinking.ts
 export type { ThinkingLevel } from './model-thinking.js';
@@ -190,7 +206,12 @@ export type {
   AgentRunStatus,
   AgentRunStore,
 } from './agent-run.js';
-export { AGENT_RUN_STATUSES, isSessionInlineRun } from './agent-run.js';
+export {
+  AGENT_RUN_STATUSES,
+  decodeAgentRunEvent,
+  decodeAgentRunHeader,
+  isSessionInlineRun,
+} from './agent-run.js';
 
 // shell-run.ts
 export type {
@@ -436,9 +457,7 @@ export type {
   CompilePermissionProfileInput,
   CompiledPermissionProfile,
 } from './permission-profile-compiler.js';
-export {
-  compilePermissionProfile,
-} from './permission-profile-compiler.js';
+export { compilePermissionProfile } from './permission-profile-compiler.js';
 
 // permission-request-health.ts
 export type {
@@ -702,12 +721,88 @@ export {
   normalizePlanReminderTitle,
   normalizeUpdatePlanReminderInput,
 } from './plan-reminders.js';
+// agent-mailbox.ts (durable expert-team communication)
+export type {
+  AgentMailboxListOptions,
+  AgentMailboxMessage,
+  AgentMailboxMessageKind,
+  AgentMailboxNormalizeResult,
+  AgentMailboxParticipantRef,
+  AgentMailboxRole,
+  AgentMailboxSendInput,
+  AgentMailboxStore,
+} from './agent-mailbox.js';
+export {
+  AGENT_MAILBOX_CONTENT_MAX_CHARS,
+  AGENT_MAILBOX_LIST_MAX,
+  AGENT_MAILBOX_MAX_MESSAGES_PER_TEAM_RUN,
+  AGENT_MAILBOX_SCHEMA_VERSION,
+  isAgentMailboxMessage,
+  isAgentMailboxParticipantRef,
+  isAgentTeamId,
+  isSafeAgentMailboxToken,
+  normalizeAgentMailboxContent,
+} from './agent-mailbox.js';
+// foreign-session.ts (#1057) — untrusted Claude Code / Codex session
+// contracts + defensive parsing. Subpath @maka/core/foreign-session preferred.
+export type {
+  ClaudeTitleCandidates,
+  ClaudeTranscriptMeta,
+  CodexThreadRow,
+  DigestAccumulator,
+  ForeignSessionDigest,
+  ForeignSessionSource,
+  ForeignSessionSummary,
+} from './foreign-session.js';
+export {
+  CODEX_SUPPORTED_THREAD_SOURCES,
+  FOREIGN_SESSION_HANDOFF_INSTRUCTION,
+  buildForeignSessionHandoffMessage,
+  foreignSessionHandoffDisplayText,
+  foreignSourceLabel,
+  FOREIGN_SESSION_DIGEST_MAX_FILES,
+  FOREIGN_SESSION_DIGEST_MAX_MESSAGES,
+  FOREIGN_SESSION_DIGEST_MAX_READ_BYTES,
+  FOREIGN_SESSION_HEAD_BYTES,
+  FOREIGN_SESSION_ID_MAX_CHARS,
+  FOREIGN_SESSION_MIN_EPOCH_MS,
+  FOREIGN_SESSION_SCAN_MAX_AGE_MS,
+  FOREIGN_SESSION_SCAN_MAX_SESSIONS,
+  FOREIGN_SESSION_SOURCES,
+  FOREIGN_SESSION_TITLE_WINDOW_BYTES,
+  claudeAssistantText,
+  claudeFirstPromptCandidate,
+  claudeToolFilePaths,
+  claudeUserAuthoredText,
+  claudeUserMessageText,
+  codexRolloutMessage,
+  codexRolloutSessionMeta,
+  codexSourceToken,
+  collectClaudeMeta,
+  collectClaudeTitle,
+  createDigestAccumulator,
+  finishDigest,
+  isSafeForeignId,
+  isSyntheticClaudeUserText,
+  normalizeCodexThreadRow,
+  parseForeignJsonLine,
+  pickClaudeTitle,
+  pushDigestFile,
+  pushDigestMessage,
+  renderForeignSessionDigestForPrompt,
+  sanitizeForeignMessage,
+  sanitizeForeignText,
+  sanitizeForeignTitle,
+  stripEnvelopeTags,
+} from './foreign-session.js';
+
 // task-ledger.ts (main agent session task tracking)
 export type {
   CreateTaskInput,
   ResumeTrust,
   Task,
   TaskAgentOutcome,
+  TaskAvailableClaimScope,
   TaskLedgerChangedEvent,
   TaskLedgerEvent,
   TaskLedgerEventTaskSnapshot,
@@ -996,6 +1091,7 @@ export type { ParsedNoRealConnectionError } from './connection-error-copy.js';
 // session-name.ts (PR-UI-IPC-2)
 export type { NormalizeSessionNameResult } from './session-name.js';
 export {
+  DEFAULT_SESSION_NAME,
   SESSION_NAME_MAX_CODE_POINTS,
   normalizeUserSessionName,
 } from './session-name.js';
@@ -1178,6 +1274,7 @@ export type {
   PromptSegmentKind,
   TimeRange,
   ToolInvocationRecord,
+  ToolInvocationResultSummary,
   UsageBucket,
   UsageGroupBy,
   UsageLogRow,
@@ -1306,4 +1403,15 @@ export {
 } from './expert-team.js';
 
 // attachments.ts
-export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';
+export {
+  attachmentKindFromMimeType,
+  guessMimeFromName,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_COUNT,
+  MAX_READ_IMAGE_BYTES,
+  MAX_MODEL_IMAGE_EDGE,
+  READ_IMAGE_TOO_LARGE_MESSAGE,
+  MAX_PROVIDER_IMAGE_REQUEST_BYTES,
+  PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE,
+} from './attachments.js';
+export type { AttachmentByteReader } from './attachments.js';
