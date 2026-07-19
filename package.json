@@ -2,6 +2,9 @@
   "name": "maka",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "packageManager": "npm@11.12.1",
   "type": "module",
   "workspaces": [
