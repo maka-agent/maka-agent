@@ -259,7 +259,7 @@ class FileSettingsStore implements SettingsStore {
         }));
     });
 
-    const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, since));
+    const toolRows = aggregateToolStats(sessions, since);
     const toolLogs = sessions.flatMap(({ header, messages }) =>
       toolLogRowsFromMessages(header, messages, since),
     );
@@ -460,48 +460,57 @@ function aggregateBy(logs: UsageStats['logs'], key: 'provider' | 'model') {
     .sort((a, b) => b.requests - a.requests) as never;
 }
 
-function toolStatsFromMessages(
-  messages: UsageMessage[],
+// Aggregate tool usage by tool name across EVERY session so 工具统计 shows one row
+// per tool (not one row per tool-per-session, which repeated the same tool name).
+// tool_call.id ↔ tool_result.toolUseId matching stays scoped to each session's
+// messages — ids are only unique within a session — while the counts, failures,
+// and durations merge into a single global row keyed by tool name.
+function aggregateToolStats(
+  sessions: Array<{ messages: UsageMessage[] }>,
   since: number | null,
 ): UsageStats['byTool'] {
-  const calls = messages.filter(
-    (message): message is UsageToolCallMessage => message.type === 'tool_call',
-  );
-  const results = new Map(
-    messages
-      .filter((message): message is UsageToolResultMessage => message.type === 'tool_result')
-      .map((message) => [message.toolUseId, message]),
-  );
   const rows = new Map<
     string,
     { calls: number; success: number; errors: number; totalDuration: number; durationCount: number }
   >();
-  for (const call of calls) {
-    if (since && call.ts < since) continue;
-    const result = results.get(call.id);
-    const current = rows.get(call.toolName) ?? {
-      calls: 0,
-      success: 0,
-      errors: 0,
-      totalDuration: 0,
-      durationCount: 0,
-    };
-    current.calls += 1;
-    if (result?.isError) current.errors += 1;
-    else current.success += 1;
-    if (result?.durationMs !== undefined) {
-      current.totalDuration += result.durationMs;
-      current.durationCount += 1;
+  for (const { messages } of sessions) {
+    const results = new Map(
+      messages
+        .filter((message): message is UsageToolResultMessage => message.type === 'tool_result')
+        .map((message) => [message.toolUseId, message]),
+    );
+    const calls = messages.filter(
+      (message): message is UsageToolCallMessage => message.type === 'tool_call',
+    );
+    for (const call of calls) {
+      if (since && call.ts < since) continue;
+      const result = results.get(call.id);
+      const current = rows.get(call.toolName) ?? {
+        calls: 0,
+        success: 0,
+        errors: 0,
+        totalDuration: 0,
+        durationCount: 0,
+      };
+      current.calls += 1;
+      if (result?.isError) current.errors += 1;
+      else current.success += 1;
+      if (result?.durationMs !== undefined) {
+        current.totalDuration += result.durationMs;
+        current.durationCount += 1;
+      }
+      rows.set(call.toolName, current);
     }
-    rows.set(call.toolName, current);
   }
-  return [...rows.entries()].map(([tool, row]) => ({
-    tool,
-    calls: row.calls,
-    success: row.success,
-    errors: row.errors,
-    avgDurationMs: row.durationCount ? Math.round(row.totalDuration / row.durationCount) : 0,
-  }));
+  return [...rows.entries()]
+    .map(([tool, row]) => ({
+      tool,
+      calls: row.calls,
+      success: row.success,
+      errors: row.errors,
+      avgDurationMs: row.durationCount ? Math.round(row.totalDuration / row.durationCount) : 0,
+    }))
+    .sort((a, b) => b.calls - a.calls || a.tool.localeCompare(b.tool));
 }
 
 function toolLogRowsFromMessages(
