@@ -1529,6 +1529,7 @@ function AppShellContent({
                 newChatThinkingLevel={newChatThinkingLevel}
                 onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
+                noModelConnection={connections.length === 0}
                 workspacePicker={{
                     label: projectInfo ? basenameFromPath(projectInfo.projectPath, uiLocale) : undefined,
                   branch: projectInfo?.projectGit.branch,

@@ -80,6 +80,12 @@ export interface ConversationCopy {
     switchDisabledStreaming: string;
     switchDisabledRunning: string;
     switchDisabledPermission: string;
+    /** Inline hint shown above the composer when no model connection exists yet. */
+    noModelHint: string;
+    /** Link-button on that hint that opens Settings · 模型. */
+    noModelAction: string;
+    /** Explanatory title on the disabled Send button in the no-model state. */
+    noModelSendTitle: string;
   };
   model: {
     thinkingLevel: string;
@@ -284,6 +290,7 @@ const CONVERSATION_COPY = {
       interruptHint: '或点停止中断', addContext: '添加上下文', importText: '导入文本文件', attachFile: '附加文件', expertTeam: '专家团',
       selectModel: '选择模型', dropToImport: '松开以导入文件内容', addingAttachment: '正在添加附件', add: '添加', addTitle: '添加文件、专家团…', addFileOrDirectory: '添加文件或目录',
       switchDisabledStreaming: '当前对话正在流式输出，等结束后再切换模型。', switchDisabledRunning: '当前对话正在运行，等结束后再切换模型。', switchDisabledPermission: '当前有工具调用正在等待确认，处理后再切换模型。',
+      noModelHint: '还没有可用的模型连接，无法发送。', noModelAction: '前往模型设置', noModelSendTitle: '先添加一个模型连接才能发送。',
     },
     model: {
       thinkingLevel: '思考级别', thinkingUnsupported: '当前模型不支持思考级别切换', changeThinkingLevel: '切换当前模型的思考级别', defaultLevel: '默认',
@@ -392,6 +399,7 @@ const CONVERSATION_COPY = {
       interruptHint: 'or click Stop to interrupt', addContext: 'Add context', importText: 'Import text file', attachFile: 'Attach file', expertTeam: 'Expert team',
       selectModel: 'Choose model', dropToImport: 'Drop to import file contents', addingAttachment: 'Adding attachment', add: 'Add', addTitle: 'Add files or an expert team…', addFileOrDirectory: 'Add file or directory',
       switchDisabledStreaming: 'Wait for the current response to finish before switching models.', switchDisabledRunning: 'Wait for the current run to finish before switching models.', switchDisabledPermission: 'Resolve the pending tool permission before switching models.',
+      noModelHint: 'No model connection yet, so sending is unavailable.', noModelAction: 'Go to model settings', noModelSendTitle: 'Add a model connection before sending.',
     },
     model: {
       thinkingLevel: 'Thinking level', thinkingUnsupported: 'This model does not support thinking-level changes', changeThinkingLevel: 'Change the current model thinking level', defaultLevel: 'Default',
