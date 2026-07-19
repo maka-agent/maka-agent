@@ -5,13 +5,26 @@ type AdapterMap = Partial<Record<BotOnboardingProvider, BotOnboardingProviderAda
 
 const POLL_INTERVAL_MS = 1_000;
 const NORMAL_TTL_SECONDS = 30;
+// #1233 deferral (settings-bots-onboarding): a long TTL keeps the deterministic
+// waiting-state QR from flipping to '二维码已过期' during the screenshot settle
+// window; a poll that never leaves 'pending' holds the modal in 'waiting'.
+const WAITING_HOLD_TTL_SECONDS = 60 * 60;
 
 /**
  * Deterministic provider adapters for the dev-only Settings visual fixture.
  * They exercise the real main-owned session, IPC, persistence, runtime-effect,
  * and renderer polling paths without contacting an external IM platform.
+ *
+ * Scenario-aware: the `settings-bots-onboarding` fixture needs the modal frozen
+ * in its 'waiting' state so the QR-onboarding capture is stable, so every
+ * provider holds a fixed QR + long TTL + never-confirming poll. All other
+ * scenarios keep the scanned → confirmed happy-path adapters the E2E
+ * onboarding specs rely on.
  */
 export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
+  if (process.env.MAKA_VISUAL_SMOKE_FIXTURE === 'settings-bots-onboarding') {
+    return createWaitingHoldBotOnboardingAdapters();
+  }
   const pollCounts = new Map<string, number>();
   let startSequence = 0;
 
@@ -99,5 +112,38 @@ export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
         };
       },
     },
+  };
+}
+
+/**
+ * #1233 deferral (settings-bots-onboarding): adapters that hold the modal in
+ * its 'waiting' state. Every value is FIXED (no Date.now / random) so the
+ * rendered QR image is byte-identical across capture runs, the TTL is long
+ * enough to outlast the screenshot settle window, and `poll` never leaves
+ * 'pending' — so the main service keeps the session 'waiting' and the modal's
+ * waiting layout stays put for a deterministic screenshot.
+ */
+function createWaitingHoldBotOnboardingAdapters(): AdapterMap {
+  function waitingHold(provider: BotOnboardingProvider): BotOnboardingProviderAdapter {
+    return {
+      async start() {
+        return {
+          opaqueToken: `visual-smoke-onboarding-${provider}`,
+          qrValue: `https://example.com/maka/bot-onboarding/${provider}`,
+          verificationUrl: `https://example.com/maka/bot-onboarding/${provider}`,
+          pollIntervalMs: POLL_INTERVAL_MS,
+          expiresInSeconds: WAITING_HOLD_TTL_SECONDS,
+        };
+      },
+      async poll() {
+        return { status: 'pending' };
+      },
+    };
+  }
+  return {
+    dingtalk: waitingHold('dingtalk'),
+    feishu: waitingHold('feishu'),
+    wecom: waitingHold('wecom'),
+    wechat: waitingHold('wechat'),
   };
 }

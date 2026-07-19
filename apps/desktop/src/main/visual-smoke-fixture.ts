@@ -52,6 +52,11 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // daily-review split back apart per WAWQAQ msg `886f6406`.
   'settings-appearance',
   'settings-bots',
+  // #1233 deferral: deterministic bot QR-onboarding modal capture. Shares the
+  // settings-bots seed but auto-opens a provider detail's scan-login modal,
+  // backed by a hold-in-waiting visual-smoke onboarding adapter (fixed QR +
+  // long TTL). See `createVisualSmokeBotOnboardingAdapters`.
+  'settings-bots-onboarding',
   'settings-about',
   'settings-general',
   'settings-memory',
@@ -407,6 +412,18 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'appearance' };
     case 'settings-bots':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'bot-chat' };
+    case 'settings-bots-onboarding':
+      // #1233 deferral: open 远程接入, then let the bot page auto-open the
+      // DingTalk detail's scan-login modal (via `botOnboardingProvider`). The
+      // visual-smoke onboarding adapter keeps the session in 'waiting' with a
+      // fixed QR + long TTL so the modal's waiting layout is captured
+      // deterministically. DingTalk carries a real brand mark (#1236).
+      return {
+        ...state,
+        activeSessionId: TURN_SESSION_ID,
+        openSettingsSection: 'bot-chat',
+        botOnboardingProvider: 'dingtalk',
+      };
     case 'settings-about':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'about' };
     case 'settings-general':
