@@ -58,7 +58,8 @@
     "./settings/result": "./dist/settings/result.js",
     "./usage-stats/types": "./dist/usage-stats/types.js",
     "./usage-stats/pricing": "./dist/usage-stats/pricing.js",
-    "./session-send-projection": "./dist/session-send-projection.js"
+    "./session-send-projection": "./dist/session-send-projection.js",
+    "./tool-catalog": "./dist/tool-catalog.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",

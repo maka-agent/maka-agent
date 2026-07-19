@@ -1410,6 +1410,24 @@ export {
   isExpertTeamSession,
 } from './expert-team.js';
 
+// tool-catalog.ts — shared product tool vocabulary (#1099).
+export type {
+  CatalogSurfaceDef,
+  CatalogToolDef,
+  ToolEffect,
+  ToolHostId,
+  ToolHostSupport,
+} from './tool-catalog.js';
+export {
+  MAKA_CATALOG_SURFACES,
+  MAKA_CATALOG_TOOLS,
+  TOOL_HOST_IDS,
+  catalogSurfaceById,
+  catalogToolByName,
+  catalogToolNameSet,
+  unknownBoundToolNames,
+} from './tool-catalog.js';
+
 // attachments.ts
 export {
   attachmentKindFromMimeType,

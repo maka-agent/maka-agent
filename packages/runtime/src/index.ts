@@ -999,6 +999,12 @@ export type {
   RuntimeEventLike,
 } from './tool-availability.js';
 
+// tool-catalog-derive.ts — HostCapabilities + deferred groups from catalog ∩ binding (#1099).
+export {
+  buildDeferredToolGroupsFromCatalog,
+  buildHostCapabilitiesFromBinding,
+} from './tool-catalog-derive.js';
+
 // ───────────────────────────────────────────────────────────────────────────
 // System-prompt fragments (shared by the desktop app and the CLI/TUI).
 // Read-only, stateless builders for project instructions, personalization, git
