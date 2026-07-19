@@ -1,12 +1,15 @@
 import { createRoot } from 'react-dom/client';
+import { syncUiLocaleDocument } from '@maka/ui';
 import { App } from './app';
 import { applyCachedThemeBeforeMount } from './cached-theme-bootstrap';
 import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import './styles.css';
+import { readSystemUiLocale } from './use-system-ui-locale';
 
 const ONBOARDING_SNAPSHOT_RETRY_DELAY_MS = 150;
 const ONBOARDING_SNAPSHOT_TIMEOUT_MS = 2_500;
 
+syncUiLocaleDocument(readSystemUiLocale());
 applyCachedThemeBeforeMount();
 
 /**

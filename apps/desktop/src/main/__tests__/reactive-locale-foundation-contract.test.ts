@@ -16,6 +16,8 @@ function repoSource(file: string): string {
 describe('reactive locale foundation', () => {
   it('owns one persisted preference and one test override in AppShell state', () => {
     const source = rendererSource('app-shell.tsx');
+    const systemLocale = rendererSource('use-system-ui-locale.ts');
+    const main = rendererSource('main.tsx');
     const shellAppearance = rendererSource('use-shell-appearance.ts');
     const html = rendererSource('index.html');
 
@@ -23,7 +25,11 @@ describe('reactive locale foundation', () => {
     assert.match(source, /useState<UiLocale \| null>\(null\)/);
     assert.match(
       source,
-      /const uiLocale = resolveUiLocale\(uiLocalePreference, uiLocaleOverride\)/,
+      /const systemUiLocale = useSystemUiLocale\(\)/,
+    );
+    assert.match(
+      source,
+      /const uiLocale = resolveUiLocale\(uiLocalePreference, systemUiLocale, uiLocaleOverride\)/,
     );
     assert.equal(
       (source.match(/resolveUiLocale\(/g) ?? []).length,
@@ -36,7 +42,16 @@ describe('reactive locale foundation', () => {
       source,
       /<LocaleProvider locale=\{uiLocale\} override=\{uiLocaleOverride\}>[\s\S]*?<AppShellOverlays/,
     );
-    assert.match(html, /<html lang="zh">/, 'the pre-React document must match auto -> zh');
+    assert.match(html, /<html lang="en">/, 'the static fallback must match the unsupported-language fallback');
+    assert.match(html, /aria-label="Maka"/, 'the pre-JavaScript skeleton must not ship Chinese-only copy');
+    assert.match(systemLocale, /resolveSystemUiLocale\(navigator\.languages\)/);
+    assert.match(systemLocale, /addEventListener\('languagechange'/);
+    assert.match(systemLocale, /removeEventListener\('languagechange'/);
+    assert.ok(
+      main.indexOf('syncUiLocaleDocument(readSystemUiLocale())')
+        < main.indexOf('prefetchOnboardingSnapshot()'),
+      'the preload document language must follow the system before asynchronous hydration',
+    );
   });
 
   it('feeds the persisted settings result back into React without a DOM side channel', () => {

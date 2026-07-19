@@ -19,18 +19,30 @@ export function isUiLocalePreference(value: unknown): value is UiLocalePreferenc
   return value === 'auto' || isUiLocale(value);
 }
 
+/** Resolve the first supported language in the operating system preference list. */
+export function resolveSystemUiLocale(languages: readonly string[] | null | undefined): UiLocale {
+  for (const language of languages ?? []) {
+    const normalized = language.trim();
+    if (/^zh(?:[-_]|$)/iu.test(normalized)) return 'zh';
+    if (/^en(?:[-_]|$)/iu.test(normalized)) return 'en';
+  }
+  return 'en';
+}
+
 /**
  * Derive the single renderer locale.
  *
- * Visual/test overrides are deliberately highest priority. `auto` remains
- * Chinese-first until the remaining desktop translation slices are complete.
+ * Visual/test overrides are deliberately highest priority. Explicit persisted
+ * preferences beat the system locale; `auto` follows the supported system
+ * locale without persisting the derived value.
  */
 export function resolveUiLocale(
   preference: UiLocalePreference,
+  systemLocale: UiLocale,
   override?: UiLocale | null,
 ): UiLocale {
   if (override) return override;
-  return preference === 'auto' ? 'zh' : preference;
+  return preference === 'auto' ? systemLocale : preference;
 }
 
 /** Locale identifier used by every locale-sensitive Intl formatter. */

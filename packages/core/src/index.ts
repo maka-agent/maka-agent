@@ -1230,6 +1230,7 @@ export {
   UI_LOCALE_PREFERENCES,
   isUiLocale,
   isUiLocalePreference,
+  resolveSystemUiLocale,
   resolveUiLocale,
   uiLocaleToIntlLocale,
 } from './ui-locale.js';

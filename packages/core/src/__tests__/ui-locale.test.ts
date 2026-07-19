@@ -7,6 +7,7 @@ import {
   isUiLocale,
   isUiLocalePreference,
   resolveUiLocale,
+  resolveSystemUiLocale,
   uiLocaleToIntlLocale,
   type UiCatalog,
 } from '../index.js';
@@ -37,19 +38,27 @@ describe('UI locale contract', () => {
     assert.equal(isUiLocalePreference(undefined), false);
   });
 
-  it('temporarily resolves auto to Chinese', () => {
-    assert.equal(resolveUiLocale('auto'), 'zh');
+  it('resolves the first supported system language and falls back to English', () => {
+    assert.equal(resolveSystemUiLocale(['zh-CN', 'en-US']), 'zh');
+    assert.equal(resolveSystemUiLocale(['ja-JP', 'en-GB']), 'en');
+    assert.equal(resolveSystemUiLocale(['fr-FR', 'de-DE']), 'en');
+    assert.equal(resolveSystemUiLocale([]), 'en');
+  });
+
+  it('resolves auto from the supported system locale', () => {
+    assert.equal(resolveUiLocale('auto', 'zh'), 'zh');
+    assert.equal(resolveUiLocale('auto', 'en'), 'en');
   });
 
   it('preserves an explicit supported preference', () => {
-    assert.equal(resolveUiLocale('zh'), 'zh');
-    assert.equal(resolveUiLocale('en'), 'en');
+    assert.equal(resolveUiLocale('zh', 'en'), 'zh');
+    assert.equal(resolveUiLocale('en', 'zh'), 'en');
   });
 
   it('gives a test override precedence over every persisted preference', () => {
-    assert.equal(resolveUiLocale('auto', 'en'), 'en');
-    assert.equal(resolveUiLocale('en', 'zh'), 'zh');
-    assert.equal(resolveUiLocale('zh', null), 'zh');
+    assert.equal(resolveUiLocale('auto', 'zh', 'en'), 'en');
+    assert.equal(resolveUiLocale('en', 'en', 'zh'), 'zh');
+    assert.equal(resolveUiLocale('zh', 'en', null), 'zh');
   });
 
   it('maps the resolved locale to the Intl locale used by formatters', () => {

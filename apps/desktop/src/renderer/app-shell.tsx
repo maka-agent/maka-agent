@@ -96,6 +96,7 @@ import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
 import { useShellLayout } from './use-shell-layout';
 import { useSettingsModal } from './use-settings-modal';
+import { useSystemUiLocale } from './use-system-ui-locale';
 import {
   isSessionWorkspaceUnavailableError,
   showSessionWorkspaceUnavailableToast,
@@ -123,7 +124,8 @@ type AppShellProps = {
 export function AppShell({ initialOnboardingSnapshot = null }: AppShellProps = {}) {
   const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
   const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
-  const uiLocale = resolveUiLocale(uiLocalePreference, uiLocaleOverride);
+  const systemUiLocale = useSystemUiLocale();
+  const uiLocale = resolveUiLocale(uiLocalePreference, systemUiLocale, uiLocaleOverride);
 
   return (
     <LocaleProvider locale={uiLocale} override={uiLocaleOverride}>
