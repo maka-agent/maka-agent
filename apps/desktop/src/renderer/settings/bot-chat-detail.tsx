@@ -55,6 +55,12 @@ function supportsQuickOnboarding(provider: BotProvider): provider is BotOnboardi
  */
 export function BotChatChannelDetail(props: {
   provider: BotProvider;
+  /**
+   * #1233 deferral: when true (only under the settings-bots-onboarding
+   * visual-smoke fixture), open the scan-login modal at mount so the QR
+   * waiting state captures deterministically. Real users never set this.
+   */
+  autoOpenScanLogin?: boolean;
   channel: BotChannelSettings;
   status: BotStatus | undefined;
   statusLoadError: string | null;
@@ -71,7 +77,7 @@ export function BotChatChannelDetail(props: {
   onRefreshStatuses(): Promise<boolean>;
 }) {
   const { provider, channel, status } = props;
-  const [scanLoginOpen, setScanLoginOpen] = useState(false);
+  const [scanLoginOpen, setScanLoginOpen] = useState(Boolean(props.autoOpenScanLogin));
   const [wechatQrOpen, setWechatQrOpen] = useState(false);
   const [setupMode, setSetupMode] = useState<'quick' | 'manual'>('quick');
   const [feishuBrand, setFeishuBrand] = useState<BotOnboardingBrand>(
