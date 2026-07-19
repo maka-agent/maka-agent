@@ -13,7 +13,9 @@ import {
   ItemTitle,
   useMountedRef,
   useToast,
+  useUiLocale,
 } from '@maka/ui';
+import { getProviderSettingsCopy, type ProviderSettingsCopy } from '../locales/settings-provider-copy';
 import { ProviderLogo } from './provider-display';
 import { ProviderConnectionDialog } from './provider-connection-dialog';
 import { ClaudeSubscriptionCard } from './claude-subscription-card';
@@ -37,34 +39,10 @@ interface ModelOAuthCard {
   statusLabel: string;
 }
 
-const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
-  {
-    id: 'claude',
-    providerType: 'claude-subscription',
-    name: 'Claude Code',
-    description: 'Claude Pro / Max 订阅账号登录。',
-    status: 'available',
-    statusLabel: '可用',
-  },
-  {
-    id: 'codex',
-    providerType: 'openai-codex',
-    name: 'OpenAI Codex',
-    description: 'ChatGPT Plus / Pro 订阅账号登录。',
-    status: 'available',
-    statusLabel: '可用',
-  },
-  {
-    id: 'github-copilot',
-    providerType: 'github-copilot',
-    name: 'GitHub Copilot',
-    description: '导入兼容 GitHub 凭据连接 Copilot 订阅。',
-    status: 'available',
-    statusLabel: '可用',
-  },
-];
-
 export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(): Promise<void> }) {
+  const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).oauthSection;
+  const cards = modelOAuthCards(copy);
   const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
   const [claudeCatalogEnabled, setClaudeCatalogEnabled] = useState<boolean | null>(null);
   const toast = useToast();
@@ -85,7 +63,7 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
   });
   const [cardRefreshError, setCardRefreshError] = useState<string | null>(null);
   const normalizedQuery = props.query?.trim().toLocaleLowerCase() ?? '';
-  const visibleCards = MODEL_OAUTH_CARDS
+  const visibleCards = cards
     .filter((card) => card.id !== 'claude' || claudeCatalogEnabled === true)
     .filter((card) => !normalizedQuery || [card.id, card.name, card.description]
       .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
@@ -100,7 +78,7 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
     const claudeEnabledForRefresh = 'enabled' in claudeGate
       ? claudeGate.enabled
       : claudeCatalogEnabled === true;
-    const cardsToRefresh = MODEL_OAUTH_CARDS
+    const cardsToRefresh = cards
       .filter((card) => card.id !== 'claude' || claudeEnabledForRefresh)
       .filter((card) => !normalizedQuery || [card.id, card.name, card.description]
         .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
@@ -132,10 +110,10 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
           ? firstFailure.error
           : undefined;
       const message = error
-        ? subscriptionActionErrorMessage(error)
-        : '登录服务暂时不可用，请检查网络后重试。';
+        ? subscriptionActionErrorMessage(error, locale)
+        : copy.serviceUnavailable;
       setCardRefreshError(message);
-      toast.error('刷新 OAuth 登录状态失败', message);
+      toast.error(copy.refreshFailed, message);
       return false;
     }
     setCardRefreshError(null);
@@ -149,7 +127,7 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
       await props.onConnectionsChanged();
     } catch (error) {
       if (!modelOAuthMountedRef.current) return;
-      toast.error('刷新模型连接失败', subscriptionActionErrorMessage(error));
+      toast.error(copy.refreshConnectionsFailed, subscriptionActionErrorMessage(error, locale));
     }
   }
 
@@ -161,10 +139,10 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
   }, []);
 
   return (
-    <div className="providerOAuthCatalog" aria-label="OAuth 登录" data-provider-category="oauth">
+    <div className="providerOAuthCatalog" aria-label={copy.aria} data-provider-category="oauth">
       {cardRefreshError && (
         <div className="providerOAuthError" role="alert">
-          OAuth 登录状态暂时没刷新成功，已保留上一次状态。{cardRefreshError}
+          {copy.staleState}{cardRefreshError}
         </div>
       )}
       <div className="providerOAuthGrid">
@@ -176,7 +154,7 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
             runtimeState === 'refreshing' ||
             runtimeState === 'quota_unavailable' ||
             runtimeState === 'provider_rejected';
-          const liveBadge = isLoggedIn ? '已登录' : card.statusLabel;
+          const liveBadge = isLoggedIn ? copy.signedIn : card.statusLabel;
           const liveDescription = isLoggedIn && snapshot?.email
             ? snapshot.email
             : card.description;
@@ -189,7 +167,7 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
               data-status="ready"
               data-oauth-status={card.status}
               data-logged-in={isLoggedIn ? 'true' : undefined}
-              aria-label={providerOAuthAriaLabel(card, liveBadge, liveDescription)}
+              aria-label={copy.cardAria(card.name, liveBadge, liveDescription)}
               render={<button type="button" onClick={() => setOpenModal(card.id)} />}
             >
               <ItemMedia>
@@ -237,15 +215,20 @@ export function ModelOAuthSection(props: { query?: string; onConnectionsChanged(
   );
 }
 
-function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description: string): string {
-  return `打开 OAuth 登录：${card.name}，状态：${badge}，${description.replace(/[。.!！？?]+$/u, '')}`;
+function modelOAuthCards(copy: ProviderSettingsCopy['oauthSection']): ReadonlyArray<ModelOAuthCard> {
+  return [
+    { id: 'claude', providerType: 'claude-subscription', name: 'Claude Code', description: copy.claudeDescription, status: 'available', statusLabel: copy.available },
+    { id: 'codex', providerType: 'openai-codex', name: 'OpenAI Codex', description: copy.codexDescription, status: 'available', statusLabel: copy.available },
+    { id: 'github-copilot', providerType: 'github-copilot', name: 'GitHub Copilot', description: copy.copilotDescription, status: 'available', statusLabel: copy.available },
+  ];
 }
 
 function ClaudeSubscriptionModal(props: { onClose(): void }) {
+  const copy = getProviderSettingsCopy(useUiLocale()).oauthSection;
   return (
     <ProviderConnectionDialog
-      title="连接 Claude Code"
-      subtitle="登录 Claude Pro / Max 后，会同步成模型连接。"
+      title={copy.claudeTitle}
+      subtitle={copy.claudeSubtitle}
       providerType="claude-subscription"
       onClose={props.onClose}
     >
@@ -255,10 +238,12 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
 }
 
 function SubscriptionLoginModal(props: { onClose(): void }) {
+  const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).oauthSection;
   const display: SubscriptionDisplay = {
     name: 'OpenAI Codex',
     shortName: 'Codex',
-    detail: '点击下方按钮打开浏览器登录，授权完成后会自动回写到本机（127.0.0.1:1455）。',
+    detail: copy.codexDetail,
   };
   // The whole browser-loopback login/logout controller (getAuthUrl ->
   // openAuthUrl -> refresh -> completeAuthorization, one authRequestId
@@ -272,17 +257,17 @@ function SubscriptionLoginModal(props: { onClose(): void }) {
 
   return (
     <ProviderConnectionDialog
-      title={`连接 ${display.name}`}
+      title={copy.connectTitle(display.name)}
       subtitle={display.detail}
       providerType="openai-codex"
       onClose={props.onClose}
     >
         <div className="settingsConnectionRow" data-status={flow.runtimeState}>
           <p className="settingsConnectionDetail">
-            {presentSnapshotDetail(flow.state, display)}
+            {presentSnapshotDetail(flow.state, display, locale)}
           </p>
           {flow.stateHint && (
-            <small>提示：state 以 <code>{flow.stateHint}</code> 开头。</small>
+            <small>{copy.stateHint} <code>{flow.stateHint}</code> {copy.startsWith}</small>
           )}
           {flow.errorMessage && (
             <small className="settingsErrorText">{flow.errorMessage}</small>
@@ -294,7 +279,7 @@ function SubscriptionLoginModal(props: { onClose(): void }) {
                 onClick={() => void flow.startLogin()}
                 disabled={flow.actionBusy}
               >
-                {flow.pendingAction === 'login' ? '打开浏览器…' : `登录 ${display.shortName}`}
+                {flow.pendingAction === 'login' ? copy.openingBrowser : copy.login(display.shortName)}
               </Button>
             ) : (
               <Button
@@ -303,7 +288,7 @@ function SubscriptionLoginModal(props: { onClose(): void }) {
                 onClick={() => void flow.logout()}
                 disabled={flow.actionBusy}
               >
-                {flow.pendingAction === 'logout' ? '退出中…' : '退出登录'}
+                {flow.pendingAction === 'logout' ? copy.loggingOut : copy.logout}
               </Button>
             )}
           </div>
@@ -328,6 +313,7 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
 }
 
 function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
+  const copy = getProviderSettingsCopy(useUiLocale()).oauthSection;
   // The shared login-flow controller owns the snapshot refresh, the
   // synchronous one-shot pending guard, and the unmount safety; Copilot
   // rides it through the direct account flow (one bridge call per action,
@@ -345,30 +331,30 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
   const loggedIn = flow.state?.runtimeState === 'authenticated' || flow.state?.runtimeState === 'refreshing';
   return (
     <ProviderConnectionDialog
-      title="连接 GitHub Copilot"
-      subtitle="导入兼容的 GitHub 登录；token 不会暴露给渲染进程。"
+      title={copy.copilotTitle}
+      subtitle={copy.copilotSubtitle}
       providerType="github-copilot"
       onClose={props.onClose}
     >
       <div className="settingsConnectionRow" data-status={flow.runtimeState}>
         <p className="settingsConnectionDetail">
           {loggedIn
-            ? '已导入 GitHub Copilot 订阅账号。'
+            ? copy.copilotImported
             : flow.state?.runtimeState === 'refresh_failed' || flow.state?.runtimeState === 'storage_failed'
               ? flow.state.errorMessage
-              : '请配置具有 Copilot Requests 权限的 fine-grained PAT；普通 gh auth login 可能不包含该权限。'}
+              : copy.copilotSetup}
         </p>
         <div className="settingsConnectionActions">
           <Button type="button" onClick={() => void flow.startLogin()} disabled={flow.actionBusy}>
-            {flow.pendingAction === 'login' ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
+            {flow.pendingAction === 'login' ? copy.importing : loggedIn ? copy.reimport : copy.importCredential}
           </Button>
           {loggedIn && (
             <>
               <Button type="button" variant="secondary" onClick={() => void refreshTokens?.()} disabled={flow.actionBusy}>
-                {flow.pendingAction === 'refresh' ? '验证中…' : '重新验证'}
+                {flow.pendingAction === 'refresh' ? copy.verifying : copy.reverify}
               </Button>
               <Button type="button" variant="ghost" onClick={() => void flow.logout()} disabled={flow.actionBusy}>
-                {flow.pendingAction === 'logout' ? '移除中…' : '移除本地登录'}
+                {flow.pendingAction === 'logout' ? copy.removing : copy.removeLocal}
               </Button>
             </>
           )}
@@ -384,28 +370,29 @@ interface SubscriptionDisplay {
   detail: string;
 }
 
-function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: SubscriptionDisplay): string {
-  if (!state) return '正在加载账号状态…';
+function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: SubscriptionDisplay, locale: 'zh' | 'en'): string {
+  const copy = getProviderSettingsCopy(locale).oauthSection;
+  if (!state) return copy.loadingAccount;
   switch (state.runtimeState) {
     case 'not_logged_in':
-      return `${display.name} 尚未登录。`;
+      return copy.signedOut(display.name);
     case 'authorizing':
-      return '请在弹出的浏览器窗口完成登录。';
+      return copy.authorizing;
     case 'authenticated': {
-      const parts = ['已登录'];
+      const parts = [copy.signedIn];
       if (state.email) parts.push(state.email);
       if (state.plan) parts.push(state.plan);
       return parts.join(' · ');
     }
     case 'refreshing':
-      return '正在刷新访问令牌…';
+      return copy.refreshing;
     case 'refresh_failed':
-      return subscriptionResultMessage(state.errorMessage, '令牌刷新失败，请重新登录。');
+      return subscriptionResultMessage(state.errorMessage, copy.refreshTokenFailed, locale);
     case 'storage_failed':
-      return subscriptionResultMessage(state.errorMessage, `${display.name} 本地凭据读取失败，请重新登录。`);
+      return subscriptionResultMessage(state.errorMessage, copy.storageFailed(display.name), locale);
     case 'quota_unavailable':
     case 'provider_rejected':
-      return subscriptionResultMessage(state.errorMessage, `${display.name} 已登录，但当前 provider 状态不可用。`);
+      return subscriptionResultMessage(state.errorMessage, copy.providerUnavailable(display.name), locale);
   }
   const _exhaustive: never = state.runtimeState;
   return _exhaustive;

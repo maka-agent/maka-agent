@@ -26,6 +26,11 @@ export interface ProviderCopy {
   badge?: string;
 }
 
+export const UNKNOWN_PROVIDER_DESCRIPTION = {
+  zh: '该 provider 在当前版本未注册。',
+  en: 'This provider is not registered in the current build.',
+} satisfies UiCatalog<string>;
+
 export const PROVIDER_DISPLAY_COPY = {
   'kimi-coding-plan': {
     zh: { name: 'Kimi Coding Plan', description: '月之暗面 · Anthropic 兼容', badge: 'Coding' },

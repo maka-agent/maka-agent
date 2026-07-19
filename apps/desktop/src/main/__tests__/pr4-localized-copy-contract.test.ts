@@ -16,6 +16,7 @@ import { getWebSearchSettingsCopy } from '../../renderer/locales/settings-web-se
 import { getDailyReviewSettingsCopy } from '../../renderer/locales/settings-daily-review-copy.js';
 import { getHealthCenterCopy } from '../../renderer/locales/settings-health-copy.js';
 import { getMemorySettingsCopy } from '../../renderer/locales/settings-memory-copy.js';
+import { getProviderSettingsCopy } from '../../renderer/locales/settings-provider-copy.js';
 import {
   findInlineCjkLiterals,
   findSilentCatalogFallbacks,
@@ -77,6 +78,16 @@ const PR4_DESKTOP_PRESENTATION_FILES = [
   'apps/desktop/src/renderer/settings/memory-settings-labels.ts',
   'apps/desktop/src/renderer/settings/use-memory-settings-controller.ts',
   'apps/desktop/src/renderer/settings/use-workspace-instructions-controller.ts',
+  'apps/desktop/src/renderer/settings/ProvidersPanel.tsx',
+  'apps/desktop/src/renderer/settings/provider-add-form.tsx',
+  'apps/desktop/src/renderer/settings/provider-catalog.tsx',
+  'apps/desktop/src/renderer/settings/provider-connection-detail.tsx',
+  'apps/desktop/src/renderer/settings/provider-connection-status.ts',
+  'apps/desktop/src/renderer/settings/provider-display.tsx',
+  'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
+  'apps/desktop/src/renderer/settings/provider-panel-shared.ts',
+  'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',
+  'apps/desktop/src/renderer/settings/use-oauth-login-flow.ts',
 ] as const;
 
 const PR4_DESKTOP_CATALOG_FILES = [
@@ -93,6 +104,8 @@ const PR4_DESKTOP_CATALOG_FILES = [
   'apps/desktop/src/renderer/locales/settings-daily-review-copy.ts',
   'apps/desktop/src/renderer/locales/settings-health-copy.ts',
   'apps/desktop/src/renderer/locales/settings-memory-copy.ts',
+  'apps/desktop/src/renderer/locales/settings-provider-copy.ts',
+  'apps/desktop/src/renderer/settings/provider-display-copy.ts',
 ] as const;
 
 function repoSource(file: string): string {
@@ -155,6 +168,9 @@ describe('PR4 remaining desktop copy contract', () => {
     assert.equal(getHealthCenterCopy('en').statuses.ok.label, 'Healthy');
     assert.equal(getMemorySettingsCopy('zh').text.localFile, '本地 MEMORY.md');
     assert.equal(getMemorySettingsCopy('en').text.localFile, 'Local MEMORY.md');
+    assert.equal(getProviderSettingsCopy('zh').panel.connected, '已连接');
+    assert.equal(getProviderSettingsCopy('en').panel.connected, 'Connected');
+    assert.equal(getProviderSettingsCopy('en').shared.lastTest['连接已验证'], 'Connection verified');
   });
 
   it('contains no inline user-visible Chinese in migrated desktop owners', () => {

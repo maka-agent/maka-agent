@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { type SubscriptionAccountState } from '@maka/core';
+import { type SubscriptionAccountState, type UiLocale } from '@maka/core';
 import {
   Chip,
   Button,
@@ -7,7 +7,9 @@ import {
   Textarea,
   useMountedRef,
   useToast,
+  useUiLocale,
 } from '@maka/ui';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy';
 import { type StatusTone } from './settings-status-badge';
 import {
   subscriptionActionErrorMessage,
@@ -23,6 +25,8 @@ import {
  * needs the manual authorization-code step and the experimental gate.
  */
 export function ClaudeSubscriptionCard() {
+  const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).claude;
   const [experimentalEnabled, setExperimentalEnabled] = useState<boolean | null>(null);
   const [experimentalGateError, setExperimentalGateError] = useState<string | null>(null);
   const [state, setState] = useState<SubscriptionAccountState | null>(null);
@@ -57,9 +61,9 @@ export function ClaudeSubscriptionCard() {
       setState(next);
       setPasteError(null);
     } catch (error) {
-      const message = subscriptionActionErrorMessage(error);
+      const message = subscriptionActionErrorMessage(error, locale);
       if (!claudeCardMountedRef.current) return;
-      toast.error('刷新登录状态失败', message);
+      toast.error(copy.refreshFailed, message);
       setPasteError(message);
     }
   };
@@ -72,11 +76,11 @@ export function ClaudeSubscriptionCard() {
       setExperimentalGateError(null);
       if (flag) void refresh();
     } catch (error) {
-      const message = subscriptionActionErrorMessage(error);
+      const message = subscriptionActionErrorMessage(error, locale);
       if (!claudeCardMountedRef.current) return;
       setExperimentalEnabled(null);
       setExperimentalGateError(message);
-      toast.error('读取 Claude 登录开关失败', message);
+      toast.error(copy.gateReadFailed, message);
     }
   };
 
@@ -97,10 +101,10 @@ export function ClaudeSubscriptionCard() {
       })
       .catch((error) => {
         if (cancelled) return;
-        const message = subscriptionActionErrorMessage(error);
+        const message = subscriptionActionErrorMessage(error, locale);
         setExperimentalEnabled(null);
         setExperimentalGateError(message);
-        toast.error('读取 Claude 登录开关失败', message);
+        toast.error(copy.gateReadFailed, message);
       });
     return () => {
       cancelled = true;
@@ -113,21 +117,21 @@ export function ClaudeSubscriptionCard() {
         <div className="settingsConnectionRowHead">
           <div className="settingsConnectionRowText">
             <div className="settingsConnectionRowName">
-              <strong>Claude 订阅 (Pro / Max)</strong>
+              <strong>{copy.title}</strong>
             </div>
-            <small>无法确认 Claude OAuth 是否可用。没有登录动作会被执行。</small>
+            <small>{copy.gateUnknown}</small>
           </div>
-          <Chip variant="destructive">读取失败</Chip>
+          <Chip variant="destructive">{copy.readFailed}</Chip>
         </div>
         <small className="settingsErrorText" role="alert">
-          Claude 登录开关读取失败：{experimentalGateError}
+          {copy.gateError}{experimentalGateError}
         </small>
         <div className="settingsConnectionActions">
           <Button
             type="button"
             onClick={() => void refreshExperimentalGate()}
           >
-            重试
+            {copy.retry}
           </Button>
         </div>
       </div>
@@ -165,7 +169,7 @@ export function ClaudeSubscriptionCard() {
         // Envelope variant. `ok: true` shouldn't happen for
         // getAuthUrl (success returns the payload, not an envelope),
         // so this branch is the failure case in practice.
-        toast.error('无法开始登录', payload.ok ? '请稍后再试。' : subscriptionResultMessage(payload.message, '无法开始登录，请稍后再试。'));
+        toast.error(copy.startFailed, payload.ok ? copy.retryLater : subscriptionResultMessage(payload.message, copy.startFailedRetry, locale));
         return;
       }
       claudeAuthRequestIdRef.current = payload.authRequestId;
@@ -183,7 +187,7 @@ export function ClaudeSubscriptionCard() {
       const opened = await window.maka.claudeSubscription.openAuthUrl(payload.authRequestId);
       if (!claudeCardMountedRef.current) return;
       if (!opened.ok) {
-        toast.error('无法打开浏览器', subscriptionResultMessage(opened.message, '无法打开浏览器，请稍后重试。'));
+        toast.error(copy.openFailed, subscriptionResultMessage(opened.message, copy.openFailedRetry, locale));
         claudeAuthRequestIdRef.current = null;
         void window.maka.claudeSubscription.cancelAuthorization(payload.authRequestId);
         setAuthRequestId(null);
@@ -194,11 +198,11 @@ export function ClaudeSubscriptionCard() {
       const pendingAuthRequestId = claudeAuthRequestIdRef.current;
       claudeAuthRequestIdRef.current = null;
       if (pendingAuthRequestId) void window.maka.claudeSubscription.cancelAuthorization(pendingAuthRequestId);
-      const message = subscriptionActionErrorMessage(error);
+      const message = subscriptionActionErrorMessage(error, locale);
       if (!claudeCardMountedRef.current) return;
       setAuthRequestId(null);
       setStateHint(null);
-      toast.error('无法开始登录', message);
+      toast.error(copy.startFailed, message);
       setPasteError(message);
     } finally {
       if (claudeCardMountedRef.current) finishPendingAction();
@@ -216,19 +220,19 @@ export function ClaudeSubscriptionCard() {
       );
       if (!claudeCardMountedRef.current) return;
       if (result.ok) {
-        toast.success('登录成功', '已绑定 Claude 订阅。');
+        toast.success(copy.loginSuccess, copy.bound);
         claudeAuthRequestIdRef.current = null;
         setAuthRequestId(null);
         setStateHint(null);
         setPasteValue('');
         await refresh();
       } else {
-        setPasteError(subscriptionResultMessage(result.message, '授权码提交失败，请重新登录后再试。'));
+        setPasteError(subscriptionResultMessage(result.message, copy.submitFailedRetry, locale));
       }
     } catch (error) {
-      const message = subscriptionActionErrorMessage(error);
+      const message = subscriptionActionErrorMessage(error, locale);
       if (!claudeCardMountedRef.current) return;
-      toast.error('授权码提交失败', message);
+      toast.error(copy.submitFailed, message);
       setPasteError(message);
     } finally {
       if (claudeCardMountedRef.current) finishPendingAction();
@@ -249,7 +253,7 @@ export function ClaudeSubscriptionCard() {
       await refresh();
     } catch (error) {
       if (!claudeCardMountedRef.current) return;
-      toast.error('取消登录失败', subscriptionActionErrorMessage(error));
+      toast.error(copy.cancelFailed, subscriptionActionErrorMessage(error, locale));
     } finally {
       if (claudeCardMountedRef.current) finishPendingAction();
     }
@@ -259,24 +263,24 @@ export function ClaudeSubscriptionCard() {
     if (!beginPendingAction('logout')) return;
     try {
       const ok = await toast.confirm({
-        title: '退出 Claude Code 登录？',
-        description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用 Claude OAuth 模型。',
-        confirmLabel: '退出登录',
-        cancelLabel: '取消',
+        title: copy.logoutTitle,
+        description: copy.logoutDescription,
+        confirmLabel: copy.logout,
+        cancelLabel: copy.cancel,
         destructive: true,
       });
       if (!ok) return;
       const result = await window.maka.claudeSubscription.logout();
       if (!claudeCardMountedRef.current) return;
       if (result.ok) {
-        toast.success('已退出登录', '本地凭据已清除。');
+        toast.success(copy.loggedOut, copy.cleared);
         await refresh();
       } else {
-        toast.error('退出失败', subscriptionResultMessage(result.message, '退出登录失败，请稍后重试。'));
+        toast.error(copy.logoutFailed, subscriptionResultMessage(result.message, copy.logoutFailedRetry, locale));
       }
     } catch (error) {
       if (!claudeCardMountedRef.current) return;
-      toast.error('退出失败', subscriptionActionErrorMessage(error));
+      toast.error(copy.logoutFailed, subscriptionActionErrorMessage(error, locale));
     } finally {
       if (claudeCardMountedRef.current) finishPendingAction();
     }
@@ -290,14 +294,14 @@ export function ClaudeSubscriptionCard() {
       await refresh();
     } catch (error) {
       if (!claudeCardMountedRef.current) return;
-      toast.error('刷新配额失败', subscriptionActionErrorMessage(error));
+      toast.error(copy.quotaFailed, subscriptionActionErrorMessage(error, locale));
     } finally {
       if (claudeCardMountedRef.current) finishPendingAction();
     }
   }
 
   // Closed-state render mapping per the runtime state enum.
-  const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'neutral' as const, detail: '' };
+  const presentation = state ? presentSubscriptionState(state, locale) : { label: copy.loading, tone: 'neutral' as const, detail: '' };
   const canStartClaudeLogin =
     state?.runtimeState === 'not_logged_in' ||
     state?.runtimeState === 'refresh_failed' ||
@@ -307,15 +311,15 @@ export function ClaudeSubscriptionCard() {
 
   return (
     <>
-    <h3 className="settingsSubheading">订阅</h3>
+    <h3 className="settingsSubheading">{copy.section}</h3>
     <div className="settingsConnectionRow" data-status={state?.runtimeState ?? 'loading'}>
       <div className="settingsConnectionRowHead">
         <div className="settingsConnectionRowText">
           <div className="settingsConnectionRowName">
-            <strong>Claude 订阅 (Pro / Max)</strong>
+            <strong>{copy.title}</strong>
           </div>
           <small>
-            通过 Anthropic 官方 OAuth 登录使用订阅配额。
+            {copy.subtitle}
             {state?.profile?.email ? ` · ${state.profile.email}` : ''}
           </small>
         </div>
@@ -332,18 +336,18 @@ export function ClaudeSubscriptionCard() {
         <div className="settingsQuotaSection">
           {state.quota.fiveHour && (
             <div className="settingsQuotaRow">
-              <span>5 小时窗口</span>
+              <span>{copy.fiveHour}</span>
               <span>{state.quota.fiveHour.utilization}%</span>
             </div>
           )}
           {state.quota.sevenDay && (
             <div className="settingsQuotaRow">
-              <span>7 天窗口</span>
+              <span>{copy.sevenDay}</span>
               <span>{state.quota.sevenDay.utilization}%</span>
             </div>
           )}
           <small className="settingsHelpText">
-            数据更新于 <RelativeTime ts={state.quota.fetchedAt} className="settingsHelpInlineTime" />
+            {copy.updated}<RelativeTime ts={state.quota.fetchedAt} className="settingsHelpInlineTime" />
           </small>
         </div>
       )}
@@ -356,12 +360,12 @@ export function ClaudeSubscriptionCard() {
             disabled={actionBusy || claudeLoginPending}
           >
             {pendingAction === 'login'
-              ? '打开浏览器…'
+              ? copy.openingBrowser
               : claudeLoginPending
-              ? '登录中…'
+              ? copy.loggingIn
               : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
-                ? '重新登录'
-                : '登录订阅'}
+                ? copy.relogin
+                : copy.loginSubscription}
           </Button>
         ) : (
           <>
@@ -370,7 +374,7 @@ export function ClaudeSubscriptionCard() {
               onClick={() => void refreshQuota()}
               disabled={actionBusy}
             >
-              {pendingAction === 'quota' ? '刷新中…' : '刷新配额'}
+              {pendingAction === 'quota' ? copy.refreshing : copy.refreshQuota}
             </Button>
             <Button
               type="button"
@@ -378,26 +382,25 @@ export function ClaudeSubscriptionCard() {
               onClick={() => void logout()}
               disabled={actionBusy}
             >
-              {pendingAction === 'logout' ? '退出中…' : '退出登录'}
+              {pendingAction === 'logout' ? copy.loggingOut : copy.logout}
             </Button>
           </>
         )}
       </div>
 
       {authRequestId && (
-        <div className="settingsOauthPastePanel" role="region" aria-label="粘贴授权码">
+        <div className="settingsOauthPastePanel" role="region" aria-label={copy.pasteAria}>
           <p>
-            在 Claude.ai 完成登录后，会跳转到 Anthropic 控制台显示一段授权码（含 <code>#</code> 分隔符），
-            把它粘贴到下面：
+            {copy.pasteHelpBefore} <code>#</code> {copy.pasteHelpAfter}
           </p>
           {stateHint && (
-            <small>提示：你的 state 以 <code>{stateHint}</code> 开头。</small>
+            <small>{copy.stateHint} <code>{stateHint}</code> {copy.startsWith}</small>
           )}
           <Textarea
             value={pasteValue}
             onChange={(event) => setPasteValue(event.currentTarget.value)}
-            placeholder="粘贴授权码（格式：xxx#yyy）"
-            aria-label="授权码"
+            placeholder={copy.codePlaceholder}
+            aria-label={copy.codeAria}
             rows={3}
             spellCheck={false}
             autoComplete="off"
@@ -409,7 +412,7 @@ export function ClaudeSubscriptionCard() {
               onClick={() => void submitPaste()}
               disabled={actionBusy || pasteValue.trim().length === 0}
             >
-              {pendingAction === 'submit' ? '提交中…' : '提交授权码'}
+              {pendingAction === 'submit' ? copy.submitting : copy.submitCode}
             </Button>
             <Button
               type="button"
@@ -417,7 +420,7 @@ export function ClaudeSubscriptionCard() {
               onClick={() => void cancelLogin()}
               disabled={actionBusy}
             >
-              {pendingAction === 'cancel' ? '取消中…' : '取消'}
+              {pendingAction === 'cancel' ? copy.cancelling : copy.cancel}
             </Button>
           </div>
         </div>
@@ -435,45 +438,46 @@ interface SubscriptionStatePresentation {
   detail: string;
 }
 
-function presentSubscriptionState(state: SubscriptionAccountState): SubscriptionStatePresentation {
+function presentSubscriptionState(state: SubscriptionAccountState, locale: UiLocale): SubscriptionStatePresentation {
+  const copy = getProviderSettingsCopy(locale).claude;
   switch (state.runtimeState) {
     case 'not_logged_in':
-      return { label: '未登录', tone: 'neutral', detail: '使用 Claude 订阅配额前需要先登录。' };
+      return { label: copy.signedOut, tone: 'neutral', detail: copy.signedOutDetail };
     case 'authorizing':
-      return { label: '登录中…', tone: 'info', detail: '请在弹出的浏览器窗口完成登录并粘贴授权码。' };
+      return { label: copy.authorizing, tone: 'info', detail: copy.authorizingDetail };
     case 'authenticated':
       return {
-        label: '已登录',
+        label: copy.signedIn,
         tone: 'success',
-        detail: '已绑定 Claude 订阅，并会同步到“模型连接”。',
+        detail: copy.signedInDetail,
       };
     case 'refreshing':
-      return { label: '刷新中…', tone: 'info', detail: '正在刷新访问令牌。' };
+      return { label: copy.tokenRefreshing, tone: 'info', detail: copy.tokenRefreshingDetail };
     case 'refresh_failed':
       return {
-        label: '刷新失败',
+        label: copy.tokenRefreshFailed,
         tone: 'warning',
-        detail: subscriptionResultMessage(state.errorMessage, '令牌刷新失败，请重新登录。'),
+        detail: subscriptionResultMessage(state.errorMessage, copy.tokenRefreshFailedDetail, locale),
       };
     case 'storage_failed':
       return {
-        label: '凭据读取失败',
+        label: copy.storageFailed,
         tone: 'warning',
-        detail: subscriptionResultMessage(state.errorMessage, '本地 OAuth 凭据读取失败，请重新登录。'),
+        detail: subscriptionResultMessage(state.errorMessage, copy.storageFailedDetail, locale),
       };
     case 'quota_unavailable':
       return {
-        label: '等待获取配额',
+        label: copy.quotaUnavailable,
         tone: 'warning',
-        detail: subscriptionResultMessage(state.errorMessage, '已登录；配额接口当前没有返回可用数据。'),
+        detail: subscriptionResultMessage(state.errorMessage, copy.quotaUnavailableDetail, locale),
       };
     case 'provider_rejected':
       return {
-        label: '订阅 API 拒绝',
+        label: copy.providerRejected,
         tone: 'destructive',
-        detail: subscriptionResultMessage(state.errorMessage, '订阅端点拒绝了请求，可能需要重新登录。'),
+        detail: subscriptionResultMessage(state.errorMessage, copy.providerRejectedDetail, locale),
       };
     default:
-      return { label: '未知状态', tone: 'neutral', detail: '' };
+      return { label: copy.unknown, tone: 'neutral', detail: '' };
   }
 }

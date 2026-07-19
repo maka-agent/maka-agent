@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { generalizedErrorMessageChinese, redactSecrets } from '@maka/core';
-import { useMountedRef, useToast } from '@maka/ui';
+import { generalizedErrorMessage, generalizedErrorMessageChinese, redactSecrets, type UiLocale } from '@maka/core';
+import { useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { createOneShotActionGuard, teardownPendingAuthorization } from './oauth-login-flow-guard';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy';
 
 export { createOneShotActionGuard, teardownPendingAuthorization } from './oauth-login-flow-guard';
 
@@ -101,6 +102,8 @@ export function useOAuthLoginFlow(params: {
   direct?: OAuthDirectAccountFlow;
 }): OAuthLoginFlowController {
   const { bridge, display } = params;
+  const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).oauthFlow;
   const direct = params.direct;
   const toast = useToast();
   const [state, setState] = useState<SubscriptionSnapshot | null>(null);
@@ -120,8 +123,8 @@ export function useOAuthLoginFlow(params: {
       setErrorMessage(null);
     } catch (error) {
       if (!oauthLoginFlowMountedRef.current) return false;
-      const message = subscriptionActionErrorMessage(error);
-      toast.error('刷新登录状态失败', message);
+      const message = subscriptionActionErrorMessage(error, locale);
+      toast.error(copy.refreshFailed, message);
       setErrorMessage(message);
     }
     return true;
@@ -157,14 +160,14 @@ export function useOAuthLoginFlow(params: {
         const result = await direct.login();
         if (!oauthLoginFlowMountedRef.current) return;
         if (!result.ok) {
-          toast.error(`${display.name} 账号操作失败`, subscriptionResultMessage(result.message, '登录失败，请稍后重试。'));
+          toast.error(copy.accountActionFailed(display.name), subscriptionResultMessage(result.message, copy.loginFailedRetry, locale));
         }
         await refresh();
         if (!oauthLoginFlowMountedRef.current) return;
         if (result.ok && params.onLoginSuccess) await params.onLoginSuccess();
       } catch (error) {
         if (!oauthLoginFlowMountedRef.current) return;
-        toast.error(`${display.name} 账号操作失败`, subscriptionActionErrorMessage(error));
+        toast.error(copy.accountActionFailed(display.name), subscriptionActionErrorMessage(error, locale));
       } finally {
         finishPendingAction();
       }
@@ -174,8 +177,8 @@ export function useOAuthLoginFlow(params: {
       const payload = await bridge.getAuthUrl();
       if ('ok' in payload) {
         if (!oauthLoginFlowMountedRef.current) return;
-        const failureMessage = payload.ok ? '请稍后再试。' : subscriptionResultMessage(payload.message, '无法开始登录，请稍后再试。');
-        toast.error('无法开始登录', failureMessage);
+        const failureMessage = payload.ok ? copy.retry : subscriptionResultMessage(payload.message, copy.startFailedRetry, locale);
+        toast.error(copy.startFailed, failureMessage);
         setErrorMessage(failureMessage);
         return;
       }
@@ -190,8 +193,8 @@ export function useOAuthLoginFlow(params: {
       const opened = await bridge.openAuthUrl(payload.authRequestId);
       if (!oauthLoginFlowMountedRef.current) return;
       if (!opened.ok) {
-        const message = subscriptionResultMessage(opened.message, '无法打开浏览器，请稍后重试。');
-        toast.error('无法打开浏览器', message);
+        const message = subscriptionResultMessage(opened.message, copy.openFailedRetry, locale);
+        toast.error(copy.openFailed, message);
         setErrorMessage(message);
         void bridge.cancelAuthorization(payload.authRequestId);
         authRequestIdRef.current = null;
@@ -208,13 +211,13 @@ export function useOAuthLoginFlow(params: {
       setAuthRequestId(null);
       setStateHint(null);
       if (result.ok) {
-        toast.success('登录成功', `${display.name} 已绑定本机。`);
+        toast.success(copy.loginSuccess, copy.bound(display.name));
         await refresh();
         if (!oauthLoginFlowMountedRef.current) return;
         if (params.onLoginSuccess) await params.onLoginSuccess();
       } else {
-        const message = subscriptionResultMessage(result.message, '登录未完成，请重新打开浏览器授权。');
-        toast.error('登录未完成', message);
+        const message = subscriptionResultMessage(result.message, copy.incompleteRetry, locale);
+        toast.error(copy.incomplete, message);
         setErrorMessage(message);
       }
     } catch (error) {
@@ -224,8 +227,8 @@ export function useOAuthLoginFlow(params: {
       if (pendingAuthRequestId) void bridge.cancelAuthorization(pendingAuthRequestId);
       setAuthRequestId(null);
       setStateHint(null);
-      const message = subscriptionActionErrorMessage(error);
-      toast.error('登录失败', message);
+      const message = subscriptionActionErrorMessage(error, locale);
+      toast.error(copy.loginFailed, message);
       setErrorMessage(message);
     } finally {
       finishPendingAction();
@@ -240,10 +243,10 @@ export function useOAuthLoginFlow(params: {
       // action and toast on success.
       if (!direct) {
         const ok = await toast.confirm({
-          title: `退出 ${display.name} 登录？`,
-          description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用这些 OAuth 模型。',
-          confirmLabel: '退出登录',
-          cancelLabel: '取消',
+          title: copy.logoutTitle(display.name),
+          description: copy.logoutDescription,
+          confirmLabel: copy.logout,
+          cancelLabel: copy.cancel,
           destructive: true,
         });
         if (!ok) return;
@@ -252,20 +255,20 @@ export function useOAuthLoginFlow(params: {
       if (!oauthLoginFlowMountedRef.current) return;
       if (result.ok) {
         if (!direct) {
-          toast.success('已退出登录', '本地凭据已清除。');
+          toast.success(copy.loggedOut, copy.credentialsCleared);
         }
         await refresh();
       } else if (direct) {
-        toast.error(`${display.name} 账号操作失败`, subscriptionResultMessage(result.message, '退出登录失败，请稍后重试。'));
+        toast.error(copy.accountActionFailed(display.name), subscriptionResultMessage(result.message, copy.logoutFailedRetry, locale));
       } else {
-        toast.error('退出失败', subscriptionResultMessage(result.message, '退出登录失败，请稍后重试。'));
+        toast.error(copy.logoutFailed, subscriptionResultMessage(result.message, copy.logoutFailedRetry, locale));
       }
     } catch (error) {
       if (!oauthLoginFlowMountedRef.current) return;
       if (direct) {
-        toast.error(`${display.name} 账号操作失败`, subscriptionActionErrorMessage(error));
+        toast.error(copy.accountActionFailed(display.name), subscriptionActionErrorMessage(error, locale));
       } else {
-        toast.error('退出失败', subscriptionActionErrorMessage(error));
+        toast.error(copy.logoutFailed, subscriptionActionErrorMessage(error, locale));
       }
     } finally {
       finishPendingAction();
@@ -279,12 +282,12 @@ export function useOAuthLoginFlow(params: {
       const result = await direct.refreshTokens();
       if (!oauthLoginFlowMountedRef.current) return;
       if (!result.ok) {
-        toast.error(`${display.name} 账号操作失败`, subscriptionResultMessage(result.message, '重新验证失败，请稍后重试。'));
+        toast.error(copy.accountActionFailed(display.name), subscriptionResultMessage(result.message, copy.reverifyFailedRetry, locale));
       }
       await refresh();
     } catch (error) {
       if (!oauthLoginFlowMountedRef.current) return;
-      toast.error(`${display.name} 账号操作失败`, subscriptionActionErrorMessage(error));
+      toast.error(copy.accountActionFailed(display.name), subscriptionActionErrorMessage(error, locale));
     } finally {
       finishPendingAction();
     }
@@ -310,19 +313,21 @@ export function useOAuthLoginFlow(params: {
   };
 }
 
-export function subscriptionActionErrorMessage(error: unknown): string {
+export function subscriptionActionErrorMessage(error: unknown, locale: UiLocale = 'zh'): string {
   const message = error instanceof Error
     ? error.message
     : typeof error === 'string'
       ? error
       : '';
-  return subscriptionResultMessage(message, '登录服务暂时不可用，请检查网络后重试。');
+  return subscriptionResultMessage(message, getProviderSettingsCopy(locale).oauthFlow.serviceUnavailable, locale);
 }
 
-export function subscriptionResultMessage(message: string | undefined, fallback: string): string {
+export function subscriptionResultMessage(message: string | undefined, fallback: string, locale: UiLocale = 'zh'): string {
   const raw = redactSecrets(message ?? '').trim();
   if (!raw) return fallback;
-  const classified = generalizedErrorMessageChinese(new Error(raw), '');
+  const classified = locale === 'zh'
+    ? generalizedErrorMessageChinese(new Error(raw), '')
+    : generalizedErrorMessage(new Error(raw), '');
   if (classified) return classified;
-  return /[\u4e00-\u9fff]/.test(raw) ? raw : fallback;
+  return locale === 'zh' || !/[\u4e00-\u9fff]/.test(raw) ? raw : fallback;
 }

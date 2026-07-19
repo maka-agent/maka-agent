@@ -3,14 +3,18 @@ import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
 import { Chip, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, useUiLocale } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './provider-display';
 import { isWiredOAuthProvider } from './provider-panel-shared';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy';
 
 export function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelect(): void }) {
   const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).catalog;
   const defaults = PROVIDER_DEFAULTS[props.type];
   const display = providerDisplay(props.type, locale);
   const disabled = defaults.status !== 'ready';
   const disabledStatus = providerDisabledStatus(props.type);
-  const title = disabled ? providerDisabledTitle(props.type) : `添加 ${display.name}`;
+  const title = disabled
+    ? (isWiredOAuthProvider(props.type) ? copy.wiredHelp : copy.unwiredHelp)
+    : copy.addTitle(display.name);
 
   if (disabled) {
     return (
@@ -19,7 +23,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
         data-provider={props.type}
         data-status={disabledStatus}
         data-disabled="true"
-        aria-label={providerDisabledAriaLabel(props.type, display.name)}
+        aria-label={isWiredOAuthProvider(props.type) ? copy.wiredTitle(display.name) : copy.unwiredTitle(display.name)}
         title={title}
       >
         <ItemMedia>
@@ -39,7 +43,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
             className="providerCatalogStateBadge"
             aria-hidden="true"
           >
-            {disabledStatus === 'experimental' ? '实验' : '未开放'}
+            {disabledStatus === 'experimental' ? copy.experiment : copy.unavailable}
           </Chip>
         </ItemActions>
       </Item>
@@ -51,7 +55,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
       className="providerCatalogRow"
       data-provider={props.type}
       data-status="ready"
-      aria-label={providerCatalogAriaLabel(display, props.count)}
+      aria-label={copy.cardAria(display.name, display.badge, display.description, props.count)}
       title={title}
       render={<button type="button" onClick={props.onSelect} />}
     >
@@ -62,7 +66,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
         <ItemTitle className="providerCatalogTitle">{display.name}</ItemTitle>
         <ItemDescription className="providerCatalogDesc">
           {display.description}
-          {props.count > 0 && <span className="providerCatalogCount">已配置 {props.count} 个</span>}
+          {props.count > 0 && <span className="providerCatalogCount">{copy.configured(props.count)}</span>}
         </ItemDescription>
       </ItemContent>
       <ItemActions className="providerCatalogActions">
@@ -75,24 +79,4 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
 
 function providerDisabledStatus(type: ProviderType): 'unavailable' | 'experimental' {
   return isWiredOAuthProvider(type) ? 'experimental' : 'unavailable';
-}
-
-function providerDisabledTitle(type: ProviderType): string {
-  if (isWiredOAuthProvider(type)) {
-    return '请在账号连接完成登录；登录成功后会自动出现在模型连接。';
-  }
-  return '该账号登录暂未接入聊天发送；当前请使用同一家厂商的模型密钥。';
-}
-
-function providerDisabledAriaLabel(type: ProviderType, name: string): string {
-  if (isWiredOAuthProvider(type)) return `${name}（请从账号连接登录）`;
-  return `${name}（账号登录暂未接入聊天发送）`;
-}
-
-function providerCatalogAriaLabel(display: ReturnType<typeof providerDisplay>, count: number): string {
-  const parts = [`添加模型供应商：${display.name}`];
-  if (display.badge) parts.push(`标签：${display.badge}`);
-  parts.push(display.description.replace(/[。.!！？?]+$/u, ''));
-  if (count > 0) parts.push(`已配置 ${count} 个`);
-  return parts.join('，');
 }

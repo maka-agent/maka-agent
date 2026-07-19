@@ -13,6 +13,7 @@ import {
   providerPanelActionErrorMessage,
   type ConnectionsBridge,
 } from './provider-panel-shared';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy';
 
 export function AddProviderForm(props: {
   bridge: ConnectionsBridge;
@@ -22,6 +23,7 @@ export function AddProviderForm(props: {
   onCreated(slug: string): Promise<void>;
 }) {
   const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).add;
   const defaults = PROVIDER_DEFAULTS[props.providerType];
   const display = providerDisplay(props.providerType, locale);
   const recommendedDefaultModel = buildCatalogRecommendedDefaultModel(props.providerType);
@@ -47,19 +49,19 @@ export function AddProviderForm(props: {
     if (submitGuard.current !== null) return;
     setError(null);
     const slugError = validateSlug(slug);
-    if (slugError) return setError(slugError);
-    if (props.existingSlugs.includes(slug)) return setError('连接标识已存在');
+    if (slugError) return setError(locale === 'zh' ? slugError : copy.invalidSlug);
+    if (props.existingSlugs.includes(slug)) return setError(copy.duplicateSlug);
     const normalizedApiKey = apiKey.trim();
-    if (requiresApiKey && !normalizedApiKey) return setError(`请填写 ${display.name} API Key`);
+    if (requiresApiKey && !normalizedApiKey) return setError(copy.keyRequired(display.name));
     const normalizedCloudflareAccountId = cloudflareAccountId.trim();
     if (isCloudflareWorkersAi && !normalizedCloudflareAccountId) {
-      return setError('请填写 Cloudflare Account ID');
+      return setError(copy.cloudflareAccount);
     }
-    if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写服务地址');
+    if (requiresBaseUrl && !baseUrl.trim()) return setError(copy.endpointRequired);
     if (isExperimental) {
       return setError(isWiredOAuth
-        ? '请到账号连接完成登录；登录成功后会自动创建模型连接。'
-        : '该账号登录暂未接入聊天发送；请先使用同一家厂商的模型密钥。');
+        ? copy.wiredLogin
+        : copy.unwiredLogin);
     }
     submitGuard.begin('submit');
     setBusy(true);
@@ -81,7 +83,7 @@ export function AddProviderForm(props: {
       if (!addProviderMountedRef.current) return;
       await props.onCreated(connection.slug);
     } catch (err) {
-      if (addProviderMountedRef.current) setError(providerPanelActionErrorMessage(err));
+      if (addProviderMountedRef.current) setError(providerPanelActionErrorMessage(err, locale));
     } finally {
       submitGuard.finish();
       if (addProviderMountedRef.current) setBusy(false);
@@ -105,7 +107,7 @@ export function AddProviderForm(props: {
               setApiKey(next);
               if (error) setError(null);
             }}
-            placeholder="输入或粘贴 API Key"
+            placeholder={copy.apiKeyPlaceholder}
             ariaLabel="API Key"
             ariaDescribedBy={error ? errorId : undefined}
             disabled={busy}
@@ -113,9 +115,9 @@ export function AddProviderForm(props: {
         </label>
         {error && <p className="providerError" id={errorId} role="alert">{error}</p>}
         <div className="providerKeyDialogActions">
-          <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
+          <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>{copy.cancel}</Button>
           <Button type="submit" disabled={busy}>
-            {busy ? '连接中…' : '连接并使用'}
+            {busy ? copy.connecting : copy.connect}
           </Button>
         </div>
       </form>
@@ -125,67 +127,67 @@ export function AddProviderForm(props: {
   return (
     <div className="providerEditor">
       <div className="providerHeaderBadges">
-        <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
+        <Chip variant="neutral" size="sm">{categoryLabel(defaults.category, locale)}</Chip>
       </div>
       {isExperimental && (
         <div className="providerUnavailableNotice">
-          <strong>{isWiredOAuth ? '使用账号连接登录' : '账号登录暂未接入'}</strong>
+          <strong>{isWiredOAuth ? copy.wiredTitle : copy.unwiredTitle}</strong>
           <span>{isWiredOAuth
-            ? '不要在这里手动添加；请回到模型连接页的账号连接完成登录，Maka 会自动创建并刷新模型连接。'
-            : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的模型密钥。'}</span>
+            ? copy.wiredDetail
+            : copy.unwiredDetail}</span>
         </div>
       )}
       {supportsApiKey && (
         <label>
-          <span>API Key（{requiresApiKey ? '必填' : '可选'}）</span>
+          <span>{copy.apiKeyLabel(requiresApiKey)}</span>
           <PasswordInput
             value={apiKey}
             onChange={(next) => {
               setApiKey(next);
               if (error) setError(null);
             }}
-            placeholder="输入或粘贴 API Key"
-            ariaLabel={`${display.name} API Key`}
+            placeholder={copy.apiKeyPlaceholder}
+            ariaLabel={`${display.name} ${copy.apiKey}`}
             disabled={isExperimental || busy}
           />
         </label>
       )}
       <label>
-        <span>连接标识</span>
-        <Input value={slug} onChange={(event) => setSlug(event.currentTarget.value)} placeholder="my-provider" disabled={isExperimental || busy} aria-label="模型供应商连接标识" />
+        <span>{copy.slug}</span>
+        <Input value={slug} onChange={(event) => setSlug(event.currentTarget.value)} placeholder="my-provider" disabled={isExperimental || busy} aria-label={copy.slugAria} />
       </label>
       <label>
-        <span>显示名称</span>
-        <Input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental || busy} aria-label="模型供应商显示名称" />
+        <span>{copy.name}</span>
+        <Input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental || busy} aria-label={copy.nameAria} />
       </label>
       {isCloudflareWorkersAi ? (
         <label>
-          <span>Cloudflare Account ID（必填）</span>
+          <span>{copy.accountIdLabel}</span>
           <Input
             value={cloudflareAccountId}
             onChange={(event) => setCloudflareAccountId(event.currentTarget.value)}
-            placeholder="填写账户 ID"
+            placeholder={copy.accountIdPlaceholder}
             disabled={busy}
-            aria-label="Cloudflare 账户 ID"
+            aria-label={copy.accountIdAria}
           />
         </label>
       ) : (
         <label>
-          <span>服务地址 {requiresBaseUrl ? '（必填）' : ''}</span>
+          <span>{copy.endpointLabel(requiresBaseUrl)}</span>
           <Input
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.currentTarget.value)}
             placeholder={defaults.baseUrl || 'https://…'}
             disabled={isExperimental || busy}
-            aria-label="模型供应商服务地址"
+            aria-label={copy.endpointAria}
           />
         </label>
       )}
       {error && <p className="providerError" role="alert">{error}</p>}
       <div className="providerActions">
-        <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>取消</Button>
+        <Button variant="ghost" type="button" disabled={busy} onClick={props.onCancel}>{copy.cancel}</Button>
         <Button type="button" disabled={busy || isExperimental} onClick={submit}>
-          {busy ? '保存中…' : '保存供应商'}
+          {busy ? copy.saving : copy.save}
         </Button>
       </div>
     </div>

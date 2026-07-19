@@ -38,7 +38,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readProviderSettingsCombinedSource();
     const tabs = src.match(/const CATALOG_TABS:[\s\S]*?\];/);
     assert.ok(tabs, 'CATALOG_TABS literal must exist');
-    assert.match(tabs[0], /id:\s*'accounts'/, 'account connections need a direct catalog category');
+    assert.match(tabs[0], /['"]accounts['"]/, 'account connections need a direct catalog category');
     assert.match(
       src,
       /\(catalogCategory === 'recommended' \|\| catalogCategory === 'accounts'\)[\s\S]*<ModelOAuthSection[\s\S]*onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}/,
@@ -72,9 +72,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.doesNotMatch(src, /function onCatalogTabsKeyDown/, 'provider catalog tabs should not keep a custom keyboard handler');
     assert.doesNotMatch(src, /data-catalog-tab="\$\{CSS\.escape/, 'provider catalog tabs should not use manual focus queries');
     assert.match(tabs, /value=\{catalogCategory\}[\s\S]*onValueChange=\{\(value\) => setCatalogCategory\(value as CatalogCategory\)\}/);
-    assert.match(tabs, /<PrimitiveTabsList[^>]*variant="pill"[^>]*aria-label="模型供应商分类">/);
-    assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*value=\{tab\.id\}/, 'catalog tabs use PrimitiveTabsTrigger as a real tablist (maka-tab comes from the primitive)');
-    assert.match(tabs, /data-catalog-tab=\{tab\.id\}/);
+    assert.match(tabs, /<PrimitiveTabsList[^>]*variant="pill"[^>]*aria-label=\{copy\.categoriesAria\}>/);
+    assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*value=\{tab\}/, 'catalog tabs use PrimitiveTabsTrigger as a real tablist (maka-tab comes from the primitive)');
+    assert.match(tabs, /data-catalog-tab=\{tab\}/);
+    assert.match(tabs, /\{copy\.tabs\[tab\]\}/, 'catalog tab labels must come from the active locale catalog');
   });
 
   it('ProvidersPanel surfaces model connection reload failures instead of sticking on loading', async () => {
@@ -94,7 +95,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       reloadMatch[0],
-      /catch \(error\) \{[\s\S]*if \(!providersPanelMountedRef\.current \|\| providersReloadTicketRef\.current !== ticket\) return false;[\s\S]*providerPanelActionErrorMessage\(error\)[\s\S]*setLoadError\(message\)[\s\S]*setLoading\(false\)[\s\S]*toast\.error\('载入模型连接失败', message\)[\s\S]*return false;/,
+      /catch \(error\) \{[\s\S]*if \(!providersPanelMountedRef\.current \|\| providersReloadTicketRef\.current !== ticket\) return false;[\s\S]*providerPanelActionErrorMessage\(error, locale\)[\s\S]*setLoadError\(message\)[\s\S]*setLoading\(false\)[\s\S]*toast\.error\(copy\.loadFailed, message\)[\s\S]*return false;/,
       'failed reload must not toast or write stale failure state after unmount or a newer reload',
     );
     assert.match(
@@ -104,7 +105,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /loadError \? \([\s\S]*模型连接载入失败[\s\S]*点击重试/,
+      /loadError \? \([\s\S]*copy\.loadFailed[\s\S]*copy\.retry/,
       'enabled-model strip must show a retryable load-failure state',
     );
     assert.match(
@@ -132,22 +133,22 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       providers,
-      /generalizedErrorMessageChinese\(error,\s*'模型连接服务暂时不可用，请稍后重试。'\)/,
-      'provider action errors must go through the Chinese redaction classifier before reaching toast detail',
+      /const fallback = getProviderSettingsCopy\(locale\)\.shared\.actionFallback;[\s\S]*locale === 'zh' \? generalizedErrorMessageChinese\(error, fallback\) : generalizedErrorMessage\(error, fallback\)/,
+      'provider action errors must use the locale-appropriate redaction classifier before reaching toast detail',
     );
     assert.match(
       providers,
-      /function connectionTestFailureMessage\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*\): string \{[\s\S]*generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
+      /function connectionTestFailureMessage\([\s\S]*locale: UiLocale = 'zh'[\s\S]*locale === 'zh'[\s\S]*generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)[\s\S]*generalizedErrorMessage\(new Error\(result\.errorMessage\), fallback\)/,
       'failed connection tests must not toast raw provider response bodies',
     );
     assert.match(
       providers,
-      /function connectionTestFailureFallback\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*\): string \{[\s\S]*statusCode === 429[\s\S]*errorClass === 'auth'[\s\S]*copy\.auth[\s\S]*copy\.recheck/,
+      /function connectionTestFailureFallback\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*locale: UiLocale = 'zh',\s*\): string \{[\s\S]*statusCode === 429[\s\S]*errorClass === 'auth'[\s\S]*copy\.auth[\s\S]*copy\.recheck/,
       'connection-test failure classification must live once in provider-panel-shared with injectable surface copy',
     );
     assert.match(
       detail,
-      /toast\.error\([\s\S]*`连接失败 · \$\{connection\.name\}`,[\s\S]*connectionTestFailureMessage\(result, \{\s*auth: `鉴权失败，请确认 \$\{credentialTroubleshootingCopy\} 后重试。`,\s*recheck: `检查 \$\{credentialTroubleshootingCopy\} 后重试。`,\s*\}\)/,
+      /toast\.error\([\s\S]*copy\.connectionFailed\(connection\.name\),[\s\S]*connectionTestFailureMessage\(result, \{\s*auth: copy\.authTroubleshooting\(credentialTroubleshootingCopy\),\s*recheck: copy\.recheckTroubleshooting\(credentialTroubleshootingCopy\),\s*\}, locale\)/,
       'ConnectionDetail test failure toast must use shared helper with Models-sheet troubleshooting copy',
     );
     assert.doesNotMatch(
@@ -207,37 +208,37 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*\{busy \? '保存中…' : '更新密钥'\}/,
+      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*\{busy \? copy\.saving : copy\.updateKey\}/,
       'ConnectionDetail key save button stays present but disabled until the key draft is dirty (constant dialog height)',
     );
     assert.match(
       detail,
-      /className="providerEndpointActions"[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>[\s\S]*\{busy \? '保存中…' : '保存服务地址'\}/,
+      /className="providerEndpointActions"[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>[\s\S]*\{busy \? copy\.saving : copy\.saveEndpoint\}/,
       'ConnectionDetail endpoint save button stays present but disabled until the endpoint draft is dirty',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{runTest\}[\s\S]*\{testing \? '测试中…' : '测试连接'\}/,
+      /disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{runTest\}[\s\S]*\{testing \? copy\.testing : copy\.testConnection\}/,
       'ConnectionDetail test button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}/,
+      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? copy\.setting : copy\.setDefault\}/,
       'ConnectionDetail default button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? '删除中…' : '删除连接'\}/,
+      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? copy\.deleting : copy\.deleteConnection\}/,
       'ConnectionDetail delete button must show visible pending feedback and disable all peer actions',
     );
     assert.match(
       detail,
-      /catch \(error\) \{[\s\S]*const message = providerPanelActionErrorMessage\(error\);[\s\S]*toast\.error\(`连接测试出错 · \$\{connection\.name\}`, message\)/,
+      /catch \(error\) \{[\s\S]*const message = providerPanelActionErrorMessage\(error, locale\);[\s\S]*toast\.error\(copy\.connectionTestError\(connection\.name\), message\)/,
       'ConnectionDetail test IPC failures must use the shared localized action-error helper',
     );
     assert.match(
       detail,
-      /catch \(error\) \{[\s\S]*const message = providerPanelActionErrorMessage\(error\);[\s\S]*toast\.error\([\s\S]*`拉取模型失败 · \$\{connection\.name\}`,[\s\S]*`\$\{message\} · 当前继续显示静态列表/,
+      /catch \(error\) \{[\s\S]*const message = providerPanelActionErrorMessage\(error, locale\);[\s\S]*toast\.error\([\s\S]*copy\.modelsFetchFailed\(connection\.name\),[\s\S]*copy\.modelsFetchFailedDetail\(message, credentialTroubleshootingCopy\)/,
       'ConnectionDetail model-fetch failures must use the shared localized action-error helper',
     );
     assert.doesNotMatch(
@@ -247,7 +248,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /catch \(err\) \{[\s\S]*setError\(providerPanelActionErrorMessage\(err\)\)/,
+      /catch \(err\) \{[\s\S]*setError\(providerPanelActionErrorMessage\(err, locale\)\)/,
       'AddProviderForm create failures must use the shared localized action-error helper',
     );
     assert.match(
@@ -272,17 +273,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /catch \(err\) \{[\s\S]*if \(addProviderMountedRef\.current\) setError\(providerPanelActionErrorMessage\(err\)\);[\s\S]*\} finally \{[\s\S]*submitGuard\.finish\(\);[\s\S]*if \(addProviderMountedRef\.current\) setBusy\(false\);[\s\S]*\}/,
+      /catch \(err\) \{[\s\S]*if \(addProviderMountedRef\.current\) setError\(providerPanelActionErrorMessage\(err, locale\)\);[\s\S]*\} finally \{[\s\S]*submitGuard\.finish\(\);[\s\S]*if \(addProviderMountedRef\.current\) setBusy\(false\);[\s\S]*\}/,
       'AddProviderForm create guard must release without setting React state after sheet unmount',
     );
     assert.match(
       addForm,
-      /disabled=\{isExperimental \|\| busy\} aria-label="模型供应商连接标识"/,
+      /disabled=\{isExperimental \|\| busy\} aria-label=\{copy\.slugAria\}/,
       'AddProviderForm fields must freeze while a create request is in flight so visible draft cannot drift from the submitted payload',
     );
     assert.match(
       addForm,
-      /<Button variant="ghost" type="button" disabled=\{busy\} onClick=\{props\.onCancel\}>取消<\/Button>/,
+      /<Button variant="ghost" type="button" disabled=\{busy\} onClick=\{props\.onCancel\}>\{copy\.cancel\}<\/Button>/,
       'AddProviderForm cancel must be disabled while create is in flight',
     );
     assert.doesNotMatch(
@@ -355,7 +356,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /模型连接：\$\{connection\.name\}，供应商：\$\{provider\}/,
+      /return copy\.chipAria\(connection\.name, provider, connection\.slug === defaultSlug, status\?\.label\)/,
       'model connection chip aria-label must describe the model and provider explicitly',
     );
     assert.match(
@@ -376,31 +377,20 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       src,
-      /function providerCatalogAriaLabel\(display: ReturnType<typeof providerDisplay>, count: number\): string/,
+      /aria-label=\{copy\.cardAria\(display\.name, display\.badge, display\.description, props\.count\)\}/,
       'provider catalog cards need a dedicated accessible name instead of concatenated badge/title/description text',
     );
     assert.match(
       card,
-      /aria-label=\{providerCatalogAriaLabel\(display, props\.count\)\}/,
+      /aria-label=\{copy\.cardAria\(display\.name, display\.badge, display\.description, props\.count\)\}/,
       'ready provider catalog buttons must use the dedicated accessible name',
     );
     assert.match(
       src,
-      /添加模型供应商：\$\{display\.name\}/,
+      /copy\.cardAria\(display\.name, display\.badge, display\.description, props\.count\)/,
       'provider catalog accessible name should start from the user action and provider name',
     );
-    assert.match(
-      src,
-      /parts\.push\(display\.description\.replace\(\/\[。\.!！？\?\]\+\$\/u, ''\)\)/,
-      'provider catalog accessible name should trim sentence punctuation before joining follow-up status parts',
-    );
-    assert.match(
-      src,
-      /if \(display\.badge\) parts\.push\(`标签：\$\{display\.badge\}`\)/,
-      'provider badges must be separated in the accessible name instead of glued to the provider name',
-    );
-    assert.match(src, /自定义 OpenAI 兼容接口/);
-    assert.match(src, /添加模型供应商：\$\{display\.name\}/);
+    assert.match(src, /copy\.cardAria\(display\.name, display\.badge, display\.description, props\.count\)/);
     assert.match(src, /智谱 · OpenAI 兼容/);
     // Provider introduction copy is localized zh / en in the display layer
     // (PROVIDER_DISPLAY_COPY). The OpenAI OAuth account path must still name the
@@ -422,18 +412,18 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('keeps model provider form copy Chinese-first', async () => {
+  it('sources model provider form copy from the reactive locale catalog', async () => {
     const src = await readProviderSettingsCombinedSource();
     const addForm = src.match(/function AddProviderForm[\s\S]*?function ConnectionDetail/)?.[0] ?? '';
     const detail = src.match(/function ConnectionDetail[\s\S]*?function connectionDetailSnapshot/)?.[0] ?? '';
     const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
-    assert.match(addForm, /<span>连接标识<\/span>/);
-    assert.match(addForm, /aria-label="模型供应商连接标识"/);
-    assert.match(addForm, /<span>服务地址 \{requiresBaseUrl \? '（必填）' : ''\}<\/span>/);
-    assert.match(addForm, /aria-label="模型供应商服务地址"/);
-    assert.match(addForm, /连接标识已存在/);
-    assert.match(addForm, /这个供应商需要填写服务地址/);
+    assert.match(addForm, /\{copy\.slug\}/);
+    assert.match(addForm, /aria-label=\{copy\.slugAria\}/);
+    assert.match(addForm, /\{copy\.endpointLabel\(requiresBaseUrl\)\}/);
+    assert.match(addForm, /aria-label=\{copy\.endpointAria\}/);
+    assert.match(addForm, /copy\.duplicateSlug/);
+    assert.match(addForm, /copy\.endpointRequired/);
 
     // PR-FIELD-PRIMITIVE-PILOT: ConnectionDetail's form rows moved off the
     // hand-written <label><span/> markup onto the governed Base UI Field
@@ -441,22 +431,22 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // Chinese-first; the parenthetical state hints split into their own
     // FieldDescription lines. AddProviderForm is intentionally left on the
     // legacy <label><span/> markup this round (single-page pilot).
-    assert.match(detail, /<Label[^>]*>服务地址<\/Label>/);
-    assert.match(detail, /props\.fixedOAuth && <FieldDescription>OAuth 固定<\/FieldDescription>/);
-    assert.match(detail, /<Label[^>]*>模型密钥<\/Label>/);
+    assert.match(detail, /<Label[^>]*>\{copy\.endpoint\}<\/Label>/);
+    assert.match(detail, /props\.fixedOAuth && <FieldDescription>\{copy\.oauthFixed\}<\/FieldDescription>/);
+    assert.match(detail, /<Label[^>]*>\{copy\.modelKey\}<\/Label>/);
     // The credential hint is a single persistent line (constant dialog height);
     // its text still covers the "已设置，粘贴新值可替换" state.
     assert.match(detail, /<FieldDescription>\{apiKeyStatusHint\}<\/FieldDescription>/);
-    assert.match(detail, /hasSecret === true\s*\?\s*'已设置，粘贴新值可替换'/);
-    assert.match(detail, /placeholder=\{hasSecret === true \? '••••••••' : '粘贴模型密钥'\}/);
-    assert.match(detail, /ariaLabel=\{`\$\{display\.name\} 模型密钥`\}/);
-    assert.match(detail, /获取模型密钥/);
-    assert.match(detail, /模型密钥 \/ 服务地址 \/ 代理设置/);
+    assert.match(detail, /hasSecret === true\s*\?\s*copy\.keySet/);
+    assert.match(detail, /placeholder=\{hasSecret === true \? '••••••••' : copy\.pasteModelKey\}/);
+    assert.match(detail, /ariaLabel=\{copy\.modelKeyAria\(display\.name\)\}/);
+    assert.match(detail, /\{copy\.getModelKey\}/);
+    assert.match(detail, /copy\.keyTroubleshooting/);
 
-    assert.match(enabledModels, /启用模型/);
-    assert.match(enabledModels, /勾选的模型会出现在模型选择器中/);
-    assert.match(enabledModels, /搜索模型/);
-    assert.match(src, /网络错误，请检查服务地址或代理设置后重试。/);
+    assert.match(enabledModels, /copy\.enabledModelsTitle/);
+    assert.match(enabledModels, /copy\.enabledModelsHelp/);
+    assert.match(enabledModels, /copy\.searchModels/);
+    assert.match(src, /getProviderSettingsCopy\(locale\)/);
     // Provider descriptions are version-agnostic (provider + access path,
     // never a model generation that goes stale).
     assert.match(src, /Anthropic 官方接入/);
@@ -473,8 +463,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // inline card while the other OAuth providers are compact
     // cards. All runnable login entries live in the same grid.
     const src = await readProviderSettingsCombinedSource();
-    const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
-    assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
+    const match = src.match(/function modelOAuthCards\([\s\S]*?return \[([\s\S]*?)\];\s*\}/);
+    assert.ok(match, 'modelOAuthCards locale-aware factory must exist');
     const body = match[1]!;
     const ids = [...body.matchAll(/id:\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual(
@@ -483,7 +473,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'the catalog must hide account logins that cannot create a runnable model connection',
     );
 
-    const section = src.match(/function ModelOAuthSection[\s\S]*?function providerOAuthAriaLabel/)?.[0] ?? '';
+    const section = src.match(/function ModelOAuthSection[\s\S]*?function modelOAuthCards/)?.[0] ?? '';
     assert.match(
       section,
       /const \[claudeCatalogEnabled, setClaudeCatalogEnabled\] = useState<boolean \| null>\(null\)/,
@@ -504,7 +494,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   it('keeps OAuth cards visually aligned with domestic and overseas provider cards', async () => {
     const src = await readProviderSettingsCombinedSource();
     const styles = await readRendererContractCss();
-    const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function providerOAuthAriaLabel/);
+    const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function modelOAuthCards/);
     assert.ok(sectionMatch, 'ModelOAuthSection render block must exist');
     const section = sectionMatch[0]!;
 
@@ -568,8 +558,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('every card declares status: "available" (no more "planned" placeholders)', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
-    assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
+    const match = src.match(/function modelOAuthCards\([\s\S]*?return \[([\s\S]*?)\];\s*\}/);
+    assert.ok(match, 'modelOAuthCards locale-aware factory must exist');
     const body = match[1]!;
     const statuses = [...body.matchAll(/status:\s*'([a-z_]+)'/g)].map((m) => m[1]);
     assert.equal(statuses.length, 3, 'each visible runnable card must declare a status');
@@ -645,7 +635,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(advanced > credential, 'credentials must remain the primary task before advanced settings');
     assert.ok(models > advanced, 'enabled-model management must stay inside advanced settings');
     assert.doesNotMatch(detail, /<ModelTable/, 'connection detail must not render a default-model picker');
-    assert.match(detail, /connectionLastTestMessageDisplay\(connection\.lastTestMessage\)/);
+    assert.match(detail, /connectionLastTestMessageDisplay\(connection\.lastTestMessage, locale\)/);
     assert.match(detail, /<RelativeTime ts=\{lastTestAtMs\}/);
     assert.doesNotMatch(detail, /<header>[\s\S]*\{connection\.name\}/, 'the shared DialogHeader must be the only title header');
   });
@@ -656,12 +646,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       detail,
-      /if \(!connection\.enabled\) \{[\s\S]*toast\.error\('无法设为默认'/,
+      /if \(!connection\.enabled\) \{[\s\S]*toast\.error\(copy\.connectionDisabled/,
       'ConnectionDetail must guard against stale disabled connections before setDefault',
     );
     assert.match(
       detail,
-      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认连接'\}[\s\S]*<\/Button>/,
+      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<Button variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? copy\.setting : copy\.setDefault\}[\s\S]*<\/Button>/,
       'disabled connections must not render the set-default action',
     );
   });
@@ -716,7 +706,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // reflecting `enabledModelIds`, not a separate search-only "add" surface.
     assert.match(
       enabledModels,
-      /<ul\s+ref=\{modelListRef\}\s+className="providerModelChoiceList"\s+aria-label="模型列表"\s+onKeyDown=\{onModelListKeyDown\}\s*>/,
+      /<ul\s+ref=\{modelListRef\}\s+className="providerModelChoiceList"\s+aria-label=\{copy\.modelListAria\}\s+onKeyDown=\{onModelListKeyDown\}\s*>/,
       'the model catalog must use a single named native list with the roving-tabindex keyboard handler',
     );
     assert.match(
@@ -754,8 +744,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // The default model row is checked and locked (disabled), never toggled off,
     // and there is no second Save action inside the editor.
     assert.match(enabledModels, /disabled=\{props\.disabled \|\| isDefault\}/);
-    assert.match(enabledModels, /isDefault && \([\s\S]*providerEnabledModelMeta">默认</);
-    assert.doesNotMatch(enabledModels, /保存/);
+    assert.match(enabledModels, /isDefault && \([\s\S]*providerEnabledModelMeta">\{copy\.defaultModel\}/);
+    assert.doesNotMatch(enabledModels, /copy\.saving|copy\.saveEndpoint/);
   });
 
   it('surfaces provider detail save/delete failures instead of leaking rejected promises from actions', async () => {
@@ -764,17 +754,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*let saved = false;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*saved \? '刷新模型连接失败' : '保存模型连接失败'/,
+      /async function save\(\) \{[\s\S]*let saved = false;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*saved \? copy\.refreshFailed : copy\.saveFailed/,
       'ConnectionDetail save failures and post-save refresh failures must be visible',
     );
     assert.match(
       detail,
-      /async function remove\(\) \{[\s\S]*setDeleting\(true\);[\s\S]*let deleted = false;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*deleted \? '刷新模型列表失败' : '删除模型连接失败'/,
+      /async function remove\(\) \{[\s\S]*setDeleting\(true\);[\s\S]*let deleted = false;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*deleted \? copy\.refreshFailed : copy\.deleteFailed/,
       'ConnectionDetail delete failures and post-delete refresh failures must be visible',
     );
     assert.match(
       detail,
-      /<Button className="providerAdvancedDanger" variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除连接'\}[\s\S]*<\/Button>/,
+      /<Button className="providerAdvancedDanger" variant="quiet" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? copy\.deleting : copy\.deleteConnection\}[\s\S]*<\/Button>/,
       'Delete should be disabled while provider detail actions are busy and show its own pending copy',
     );
   });
@@ -789,7 +779,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /const hasUsableCredential = !requiresCredential \|\| hasSecret === true/);
     assert.match(
       detail,
-      /props\.bridge[\s\S]*\.hasSecret\(connection\.slug\)[\s\S]*\.then\(\(next\) => \{[\s\S]*if \(isConnectionDetailCurrent\(lifecycle\)\) setHasSecret\(next\);[\s\S]*\.catch\(\(error\) => \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*setHasSecret\('error'\);[\s\S]*toast\.error\('读取模型凭据状态失败', providerPanelActionErrorMessage\(error\)\)/,
+      /props\.bridge[\s\S]*\.hasSecret\(connection\.slug\)[\s\S]*\.then\(\(next\) => \{[\s\S]*if \(isConnectionDetailCurrent\(lifecycle\)\) setHasSecret\(next\);[\s\S]*\.catch\(\(error\) => \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*setHasSecret\('error'\);[\s\S]*toast\.error\(copy\.credentialReadFailed, providerPanelActionErrorMessage\(error, locale\)\)/,
       'ConnectionDetail must show a visible error and keep unknown credential state distinct when probing fails',
     );
     assert.doesNotMatch(
@@ -797,7 +787,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /catch\(\(error\) => \{[\s\S]*setHasSecret\(false\)/,
       'credential-presence probe failures must not be downgraded to missing credentials',
     );
-    assert.match(detail, /role="alert"[\s\S]*模型凭据状态暂时没刷新成功，已避免把未知状态显示成未登录或未配置/);
+    assert.match(detail, /role="alert"[\s\S]*copy\.credentialUnknownDetail/);
     assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{\(\) => void refreshModels\(\)\}/);
     assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\}/);
     assert.doesNotMatch(
@@ -852,7 +842,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /async function setAsDefault\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.setDefault\(connection\.slug\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.success\(`已设为默认/,
+      /async function setAsDefault\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.setDefault\(connection\.slug\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.success\(copy\.defaultSet\(connection\.name\)\)/,
       'ConnectionDetail set-default must not toast after close',
     );
     assert.match(
@@ -969,7 +959,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /catch \(error\) \{[\s\S]*toast\.error\('刷新模型连接失败', subscriptionActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*toast\.error\(copy\.refreshConnectionsFailed, subscriptionActionErrorMessage\(error, locale\)\)/,
       'OAuth modal close must surface model-connection refresh failures',
     );
     assert.match(
@@ -980,8 +970,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // 5. Card render shows "已登录" badge when authenticated.
     assert.match(
       src,
-      /isLoggedIn\s*\?\s*'已登录'\s*:\s*card\.statusLabel/,
-      'logged-in cards must show 已登录 instead of the static statusLabel',
+      /isLoggedIn\s*\?\s*copy\.signedIn\s*:\s*card\.statusLabel/,
+      'logged-in cards must source their badge from the active locale catalog',
     );
     // 6. data-logged-in attribute exposes the state to CSS / tests.
     assert.match(
@@ -1020,7 +1010,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       section,
-      /toast\.error\('刷新 OAuth 登录状态失败', message\)/,
+      /toast\.error\(copy\.refreshFailed, message\)/,
       'failed OAuth card refreshes must be visible instead of silently changing badges',
     );
     assert.match(
@@ -1060,7 +1050,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       section,
-      /catch \(error\) \{[\s\S]*if \(!modelOAuthMountedRef\.current\) return;[\s\S]*toast\.error\('刷新模型连接失败', subscriptionActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(!modelOAuthMountedRef\.current\) return;[\s\S]*toast\.error\(copy\.refreshConnectionsFailed, subscriptionActionErrorMessage\(error, locale\)\)/,
       'enabled-provider refresh failures after modal close must not toast after Settings unmount',
     );
   });
@@ -1138,9 +1128,9 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'GitHub Copilot modal must not own a parallel pending-action guard — the shared hook provides it',
     );
     assert.match(copilotModal, /disabled=\{flow\.actionBusy\}/, 'Copilot account actions must share the one busy flag');
-    assert.match(copilotModal, /flow\.pendingAction === 'login' \? '导入中…' : loggedIn \? '重新导入' : '导入兼容凭据'/, 'Copilot connect must expose its specific pending copy');
-    assert.match(copilotModal, /flow\.pendingAction === 'refresh' \? '验证中…' : '重新验证'/, 'Copilot token refresh must expose its specific pending copy');
-    assert.match(copilotModal, /flow\.pendingAction === 'logout' \? '移除中…' : '移除本地登录'/, 'Copilot logout must expose its specific pending copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'login' \? copy\.importing : loggedIn \? copy\.reimport : copy\.importCredential/, 'Copilot connect must expose its locale-specific pending copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'refresh' \? copy\.verifying : copy\.reverify/, 'Copilot token refresh must expose locale-specific progress copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'logout' \? copy\.removing : copy\.removeLocal/, 'Copilot logout must expose locale-specific progress copy');
 
     // The hook gates the direct actions through the same one-shot guard and
     // keeps loopback semantics for the browser services.
@@ -1171,18 +1161,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const browserModal = src.match(/function SubscriptionLoginModal[\s\S]*?function ClaudeSubscriptionCard/)?.[0] ?? '';
     const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
 
-    assert.match(hook, /登录服务暂时不可用，请检查网络后重试。/, 'OAuth thrown-error fallback must be user-facing Chinese copy');
+    assert.match(hook, /getProviderSettingsCopy\(locale\)\.oauthFlow/, 'OAuth thrown-error fallback must come from the active locale catalog');
     assert.match(hook, /redactSecrets\(message \?\? ''\)\.trim\(\)/, 'OAuth service messages must be redacted before reaching visible UI');
-    assert.match(hook, /generalizedErrorMessageChinese\(new Error\(raw\), ''\)/, 'OAuth service messages must pass through Chinese error classification');
-    assert.match(hook, /\/\[\\u4e00-\\u9fff\]\/\.test\(raw\)/, 'already-Chinese OAuth diagnostics may be preserved after redaction');
-    assert.match(hook, /async function refresh\(\): Promise<boolean>[\s\S]*catch \(error\) \{[\s\S]*toast\.error\('刷新登录状态失败', message\);[\s\S]*setErrorMessage\(message\);/, 'shared OAuth state refresh must surface thrown failures');
-    assert.match(hook, /catch \(error\) \{[\s\S]*toast\.error\('登录失败', message\);[\s\S]*setErrorMessage\(message\);/, 'shared OAuth login must toast thrown failures');
-    assert.match(hook, /catch \(error\) \{[\s\S]*toast\.error\('退出失败', subscriptionActionErrorMessage\(error\)\);/, 'shared OAuth logout must toast thrown failures');
+    assert.match(hook, /locale === 'zh'[\s\S]*generalizedErrorMessageChinese\(new Error\(raw\), ''\)[\s\S]*generalizedErrorMessage\(new Error\(raw\), ''\)/, 'OAuth service messages must use the locale-appropriate error classifier');
+    assert.match(hook, /async function refresh\(\): Promise<boolean>[\s\S]*catch \(error\) \{[\s\S]*toast\.error\(copy\.refreshFailed, message\);[\s\S]*setErrorMessage\(message\);/, 'shared OAuth state refresh must surface thrown failures');
+    assert.match(hook, /catch \(error\) \{[\s\S]*toast\.error\(copy\.loginFailed, message\);[\s\S]*setErrorMessage\(message\);/, 'shared OAuth login must toast thrown failures');
+    assert.match(hook, /catch \(error\) \{[\s\S]*toast\.error\(copy\.logoutFailed, subscriptionActionErrorMessage\(error, locale\)\);/, 'shared OAuth logout must toast thrown failures');
     assert.doesNotMatch(hook, /toast\.error\('[^']+', (?:payload|opened|result)\.message\)/, 'shared OAuth action envelopes must not toast raw service messages');
     assert.doesNotMatch(hook, /setErrorMessage\((?:payload|opened|result)\.message\)/, 'shared OAuth action envelopes must not render raw service messages');
-    assert.match(hook, /subscriptionResultMessage\(payload\.message, '无法开始登录，请稍后再试。'\)/, 'shared OAuth getAuthUrl failures must be localized');
-    assert.match(hook, /subscriptionResultMessage\(opened\.message, '无法打开浏览器，请稍后重试。'\)/, 'shared OAuth openAuthUrl failures must be localized');
-    assert.match(hook, /subscriptionResultMessage\(result\.message, '登录未完成，请重新打开浏览器授权。'\)/, 'shared OAuth completion failures must be localized');
+    assert.match(hook, /subscriptionResultMessage\(payload\.message, copy\.startFailedRetry, locale\)/, 'shared OAuth getAuthUrl failures must be localized');
+    assert.match(hook, /subscriptionResultMessage\(opened\.message, copy\.openFailedRetry, locale\)/, 'shared OAuth openAuthUrl failures must be localized');
+    assert.match(hook, /subscriptionResultMessage\(result\.message, copy\.incompleteRetry, locale\)/, 'shared OAuth completion failures must be localized');
     assert.match(
       hook,
       /const \[pendingAction, setPendingAction\] = useState<OAuthLoginPendingAction \| null>\(null\)/,
@@ -1205,7 +1194,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       hook,
-      /async function refresh\(\): Promise<boolean> \{[\s\S]*const next = \(await bridge\.getAccountState\(\)\) as SubscriptionSnapshot;[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return false;[\s\S]*setState\(next\);[\s\S]*catch \(error\) \{[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return false;[\s\S]*toast\.error\('刷新登录状态失败', message\);[\s\S]*return true;/,
+      /async function refresh\(\): Promise<boolean> \{[\s\S]*const next = \(await bridge\.getAccountState\(\)\) as SubscriptionSnapshot;[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return false;[\s\S]*setState\(next\);[\s\S]*catch \(error\) \{[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return false;[\s\S]*toast\.error\(copy\.refreshFailed, message\);[\s\S]*return true;/,
       'shared OAuth refresh must drop late state/error writes after unmount',
     );
     assert.match(
@@ -1242,26 +1231,26 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       hook,
-      /const result = await bridge\.logout\(\);[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return;[\s\S]*catch \(error\) \{[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return;[\s\S]*toast\.error\('退出失败', subscriptionActionErrorMessage\(error\)\);/,
+      /const result = await bridge\.logout\(\);[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return;[\s\S]*catch \(error\) \{[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return;[\s\S]*toast\.error\(copy\.logoutFailed, subscriptionActionErrorMessage\(error, locale\)\);/,
       'shared OAuth logout must not toast after unmount',
     );
     assert.match(hook, /const actionBusy = pendingAction !== null/, 'shared OAuth flow needs a shared busy flag derived from the named action');
     // The thin modal renders login/logout straight from the hook return.
     assert.match(browserModal, /const flow = useOAuthLoginFlow\(\{/, 'SubscriptionLoginModal must consume the shared login-flow hook');
     assert.match(browserModal, /disabled=\{flow\.actionBusy\}/, 'browser OAuth action buttons must disable while another one-shot action is pending');
-    assert.match(browserModal, /flow\.pendingAction === 'login' \? '打开浏览器…' : `登录 \$\{display\.shortName\}`/, 'browser OAuth login start must expose specific pending copy');
-    assert.match(browserModal, /flow\.pendingAction === 'logout' \? '退出中…' : '退出登录'/, 'browser OAuth logout must expose local progress feedback');
-    assert.match(claudeCard, /const refresh = async \(\) => \{[\s\S]*catch \(error\) \{[\s\S]*toast\.error\('刷新登录状态失败', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth state refresh must surface thrown failures');
+    assert.match(browserModal, /flow\.pendingAction === 'login' \? copy\.openingBrowser : copy\.login\(display\.shortName\)/, 'browser OAuth login start must expose locale-specific pending copy');
+    assert.match(browserModal, /flow\.pendingAction === 'logout' \? copy\.loggingOut : copy\.logout/, 'browser OAuth logout must expose locale-specific progress feedback');
+    assert.match(claudeCard, /const refresh = async \(\) => \{[\s\S]*catch \(error\) \{[\s\S]*toast\.error\(copy\.refreshFailed, message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth state refresh must surface thrown failures');
     assert.match(claudeCard, /settingsErrorText" role="alert"\>\{pasteError\}/, 'Claude OAuth refresh failures must be visible in the modal body');
-    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('无法开始登录', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth start must toast thrown failures');
-    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('授权码提交失败', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth paste submit must toast thrown failures');
-    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('取消登录失败', subscriptionActionErrorMessage\(error\)\);/, 'Claude OAuth cancel must toast thrown failures');
-    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('刷新配额失败', subscriptionActionErrorMessage\(error\)\);/, 'Claude OAuth quota refresh must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\(copy\.startFailed, message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth start must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\(copy\.submitFailed, message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth paste submit must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\(copy\.cancelFailed, subscriptionActionErrorMessage\(error, locale\)\);/, 'Claude OAuth cancel must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\(copy\.quotaFailed, subscriptionActionErrorMessage\(error, locale\)\);/, 'Claude OAuth quota refresh must toast thrown failures');
     assert.doesNotMatch(claudeCard, /toast\.error\('[^']+', (?:payload|opened|result)\.message\)/, 'Claude OAuth action envelopes must not toast raw service messages');
     assert.doesNotMatch(claudeCard, /setPasteError\(result\.message\)/, 'Claude OAuth paste failures must not render raw service messages');
-    assert.match(claudeCard, /subscriptionResultMessage\(payload\.message, '无法开始登录，请稍后再试。'\)/, 'Claude OAuth getAuthUrl failures must be localized');
-    assert.match(claudeCard, /subscriptionResultMessage\(opened\.message, '无法打开浏览器，请稍后重试。'\)/, 'Claude OAuth openAuthUrl failures must be localized');
-    assert.match(claudeCard, /subscriptionResultMessage\(result\.message, '授权码提交失败，请重新登录后再试。'\)/, 'Claude OAuth paste failures must be localized');
+    assert.match(claudeCard, /subscriptionResultMessage\(payload\.message, copy\.startFailedRetry, locale\)/, 'Claude OAuth getAuthUrl failures must be localized');
+    assert.match(claudeCard, /subscriptionResultMessage\(opened\.message, copy\.openFailedRetry, locale\)/, 'Claude OAuth openAuthUrl failures must be localized');
+    assert.match(claudeCard, /subscriptionResultMessage\(result\.message, copy\.submitFailedRetry, locale\)/, 'Claude OAuth paste failures must be localized');
   });
 
   it('OAuth local credential storage failures are visible and repairable', async () => {
@@ -1277,12 +1266,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       snapshotPresenter,
-      /case 'storage_failed':[\s\S]*本地凭据读取失败，请重新登录/,
+      /case 'storage_failed':[\s\S]*copy\.storageFailed\(display\.name\)/,
       'browser OAuth cards must explain local credential read failures',
     );
     assert.match(
       claudePresenter,
-      /case 'storage_failed':[\s\S]*label: '凭据读取失败'[\s\S]*本地 OAuth 凭据读取失败，请重新登录/,
+      /case 'storage_failed':[\s\S]*label: copy\.storageFailed[\s\S]*copy\.storageFailedDetail/,
       'Claude OAuth card must explain local credential read failures',
     );
     assert.match(
@@ -1359,17 +1348,17 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(claudeCard, /const actionBusy = pendingAction !== null/);
     assert.match(actionsBlock, /disabled=\{actionBusy \|\| claudeLoginPending\}/);
-    assert.match(actionsBlock, /\? '登录中…'/, 'pending Claude OAuth should show a disabled login-in-progress action');
-    assert.match(actionsBlock, /pendingAction === 'login'[\s\S]*'打开浏览器…'/, 'login start must expose a specific pending label before the auth code panel appears');
-    assert.match(actionsBlock, /pendingAction === 'quota' \? '刷新中…' : '刷新配额'/, 'quota refresh must expose local progress feedback');
-    assert.match(actionsBlock, /pendingAction === 'logout' \? '退出中…' : '退出登录'/, 'logout must expose local progress feedback');
+    assert.match(actionsBlock, /\? copy\.loggingIn/, 'pending Claude OAuth should show a disabled locale-specific login-in-progress action');
+    assert.match(actionsBlock, /pendingAction === 'login'[\s\S]*copy\.openingBrowser/, 'login start must expose a locale-specific pending label before the auth code panel appears');
+    assert.match(actionsBlock, /pendingAction === 'quota' \? copy\.refreshing : copy\.refreshQuota/, 'quota refresh must expose local progress feedback');
+    assert.match(actionsBlock, /pendingAction === 'logout' \? copy\.loggingOut : copy\.logout/, 'logout must expose local progress feedback');
     assert.match(
       actionsBlock,
-      /\{canStartClaudeLogin \|\| claudeLoginPending \? \([\s\S]*'登录中…'[\s\S]*\) : \([\s\S]*刷新配额[\s\S]*退出登录/,
+      /\{canStartClaudeLogin \|\| claudeLoginPending \? \([\s\S]*copy\.loggingIn[\s\S]*\) : \([\s\S]*copy\.refreshQuota[\s\S]*copy\.logout/,
       'refresh/logout actions must be behind the non-pending branch so they cannot clear pending authorization before paste submit',
     );
-    assert.match(claudeCard, /pendingAction === 'submit' \? '提交中…' : '提交授权码'/, 'authorization-code submit must expose local progress feedback');
-    assert.match(claudeCard, /pendingAction === 'cancel' \? '取消中…' : '取消'/, 'authorization cancel must expose local progress feedback');
+    assert.match(claudeCard, /pendingAction === 'submit' \? copy\.submitting : copy\.submitCode/, 'authorization-code submit must expose local progress feedback');
+    assert.match(claudeCard, /pendingAction === 'cancel' \? copy\.cancelling : copy\.cancel/, 'authorization cancel must expose local progress feedback');
   });
 
   it('OAuth model connection detail offers an in-sheet 重新登录 action wired to the shared login flow', async () => {
@@ -1395,10 +1384,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(notice, /const loggedIn = hasSecret === true;/);
     assert.match(notice, /\{!loading && \(/);
     assert.match(notice, /<Button[\s\S]*size="sm"[\s\S]*disabled=\{flow\.actionBusy\}[\s\S]*onClick=\{\(\) => void flow\.startLogin\(\)\}/);
-    assert.match(notice, /flow\.pendingAction === 'login' \? '登录中…' : loggedIn \? '重新登录' : '登录'/);
+    assert.match(notice, /flow\.pendingAction === 'login' \? copy\.loggingIn : loggedIn \? copy\.relogin : copy\.login/);
     // Honest logged-in banner: it points at the re-auth action instead of
     // claiming there is nothing to do.
-    assert.match(notice, /若请求提示需要重新登录，点这里重新走一遍授权/);
+    assert.match(notice, /copy\.oauthReloginDetail/);
     assert.doesNotMatch(notice, /请到上方 OAuth 分类完成登录/, 'the mapped notice must drop the go-hunt-the-catalog prose');
 
     // ConnectionDetail wires the notice for mapped OAuth types and keeps a
@@ -1410,7 +1399,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /async function refreshAfterRelogin\(\) \{[\s\S]*await props\.bridge\.hasSecret\(connection\.slug\)[\s\S]*setHasSecret\(nextHasSecret\);[\s\S]*await props\.onChanged\(\);/,
       'a successful in-sheet re-login must re-probe the credential (expired tokens read hasSecret===true) and reload the connection status',
     );
-    assert.match(detail, /请到账号连接完成登录/, 'unmapped OAuth types keep an honest prose fallback');
+    assert.match(detail, /copy\.oauthWaitingDetail/, 'unmapped OAuth types keep an honest localized prose fallback');
   });
 
   it('preload exposes every subscription namespace alongside claudeSubscription', async () => {

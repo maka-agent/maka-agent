@@ -27,6 +27,7 @@ import { ConnectionDetail } from './provider-connection-detail';
 import { ProviderLogo, providerDisplay } from './provider-display';
 import { ModelOAuthSection } from './provider-oauth-section';
 import { providerPanelActionErrorMessage, type ConnectionsBridge } from './provider-panel-shared';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy';
 
 export type { ConnectionsBridge } from './provider-panel-shared';
 export { ProviderLogo, providerDisplay } from './provider-display';
@@ -38,14 +39,7 @@ type ProviderDialogState =
 
 type CatalogCategory = ProviderCatalogGroup | 'accounts';
 
-const CATALOG_TABS: Array<{ id: CatalogCategory; label: string }> = [
-  { id: 'recommended', label: '推荐' },
-  { id: 'accounts', label: '账号' },
-  { id: 'plans', label: '模型计划' },
-  { id: 'api', label: 'API' },
-  { id: 'aggregators', label: '聚合服务' },
-  { id: 'local', label: '本地' },
-];
+const CATALOG_TABS: CatalogCategory[] = ['recommended', 'accounts', 'plans', 'api', 'aggregators', 'local'];
 
 export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
   bridge: ConnectionsBridge;
@@ -64,6 +58,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
   const providersPanelRef = useRef<HTMLDivElement>(null);
   const providerCatalogRef = useRef<HTMLElement>(null);
   const locale = useUiLocale();
+  const copy = getProviderSettingsCopy(locale).panel;
   const toast = useToast();
 
   function closeDialog() {
@@ -89,10 +84,10 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
       return true;
     } catch (error) {
       if (!providersPanelMountedRef.current || providersReloadTicketRef.current !== ticket) return false;
-      const message = providerPanelActionErrorMessage(error);
+      const message = providerPanelActionErrorMessage(error, locale);
       setLoadError(message);
       setLoading(false);
-      toast.error('载入模型连接失败', message);
+      toast.error(copy.loadFailed, message);
       return false;
     }
   }
@@ -123,16 +118,14 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
   );
 
   function chipTitle(connection: LlmConnection): string {
-    const status = connectionChipStatus(connection);
+    const status = connectionChipStatus(connection, locale);
     return status ? `${connection.name} · ${status.label}` : connection.name;
   }
 
   function chipAriaLabel(connection: LlmConnection): string {
     const provider = providerDisplay(connection.providerType, locale).name;
-    const defaultSuffix = connection.slug === defaultSlug ? '，默认连接' : '';
-    const status = connectionChipStatus(connection);
-    const statusSuffix = status ? `，${status.label}` : '';
-    return `模型连接：${connection.name}，供应商：${provider}${defaultSuffix}${statusSuffix}`;
+    const status = connectionChipStatus(connection, locale);
+    return copy.chipAria(connection.name, provider, connection.slug === defaultSlug, status?.label);
   }
 
   const configuredByType = (type: ProviderType) =>
@@ -155,7 +148,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
 
   if (loading) {
     return (
-      <div className="providersPanel providersLoading" aria-busy="true" aria-label="正在加载模型供应商">
+      <div className="providersPanel providersLoading" aria-busy="true" aria-label={copy.loadingAria}>
         <div className="providersLoadingStrip">
           <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '34%' }} />
           <div className="maka-skeleton maka-skeleton-line" data-size="sm" style={{ width: '52%' }} />
@@ -172,28 +165,28 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
   return (
     <div ref={providersPanelRef} className="providersPanel providersMarketPanel">
       <section className="providerMarket">
-        <div className="enabledStrip" aria-label="模型连接">
+        <div className="enabledStrip" aria-label={copy.connectionsAria}>
           <div className="providerRootHeader">
             <div>
-              <h3>已连接</h3>
-              <p>管理默认模型、凭据与需要处理的连接状态。</p>
+              <h3>{copy.connected}</h3>
+              <p>{copy.connectedHelp}</p>
             </div>
-            {connections.length > 0 && <span>{connections.length} 个连接</span>}
+            {connections.length > 0 && <span>{copy.count(connections.length)}</span>}
           </div>
           {loadError ? (
             <BaseButton className="enabledEmptyChip enabledEmptyAction" type="button" onClick={() => void reload()}>
-              <strong>模型连接载入失败</strong>
-              <small>{loadError} · 点击重试。</small>
+              <strong>{copy.loadFailed}</strong>
+              <small>{loadError} · {copy.retry}</small>
             </BaseButton>
           ) : connections.length === 0 ? (
             <div className="enabledEmptyChip" role="note">
-              <strong>还没有模型连接</strong>
-              <small>从下方选择一种连接方式开始。</small>
+              <strong>{copy.empty}</strong>
+              <small>{copy.emptyHelp}</small>
             </div>
           ) : (
             <ul className="connectionList" role="list">
               {connections.map((connection) => {
-                const status = connectionChipStatus(connection);
+                const status = connectionChipStatus(connection, locale);
                 return (
                   <li key={connection.slug}>
                     <Item
@@ -209,7 +202,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
                       <ItemContent>
                         <ItemTitle>
                           {connection.name}
-                          {connection.slug === defaultSlug && <Chip size="sm" variant="accent">默认</Chip>}
+                          {connection.slug === defaultSlug && <Chip size="sm" variant="accent">{copy.default}</Chip>}
                         </ItemTitle>
                         <ItemDescription>{providerDisplay(connection.providerType, locale).name}</ItemDescription>
                       </ItemContent>
@@ -228,8 +221,8 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
         <section ref={providerCatalogRef} className="providerCatalogSection" aria-labelledby="provider-catalog-title">
           <div className="providerRootHeader">
             <div>
-              <h3 id="provider-catalog-title">添加新连接</h3>
-              <p>选择账号登录、模型计划、API、聚合服务或本地运行时。</p>
+              <h3 id="provider-catalog-title">{copy.add}</h3>
+              <p>{copy.addHelp}</p>
             </div>
           </div>
           <PrimitiveTabs
@@ -237,10 +230,10 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
             value={catalogCategory}
             onValueChange={(value) => setCatalogCategory(value as CatalogCategory)}
           >
-            <PrimitiveTabsList variant="pill" className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">
+            <PrimitiveTabsList variant="pill" className="catalogTabs catalogPillTabs" aria-label={copy.categoriesAria}>
               {CATALOG_TABS.map((tab) => (
-                <PrimitiveTabsTrigger key={tab.id} value={tab.id} data-catalog-tab={tab.id}>
-                  <strong>{tab.label}</strong>
+                <PrimitiveTabsTrigger key={tab} value={tab} data-catalog-tab={tab}>
+                  <strong>{copy.tabs[tab]}</strong>
                 </PrimitiveTabsTrigger>
               ))}
             </PrimitiveTabsList>
@@ -250,8 +243,8 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
                 type="search"
                 value={catalogQuery}
                 onChange={(event) => setCatalogQuery(event.currentTarget.value)}
-                placeholder="搜索服务商"
-                aria-label="搜索模型服务商"
+                placeholder={copy.searchPlaceholder}
+                aria-label={copy.searchAria}
               />
             </InputGroup>
             <PrimitiveTabsPanel value={catalogCategory}>
@@ -275,7 +268,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
                     ))}
                   </div>
                 ) : (
-                  <div className="providerCatalogEmpty" role="status">没有匹配的服务商</div>
+                  <div className="providerCatalogEmpty" role="status">{copy.noMatch}</div>
                 );
               })()}
             </PrimitiveTabsPanel>
@@ -285,8 +278,8 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
 
       {createType && (
         <ProviderConnectionDialog
-          title={`连接 ${providerDisplay(createType, locale).name}`}
-          subtitle="完成必要配置后，连接会出现在模型页上方。"
+          title={copy.connectTitle(providerDisplay(createType, locale).name)}
+          subtitle={copy.createSubtitle}
           providerType={createType}
           onClose={closeDialog}
           finalFocus={() => providerFocusElement(providersPanelRef.current, { kind: 'catalog-provider', providerType: createType })}
@@ -335,9 +328,10 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
 }
 
 function connectionDialogSubtitle(connection: LlmConnection, isDefault: boolean, locale: UiLocale): string {
+  const copy = getProviderSettingsCopy(locale).panel;
   const providerName = providerDisplay(connection.providerType, locale).name;
   const parts = providerName === connection.name ? [] : [providerName];
-  parts.push(isDefault ? '默认连接' : '模型连接');
+  parts.push(isDefault ? copy.defaultConnection : copy.connection);
   return parts.join(' · ');
 }
 

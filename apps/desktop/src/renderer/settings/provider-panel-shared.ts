@@ -1,4 +1,5 @@
 import {
+  generalizedErrorMessage,
   generalizedErrorMessageChinese,
   type ConnectionTestResult,
   type CreateConnectionInput,
@@ -6,8 +7,10 @@ import {
   type ModelDiscoveryResult,
   type ProviderCategory,
   type ProviderType,
+  type UiLocale,
   type UpdateConnectionInput,
 } from '@maka/core';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy.js';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -24,8 +27,9 @@ export interface ConnectionsBridge {
 
 export type CredentialPresenceStatus = boolean | 'loading' | 'error';
 
-export function providerPanelActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '模型连接服务暂时不可用，请稍后重试。');
+export function providerPanelActionErrorMessage(error: unknown, locale: UiLocale = 'zh'): string {
+  const fallback = getProviderSettingsCopy(locale).shared.actionFallback;
+  return locale === 'zh' ? generalizedErrorMessageChinese(error, fallback) : generalizedErrorMessage(error, fallback);
 }
 
 export interface ConnectionTestTroubleshootingCopy {
@@ -41,82 +45,53 @@ export interface ConnectionTestTroubleshootingCopy {
 export function connectionTestFailureFallback(
   result: ConnectionTestResult,
   copy: ConnectionTestTroubleshootingCopy,
+  locale: UiLocale = 'zh',
 ): string {
-  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
-  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
+  const shared = getProviderSettingsCopy(locale).shared;
+  if (result.statusCode === 429) return shared.rateLimit;
+  if (result.errorClass === 'timeout') return shared.timeout;
   if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
     return copy.auth;
   }
   if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
-    return '模型服务暂时不可用，请稍后重试。';
+    return shared.unavailable;
   }
-  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
+  if (result.errorClass === 'network') return shared.network;
   return copy.recheck;
 }
 
 export function connectionTestFailureMessage(
   result: ConnectionTestResult,
   copy: ConnectionTestTroubleshootingCopy,
+  locale: UiLocale = 'zh',
 ): string {
-  const fallback = connectionTestFailureFallback(result, copy);
+  const fallback = connectionTestFailureFallback(result, copy, locale);
   if (!result.errorMessage) return fallback;
-  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
+  return locale === 'zh'
+    ? generalizedErrorMessageChinese(new Error(result.errorMessage), fallback)
+    : generalizedErrorMessage(new Error(result.errorMessage), fallback);
 }
 
-export function connectionLastTestMessageDisplay(message: string | undefined): string | undefined {
+export function connectionLastTestMessageDisplay(message: string | undefined, locale: UiLocale = 'zh'): string | undefined {
   if (!message) return undefined;
   const trimmed = message.trim();
   if (!trimmed) return undefined;
   const normalized = trimmed.toLowerCase();
-  const knownMessages: Readonly<Record<string, string>> = {
-    '连接已验证': '连接已验证',
-    '鉴权失败': '鉴权失败',
-    '请求超时': '请求超时',
-    '网络错误': '网络错误',
-    '模型服务返回错误': '模型服务返回错误',
-    '连接测试失败': '连接测试失败',
-    'connection verified': '连接已验证',
-    'authentication failed': '鉴权失败',
-    'request timed out': '请求超时',
-    'network error': '网络错误',
-    'provider returned an error': '模型服务返回错误',
-    'connection test failed': '连接测试失败',
-    'claude oauth 未登录。': 'Claude OAuth 未登录。',
-    'claude oauth 本地凭据读取失败。': 'Claude OAuth 本地凭据读取失败。',
-    'claude oauth 需要重新登录。': 'Claude OAuth 需要重新登录。',
-    'claude oauth 已登录。': 'Claude OAuth 已登录。',
-    'claude oauth 已退出登录。': 'Claude OAuth 已退出登录。',
-    'codex oauth 未登录。': 'Codex OAuth 未登录。',
-    'codex oauth 本地凭据读取失败。': 'Codex OAuth 本地凭据读取失败。',
-    'codex oauth 需要重新登录。': 'Codex OAuth 需要重新登录。',
-    'codex oauth 已登录。': 'Codex OAuth 已登录。',
-    'codex oauth 已退出登录。': 'Codex OAuth 已退出登录。',
-    '当前账号无可用 codex 模型。': '当前账号无可用 Codex 模型。',
-    'codex 模型列表获取失败。': 'Codex 模型列表获取失败。',
-    'github copilot 需要重新导入 github cli 登录。': 'GitHub Copilot 需要重新导入 GitHub CLI 登录。',
-    'github copilot 无法读取当前账号可用模型，请重新验证登录。': 'GitHub Copilot 无法读取当前账号可用模型，请重新验证登录。',
-    'github copilot 登录已导入。': 'GitHub Copilot 登录已导入。',
-    'github copilot 连接未能保存，请重新导入登录。': 'GitHub Copilot 连接未能保存，请重新导入登录。',
-    'github copilot 已移除本地登录。': 'GitHub Copilot 已移除本地登录。',
-  };
-  const known = knownMessages[normalized];
+  const copy = getProviderSettingsCopy(locale).shared;
+  const known = (copy.lastTest as Readonly<Record<string, string>>)[normalized];
   if (known) return known;
-  const classified = generalizedErrorMessageChinese(new Error(trimmed), '');
-  return classified || '连接测试状态暂时无法显示，请重新测试。';
+  const classified = locale === 'zh'
+    ? generalizedErrorMessageChinese(new Error(trimmed), '')
+    : generalizedErrorMessage(new Error(trimmed), '');
+  return classified || copy.statusUnavailable;
 }
 
 export function isWiredOAuthProvider(type: ProviderType): boolean {
   return type === 'claude-subscription' || type === 'openai-codex';
 }
 
-export function categoryLabel(category: ProviderCategory): string {
-  switch (category) {
-    case 'oauth': return 'OAuth';
-    case 'domestic': return '国内';
-    case 'overseas': return '海外';
-    case 'local': return '本地';
-    case 'custom': return 'Custom';
-  }
+export function categoryLabel(category: ProviderCategory, locale: UiLocale = 'zh'): string {
+  return getProviderSettingsCopy(locale).shared.categories[category];
 }
 
 export function nextSlug(type: ProviderType, existing: string[]): string {

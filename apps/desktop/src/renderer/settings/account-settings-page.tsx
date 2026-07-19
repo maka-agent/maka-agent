@@ -86,7 +86,7 @@ export function AccountSettingsPage(props: {
       if (result.ok) {
         toast.success(copy.verified, copy.latency(result.latencyMs ?? '?', result.modelTested));
       } else {
-        toast.error(copy.connectionTestFailed, connectionTestFailureMessage(result, copy.testCopy));
+        toast.error(copy.connectionTestFailed, connectionTestFailureMessage(result, copy.testCopy, locale));
       }
     } catch (error) {
       // Main is supposed to return a structured result; if something escapes
@@ -228,7 +228,7 @@ function AccountConnectionRow(props: {
   const lastTestAtMs = props.connection.lastTestAt
     ? Date.parse(props.connection.lastTestAt)
     : NaN;
-  const lastTestMessage = connectionLastTestMessageDisplay(props.connection.lastTestMessage);
+  const lastTestMessage = connectionLastTestMessageDisplay(props.connection.lastTestMessage, locale);
   return (
     <div
       className="settingsConnectionRow"

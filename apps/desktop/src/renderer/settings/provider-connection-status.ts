@@ -4,7 +4,8 @@
 // `connection-status.ts` is. Behavioural tests live in
 // `provider-connection-status.test.ts`.
 
-import type { LlmConnection } from '@maka/core';
+import type { LlmConnection, UiLocale } from '@maka/core';
+import { getProviderSettingsCopy } from '../locales/settings-provider-copy.js';
 import type { StatusTone } from './settings-status-badge';
 
 export interface ConnectionChipStatus {
@@ -38,18 +39,19 @@ export interface ConnectionChipStatus {
  *   readiness, fixed to credential-only language. Matches the doc warning
  *   at SettingsModal `验证通过 ≠ 运行可用`.
  */
-export function connectionChipStatus(connection: LlmConnection): ConnectionChipStatus | null {
-  if (connection.lastTestStatus === 'needs_reauth') return { label: '需要重新登录', tone: 'info' };
+export function connectionChipStatus(connection: LlmConnection, locale: UiLocale = 'zh'): ConnectionChipStatus | null {
+  const copy = getProviderSettingsCopy(locale).shared.connectionStatuses;
+  if (connection.lastTestStatus === 'needs_reauth') return { label: copy.reauth, tone: 'info' };
   if (!connection.enabled) {
     return connection.lastTestStatus === 'error'
-      ? { label: '暂不可用 · 上次连接失败', tone: 'destructive' }
-      : { label: '暂不可用', tone: 'neutral' };
+      ? { label: copy.disabledFailed, tone: 'destructive' }
+      : { label: copy.disabled, tone: 'neutral' };
   }
   switch (connection.lastTestStatus) {
     case 'verified':
       return null;
     case 'error':
-      return { label: '上次连接失败', tone: 'destructive' };
+      return { label: copy.failed, tone: 'destructive' };
     default:
       return null;
   }

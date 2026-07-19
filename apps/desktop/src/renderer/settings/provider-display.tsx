@@ -1,6 +1,6 @@
 import { PROVIDER_DEFAULTS, type ProviderType, type UiLocale } from '@maka/core';
 import { ProviderBrandMark } from './provider-brand-marks';
-import { PROVIDER_DISPLAY_COPY, type ProviderCopy } from './provider-display-copy';
+import { PROVIDER_DISPLAY_COPY, UNKNOWN_PROVIDER_DESCRIPTION, type ProviderCopy } from './provider-display-copy';
 
 // Kept as a thin wrapper so the many `ProviderLogo` call sites stay put.
 function ProviderLogoMark({ type }: { type: ProviderType }) {
@@ -30,7 +30,7 @@ export function providerDisplay(
   const definition = PROVIDER_DEFAULTS[type];
   return {
     name: definition?.label ?? type,
-    description: definition?.description ?? (locale === 'en' ? 'This provider is not registered in the current build.' : '该 provider 在当前版本未注册。'),
+    description: definition?.description ?? UNKNOWN_PROVIDER_DESCRIPTION[locale],
     ...(definition?.catalogBadge ? { badge: definition.catalogBadge } : {}),
   };
 }

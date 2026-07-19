@@ -24,9 +24,9 @@ describe('Settings model provider page hierarchy', () => {
   test('catalog supports search and the five user-intent categories', async () => {
     const source = await readFile(PANEL, 'utf8');
 
-    assert.match(source, /placeholder="搜索服务商"/);
+    assert.match(source, /placeholder=\{copy\.searchPlaceholder\}/);
     for (const category of ['recommended', 'plans', 'api', 'aggregators', 'local']) {
-      assert.match(source, new RegExp(`id:\\s*'${category}'`), `missing catalog category ${category}`);
+      assert.match(source, new RegExp(`['"]${category}['"]`), `missing catalog category ${category}`);
     }
   });
 
@@ -35,7 +35,7 @@ describe('Settings model provider page hierarchy', () => {
 
     assert.match(source, /catalogCategory === 'recommended'[\s\S]*<ModelOAuthSection/);
     assert.match(source, /PROVIDER_DEFAULTS\[type\]\.status !== 'ready'/);
-    assert.match(source, /id:\s*'accounts'/, 'runnable account connections remain directly browseable');
+    assert.match(source, /['"]accounts['"]/, 'runnable account connections remain directly browseable');
   });
 
   test('inline catalog keeps standard search chrome below its category tabs', async () => {
@@ -44,7 +44,7 @@ describe('Settings model provider page hierarchy', () => {
       readFile(PROVIDER_CSS, 'utf8'),
     ]);
 
-    assert.match(source, /className="providerCatalogSection"[\s\S]*id="provider-catalog-title">添加新连接/);
+    assert.match(source, /className="providerCatalogSection"[\s\S]*id="provider-catalog-title">\{copy\.add\}/);
     assert.match(
       source,
       /<PrimitiveTabsList[\s\S]*<InputGroup className="providerCatalogSearch">[\s\S]*<InputGroupAddon>[\s\S]*<Search[\s\S]*<InputGroupInput/,
