@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronRight } from '@maka/ui/icons';
+import { ChevronRight, MessageSquare } from '@maka/ui/icons';
 import type { BotChannelSettings, BotProvider } from '@maka/core';
 import type { BotStatus } from '@maka/runtime';
 import { BOT_PROVIDERS } from '@maka/core/settings';
@@ -10,6 +10,7 @@ import {
   AlertTitle,
   Button,
   Chip,
+  EmptyState,
   Item,
   ItemActions,
   ItemContent,
@@ -85,12 +86,12 @@ export function BotChatOverview(props: {
         </div>
         <div className="settingsRemoteAccessActiveList">
           {activeChannels.length === 0 ? (
-            <Item className="settingsRemoteAccessEmptyRow" interactive={false}>
-              <ItemContent>
-                <ItemTitle>还没有正在使用的渠道</ItemTitle>
-                <ItemDescription>从下方选择一个消息平台开始配置。</ItemDescription>
-              </ItemContent>
-            </Item>
+            <EmptyState
+              Icon={MessageSquare}
+              title="还没有正在使用的渠道"
+              body="从下方选择一个消息平台开始配置。"
+              extraClassName="settingsRemoteAccessEmpty"
+            />
           ) : activeChannels.map((entry) => (
             <Item
               key={entry.provider}

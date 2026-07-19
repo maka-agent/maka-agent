@@ -11,6 +11,7 @@ import {
   X,
 } from './icons.js';
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './primitives/collapsible.js';
+import { EmptyState } from './empty-state.js';
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   pending: '待处理',
@@ -83,7 +84,7 @@ export function TaskLedgerPanel(props: TaskLedgerPanelProps) {
               {model.activeTree.map((task) => <TaskLedgerRow key={task.id} task={task} />)}
             </div>
           ) : (
-            <div className="maka-task-ledger-message">当前会话没有待推进任务</div>
+            <EmptyState variant="inline" title="当前会话没有待推进任务" body="" />
           )}
           {model.recentTerminalCount > 0 && (
             <Collapsible className="maka-task-ledger-terminal" open={terminalOpen} onOpenChange={setTerminalOpen}>

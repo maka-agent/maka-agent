@@ -60,8 +60,7 @@
 }
 
 .settingsRemoteAccessChannelRow,
-.settingsRemoteAccessCatalogRow,
-.settingsRemoteAccessEmptyRow {
+.settingsRemoteAccessCatalogRow {
   min-height: 64px;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-2-5);
@@ -76,10 +75,11 @@
   color: var(--muted-foreground);
 }
 
-.settingsRemoteAccessEmptyRow {
-  min-height: 58px;
-  color: var(--foreground-secondary);
-  background: var(--foreground-3);
+/* The active-list empty slot rides the shared EmptyState card primitive;
+   trim its default page-scale padding so it sits compactly inside the
+   settings list instead of the full-height module-page treatment. */
+.settingsRemoteAccessEmpty {
+  padding: var(--space-5);
 }
 
 .settingsRemoteAccessCatalog {
