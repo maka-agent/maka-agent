@@ -160,5 +160,4 @@ The Phase 1 test surface covers:
   terminal-event committed, and terminal-header committed boundaries;
 - desktop IPC/preload/renderer/startup routing contracts;
 - CLI `/resume` routing without a duplicate prompt;
-- Linux and macOS CI jobs for the resume and crash suites;
-- the complete Phase 0 P0-P11 SIGKILL prefix harness.
+- the complete Phase 0 P0-P11 SIGKILL prefix harness (covered by the main unit-test job via package `test:dist`).
