@@ -16,7 +16,7 @@ Top-10 hotspots (non-test TS/TSX, lines):
 
 | Lines | File | Note |
 |------:|------|------|
-| 2521 | apps/desktop/src/main/visual-smoke-fixture.ts | **OUT-OF-SCOPE** — other-sessions' territory (bot-onboarding fixtures) |
+| 2521 | apps/desktop/src/main/visual-smoke-fixture.ts | **R3 DONE** — split into 689-line registry barrel + 6 `visual-smoke/` domain modules |
 | 1871 | apps/desktop/src/main/main.ts | R4/R5/R6 targets (contract re-pins required) |
 | 1686 | apps/desktop/src/renderer/app-shell.tsx | R2 target (resume cluster); down from 1733 pre-#887 |
 | 1511 | apps/desktop/src/renderer/locales/shell-copy.ts | copy catalog — data, not logic |
@@ -59,12 +59,30 @@ workspaces are exit 0 today; R1 makes them also report ZERO hints. Storybook sto
   for the moved assertions (add `use-shell-resume.ts` to renderer-shell-source-helpers
   sourcePaths per the Round B/E precedent). CDP turn-narrative spot capture proves the
   render no-op.
-- [ ] **R3 — visual-smoke per-domain split behind a barrel. BLOCKED.** visual-smoke-fixture.ts
-  (2521 lines, the #1 hotspot) should split per domain behind a barrel re-export.
-  Blocked on the concurrent bot-onboarding fixture branch that is actively editing
-  `apps/desktop/src/main/visual-smoke-fixture.ts` + `scripts/capture-screenshots.mjs` +
-  `scripts/audit-alignment.mjs`. Do not touch those three files until that branch lands;
-  this is a later round.
+- [x] **R3 — visual-smoke per-domain split behind a barrel (shipped `chore/arch-round-3`).**
+  The #1 hotspot `visual-smoke-fixture.ts` (2538 lines at tip 78ac98e0) split into a thin
+  registry barrel at the ORIGINAL path (689 lines: `VISUAL_SMOKE_SCENARIOS`,
+  `VisualSmokeFixture`, `resolveVisualSmokeFixture`, `getVisualSmokeState`,
+  `seedVisualSmokeFixture` — the 4-symbol public surface stays byte-identical for the 3
+  non-test consumers) plus 6 per-domain seeder modules under `visual-smoke/`:
+  `seed-helpers.ts` (145 — shared spine: `VISUAL_SMOKE_NOW`, session-id constants,
+  scenario-set constants, `header`/`writeSession`/`writeJson`), `scenarios-settings.ts`
+  (300 — settings/connections/plan-reminders/daily-review), `scenarios-modules.ts` (100 —
+  skills-market + MCP), `scenarios-artifacts.ts` (280 — ArtifactPane seed + spec writer),
+  `scenarios-chat.ts` (466 — turn/processing/streaming/permission/error + task-ledger +
+  live-turn projections), `scenarios-sessions.ts` (672 — long-transcript / workstation-
+  statuses / turn-control lineage / long-sidebar / stale). bot-onboarding boundary
+  respected (bot-onboarding-visual-smoke.ts untouched). Tests re-pinned via new
+  `__tests__/visual-smoke-fixture-source-helpers.ts` aggregator (visible-copy-hygiene +
+  placeholder-copy contracts now scan all 7 fixture files); command-palette contract
+  needed no change (its assertions target the barrel's scenario set + state switch). Pure
+  move: desktop 2744 + ui 196 suites green, 4-tsconfig typecheck + ui typecheck clean,
+  check-dead-css clean, knip ×2 exit 0 (zero hints), AUDIT_PORT_BASE=24300 alignment
+  auditor exit 0 (all 11 fixtures clean). CDP byte-compare (light-1280-motion):
+  module-skills IDENTICAL pre/post (sha256 796e8080…); settings-bots-onboarding is
+  inherently nondeterministic at the byte level (4 captures → 4 hashes, ~1426 KB each,
+  pre-existing — the onboarding modal renders a live countdown), so the auditor's
+  structural walk is the meaningful proof there.
 - [ ] **R4 — main.ts tool-assembly extraction (~L648–809). Requires maintainer-approved
   contract re-pin.** The deferred-tool/economy assembly block (riveTools, officeTools, the
   MakaTool catalog filter, webSearchTool, agentTeamChildTools) extracts into a
