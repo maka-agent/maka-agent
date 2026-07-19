@@ -47,6 +47,7 @@ import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
 import {
   assertBottomPickerPlacement,
+  autocompleteSuggestionLines,
   FakeTerminal,
   inputSurfaceRows,
   latestPlainLineContaining,
@@ -3237,12 +3238,20 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
-    const output = plainTerminalOutput(terminal.output());
-    const exitIndex = output.indexOf('/exit');
-    const modelIndex = output.indexOf('/model');
-    const permissionsIndex = output.indexOf('/permissions');
-    const sessionIndex = output.indexOf('/session');
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return autocompleteSuggestionLines(lines).some((line) => line.includes('/session'));
+    });
+    // Scope to the autocomplete overlay — the empty-session home now shows
+    // /session /model /setup as hint text, so a whole-screen grep would pick up
+    // the home's copies and misorder them against the menu (#1098).
+    const suggestions = autocompleteSuggestionLines(
+      plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/),
+    ).join('\n');
+    const exitIndex = suggestions.indexOf('/exit');
+    const modelIndex = suggestions.indexOf('/model');
+    const permissionsIndex = suggestions.indexOf('/permissions');
+    const sessionIndex = suggestions.indexOf('/session');
 
     assert.ok(exitIndex >= 0);
     assert.ok(modelIndex >= 0);
@@ -3253,7 +3262,7 @@ describe('Maka Pi TUI runner', () => {
     assert.ok(permissionsIndex < sessionIndex);
     // The whole menu is visible at once — including the last command
     // alphabetically — so new commands don't push older ones below the fold.
-    assert.ok(output.indexOf('/thinking') > sessionIndex);
+    assert.ok(suggestions.indexOf('/thinking') > sessionIndex);
 
     exitMaka(terminal);
     await Promise.race([
@@ -3279,20 +3288,31 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
-    const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
-    const suggestionIndex = lines.findIndex((line) => line.includes('/model'));
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return (
+        lines.some((line) => line.includes('→')) &&
+        autocompleteSuggestionLines(lines).some((line) => line.includes('/model'))
+      );
+    });
+    // Scope to the autocomplete overlay, not the whole screen: the empty-session
+    // home now shows /session /model /setup as hint text, so a whole-screen
+    // findIndex('/model') would land on the home's hint and pass even if the
+    // overlay never rendered (#1098).
+    const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    const [editorTopBorder, editorBottomBorder] = inputSurfaceRows(lines);
+    const cursorIndex = lines.findIndex((line) => line.includes('→'));
     const statusLineIndex = lines.findIndex((line) =>
       line.includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'),
     );
-    const editorBorderIndexes = lines
-      .map((line, index) => (/^─+$/.test(line) ? index : -1))
-      .filter((index) => index >= 0);
 
-    assert.ok(suggestionIndex >= 0);
-    assert.ok(editorBorderIndexes.length >= 2);
-    assert.ok(suggestionIndex < editorBorderIndexes[editorBorderIndexes.length - 2]!);
-    assert.equal(editorBorderIndexes[editorBorderIndexes.length - 1], statusLineIndex - 1);
+    // The autocomplete menu (→ cursor) renders above the editor's top border.
+    assert.ok(cursorIndex >= 0);
+    assert.ok(cursorIndex < editorTopBorder);
+    // The menu carries /model, scoped to the overlay rather than the home hint.
+    assert.ok(autocompleteSuggestionLines(lines).some((line) => line.includes('/model')));
+    // The editor's bottom border sits just above the statusline.
+    assert.equal(editorBottomBorder, statusLineIndex - 1);
 
     exitMaka(terminal);
     await Promise.race([
@@ -3318,29 +3338,41 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/');
 
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/session'));
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return autocompleteSuggestionLines(lines).some((line) => line.includes('/session'));
+    });
     const beforeLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const beforeRows = inputSurfaceRows(beforeLines);
-    const beforeSessionRow = beforeLines.findIndex((line) => line.includes('/session'));
 
     terminal.input('s');
 
     await waitFor(() => {
-      const output = plainTerminalOutput(terminal.screenOutput());
-      return output.includes('/session') && !output.includes('/model');
+      const suggestions = autocompleteSuggestionLines(
+        plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/),
+      );
+      return (
+        suggestions.some((line) => line.includes('/session')) &&
+        !suggestions.some((line) => line.includes('/model'))
+      );
     });
     const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const afterRows = inputSurfaceRows(afterLines);
-    const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
-    const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
-    const afterSetupRow = afterLines.findIndex((line) => line.includes('/setup'));
+    const afterSuggestions = autocompleteSuggestionLines(afterLines);
 
-    assert.ok(beforeSessionRow >= 0);
+    // The input surface did not shift while filtering.
     assert.deepEqual(afterRows, beforeRows);
-    // The 's' filter matches three commands — /session, /setup, /skill — bottom-aligned.
-    assert.equal(afterSkillRow, afterRows[0] - 1);
-    assert.equal(afterSetupRow, afterRows[0] - 2);
-    assert.equal(afterSessionRow, afterRows[0] - 3);
+    // The 's' filter matches three commands — /session, /setup, /skill — bottom-
+    // aligned immediately above the editor's top border. Scope to the overlay so
+    // the empty-session home's /session /model /setup hints don't collide (#1098).
+    assert.equal(afterSuggestions.length, 3);
+    assert.deepEqual(
+      afterSuggestions.map((line) => line.match(/\/\w+/)?.[0]),
+      ['/session', '/setup', '/skill'],
+    );
+    assert.ok(afterLines[afterRows[0] - 1]!.includes('/skill'));
+    assert.ok(afterLines[afterRows[0] - 2]!.includes('/setup'));
+    assert.ok(afterLines[afterRows[0] - 3]!.includes('/session'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -3645,7 +3677,10 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/m');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/model'));
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return autocompleteSuggestionLines(lines).some((line) => line.includes('/model'));
+    });
     terminal.input('\r');
     await waitFor(() => terminal.output().includes('Select Model'));
 
@@ -4013,6 +4048,367 @@ describe('Maka Pi TUI runner', () => {
     await Promise.race([
       run,
       delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model filters the model list as you type in the search field', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => terminal.output().includes('glm-5.2'));
+    const before = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(before.includes('gpt-5.5'));
+    assert.ok(before.includes('glm-5.2'));
+    // The searchable overlay stays bottom-anchored above the editor + status line,
+    // just like the non-searchable picker it replaces.
+    assertBottomPickerPlacement(terminal, 'Select Model', 'Maka · ask · gpt-5.5 · openai · /repo');
+
+    // Typing in the search field filters the cross-connection list live. The
+    // query "gpt" matches only the OpenAI model id, so the Z.ai model leaves
+    // the visible list while the match stays. The current model (gpt-5.5) is
+    // still shown by the status line regardless, so the assertion targets the
+    // model that was filtered out (glm-5.2, not the current model).
+    terminal.input('gpt');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('gpt-5.5') && !out.includes('glm-5.2');
+    });
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model shows an empty state when no model matches the search', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+
+    // A query that matches no model id, provider, or connection surfaces an
+    // in-frame empty state instead of the full list.
+    terminal.input('zzz');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('没有匹配的模型'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model rebinds the session to a filtered model on Enter', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    // Filter to the Z.ai model alone; the OpenAI connection-name leaves the list
+    // (the status line keeps the lowercase slug, not the capitalized name).
+    terminal.input('glm');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('glm-5.2') && !out.includes('OpenAI');
+    });
+    // The filtered list's first match is already highlighted, so Enter rebinds.
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    assert.deepEqual(driver.models, ['glm-5.2']);
+    assert.deepEqual(driver.modelConnections, ['zai']);
+    await waitFor(() =>
+      plainTerminalOutput(terminal.output()).includes('Maka · ask · glm-5.2 · zai · /repo'),
+    );
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model cancel closes the picker without changing the model', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    terminal.input('\x1b');
+    await delay(30);
+
+    // Esc closed the picker without rebinding: no setModel call, and the status
+    // line still shows the original model + connection.
+    assert.deepEqual(driver.models, []);
+    assert.deepEqual(driver.modelConnections, []);
+    assert.ok(
+      plainTerminalOutput(terminal.output()).includes('Maka · ask · gpt-5.5 · openai · /repo'),
+    );
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('typed /model <id> still switches the model directly when modelChoices are present', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model glm-5.2');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    // Typed /model sets the model on the current connection without opening the
+    // searchable picker (cross-connection switching is the picker's job).
+    assert.deepEqual(driver.models, ['glm-5.2']);
+    assert.deepEqual(driver.modelConnections, [undefined]);
+    assert.equal(terminal.output().includes('Select Model'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model search matches by every required criterion', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      // A current model/slug not among the choices, so no choice's model shows
+      // up in the status line — a dropped choice truly leaves the visible list.
+      model: 'legacy-curated-out',
+      connectionSlug: 'ghost',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'alpha',
+          connectionName: 'Aurora',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'beta',
+          connectionName: 'Boreal',
+          providerType: 'zai',
+          model: 'glm-max',
+          isDefaultConnection: false,
+        },
+        {
+          connectionSlug: 'gamma',
+          connectionName: 'Crest',
+          providerType: 'google',
+          model: 'text-unicorn',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('gpt-5.5') && out.includes('glm-max') && out.includes('text-unicorn');
+    });
+
+    // Each query isolates exactly one of the five match criteria named by #1098
+    // (model id, connection name, connection slug, provider type, provider
+    // label) and keeps only its matching choice. The fixture's three distinct
+    // providers (openai / zai / google) let `zai` exercise the providerType
+    // line alone (its label `Z.AI` is not a substring) and `gemini` exercise
+    // the PROVIDER_DEFAULTS label line alone (its type `google` is not), so
+    // deleting either line would fail its assertion. Ctrl+U (deleteToLineStart)
+    // clears the search field in one event so the next criterion starts from
+    // the full list again.
+    const cases = [
+      { query: 'gpt', keep: 'gpt-5.5', drop: ['glm-max', 'text-unicorn'] },
+      { query: 'aurora', keep: 'gpt-5.5', drop: ['glm-max', 'text-unicorn'] },
+      { query: 'alpha', keep: 'gpt-5.5', drop: ['glm-max', 'text-unicorn'] },
+      { query: 'zai', keep: 'glm-max', drop: ['gpt-5.5', 'text-unicorn'] },
+      { query: 'gemini', keep: 'text-unicorn', drop: ['gpt-5.5', 'glm-max'] },
+    ];
+    for (const c of cases) {
+      terminal.input(c.query);
+      await waitFor(() => {
+        const out = plainTerminalOutput(terminal.screenOutput());
+        return out.includes(c.keep) && c.drop.every((d) => !out.includes(d));
+      });
+      terminal.input('\x15');
+      await waitFor(() => {
+        const out = plainTerminalOutput(terminal.screenOutput());
+        return out.includes('gpt-5.5') && out.includes('glm-max') && out.includes('text-unicorn');
+      });
+    }
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
@@ -5145,9 +5541,7 @@ describe('Maka Pi TUI runner', () => {
     // /new empties the transcript, so it opens on the same welcome block as a
     // cold start rather than a one-off notice — that block is the "fresh session"
     // cue and a notice would suppress it.
-    await waitFor(() =>
-      plainTerminalOutput(terminal.screenOutput()).includes('输入消息开始对话，或用斜杠命令：'),
-    );
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('陪你把事做完'));
     // The previous turn is gone from the visible transcript.
     await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('remember this'));
     assert.equal(terminal.titles.at(-1), 'Maka');

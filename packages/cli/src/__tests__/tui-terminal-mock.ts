@@ -78,6 +78,27 @@ export function inputSurfaceRows(lines: readonly string[]): [number, number] {
   ];
 }
 
+/**
+ * The slash-autocomplete suggestion rows on the input surface: the contiguous
+ * `/command` lines sitting immediately above the editor's top border. The
+ * empty-session home also renders `/session `/model `/setup as hint text
+ * (#1098), so autocomplete assertions scope here instead of grepping the whole
+ * screen, which would pick up the home's hints and misorder them against the
+ * menu. Returns an empty list until the autocomplete menu is open (its → cursor
+ * is absent from the home) so this is safe to call inside a polling waitFor.
+ */
+export function autocompleteSuggestionLines(lines: readonly string[]): readonly string[] {
+  if (!lines.some((line) => line.includes('→'))) return [];
+  const editorBorders = lines
+    .map((line, index) => (/^─+$/.test(line) ? index : -1))
+    .filter((index) => index >= 0);
+  if (editorBorders.length < 2) return [];
+  const editorTopBorder = editorBorders[editorBorders.length - 2]!;
+  let start = editorTopBorder;
+  while (start > 0 && /\/\w/.test(lines[start - 1]!)) start -= 1;
+  return lines.slice(start, editorTopBorder);
+}
+
 export function assertBottomPickerPlacement(
   terminal: FakeTerminal,
   title: string,
