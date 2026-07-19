@@ -26,7 +26,9 @@ import {
   buildSkillAgentTool,
   buildGoalTools,
   buildParentAgentTools,
-  buildSubagentToolGroup,
+  assertProductBindingCatalogClean,
+  buildDeferredToolGroupsFromCatalog,
+  buildHostCapabilitiesFromBinding,
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
   buildProviderOptions,
@@ -503,25 +505,31 @@ export async function createMakaCliRuntimeContext(
         })
       : [];
   const subagentTools = input.surface === 'tui' ? buildParentAgentTools() : [];
-  const toolAvailability: ToolAvailabilityConfig | undefined =
-    input.surface === 'tui'
-      ? {
-          economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
-          groups: [buildSubagentToolGroup()],
-        }
-      : undefined;
   // CLI host capability surface for the skill-compatibility gate: the tool
   // names registered on this host. The CLI has no Office tools, so bundled
   // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
   // are hard-hidden here without seeding them — desktop owns Office seeding.
+  // Catalog ∩ binding (#1099 S2): capability tags and deferred groups come from
+  // the shared catalog rather than a parallel hand list.
   const surfaceTools = input.surface === 'tui' ? [buildAskUserQuestionTool()] : [];
-  const host: HostCapabilities = {
-    toolNames: new Set(
-      [...tools, automationTool, ...goalTools, ...subagentTools, ...surfaceTools].map(
-        (tool) => tool.name,
-      ),
-    ),
-  };
+  const cliBoundToolNames = [
+    ...tools,
+    automationTool,
+    ...goalTools,
+    ...subagentTools,
+    ...surfaceTools,
+  ].map((tool) => tool.name);
+  // Skill is always registered on this host; include it before the instance exists.
+  const cliBoundToolNamesWithSkill = [...cliBoundToolNames, 'Skill'];
+  assertProductBindingCatalogClean('cli', cliBoundToolNamesWithSkill);
+  const host: HostCapabilities = buildHostCapabilitiesFromBinding(cliBoundToolNamesWithSkill);
+  const toolAvailability: ToolAvailabilityConfig | undefined =
+    input.surface === 'tui'
+      ? {
+          economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+          groups: buildDeferredToolGroupsFromCatalog('cli', cliBoundToolNamesWithSkill),
+        }
+      : undefined;
   const skillTool = buildSkillAgentTool(
     ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
     host,
