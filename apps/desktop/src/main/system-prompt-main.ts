@@ -20,6 +20,7 @@ import {
   buildSessionEnvironmentPromptFragment,
   resolveSkillDiscoveryPaths,
   type GoalManager,
+  type HostCapabilities,
 } from '@maka/runtime';
 import { buildSkillsPromptFragment } from './skills.js';
 import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
@@ -35,6 +36,8 @@ interface SystemPromptMainDeps {
   localMemory: Pick<LocalMemoryService, 'getState' | 'consumePendingPromptUpdates'>;
   taskLedger: Pick<TaskLedgerStore, 'list'>;
   goalManager?: Pick<GoalManager, 'get'>;
+  /** Binding-derived skill host gate (#1099 S2). */
+  hostCapabilities?: HostCapabilities;
 }
 
 interface SkillPromptBudgetContext {
@@ -53,7 +56,11 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
       ? buildPersonalizationPromptFragment(settings.personalization)
       : { text: undefined };
     const skillSource = resolveSkillDiscoveryPaths(cwd ?? deps.workspaceRoot, deps.workspaceRoot);
-    const skills = await buildSkillsPromptFragment(skillSource, undefined, options?.skillBudget);
+    const skills = await buildSkillsPromptFragment(
+      skillSource,
+      deps.hostCapabilities,
+      options?.skillBudget,
+    );
     const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
       ? await buildWorkspaceInstructionsPromptFragment(cwd)
       : undefined;

@@ -56,7 +56,9 @@ import {
   buildAgentTeamLeadTools,
   buildExpertDispatchToolForTeamId,
   buildParentAgentTools,
-  buildSubagentToolGroup,
+  assertProductBindingCatalogClean,
+  buildDeferredToolGroupsFromCatalog,
+  buildHostCapabilitiesFromBinding,
   createLocalContinuationSafetyInspector,
   getAIModel,
   generateSessionTitle as generateRuntimeSessionTitle,
@@ -558,13 +560,6 @@ const localMemory = new LocalMemoryService({
   updateSettings: (patch) => settingsStore.update(patch),
   getPrivacyContext: getWorkspacePrivacyContext,
 });
-const systemPromptService = createSystemPromptMainService({
-  settingsStore,
-  workspaceRoot,
-  localMemory,
-  taskLedger: taskLedgerStore,
-  goalManager: goalWiring.manager,
-});
 // Window is created hidden for E2E and visual-smoke runs so it never steals
 // focus. Derived from the same isE2e gate as userData/fake-backend so the
 // hidden-window switch stays in lockstep with the rest of the E2E isolation.
@@ -720,28 +715,13 @@ const deferredTools: MakaTool[] = [
   ...computerUseTools,
   ...agentTools,
 ];
-const toolAvailability: ToolAvailabilityConfig = {
-  economy: economyEnabled,
-  groups: [
-    { id: 'rive', label: 'Rive', description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
-    { id: 'office', label: 'Office', description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
-    { id: 'browser', label: 'Browser', description: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
-    ...(computerUseTools.length > 0
-      ? [{
-          id: 'computer_use',
-          label: 'Computer',
-          description: 'Observe and operate an explicitly approved local application.',
-          toolNames: computerUseTools.map((tool) => tool.name),
-        }]
-      : []),
-    buildSubagentToolGroup(),
-  ],
-};
 const webSearchTool = buildWebSearchAgentTool({
   settingsStore,
   getPrivacyContext: getWorkspacePrivacyContext,
 });
-const builtinTools: MakaTool[] = [
+// Assemble product tools first, then derive skill host + deferred groups from
+// the shared catalog ∩ this binding (#1099 S2). Skill listing uses the same host.
+const toolsBeforeSkill: MakaTool[] = [
   buildAskUserQuestionTool(),
   ...buildBuiltinTools({
     shellRuns,
@@ -756,12 +736,8 @@ const builtinTools: MakaTool[] = [
       enableFileToolAdditionalPermissions: true,
     } : {}),
   }).filter((tool: MakaTool) => tool.name !== 'Edit'),
-  // External reference lazy-skill pattern: the prompt lists available skills,
-  // and this read-only tool loads the full SKILL.md only when the task matches.
-  // Resolve per-call from the session cwd so skills at all 5 standard paths
-  // (cwd/.maka, cwd/.agents, workspaceRoot/skills, ~/.maka, ~/.agents) are
-  // discovered — matching the CLI and the Agent Skills spec (#1068).
-  buildSkillAgentTool(({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot)),
+];
+const toolsAfterSkill: MakaTool[] = [
   // External reference plan-mode borrow: a bounded read-only local worker for
   // self-contained code/repo investigations. The tool advertises the
   // `subagent` category; explore mode allows it, but the implementation
@@ -783,6 +759,37 @@ const builtinTools: MakaTool[] = [
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
 ];
+// Always-on Skill name is part of the host surface even before the tool instance
+// is built (so requiredTools gates and capability tags stay complete).
+const desktopBoundToolNames = [
+  ...toolsBeforeSkill.map((tool) => tool.name),
+  'Skill',
+  ...toolsAfterSkill.map((tool) => tool.name),
+];
+assertProductBindingCatalogClean('desktop', desktopBoundToolNames);
+const desktopHostCapabilities = buildHostCapabilitiesFromBinding(desktopBoundToolNames);
+// External reference lazy-skill pattern: the prompt lists available skills,
+// and this read-only tool loads the full SKILL.md only when the task matches.
+// Resolve per-call from the session cwd so skills at all 5 standard paths
+// (cwd/.maka, cwd/.agents, workspaceRoot/skills, ~/.maka, ~/.agents) are
+// discovered — matching the CLI and the Agent Skills spec (#1068).
+const skillTool = buildSkillAgentTool(
+  ({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot),
+  desktopHostCapabilities,
+);
+const builtinTools: MakaTool[] = [...toolsBeforeSkill, skillTool, ...toolsAfterSkill];
+const toolAvailability: ToolAvailabilityConfig = {
+  economy: economyEnabled,
+  groups: buildDeferredToolGroupsFromCatalog('desktop', desktopBoundToolNames),
+};
+const systemPromptService = createSystemPromptMainService({
+  settingsStore,
+  workspaceRoot,
+  localMemory,
+  taskLedger: taskLedgerStore,
+  goalManager: goalWiring.manager,
+  hostCapabilities: desktopHostCapabilities,
+});
 // Child agents stay file-only for local reads; parent runtime refs such as
 // maka://runtime/background-tasks/<id> are not part of their tool surface.
 const childAgentTools = buildChildAgentTools([
