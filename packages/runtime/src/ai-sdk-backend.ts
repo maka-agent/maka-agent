@@ -2680,7 +2680,12 @@ export class AiSdkBackend implements AgentBackend {
     let nextPolicy = policy;
 
     if (policy.staleToolResultPrune?.enabled === true) {
-      const candidates = collectStaleToolResultArchiveCandidates(runtimeContext, policy);
+      const candidates = collectStaleToolResultArchiveCandidates(
+        runtimeContext,
+        policy?.staleToolResultPrune,
+        policy?.charsPerToken ?? 4,
+        policy?.minRecentTurns,
+      );
       if (candidates.length > 0) {
         const archiveRefs = new Map<string, ToolResultArchiveRef>();
         const existingArchiveRefs = nextPolicy.staleToolResultPrune?.archiveRefs;
