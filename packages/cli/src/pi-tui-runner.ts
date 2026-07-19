@@ -94,10 +94,10 @@ import {
 import {
   MakaAutocompleteProvider,
   DirectoryPickerOverlay,
+  ModelSearchOverlay,
   OnboardingWizard,
   PickerOverlay,
   UserQuestionOverlay,
-  modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
   skillPickerItems,
@@ -1826,24 +1826,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Cross-connection picker when the caller supplied choices across all ready
     // connections; otherwise the single-connection list (typed /model, tests).
     if (choices && choices.length > 0) {
-      const selectedIndex = choices.findIndex(
-        (choice) => choice.model === model && choice.connectionSlug === connectionSlug,
-      );
-      showSelectPicker(
-        'Select Model',
-        connectionSlug,
-        modelChoicePickerItems(choices, { model, connectionSlug }),
-        (item) => {
-          const choice = choices[Number(item.value)];
-          if (!choice) return;
+      let overlay: OverlayHandle | undefined;
+      const picker = new ModelSearchOverlay(tui, {
+        choices,
+        current: { model, connectionSlug },
+        onSelect: (choice) => {
+          overlay?.hide();
           void runControl(() => setModelChoice(choice));
         },
-        {
-          minPrimaryColumnWidth: 24,
-          maxPrimaryColumnWidth: 48,
-          ...(selectedIndex >= 0 ? { selectedIndex } : {}),
-        },
-      );
+        onCancel: () => overlay?.hide(),
+      });
+      overlay = showBottomPicker(picker);
       return;
     }
     showSelectPicker(

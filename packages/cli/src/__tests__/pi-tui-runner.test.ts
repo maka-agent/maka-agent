@@ -4018,6 +4018,281 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('cross-connection /model filters the model list as you type in the search field', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => terminal.output().includes('glm-5.2'));
+    const before = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(before.includes('gpt-5.5'));
+    assert.ok(before.includes('glm-5.2'));
+    // The searchable overlay stays bottom-anchored above the editor + status line,
+    // just like the non-searchable picker it replaces.
+    assertBottomPickerPlacement(terminal, 'Select Model', 'Maka · ask · gpt-5.5 · openai · /repo');
+
+    // Typing in the search field filters the cross-connection list live. The
+    // query "gpt" matches only the OpenAI model id, so the Z.ai model leaves
+    // the visible list while the match stays. The current model (gpt-5.5) is
+    // still shown by the status line regardless, so the assertion targets the
+    // model that was filtered out (glm-5.2, not the current model).
+    terminal.input('gpt');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('gpt-5.5') && !out.includes('glm-5.2');
+    });
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model shows an empty state when no model matches the search', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+
+    // A query that matches no model id, provider, or connection surfaces an
+    // in-frame empty state instead of the full list.
+    terminal.input('zzz');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('没有匹配的模型'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model rebinds the session to a filtered model on Enter', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    // Filter to the Z.ai model alone; the OpenAI connection-name leaves the list
+    // (the status line keeps the lowercase slug, not the capitalized name).
+    terminal.input('glm');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('glm-5.2') && !out.includes('OpenAI');
+    });
+    // The filtered list's first match is already highlighted, so Enter rebinds.
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    assert.deepEqual(driver.models, ['glm-5.2']);
+    assert.deepEqual(driver.modelConnections, ['zai']);
+    await waitFor(() =>
+      plainTerminalOutput(terminal.output()).includes('Maka · ask · glm-5.2 · zai · /repo'),
+    );
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('cross-connection /model cancel closes the picker without changing the model', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    terminal.input('\x1b');
+    await delay(30);
+
+    // Esc closed the picker without rebinding: no setModel call, and the status
+    // line still shows the original model + connection.
+    assert.deepEqual(driver.models, []);
+    assert.deepEqual(driver.modelConnections, []);
+    assert.ok(
+      plainTerminalOutput(terminal.output()).includes('Maka · ask · gpt-5.5 · openai · /repo'),
+    );
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('typed /model <id> still switches the model directly when modelChoices are present', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'zai',
+          connectionName: 'Z.ai',
+          providerType: 'openai',
+          model: 'glm-5.2',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model glm-5.2');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    // Typed /model sets the model on the current connection without opening the
+    // searchable picker (cross-connection switching is the picker's job).
+    assert.deepEqual(driver.models, ['glm-5.2']);
+    assert.deepEqual(driver.modelConnections, [undefined]);
+    assert.equal(terminal.output().includes('Select Model'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('handles /rename without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

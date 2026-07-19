@@ -19,7 +19,7 @@ import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import type { InvocableSkillEntry } from '@maka/runtime';
-import type { ProviderType } from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
 import type { ModelChoice } from './connection-target.js';
 import type { OnboardableProvider } from './onboarding.js';
 import { skillInvocationPrefixAt } from './skill-token.js';
@@ -536,7 +536,7 @@ export function modelPickerItems(
  * caller maps it back to the {@link ModelChoice}. The description carries the
  * owning connection so identical model ids on different providers are readable.
  */
-export function modelChoicePickerItems(
+function modelChoicePickerItems(
   choices: readonly ModelChoice[],
   current: { model: string; connectionSlug: string },
 ): SelectItem[] {
@@ -548,6 +548,140 @@ export function modelChoicePickerItems(
     else if (choice.isDefaultConnection) tags.push('default');
     return { value: String(index), label: choice.model, description: tags.join(' · ') };
   });
+}
+
+/**
+ * Case-insensitive substring match for the `/model` search field, against every
+ * criterion the issue names: model id, provider label/type, and connection
+ * name/slug. `ModelChoice` carries no display name, so the model id is the only
+ * model-side match target; a display-name enrichment would slot in here.
+ */
+function matchesModelChoice(choice: ModelChoice, query: string): boolean {
+  if (choice.model.toLowerCase().includes(query)) return true;
+  if (choice.connectionName.toLowerCase().includes(query)) return true;
+  if (choice.connectionSlug.toLowerCase().includes(query)) return true;
+  if (choice.providerType.toLowerCase().includes(query)) return true;
+  const providerLabel = PROVIDER_DEFAULTS[choice.providerType]?.label;
+  if (providerLabel && providerLabel.toLowerCase().includes(query)) return true;
+  return false;
+}
+
+export interface ModelSearchOverlayInput {
+  choices: readonly ModelChoice[];
+  current: { model: string; connectionSlug: string };
+  onSelect: (choice: ModelChoice) => void;
+  onCancel: () => void;
+}
+
+/**
+ * One bottom search field + a bounded single-select list, for the cross-
+ * connection `/model` picker (issue #1098 seam 2). Mirrors the OnboardingWizard
+ * search phase — the same one-field-powers-the-list shape — but stays a focused
+ * single-select: it is not a shared base for the setup multi-select. The list is
+ * rebuilt in place on every keystroke (SelectList has no setItems), and Esc /
+ * Ctrl-C close without rebinding. The `models`-only fallback (minimal hosts,
+ * tests) stays on the non-searchable PickerOverlay.
+ */
+export class ModelSearchOverlay implements Component {
+  private readonly searchEditor: Editor;
+  private filtered: readonly ModelChoice[];
+  private list: SelectList;
+  private readonly initialIndex: number;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly input: ModelSearchOverlayInput,
+  ) {
+    this.filtered = [...input.choices];
+    this.initialIndex = input.choices.findIndex(
+      (choice) =>
+        choice.model === input.current.model &&
+        choice.connectionSlug === input.current.connectionSlug,
+    );
+    this.list = this.buildList();
+    if (this.initialIndex >= 0) this.list.setSelectedIndex(this.initialIndex);
+    this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.searchEditor.onChange = (text) => this.applyQuery(text);
+  }
+
+  private buildList(): SelectList {
+    const list = new SelectList(
+      modelChoicePickerItems(this.filtered, this.input.current),
+      10,
+      selectListTheme(),
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
+    );
+    list.onSelect = (item) => {
+      const choice = this.filtered[Number(item.value)];
+      if (!choice) return;
+      this.input.onSelect(choice);
+    };
+    list.onCancel = () => this.input.onCancel();
+    return list;
+  }
+
+  private applyQuery(text: string): void {
+    const query = text.trim().toLowerCase();
+    const next = query
+      ? this.input.choices.filter((choice) => matchesModelChoice(choice, query))
+      : this.input.choices;
+    if (next === this.filtered) return;
+    this.filtered = next;
+    this.list = this.buildList();
+  }
+
+  invalidate(): void {
+    this.searchEditor.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    // Arrows and Enter drive the list; everything else is typed into the search
+    // field (mirrors the OnboardingWizard search phase).
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (isKeyRepeat(data)) return;
+      this.list.handleInput(data);
+      return;
+    }
+    this.searchEditor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    this.searchEditor.focused = true;
+    return [
+      padLine(`Select Model ${ansi.accent(String(this.filtered.length))}`, safeWidth),
+      padLine(ansi.dim('搜索模型 / 服务商 / 连接 · ↑↓ 选择 · Enter 确认 · Esc 取消'), safeWidth),
+      padLine('', safeWidth),
+      ...this.renderFieldRow(this.searchEditor, '搜索', safeWidth),
+      padLine('', safeWidth),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的模型'), safeWidth)]
+        : this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth))),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
+  }
+
+  private renderFieldRow(editor: Editor, label: string, width: number): string[] {
+    const prefix = `${label} `;
+    const prefixWidth = visibleWidth(prefix);
+    const contentWidth = Math.max(1, width - prefixWidth);
+    const editorLines = editor.render(contentWidth).slice(1, -1);
+    if (editorLines.length === 0) {
+      return [padLine(prefix, width)];
+    }
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width),
+    );
+  }
 }
 
 export function permissionModePickerItems(currentMode: PermissionMode): SelectItem[] {
