@@ -35,6 +35,8 @@ export const MAIN_PROCESS_SOURCE_REPO_PATHS: readonly string[] = [
   'apps/desktop/src/main/subscription-model-fetch.ts',
   'apps/desktop/src/main/subscription-ipc-main.ts',
   'apps/desktop/src/main/system-prompt-main.ts',
+  'apps/desktop/src/main/tool-assembly.ts',
+  'apps/desktop/src/main/tool-artifact-persistence.ts',
   'apps/desktop/src/main/usage-ipc-main.ts',
   'apps/desktop/src/main/web-search-ipc-main.ts',
   'apps/desktop/src/main/workspace-instructions-ipc-main.ts',

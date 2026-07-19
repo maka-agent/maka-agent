@@ -6,6 +6,7 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AttachmentRef, SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView, LocaleProvider } from '@maka/ui';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = process.cwd().endsWith('apps/desktop')
   ? resolve(process.cwd(), '..', '..')
@@ -106,7 +107,10 @@ describe('attachment frontend contract', () => {
   });
 
   it('snapshots Read images and notifies the existing artifact preview flow', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    // Read image snapshotting moved into tool-artifact-persistence.ts and the
+    // builtin-tool wiring into tool-assembly.ts (arch R4); `storeReadImage`
+    // stays in main.ts. The combined main-process source spans all three.
+    const main = await readMainProcessCombinedSource();
     const artifactAttachments = await readRepo('packages/storage/src/artifact-attachments.ts');
 
     assert.match(main, /snapshotImage: snapshotReadImage/);

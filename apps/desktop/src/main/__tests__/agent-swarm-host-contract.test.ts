@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, test } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../../');
 
+// `desktop` reads the combined main-process source: the parent Agent tool
+// builder and the deferred-group projection now live in tool-assembly.ts
+// (arch R4), still part of the same main-process surface this contract locks.
 describe('AgentSwarm host registration contract', () => {
   test('desktop, CLI, and headless use the same parent Agent tool builder', async () => {
     const [desktop, cli, headless] = await Promise.all([
-      readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8'),
+      readMainProcessCombinedSource(),
       readFile(resolve(REPO_ROOT, 'packages/cli/src/runtime-bootstrap.ts'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'packages/headless/src/tools.ts'), 'utf8'),
     ]);
@@ -31,7 +35,7 @@ describe('AgentSwarm host registration contract', () => {
 
   test('all hosts derive deferred groups from the shared catalog', async () => {
     const [desktop, cli, headless, catalog] = await Promise.all([
-      readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8'),
+      readMainProcessCombinedSource(),
       readFile(resolve(REPO_ROOT, 'packages/cli/src/runtime-bootstrap.ts'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'packages/headless/src/tools.ts'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'packages/core/src/tool-catalog.ts'), 'utf8'),

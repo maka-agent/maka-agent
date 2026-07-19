@@ -31,16 +31,18 @@ describe('permission response IPC boundary', () => {
   });
 
   it('registers AskUserQuestion only on the Desktop root tool surface and routes its response', async () => {
-    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
     const main = await readMainProcessCombinedSource();
     // Root surface is assembled as toolsBeforeSkill + Skill + toolsAfterSkill → builtinTools.
+    // The tool surface moved into tool-assembly.ts (arch R4), so the block
+    // closers are now indented inside assembleDesktopTools — tolerate leading
+    // whitespace on the closing bracket.
     const rootBeforeSkill =
-      main.match(/const toolsBeforeSkill: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
+      main.match(/const toolsBeforeSkill: MakaTool\[\] = \[[\s\S]*?\n\s*\];/)?.[0] ?? '';
     const rootBuiltin =
       main.match(
         /const builtinTools: MakaTool\[\] = \[\.\.\.toolsBeforeSkill, skillTool, \.\.\.toolsAfterSkill\];/,
       )?.[0] ?? '';
-    const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\]\);/)?.[0] ?? '';
+    const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\s*\]\);/)?.[0] ?? '';
     const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
     assert.match(rootBeforeSkill, /buildAskUserQuestionTool\(\)/);
