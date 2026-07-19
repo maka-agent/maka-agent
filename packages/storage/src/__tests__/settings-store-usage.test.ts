@@ -138,7 +138,15 @@ describe('SettingsStore.usageStats request logs', () => {
       // are only unique within a session, so both sessions reuse `bash`/`read`
       // ids to prove result matching stays session-scoped after the merge.
       const bashTurn = (sessionId: string, error: boolean, duration: number): StoredMessage[] => [
-        { type: 'tool_call', id: 'bash', turnId: 't1', ts: 10, toolName: 'Bash', displayName: '终端', args: {} },
+        {
+          type: 'tool_call',
+          id: 'bash',
+          turnId: 't1',
+          ts: 10,
+          toolName: 'Bash',
+          displayName: '终端',
+          args: {},
+        },
         {
           type: 'tool_result',
           id: 'bash-result',
@@ -153,7 +161,15 @@ describe('SettingsStore.usageStats request logs', () => {
 
       await seedSession(workspaceRoot, makeHeader({ id: 'session-a' }), [
         ...bashTurn('session-a', false, 20),
-        { type: 'tool_call', id: 'read', turnId: 't1', ts: 12, toolName: 'Read', displayName: '读取', args: {} },
+        {
+          type: 'tool_call',
+          id: 'read',
+          turnId: 't1',
+          ts: 12,
+          toolName: 'Read',
+          displayName: '读取',
+          args: {},
+        },
         {
           type: 'tool_result',
           id: 'read-result',
