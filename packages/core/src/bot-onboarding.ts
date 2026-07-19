@@ -7,7 +7,7 @@ export const BOT_ONBOARDING_PROVIDERS = [
   'wechat',
 ] as const satisfies ReadonlyArray<BotProvider>;
 
-export type BotOnboardingProvider = typeof BOT_ONBOARDING_PROVIDERS[number];
+export type BotOnboardingProvider = (typeof BOT_ONBOARDING_PROVIDERS)[number];
 export type BotOnboardingBrand = 'feishu' | 'lark';
 
 export const BOT_ONBOARDING_STATES = [
@@ -21,7 +21,7 @@ export const BOT_ONBOARDING_STATES = [
   'error',
 ] as const;
 
-export type BotOnboardingState = typeof BOT_ONBOARDING_STATES[number];
+export type BotOnboardingState = (typeof BOT_ONBOARDING_STATES)[number];
 
 export interface BotOnboardingStartInput {
   provider: BotOnboardingProvider;
@@ -47,11 +47,20 @@ export interface BotOnboardingSnapshot {
     displayName?: string;
   };
   error?: string;
+  /**
+   * Set on a `connected` snapshot when the channel was saved successfully but
+   * the live bridge did not reach a running/healthy state within the commit
+   * window. The saved channel is valid and persisted; this is an honest,
+   * redacted notice (never carries provider credentials) that the connection
+   * still needs to be (re)established — never a hard failure of onboarding.
+   */
+  warning?: string;
 }
 
 export function isBotOnboardingProvider(value: unknown): value is BotOnboardingProvider {
-  return typeof value === 'string'
-    && (BOT_ONBOARDING_PROVIDERS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (BOT_ONBOARDING_PROVIDERS as readonly string[]).includes(value)
+  );
 }
 
 export function isBotOnboardingBrand(value: unknown): value is BotOnboardingBrand {

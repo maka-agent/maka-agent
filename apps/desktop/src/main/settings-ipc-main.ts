@@ -8,6 +8,7 @@ import type {
   BotOnboardingSnapshot,
   BotOnboardingStartInput,
   BotProvider,
+  BotReadinessState,
   SettingsTestResult,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
@@ -44,6 +45,9 @@ export interface SettingsIpcDeps {
   applySettingsRuntimeEffects: (settings: AppSettings, patch: UpdateAppSettingsInput) => Promise<void>;
   botOnboardingAdapters?: Partial<Record<BotOnboardingStartInput['provider'], BotOnboardingProviderAdapter>>;
   botOnboardingApplySettingsRuntimeEffects?: (settings: AppSettings, patch: UpdateAppSettingsInput) => Promise<void>;
+  botOnboardingReadChannelStatus?: (
+    provider: BotOnboardingStartInput['provider'],
+  ) => { running: boolean; reason?: string };
 }
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
@@ -59,13 +63,21 @@ function proxyTestFailureMessage(result: TestProxyResult): string {
   return '代理不可达，请检查代理服务器地址、端口或认证信息。';
 }
 
-export function registerSettingsIpc(deps: SettingsIpcDeps): void {
+export interface SettingsIpcHandle {
+  /** Tear down onboarding sessions (abort polls, clear the session map). */
+  dispose(): void;
+}
+
+export function registerSettingsIpc(deps: SettingsIpcDeps): SettingsIpcHandle {
   const { settingsStore, botRegistry, normalizeSettingsPatch, applySettingsRuntimeEffects } = deps;
   const botOnboarding = new BotOnboardingService({
     settingsStore,
     botRegistry,
     applySettingsRuntimeEffects: deps.botOnboardingApplySettingsRuntimeEffects ?? applySettingsRuntimeEffects,
     adapters: deps.botOnboardingAdapters,
+    ...(deps.botOnboardingReadChannelStatus
+      ? { readChannelStatus: deps.botOnboardingReadChannelStatus }
+      : {}),
     productVersion: app.getVersion(),
     openExternal: (url) => shell.openExternal(url),
   });
@@ -111,17 +123,25 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   ipcMain.handle('settings:testBotChannel', async (_event, provider: BotProvider) => {
     const settings = await settingsStore.get();
     const result = await testRuntimeBotChannel(provider, settings.botChat.channels[provider]);
+    // PR1197 review (P1-4): an unverified probe (`verified === false`, e.g. the
+    // WeCom AI-bot shape check) proves nothing about live connectivity, so it
+    // must NOT overwrite connected/readiness — doing so would mark a working
+    // channel disconnected. Record only that a test ran; the live bridge status
+    // stays authoritative. A real credential probe persists the outcome as before.
+    const channelPatch = result.verified === false
+      ? { lastTestAt: Date.now() }
+      : {
+          connected: result.ok,
+          readiness: (result.ok ? 'credentials_valid' : 'configured') as BotReadinessState,
+          readinessReason: result.ok ? undefined : botTestErrorMessage(provider, result.error),
+          readinessUpdatedAt: Date.now(),
+          lastTestAt: Date.now(),
+          lastError: result.ok ? undefined : botTestErrorMessage(provider, result.error),
+        };
     await settingsStore.update({
       botChat: {
         channels: {
-          [provider]: {
-            connected: result.ok,
-            readiness: result.ok ? 'credentials_valid' : 'configured',
-            readinessReason: result.ok ? undefined : botTestErrorMessage(provider, result.error),
-            readinessUpdatedAt: Date.now(),
-            lastTestAt: Date.now(),
-            lastError: result.ok ? undefined : botTestErrorMessage(provider, result.error),
-          },
+          [provider]: channelPatch,
         },
       },
     });
@@ -168,4 +188,6 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
     const settings = await settingsStore.get();
     return getWechatBridgeQrCode(settings.botChat.channels.wechat);
   });
+
+  return { dispose: () => botOnboarding.dispose() };
 }

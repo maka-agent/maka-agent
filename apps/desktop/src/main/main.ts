@@ -182,6 +182,7 @@ import { registerOnboardingIpc } from './onboarding-ipc-main.js';
 import { registerSessionEntryIpc } from './session-entry-ipc-main.js';
 import { registerPermissionsIpc } from './permissions-ipc-main.js';
 import { registerSettingsIpc } from './settings-ipc-main.js';
+import type { SettingsIpcHandle } from './settings-ipc-main.js';
 import { createVisualSmokeBotOnboardingAdapters } from './bot-onboarding-visual-smoke.js';
 import { createKeepSystemAwakeController } from './keep-system-awake.js';
 import { registerGatewayIpc } from './gateway-ipc-main.js';
@@ -1115,6 +1116,7 @@ const runtime = new SessionManager({
   newId: randomUUID,
   now: Date.now,
 });
+let settingsIpc: SettingsIpcHandle | undefined;
 let mcpToolSnapshot = JSON.stringify(mcpManager.tools());
 mcpManager.onChange(() => {
   safeSendToRenderer('mcp:changed', mcpManager.statuses());
@@ -1274,7 +1276,7 @@ function registerIpc(): void {
     botRegistry,
     getComputerUseCapabilityInput: computerUseCapabilityInput,
   });
-  registerSettingsIpc({
+  settingsIpc = registerSettingsIpc({
     settingsStore,
     botRegistry,
     normalizeSettingsPatch,
@@ -1283,6 +1285,11 @@ function registerIpc(): void {
       ? {
           botOnboardingAdapters: createVisualSmokeBotOnboardingAdapters(),
           botOnboardingApplySettingsRuntimeEffects: async () => undefined,
+          // The fixture no-ops runtime effects, so no real bridge starts.
+          // Report the onboarded channel as running to demonstrate the
+          // successful "connected" path (the P0-3 warning path is covered by
+          // bot-onboarding-main.test.ts).
+          botOnboardingReadChannelStatus: () => ({ running: true }),
         }
       : {}),
   });
@@ -1785,6 +1792,7 @@ async function runBeforeQuitCleanup(): Promise<void> {
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
+  settingsIpc?.dispose();
   const results = await Promise.allSettled([
     Promise.resolve().then(() => computerUseOverlay.destroyAll()),
     Promise.resolve().then(() => computerUse.backend?.dispose?.()),

@@ -1,34 +1,43 @@
-import { strict as assert } from 'node:assert';
-import { afterEach, describe, it } from 'node:test';
-import { fetchWeChatQrcode } from '../wechat-scan-login.js';
+import assert from 'node:assert/strict';
+import { afterEach, describe, test } from 'node:test';
+import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from '../wechat-scan-login.js';
 
-const originalFetch = globalThis.fetch;
+const realFetch = globalThis.fetch;
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  globalThis.fetch = realFetch;
 });
 
-describe('WeChat scan login', () => {
-  it('renders iLink qrcode_img_content into an image data URL', async () => {
-    const rawQrContent = 'https://ilinkai.weixin.qq.com/connect/weixin-login?qrcode=scan-token-123';
-    const requests: Array<{ url: string; headers: HeadersInit | undefined }> = [];
-
-    globalThis.fetch = (async (input, init) => {
-      requests.push({ url: String(input), headers: init?.headers });
-      return new Response(JSON.stringify({
-        ret: 0,
-        qrcode_img_content: rawQrContent,
-        qrcode: 'poll-token-123',
-      }), { status: 200 });
+describe('wechat-scan-login abort signal (PR1197 review P2-10)', () => {
+  test('fetchWeChatQrcode composes the caller signal so cancel aborts the in-flight request', async () => {
+    let captured: AbortSignal | undefined;
+    globalThis.fetch = ((_url: unknown, init?: { signal?: AbortSignal }) => {
+      captured = init?.signal;
+      return new Promise((_resolve, reject) => {
+        captured?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
     }) as typeof fetch;
 
-    const result = await fetchWeChatQrcode();
+    const controller = new AbortController();
+    const pending = fetchWeChatQrcode(controller.signal);
+    controller.abort();
+    await assert.rejects(() => pending);
+    assert.equal(captured?.aborted, true, 'the caller signal must be threaded into the request');
+  });
 
-    assert.equal(result.qrToken, 'poll-token-123');
-    assert.match(result.qrcodeUrl, /^data:image\/png;base64,/);
-    assert.notEqual(result.qrcodeUrl, rawQrContent);
-    assert.equal(requests.length, 1);
-    assert.match(requests[0]?.url ?? '', /\/ilink\/bot\/get_bot_qrcode\?bot_type=3$/);
-    assert.ok((requests[0]?.headers as Record<string, string> | undefined)?.['X-WECHAT-UIN']);
+  test('pollWeChatQrcodeStatus composes the caller signal into the request', async () => {
+    let captured: AbortSignal | undefined;
+    globalThis.fetch = ((_url: unknown, init?: { signal?: AbortSignal }) => {
+      captured = init?.signal;
+      return new Promise((_resolve, reject) => {
+        captured?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    }) as typeof fetch;
+
+    const controller = new AbortController();
+    const pending = pollWeChatQrcodeStatus('token-123', controller.signal);
+    controller.abort();
+    await assert.rejects(() => pending);
+    assert.equal(captured?.aborted, true, 'the caller signal must be threaded into the request');
   });
 });

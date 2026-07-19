@@ -84,31 +84,38 @@ function looksLikeBase64Png(value: string): boolean {
   return value.length > 80 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
 }
 
-async function ilinkGet<T>(path: string, timeoutMs: number, extraHeaders: Record<string, string> = {}): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+async function ilinkGet<T>(
+  path: string,
+  timeoutMs: number,
+  extraHeaders: Record<string, string> = {},
+  signal?: AbortSignal,
+): Promise<T> {
+  // PR1197 review (P2-10): compose any caller-supplied session signal with the
+  // internal timeout so cancelling the onboarding session aborts the in-flight
+  // request instead of leaking it until the timeout fires.
+  const composed = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+    : AbortSignal.timeout(timeoutMs);
+  const response = await fetch(`${ILINK_BASE_URL}${path}`, {
+    method: 'GET',
+    headers: { 'X-WECHAT-UIN': wechatUinHeader(), ...extraHeaders },
+    signal: composed,
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
   try {
-    const response = await fetch(`${ILINK_BASE_URL}${path}`, {
-      method: 'GET',
-      headers: { 'X-WECHAT-UIN': wechatUinHeader(), ...extraHeaders },
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      throw new Error(`Non-JSON response: ${text.slice(0, 200)}`);
-    }
-  } finally {
-    clearTimeout(timer);
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Non-JSON response: ${text.slice(0, 200)}`);
   }
 }
 
-export async function fetchWeChatQrcode(): Promise<WeChatQrcode> {
+export async function fetchWeChatQrcode(signal?: AbortSignal): Promise<WeChatQrcode> {
   const payload = await ilinkGet<{ ret?: number; qrcode_img_content?: string; qrcode?: string }>(
     '/ilink/bot/get_bot_qrcode?bot_type=3',
     QR_FETCH_TIMEOUT_MS,
+    {},
+    signal,
   );
   if (typeof payload.ret === 'number' && payload.ret !== 0) {
     throw new Error(`QR fetch returned ret=${payload.ret}`);
@@ -121,7 +128,7 @@ export async function fetchWeChatQrcode(): Promise<WeChatQrcode> {
   return { qrcodeUrl: await renderWeChatQrcode(qrcodeContent), qrToken };
 }
 
-export async function pollWeChatQrcodeStatus(qrToken: string): Promise<WeChatQrcodeStatus> {
+export async function pollWeChatQrcodeStatus(qrToken: string, signal?: AbortSignal): Promise<WeChatQrcodeStatus> {
   if (!qrToken) throw new Error('qrToken required');
   const payload = await ilinkGet<{
     status?: string;
@@ -133,6 +140,7 @@ export async function pollWeChatQrcodeStatus(qrToken: string): Promise<WeChatQrc
     `/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrToken)}`,
     QR_STATUS_TIMEOUT_MS,
     { 'iLink-App-ClientVersion': '1' },
+    signal,
   );
   const status = payload.status ?? 'waiting';
   if (status === 'confirmed') {

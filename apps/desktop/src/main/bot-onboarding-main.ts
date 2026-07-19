@@ -10,8 +10,14 @@ import type {
   BotOnboardingState,
   UpdateAppSettingsInput,
 } from '@maka/core';
-import { isBotOnboardingBrand, isBotOnboardingProvider } from '@maka/core';
+import {
+  generalizedErrorMessageChinese,
+  isBotOnboardingBrand,
+  isBotOnboardingProvider,
+  redactSecrets,
+} from '@maka/core';
 import type { BotRegistry } from '@maka/runtime';
+import { proxiedFetch } from '@maka/runtime';
 import type { SettingsStore } from '@maka/storage';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 
@@ -20,6 +26,23 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const MAX_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_EXPIRES_IN_SECONDS = 10 * 60;
 const DINGTALK_EXPIRES_IN_SECONDS = 2 * 60 * 60;
+/** Consecutive transient poll failures tolerated before a session goes terminal. */
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
+
+/**
+ * Channel fields written by `channelPatchFromCredential` that are NOT part of
+ * the credential identity: the runtime status/readiness writer owns these and
+ * mutates them concurrently. They must be excluded from the rollback CAS
+ * predicate (see rollbackCredential) so an unrelated status write cannot defeat
+ * a cancel rollback.
+ */
+const VOLATILE_STATUS_FIELDS: ReadonlyArray<keyof BotChannelSettings> = [
+  'connected',
+  'readiness',
+  'readinessReason',
+  'readinessUpdatedAt',
+  'lastError',
+];
 
 type OnboardingCredential =
   | { provider: 'dingtalk'; clientId: string; clientSecret: string }
@@ -59,8 +82,10 @@ interface BotOnboardingSession {
   nextPollAt: number;
   controller: AbortController;
   pollPromise?: Promise<BotOnboardingSnapshot>;
+  pollFailures: number;
   identity?: { id?: string; displayName?: string };
   error?: string;
+  warning?: string;
 }
 
 export interface BotOnboardingServiceDeps {
@@ -72,6 +97,13 @@ export interface BotOnboardingServiceDeps {
   createId?: () => string;
   openExternal?: (url: string) => Promise<unknown>;
   productVersion?: string;
+  /**
+   * Fixture/test seam for the post-persist connection-health read (P0-3).
+   * Defaults to the live `botRegistry.getStatus`. The dev-only visual-smoke
+   * fixture overrides it because it deliberately no-ops runtime effects (so no
+   * real bridge starts) yet still demonstrates the successful "connected" path.
+   */
+  readChannelStatus?: (provider: BotOnboardingProvider) => { running: boolean; reason?: string };
 }
 
 /**
@@ -85,6 +117,7 @@ export class BotOnboardingService {
   private readonly now: () => number;
   private readonly createId: () => string;
   private readonly openExternal: (url: string) => Promise<unknown>;
+  private readonly readChannelStatus: (provider: BotOnboardingProvider) => { running: boolean; reason?: string };
 
   constructor(private readonly deps: BotOnboardingServiceDeps) {
     this.adapters = createProductionBotOnboardingAdapters(deps.productVersion ?? '0.1.0');
@@ -94,6 +127,8 @@ export class BotOnboardingService {
     }
     this.now = deps.now ?? Date.now;
     this.createId = deps.createId ?? randomUUID;
+    this.readChannelStatus = deps.readChannelStatus
+      ?? ((provider) => this.deps.botRegistry.getStatus(provider));
     this.openExternal = deps.openExternal ?? (async () => {
       throw new Error('External browser opening is unavailable');
     });
@@ -102,6 +137,10 @@ export class BotOnboardingService {
   async start(rawInput: unknown): Promise<BotOnboardingSnapshot> {
     const input = parseStartInput(rawInput);
     this.cancelCurrent(input.provider);
+    // PR1197 review (P2-9): the session map is otherwise append-only. Evict
+    // terminal/superseded sessions (never the live current one per provider) so
+    // repeated onboarding attempts don't leak session objects for the app's life.
+    this.pruneSessions();
 
     const session: BotOnboardingSession = {
       id: this.createId(),
@@ -111,6 +150,7 @@ export class BotOnboardingService {
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
       nextPollAt: 0,
       controller: new AbortController(),
+      pollFailures: 0,
     };
     this.sessions.set(session.id, session);
     this.currentByProvider.set(session.provider, session.id);
@@ -128,7 +168,10 @@ export class BotOnboardingService {
       session.expiresAt = this.now() + Math.max(1, result.expiresInSeconds) * 1_000;
       session.nextPollAt = this.now() + session.pollIntervalMs;
       session.state = 'waiting';
-      return this.snapshot(session);
+      // PR1197 review (P2-13): the QR data URL is large; emit it only on the
+      // start snapshot. The modal caches it and every subsequent poll snapshot
+      // omits it to keep the IPC payload small.
+      return this.snapshot(session, true);
     } catch (error) {
       if (session.controller.signal.aborted || !this.isCurrent(session)) {
         session.state = 'cancelled';
@@ -184,6 +227,8 @@ export class BotOnboardingService {
     try {
       const result = await this.adapters[session.provider].poll(session, session.controller.signal);
       this.assertCurrent(session);
+      // A response of any kind clears the transient-failure streak.
+      session.pollFailures = 0;
       switch (result.status) {
         case 'pending':
           session.state = 'waiting';
@@ -212,6 +257,13 @@ export class BotOnboardingService {
           this.assertCurrent(session);
           session.identity = result.identity ?? identityFromCredential(result.credential);
           session.state = 'connected';
+          // PR1197 review (P0-3): credentials are saved and valid, but the live
+          // bridge may have failed to start (bot-registry swallows start()
+          // errors — logs only). Read the channel's REAL runtime status; if the
+          // bridge is not running, surface an honest warning instead of lying
+          // about a healthy connection. Onboarding still succeeds — the user can
+          // retry the connection later from settings.
+          session.warning = this.connectionWarning(session.provider);
           break;
       }
       return this.snapshot(session);
@@ -219,6 +271,20 @@ export class BotOnboardingService {
       if (session.controller.signal.aborted || !this.isCurrent(session)) {
         session.state = 'cancelled';
         return this.snapshot(session);
+      }
+      // PR1197 review (P1-5): a transient blip (timeout / network / server 5xx /
+      // 429) must not burn a still-valid, possibly long-lived device code (e.g.
+      // DingTalk's 2h window). Keep the session in its waiting/scanned state and
+      // retry with backoff until enough CONSECUTIVE failures accumulate; only
+      // then surface a terminal error. A definite provider/protocol error is
+      // fatal immediately.
+      if (isTransientPollError(error)) {
+        session.pollFailures += 1;
+        if (session.pollFailures < MAX_CONSECUTIVE_POLL_FAILURES) {
+          session.pollIntervalMs = Math.min(session.pollIntervalMs + 2_000, MAX_POLL_INTERVAL_MS);
+          session.nextPollAt = this.now() + session.pollIntervalMs;
+          return this.snapshot(session);
+        }
       }
       session.state = 'error';
       session.error = safeProviderError(error);
@@ -238,15 +304,12 @@ export class BotOnboardingService {
     const next = await this.deps.settingsStore.update(patch);
     const installedChannel = next.botChat.channels[session.provider];
     const ownedFields = Object.keys(channelPatch) as Array<keyof BotChannelSettings>;
-    if (!this.isCurrent(session)) {
-      await this.rollbackCredential(session.provider, previousChannel, installedChannel, ownedFields);
-      this.assertCurrent(session);
-    }
+    // Guard both sides of the runtime-effect commit window: if the session was
+    // superseded/cancelled either right after the write or during the effect,
+    // roll the credential back and bail.
+    await this.rollbackIfSuperseded(session, previousChannel, installedChannel, ownedFields);
     await this.deps.applySettingsRuntimeEffects(next, patch);
-    if (!this.isCurrent(session)) {
-      await this.rollbackCredential(session.provider, previousChannel, installedChannel, ownedFields);
-      this.assertCurrent(session);
-    }
+    await this.rollbackIfSuperseded(session, previousChannel, installedChannel, ownedFields);
     const runtimeStatus = this.deps.botRegistry.getStatus(session.provider);
     if (runtimeStatus.identity) {
       session.identity = {
@@ -254,6 +317,17 @@ export class BotOnboardingService {
         displayName: runtimeStatus.identity.displayName ?? runtimeStatus.identity.username,
       };
     }
+  }
+
+  private async rollbackIfSuperseded(
+    session: BotOnboardingSession,
+    previousChannel: AppSettings['botChat']['channels'][BotOnboardingProvider],
+    installedChannel: BotChannelSettings,
+    ownedFields: ReadonlyArray<keyof BotChannelSettings>,
+  ): Promise<void> {
+    if (this.isCurrent(session)) return;
+    await this.rollbackCredential(session.provider, previousChannel, installedChannel, ownedFields);
+    this.assertCurrent(session);
   }
 
   private async rollbackCredential(
@@ -266,17 +340,43 @@ export class BotOnboardingService {
     const rollbackPatch: UpdateAppSettingsInput = {
       botChat: { channels: { [provider]: previousValues } },
     };
+    // PR1197 review (P0-2): the CAS predicate must compare ONLY the
+    // credential-identity fields this onboarding owns exclusively. The full
+    // `ownedFields` set also carries volatile status fields
+    // (connected/readiness/readinessReason/readinessUpdatedAt/lastError) that
+    // main.ts's concurrent onStatusChange persistence writer mutates during the
+    // applySettingsRuntimeEffects window. Comparing those would let an unrelated
+    // status write flip the predicate false and silently no-op the rollback,
+    // leaving live credentials behind after a cancel. Narrowing to the identity
+    // fields keeps the safety property the ":195" test pins: a LATER
+    // user-initiated credential edit (which DOES change identity fields) still
+    // flips the predicate false and is never clobbered.
+    const identityFields = ownedFields.filter((field) => !VOLATILE_STATUS_FIELDS.includes(field));
     const rollback = await this.deps.settingsStore.updateIf(
       (current) => channelFieldsEqual(
         current.botChat.channels[provider],
         installedChannel,
-        ownedFields,
+        identityFields,
       ),
       rollbackPatch,
     );
     if (rollback.applied) {
       await this.deps.applySettingsRuntimeEffects(rollback.settings, rollbackPatch);
     }
+  }
+
+  /**
+   * Inspect the live bridge status for a just-persisted channel. Returns an
+   * honest, secret-free notice when the credentials were saved but the bridge
+   * is not actually running, or `undefined` when the connection is healthy.
+   */
+  private connectionWarning(provider: BotOnboardingProvider): string | undefined {
+    const status = this.readChannelStatus(provider);
+    if (status.running) return undefined;
+    const reason = connectionFailureReason(status.reason);
+    return reason
+      ? `凭据已保存，但连接未建立：${reason}，可稍后在设置中重试。`
+      : '凭据已保存，但连接未建立，可稍后在设置中重试。';
   }
 
   private getSession(rawSessionId: unknown): BotOnboardingSession {
@@ -291,6 +391,16 @@ export class BotOnboardingService {
     if (!currentId) return;
     const current = this.sessions.get(currentId);
     if (current) this.cancelSession(current);
+  }
+
+  /** Drop terminal/superseded sessions, always keeping the live current one. */
+  private pruneSessions(): void {
+    for (const [id, session] of this.sessions) {
+      if (this.currentByProvider.get(session.provider) === id) continue;
+      if (session.controller.signal.aborted || isTerminalOnboardingState(session.state)) {
+        this.sessions.delete(id);
+      }
+    }
   }
 
   private cancelSession(session: BotOnboardingSession): void {
@@ -312,19 +422,20 @@ export class BotOnboardingService {
     if (!this.isCurrent(session)) throw new Error('Bot onboarding session is no longer active');
   }
 
-  private snapshot(session: BotOnboardingSession): BotOnboardingSnapshot {
+  private snapshot(session: BotOnboardingSession, includeQrCode = false): BotOnboardingSnapshot {
     const state = session.state === 'starting' ? 'waiting' : session.state;
     return {
       sessionId: session.id,
       provider: session.provider,
       ...(session.brand ? { brand: session.brand } : {}),
       state,
-      ...(session.qrCodeDataUrl ? { qrCodeDataUrl: session.qrCodeDataUrl } : {}),
+      ...(includeQrCode && session.qrCodeDataUrl ? { qrCodeDataUrl: session.qrCodeDataUrl } : {}),
       ...(session.expiresAt !== undefined ? { expiresAt: session.expiresAt } : {}),
       nextPollAfterMs: Math.max(0, session.nextPollAt - this.now()),
       canOpenInBrowser: Boolean(session.verificationUrl),
       ...(session.identity ? { identity: { ...session.identity } } : {}),
       ...(session.error ? { error: session.error } : {}),
+      ...(session.warning ? { warning: session.warning } : {}),
     };
   }
 }
@@ -338,6 +449,14 @@ function parseStartInput(value: unknown): BotOnboardingStartInput {
   return { provider: raw.provider, ...(raw.brand ? { brand: raw.brand } : {}) };
 }
 
+function isTerminalOnboardingState(state: BotOnboardingSession['state']): boolean {
+  return state === 'connected'
+    || state === 'expired'
+    || state === 'denied'
+    || state === 'cancelled'
+    || state === 'error';
+}
+
 function clampPollInterval(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_POLL_INTERVAL_MS;
   return Math.min(Math.max(Math.round(value), 1_000), MAX_POLL_INTERVAL_MS);
@@ -345,7 +464,30 @@ function clampPollInterval(value: number): number {
 
 function safeProviderError(error: unknown): string {
   if (error instanceof Error && error.name === 'AbortError') return '扫码接入已取消。';
-  return '扫码接入暂时不可用，请稍后重试。';
+  // PR1197 review (P2-11): route through the shared categorizer so 超时 / 鉴权失败 /
+  // 网络错误 survive as specific Chinese copy instead of collapsing to one generic
+  // line. The helper redacts secrets before returning.
+  return generalizedErrorMessageChinese(error, '扫码接入暂时不可用，请稍后重试。');
+}
+
+/**
+ * Classify a poll error as a transient blip worth retrying (timeout, network
+ * fault, server 5xx, or 429 rate limit) versus a fatal provider/protocol error.
+ * User-initiated aborts are filtered out before this runs.
+ */
+function isTransientPollError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return true;
+  const message = error.message.toLowerCase();
+  if (/fetch failed|network|socket|econn|enotfound|eai_again|und_err|timeout|timed out/.test(message)) {
+    return true;
+  }
+  const httpMatch = message.match(/http (\d{3})/);
+  if (httpMatch) {
+    const status = Number(httpMatch[1]);
+    return status === 429 || status >= 500;
+  }
+  return false;
 }
 
 function channelPatchFromCredential(credential: OnboardingCredential): Partial<BotChannelSettings> {
@@ -394,6 +536,32 @@ function channelFieldsEqual(
   return fields.every((field) => Object.is(current[field], expected[field]));
 }
 
+/**
+ * Turn a live-bridge `status.reason` into a short, redacted, user-facing cause
+ * for the "credentials saved but not connected" warning. Transient lifecycle
+ * markers carry no useful signal, so they collapse to `undefined` (the caller
+ * then uses generic copy).
+ */
+function connectionFailureReason(reason: string | undefined): string | undefined {
+  if (typeof reason !== 'string') return undefined;
+  const trimmed = redactSecrets(reason).trim();
+  if (!trimmed || trimmed === 'stopped' || trimmed === 'reconnecting') return undefined;
+  return trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+}
+
+/**
+ * PR1197 review (P1-6): map an undocumented WeCom `qc/query_result` status to a
+ * terminal onboarding outcome, or `undefined` to keep polling. A user
+ * cancel/reject reads as `denied`; any other recognizable dead/expired marker
+ * reads as `expired`. Kept pure + exported so the mapping is unit-testable.
+ */
+export function wecomTerminalPollStatus(status: unknown): 'expired' | 'denied' | undefined {
+  if (typeof status !== 'string') return undefined;
+  if (/cancel|reject|refuse/i.test(status)) return 'denied';
+  if (/expire|timeout|invalid|fail/i.test(status)) return 'expired';
+  return undefined;
+}
+
 function identityFromCredential(credential: OnboardingCredential): { id?: string; displayName?: string } {
   switch (credential.provider) {
     case 'dingtalk': return { id: credential.clientId };
@@ -414,27 +582,29 @@ async function renderQrCode(value: string): Promise<string> {
   return qrcode.toDataURL(value, { width: 320, margin: 2, errorCorrectionLevel: 'M' });
 }
 
-function requestSignal(signal: AbortSignal): AbortSignal {
-  return AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
-}
-
+// PR1197 review (P2-12): all onboarding HTTP goes through proxiedFetch so a
+// proxy user's device-code handshake is not silently routed direct. proxiedFetch
+// composes the passed session signal with its own timeout, preserving the
+// previous AbortSignal.any(signal, timeout) semantics.
 async function postJson(url: string, body: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, any>> {
-  const response = await fetch(url, {
+  const response = await proxiedFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: requestSignal(signal),
+    signal,
+    timeoutMs: REQUEST_TIMEOUT_MS,
   });
   if (!response.ok) throw new Error(`Provider request failed with HTTP ${response.status}`);
   return response.json() as Promise<Record<string, any>>;
 }
 
 async function postForm(url: string, body: Record<string, string>, signal: AbortSignal): Promise<Record<string, any>> {
-  const response = await fetch(url, {
+  const response = await proxiedFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(body).toString(),
-    signal: requestSignal(signal),
+    signal,
+    timeoutMs: REQUEST_TIMEOUT_MS,
   });
   const json = await response.json().catch(() => ({})) as Record<string, any>;
   if (!response.ok && typeof json.error !== 'string') {
@@ -555,9 +725,9 @@ function createProductionBotOnboardingAdapters(productVersion: string): Record<B
     },
     wecom: {
       async start(_input, signal) {
-        const response = await fetch(
+        const response = await proxiedFetch(
           `https://work.weixin.qq.com/ai/qc/generate?source=maka&plat=${platformCode()}`,
-          { signal: requestSignal(signal) },
+          { signal, timeoutMs: REQUEST_TIMEOUT_MS },
         );
         if (!response.ok) throw new Error(`WeCom QR generation failed with HTTP ${response.status}`);
         const json = await response.json() as { data?: { scode?: unknown; auth_url?: unknown } };
@@ -573,29 +743,39 @@ function createProductionBotOnboardingAdapters(productVersion: string): Record<B
         };
       },
       async poll(session, signal) {
-        const response = await fetch(
+        const response = await proxiedFetch(
           `https://work.weixin.qq.com/ai/qc/query_result?scode=${encodeURIComponent(session.opaqueToken ?? '')}`,
-          { signal: requestSignal(signal) },
+          { signal, timeoutMs: REQUEST_TIMEOUT_MS },
         );
         if (!response.ok) throw new Error(`WeCom QR poll failed with HTTP ${response.status}`);
         const json = await response.json() as {
           data?: { status?: unknown; bot_info?: { botid?: unknown; secret?: unknown } };
         };
-        if (json.data?.status !== 'success') return { status: 'pending' };
-        const info = json.data.bot_info;
-        if (typeof info?.botid !== 'string' || typeof info.secret !== 'string') {
-          throw new Error('WeCom registration returned incomplete credentials');
+        const status = json.data?.status;
+        if (status === 'success') {
+          const info = json.data?.bot_info;
+          if (typeof info?.botid !== 'string' || typeof info.secret !== 'string') {
+            throw new Error('WeCom registration returned incomplete credentials');
+          }
+          return {
+            status: 'confirmed',
+            credential: { provider: 'wecom', botId: info.botid, secret: info.secret },
+            identity: { id: info.botid },
+          };
         }
-        return {
-          status: 'confirmed',
-          credential: { provider: 'wecom', botId: info.botid, secret: info.secret },
-          identity: { id: info.botid },
-        };
+        // PR1197 review (P1-6): the endpoint is undocumented, but a dead/expired
+        // QR must not read as an endless "pending". Map any recognizable terminal
+        // marker to a terminal session state so the modal can prompt a refresh
+        // instead of spinning until the local TTL. Unknown/absent status stays
+        // pending; the conservative local expiry (DEFAULT_EXPIRES_IN_SECONDS) is
+        // the backstop for a server that never signals termination.
+        const terminal = wecomTerminalPollStatus(status);
+        return terminal ? { status: terminal } : { status: 'pending' };
       },
     },
     wechat: {
-      async start(_input, _signal) {
-        const result = await fetchWeChatQrcode();
+      async start(_input, signal) {
+        const result = await fetchWeChatQrcode(signal);
         return {
           opaqueToken: result.qrToken,
           qrCodeDataUrl: result.qrcodeUrl,
@@ -603,8 +783,8 @@ function createProductionBotOnboardingAdapters(productVersion: string): Record<B
           expiresInSeconds: DEFAULT_EXPIRES_IN_SECONDS,
         };
       },
-      async poll(session, _signal) {
-        const result = await pollWeChatQrcodeStatus(session.opaqueToken ?? '');
+      async poll(session, signal) {
+        const result = await pollWeChatQrcodeStatus(session.opaqueToken ?? '', signal);
         if (result.status === 'waiting') return { status: 'pending' };
         if (result.status === 'expired') return { status: 'expired' };
         return {
@@ -631,9 +811,10 @@ async function fetchFeishuBotName(
       signal,
     );
     if (typeof token.tenant_access_token !== 'string') return undefined;
-    const response = await fetch(`https://${domain}/open-apis/bot/v3/info/`, {
+    const response = await proxiedFetch(`https://${domain}/open-apis/bot/v3/info/`, {
       headers: { Authorization: `Bearer ${token.tenant_access_token}` },
-      signal: requestSignal(signal),
+      signal,
+      timeoutMs: REQUEST_TIMEOUT_MS,
     });
     if (!response.ok) return undefined;
     const json = await response.json() as { bot?: { app_name?: unknown } };
