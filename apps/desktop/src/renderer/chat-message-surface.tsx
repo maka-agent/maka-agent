@@ -50,6 +50,9 @@ export function ChatMessageSurface({
   ...chatViewRest
 }: ChatMessageSurfaceProps) {
   const copy = getShellCopy(useUiLocale()).app;
+  // Every session-health-notice CTA routes to 设置 · 模型 (U1); this is the
+  // action button's visible label.
+  const goToModelsLabel = copy.goToModels;
   const emptyOverride: ReactNode =
     showOnboardingHero && onboardingState ? (
       <OnboardingEmptyState
@@ -100,7 +103,7 @@ export function ChatMessageSurface({
                 className="maka-session-health-notice-action"
                 onClick={sessionHealthNotice.onClick}
               >
-                {sessionHealthNotice.onClickTarget === 'account' ? copy.goToAccount : copy.goToModels}
+                {goToModelsLabel}
               </button>
             </AlertAction>
           </Alert>

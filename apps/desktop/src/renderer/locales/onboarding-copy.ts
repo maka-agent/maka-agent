@@ -108,8 +108,8 @@ const ONBOARDING_COPY_BY_LOCALE: UiCatalog<OnboardingCatalog> = {
       blocked: {
         eyebrow: '等待恢复模型连接',
         title: '当前没有通过验证的模型连接。',
-        body: '请到「设置 · 账号」查看每个连接的状态，重新测试或重新登录后再开始对话。',
-        cta: { label: '打开设置 · 账号', settingsSection: 'account' },
+        body: '请到「设置 · 模型」查看每个连接的状态，重新测试或重新登录后再开始对话。',
+        cta: { label: '打开设置 · 模型', settingsSection: 'models' },
         tone: 'destructive',
       },
     },
@@ -253,8 +253,8 @@ const ONBOARDING_COPY_BY_LOCALE: UiCatalog<OnboardingCatalog> = {
       blocked: {
         eyebrow: 'Restore a model connection',
         title: 'No model connection is currently verified.',
-        body: 'Open Settings · Account to inspect each connection, then retest or sign in again before starting a conversation.',
-        cta: { label: 'Open Settings · Account', settingsSection: 'account' },
+        body: 'Open Settings · Models to inspect each connection, then retest or sign in again before starting a conversation.',
+        cta: { label: 'Open Settings · Models', settingsSection: 'models' },
         tone: 'destructive',
       },
     },

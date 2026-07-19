@@ -322,10 +322,18 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'fallback-source':
     case 'fetched-empty':
-    case 'oauth-relogin':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
+    case 'oauth-relogin':
+      // Open the codex-oauth connection's detail sheet (not just the 模型
+      // section) so the needs_reauth re-login affordance is captured.
+      return {
+        ...state,
+        activeSessionId: TURN_SESSION_ID,
+        openSettingsSection: 'models',
+        openConnectionDetailSlug: 'codex-oauth',
+      };
     case 'connection-error':
-      return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'account' };
+      return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'models' };
     case 'artifact-pane':
     case 'artifact-errors':
     // PR-UI-RENDER-3a-smoke: each preview scenario shares the same

@@ -28,7 +28,7 @@ it('preserves allowlisted Maka navigation links through sanitization', () => {
       MakaUriContext.Provider,
       { value: () => {} },
       createElement(MarkdownBody, {
-        text: '[Account](maka://settings/account)',
+        text: '[Models](maka://settings/models)',
       }),
     ),
   );

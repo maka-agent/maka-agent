@@ -98,13 +98,13 @@ describe('parseMakaUri — settings', () => {
   });
 
   it('dispatches by host, not by pathname-segment-0', () => {
-    // `URL('maka://settings/account')` exposes:
-    //   host = 'settings', pathname = '/account'
+    // `URL('maka://settings/models')` exposes:
+    //   host = 'settings', pathname = '/models'
     // If the parser ever regresses to "split path and take [0]" it
     // would treat the section "settings" as the namespace and the
     // (now-missing) section as undefined. Lock the host invariant.
-    const dest = parseMakaUri('maka://settings/account');
-    assert.deepEqual(dest, { kind: 'settings', section: 'account' });
+    const dest = parseMakaUri('maka://settings/models');
+    assert.deepEqual(dest, { kind: 'settings', section: 'models' });
   });
 
   it('rejects uppercase host variants (maka: is a non-special scheme so URL keeps host as-is)', () => {

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { SETTINGS_SECTIONS } from '@maka/core';
 import { getSettingsNavigationCopy } from '../../renderer/locales/settings-navigation-copy.js';
 import { getSettingsSharedCopy } from '../../renderer/locales/settings-shared-copy.js';
-import { groupedNav, navLabel } from '../../renderer/settings/settings-nav.js';
+import { SETTINGS_NAV, groupedNav, navLabel } from '../../renderer/settings/settings-nav.js';
 
 describe('Settings navigation copy', () => {
   it('covers every SettingsSection in both locales', () => {
@@ -15,6 +16,41 @@ describe('Settings navigation copy', () => {
         assert.ok(copy.sections[section].description.length > 0);
       }
     }
+  });
+
+  // U1 regression guard: the `account` section was routable (a SettingsSection
+  // with a live case in settings-surface) yet absent from SETTINGS_NAV — so it
+  // had no sidebar entry to highlight and its header fell through to the
+  // `nav[0]` (通用) copy. Pin that every routable section is a nav item: an
+  // orphaned section must fail here instead of silently borrowing another
+  // page's title.
+  it('routes every SettingsSection through a nav item (no orphaned sections)', () => {
+    const navIds = SETTINGS_NAV.map((item) => item.id).sort();
+    assert.deepEqual(navIds, [...SETTINGS_SECTIONS].sort());
+    // Nav ids are unique — a duplicate would double-render the sidebar row.
+    assert.equal(new Set(navIds).size, navIds.length);
+  });
+
+  // The page header must derive its title/description from the section→copy
+  // map keyed by the active section, never from a `nav[0]`/`localizedNav[0]`
+  // fallback. Source-level pin so a regression to the old fallback (which
+  // rendered the wrong title over an unrouted section's body) is caught.
+  it('derives the settings header from the section→copy map, not a nav fallback', async () => {
+    const surface = await readFile(
+      new URL('../../../src/renderer/settings/settings-surface.tsx', import.meta.url),
+      'utf8',
+    );
+    assert.match(
+      surface,
+      /getSettingsNavigationCopy\(locale\)\.sections\[section\]/,
+      'header copy must be keyed by the active section',
+    );
+    assert.match(surface, /\{headerCopy\.label\}/);
+    assert.doesNotMatch(
+      surface,
+      /localizedNav\[0\]\?\.items\[0\]/,
+      'header must not fall back to the first nav item',
+    );
   });
 
   it('renders stable metadata with locale-specific labels', () => {

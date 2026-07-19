@@ -230,11 +230,13 @@ function AppShellContent({
     settingsOpen,
     settingsRequestedSection,
     settingsProviderCatalogOpen,
+    settingsConnectionDetailSlug,
     setSettingsOpen,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,
     openProviderCatalog,
+    openConnectionDetail,
   } = useSettingsModal();
   const {
     themePref,
@@ -556,12 +558,15 @@ function AppShellContent({
   }, []);
   /** 技能页 使用: jump to the chat view and seed the composer with a skill
    *  invocation. Same human-in-the-loop rule as maka://compose — we never
-   *  auto-send; the user finishes the sentence and presses Enter. */
+   *  auto-send; the user finishes the sentence and presses Enter.
+   *  U4: append (not replace) so an in-progress draft survives — appendText
+   *  falls back to a plain set when the draft is empty, so the empty-composer
+   *  path is unchanged while a half-written message is no longer clobbered. */
   const useSkillInChat = useCallback(
     (_skillId: string, skillName: string) => {
     setNavSelection({ section: 'sessions', filter: 'chats' });
     const seed = () => {
-        composerRef.current?.setText(shellCopy.useSkillPrompt(skillName));
+        composerRef.current?.appendText(shellCopy.useSkillPrompt(skillName));
       composerRef.current?.focus();
     };
     if (activeIdRef.current) {
@@ -819,6 +824,7 @@ function AppShellContent({
   const { applyVisualSmokeFixture } = useStableActions(createAppShellVisualSmokeActions, {
     openPalette,
     openSettingsSection,
+    openConnectionDetail,
     refreshSessions,
     setActiveId,
     setLiveBrowserSessionIds,
@@ -1529,6 +1535,7 @@ function AppShellContent({
                 newChatThinkingLevel={newChatThinkingLevel}
                 onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
+                noModelConnection={connections.length === 0}
                 workspacePicker={{
                     label: projectInfo ? basenameFromPath(projectInfo.projectPath, uiLocale) : undefined,
                   branch: projectInfo?.projectGit.branch,
@@ -1604,6 +1611,7 @@ function AppShellContent({
         setUserLabel={setUserLabel}
         settingsRequestedSection={settingsRequestedSection}
         settingsProviderCatalogOpen={settingsProviderCatalogOpen}
+        settingsConnectionDetailSlug={settingsConnectionDetailSlug}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });

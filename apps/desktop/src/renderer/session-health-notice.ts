@@ -58,7 +58,10 @@ export interface SessionHealthNoticeInput {
   lastTestStatus: 'verified' | 'needs_reauth' | 'error' | undefined;
 }
 
-export type SessionHealthNoticeTarget = 'models' | 'account';
+// #1209 (U1): every health-notice CTA points at 设置 · 模型 — the single
+// place that manages model connections, credentials, and OAuth. The former
+// 'account' target routed to a redundant page that has since been retired.
+export type SessionHealthNoticeTarget = 'models';
 
 export interface SessionHealthNotice {
   tone: 'info' | 'warning' | 'destructive';
@@ -119,7 +122,7 @@ function credentialReminderNotice(
       tone: 'warning',
       label: copy.reauth.label,
       tooltip: copy.reauth.tooltip,
-      onClickTarget: 'account',
+      onClickTarget: 'models',
     };
   }
   if (lastTestStatus === 'error') {
@@ -127,7 +130,7 @@ function credentialReminderNotice(
       tone: 'warning',
       label: copy.testError.label,
       tooltip: copy.testError.tooltip,
-      onClickTarget: 'account',
+      onClickTarget: 'models',
     };
   }
   return undefined;

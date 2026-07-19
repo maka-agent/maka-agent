@@ -179,20 +179,20 @@ describe('deriveSessionHealthNotice', () => {
   });
 
   describe('lastTestStatus — honest pre-send reminder (never claims blocked)', () => {
-    it('needs_reauth → warning · open account · does not claim send is blocked', () => {
+    it('needs_reauth → warning · open models · does not claim send is blocked', () => {
       const result = deriveSessionHealthNotice(input({ lastTestStatus: 'needs_reauth' }));
       assert.equal(result?.tone, 'warning');
       assert.equal(result?.label, '上次连接测试鉴权失败');
-      assert.equal(result?.onClickTarget, 'account');
+      assert.equal(result?.onClickTarget, 'models');
       assert.match(result?.tooltip ?? '', /401|403|鉴权/);
       assert.match(result?.tooltip ?? '', /不会拦截发送/);
     });
 
-    it('error → warning (not destructive) · open account · does not claim send is blocked', () => {
+    it('error → warning (not destructive) · open models · does not claim send is blocked', () => {
       const result = deriveSessionHealthNotice(input({ lastTestStatus: 'error' }));
       assert.equal(result?.tone, 'warning');
       assert.equal(result?.label, '上次连接测试失败');
-      assert.equal(result?.onClickTarget, 'account');
+      assert.equal(result?.onClickTarget, 'models');
       assert.match(result?.tooltip ?? '', /5xx|网络|超时|Base URL|代理/);
       assert.match(result?.tooltip ?? '', /不会拦截发送/);
     });

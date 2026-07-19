@@ -181,6 +181,13 @@ export interface VisualSmokeState {
    */
   liveBrowserSessionIds?: string[];
   openSettingsSection?: SettingsSection;
+  /**
+   * When set, open Settings → 模型 with this connection's detail sheet
+   * expanded (rather than just the section). Seeded by `oauth-relogin` so the
+   * detail sheet's re-login affordance is what gets screenshot-captured; takes
+   * precedence over `openSettingsSection`.
+   */
+  openConnectionDetailSlug?: string;
   liveTurnBySession?: Record<string, VisualSmokeLiveTurnProjection>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
   /**

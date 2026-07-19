@@ -52,13 +52,38 @@ describe('localized conversation journey', () => {
     const en = render('en', surface);
 
     assert.match(zh, /aria-label="开始对话"/);
-    assert.match(zh, /placeholder="描述任务…"/);
+    // U6: placeholder teaches the @ 引用文件 / 选择技能 mentions in both locales.
+    assert.match(zh, /placeholder="描述任务，@ 引用文件，\/ 选择技能…"/);
     assert.match(zh, /aria-label="发送"/);
     assert.match(en, /aria-label="Start a conversation"/);
-    assert.match(en, /placeholder="Describe a task, \/ for commands, @ for context…"/);
+    assert.match(en, /placeholder="Describe a task, @ to reference files, \/ for skills…"/);
     assert.match(en, /aria-label="Send"/);
     assert.doesNotMatch(en, /开始对话|描述任务|发送/);
     assert.match(en, /RawUser/);
+  });
+
+  it('surfaces the no-model dead-end hint and explanatory Send title (U3)', () => {
+    const withHint = render(
+      'zh',
+      <Composer onSend={() => {}} onStop={() => {}} noModelConnection onOpenModelSettings={() => {}} />,
+    );
+    // Inline hint above the composer box + link-button into 模型 settings.
+    assert.match(withHint, /maka-composer-no-model-hint/);
+    assert.match(withHint, /还没有可用的模型连接，无法发送。/);
+    assert.match(withHint, /maka-composer-no-model-hint-action[^>]*>前往模型设置</);
+    // Disabled Send carries the explanatory title (not the neutral 发送 label).
+    assert.match(withHint, /type="submit"[^>]*disabled[^>]*title="先添加一个模型连接才能发送。"/);
+    // Default (a model connection exists) shows neither the hint nor the title.
+    const noHint = render('zh', <Composer onSend={() => {}} onStop={() => {}} />);
+    assert.doesNotMatch(noHint, /maka-composer-no-model-hint/);
+    assert.doesNotMatch(noHint, /先添加一个模型连接才能发送。/);
+
+    const en = render(
+      'en',
+      <Composer onSend={() => {}} onStop={() => {}} noModelConnection onOpenModelSettings={() => {}} />,
+    );
+    assert.match(en, /No model connection yet, so sending is unavailable\./);
+    assert.match(en, /Go to model settings/);
   });
 
   it('localizes permission and question chrome while preserving raw values', () => {

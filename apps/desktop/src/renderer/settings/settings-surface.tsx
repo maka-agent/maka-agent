@@ -16,7 +16,6 @@ import { createDefaultSettings } from '@maka/core/settings';
 import { OverlayScrollArea, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { safeLocalStorageSet } from '../browser-storage';
-import { AccountSettingsPage } from './account-settings-page';
 import { AboutSettingsPage } from './about-settings-page';
 import { AppearanceSettingsPage } from './appearance-settings-page';
 import { BotChatSettingsPage } from './bot-chat-settings-page';
@@ -29,6 +28,7 @@ import { OpenGatewaySettingsPage } from './open-gateway-settings-page';
 import { PermissionCenterPage } from './permission-center-page';
 import { SettingsSkeleton } from './settings-skeleton';
 import { SETTINGS_NAV, groupedNav, navLabel, readLastSettingsSection } from './settings-nav';
+import { getSettingsNavigationCopy } from '../locales/settings-navigation-copy.js';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { UsageSettingsPage } from './usage-settings-page';
@@ -51,6 +51,7 @@ export function SettingsSurface(props: {
   onUserLabelChange?(label: string): void;
   requestedSection?: SettingsSection;
   openProviderCatalog?: boolean;
+  initialConnectionSlug?: string;
   initialFocusRef: RefObject<HTMLButtonElement | null>;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
@@ -200,10 +201,14 @@ export function SettingsSurface(props: {
     if (section === 'usage') void reloadUsage();
   }, [section]);
 
-  const activeItem = localizedNav.flatMap((group) => group.items).find((item) => item.id === section)
-    ?? localizedNav[0]?.items[0];
-
-  if (!activeItem) return null;
+  // PR-SETTINGS-HEADER-COPY-MAP-0 (U1): the page header derives its title
+  // and description from the section→copy map keyed by the active section,
+  // never from a `nav[0]` fallback. A section that is routable but missing
+  // from the nav copy is a type error at the `Record<SettingsSection>`
+  // boundary — so an unrouted section fails loudly at build time instead of
+  // silently rendering 通用 copy over a different page's body. The nav
+  // highlight below still keys off `section === item.id` independently.
+  const headerCopy = getSettingsNavigationCopy(locale).sections[section];
 
   return (
     <main className="settingsSurface agents-layout-body" data-modal="true" aria-label={copy.contentLabel}>
@@ -256,9 +261,9 @@ export function SettingsSurface(props: {
       <section className="settingsMainPane agents-content-area" data-agents-view="settings">
         <header className="settingsPageHeader">
           <div className="settingsPageHeaderTitleStack">
-            <h2>{activeItem.label}</h2>
-            {activeItem.description && (
-              <p className="settingsPageHeaderDescription">{activeItem.description}</p>
+            <h2>{headerCopy.label}</h2>
+            {headerCopy.description && (
+              <p className="settingsPageHeaderDescription">{headerCopy.description}</p>
             )}
           </div>
         </header>
@@ -288,6 +293,7 @@ export function SettingsSurface(props: {
               onOpenDailyReview={props.onOpenDailyReview}
               onOpenSession={props.onOpenSession}
               openProviderCatalog={providerCatalogRequested}
+              initialConnectionSlug={props.initialConnectionSlug}
             />
           )}
         </OverlayScrollArea>
@@ -313,6 +319,7 @@ function SettingsPage(props: {
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
   openProviderCatalog?: boolean;
+  initialConnectionSlug?: string;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -329,6 +336,7 @@ function SettingsPage(props: {
           <ProvidersPanel
             bridge={window.maka.connections}
             initialPage={props.openProviderCatalog ? 'catalog' : 'connections'}
+            initialConnectionSlug={props.initialConnectionSlug}
           />
         </div>
       );
@@ -375,14 +383,6 @@ function SettingsPage(props: {
       );
     case 'data':
       return <DataSettingsPage />;
-    case 'account':
-      return (
-        <AccountSettingsPage
-          connections={props.connections}
-          defaultSlug={props.defaultSlug}
-          onRefresh={props.onRefreshConnections}
-        />
-      );
     case 'permissions':
       return <PermissionCenterPage />;
     case 'health':

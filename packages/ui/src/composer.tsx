@@ -134,6 +134,15 @@ export const Composer = forwardRef<
      * Settings · 模型 instead of wearing a dropdown chevron it cannot honor.
      */
     onOpenModelSettings?(): void;
+    /**
+     * U3: no model connection exists at all (e.g. right after an onboarding
+     * skip). Send is blocked with an explanatory title and an inline hint
+     * mounts above the composer box pointing at Settings · 模型, so the user
+     * is never left at a dead end with a disabled Send and no guidance.
+     * The hint sits OUTSIDE the <form> so it never grows the composer's
+     * constant footprint (#740).
+     */
+    noModelConnection?: boolean;
     workspacePicker?: ComposerWorkspacePicker;
     /**
      * Git branch picker for the workspace row, shown to the right of
@@ -467,7 +476,11 @@ export const Composer = forwardRef<
   }, [dragActive]);
 
   const importActionBusy = pendingImportAction !== null;
-  const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
+  const noModelConnection = props.noModelConnection === true;
+  const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText || noModelConnection;
+  // The disabled Send is explanatory only in the no-model dead-end; other
+  // disabled reasons (empty draft, in-flight import) keep the neutral label.
+  const sendTitle = noModelConnection && !props.disabled ? copy.noModelSendTitle : copy.sendLabel;
   const modelChipLabel = props.modelLabel?.trim() || copy.selectModel;
   const modelSwitcherDisabledReason = props.streaming
     ? copy.switchDisabledStreaming
@@ -478,7 +491,25 @@ export const Composer = forwardRef<
         : undefined;
 
   return (
-    <form
+    <>
+      {/* U3: no-model dead-end guidance. Rendered OUTSIDE the <form> so it never
+          contributes to the composer's constant footprint (#740); it honors the
+          same `hidden` state as the box so it never lingers over a takeover. */}
+      {!props.hidden && noModelConnection && (
+        <div className="maka-composer-no-model-hint" role="status">
+          <span>{copy.noModelHint}</span>
+          {props.onOpenModelSettings && (
+            <button
+              type="button"
+              className="maka-composer-no-model-hint-action"
+              onClick={() => props.onOpenModelSettings?.()}
+            >
+              {copy.noModelAction}
+            </button>
+          )}
+        </div>
+      )}
+      <form
       ref={formRef}
       className="maka-composer composer"
       hidden={props.hidden}
@@ -717,7 +748,7 @@ export const Composer = forwardRef<
                 aria-label={copy.sendLabel}
                 aria-busy={sendPending ? 'true' : undefined}
                 data-pending={sendPending ? 'true' : undefined}
-                title={copy.sendLabel}
+                title={sendTitle}
               >
                 <ArrowUp size={16} aria-hidden="true" />
               </UiButton>
@@ -729,5 +760,6 @@ export const Composer = forwardRef<
         <ComposerWorkspaceRow workspacePicker={props.workspacePicker} branchPicker={props.branchPicker} />
       ) : null}
     </form>
+    </>
   );
 });

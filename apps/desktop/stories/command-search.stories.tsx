@@ -78,13 +78,13 @@ const paletteCommands: Command[] = [
     run: noop,
   },
   {
-    id: 'settings:account',
+    id: 'settings:models',
     kind: 'action',
-    label: '设置 · 账号',
+    label: '设置 · 模型',
     hint: '连接和模型',
     group: '设置',
     Icon: Settings,
-    keywords: ['settings', 'account', '设置', '账号'],
+    keywords: ['settings', 'models', '设置', '模型'],
     run: noop,
   },
   {

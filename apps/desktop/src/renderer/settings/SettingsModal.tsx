@@ -40,6 +40,7 @@ export function SettingsModal(props: {
    */
   requestedSection?: SettingsSection;
   openProviderCatalog?: boolean;
+  initialConnectionSlug?: string;
   /**
    * PR-DAILY-REVIEW-MVP-0 follow-up: navigate to the sidebar's
    * Daily Review module. Optional so the settings page degrades
@@ -96,6 +97,7 @@ export function SettingsModal(props: {
         onUserLabelChange={props.onUserLabelChange}
         requestedSection={props.requestedSection}
         openProviderCatalog={props.openProviderCatalog}
+        initialConnectionSlug={props.initialConnectionSlug}
         initialFocusRef={activeNavRef}
         onOpenDailyReview={props.onOpenDailyReview}
         onOpenSession={props.onOpenSession}

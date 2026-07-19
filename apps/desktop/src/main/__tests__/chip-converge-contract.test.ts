@@ -47,7 +47,6 @@ test('chip converge (#520 PR9)', async () => {
     'apps/desktop/src/renderer/settings/provider-add-form.tsx',
     'apps/desktop/src/renderer/settings/web-search-settings-page.tsx',
     'apps/desktop/src/renderer/settings/memory-settings-page.tsx',
-    'apps/desktop/src/renderer/settings/account-settings-page.tsx',
     // #1042: the Chip call sites in the OAuth section moved with
     // ClaudeSubscriptionCard into its own file.
     'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',

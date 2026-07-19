@@ -1083,9 +1083,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('AccountSettingsPage no longer renders ClaudeSubscriptionCard', async () => {
-    // The 账户 panel used to host the card; PR-CLAUDE-CARD-MOVE-0
-    // removed it. Confirm SettingsModal no longer references it.
+  it('SettingsModal does not render ClaudeSubscriptionCard (PR-CLAUDE-CARD-MOVE-0)', async () => {
+    // PR-CLAUDE-CARD-MOVE-0 moved the card into provider OAuth settings.
+    // The former 账户 panel that used to host it has since been retired
+    // entirely (U1); confirm the settings surface never renders the card.
     const src = await readSettingsCombinedSource();
     assert.doesNotMatch(
       src,

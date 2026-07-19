@@ -17,9 +17,11 @@ export function useSettingsModal() {
     undefined,
   );
   const [settingsProviderCatalogOpen, setSettingsProviderCatalogOpen] = useState(false);
+  const [settingsConnectionDetailSlug, setSettingsConnectionDetailSlug] = useState<string | undefined>(undefined);
 
   function openSettings() {
     setSettingsProviderCatalogOpen(false);
+    setSettingsConnectionDetailSlug(undefined);
     setSettingsOpen(true);
   }
 
@@ -27,6 +29,7 @@ export function useSettingsModal() {
     safeLocalStorageSet('maka-settings-section-v1', section);
     setSettingsRequestedSection(section);
     setSettingsProviderCatalogOpen(false);
+    setSettingsConnectionDetailSlug(undefined);
     setSettingsOpen(true);
   }
 
@@ -34,6 +37,16 @@ export function useSettingsModal() {
     safeLocalStorageSet('maka-settings-section-v1', 'models');
     setSettingsRequestedSection('models');
     setSettingsProviderCatalogOpen(true);
+    setSettingsConnectionDetailSlug(undefined);
+    setSettingsOpen(true);
+  }
+
+  /** Open Settings → 模型 with a specific connection's detail sheet expanded. */
+  function openConnectionDetail(slug: string) {
+    safeLocalStorageSet('maka-settings-section-v1', 'models');
+    setSettingsRequestedSection('models');
+    setSettingsProviderCatalogOpen(false);
+    setSettingsConnectionDetailSlug(slug);
     setSettingsOpen(true);
   }
 
@@ -41,10 +54,12 @@ export function useSettingsModal() {
     settingsOpen,
     settingsRequestedSection,
     settingsProviderCatalogOpen,
+    settingsConnectionDetailSlug,
     setSettingsOpen,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,
     openProviderCatalog,
+    openConnectionDetail,
   };
 }

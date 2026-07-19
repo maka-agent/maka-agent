@@ -47,9 +47,16 @@ const CATALOG_TABS: Array<{ id: CatalogCategory; label: string }> = [
   { id: 'local', label: '本地' },
 ];
 
-export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
+export function ProvidersPanel({ bridge, initialPage = 'connections', initialConnectionSlug }: {
   bridge: ConnectionsBridge;
   initialPage?: 'connections' | 'catalog';
+  /**
+   * When set, auto-open the connection detail sheet for this slug once the
+   * connection list has loaded. Used by the `oauth-relogin` visual-smoke
+   * fixture so the re-login affordance in the detail sheet is captured; a
+   * real user reaches the same sheet by clicking the connection row.
+   */
+  initialConnectionSlug?: string;
 }) {
   const [connections, setConnections] = useState<LlmConnection[]>([]);
   const [defaultSlug, setDefaultSlug] = useState<string | null>(null);
@@ -114,6 +121,14 @@ export function ProvidersPanel({ bridge, initialPage = 'connections' }: {
     providerCatalogRef.current?.scrollIntoView({ block: 'start' });
     providerCatalogRef.current?.querySelector<HTMLInputElement>('[type="search"]')?.focus({ preventScroll: true });
   }, [initialPage, loading]);
+
+  const initialConnectionDetailOpenedRef = useRef(false);
+  useEffect(() => {
+    if (loading || !initialConnectionSlug || initialConnectionDetailOpenedRef.current) return;
+    if (!connections.some((connection) => connection.slug === initialConnectionSlug)) return;
+    initialConnectionDetailOpenedRef.current = true;
+    setDialogState({ kind: 'manage', slug: initialConnectionSlug });
+  }, [loading, initialConnectionSlug, connections]);
 
   const selected = useMemo(
     () => dialogState?.kind === 'manage'

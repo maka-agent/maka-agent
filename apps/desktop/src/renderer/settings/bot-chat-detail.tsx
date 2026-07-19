@@ -184,7 +184,7 @@ export function BotChatChannelDetail(props: {
               {inQuickOnboarding ? (
                 <>
                   <Button type="button" disabled={props.actionBusy} onClick={() => setScanLoginOpen(true)}>
-                    {provider === 'wecom' ? '快捷绑定' : provider === 'wechat' ? '扫码登录' : '扫码接入'}
+                    {provider === 'wecom' ? '快捷接入' : '扫码接入'}
                   </Button>
                   {provider === 'wechat' && (channel.token || status?.identity) && (
                     <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => void props.onDisconnectWechat()}>
@@ -285,7 +285,7 @@ export function BotChatChannelDetail(props: {
               />
             ) : null}
             <Button type="button" onClick={() => setScanLoginOpen(true)}>
-              {provider === 'wecom' ? '开始快捷绑定' : `使用${provider === 'feishu' && feishuBrand === 'lark' ? ' Lark ' : BOT_LABELS[provider].label}扫码接入`}
+              {provider === 'wecom' ? '开始快捷接入' : `使用${provider === 'feishu' && feishuBrand === 'lark' ? ' Lark ' : BOT_LABELS[provider].label}扫码接入`}
             </Button>
           </section>
         )}

@@ -37,8 +37,10 @@ describe('composer send guard', () => {
       /rememberComposerDraft\(draftStoreRef\.current, activeDraftKeyRef\.current, nextValue\);[\s\S]*setHasDraftText\(Boolean\(nextValue\.trim\(\)\)\);/,
       'draft text state must follow the actual textarea draft value',
     );
-    assert.match(source, /const sendDisabled = props\.disabled \|\| sendPending \|\| importActionBusy \|\| !hasDraftText;/);
-    assert.match(source, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty or submit is in flight');
+    // U3: `noModelConnection` is folded into the guard so Send stays inert in
+    // the post-skip no-model dead end (the inline hint points at Settings · 模型).
+    assert.match(source, /const sendDisabled = props\.disabled \|\| sendPending \|\| importActionBusy \|\| !hasDraftText \|\| noModelConnection;/);
+    assert.match(source, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty, in flight, or with no model connection');
     assert.match(copySource, /sendLabel: '发送'/, 'Chinese UI must not keep English Send button copy');
     assert.match(copySource, /stopLabel: '停止'/, 'Chinese UI must not keep English Stop button copy');
   });

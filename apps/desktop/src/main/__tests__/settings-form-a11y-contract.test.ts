@@ -48,7 +48,10 @@ describe('Settings form accessibility labels', () => {
     const chipPrimitive = await readRepo('packages/ui/src/primitives/chip.tsx');
     const connectionBadge = chipPrimitive;
     const settingsBadge = chipPrimitive;
-    const authContract = styles.match(/\.settingsAuthContract\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    // U1 (retire account section): `.settingsAuthContract` was the nested
+    // auth card on the deleted AccountSettingsPage. The connection-card
+    // geometry pin below still covers the live `.settingsConnectionRow`
+    // surfaces (used by provider-oauth / claude-subscription).
     // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
     // orphan classes (no TSX consumer); the comma-grouped rule
     // collapsed to `.settingsRow` alone.
@@ -75,8 +78,6 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(connectionRow, /border-radius:\s*var\(--radius-surface\);/, 'Settings connection cards should use reference implementation rounded-lg geometry');
     assert.match(connectionRow, /box-shadow:\s*0 1px 3px oklch\(from var\(--foreground\) l c h \/ 0\.03\);/, 'Settings connection cards should use the near-flat card shadow (P-SHADOW: foreground-derived, not pure-black)');
-    assert.match(authContract, /border-radius:\s*var\(--radius-surface\);/, 'Nested auth contract cards should stay on the same 8px radius');
-    assert.match(authContract, /box-shadow:\s*0 1px 3px oklch\(from var\(--foreground\) l c h \/ 0\.03\);/, 'Nested auth contract cards should keep the same near-flat shadow');
     // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
     // orphan; only `.settingsRow` remains in the live rule. The
     // border-radius / shadow geometry still applies via the same

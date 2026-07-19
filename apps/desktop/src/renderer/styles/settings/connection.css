@@ -88,17 +88,6 @@
     gap: var(--space-2);
     min-width: 0;
   }
-.settingsConnectionDefaultBadge {
-    display: inline-flex;
-    align-items: center;
-    padding: 1px var(--space-1-5);
-    border-radius: var(--radius-control);
-    background: oklch(from var(--nav-active) l c h / 0.14);
-    color: var(--nav-active);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: var(--tracking-normal);
-  }
 .settingsConnectionRowHead {
     display: flex;
     align-items: center;
@@ -130,62 +119,6 @@
     font-size: var(--font-size-caption);
     line-height: var(--leading-normal);
   }
-.settingsAuthContract {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-2-5);
-    border: var(--border-width-hairline) solid var(--border);
-    border-radius: var(--radius-surface);
-    background: var(--foreground-3);
-    box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
-  }
-.settingsAuthContractText {
-    display: grid;
-    gap: var(--space-0-5);
-    min-width: 0;
-  }
-.settingsAuthContractText strong {
-    color: var(--foreground);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-  }
-.settingsAuthContractText span {
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-caption);
-    line-height: var(--leading-normal);
-  }
-.settingsAuthContractBadge {
-    display: inline-flex;
-    align-items: center;
-    min-height: 20px;
-    /* Detail audit round 4: a non-clickable guidance label sitting in the
-       same row as a REAL button (测试凭据) — bare text next to a button read
-       as broken controls. A quiet filled label form makes the affordance
-       difference legible. (.settingsAuthActionPill migrated onto Chip.) */
-    padding: var(--space-0-5) var(--space-2);
-    border-radius: var(--radius-control);
-    background: var(--foreground-5);
-    color: var(--foreground-secondary);
-    white-space: nowrap;
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-  }
-/* success-tone badges fall through to the neutral base — the label text
-   (已验证 etc.) carries the meaning. */
-.settingsAuthContractBadge[data-tone="info"] {
-    background: oklch(from var(--info) l c h / 0.14);
-    color: var(--info-text);
-  }
-.settingsAuthContractBadge[data-tone="warning"] {
-    background: oklch(from var(--info) l c h / 0.18);
-    color: var(--info-text);
-  }
-.settingsAuthContractBadge[data-tone="destructive"] {
-    background: oklch(from var(--destructive) l c h / 0.14);
-    color: var(--destructive);
-  }
 .settingsConnectionMeta {
     margin: 0;
     display: flex;
@@ -206,12 +139,6 @@
     align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-1);
-  }
-/* .settingsAuthActionPill is now the Chip primitive (squared status label,
-   tone→alpha from chip.tsx). Only the preview-kind dashed-border affordance
-   remains as a bespoke rule layered on top of the Chip. */
-.settingsAuthActionPill[data-kind="preview"] {
-    border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.30);
   }
 /* .settingsRow states + hint moved to rows.css
    (PR-SETTINGS-ROWS-CONVERGENCE-0). */

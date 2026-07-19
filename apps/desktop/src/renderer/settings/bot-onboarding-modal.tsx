@@ -36,12 +36,12 @@ const COPY: Record<BotOnboardingProvider, {
   },
   wecom: {
     title: '配置企业微信',
-    subtitle: '快捷绑定会自动创建并连接企业微信机器人',
+    subtitle: '快捷接入会自动创建并连接企业微信机器人',
     waiting: '打开企业微信，扫描二维码完成机器人创建',
     scanned: '已扫码，请在企业微信中完成确认',
   },
   wechat: {
-    title: '扫码登录',
+    title: '连接微信',
     subtitle: '请使用微信扫描二维码完成连接',
     waiting: '请使用微信扫描二维码并在手机上确认',
     scanned: '已扫码，请在微信中完成确认',
