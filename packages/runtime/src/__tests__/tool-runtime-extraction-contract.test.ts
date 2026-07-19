@@ -204,7 +204,9 @@ describe('RunTrace extraction contract', () => {
     assert.match(trace, /export interface RunTraceEvent/);
     assert.match(
       trace,
-      /type RunTracePhase = 'turn' \| 'model' \| 'tool' \| 'permission' \| 'sandbox' \| 'abort' \| 'usage'/,
+      // Whitespace-tolerant: the formatter may lay the union out on one line
+      // or one variant per line; the contract is the variant set, not layout.
+      /type RunTracePhase =\s*\|?\s*'turn'\s*\|\s*'model'\s*\|\s*'tool'\s*\|\s*'permission'\s*\|\s*'sandbox'\s*\|\s*'abort'\s*\|\s*'usage'/,
     );
     assert.doesNotMatch(events, /RunTrace/);
     assert.doesNotMatch(events, /trace_/);
