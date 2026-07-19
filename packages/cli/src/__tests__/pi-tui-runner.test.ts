@@ -4293,6 +4293,92 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('cross-connection /model search matches by every required criterion', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      // A current model/slug not among the choices, so no choice's model shows
+      // up in the status line — a dropped choice truly leaves the visible list.
+      model: 'legacy-curated-out',
+      connectionSlug: 'ghost',
+      providerType: 'openai',
+      modelChoices: [
+        {
+          connectionSlug: 'alpha',
+          connectionName: 'Aurora',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+        {
+          connectionSlug: 'beta',
+          connectionName: 'Boreal',
+          providerType: 'zai',
+          model: 'glm-max',
+          isDefaultConnection: false,
+        },
+        {
+          connectionSlug: 'gamma',
+          connectionName: 'Crest',
+          providerType: 'google',
+          model: 'text-unicorn',
+          isDefaultConnection: false,
+        },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('gpt-5.5') && out.includes('glm-max') && out.includes('text-unicorn');
+    });
+
+    // Each query isolates exactly one of the five match criteria named by #1098
+    // (model id, connection name, connection slug, provider type, provider
+    // label) and keeps only its matching choice. The fixture's three distinct
+    // providers (openai / zai / google) let `zai` exercise the providerType
+    // line alone (its label `Z.AI` is not a substring) and `gemini` exercise
+    // the PROVIDER_DEFAULTS label line alone (its type `google` is not), so
+    // deleting either line would fail its assertion. Ctrl+U (deleteToLineStart)
+    // clears the search field in one event so the next criterion starts from
+    // the full list again.
+    const cases = [
+      { query: 'gpt', keep: 'gpt-5.5', drop: ['glm-max', 'text-unicorn'] },
+      { query: 'aurora', keep: 'gpt-5.5', drop: ['glm-max', 'text-unicorn'] },
+      { query: 'alpha', keep: 'gpt-5.5', drop: ['glm-max', 'text-unicorn'] },
+      { query: 'zai', keep: 'glm-max', drop: ['gpt-5.5', 'text-unicorn'] },
+      { query: 'gemini', keep: 'text-unicorn', drop: ['gpt-5.5', 'glm-max'] },
+    ];
+    for (const c of cases) {
+      terminal.input(c.query);
+      await waitFor(() => {
+        const out = plainTerminalOutput(terminal.screenOutput());
+        return out.includes(c.keep) && c.drop.every((d) => !out.includes(d));
+      });
+      terminal.input('\x15');
+      await waitFor(() => {
+        const out = plainTerminalOutput(terminal.screenOutput());
+        return out.includes('gpt-5.5') && out.includes('glm-max') && out.includes('text-unicorn');
+      });
+    }
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('handles /rename without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
