@@ -96,23 +96,18 @@ function compactAnnotation(entry: MakaPiToolEntry): { text: string; protect: boo
   return { text: parts.length > 0 ? `(${parts.join(' · ')})` : '', protect };
 }
 
-/** A protected annotation at or below this visible width is reserved whole when the row overflows. */
-const COMPACT_ANNOTATION_RESERVE = 30;
-
 /**
- * Lay out `head  target (annotation)` on one line. The head and a short
- * protected annotation are preserved whole; the input target truncates first,
- * so a long command can never hide an exit code. An annotation longer than
- * the reserve cap takes whatever room the target leaves.
+ * Lay out `head  target (annotation)` on one line. A protected annotation is
+ * preserved whole whenever it fits alongside the head; the input target
+ * truncates first, so a long command can never hide a fixed-shape outcome.
+ * An annotation that cannot fit with the head takes whatever room remains.
  */
 function assembleCompactToolRow(head: string, input: string, annotation: string, width: number, protect: boolean): string {
   const inputSeg = input ? `  ${input}` : '';
   const annSeg = annotation ? ` ${annotation}` : '';
   const full = `${head}${inputSeg}${annSeg}`;
   if (visibleWidth(full) <= width) return full;
-  // The cap is measured on the annotation alone; the joining space is still
-  // budgeted below, so an annotation exactly at the cap is kept whole.
-  const reserved = protect && visibleWidth(annotation) <= COMPACT_ANNOTATION_RESERVE;
+  const reserved = protect && visibleWidth(annSeg) <= Math.max(0, width - visibleWidth(head));
   const budget = Math.max(0, width - visibleWidth(head) - (reserved ? visibleWidth(annSeg) : 0));
   let builtInput = '';
   if (input && budget > 3) {
@@ -514,7 +509,7 @@ function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
 /** Best-effort extraction of the human-readable body from a tool result. */
 function plainResultText(entry: MakaPiToolEntry): string {
   const result = entry.result;
-  if (result?.kind === 'text') return result.text;
+  if (result?.kind === 'text') return typeof result.text === 'string' ? result.text : '';
   if (result?.kind === 'json') {
     const value = result.value;
     if (value !== null && typeof value === 'object') {

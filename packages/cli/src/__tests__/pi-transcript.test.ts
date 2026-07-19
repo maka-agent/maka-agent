@@ -2195,7 +2195,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleWidth(row) <= 60, `row width ${visibleWidth(row)} exceeds 60`);
   });
 
-  test('reserves an annotation exactly at the 30-column cap when a row overflows', () => {
+  test('reserves a fixed-shape annotation when it fits alongside the row head', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'bash-cap', toolName: 'Bash',
@@ -2208,11 +2208,27 @@ describe('Maka Pi TUI transcript', () => {
 
     const lines = renderMakaPiTranscript(state, meta(), 60).map(stripAnsi);
     const row = lines[1]!;
-    // `(1234s · timed_out · exit 124)` is exactly 30 columns. The cap is
-    // measured on the annotation alone (the joining space is budgeted
-    // separately), so an at-cap annotation is still reserved whole.
+    // The complete fixed-shape annotation is reserved before the long command
+    // target, so the timeout and exit code remain readable.
     assert.match(row, /\(1234s · timed_out · exit 124\)$/);
     assert.ok(visibleWidth(row) <= 60, `row width ${visibleWidth(row)} exceeds 60`);
+  });
+
+  test('keeps a duration-bearing generic outcome readable when it exceeds the old cap', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'generic-duration', toolName: 'McpTool',
+      args: { target: 'x'.repeat(80) },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'generic-duration', isError: false,
+      content: { kind: 'text', text: 'line\n'.repeat(100) }, durationMs: 12_000,
+    }));
+
+    const row = renderMakaPiTranscript(state, meta(), 80).map(stripAnsi)[1]!;
+    assert.match(row, /\(12s · 100 lines · 500 bytes\)$/);
+    assert.doesNotMatch(row, /\(1…\)$/);
+    assert.ok(visibleWidth(row) <= 80, `row width ${visibleWidth(row)} exceeds 80`);
   });
 
   test('reserves the fixed-shape generic annotation when the row overflows', () => {
@@ -2800,6 +2816,7 @@ describe('Maka Pi TUI transcript', () => {
   test('keeps generic compact summaries bounded for malformed and oversized results', () => {
     const cases = [
       { toolUseId: 'malformed', content: { kind: 'text', text: undefined } as unknown as ToolResultContent },
+      { toolUseId: 'malformed-truthy', content: { kind: 'text', text: 42 } as unknown as ToolResultContent },
       { toolUseId: 'oversized', content: { kind: 'text', text: 'x'.repeat(20_000) } satisfies ToolResultContent },
     ];
 
@@ -2814,8 +2831,13 @@ describe('Maka Pi TUI transcript', () => {
 
       const row = renderMakaPiTranscript(state, meta(), 80).map(stripAnsi)[1] ?? '';
       assert.ok(visibleWidth(row) <= 80, `row width ${visibleWidth(row)} exceeds 80`);
-      if (testCase.toolUseId === 'malformed') assert.match(row, /\(no output\)/);
-      else {
+      if (testCase.toolUseId.startsWith('malformed')) {
+        assert.match(row, /\(no output\)/);
+        if (testCase.toolUseId === 'malformed-truthy') {
+          assert.equal(toggleAllToolExpansion(state), true);
+          assert.doesNotMatch(renderMakaPiTranscript(state, meta(), 80).map(stripAnsi).join('\n'), /42/);
+        }
+      } else {
         assert.match(row, /\(1 line · 20000 bytes\)/);
         assert.doesNotMatch(row, /x{20}/);
       }
