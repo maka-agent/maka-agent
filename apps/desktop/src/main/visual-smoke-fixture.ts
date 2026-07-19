@@ -65,6 +65,7 @@ import {
   writePlanReminders,
   writeSettings,
 } from './visual-smoke/scenarios-settings.js';
+import { usageStatsSessions } from './visual-smoke/scenarios-usage.js';
 
 const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'all',
@@ -606,7 +607,7 @@ export async function seedVisualSmokeFixture(input: {
   const now = input.now ?? VISUAL_SMOKE_NOW;
   await rm(input.workspaceRoot, { recursive: true, force: true });
   await mkdir(input.workspaceRoot, { recursive: true });
-  await writeSettings(input.workspaceRoot);
+  await writeSettings(input.workspaceRoot, input.fixture.scenario);
   if (input.fixture.scenario === 'first-run') return;
   await writeConnections(input.workspaceRoot, now, input.fixture.scenario);
   for (const slug of ['zai-live', 'relay-fallback', 'empty-fetched', 'needs-reauth', 'broken-provider']) {
@@ -685,5 +686,13 @@ export async function seedVisualSmokeFixture(input: {
   }
   if (input.fixture.scenario === 'module-mcp') {
     await seedMcpFixture(input.workspaceRoot);
+  }
+  // Settings → 使用统计: seed extra model + tool traffic so the request log,
+  // provider / model / tool aggregates render real content in the capture.
+  // Scenario-gated so no other fixture's sidebar or usage totals shift.
+  if (input.fixture.scenario === 'settings-usage') {
+    for (const seed of usageStatsSessions(now)) {
+      await writeSession(input.workspaceRoot, seed.header, seed.messages);
+    }
   }
 }

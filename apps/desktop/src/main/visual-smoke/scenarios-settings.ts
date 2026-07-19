@@ -9,7 +9,10 @@ import type {
 import { createDefaultSettings } from '@maka/core/settings';
 import { writeJson } from './seed-helpers.js';
 
-export async function writeSettings(workspaceRoot: string): Promise<void> {
+export async function writeSettings(
+  workspaceRoot: string,
+  scenario?: VisualSmokeScenario,
+): Promise<void> {
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8` + WAWQAQ
   // `1886c41b`): the fixture previously seeded a placeholder
   // Chinese personal name for screenshot baselines, but a real
@@ -26,6 +29,14 @@ export async function writeSettings(workspaceRoot: string): Promise<void> {
   const settings = createDefaultSettings();
   settings.personalization.displayName = '';
   settings.appearance.theme = 'auto';
+  // Settings → 使用统计: the seeded traffic uses the fixed visual-smoke clock,
+  // which sits outside the real-time 24h/7天/30天 windows the store derives
+  // from Date.now(). Default the usage view to 全部 + details-on so the
+  // capture shows the populated request log and stats tables deterministically.
+  if (scenario === 'settings-usage') {
+    settings.usage.range = 'all';
+    settings.usage.showDetails = true;
+  }
   await writeJson(join(workspaceRoot, 'settings.json'), settings);
 }
 
