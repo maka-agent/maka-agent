@@ -25,12 +25,15 @@ import {
 export { estimateTokens, estimateRuntimeEventsTokens };
 
 export * from './synthesis-cache.js';
+import { SynthesisCachePolicy } from './synthesis-cache.js';
+
+export * from './runtime-event-history-search.js';
 import {
-  RuntimeEventHistoryAroundResult,
-  RuntimeEventHistorySearchPolicy,
+  retrieveRuntimeEventHistoryAround,
   searchRuntimeEventHistory,
-  SynthesisCachePolicy,
-} from './synthesis-cache.js';
+  type RuntimeEventHistoryAroundResult,
+  type RuntimeEventHistorySearchPolicy,
+} from './runtime-event-history-search.js';
 
 export * from './tool-result-archive.js';
 import {
