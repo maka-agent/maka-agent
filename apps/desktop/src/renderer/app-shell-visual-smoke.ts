@@ -205,6 +205,16 @@ export function createAppShellVisualSmokeActions(options: {
             if (!state.focusActiveRow && document.activeElement instanceof HTMLElement) {
               document.activeElement.blur();
             }
+            // #1233 deferral: the settings-bots-onboarding fixture opens a QR
+            // modal whose 'waiting' state depends on a main-process device-code
+            // start + QR render round-trip that outlasts the fixed idle above.
+            // Wait (bounded) for the QR image to actually paint so the capture
+            // lands on the deterministic waiting layout, not the transient
+            // "正在生成安全二维码…" spinner. `performance.now()` is used because
+            // `Date.now` is frozen to `state.now` in visual-smoke mode.
+            if (state.botOnboardingProvider) {
+              await waitForVisualSmokeElement('.settingsBotOnboardingQrFrame[data-state="waiting"] img');
+            }
             if ('fonts' in document) {
               await document.fonts.ready;
             }
@@ -220,4 +230,18 @@ export function createAppShellVisualSmokeActions(options: {
   }
 
   return { applyVisualSmokeFixture };
+}
+
+/**
+ * #1233 deferral: bounded poll for a selector to appear before an auto-capture.
+ * Used for the QR-onboarding fixture, whose 'waiting' layout only paints after
+ * an async main-process round-trip. Uses `performance.now()` (not `Date.now`,
+ * which visual-smoke freezes) for the timeout bound. Visual-smoke only.
+ */
+async function waitForVisualSmokeElement(selector: string, timeoutMs = 4_000): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    if (document.querySelector(selector)) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
 }
