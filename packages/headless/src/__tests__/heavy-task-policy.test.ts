@@ -4,7 +4,6 @@ import type { Config, Task } from '../contracts.js';
 import {
   appendHeavyTaskPolicyToSystemPrompt,
   buildHeavyTaskSystemPromptPolicy,
-  configWithHeavyTaskPolicy,
   FORBIDDEN_HEAVY_TASK_POLICY_TERMS,
   HEAVY_TASK_POLICY_VERSION,
   resolveHeavyTaskMode,
@@ -74,7 +73,6 @@ describe('heavy-task policy', () => {
       appendHeavyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection),
       baseConfig.systemPrompt,
     );
-    assert.equal(configWithHeavyTaskPolicy(baseConfig, selection), baseConfig);
   });
 
   test('config enablement records source, reason, and policy version', () => {

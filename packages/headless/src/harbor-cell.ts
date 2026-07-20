@@ -30,14 +30,13 @@ import { registerFakeBackend } from './backends.js';
 import {
   buildHarborCellOutput,
   countRuntimeSteps,
-  hashHarborSystemPrompt,
   validateHarborCellOutput,
   type HarborCellContextBudgetPolicySnapshot,
   type HarborCellOutput,
 } from './cell-output.js';
 import type { Config, Task } from './contracts.js';
-import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-policy.js';
-import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-task-policy.js';
+import { resolveHeavyTaskMode } from './heavy-task-policy.js';
+import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
@@ -45,6 +44,7 @@ import { providerFromEnv, resolveHarborCellAiSdkEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from './tools.js';
 import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
+import { resolveHeadlessSystemPrompt } from './system-prompts.js';
 import {
   createInMemoryTaskLedgerExperimentStore,
   renderTaskLedgerExperimentReplay,
@@ -251,9 +251,9 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     workspaceDir: input.cwd,
   };
   const heavyTaskMode = resolveHeavyTaskMode(input.config, task);
-  const configAfterHeavy = configWithHeavyTaskPolicy(input.config, heavyTaskMode);
-  const economyTaskMode = resolveEconomyTaskMode(configAfterHeavy, task);
-  const config = configWithEconomyTaskPolicy(configAfterHeavy, economyTaskMode);
+  const economyTaskMode = resolveEconomyTaskMode(input.config, task);
+  const prompt = resolveHeadlessSystemPrompt(input.config, { heavyTaskMode, economyTaskMode });
+  const config = { ...input.config, systemPrompt: prompt.systemPrompt };
   const registerBackends =
     input.registerBackends ?? ((registry: BackendRegistry) => registerFakeBackend(registry));
   await registerBackends(backends, {
@@ -274,7 +274,8 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
     ...(config.thinkingLevel ? { reasoningEffort: config.thinkingLevel } : {}),
-    systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
+    systemPromptMode: prompt.mode,
+    systemPromptHash: prompt.systemPromptHash,
     pricingProfile: input.pricingProfile ?? 'unconfigured',
   };
   await mkdir(input.outputDir, { recursive: true });
@@ -776,7 +777,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           ? (childInput) => context.readChildAgentOutput!(ctx.sessionId, childInput)
           : undefined,
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
-        systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
+        systemPrompt: context.config.systemPrompt,
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
           ? {
               turnTailPrompt: async ({ sessionId }) =>
@@ -849,22 +850,6 @@ function buildHarborCellSynthesisCacheCallbacks(
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event),
   };
-}
-
-// When the cell is given an explicit system prompt (MAKA_SYSTEM_PROMPT), it is
-// the complete prompt and is passed through byte-for-byte: the prompt-optimization
-// controller hashes exactly this string and verifies the round-trip against the
-// systemPromptHash the runtime stamps, so any wrapping here would break the check
-// (and make "the prompt being optimized" differ from "the prompt that ran").
-// The built-in preamble is only the default for prompt-less ad-hoc cell runs.
-function harborCellSystemPrompt(configPrompt: string | undefined): string {
-  if (configPrompt !== undefined) return configPrompt;
-  return [
-    'You are Maka Runtime running inside an isolated Harbor benchmark task container.',
-    'Prefer Read, Glob, and Grep for file inspection and search.',
-    'Prefer Edit and Write for file changes.',
-    'Use Bash for running programs, tests, and shell-specific debugging only.',
-  ].join('\n');
 }
 
 // Builtin pricing has no entry for newer DeepSeek models (e.g. deepseek-v4-flash),

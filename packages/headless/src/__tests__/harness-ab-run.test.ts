@@ -3,11 +3,12 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { hashHarborSystemPrompt, type HarborCellOutput } from '../cell-output.js';
+import type { HarborCellOutput } from '../cell-output.js';
 import type { HarborTaskRunner } from '../fixed-prompt-controller.js';
 import { assertHarnessAbReportCompleted, buildHarnessAbReport } from '../harness-ab-report.js';
 import { runHarnessAbComparison } from '../harness-ab-run.js';
 import { HarborInfraError } from '../harbor-task-runner.js';
+import { hashHeadlessSystemPrompt } from '../system-prompts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('runHarnessAbComparison', () => {
@@ -345,7 +346,7 @@ function harnessArm(id: 'maka' | 'opencode', calls: string[], beforeRun?: () => 
   const harborRunner: HarborTaskRunner = async ({ task, systemPrompt }) => {
     await beforeRun?.();
     calls.push(`${task.id}:${id}`);
-    const promptHash = hashHarborSystemPrompt(systemPrompt);
+    const promptHash = hashHeadlessSystemPrompt(systemPrompt);
     const cell: HarborCellOutput = {
       schemaVersion: 1,
       status: 'completed',

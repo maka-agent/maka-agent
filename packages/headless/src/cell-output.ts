@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import type { RuntimeEvent } from '@maka/core';
 import type { ThinkingLevel } from '@maka/core';
 import type { ContextBudgetPolicy, InvocationResult } from '@maka/runtime';
+import type { HeadlessSystemPromptMode } from './contracts.js';
 
 export const HARBOR_CELL_OUTPUT_SCHEMA_VERSION = 1;
 
@@ -63,6 +63,8 @@ export interface HarborCellExecutionIdentity {
   llmConnectionSlug: string;
   model: string;
   reasoningEffort?: ThinkingLevel;
+  /** Present on artifacts written after prompt-source auditing was introduced. */
+  systemPromptMode?: HeadlessSystemPromptMode;
   systemPromptHash: string;
   pricingProfile: string;
 }
@@ -189,10 +191,6 @@ export function countRuntimeSteps(events: readonly RuntimeEvent[]): number {
   );
 }
 
-export function hashHarborSystemPrompt(systemPrompt: string): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(systemPrompt)).digest('hex')}`;
-}
-
 export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   if (!isRecord(value)) {
     throw new Error('Harbor cell output must be a JSON object');
@@ -283,6 +281,15 @@ export function validateHarborCellExecutionIdentity(value: unknown): HarborCellE
           reasoningEffort: requireThinkingLevel(
             value.reasoningEffort,
             'executionIdentity.reasoningEffort',
+          ),
+        }
+      : {}),
+    ...('systemPromptMode' in value
+      ? {
+          systemPromptMode: requireStringUnion(
+            value.systemPromptMode,
+            'executionIdentity.systemPromptMode',
+            ['default', 'custom'] as const,
           ),
         }
       : {}),

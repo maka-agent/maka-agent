@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
+import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import { ensureAbRunManifest } from '#ab-manifest';
 import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import { createHarborTaskRunner } from '#harbor-task-runner';
@@ -56,7 +56,7 @@ async function main() {
   const allTasks = await discoverCachedHarborTasks(tasksRoot, selectedTaskIds);
   const pilotTasks = selectTasks(allTasks, spec.pilotTaskIds, 'pilotTaskIds');
   const evaluationTasks = selectTasks(allTasks, spec.evaluationTaskIds, 'evaluationTaskIds');
-  const systemPrompt = `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`;
+  const systemPrompt = DEFAULT_HEADLESS_SYSTEM_PROMPT;
   const runManifest = buildRuntimePolicyAbRunManifest({
     arms: spec.arms,
     promptHash: `sha256:${createHash('sha256').update(JSON.stringify(systemPrompt)).digest('hex')}`,

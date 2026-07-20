@@ -535,15 +535,31 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
 
-  test('run-harness-ab.mjs consumes advisory registry evidence without invoking Oracle', async () => {
+  test('run-harness-ab.mjs uses the mandatory default prompt and advisory registry evidence', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-harness-ab.mjs');
 
+    assert.match(source, /DEFAULT_HEADLESS_SYSTEM_PROMPT/);
+    assert.match(source, /default-system-prompt\.txt/);
+    assert.doesNotMatch(source, /empty-system-prompt\.txt/);
     assert.match(source, /loadHarnessOracleRegistrySnapshot/);
     assert.match(source, /resolveHarnessOracleAnnotations/);
     assert.match(source, /taskIds: TERMINAL_BENCH_2_1_TASK_IDS/);
     assert.doesNotMatch(source, /ensureHarnessOracleQualification/);
     assert.doesNotMatch(source, /createHarborOracleQualifier/);
     assert.doesNotMatch(source, /qualification\.selectedTaskIds/);
+  });
+
+  test('prompt experiment baselines use the default headless prompt byte-for-byte', async () => {
+    for (const path of [
+      'packages/headless/harbor/run-prompt-ab.mjs',
+      'packages/headless/harbor/run-prompt-optimization.mjs',
+      'packages/headless/harbor/run-runtime-policy-ab.mjs',
+    ]) {
+      const source = await readRepoFile(path);
+
+      assert.match(source, /DEFAULT_HEADLESS_SYSTEM_PROMPT/);
+      assert.doesNotMatch(source, /`\$\{DEFAULT_HEADLESS_SYSTEM_PROMPT\}\\n`/);
+    }
   });
 
   test('run-prompt-ab.mjs rejects unsupported provider overrides', async (t: TestContext) => {
@@ -1892,6 +1908,20 @@ with tempfile.TemporaryDirectory() as tmp:
     # The default model must not be the deprecated deepseek-chat alias.
     default_model_env = MakaAgent(Path(tmp), extra_env={"MAKA_HOST_API_KEY_FILE": "/host/deepseek-key"})._cell_env(Path("/logs/agent/instruction.txt"))
     assert default_model_env["MAKA_MODEL"] == "deepseek/deepseek-v4-flash", default_model_env
+    assert "MAKA_SYSTEM_PROMPT" not in default_model_env, default_model_env
+
+    custom_prompt = "Custom prompt with exact bytes.\n"
+    custom_prompt_env = MakaAgent(Path(tmp), extra_env={
+        "MAKA_HOST_API_KEY_FILE": "/host/deepseek-key",
+        "MAKA_SYSTEM_PROMPT": custom_prompt,
+    })._cell_env(Path("/logs/agent/instruction.txt"))
+    assert custom_prompt_env["MAKA_SYSTEM_PROMPT"] == custom_prompt, custom_prompt_env
+
+    empty_prompt_env = MakaAgent(Path(tmp), extra_env={
+        "MAKA_HOST_API_KEY_FILE": "/host/deepseek-key",
+        "MAKA_SYSTEM_PROMPT": "",
+    })._cell_env(Path("/logs/agent/instruction.txt"))
+    assert empty_prompt_env["MAKA_SYSTEM_PROMPT"] == "", empty_prompt_env
 
     # The in-container Bash command-timeout floor reaches the cell.
     command_timeout_env = MakaAgent(Path(tmp), extra_env={

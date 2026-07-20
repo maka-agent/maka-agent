@@ -4,7 +4,6 @@ import type { Config, Task } from '../contracts.js';
 import {
   appendEconomyTaskPolicyToSystemPrompt,
   buildEconomyTaskSystemPromptPolicy,
-  configWithEconomyTaskPolicy,
   ECONOMY_TASK_POLICY_VERSION,
   resolveEconomyTaskMode,
 } from '../economy-task-policy.js';
@@ -37,7 +36,6 @@ describe('economy-task policy', () => {
       appendEconomyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection),
       baseConfig.systemPrompt,
     );
-    assert.equal(configWithEconomyTaskPolicy(baseConfig, selection), baseConfig);
   });
 
   test('config enablement records source, reason, and policy version', () => {

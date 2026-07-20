@@ -127,6 +127,7 @@ describe('Harbor cell output contract', () => {
         llmConnectionSlug: 'deepseek',
         model: 'deepseek-v4-flash',
         reasoningEffort: 'max',
+        systemPromptMode: 'custom',
         systemPromptHash: 'sha256:prompt-a',
         pricingProfile: 'deepseek-v4-flash-tbench-v1',
       },
@@ -136,6 +137,7 @@ describe('Harbor cell output contract', () => {
       llmConnectionSlug: 'deepseek',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'max',
+      systemPromptMode: 'custom',
       systemPromptHash: 'sha256:prompt-a',
       pricingProfile: 'deepseek-v4-flash-tbench-v1',
     });

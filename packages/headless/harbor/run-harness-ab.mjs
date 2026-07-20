@@ -43,6 +43,7 @@ import {
   TERMINAL_BENCH_2_1_TASK_IDS,
 } from '#harness-ab-manifest';
 import { runHarnessAbComparisonUnlocked, withHarnessAbRunLock } from '#harness-ab-run';
+import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
@@ -411,8 +412,8 @@ async function runLocked({
   await mkdir(controllerDir, { recursive: true });
   await mkdir(promptsDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
-  const systemPromptPath = join(promptsDir, 'empty-system-prompt.txt');
-  await writeFile(systemPromptPath, '', 'utf8');
+  const systemPromptPath = join(promptsDir, 'default-system-prompt.txt');
+  await writeFile(systemPromptPath, DEFAULT_HEADLESS_SYSTEM_PROMPT, 'utf8');
   const pricing = {
     inputUsdPer1M: PRICING.input,
     cacheReadUsdPer1M: PRICING.cachedInput,

@@ -46,6 +46,7 @@ import {
   runHarborCell,
   writeHarborCellUsageCheckpoint,
 } from '../harbor-cell.js';
+import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '../system-prompts.js';
 import { buildIsolatedBashTool } from '../tools.js';
 
 const config: Config = {
@@ -795,6 +796,7 @@ describe('runHarborCell', () => {
       assert.deepEqual(result.output.executionIdentity, {
         llmConnectionSlug: 'fake',
         model: 'fake-model',
+        systemPromptMode: 'custom',
         systemPromptHash: `sha256:${createHash('sha256').update(JSON.stringify(config.systemPrompt)).digest('hex')}`,
         pricingProfile: 'deepseek-v4-flash-tbench-v1',
       });
@@ -1037,6 +1039,7 @@ describe('runHarborCell', () => {
       assert.deepEqual(observedIdentity, {
         llmConnectionSlug: 'fake',
         model: 'fake-model',
+        systemPromptMode: 'custom',
         systemPromptHash: `sha256:${createHash('sha256').update(JSON.stringify(config.systemPrompt)).digest('hex')}`,
         pricingProfile: 'deepseek-v4-flash-tbench-v1',
       });
@@ -1559,6 +1562,62 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('injects the default headless prompt before registering a Harbor backend', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      let capturedPrompt: string | undefined;
+
+      const result = await runHarborCell({
+        config: { ...config, systemPrompt: undefined },
+        instruction: 'solve with the default prompt',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: (registry, context) => {
+          capturedPrompt = context.config.systemPrompt;
+          registerCellBackend(registry);
+        },
+      });
+
+      assert.equal(
+        capturedPrompt,
+        [
+          'Complete the task by acting with the available tools, not by narrating.',
+          'Prefer Read, Glob, and Grep for inspection, Edit and Write for file changes, and Bash for shell commands and tests.',
+          'Verify the result when practical.',
+          'Stop when the task is complete.',
+        ].join('\n'),
+      );
+      assert.equal(result.output.executionIdentity?.systemPromptMode, 'default');
+    });
+  });
+
+  test('rejects a blank Harbor system prompt before registering a backend', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      let registered = false;
+
+      await assert.rejects(
+        runHarborCellFromEnv(
+          {
+            MAKA_BACKEND: 'fake',
+            MAKA_INSTRUCTION: 'solve with an invalid prompt',
+            MAKA_WORKDIR: workspaceDir,
+            MAKA_OUTPUT_DIR: outputDir,
+            MAKA_STORAGE_ROOT: storageRoot,
+            MAKA_SYSTEM_PROMPT: ' \n ',
+          },
+          {
+            registerBackends: (registry) => {
+              registered = true;
+              registerCellBackend(registry);
+            },
+          },
+        ),
+        /Config\.systemPrompt must contain non-whitespace text/,
+      );
+      assert.equal(registered, false);
+    });
+  });
+
   test('appends heavy-task policy to Harbor backend context only when explicitly enabled', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const seenPrompts: Array<string | undefined> = [];
@@ -1899,6 +1958,7 @@ describe('runHarborCell', () => {
           backend: 'ai-sdk',
           llmConnectionSlug: 'openai',
           model: 'gpt-4o-mini',
+          systemPrompt: DEFAULT_HEADLESS_SYSTEM_PROMPT,
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         workspaceDir,

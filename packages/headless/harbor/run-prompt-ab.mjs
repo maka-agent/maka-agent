@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
+import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import {
   buildPromptAbRunManifest,
@@ -384,7 +384,7 @@ async function main() {
     throw new Error('no evaluation tasks available for prompt A/B');
   }
 
-  const baselinePrompt = `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`;
+  const baselinePrompt = DEFAULT_HEADLESS_SYSTEM_PROMPT;
   const runManifest = buildPromptAbRunManifest({
     baselinePromptHash: hashSystemPrompt(baselinePrompt),
     candidatePromptHash: hashSystemPrompt(candidatePrompt),

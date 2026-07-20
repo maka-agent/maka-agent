@@ -140,15 +140,6 @@ export function appendEconomyTaskPolicyToSystemPrompt(
     .join('\n\n');
 }
 
-export function configWithEconomyTaskPolicy(
-  config: Config,
-  selection: EconomyTaskModeSelection,
-): Config {
-  const systemPrompt = appendEconomyTaskPolicyToSystemPrompt(config.systemPrompt, selection);
-  if (systemPrompt === config.systemPrompt) return config;
-  return { ...config, systemPrompt };
-}
-
 function normalizeTaskMetadataMode(
   metadata: Record<string, unknown> | undefined,
 ): EconomyTaskModeConfig | undefined {
