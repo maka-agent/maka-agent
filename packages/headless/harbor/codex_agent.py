@@ -33,6 +33,7 @@ class MakaCodexAgent(Codex):
         return f"{shlex.quote(str(_TOOLCHAIN_CODEX))} --version"
 
     async def install(self, environment: BaseEnvironment) -> None:
+        await self._ensure_ca_certificates(environment)
         expected_fingerprint = self._get_env("MAKA_CODEX_TOOLCHAIN_FINGERPRINT")
         if not expected_fingerprint:
             raise ValueError("MAKA_CODEX_TOOLCHAIN_FINGERPRINT is required")
@@ -57,6 +58,27 @@ class MakaCodexAgent(Codex):
             command=command,
             env={"MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT": expected_fingerprint},
         )
+
+    async def _ensure_ca_certificates(self, environment: BaseEnvironment) -> None:
+        command = (
+            "set -euo pipefail; "
+            "has_ca_bundle() { "
+            "test -s /etc/ssl/certs/ca-certificates.crt || "
+            "test -s /etc/pki/tls/certs/ca-bundle.crt || "
+            "test -s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem; "
+            "}; "
+            "if ! has_ca_bundle; then "
+            "if command -v apt-get >/dev/null 2>&1; then "
+            "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates; "
+            "elif command -v apk >/dev/null 2>&1; then apk add --no-cache ca-certificates; "
+            "elif command -v dnf >/dev/null 2>&1; then dnf install -y ca-certificates; "
+            "elif command -v yum >/dev/null 2>&1; then yum install -y ca-certificates; "
+            "else echo 'Codex requires a system CA trust store' >&2; exit 1; "
+            "fi; "
+            "fi; "
+            "has_ca_bundle || { echo 'Codex system CA trust store is unavailable' >&2; exit 1; }"
+        )
+        await self.exec_as_root(environment, command=command)
 
     def _get_env(self, key: str) -> str | None:
         if key == "OPENAI_API_KEY":

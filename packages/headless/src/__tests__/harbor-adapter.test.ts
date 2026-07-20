@@ -2752,6 +2752,9 @@ class Codex:
     async def exec_as_agent(self, environment, command, env=None, **kwargs):
         return await environment.exec(command, env=env or {}, **kwargs)
 
+    async def exec_as_root(self, environment, command, env=None, **kwargs):
+        return await environment.exec(command, env=env or {}, as_root=True, **kwargs)
+
     async def run(self, instruction, environment, context):
         rendered = self.render_instruction(instruction)
         assert (self.logs_dir / "maka-cell-execution-identity.json").exists()
@@ -2840,7 +2843,19 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     environment = Environment()
     asyncio.run(agent.install(environment))
-    install_command, install_env = commands[0]
+    assert len(commands) == 2, commands
+    ca_command, ca_env = commands[0]
+    assert "ca-certificates" in ca_command, ca_command
+    assert "apt-get" in ca_command, ca_command
+    assert "apk" in ca_command, ca_command
+    assert "dnf" in ca_command, ca_command
+    assert "yum" in ca_command, ca_command
+    assert "/etc/ssl/certs/ca-certificates.crt" in ca_command, ca_command
+    assert "/etc/pki/tls/certs/ca-bundle.crt" in ca_command, ca_command
+    assert "curl" not in ca_command, ca_command
+    assert "npm" not in ca_command, ca_command
+    assert ca_env == {}, ca_env
+    install_command, install_env = commands[1]
     assert "sha256sum --check" in install_command, install_command
     assert "/opt/maka-codex-toolchain/bin/codex" in install_command, install_command
     assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
