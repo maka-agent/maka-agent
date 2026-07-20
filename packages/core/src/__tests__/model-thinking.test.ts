@@ -339,6 +339,15 @@ describe('thinkingVariantsForModel', () => {
     );
   });
 
+  test('xAI Grok 4.5 exposes its declared reasoning effort levels', () => {
+    assert.deepEqual([...thinkingVariantsForModel('xai', 'grok-4.5')], [
+      'low',
+      'medium',
+      'high',
+    ]);
+    assert.deepEqual([...thinkingVariantsForModel('xai', 'grok-4.3')], []);
+  });
+
   test('providers without metadata yield none (miss → no menu)', () => {
     assert.deepEqual([...thinkingVariantsForModel('ollama', 'llama3')], []);
     assert.deepEqual([...thinkingVariantsForModel('openai-compatible', 'some-model')], []);

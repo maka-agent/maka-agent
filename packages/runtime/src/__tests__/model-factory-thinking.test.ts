@@ -161,6 +161,18 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-chat', 'high'), {});
   });
 
+  test('xAI Grok 4.5 sends its declared reasoning effort under the xai namespace', () => {
+    assert.deepEqual([...thinkingVariantsForModel('xai', 'grok-4.5')], [
+      'low',
+      'medium',
+      'high',
+    ]);
+    assert.deepEqual(buildProviderOptions(conn('xai'), 'grok-4.5', 'high'), {
+      xai: { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('xai'), 'grok-4.5', 'off'), {});
+  });
+
   test('Cloudflare Workers AI sends Kimi K2.6 reasoning effort and its real thinking-off wire', () => {
     const modelId = '@cf/moonshotai/kimi-k2.6';
     assert.deepEqual(
@@ -376,6 +388,7 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     { providerType: 'google', model: 'gemini-3-pro-preview' },
     { providerType: 'google', model: 'gemini-3.5-flash' },
     { providerType: 'deepseek', model: 'deepseek-v4-flash' },
+    { providerType: 'xai', model: 'grok-4.5' },
     { providerType: 'deepinfra', model: 'moonshotai/Kimi-K2.7-Code' },
     { providerType: 'groq', model: 'openai/gpt-oss-120b' },
     { providerType: 'openrouter', model: 'openai/gpt-5.6-sol' },

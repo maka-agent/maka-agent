@@ -410,6 +410,7 @@ export function buildProviderOptions(
     case 'groq':
     case 'deepseek':
     case 'moonshot':
+    case 'xai':
     case 'tencent-token-plan':
     case 'zai-coding-plan':
     case 'stepfun-step-plan':

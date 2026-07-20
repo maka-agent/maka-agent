@@ -250,6 +250,10 @@ const STATIC_MODEL_METADATA: Partial<Record<ProviderType, Record<string, ModelMe
   vercel: {
     'xai/grok-4.3': { thinkingOptions: { efforts: ['none', 'low', 'medium', 'high'] } },
   },
+  xai: {
+    // models.dev + xAI declare configurable reasoning_effort for Grok 4.5.
+    'grok-4.5': { thinkingOptions: { efforts: ['low', 'medium', 'high'] } },
+  },
   'tencent-coding-plan': {
     'kimi-k2.5': { capabilities: { vision: false } },
   },
