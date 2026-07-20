@@ -816,8 +816,6 @@ export function buildAiSdkCellBackendRegistration(input: {
                   return { artifactId: artifact.id };
                 },
                 recordLedger: ctx.recordProviderRequestCapture,
-                purgeArtifact: async (artifactId) =>
-                  providerRequestArtifactStore.purge([artifactId]),
               }),
               recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
             }

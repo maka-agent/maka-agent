@@ -168,7 +168,6 @@ describe('provider request capture commit', () => {
       recordLedger: async (capture) => {
         ledgerCaptures.push(capture as unknown as Record<string, unknown>);
       },
-      purgeArtifact: async () => assert.fail('successful commits must not purge their artifact'),
     });
 
     const result = await recordCapture({
@@ -191,9 +190,10 @@ describe('provider request capture commit', () => {
     assert.equal(Object.hasOwn(ledgerCaptures[0]!, 'serializedRequest'), false);
   });
 
-  test('purges the request artifact when its durable ledger link fails', async () => {
+  test('retains the request artifact when a failed ledger append may have landed', async () => {
     const ledgerError = new Error('capture ledger append failed');
-    const purgedArtifactIds: string[] = [];
+    const ledgerCaptures: Array<Record<string, unknown>> = [];
+    const persistedArtifactIds = new Set<string>();
     const createRecorder = Reflect.get(
       telemetry,
       'createProviderRequestCaptureRecorder',
@@ -202,12 +202,13 @@ describe('provider request capture commit', () => {
       | undefined;
     assert.equal(typeof createRecorder, 'function');
     const recordCapture = createRecorder!({
-      persistArtifact: async () => ({ artifactId: 'artifact-capture-1' }),
-      recordLedger: async () => {
-        throw ledgerError;
+      persistArtifact: async () => {
+        persistedArtifactIds.add('artifact-capture-1');
+        return { artifactId: 'artifact-capture-1' };
       },
-      purgeArtifact: async (artifactId: string) => {
-        purgedArtifactIds.push(artifactId);
+      recordLedger: async (capture: Record<string, unknown>) => {
+        ledgerCaptures.push(capture);
+        throw ledgerError;
       },
     });
 
@@ -227,47 +228,8 @@ describe('provider request capture commit', () => {
       }),
       (error) => error === ledgerError,
     );
-    assert.deepEqual(purgedArtifactIds, ['artifact-capture-1']);
-  });
-
-  test('preserves both ledger and cleanup failures when compensation also fails', async () => {
-    const ledgerError = new Error('capture ledger append failed');
-    const cleanupError = new Error('capture artifact purge failed');
-    const createRecorder = Reflect.get(
-      telemetry,
-      'createProviderRequestCaptureRecorder',
-    ) as unknown as (
-      input: Record<string, unknown>,
-    ) => (capture: Record<string, unknown>) => Promise<unknown>;
-    const recordCapture = createRecorder({
-      persistArtifact: async () => ({ artifactId: 'artifact-capture-1' }),
-      recordLedger: async () => {
-        throw ledgerError;
-      },
-      purgeArtifact: async () => {
-        throw cleanupError;
-      },
-    });
-
-    await assert.rejects(
-      recordCapture({
-        schemaVersion: 1,
-        traceId: 'trace-1',
-        captureId: 'capture-1',
-        turnId: 'turn-1',
-        step: 0,
-        providerId: 'openai',
-        modelId: 'gpt-test',
-        requestHash: 'sha256:request',
-        requestBytes: 2,
-        segments: [],
-        serializedRequest: '{}',
-      }),
-      (error) =>
-        error instanceof AggregateError &&
-        error.errors[0] === ledgerError &&
-        error.errors[1] === cleanupError,
-    );
+    assert.equal(ledgerCaptures.length, 1);
+    assert.deepEqual([...persistedArtifactIds], ['artifact-capture-1']);
   });
 });
 

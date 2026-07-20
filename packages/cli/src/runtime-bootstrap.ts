@@ -648,7 +648,6 @@ export async function createMakaCliRuntimeContext(
                 return { artifactId: artifact.id };
               },
               recordLedger: ctx.recordProviderRequestCapture,
-              purgeArtifact: async (artifactId) => artifactStore.purge([artifactId]),
             }),
             recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
           }
