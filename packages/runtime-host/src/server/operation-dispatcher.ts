@@ -33,10 +33,15 @@ export type OperationHandlerMap = {
 };
 
 export type DomainOperationKey = Exclude<OperationKey, 'host.status'>;
-export type TurnOperationKey = Extract<OperationKey, `turn.${string}`>;
+export type TurnOperationKey = Extract<OperationKey, 'turn.start' | 'turn.query' | 'turn.stop'>;
+export type MessageOperationKey = Extract<
+  OperationKey,
+  'turn.message.submit' | 'queue.retract' | 'turn.interrupt'
+>;
 export type SessionContinuityOperationKey = Extract<OperationKey, `subscription.${string}`>;
 export type InteractionOperationKey = Extract<OperationKey, `interaction.${string}`>;
 export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
+export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
 export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
 export type SessionContinuityOperationHandlerMap = Pick<
   OperationHandlerMap,

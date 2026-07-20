@@ -68,6 +68,7 @@ import {
   RuntimeInteractionInvariantError,
   type RuntimeInteractionAuthority,
 } from '../interaction-authority.js';
+import type { RuntimeMessageAuthority } from '../message-authority.js';
 import {
   EMBEDDED_RUNTIME_EXECUTION,
   COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED,
@@ -94,12 +95,29 @@ function unusedInteractionAuthority(): RuntimeInteractionAuthority {
   };
 }
 
+function unusedMessageAuthority(): RuntimeMessageAuthority {
+  return {
+    bindRun: (identity) => ({
+      ...identity,
+      pull: () => [],
+      ack: () => {},
+      nack: () => {},
+      release: () => {},
+    }),
+  };
+}
+
 describe('SessionManager hosted lifecycle boundary', () => {
   test('rejects archive and remove before mutating the canonical Session', async () => {
     const store = new MemorySessionStore();
     const interactions = unusedInteractionAuthority();
+    const messages = unusedMessageAuthority();
     const manager = new SessionManager({
-      execution: { kind: 'hosted', interactionAuthority: interactions },
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: interactions,
+        messageAuthority: messages,
+      },
       store,
       backends: new BackendRegistry(),
       newId: nextId(),
@@ -122,6 +140,7 @@ describe('SessionManager Interaction fail-stop', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     const interactions = unusedInteractionAuthority();
+    const messages = unusedMessageAuthority();
     let resolveBackend!: (backend: FailStopBarrierBackend) => void;
     const backendReady = new Promise<FailStopBarrierBackend>((resolve) => {
       resolveBackend = resolve;
@@ -132,7 +151,11 @@ describe('SessionManager Interaction fail-stop', () => {
       return backend;
     });
     const manager = new SessionManager({
-      execution: { kind: 'hosted', interactionAuthority: interactions },
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: interactions,
+        messageAuthority: messages,
+      },
       store,
       runStore,
       runtimeEventStore: runStore,

@@ -11,6 +11,7 @@ export type HostOperationErrorCode =
   | 'session_busy'
   | 'operation_conflict'
   | 'already_resolved'
+  | 'outcome_unknown'
   | 'internal_failure';
 
 export interface HostOperationError<C extends HostOperationErrorCode = HostOperationErrorCode> {

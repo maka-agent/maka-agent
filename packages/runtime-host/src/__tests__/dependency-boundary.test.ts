@@ -25,6 +25,7 @@ const allowedHostExternalImports = new Set([
 const allowedServerExternalImports = new Set([
   ...allowedHostExternalImports,
   '@maka/core/agent-run',
+  '@maka/core/backend-types',
   '@maka/core/events',
   '@maka/core/interaction',
   '@maka/core/runtime-event',

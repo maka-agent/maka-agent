@@ -37,10 +37,19 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
-export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 2 as const;
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 3 as const;
+export const ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES = 64;
+export const ROOT_TURN_ADMISSION_MAX_TEXT_BYTES = 64 * 1024;
 
 export interface RootTurnAdmissionInput {
   text: string;
+}
+
+export interface RootTurnSourceMessage {
+  messageId: string;
+  text: string;
+  placement: 'current_turn' | 'next_turn';
+  disposition: 'steering' | 'followup' | 'turn_started';
 }
 
 export interface RootTurnAdmission {
@@ -51,6 +60,7 @@ export interface RootTurnAdmission {
   userMessageId: string;
   previousRootTurnId: string | null;
   normalizedInput: RootTurnAdmissionInput;
+  sourceMessages: readonly RootTurnSourceMessage[];
   admittedAt: number;
 }
 
@@ -61,7 +71,13 @@ export interface AdmitRootTurnInput {
   proposedUserMessageId: string;
   previousRootTurnId: string | null;
   normalizedInput: RootTurnAdmissionInput;
+  sourceMessages: readonly RootTurnSourceMessage[];
   admittedAt: number;
+}
+
+export interface RootTurnSourceMessageReceipt {
+  admission: RootTurnAdmission;
+  sourceMessage: RootTurnSourceMessage;
 }
 
 export type AdmitRootTurnResult =
@@ -72,6 +88,10 @@ export type AdmitRootTurnResult =
 export interface RootTurnAdmissionStore {
   admitRootTurn(input: AdmitRootTurnInput): Promise<AdmitRootTurnResult>;
   readRootTurnAdmission(sessionId: string, turnId: string): Promise<RootTurnAdmission | undefined>;
+  readRootTurnSourceMessageReceipt(
+    sessionId: string,
+    sourceMessageId: string,
+  ): Promise<RootTurnSourceMessageReceipt | undefined>;
   listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]>;
 }
 
@@ -161,11 +181,14 @@ class FileAgentRunStore implements DurableAgentRunStore {
         throw new Error('Root turn admission cannot reference itself');
       }
     }
-    const normalizedInput = normalizeRootTurnAdmissionInput(input.normalizedInput);
+    const { normalizedInput, sourceMessages } = normalizeRootTurnAdmissionPayload(
+      input.normalizedInput,
+      input.sourceMessages,
+    );
     if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
       throw new Error('Invalid root turn admission timestamp');
     }
-    const admission: RootTurnAdmission = {
+    const admission = deepFreezeRootTurnAdmission({
       schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
       sessionId: input.sessionId,
       turnId: input.turnId,
@@ -173,8 +196,9 @@ class FileAgentRunStore implements DurableAgentRunStore {
       userMessageId: input.proposedUserMessageId,
       previousRootTurnId: input.previousRootTurnId,
       normalizedInput,
+      sourceMessages,
       admittedAt: input.admittedAt,
-    };
+    });
     const path = this.rootTurnAdmissionPath(input.sessionId, input.turnId);
     const created = await writeExclusiveAtomic(
       path,
@@ -185,7 +209,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
     if (created) return { kind: 'admitted', admission };
     const existing = await this.readRootTurnAdmission(input.sessionId, input.turnId);
     if (!existing) throw new Error(`Root turn admission disappeared: ${input.turnId}`);
-    return existing.normalizedInput.text === normalizedInput.text
+    return isDeepStrictEqual(
+      rootTurnAdmissionSemanticPayload(existing),
+      rootTurnAdmissionSemanticPayload(admission),
+    )
       ? { kind: 'existing', admission: existing }
       : { kind: 'conflict', admission: existing };
   }
@@ -204,6 +231,46 @@ class FileAgentRunStore implements DurableAgentRunStore {
       throw error;
     }
     return normalizeRootTurnAdmission(JSON.parse(raw), sessionId, turnId);
+  }
+
+  async readRootTurnSourceMessageReceipt(
+    sessionId: string,
+    sourceMessageId: string,
+  ): Promise<RootTurnSourceMessageReceipt | undefined> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(sourceMessageId, 'Invalid source message id');
+    const admissionsRoot = this.rootTurnAdmissionsRoot(sessionId);
+    let entries;
+    try {
+      entries = await readdir(admissionsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+
+    let receipt: RootTurnSourceMessageReceipt | undefined;
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        throw new Error(`Invalid root turn admission entry: ${entry.name}`);
+      }
+      const turnId = turnIdFromAdmissionFile(entry.name);
+      if (!turnId) {
+        if (isRootTurnAdmissionTemp(entry.name)) continue;
+        throw new Error(`Invalid root turn admission entry: ${entry.name}`);
+      }
+      const admission = (await this.readRootTurnAdmission(sessionId, turnId)) as RootTurnAdmission;
+      const sourceMessage = admission.sourceMessages.find(
+        (source) => source.messageId === sourceMessageId,
+      );
+      if (!sourceMessage) continue;
+      if (receipt) {
+        throw new Error(
+          `Ambiguous root turn source message receipt for session ${sessionId}: ${sourceMessageId}`,
+        );
+      }
+      receipt = Object.freeze({ admission, sourceMessage });
+    }
+    return receipt;
   }
 
   async listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]> {
@@ -1226,10 +1293,10 @@ function normalizeRootTurnAdmission(
   sessionId: string,
   turnId: string,
 ): RootTurnAdmission {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainRecord(value)) {
     throw new Error(`Invalid root turn admission for turn ${turnId}: expected an object`);
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const valid =
     record.schemaVersion === ROOT_TURN_ADMISSION_SCHEMA_VERSION &&
     record.sessionId === sessionId &&
@@ -1252,21 +1319,27 @@ function normalizeRootTurnAdmission(
       'userMessageId',
       'previousRootTurnId',
       'normalizedInput',
+      'sourceMessages',
       'admittedAt',
     ]);
   if (!valid) {
     throw new Error(`Invalid root turn admission for turn ${turnId}: malformed fields`);
   }
-  return {
+  const { normalizedInput, sourceMessages } = normalizeRootTurnAdmissionPayload(
+    record.normalizedInput,
+    record.sourceMessages,
+  );
+  return deepFreezeRootTurnAdmission({
     schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
     sessionId,
     turnId,
     runId: record.runId as string,
     userMessageId: record.userMessageId as string,
     previousRootTurnId: record.previousRootTurnId as string | null,
-    normalizedInput: normalizeRootTurnAdmissionInput(record.normalizedInput),
+    normalizedInput,
+    sourceMessages,
     admittedAt: record.admittedAt as number,
-  };
+  });
 }
 
 function orderRootTurnAdmissionChain(
@@ -1346,18 +1419,103 @@ function assertAcyclicRootTurnAdmissions(
 }
 
 function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainRecord(value)) {
     throw new Error('Invalid root turn normalized input: expected an object');
   }
-  const record = value as Record<string, unknown>;
-  if (
-    !hasExactKeys(record, ['text']) ||
-    typeof record.text !== 'string' ||
-    record.text.length === 0
-  ) {
+  const record = value;
+  if (!hasExactKeys(record, ['text']) || !isBoundedAdmissionText(record.text)) {
     throw new Error('Invalid root turn normalized input');
   }
-  return { text: record.text };
+  return Object.freeze({ text: record.text });
+}
+
+function normalizeRootTurnAdmissionPayload(
+  normalizedInputValue: unknown,
+  sourceMessagesValue: unknown,
+): {
+  normalizedInput: RootTurnAdmissionInput;
+  sourceMessages: readonly RootTurnSourceMessage[];
+} {
+  const normalizedInput = normalizeRootTurnAdmissionInput(normalizedInputValue);
+  const sourceMessages = normalizeRootTurnSourceMessages(sourceMessagesValue);
+  if (
+    sourceMessages.length > 0 &&
+    normalizedInput.text !== sourceMessages.map((source) => source.text).join('\n\n')
+  ) {
+    throw new Error('Root turn admission input text does not match source messages');
+  }
+  const turnStartedCount = sourceMessages.filter(
+    (source) => source.disposition === 'turn_started',
+  ).length;
+  if (turnStartedCount > 0 && (turnStartedCount !== 1 || sourceMessages.length !== 1)) {
+    throw new Error('Root turn admission turn_started source must be the only source message');
+  }
+  return { normalizedInput, sourceMessages };
+}
+
+function normalizeRootTurnSourceMessages(value: unknown): readonly RootTurnSourceMessage[] {
+  if (!Array.isArray(value) || value.length > ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES) {
+    throw new Error('Invalid root turn source messages: expected a bounded array');
+  }
+  const messageIds = new Set<string>();
+  const normalized = value.map((item, index): RootTurnSourceMessage => {
+    if (
+      !isPlainRecord(item) ||
+      !hasExactKeys(item, ['messageId', 'text', 'placement', 'disposition'])
+    ) {
+      throw new Error(`Invalid root turn source message at index ${index}`);
+    }
+    const { messageId, text, placement, disposition } = item;
+    if (
+      typeof messageId !== 'string' ||
+      !isSafeId(messageId) ||
+      !isBoundedAdmissionText(text) ||
+      (placement !== 'current_turn' && placement !== 'next_turn') ||
+      (disposition !== 'steering' &&
+        disposition !== 'followup' &&
+        disposition !== 'turn_started') ||
+      (disposition === 'steering' && placement !== 'current_turn')
+    ) {
+      throw new Error(`Invalid root turn source message at index ${index}`);
+    }
+    if (messageIds.has(messageId)) {
+      throw new Error(`Duplicate root turn source message id: ${messageId}`);
+    }
+    messageIds.add(messageId);
+    return Object.freeze({ messageId, text, placement, disposition });
+  });
+  return Object.freeze(normalized);
+}
+
+function isBoundedAdmissionText(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    Buffer.byteLength(value, 'utf8') <= ROOT_TURN_ADMISSION_MAX_TEXT_BYTES
+  );
+}
+
+function rootTurnAdmissionSemanticPayload(admission: RootTurnAdmission): {
+  normalizedInput: RootTurnAdmissionInput;
+  sourceMessages: readonly RootTurnSourceMessage[];
+} {
+  return {
+    normalizedInput: admission.normalizedInput,
+    sourceMessages: admission.sourceMessages,
+  };
+}
+
+function deepFreezeRootTurnAdmission(admission: RootTurnAdmission): RootTurnAdmission {
+  Object.freeze(admission.normalizedInput);
+  for (const sourceMessage of admission.sourceMessages) Object.freeze(sourceMessage);
+  Object.freeze(admission.sourceMessages);
+  return Object.freeze(admission);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function turnIdFromAdmissionFile(name: string): string | undefined {

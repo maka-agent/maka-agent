@@ -13,7 +13,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
-import { createAgentRunStore } from '../agent-run-store.js';
+import {
+  createAgentRunStore,
+  ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES,
+  ROOT_TURN_ADMISSION_MAX_TEXT_BYTES,
+} from '../agent-run-store.js';
 import {
   authenticateExecutionStoresReader,
   authenticateExecutionStoresWriter,
@@ -152,9 +156,22 @@ describe('execution stores', () => {
           proposedUserMessageId: 'message-1',
           previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              text: 'hello',
+              placement: 'current_turn',
+              disposition: 'steering',
+            },
+          ],
           admittedAt: 10,
         });
         assert.equal(first.kind, 'admitted');
+        assert.equal(first.admission.schemaVersion, 3);
+        assert.equal(Object.isFrozen(first.admission), true);
+        assert.equal(Object.isFrozen(first.admission.normalizedInput), true);
+        assert.equal(Object.isFrozen(first.admission.sourceMessages), true);
+        assert.equal(Object.isFrozen(first.admission.sourceMessages[0]), true);
         assert.deepEqual(await stores.agentRunStore.listSessionRuns(session.id), []);
 
         const retry = await stores.agentRunStore.admitRootTurn({
@@ -164,6 +181,14 @@ describe('execution stores', () => {
           proposedUserMessageId: 'message-never-used',
           previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              text: 'hello',
+              placement: 'current_turn',
+              disposition: 'steering',
+            },
+          ],
           admittedAt: 20,
         });
         assert.equal(retry.kind, 'existing');
@@ -171,6 +196,18 @@ describe('execution stores', () => {
         assert.equal(retry.admission.userMessageId, 'message-1');
         assert.equal(retry.admission.admittedAt, 10);
         assert.deepEqual(retry.admission.normalizedInput, { text: 'hello' });
+        assert.deepEqual(retry.admission.sourceMessages, first.admission.sourceMessages);
+
+        const receiptStore = createAgentRunStore(root);
+        const receipt = await receiptStore.readRootTurnSourceMessageReceipt(session.id, 'source-1');
+        assert.ok(receipt);
+        assert.equal(receipt.admission.turnId, 'turn-1');
+        assert.deepEqual(receipt.sourceMessage, first.admission.sourceMessages[0]);
+        assert.equal(Object.isFrozen(receipt), true);
+        assert.equal(
+          await receiptStore.readRootTurnSourceMessageReceipt(session.id, 'source-missing'),
+          undefined,
+        );
 
         const conflict = await stores.agentRunStore.admitRootTurn({
           sessionId: session.id,
@@ -178,7 +215,15 @@ describe('execution stores', () => {
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
           previousRootTurnId: null,
-          normalizedInput: { text: 'changed' },
+          normalizedInput: { text: 'hello' },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              text: 'hello',
+              placement: 'next_turn',
+              disposition: 'followup',
+            },
+          ],
           admittedAt: 30,
         });
         assert.equal(conflict.kind, 'conflict');
@@ -207,6 +252,203 @@ describe('execution stores', () => {
     });
   });
 
+  test('bounds source receipts and fails closed on duplicate or ambiguous message identity', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      const base = {
+        sessionId: 'session-receipts',
+        proposedUserMessageId: 'user-message',
+        normalizedInput: { text: 'original source text' },
+        admittedAt: 10,
+      } as const;
+      const sourceMessage = {
+        messageId: 'source-shared',
+        text: 'original source text',
+        placement: 'current_turn',
+        disposition: 'turn_started',
+      } as const;
+
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            turnId: 'turn-duplicate',
+            proposedRunId: 'run-duplicate',
+            previousRootTurnId: null,
+            sourceMessages: [sourceMessage, sourceMessage],
+          }),
+        /Duplicate root turn source message id/,
+      );
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            turnId: 'turn-too-many',
+            proposedRunId: 'run-too-many',
+            previousRootTurnId: null,
+            sourceMessages: Array.from(
+              { length: ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES + 1 },
+              (_, index) => ({ ...sourceMessage, messageId: `source-${index}` }),
+            ),
+          }),
+        /expected a bounded array/,
+      );
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            turnId: 'turn-too-large',
+            proposedRunId: 'run-too-large',
+            previousRootTurnId: null,
+            sourceMessages: [
+              { ...sourceMessage, text: 'x'.repeat(ROOT_TURN_ADMISSION_MAX_TEXT_BYTES + 1) },
+            ],
+          }),
+        /Invalid root turn source message/,
+      );
+
+      await store.admitRootTurn({
+        ...base,
+        turnId: 'turn-1',
+        proposedRunId: 'run-1',
+        previousRootTurnId: null,
+        sourceMessages: [sourceMessage],
+      });
+      await store.admitRootTurn({
+        ...base,
+        turnId: 'turn-2',
+        proposedRunId: 'run-2',
+        previousRootTurnId: 'turn-1',
+        sourceMessages: [{ ...sourceMessage, disposition: 'followup' }],
+      });
+      await assert.rejects(
+        () => store.readRootTurnSourceMessageReceipt(base.sessionId, sourceMessage.messageId),
+        /Ambiguous root turn source message receipt/,
+      );
+    });
+  });
+
+  test('rejects source receipts that cannot prove the admitted execution input', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      const base = {
+        sessionId: 'session-source-integrity',
+        proposedUserMessageId: 'user-message',
+        previousRootTurnId: null,
+        admittedAt: 10,
+      } as const;
+
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            turnId: 'turn-text-mismatch',
+            proposedRunId: 'run-text-mismatch',
+            normalizedInput: { text: 'different execution input' },
+            sourceMessages: [
+              {
+                messageId: 'source-text-mismatch',
+                text: 'original source text',
+                placement: 'next_turn',
+                disposition: 'followup',
+              },
+            ],
+          }),
+        /input text does not match source messages/,
+      );
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            turnId: 'turn-invalid-steering',
+            proposedRunId: 'run-invalid-steering',
+            normalizedInput: { text: 'steering text' },
+            sourceMessages: [
+              {
+                messageId: 'source-invalid-steering',
+                text: 'steering text',
+                placement: 'next_turn',
+                disposition: 'steering',
+              },
+            ],
+          }),
+        /Invalid root turn source message/,
+      );
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            turnId: 'turn-multiple-started',
+            proposedRunId: 'run-multiple-started',
+            normalizedInput: { text: 'idle start\n\nfollow-up' },
+            sourceMessages: [
+              {
+                messageId: 'source-idle-start',
+                text: 'idle start',
+                placement: 'current_turn',
+                disposition: 'turn_started',
+              },
+              {
+                messageId: 'source-followup',
+                text: 'follow-up',
+                placement: 'next_turn',
+                disposition: 'followup',
+              },
+            ],
+          }),
+        /turn_started source must be the only source message/,
+      );
+
+      const admitted = await store.admitRootTurn({
+        ...base,
+        turnId: 'turn-valid-batch',
+        proposedRunId: 'run-valid-batch',
+        normalizedInput: { text: 'steering text\n\nfollow-up text' },
+        sourceMessages: [
+          {
+            messageId: 'source-steering',
+            text: 'steering text',
+            placement: 'current_turn',
+            disposition: 'steering',
+          },
+          {
+            messageId: 'source-followup',
+            text: 'follow-up text',
+            placement: 'next_turn',
+            disposition: 'followup',
+          },
+        ],
+      });
+      assert.equal(admitted.kind, 'admitted');
+
+      const admissionPath = join(
+        root,
+        'sessions',
+        base.sessionId,
+        'turn-admissions',
+        'turn-valid-batch.json',
+      );
+      const durable = JSON.parse(await readFile(admissionPath, 'utf8')) as Record<string, unknown>;
+      await writeFile(
+        admissionPath,
+        `${JSON.stringify({ ...durable, normalizedInput: { text: 'tampered input' } })}\n`,
+      );
+
+      await assert.rejects(
+        () => store.readRootTurnAdmission(base.sessionId, 'turn-valid-batch'),
+        /input text does not match source messages/,
+      );
+      await assert.rejects(
+        () => store.readRootTurnSourceMessageReceipt(base.sessionId, 'source-steering'),
+        /input text does not match source messages/,
+      );
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery(base.sessionId),
+        /input text does not match source messages/,
+      );
+    });
+  });
+
   test('recovers root-turn admissions by durable predecessor order instead of timestamp or identity', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -226,6 +468,7 @@ describe('execution stores', () => {
           proposedUserMessageId: 'message-z',
           previousRootTurnId: null,
           normalizedInput: { text: 'first' },
+          sourceMessages: [],
           admittedAt: 10,
         });
         const second = await stores.agentRunStore.admitRootTurn({
@@ -235,6 +478,7 @@ describe('execution stores', () => {
           proposedUserMessageId: 'message-a',
           previousRootTurnId: 'turn-z',
           normalizedInput: { text: 'second' },
+          sourceMessages: [],
           admittedAt: 10,
         });
         assert.equal(first.kind, 'admitted');
@@ -278,6 +522,7 @@ describe('execution stores', () => {
               proposedUserMessageId: `message-${turnId}`,
               previousRootTurnId,
               normalizedInput: { text: turnId },
+              sourceMessages: [],
               admittedAt: 10,
             });
           }
@@ -346,6 +591,7 @@ describe('execution stores', () => {
         proposedUserMessageId: 'message-1',
         previousRootTurnId: null,
         normalizedInput: { text: 'hello' },
+        sourceMessages: [],
         admittedAt: 9,
       });
       await rawAgentRunStore.createRun(runHeader(session.id, 'run-1'));
@@ -554,6 +800,7 @@ describe('execution stores', () => {
           proposedUserMessageId: 'message-1',
           previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
+          sourceMessages: [],
           admittedAt: 10,
         });
 
@@ -598,10 +845,27 @@ describe('execution stores', () => {
           proposedUserMessageId: 'message-1',
           previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
+          sourceMessages: [],
           admittedAt: 10,
         });
+        const admissionPath = join(
+          root,
+          'sessions',
+          session.id,
+          'turn-admissions',
+          'turn-1.json',
+        );
+        const admission = JSON.parse(await readFile(admissionPath, 'utf8')) as Record<
+          string,
+          unknown
+        >;
+        await writeFile(admissionPath, `${JSON.stringify({ ...admission, schemaVersion: 2 })}\n`);
+        await assert.rejects(
+          () => stores.agentRunStore.readRootTurnAdmission(session.id, 'turn-1'),
+          /malformed fields/,
+        );
         await writeFile(
-          join(root, 'sessions', session.id, 'turn-admissions', 'turn-1.json'),
+          admissionPath,
           '{"turnId":"wrong"}\n',
           'utf8',
         );

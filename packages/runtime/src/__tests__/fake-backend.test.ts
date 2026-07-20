@@ -86,11 +86,11 @@ test('pullSteering drains queued messages at step boundaries as steering events'
   });
   // Queue two steering messages, delivered one per step boundary, then dry up.
   const pending = [
-    { id: 'lease-1', text: 'do X' },
-    { id: 'lease-2', text: 'and Y' },
+    { id: 'lease-1', messageId: 'message-1', text: 'do X' },
+    { id: 'lease-2', messageId: 'message-2', text: 'and Y' },
   ];
   const acked: string[] = [];
-  const steered: string[] = [];
+  const steered: Array<{ messageId: string; text: string }> = [];
   let completedText = '';
   for await (const event of backend.send({
     turnId: 'turn-1',
@@ -99,10 +99,15 @@ test('pullSteering drains queued messages at step boundaries as steering events'
     pullSteering: () => (pending.length > 0 ? [pending.shift()!] : []),
     ackSteering: (leaseIds) => acked.push(...leaseIds),
   })) {
-    if (event.type === 'steering_message') steered.push(event.text);
+    if (event.type === 'steering_message') {
+      steered.push({ messageId: event.messageId, text: event.text });
+    }
     if (event.type === 'text_complete') completedText = event.text;
   }
-  assert.deepEqual(steered, ['do X', 'and Y']);
+  assert.deepEqual(steered, [
+    { messageId: 'message-1', text: 'do X' },
+    { messageId: 'message-2', text: 'and Y' },
+  ]);
   // Delivery is acknowledged lease by lease.
   assert.deepEqual(acked, ['lease-1', 'lease-2']);
   // The fake acknowledges the steering it saw, proving it reached the model side.
@@ -134,8 +139,8 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
         if (pulled) return [];
         pulled = true;
         return [
-          { id: 'lease-a', text: 'A' },
-          { id: 'lease-b', text: 'B' },
+          { id: 'lease-a', messageId: 'message-a', text: 'A' },
+          { id: 'lease-b', messageId: 'message-b', text: 'B' },
         ];
       },
       ackSteering: (leaseIds) => acked.push(...leaseIds),
@@ -168,7 +173,7 @@ test('a lease is acked only after its event is consumed, and nacked when the con
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
-  const pending = [{ id: 'lease-1', text: 'do X' }];
+  const pending = [{ id: 'lease-1', messageId: 'message-1', text: 'do X' }];
   const acked: string[] = [];
   const nacked: string[] = [];
   const iterator = backend

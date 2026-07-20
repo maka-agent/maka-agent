@@ -203,7 +203,7 @@ export class FakeBackend implements AgentBackend {
             id: randomUUID(),
             turnId,
             ts: Date.now(),
-            messageId: randomUUID(),
+            messageId: lease.messageId,
             text: lease.text,
           } satisfies SessionEvent,
         };

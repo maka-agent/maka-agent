@@ -571,6 +571,12 @@ function openResult(hostEpoch: string, subscriptionId: string): SubscriptionOpen
         status: 'running',
       },
       interactions: { pending: [] },
+      queue: {
+        hostEpoch,
+        queueRevision: 0,
+        steering: [],
+        followup: [],
+      },
     },
   };
 }

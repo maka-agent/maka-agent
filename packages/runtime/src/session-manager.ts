@@ -1654,7 +1654,12 @@ export class SessionManager {
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
-    await this.runtimeKernel.stopSession(sessionId, input);
+    await this.claimSessionStop(sessionId, input);
+  }
+
+  /** Synchronously commits the Runtime stop claim and returns its terminal completion. */
+  claimSessionStop(sessionId: string, input: StopSessionInput = {}): Promise<void> {
+    return this.runtimeKernel.stopSession(sessionId, input);
   }
 
   /** Queue a user message for mid-turn injection at the next step boundary. */

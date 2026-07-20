@@ -79,6 +79,9 @@ export interface BackendSendInput {
 
 /** One leased steering message: queue identity + user text. */
 export interface SteeringLease {
+  /** Stable user-message identity shared with the durable steering event. */
+  messageId: string;
+  /** Ephemeral delivery lease identity used only for ack/nack settlement. */
   id: string;
   text: string;
 }

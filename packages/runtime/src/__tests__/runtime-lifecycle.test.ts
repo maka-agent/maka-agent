@@ -28,6 +28,10 @@ import {
   type RuntimeInteractionRunOwner,
   type RuntimeUserQuestionContinuation,
 } from '../interaction-authority.js';
+import type {
+  RuntimeMessageAuthority,
+  RuntimeMessageRunOwner,
+} from '../message-authority.js';
 import { PermissionEngine } from '../permission-engine.js';
 import { PiAgentBackend, type PiAgentFrame, type PiAgentTransport } from '../pi-agent-backend.js';
 import {
@@ -160,7 +164,7 @@ describe('hosted Runtime lifecycle', () => {
         [Symbol.asyncIterator]();
 
       assert.equal((await iterator.next()).value?.type, 'text_delta');
-      const stopping = manager.stopSession(session.id, { source: 'stop_button' });
+      const stopping = manager.claimSessionStop(session.id, { source: 'stop_button' });
       await backend!.stopEntered.promise;
       const abandoning = iterator.return!(undefined);
       backend!.releaseStop();
@@ -178,6 +182,111 @@ describe('hosted Runtime lifecycle', () => {
     });
   });
 
+  test('hosted root runs consume the Host lease into the ledger and leave no Runtime queue owner', async () => {
+    await withRuntimeStores(async ({ store, runStore, runtimeEventStore, root }) => {
+      const activeOwners = new Set<string>();
+      const acked = new Set<string>();
+      const nacked = new Set<string>();
+      let pulled = false;
+      const messages = messageAuthority((identity) => {
+        activeOwners.add(identity.runId);
+        return {
+          ...identity,
+          pull: () => {
+            if (pulled) return [];
+            pulled = true;
+            return [{ id: 'host-lease-1', messageId: 'host-message-1', text: 'host steer' }];
+          },
+          ack: (leaseIds) => leaseIds.forEach((leaseId) => acked.add(leaseId)),
+          nack: (leaseIds) => leaseIds.forEach((leaseId) => nacked.add(leaseId)),
+          release: () => {
+            activeOwners.delete(identity.runId);
+          },
+        };
+      });
+      const backends = new BackendRegistry();
+      backends.register(
+        'fake',
+        (context) => {
+          if (context.header.name === 'Hosted message failure') {
+            return new RejectingSendHostedBackend(context.sessionId, new Error('provider failed'));
+          }
+          return new FakeBackend({
+            execution: context.execution,
+            sessionId: context.sessionId,
+            header: context.header,
+            store: context.store,
+            appendMessage: context.appendMessage,
+          });
+        },
+      );
+      const manager = managerFor({
+        store,
+        runStore,
+        runtimeEventStore,
+        backends,
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactionAuthority(),
+          messageAuthority: messages,
+        },
+      });
+      const session = await manager.createSession(sessionInput(root, 'Hosted message authority'));
+
+      await drain(
+        manager.sendMessage(session.id, {
+          turnId: 'turn-host-message',
+          text: 'start',
+        }),
+      );
+
+      const [run] = await runStore.listSessionRuns(session.id);
+      const steering = (await runtimeEventStore.readRuntimeEvents(session.id, run!.runId)).find(
+        (event) => event.content?.kind === 'text' && event.content.steering === true,
+      );
+      assert.equal(steering?.refs?.providerEventId, 'host-message-1');
+      assert.deepEqual([...acked], ['host-lease-1']);
+      assert.deepEqual([...nacked], []);
+      assert.deepEqual([...activeOwners], []);
+
+      assert.throws(() => manager.steer(session.id, 'runtime queue'), /Runtime Host owns/);
+      assert.throws(() => manager.queueMessage(session.id, 'runtime followup'), /Runtime Host owns/);
+      assert.throws(() => manager.drainFollowup(session.id), /Runtime Host owns/);
+      assert.throws(() => manager.retractQueue(session.id), /Runtime Host owns/);
+
+      const stoppedSession = await manager.createSession(
+        sessionInput(root, 'Hosted message stop'),
+      );
+      const stoppedIterator = manager
+        .sendMessage(stoppedSession.id, { turnId: 'turn-host-stop', text: 'stop' })
+        [Symbol.asyncIterator]();
+      await stoppedIterator.next();
+      assert.equal(activeOwners.size, 1);
+      const stopCompletion = manager.claimSessionStop(stoppedSession.id, {
+        source: 'stop_button',
+      });
+      await Promise.all([
+        stopCompletion,
+        drain({ [Symbol.asyncIterator]: () => stoppedIterator }),
+      ]);
+      assert.deepEqual([...activeOwners], []);
+
+      const failedSession = await manager.createSession(
+        sessionInput(root, 'Hosted message failure'),
+      );
+      await assert.rejects(
+        drain(
+          manager.sendMessage(failedSession.id, {
+            turnId: 'turn-host-failure',
+            text: 'fail',
+          }),
+        ),
+        /provider failed/,
+      );
+      assert.deepEqual([...activeOwners], []);
+    });
+  });
+
   test('overlapping backend disposal shares one rejecting canonical disposition', async () => {
     await withRuntimeStores(async ({ store, runStore, runtimeEventStore, root }) => {
       const disposalFailure = new Error('canonical backend disposal failed');
@@ -190,6 +299,7 @@ describe('hosted Runtime lifecycle', () => {
       const execution = {
         kind: 'hosted' as const,
         interactionAuthority: interactionAuthority(),
+        messageAuthority: messageAuthority(),
       };
       const deps = {
         store,
@@ -225,7 +335,7 @@ describe('hosted Runtime lifecycle', () => {
     });
   });
 
-  test('Pi owner isolation waits transport acknowledgment while send settlement stays reclaim-only', async () => {
+  test('Pi clean owner isolation waits transport acknowledgment and normal send settlement', async () => {
     await withRuntimeStores(async ({ store, runStore, runtimeEventStore, root }) => {
       const transport = new AckGatedPiTransport();
       const backends = new BackendRegistry();
@@ -251,7 +361,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactionAuthority() },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactionAuthority(),
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession({
         ...sessionInput(root, 'Pi isolation acknowledgment'),
@@ -269,10 +383,20 @@ describe('hosted Runtime lifecycle', () => {
       const runtimeDrain = manager.beginRuntimeDrain();
       await transport.stopEntered.promise;
       transport.acknowledgeIsolation();
-      await runtimeDrain.ownerIsolationDrain;
+      assert.equal(
+        await Promise.race([
+          runtimeDrain.ownerIsolationDrain.then(() => 'isolated'),
+          Promise.resolve('pending'),
+        ]),
+        'pending',
+      );
 
       transport.releaseSend();
-      await Promise.all([running, runtimeDrain.reclaimDrain]);
+      await Promise.all([
+        running,
+        runtimeDrain.ownerIsolationDrain,
+        runtimeDrain.reclaimDrain,
+      ]);
       const [run] = await runStore.listSessionRuns(session.id);
       assert.equal(run?.status, 'cancelled');
     });
@@ -281,6 +405,7 @@ describe('hosted Runtime lifecycle', () => {
   test('clean drain settles a stop claimed by an admitted backend factory before that factory fails', async () => {
     await withRuntimeStores(async ({ store, runStore, runtimeEventStore, root }) => {
       const backendFailure = new Error('backend activation failed after clean drain fenced');
+      let messageOwnerBound = false;
       let manager!: SessionManager;
       let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
       const backends = new BackendRegistry();
@@ -293,7 +418,20 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactionAuthority() },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactionAuthority(),
+          messageAuthority: messageAuthority((identity) => {
+            messageOwnerBound = true;
+            return {
+              ...identity,
+              pull: () => [],
+              ack: () => {},
+              nack: () => {},
+              release: () => {},
+            };
+          }),
+        },
       });
       const session = await manager.createSession(sessionInput(root, 'Pre-bind failure'));
       const running = drain(
@@ -315,6 +453,132 @@ describe('hosted Runtime lifecycle', () => {
       const terminal = await terminalEvents(runtimeEventStore, session.id, run!.runId);
       assert.equal(terminal.length, 1);
       assert.equal(terminal[0]?.status, 'aborted');
+      assert.equal(messageOwnerBound, false);
+    });
+  });
+
+  test('clean drain does not bind Message ownership after run begin observes its stop claim', async () => {
+    await withRuntimeStores(async ({ store, runStore, runtimeEventStore, root }) => {
+      let draining = false;
+      let manager!: SessionManager;
+      let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
+      const backends = new BackendRegistry();
+      backends.register('fake', (context) => {
+        draining = true;
+        runtimeDrain = manager.beginRuntimeDrain();
+        return new DrainBackend(context.sessionId);
+      });
+      manager = managerFor({
+        store,
+        runStore,
+        runtimeEventStore,
+        backends,
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactionAuthority(),
+          messageAuthority: messageAuthority(() => {
+            if (draining) throw new Error('Message owner bound after clean-drain stop claim');
+            throw new Error('Message owner bound before run begin completed');
+          }),
+        },
+      });
+      const session = await manager.createSession(sessionInput(root, 'Pre-bind stop'));
+
+      await drain(
+        manager.sendMessage(session.id, {
+          turnId: 'turn-pre-bind-stop',
+          text: 'stop after begin without binding messages',
+        }),
+      );
+      assert.ok(runtimeDrain);
+      await runtimeDrain.ownerIsolationDrain;
+      await runtimeDrain.reclaimDrain;
+
+      const [run] = await runStore.listSessionRuns(session.id);
+      assert.equal(run?.status, 'cancelled');
+      assert.deepEqual(
+        (await terminalEvents(runtimeEventStore, session.id, run!.runId)).map(
+          (event) => event.status,
+        ),
+        ['aborted'],
+      );
+    });
+  });
+
+  test('clean drain waits for in-flight Message settlement before normal owner release', async () => {
+    await withRuntimeStores(async ({ store, runStore, runtimeEventStore, root }) => {
+      const producer = new InFlightSteeringBackend('session-not-bound');
+      const ownerReleased = gate();
+      const inFlight = new Set<string>();
+      let ownerActive = false;
+      const backends = new BackendRegistry();
+      backends.register('fake', (context) => {
+        producer.sessionId = context.sessionId;
+        return producer;
+      });
+      const manager = managerFor({
+        store,
+        runStore,
+        runtimeEventStore,
+        backends,
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactionAuthority(),
+          messageAuthority: messageAuthority((identity) => {
+            ownerActive = true;
+            return {
+              ...identity,
+              pull: () => {
+                inFlight.add('lease-clean-drain');
+                return [
+                  {
+                    id: 'lease-clean-drain',
+                    messageId: 'message-clean-drain',
+                    text: 'settle before release',
+                  },
+                ];
+              },
+              ack: () => {},
+              nack: (leaseIds) => leaseIds.forEach((leaseId) => inFlight.delete(leaseId)),
+              release: () => {
+                if (inFlight.size > 0) throw new Error('released with an in-flight lease');
+                ownerActive = false;
+                ownerReleased.release();
+              },
+            };
+          }),
+        },
+      });
+      const session = await manager.createSession(sessionInput(root, 'In-flight clean drain'));
+      const running = drain(
+        manager.sendMessage(session.id, {
+          turnId: 'turn-in-flight-clean-drain',
+          text: 'hold steering settlement',
+        }),
+      );
+      void running.catch(() => undefined);
+      await producer.leasePulled.promise;
+
+      const runtimeDrain = manager.beginRuntimeDrain();
+      await producer.stopEntered.promise;
+      assert.equal(ownerActive, true);
+      assert.deepEqual([...inFlight], ['lease-clean-drain']);
+      assert.equal(
+        await Promise.race([
+          runtimeDrain.ownerIsolationDrain.then(() => 'isolated'),
+          Promise.resolve('pending'),
+        ]),
+        'pending',
+      );
+
+      producer.releaseProvider();
+      await ownerReleased.promise;
+      await runtimeDrain.ownerIsolationDrain;
+      await Promise.all([running, runtimeDrain.reclaimDrain]);
+      assert.equal(ownerActive, false);
+      assert.deepEqual([...inFlight], []);
+      const [run] = await runStore.listSessionRuns(session.id);
+      assert.equal(run?.status, 'cancelled');
     });
   });
 
@@ -346,7 +610,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactions },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactions,
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession(sessionInput(root, 'Provisional bind'));
       const running = drain(
@@ -385,7 +653,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactions },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactions,
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession(sessionInput(root, 'Isolation'));
       const running = drain(
@@ -437,7 +709,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactions },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactions,
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession(sessionInput(root, 'Isolation rejection'));
       const running = drain(
@@ -486,7 +762,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactions },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactions,
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession(sessionInput(root, 'Isolation controller'));
       const running = drain(
@@ -501,12 +781,12 @@ describe('hosted Runtime lifecycle', () => {
 
       const runtimeDrain = manager.beginRuntimeDrain();
       backend!.releaseSuccessorEffect();
+      backend!.releaseProvider();
       await assert.rejects(
         runtimeDrain.ownerIsolationDrain,
         (error: unknown) => error === isolationFailure,
       );
 
-      backend!.releaseProvider();
       await runtimeDrain.reclaimDrain;
       await running;
     });
@@ -547,7 +827,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactions },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactions,
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession(sessionInput(root, 'Abandon'));
       const iterator = manager
@@ -737,7 +1021,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactionAuthority() },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactionAuthority(),
+          messageAuthority: messageAuthority(),
+        },
       });
       const admittedSession = await manager.createSession({
         ...sessionInput(root, 'Admitted semantic recorder'),
@@ -841,7 +1129,11 @@ describe('hosted Runtime lifecycle', () => {
         runStore,
         runtimeEventStore,
         backends,
-        execution: { kind: 'hosted', interactionAuthority: interactions },
+        execution: {
+          kind: 'hosted',
+          interactionAuthority: interactions,
+          messageAuthority: messageAuthority(),
+        },
       });
       const session = await manager.createSession({
         ...sessionInput(root, 'Provider failure'),
@@ -891,6 +1183,13 @@ class DrainBackend implements AgentBackend {
 
   constructor(readonly sessionId: string) {}
 
+  [RUNTIME_BIND_HOSTED_RUN](): RuntimeHostedBackendRunBinding {
+    return {
+      isolateRegisteredSuccessorEffects: async () => {},
+      revoke: () => {},
+    };
+  }
+
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.sendCalls += 1;
     this.entered.release();
@@ -926,6 +1225,82 @@ class DrainBackend implements AgentBackend {
     this.stopCalls += 1;
     this.stopped = true;
     this.exit.release();
+  }
+
+  async respondToPermission(): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class RejectingSendHostedBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+
+  constructor(
+    readonly sessionId: string,
+    private readonly failure: Error,
+  ) {}
+
+  [RUNTIME_BIND_HOSTED_RUN](): RuntimeHostedBackendRunBinding {
+    return {
+      isolateRegisteredSuccessorEffects: async () => {},
+      revoke: () => {},
+    };
+  }
+
+  async *send(): AsyncIterable<SessionEvent> {
+    throw this.failure;
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class InFlightSteeringBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly leasePulled = gate();
+  readonly stopEntered = gate();
+  private readonly provider = gate();
+
+  constructor(public sessionId: string) {}
+
+  [RUNTIME_BIND_HOSTED_RUN](): RuntimeHostedBackendRunBinding {
+    return {
+      isolateRegisteredSuccessorEffects: async () => {},
+      revoke: () => {},
+    };
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const leases = input.pullSteering?.() ?? [];
+    this.leasePulled.release();
+    try {
+      yield {
+        type: 'text_delta',
+        id: `${input.turnId}-delta`,
+        turnId: input.turnId,
+        ts: 1,
+        messageId: `${input.turnId}-message`,
+        text: 'provider pending',
+      };
+      await this.provider.promise;
+      yield {
+        type: 'abort',
+        id: `${input.turnId}-abort`,
+        turnId: input.turnId,
+        ts: 2,
+        reason: 'user_stop',
+      };
+    } finally {
+      input.nackSteering?.(leases.map((lease) => lease.id));
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.stopEntered.release();
+  }
+
+  releaseProvider(): void {
+    this.provider.release();
   }
 
   async respondToPermission(): Promise<void> {}
@@ -1221,6 +1596,18 @@ function interactionAuthority(
       ...overrides,
     }),
   };
+}
+
+function messageAuthority(
+  bindRun: RuntimeMessageAuthority['bindRun'] = (identity): RuntimeMessageRunOwner => ({
+    ...identity,
+    pull: () => [],
+    ack: () => {},
+    nack: () => {},
+    release: () => {},
+  }),
+): RuntimeMessageAuthority {
+  return { bindRun };
 }
 
 async function terminalEvents(

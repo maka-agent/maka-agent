@@ -43,6 +43,7 @@ export {
   RuntimeInteractionFailStopError,
   RuntimeInteractionInvariantError,
 } from './interaction-authority.js';
+export { RuntimeMessageAuthorityInvariantError } from './message-authority.js';
 export {
   COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED,
   EMBEDDED_RUNTIME_EXECUTION,
@@ -88,6 +89,11 @@ export type {
   RuntimeUserQuestionContinuation,
   RuntimeUserQuestionOutcome,
 } from './interaction-authority.js';
+export type {
+  RuntimeMessageAuthority,
+  RuntimeMessageRunIdentity,
+  RuntimeMessageRunOwner,
+} from './message-authority.js';
 
 export {
   MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,

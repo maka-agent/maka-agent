@@ -91,6 +91,7 @@ import {
   type RuntimeInteractionFailStopHandle,
 } from './run-execution.js';
 import { isRuntimeLifecycleFatal } from './runtime-lifecycle-errors.js';
+import { RuntimeMessageAuthorityInvariantError } from './message-authority.js';
 
 export interface RuntimeKernelLike {
   installInteractionFailStop(
@@ -149,16 +150,11 @@ export interface ChildTurnStartOptions {
 }
 
 /**
- * A session's two authoritative pending-message queues plus the sink that
- * pushes queue snapshots into the active turn's event stream. The runtime is
- * the single source of truth; UIs mirror it from `queue_update` events and the
- * enqueue results.
+ * An embedded session's pending-message queues plus its active event sink.
+ * Hosted runtimes never instantiate this state; the Runtime Host owns their
+ * admission, snapshots, leases, and follow-up drain.
  */
-interface PendingSteeringMessage {
-  /** Queue/lease identity — NOT the ledger event id. */
-  id: string;
-  text: string;
-}
+interface PendingSteeringMessage extends SteeringLease {}
 
 /**
  * A pulled lease is bound to the turn that pulled it: only the issuing turn's
@@ -287,14 +283,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     this.runtimeDraining = true;
     const isolation = fenced.executions.map((execution) => execution.beginCleanIsolation());
     const stop = this.stopExecutions(fenced.executions, { source: undefined }, 'redirect');
-    const ownerIsolationDrain = settleRuntimeTasks([stop, ...isolation]).then(async () => {
-      await settleRuntimeTasks(
-        fenced.executions.map(async (execution) => {
-          execution.releaseInteractionOwner(true);
-        }),
-      );
-      return COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED;
-    });
+    const ownerIsolationDrain = settleRuntimeTasks([
+      stop,
+      ...isolation,
+      ...fenced.executions.map((execution) => execution.waitForHostOwnerRelease()),
+    ]).then(() => COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED);
     this.runtimeDrain = Object.freeze({
       ownerIsolationDrain,
       reclaimDrain: fenced.reclaimDrain,
@@ -883,6 +876,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
       await execution.finalize();
       return;
     }
+    const hostedMessageOwner =
+      steering && this.deps.execution.kind === 'hosted'
+        ? execution.bindMessageOwner()
+        : undefined;
     // Steering is a top-level-turn affordance only; child agent turns run
     // without a queue. Ownership is established only AFTER run.begin()
     // succeeds (a failed begin must not leak a live owner into the next turn)
@@ -893,7 +890,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let pullSteering: (() => readonly SteeringLease[]) | undefined;
     let ackSteering: ((leaseIds: readonly string[]) => void) | undefined;
     let nackSteering: ((leaseIds: readonly string[]) => void) | undefined;
-    if (steering) {
+    if (steering && this.deps.execution.kind === 'embedded') {
       const state = this.ensureSteering(sessionId);
       state.sink = (event) => {
         void sessionEvents.push(event).catch(() => {});
@@ -942,7 +939,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
           // Back to the FRONT of the queue: a re-pull at the next step
           // boundary preserves the user's original ordering.
           current.steering = [
-            ...returned.map(({ id, text }) => ({ id, text })),
+            ...returned.map(({ id, messageId, text }) => ({ id, messageId, text })),
             ...current.steering,
           ];
         } else {
@@ -956,6 +953,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
         this.emitQueueUpdate(sessionId, current);
       };
     }
+    if (hostedMessageOwner) {
+      pullSteering = () => hostedMessageOwner.pull();
+      ackSteering = (leaseIds) => hostedMessageOwner.ack(leaseIds);
+      nackSteering = (leaseIds) => hostedMessageOwner.nack(leaseIds);
+    }
 
     const finishFlow = async (): Promise<void> => {
       if (flowDone) return;
@@ -965,7 +967,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
         execution.throwIfFailed();
         // Release ownership before closing the stream so the final queue
         // snapshot can still be delivered to its active sink.
-        if (steering) this.releaseSteeringTurn(sessionId, run.turnId);
+        if (steering && this.deps.execution.kind === 'embedded') {
+          this.releaseSteeringTurn(sessionId, run.turnId);
+        }
         sessionEvents.close();
       } catch (error) {
         const failure = execution.canonicalError ?? error;
@@ -1175,7 +1179,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
           runnerFailure = error;
         }
       }
-      if (steering) this.releaseSteeringTurn(sessionId, run.turnId);
+      if (steering && this.deps.execution.kind === 'embedded') {
+        this.releaseSteeringTurn(sessionId, run.turnId);
+      }
       if (execution.canonicalError) throw execution.canonicalError;
       if (abandonmentFailure !== undefined) throw abandonmentFailure;
       if (isRuntimeLifecycleFatal(runnerFailure)) {
@@ -1595,6 +1601,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   // --------------------------------------------------------------------------
 
   steer(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.assertEmbeddedMessageQueue('steer');
     // Steering's delivery contract is anchored to the runtime event ledger
     // (fail-closed persist + durable-consume ack). Without a RuntimeEventStore
     // that anchor does not exist — same condition as requireTerminalWrite —
@@ -1607,12 +1614,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
     // fresh turn instead so the message is never dropped.
     const state = this.liveSteeringState(sessionId);
     if (!state) return { kind: 'fallback' };
-    state.steering.push({ id: this.deps.newId(), text });
+    const messageId = this.deps.newId();
+    state.steering.push({ id: messageId, messageId, text });
     this.emitQueueUpdate(sessionId, state);
     return { kind: 'queued' };
   }
 
   queueMessage(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.assertEmbeddedMessageQueue('queueMessage');
     const state = this.liveSteeringState(sessionId);
     if (!state) return { kind: 'fallback' };
     state.followup.push(text);
@@ -1621,6 +1630,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   drainFollowup(sessionId: string): string | null {
+    this.assertEmbeddedMessageQueue('drainFollowup');
     const state = this.steeringBySession.get(sessionId);
     if (!state || state.followup.length === 0) return null;
     const drained = state.followup.splice(0);
@@ -1629,6 +1639,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   retractQueue(sessionId: string): string {
+    this.assertEmbeddedMessageQueue('retractQueue');
     const state = this.steeringBySession.get(sessionId);
     if (!state) return '';
     // Retract reclaims QUEUED messages only. pull() is the single atomic
@@ -1650,6 +1661,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const created: SessionSteeringState = { steering: [], inFlight: [], followup: [] };
     this.steeringBySession.set(sessionId, created);
     return created;
+  }
+
+  private assertEmbeddedMessageQueue(operation: string): void {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeMessageAuthorityInvariantError(
+        `Hosted Runtime cannot ${operation}; the Runtime Host owns message admission and queues`,
+      );
+    }
   }
 
   /**

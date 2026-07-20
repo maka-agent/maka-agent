@@ -11438,12 +11438,14 @@ describe('AiSdkBackend steering durability and identity', () => {
       now: monotonicClock(),
     });
 
-  const pullOnce = (text: string): (() => Array<{ id: string; text: string }>) => {
+  const pullOnce = (
+    text: string,
+  ): (() => Array<{ id: string; messageId: string; text: string }>) => {
     let pulled = false;
     return () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: `lease-${text}`, text }];
+      return [{ id: `lease-${text}`, messageId: `message-${text}`, text }];
     };
   };
 
@@ -11476,7 +11478,11 @@ describe('AiSdkBackend steering durability and identity', () => {
 
     // The generator suspends at the steering yield: the event is delivered
     // but not yet acked, so the persist boundary has not been crossed.
-    await nextSteeringEvent(iterator);
+    const steeringEvent = await nextSteeringEvent(iterator);
+    assert.equal(
+      steeringEvent.type === 'steering_message' ? steeringEvent.messageId : undefined,
+      'message-persist me first',
+    );
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(model.doStreamCalls.length, 0);
 
@@ -11779,8 +11785,8 @@ describe('AiSdkBackend steering durability and identity', () => {
           if (pulled) return [];
           pulled = true;
           return [
-            { id: 'lease-1', text: 'do it' },
-            { id: 'lease-2', text: 'do it' },
+            { id: 'lease-1', messageId: 'message-1', text: 'do it' },
+            { id: 'lease-2', messageId: 'message-2', text: 'do it' },
           ];
         },
       }),

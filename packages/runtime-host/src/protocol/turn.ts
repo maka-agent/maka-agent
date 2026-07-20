@@ -5,6 +5,7 @@ import {
   requireId,
   requireRecord,
   requireString,
+  requireUtf8BoundedString,
 } from './codec.js';
 import { defineOperation } from './operation-spec.js';
 
@@ -13,6 +14,8 @@ export interface TurnStartInput {
   turnId: string;
   text: string;
 }
+
+export const TURN_MESSAGE_TEXT_MAX_BYTES = 48 * 1024;
 
 export interface TurnQueryInput {
   sessionId: string;
@@ -110,7 +113,7 @@ function decodeTurnStartInput(value: unknown): TurnStartInput {
   return {
     sessionId: requireEntityId(record.sessionId, 'sessionId'),
     turnId: requireEntityId(record.turnId, 'turnId'),
-    text: requireString(record.text, 'text', 48 * 1024),
+    text: requireUtf8BoundedString(record.text, 'text', TURN_MESSAGE_TEXT_MAX_BYTES),
   };
 }
 

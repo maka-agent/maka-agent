@@ -3,12 +3,16 @@ import { describe, test } from 'node:test';
 import {
   decodeClientFrame,
   decodeHostFrame,
+  encodeProtocolFrame,
   HOST_OPERATION_SPECS,
+  MESSAGE_QUEUE_MAX_ENTRIES,
   negotiateProtocol,
   ProtocolFrameDecoder,
   RUNTIME_HOST_MAX_FRAME_BYTES,
+  RUNTIME_HOST_PROTOCOL_VERSION,
   SESSION_CONTINUITY_SCHEMA_VERSION,
   SESSION_LIVE_DELTA_MAX_BYTES,
+  TURN_MESSAGE_TEXT_MAX_BYTES,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
 
@@ -16,6 +20,11 @@ describe('Runtime Host bootstrap protocol', () => {
   test('selects the highest mutually supported protocol and rejects a gap', () => {
     assert.equal(negotiateProtocol({ min: 1, max: 3 }, { min: 2, max: 4 }), 3);
     assert.equal(negotiateProtocol({ min: 1, max: 1 }, { min: 2, max: 2 }), undefined);
+  });
+
+  test('uses protocol v5 and Session continuity schema v3 without compatibility aliases', () => {
+    assert.equal(RUNTIME_HOST_PROTOCOL_VERSION, 5);
+    assert.equal(SESSION_CONTINUITY_SCHEMA_VERSION, 3);
   });
 
   test('decodes split UTF-8 and multiple newline-delimited frames without an unbounded tail', () => {
@@ -82,6 +91,182 @@ describe('Runtime Host bootstrap protocol', () => {
         operation: 'subscription.open',
         input: { sessionId: 'session-1' },
       },
+    );
+  });
+
+  test('declares the Message coordinator operations as semantic retries', () => {
+    const expectedErrors = [
+      'host_not_ready',
+      'host_draining',
+      'operation_unavailable',
+      'not_found',
+      'session_archived',
+      'session_busy',
+      'operation_conflict',
+      'outcome_unknown',
+      'internal_failure',
+    ];
+    for (const operation of [
+      'turn.message.submit',
+      'queue.retract',
+      'turn.interrupt',
+    ] as const) {
+      assert.equal(HOST_OPERATION_SPECS[operation].retry, 'semantic');
+      assert.deepEqual(HOST_OPERATION_SPECS[operation].errors, expectedErrors);
+    }
+  });
+
+  test('requires origin Host Epoch and stable semantic identities for Message commands', () => {
+    const submit = {
+      requestId: 'submit-request-1',
+      operation: 'turn.message.submit' as const,
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        text: 'please adjust the active turn',
+        placement: 'current_turn' as const,
+      },
+    };
+    const retract = {
+      requestId: 'retract-request-1',
+      operation: 'queue.retract' as const,
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        retractId: 'retract-1',
+      },
+    };
+    const interrupt = {
+      requestId: 'interrupt-request-1',
+      operation: 'turn.interrupt' as const,
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        interruptId: 'interrupt-1',
+        turnId: 'turn-1',
+        runId: 'run-1',
+      },
+    };
+    assert.deepEqual(decodeClientFrame(submit), submit);
+    assert.deepEqual(decodeClientFrame(retract), retract);
+    assert.deepEqual(decodeClientFrame(interrupt), interrupt);
+    assert.throws(
+      () => decodeClientFrame({ ...submit, input: { ...submit.input, originHostEpoch: undefined } }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () => decodeClientFrame({ ...retract, input: { ...retract.input, generation: 3 } }),
+      isInvalidFrame,
+    );
+  });
+
+  test('decodes every Message submit disposition as a closed result union', () => {
+    for (const result of [
+      { disposition: 'steering', queueRevision: 2 },
+      { disposition: 'followup', queueRevision: 3 },
+      { disposition: 'turn_started', turnId: 'turn-2' },
+    ]) {
+      assert.doesNotThrow(() =>
+        decodeHostFrame({
+          requestId: 'submit-request-1',
+          operation: 'turn.message.submit',
+          ok: true,
+          result,
+        }),
+      );
+    }
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'submit-request-2',
+          operation: 'turn.message.submit',
+          ok: true,
+          result: { disposition: 'turn_started', turnId: 'turn-2', queueRevision: 4 },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('returns structured retracted entries from retract and interrupt', () => {
+    const retracted = [retractedMessage()];
+    assert.doesNotThrow(() =>
+      decodeHostFrame({
+        requestId: 'retract-request-1',
+        operation: 'queue.retract',
+        ok: true,
+        result: { queueRevision: 4, retracted },
+      }),
+    );
+    assert.doesNotThrow(() =>
+      decodeHostFrame({
+        requestId: 'interrupt-request-1',
+        operation: 'turn.interrupt',
+        ok: true,
+        result: {
+          queueRevision: 5,
+          retracted,
+          turn: {
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            runId: 'run-1',
+            status: 'cancelled',
+            terminalEventId: 'event-1',
+            abortSource: 'user_interrupt',
+          },
+        },
+      }),
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'retract-request-2',
+          operation: 'queue.retract',
+          ok: true,
+          result: { queueRevision: 6, retracted: ['queued text'] },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'retract-request-3',
+          operation: 'queue.retract',
+          ok: true,
+          result: {
+            queueRevision: 6,
+            retracted: [{ ...retractedMessage(), state: 'queued' }],
+          },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('bounds Message text in UTF-8 bytes while leaving enough room for frame overhead', () => {
+    const input = {
+      originHostEpoch: 'epoch-1',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      text: 'a'.repeat(TURN_MESSAGE_TEXT_MAX_BYTES),
+      placement: 'next_turn' as const,
+    };
+    const frame = decodeClientFrame({
+      requestId: 'submit-request-1',
+      operation: 'turn.message.submit',
+      input,
+    });
+    assert.ok(encodeProtocolFrame(frame).byteLength < RUNTIME_HOST_MAX_FRAME_BYTES);
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          requestId: 'submit-request-2',
+          operation: 'turn.message.submit',
+          input: {
+            ...input,
+            text: '界'.repeat(Math.floor(TURN_MESSAGE_TEXT_MAX_BYTES / 3) + 1),
+          },
+        }),
+      isInvalidFrame,
     );
   });
 
@@ -155,6 +340,142 @@ describe('Runtime Host bootstrap protocol', () => {
           snapshot: {
             ...frame.snapshot,
             interaction: { kind: 'permission', args: { path: '/private' } },
+          },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('projects only bounded public queue state from the current Host Epoch', () => {
+    const frame = sessionProjectionFrame();
+    assert.doesNotThrow(() => decodeHostFrame(frame));
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            queue: { ...frame.snapshot.queue, phase: 'accepting' },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            queue: {
+              ...frame.snapshot.queue,
+              steering: [{ ...queuedMessage(), generation: 7 }],
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            queue: { ...frame.snapshot.queue, hostEpoch: 'epoch-2' },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            queue: {
+              ...frame.snapshot.queue,
+              steering: Array.from({ length: MESSAGE_QUEUE_MAX_ENTRIES + 1 }, (_, index) => ({
+                ...queuedMessage(),
+                entryId: `entry-${index}`,
+                messageId: `message-${index}`,
+              })),
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    const maximalTextFrame = {
+      ...frame,
+      snapshot: {
+        ...frame.snapshot,
+        queue: {
+          ...frame.snapshot.queue,
+          steering: [queuedMessage('a'.repeat(TURN_MESSAGE_TEXT_MAX_BYTES))],
+        },
+      },
+    };
+    const decoded = decodeHostFrame(maximalTextFrame);
+    assert.ok(encodeProtocolFrame(decoded).byteLength < RUNTIME_HOST_MAX_FRAME_BYTES);
+  });
+
+  test('projects in-flight steering and preserves placement when steering folds into followup', () => {
+    const frame = sessionProjectionFrame();
+    const folded = {
+      ...queuedMessage('folded steering', 'current_turn'),
+      entryId: 'entry-folded-1',
+      messageId: 'message-folded-1',
+    };
+    const explicitFollowup = {
+      ...queuedMessage('explicit followup', 'next_turn'),
+      entryId: 'entry-followup-1',
+      messageId: 'message-followup-1',
+    };
+    const decoded = decodeHostFrame({
+      ...frame,
+      snapshot: {
+        ...frame.snapshot,
+        queue: {
+          ...frame.snapshot.queue,
+          steering: [queuedMessage(), inFlightMessage()],
+          followup: [folded, explicitFollowup],
+        },
+      },
+    });
+    assert.deepEqual(
+      'kind' in decoded && decoded.kind === 'subscription.session_projection'
+        ? decoded.snapshot.queue
+        : null,
+      {
+        hostEpoch: 'epoch-1',
+        queueRevision: 1,
+        steering: [queuedMessage(), inFlightMessage()],
+        followup: [folded, explicitFollowup],
+      },
+    );
+  });
+
+  test('rejects next-turn steering and in-flight followup entries', () => {
+    const frame = sessionProjectionFrame();
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            queue: {
+              ...frame.snapshot.queue,
+              steering: [queuedMessage('next turn only', 'next_turn')],
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            queue: { ...frame.snapshot.queue, followup: [inFlightMessage()] },
           },
         }),
       isInvalidFrame,
@@ -242,7 +563,45 @@ function sessionProjectionFrame() {
         status: 'running' as const,
       },
       interactions: { pending: [] },
+      queue: {
+        hostEpoch: 'epoch-1',
+        queueRevision: 1,
+        steering: [queuedMessage()],
+        followup: [],
+      },
     },
+  };
+}
+
+function queuedMessage(
+  text = 'adjust this turn',
+  placement: 'current_turn' | 'next_turn' = 'current_turn',
+) {
+  return {
+    entryId: 'entry-1',
+    messageId: 'message-queued-1',
+    text,
+    placement,
+    state: 'queued' as const,
+  };
+}
+
+function inFlightMessage() {
+  return {
+    ...queuedMessage('already pulled'),
+    entryId: 'entry-in-flight-1',
+    messageId: 'message-in-flight-1',
+    state: 'in_flight' as const,
+  };
+}
+
+function retractedMessage() {
+  return {
+    entryId: 'entry-2',
+    messageId: 'message-retracted-1',
+    text: 'do this next',
+    placement: 'next_turn' as const,
+    state: 'retracted' as const,
   };
 }
 

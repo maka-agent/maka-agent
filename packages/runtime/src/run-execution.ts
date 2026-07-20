@@ -20,12 +20,17 @@ import {
   isRuntimeLifecycleFatal,
   isTypedRuntimeStopClosure,
 } from './runtime-lifecycle-errors.js';
+import type {
+  RuntimeMessageAuthority,
+  RuntimeMessageRunOwner,
+} from './message-authority.js';
 
 export type RuntimeExecutionCapability =
   | { readonly kind: 'embedded' }
   | {
       readonly kind: 'hosted';
       readonly interactionAuthority: RuntimeInteractionAuthority;
+      readonly messageAuthority: RuntimeMessageAuthority;
     };
 
 export type RuntimeBackendExecutionCapability =
@@ -412,11 +417,14 @@ export class RunExecution {
   private readonly backendReady = completion<AgentBackend | undefined>();
   private readonly interactionReady = completion<RunBoundInteractionOwner | undefined>();
   private readonly interactionRelease = completion<void>();
+  private readonly messageRelease = completion<void>();
   private readonly reclaim = completion<RuntimeExecutionSettled>();
   private readonly failStopCallbacks = new Set<(error: RuntimeInteractionFailStopError) => void>();
   private interactionOwner: RunBoundInteractionOwner | undefined;
+  private messageOwner: RuntimeMessageRunOwner | undefined;
   private backendControl: RuntimeHostedRunControl | undefined;
   private interactionInitialized = false;
+  private runBegun = false;
   private run: AgentRun | undefined;
   private backendPublication: BackendPublicationState = { kind: 'idle' };
   private backendBinding: RuntimeHostedBackendRunBinding | undefined;
@@ -430,6 +438,7 @@ export class RunExecution {
   private failStopCallbackFailure: { error: unknown } | undefined;
   private hostReleaseFailure: RuntimeInteractionFailStopError | undefined;
   private interactionOwnerReleased = false;
+  private messageOwnerReleased = false;
   private released = false;
   private reclaimStarted = false;
   private finalization: Promise<void> | undefined;
@@ -454,11 +463,55 @@ export class RunExecution {
     this.reclaimDrain = this.reclaim.promise;
     observeRejection(this.interactionReady.promise);
     observeRejection(this.interactionRelease.promise);
+    observeRejection(this.messageRelease.promise);
     observeRejection(this.reclaimDrain);
     if (capability.kind === 'embedded') {
       this.interactionOwnerReleased = true;
       this.interactionReady.resolve(undefined);
       this.interactionRelease.resolve(undefined);
+      this.messageOwnerReleased = true;
+      this.messageRelease.resolve(undefined);
+    }
+  }
+
+  bindMessageOwner(): RuntimeMessageRunOwner {
+    if (this.capability.kind === 'embedded') {
+      throw new RuntimeInteractionInvariantError(
+        `Embedded execution ${this.runId} cannot bind a Host message owner`,
+      );
+    }
+    if (this.messageOwner) return this.messageOwner;
+    if (!this.runBegun) {
+      throw new RuntimeInteractionInvariantError(
+        `Execution ${this.runId} cannot bind a message owner before run.begin`,
+      );
+    }
+    let owner: RuntimeMessageRunOwner | undefined;
+    try {
+      owner = this.capability.messageAuthority.bindRun({
+        sessionId: this.sessionId,
+        turnId: this.turnId,
+        runId: this.runId,
+      });
+      this.messageOwner = owner;
+      return owner;
+    } catch (error) {
+      let releaseFailure: unknown;
+      try {
+        owner?.release();
+      } catch (candidate) {
+        releaseFailure = candidate;
+      }
+      const cause =
+        releaseFailure === undefined
+          ? error
+          : new AggregateError([error, releaseFailure], 'Message bind cleanup failed');
+      const fatal = asRuntimeInteractionFailStop(
+        `Could not bind Message authority for run ${this.runId}`,
+        cause,
+      );
+      this.installCompositionFailStop(fatal);
+      throw this.failure ?? fatal;
     }
   }
 
@@ -535,7 +588,9 @@ export class RunExecution {
   async begin<T>(run: AgentRun, operation: () => Promise<T>): Promise<T> {
     this.attachRun(run);
     try {
-      return await this.wait(operation());
+      const result = await this.wait(operation());
+      this.runBegun = true;
+      return result;
     } catch (error) {
       if (this.failure) throw this.failure;
       if (isRuntimeLifecycleFatal(error)) throw error;
@@ -897,7 +952,7 @@ export class RunExecution {
       this.interactionReady.promise,
       backendIsolation,
     ]).then(() => {
-      this.releaseInteractionOwner();
+      this.releaseHostOwners();
       return COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED;
     });
     observeRejection(ownerIsolationDrain);
@@ -920,6 +975,13 @@ export class RunExecution {
     return isolation;
   }
 
+  waitForHostOwnerRelease(): Promise<void> {
+    return settleWithoutErasingFailure([
+      this.interactionRelease.promise,
+      this.messageRelease.promise,
+    ]);
+  }
+
   release(): void {
     if (this.released) {
       if (this.hostReleaseFailure) throw this.failure ?? this.hostReleaseFailure;
@@ -937,6 +999,16 @@ export class RunExecution {
         this.failure ??
         asRuntimeInteractionFailStop(
           `Could not release Runtime owner for run ${this.runId}`,
+          error,
+        );
+    }
+    try {
+      this.releaseMessageOwner();
+    } catch (error) {
+      releaseFailure ??=
+        this.failure ??
+        asRuntimeInteractionFailStop(
+          `Could not release Runtime message owner for run ${this.runId}`,
           error,
         );
     }
@@ -967,8 +1039,49 @@ export class RunExecution {
         `Could not release Interaction authority for run ${this.runId}`,
         error,
       );
-      this.hostReleaseFailure = fatal;
+      this.hostReleaseFailure ??= fatal;
       this.interactionRelease.reject(fatal);
+      if (!deferCompositionFailure) this.installCompositionFailStop(fatal);
+      throw this.failure ?? fatal;
+    }
+  }
+
+  releaseHostOwners(deferCompositionFailure = false): void {
+    let firstFailure: unknown;
+    try {
+      this.releaseInteractionOwner(deferCompositionFailure);
+    } catch (error) {
+      firstFailure = error;
+    }
+    try {
+      this.releaseMessageOwner(deferCompositionFailure);
+    } catch (error) {
+      firstFailure ??= error;
+    }
+    if (firstFailure !== undefined) throw firstFailure;
+  }
+
+  releaseMessageOwner(deferCompositionFailure = false): void {
+    if (this.messageOwnerReleased) {
+      if (this.hostReleaseFailure) {
+        if (!deferCompositionFailure && !this.failure) {
+          this.installCompositionFailStop(this.hostReleaseFailure);
+        }
+        throw this.failure ?? this.hostReleaseFailure;
+      }
+      return;
+    }
+    this.messageOwnerReleased = true;
+    try {
+      this.messageOwner?.release();
+      this.messageRelease.resolve(undefined);
+    } catch (error) {
+      const fatal = asRuntimeInteractionFailStop(
+        `Could not release Message authority for run ${this.runId}`,
+        error,
+      );
+      this.hostReleaseFailure ??= fatal;
+      this.messageRelease.reject(fatal);
       if (!deferCompositionFailure) this.installCompositionFailStop(fatal);
       throw this.failure ?? fatal;
     }
@@ -1046,6 +1159,7 @@ export class RunExecution {
       this.closeSuccessorEffectAdmission(),
       this.reclaimTasks.closeAndDrain(),
       this.interactionRelease.promise,
+      this.messageRelease.promise,
       ...(this.failure ? [Promise.reject(this.failure)] : []),
     ]).then(
       () => this.reclaim.resolve(RUNTIME_EXECUTION_SETTLED),

@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import {
   BackendRegistry,
   FakeBackend,
-  type RuntimeInteractionFailStopError,
+  RuntimeInteractionFailStopError,
   RuntimeInteractionInvariantError,
+  type RuntimeMessageAuthority,
+  type RuntimeMessageRunOwner,
   SessionManager,
 } from '@maka/runtime';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
@@ -15,6 +17,10 @@ import type {
   RuntimeHostFailStopDisposition,
 } from './host-kernel.js';
 import { HostInteractionAuthority } from './interaction-coordinator.js';
+import {
+  HostMessageCoordinator,
+  type HostMessageRootPort,
+} from './message-coordinator.js';
 import { combineDomainOperationHandlers } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
 import { RootTurnCoordinator } from './root-turn-coordinator.js';
@@ -27,9 +33,11 @@ export async function createExecutionRuntimeHostComposition(
   const stores = await openInteractiveExecutionStoresForWrite(context.owner.lease);
   const sessionAdmission = new SessionAdmissionGate();
   const rootAdmissionOwner = new RootAdmissionOwner();
+  let messages: HostMessageCoordinator | undefined;
   const canonicalProjection = createCanonicalSessionProjectionReader(
     stores,
     rootAdmissionOwner.reader,
+    (sessionId) => requireMessages(messages).projection(sessionId),
   );
   const continuity = new SessionContinuityCoordinator(
     context.hostEpoch,
@@ -45,6 +53,46 @@ export async function createExecutionRuntimeHostComposition(
     context.acquireResidency,
     (error) => failStopHandoff(error),
   );
+  let coordinator: RootTurnCoordinator | undefined;
+  const rootPort: HostMessageRootPort = {
+    readSessionHeader: (sessionId) => requireRootCoordinator(coordinator).readSessionHeader(sessionId),
+    readRootState: (sessionId) => requireRootCoordinator(coordinator).readRootState(sessionId),
+    startFromMessage: (input, admission) =>
+      requireRootCoordinator(coordinator).startFromMessage(input, admission),
+    claimStop: (input, admission, commitQueueFence) =>
+      requireRootCoordinator(coordinator).claimStop(input, admission, commitQueueFence),
+  };
+  const messageCoordinator = new HostMessageCoordinator({
+    hostEpoch: context.hostEpoch,
+    root: rootPort,
+    durableProof: {
+      readRootTurnSourceMessageReceipt: (sessionId, messageId) =>
+        stores.agentRunStore.readRootTurnSourceMessageReceipt(sessionId, messageId),
+      readSessionRuntimeEvents: (sessionId) =>
+        stores.runtimeEventStore.readSessionRuntimeEvents(sessionId),
+    },
+    sessionAdmission,
+    acquireResidency: context.acquireResidency,
+    validateProjectionCapacity: (sessionId, projection) =>
+      canonicalProjection.validateMessageQueue(sessionId, projection),
+    onProjectionChanged: async (sessionId, _projection, admission) => {
+      try {
+        await continuity.refreshCanonical(sessionId, admission);
+      } catch (error) {
+        const fatal = new RuntimeInteractionFailStopError(
+          `Could not publish Message projection for Session ${sessionId}`,
+          error,
+        );
+        failStopHandoff(fatal);
+        throw fatal;
+      }
+    },
+  });
+  messages = messageCoordinator;
+  const runtimeMessageAuthority = createFailStopMessageAuthority(
+    messageCoordinator,
+    (error) => failStopHandoff(error),
+  );
   const backends = new BackendRegistry();
   backends.register('fake', (backendContext) => new FakeBackend(backendContext));
   const manager = new SessionManager({
@@ -54,9 +102,13 @@ export async function createExecutionRuntimeHostComposition(
     backends,
     newId: randomUUID,
     now: Date.now,
-    execution: { kind: 'hosted', interactionAuthority: interaction },
+    execution: {
+      kind: 'hosted',
+      interactionAuthority: interaction,
+      messageAuthority: runtimeMessageAuthority,
+    },
   });
-  const coordinator = new RootTurnCoordinator(
+  const rootCoordinator = new RootTurnCoordinator(
     manager,
     stores,
     continuity,
@@ -65,9 +117,12 @@ export async function createExecutionRuntimeHostComposition(
     context.requestDrain,
     sessionAdmission,
     interaction,
+    messageCoordinator,
   );
+  coordinator = rootCoordinator;
   let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
   const beginRuntimeDrain = () => {
+    messageCoordinator.beginDrain();
     interaction.beginDrain();
     runtimeDrain ??= manager.beginRuntimeDrain();
     observe(runtimeDrain.ownerIsolationDrain);
@@ -93,8 +148,14 @@ export async function createExecutionRuntimeHostComposition(
     }
 
     let reclaimRoot = () => {};
+    let reclaimMessages = () => {};
     try {
-      reclaimRoot = coordinator.prepareFailStopReclaim(error);
+      reclaimMessages = messageCoordinator.prepareFailStopReclaim();
+    } catch (handoffFailure) {
+      handoffFailures.push(handoffFailure);
+    }
+    try {
+      reclaimRoot = rootCoordinator.prepareFailStopReclaim(error);
     } catch (handoffFailure) {
       handoffFailures.push(handoffFailure);
     }
@@ -118,6 +179,7 @@ export async function createExecutionRuntimeHostComposition(
         if (reclaimed) return;
         reclaimed = true;
         interaction.reclaimAfterOwnerIsolation();
+        reclaimMessages();
         reclaimRoot();
       },
     });
@@ -127,20 +189,22 @@ export async function createExecutionRuntimeHostComposition(
   let closeTask: Promise<RuntimeHostCompositionCloseResult> | undefined;
   return {
     handlers: combineDomainOperationHandlers(
-      coordinator.handlers,
+      rootCoordinator.handlers,
+      messageCoordinator.handlers,
       interaction.handlers,
       continuity.handlers,
     ),
     continuity,
     beginDrain: () => {
+      messageCoordinator.beginDrain();
       interaction.beginDrain();
       if (!failStopDisposition) beginRuntimeDrain();
     },
     recover: async () => {
-      await coordinator.prepareRecovery();
+      await rootCoordinator.prepareRecovery();
       await interaction.recoverPendingAfterHostRestart();
       await manager.recoverInterruptedSessionsStrict(stores);
-      await coordinator.recover();
+      await rootCoordinator.recover();
     },
     close: () => {
       if (failStopDisposition) {
@@ -149,7 +213,8 @@ export async function createExecutionRuntimeHostComposition(
       }
       const drain = beginRuntimeDrain();
       closeTask ??= closeComposition(
-        coordinator,
+        rootCoordinator,
+        messageCoordinator,
         interaction,
         continuity,
         drain,
@@ -162,6 +227,7 @@ export async function createExecutionRuntimeHostComposition(
 
 async function closeComposition(
   coordinator: RootTurnCoordinator,
+  messages: HostMessageCoordinator,
   interaction: HostInteractionAuthority,
   continuity: SessionContinuityCoordinator,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
@@ -173,7 +239,7 @@ async function closeComposition(
     return existingFailStop;
   }
 
-  const normalClose = closeNormally(coordinator, interaction, continuity, runtimeDrain);
+  const normalClose = closeNormally(coordinator, messages, interaction, continuity, runtimeDrain);
   const observedNormal = normalClose.then(
     (result) => ({ kind: 'fulfilled' as const, result }),
     (error: unknown) => ({ kind: 'rejected' as const, error }),
@@ -197,6 +263,7 @@ async function closeComposition(
 
 async function closeNormally(
   coordinator: RootTurnCoordinator,
+  messages: HostMessageCoordinator,
   interaction: HostInteractionAuthority,
   continuity: SessionContinuityCoordinator,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
@@ -212,6 +279,7 @@ async function closeNormally(
       if (outcome.status === 'rejected') errors.push(outcome.reason);
     }
     await interaction.close().catch((error: unknown) => errors.push(error));
+    await messages.close().catch((error: unknown) => errors.push(error));
   } finally {
     continuity.close();
   }
@@ -233,4 +301,69 @@ function requireFailStopDisposition(
     throw new Error('Interaction fatal signal has no fail-stop disposition');
   }
   return disposition;
+}
+
+function requireMessages(messages: HostMessageCoordinator | undefined): HostMessageCoordinator {
+  if (!messages) throw new Error('Runtime Host Message coordinator is not bound');
+  return messages;
+}
+
+function requireRootCoordinator(
+  coordinator: RootTurnCoordinator | undefined,
+): RootTurnCoordinator {
+  if (!coordinator) throw new Error('Runtime Host root coordinator is not bound');
+  return coordinator;
+}
+
+function createFailStopMessageAuthority(
+  authority: RuntimeMessageAuthority,
+  onFailStop: (error: RuntimeInteractionFailStopError) => void,
+): RuntimeMessageAuthority {
+  let fatal: RuntimeInteractionFailStopError | undefined;
+  const guard = <T>(operation: () => T): T => {
+    if (fatal) throw fatal;
+    try {
+      return operation();
+    } catch (error) {
+      fatal =
+        error instanceof RuntimeInteractionFailStopError
+          ? error
+          : new RuntimeInteractionFailStopError(
+              'Runtime Host Message authority entered fail-stop',
+              error,
+            );
+      onFailStop(fatal);
+      throw fatal;
+    }
+  };
+  const release = (operation: () => void): void => {
+    try {
+      operation();
+    } catch (error) {
+      if (!fatal) {
+        fatal =
+          error instanceof RuntimeInteractionFailStopError
+            ? error
+            : new RuntimeInteractionFailStopError(
+                'Runtime Host Message authority entered fail-stop',
+                error,
+              );
+        onFailStop(fatal);
+      }
+      throw fatal;
+    }
+  };
+  return {
+    bindRun: (identity): RuntimeMessageRunOwner =>
+      guard(() => {
+        const owner = authority.bindRun(identity);
+        return Object.freeze({
+          ...identity,
+          pull: () => guard(() => owner.pull()),
+          ack: (leaseIds: readonly string[]) => guard(() => owner.ack(leaseIds)),
+          nack: (leaseIds: readonly string[]) => guard(() => owner.nack(leaseIds)),
+          release: () => release(() => owner.release()),
+        });
+      }),
+  };
 }

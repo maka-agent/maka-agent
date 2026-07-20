@@ -153,6 +153,7 @@ export class ExecutionFixture {
         proposedUserMessageId: randomUUID(),
         previousRootTurnId: null,
         normalizedInput: { text },
+        sourceMessages: [],
         admittedAt,
       });
       assert.equal(result.kind, 'admitted');

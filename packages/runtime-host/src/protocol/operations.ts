@@ -2,6 +2,7 @@ import { invalidProtocolFrame } from './errors.js';
 import { requireExactRecord, requireId, requireRecord, requireString } from './codec.js';
 import { HOST_STATUS_OPERATION_SPECS } from './host-status.js';
 import { INTERACTION_OPERATION_SPECS } from './interaction.js';
+import { MESSAGE_OPERATION_SPECS } from './message.js';
 import {
   composeOperationSpecMaps,
   type HostOperationError,
@@ -11,6 +12,23 @@ import {
 import { SESSION_CONTINUITY_OPERATION_SPECS } from './session-continuity.js';
 import { TURN_OPERATION_SPECS } from './turn.js';
 
+export { TURN_MESSAGE_TEXT_MAX_BYTES } from './turn.js';
+
+export type {
+  InFlightMessageSnapshot,
+  MessagePlacement,
+  MessageQueueEntrySnapshot,
+  QueueRetractInput,
+  QueueRetractResult,
+  QueuedMessageSnapshot,
+  RetractedMessageSnapshot,
+  SessionMessageQueueProjection,
+  SteeringMessageSnapshot,
+  TurnInterruptInput,
+  TurnInterruptResult,
+  TurnMessageSubmitInput,
+  TurnMessageSubmitResult,
+} from './message.js';
 export type {
   HostLifecycleState,
   HostStatusInput,
@@ -37,13 +55,18 @@ const HOST_AND_TURN_OPERATION_SPECS = composeOperationSpecMaps(
   TURN_OPERATION_SPECS,
 );
 
-const HOST_TURN_AND_INTERACTION_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_TURN_AND_MESSAGE_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_AND_TURN_OPERATION_SPECS,
+  MESSAGE_OPERATION_SPECS,
+);
+
+const HOST_TURN_MESSAGE_AND_INTERACTION_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TURN_AND_MESSAGE_OPERATION_SPECS,
   INTERACTION_OPERATION_SPECS,
 );
 
 export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
-  HOST_TURN_AND_INTERACTION_OPERATION_SPECS,
+  HOST_TURN_MESSAGE_AND_INTERACTION_OPERATION_SPECS,
   SESSION_CONTINUITY_OPERATION_SPECS,
 );
 

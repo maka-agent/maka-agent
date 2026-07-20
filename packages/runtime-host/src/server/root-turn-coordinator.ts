@@ -21,6 +21,15 @@ import type {
 import { readCanonicalTurnSnapshot } from './canonical-turn-snapshot.js';
 import type { RuntimeHostResidency } from './host-kernel.js';
 import type { HostInteractionAuthority } from './interaction-coordinator.js';
+import {
+  type HostMessageRootState,
+  type HostMessageSessionHeader,
+  type HostMessageStartInput,
+  type HostMessageStopClaim,
+  HostMessageCoordinator,
+  type QueueFenceResult,
+  type RootFollowupBatch,
+} from './message-coordinator.js';
 import type { ConnectionContext, TurnOperationHandlerMap } from './operation-dispatcher.js';
 import type { RootAdmissionWriter } from './root-admission-owner.js';
 import { type SessionAdmissionLease, SessionAdmissionGate } from './session-admission-gate.js';
@@ -36,6 +45,8 @@ interface ActiveRootTurn {
   started: Deferred;
   done: Deferred;
   ownership: OwnedRootTurn;
+  stopRequested: boolean;
+  messageTransitionCommitted: boolean;
 }
 
 interface OwnedRootTurn {
@@ -105,6 +116,7 @@ export class RootTurnCoordinator {
     private readonly requestHostDrain: () => void,
     private readonly sessionAdmission: SessionAdmissionGate,
     private readonly interaction: HostInteractionAuthority,
+    private readonly messages: HostMessageCoordinator,
   ) {
     this.stores = authenticateExecutionStoresWriter(stores, 'interactive');
   }
@@ -300,6 +312,108 @@ export class RootTurnCoordinator {
     return this.#failStopReclaimer;
   }
 
+  async readSessionHeader(sessionId: string): Promise<HostMessageSessionHeader | null> {
+    this.#throwIfPoisoned();
+    try {
+      const header = await this.stores.sessionStore.readHeaderSnapshot(sessionId);
+      this.#throwIfPoisoned();
+      return { isArchived: header.isArchived };
+    } catch (error) {
+      this.#throwIfPoisoned();
+      if (isMissingFile(error)) return null;
+      throw error;
+    }
+  }
+
+  readRootState(sessionId: string): HostMessageRootState {
+    this.#throwIfPoisoned();
+    const active = this.#activeBySession.get(sessionId);
+    return active
+      ? { kind: 'active', sessionId, turnId: active.turnId, runId: active.runId }
+      : { kind: 'idle' };
+  }
+
+  async startFromMessage(
+    input: HostMessageStartInput,
+    admissionLease: SessionAdmissionLease,
+  ): Promise<{ readonly turnId: string }> {
+    this.#throwIfPoisoned();
+    if (input.sourceMessage.disposition !== 'turn_started') {
+      throw new RuntimeInteractionInvariantError('Idle message start requires turn_started source');
+    }
+    if (this.#activeBySession.has(input.sessionId)) {
+      throw new RuntimeInteractionInvariantError(
+        'Message coordinator attempted an idle start while a root Turn was active',
+      );
+    }
+    const turnId = randomUUID();
+    const previousRootTurnId = this.rootAdmissionWriter.previousRootTurnIdForNextAdmission(
+      input.sessionId,
+    );
+    const admission = await this.stores.agentRunStore.admitRootTurn({
+      sessionId: input.sessionId,
+      turnId,
+      proposedRunId: randomUUID(),
+      proposedUserMessageId: input.sourceMessage.messageId,
+      previousRootTurnId,
+      normalizedInput: { text: input.text },
+      sourceMessages: [input.sourceMessage],
+      admittedAt: Date.now(),
+    });
+    this.#throwIfPoisoned();
+    if (admission.kind !== 'admitted') {
+      throw new RuntimeInteractionInvariantError('Fresh message Turn identity already existed');
+    }
+    this.rootAdmissionWriter.record(admission.admission);
+    let disposition: TurnStartDisposition;
+    try {
+      disposition = await this.prepareAdmittedTurn(
+        { sessionId: input.sessionId, turnId, text: input.text },
+        admission.admission,
+        this.acquireRecoveryResidency,
+        admissionLease,
+      );
+    } catch (error) {
+      this.requestHostDrain();
+      throw error;
+    }
+    if (disposition.kind !== 'await_start') {
+      this.requestHostDrain();
+      throw new RuntimeInteractionInvariantError('Fresh message Turn did not enter execution');
+    }
+    return { turnId };
+  }
+
+  claimStop(
+    input: Pick<TurnStopInput, 'sessionId' | 'turnId' | 'runId'>,
+    admissionLease: SessionAdmissionLease,
+    commitQueueFence: () => QueueFenceResult,
+  ): Promise<HostMessageStopClaim> {
+    return this.sessionAdmission.runAdmitted(input.sessionId, admissionLease, async () => {
+      const disposition = await this.#prepareStopDisposition(input, commitQueueFence);
+      if (disposition.kind === 'complete') {
+        if (!disposition.outcome.ok) {
+          throw new RuntimeInteractionInvariantError(
+            'Message stop claim no longer matched its admitted root Turn',
+          );
+        }
+        return {
+          deliverStop: () => Promise.resolve(),
+          terminal: Promise.resolve(disposition.outcome.result),
+        };
+      }
+      return {
+        deliverStop: () =>
+          disposition.kind === 'request_stop'
+            ? this.#deliverRuntimeStop(input.sessionId, disposition.active)
+            : Promise.resolve(),
+        terminal: disposition.active.done.promise.then(() =>
+          this.readCanonicalSnapshot(input.sessionId, input.turnId, input.runId),
+        ),
+      };
+    });
+  }
+
   private startTurn(input: TurnStartInput, context: ConnectionContext): Promise<TurnStartOutcome> {
     return this.runCommand(async () => {
       this.#throwIfPoisoned();
@@ -311,7 +425,7 @@ export class RootTurnCoordinator {
         );
         this.#throwIfPoisoned();
         if (existing) {
-          if (existing.normalizedInput.text !== input.text) {
+          if (existing.normalizedInput.text !== input.text || existing.sourceMessages.length !== 0) {
             return completedStart(
               operationConflict('Turn identity was already admitted with a different payload'),
             );
@@ -345,10 +459,14 @@ export class RootTurnCoordinator {
           proposedUserMessageId: randomUUID(),
           previousRootTurnId,
           normalizedInput: { text: input.text },
+          sourceMessages: [],
           admittedAt: Date.now(),
         });
         this.#throwIfPoisoned();
-        if (admission.admission.normalizedInput.text !== input.text) {
+        if (
+          admission.admission.normalizedInput.text !== input.text ||
+          admission.admission.sourceMessages.length !== 0
+        ) {
           return completedStart(
             operationConflict('Turn identity was already admitted with a different payload'),
           );
@@ -420,60 +538,13 @@ export class RootTurnCoordinator {
       this.#throwIfPoisoned();
       const disposition = await this.sessionAdmission.run(
         input.sessionId,
-        async (): Promise<TurnStopDisposition> => {
-          this.#throwIfPoisoned();
-          const admission = await this.stores.agentRunStore.readRootTurnAdmission(
-            input.sessionId,
-            input.turnId,
-          );
-          this.#throwIfPoisoned();
-          if (!admission) {
-            return {
-              kind: 'complete',
-              outcome: notFound('Turn was not admitted'),
-            };
-          }
-          if (admission.runId !== input.runId) {
-            return {
-              kind: 'complete',
-              outcome: operationConflict('Run identity does not match the admitted Turn'),
-            };
-          }
-
-          const snapshot = await this.readCanonicalSnapshot(
-            input.sessionId,
-            input.turnId,
-            input.runId,
-          );
-          this.#throwIfPoisoned();
-          const active = this.#activeBySession.get(input.sessionId);
-          if (isTerminalSnapshot(snapshot)) {
-            return active?.turnId === input.turnId && active.runId === input.runId
-              ? { kind: 'await_terminal', active }
-              : {
-                  kind: 'complete',
-                  outcome: { ok: true, result: snapshot },
-                };
-          }
-          if (!active) {
-            throw new Error('Admitted non-terminal Turn has no active Runtime Host execution');
-          }
-          if (active.turnId !== input.turnId || active.runId !== input.runId) {
-            return {
-              kind: 'complete',
-              outcome: operationConflict('A different root Turn owns the active Session execution'),
-            };
-          }
-
-          return { kind: 'request_stop', active };
-        },
+        (lease) =>
+          this.#prepareStopDisposition(input, () => this.messages.commitStopFence(input, lease)),
       );
       this.#throwIfPoisoned();
       if (disposition.kind === 'complete') return disposition.outcome;
       if (disposition.kind === 'request_stop') {
-        await this.manager.stopSession(input.sessionId, {
-          source: 'stop_button',
-        });
+        await this.#deliverRuntimeStop(input.sessionId, disposition.active);
         this.#throwIfPoisoned();
       }
       await disposition.active.done.promise;
@@ -482,6 +553,57 @@ export class RootTurnCoordinator {
       this.#throwIfPoisoned();
       return { ok: true, result };
     });
+  }
+
+  async #prepareStopDisposition(
+    input: Pick<TurnStopInput, 'sessionId' | 'turnId' | 'runId'>,
+    commitQueueFence: () => void,
+  ): Promise<TurnStopDisposition> {
+    this.#throwIfPoisoned();
+    const admission = await this.stores.agentRunStore.readRootTurnAdmission(
+      input.sessionId,
+      input.turnId,
+    );
+    this.#throwIfPoisoned();
+    if (!admission) {
+      return { kind: 'complete', outcome: notFound('Turn was not admitted') };
+    }
+    if (admission.runId !== input.runId) {
+      return {
+        kind: 'complete',
+        outcome: operationConflict('Run identity does not match the admitted Turn'),
+      };
+    }
+
+    const snapshot = await this.readCanonicalSnapshot(
+      input.sessionId,
+      input.turnId,
+      input.runId,
+    );
+    this.#throwIfPoisoned();
+    const active = this.#activeBySession.get(input.sessionId);
+    if (isTerminalSnapshot(snapshot)) {
+      if (active?.turnId === input.turnId && active.runId === input.runId) {
+        commitQueueFence();
+        active.stopRequested = true;
+        return { kind: 'await_terminal', active };
+      }
+      return { kind: 'complete', outcome: { ok: true, result: snapshot } };
+    }
+    if (!active) {
+      throw new Error('Admitted non-terminal Turn has no active Runtime Host execution');
+    }
+    if (active.turnId !== input.turnId || active.runId !== input.runId) {
+      return {
+        kind: 'complete',
+        outcome: operationConflict('A different root Turn owns the active Session execution'),
+      };
+    }
+
+    commitQueueFence();
+    const shouldRequestStop = !active.stopRequested;
+    active.stopRequested = true;
+    return shouldRequestStop ? { kind: 'request_stop', active } : { kind: 'await_terminal', active };
   }
 
   private async prepareAdmittedTurn(
@@ -533,8 +655,12 @@ export class RootTurnCoordinator {
     }
     const residency = acquireResidency();
     const ownership = this.#ownTurn(input.sessionId, input.turnId, runId, residency);
+    const messageIdentity = { sessionId: input.sessionId, turnId: input.turnId, runId };
+    let messageReserved = false;
     try {
       this.#assertTurnUsable(ownership);
+      this.messages.reserveRootTurn(messageIdentity);
+      messageReserved = true;
       await this.continuity.holdTerminalPublication(
         input.sessionId,
         input.turnId,
@@ -543,6 +669,7 @@ export class RootTurnCoordinator {
       );
       this.#assertTurnUsable(ownership);
     } catch (error) {
+      if (messageReserved) this.messages.abandonRootReservation(messageIdentity);
       this.#releaseOwnedTurn(ownership);
       throw error;
     }
@@ -555,6 +682,8 @@ export class RootTurnCoordinator {
       started,
       done: deferred(),
       ownership,
+      stopRequested: false,
+      messageTransitionCommitted: false,
     };
     this.#assertTurnUsable(ownership);
     this.#activeBySession.set(input.sessionId, entry);
@@ -709,6 +838,19 @@ export class RootTurnCoordinator {
         active.done.reject(fatal);
         completion = { kind: 'failed', error: fatal };
       } else {
+        if (!active.messageTransitionCommitted) {
+          try {
+            this.messages.abandonRootReservation({
+              sessionId: input.sessionId,
+              turnId: active.turnId,
+              runId: active.runId,
+            });
+          } catch (error) {
+            active.started.reject(error);
+            completion = { kind: 'failed', error };
+            this.requestHostDrain();
+          }
+        }
         try {
           this.#releaseOwnedTurn(active.ownership, active);
         } catch (error) {
@@ -734,8 +876,9 @@ export class RootTurnCoordinator {
   ): Promise<void> {
     await this.sessionAdmission.run(sessionId, async (lease) => {
       this.#assertTurnUsable(active.ownership);
+      const identity = { sessionId, turnId: active.turnId, runId: active.runId };
       await this.interaction.assertRunClosedAndNoPending(
-        { sessionId, turnId: active.turnId, runId: active.runId },
+        identity,
         lease,
       );
       this.#assertTurnUsable(active.ownership);
@@ -752,7 +895,76 @@ export class RootTurnCoordinator {
         },
         lease,
       );
+      this.#assertTurnUsable(active.ownership);
+      const batch = this.messages.beginTerminalTransition(identity, lease);
+      if (batch.sources.length === 0) {
+        this.messages.completeIdle(batch, lease);
+        active.messageTransitionCommitted = true;
+        return;
+      }
+      await this.#startFollowupBatch(batch, active, lease);
     });
+  }
+
+  async #startFollowupBatch(
+    batch: RootFollowupBatch,
+    previous: ActiveRootTurn,
+    admissionLease: SessionAdmissionLease,
+  ): Promise<void> {
+    const previousRootTurnId = this.rootAdmissionWriter.previousRootTurnIdForNextAdmission(
+      batch.sessionId,
+    );
+    if (previousRootTurnId !== batch.previousTurnId) {
+      throw new RuntimeInteractionInvariantError('Follow-up batch lost the root admission tip');
+    }
+    const turnId = randomUUID();
+    const runId = randomUUID();
+    const admission = await this.stores.agentRunStore.admitRootTurn({
+      sessionId: batch.sessionId,
+      turnId,
+      proposedRunId: runId,
+      proposedUserMessageId: randomUUID(),
+      previousRootTurnId,
+      normalizedInput: { text: batch.text },
+      sourceMessages: batch.sources,
+      admittedAt: Date.now(),
+    });
+    this.#throwIfPoisoned();
+    if (admission.kind !== 'admitted') {
+      throw new RuntimeInteractionInvariantError('Fresh follow-up Turn identity already existed');
+    }
+    this.rootAdmissionWriter.record(admission.admission);
+
+    const nextIdentity = { sessionId: batch.sessionId, turnId, runId };
+    const nextResidency = this.acquireRecoveryResidency();
+    let nextRootCommitted = false;
+    let residencyTransferred = false;
+    try {
+      this.messages.commitNextRoot(batch, nextIdentity, admissionLease);
+      nextRootCommitted = true;
+      previous.messageTransitionCommitted = true;
+      const disposition = await this.prepareAdmittedTurn(
+        { sessionId: batch.sessionId, turnId, text: batch.text },
+        admission.admission,
+        () => {
+          if (residencyTransferred) {
+            throw new RuntimeInteractionInvariantError('Follow-up root residency was acquired twice');
+          }
+          residencyTransferred = true;
+          return nextResidency;
+        },
+        admissionLease,
+      );
+      if (disposition.kind !== 'await_start') {
+        throw new RuntimeInteractionInvariantError('Fresh follow-up Turn did not enter execution');
+      }
+    } catch (error) {
+      if (!residencyTransferred) {
+        nextResidency.release();
+        if (nextRootCommitted) this.messages.abandonRootReservation(nextIdentity);
+      }
+      throw error;
+    }
   }
 
   private async readCanonicalSnapshot(
@@ -771,6 +983,16 @@ export class RootTurnCoordinator {
     );
     this.#throwIfPoisoned();
     return snapshot;
+  }
+
+  async #deliverRuntimeStop(sessionId: string, active: ActiveRootTurn): Promise<void> {
+    try {
+      await active.started.promise;
+      await this.manager.claimSessionStop(sessionId, { source: 'stop_button' });
+    } catch (error) {
+      if (!this.#poisoned && !active.ownership.poisoned) this.requestHostDrain();
+      throw error;
+    }
   }
 
   private async readRunIfPresent(

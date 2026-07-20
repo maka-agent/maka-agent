@@ -24,6 +24,7 @@ import { RuntimeHostKernel } from '../server/index.js';
 import {
   combineDomainOperationHandlers,
   createUnavailableDomainOperationHandlers,
+  type MessageOperationHandlerMap,
   type TurnOperationHandlerMap,
 } from '../server/operation-dispatcher.js';
 import { SessionAdmissionGate } from '../server/session-admission-gate.js';
@@ -77,7 +78,7 @@ test('a connection accepted during recovery resolves ready handlers and continui
           }
           const readCount = previousReadCount + 1;
           canonicalReadCounts.set(sessionId, readCount);
-          return canonicalProjection(sessionId, readCount);
+          return canonicalProjection(context.hostEpoch, sessionId, readCount);
         },
         new SessionAdmissionGate(),
       );
@@ -85,6 +86,7 @@ test('a connection accepted during recovery resolves ready handlers and continui
       return {
         handlers: combineDomainOperationHandlers(
           createTurnHandlers(),
+          createUnavailableMessageHandlers(),
           continuity.handlers,
           createUnavailableInteractionHandlers(),
         ),
@@ -224,15 +226,16 @@ test('a disconnected opener cannot consume a canonical update from existing subs
   const canonicalReadEntered = deferred();
   const releaseCanonicalRead = deferred();
   let deferCanonicalRead = false;
-  let canonical = canonicalProjection('session', 1);
+  let canonical: CanonicalSessionProjection;
   await withContinuityHost(
     'session',
-    async ({ continuity, endpoint }) => {
+    async ({ continuity, endpoint, hostEpoch }) => {
+      canonical = canonicalProjection(hostEpoch, 'session', 1);
       const subscriber = await openAcceptedTransport(endpoint, 'subscriber');
       const opener = await openAcceptedTransport(endpoint, 'disconnecting-opener');
       try {
         const opened = await openSubscription(subscriber, 'session');
-        canonical = canonicalProjection('session', 2);
+        canonical = canonicalProjection(hostEpoch, 'session', 2);
         deferCanonicalRead = true;
         const opening = openSubscription(opener, 'session', 'disconnecting-open').then(
           () => assert.fail('Disconnected subscription.open unexpectedly resolved'),
@@ -280,10 +283,11 @@ test('a disconnected opener cannot consume a canonical update from existing subs
 });
 
 test('a terminal publication fence withholds terminal projection until explicit publish', async () => {
-  let canonical = canonicalProjection('session', 1);
+  let canonical: CanonicalSessionProjection;
   await withContinuityHost(
     'session',
-    async ({ continuity, endpoint }) => {
+    async ({ continuity, endpoint, hostEpoch }) => {
+      canonical = canonicalProjection(hostEpoch, 'session', 1);
       await continuity.holdTerminalPublication('session', 'turn', 'run-turn');
       const subscriber = await openAcceptedTransport(endpoint, 'subscriber');
       const terminalOpener = await openAcceptedTransport(endpoint, 'terminal-opener');
@@ -293,7 +297,7 @@ test('a terminal publication fence withholds terminal projection until explicit 
         assert.equal(opened.snapshot.projectionRevision, 1);
 
         canonical = {
-          ...canonicalProjection('session', 2),
+          ...canonicalProjection(hostEpoch, 'session', 2),
           rootTurn: completedSnapshot('session', 'turn'),
         };
         const withheld = await openSubscription(
@@ -432,6 +436,7 @@ test('a paused UDS subscriber does not block another client', async () => {
 interface ContinuityHostFixture {
   continuity: SessionContinuityCoordinator;
   endpoint: string;
+  hostEpoch: string;
 }
 
 interface ContinuityHostConfig {
@@ -466,6 +471,7 @@ async function withContinuityHost(
       return {
         handlers: combineDomainOperationHandlers(
           createTurnHandlers(),
+          createUnavailableMessageHandlers(),
           continuity.handlers,
           createUnavailableInteractionHandlers(),
         ),
@@ -480,7 +486,7 @@ async function withContinuityHost(
   });
   assert.ok(continuity);
   try {
-    await run({ continuity, endpoint: host.endpoint });
+    await run({ continuity, endpoint: host.endpoint, hostEpoch: host.hostEpoch });
   } finally {
     await host.close();
     await rm(join(resolveRootControlNamespace(), capability.rootId), {
@@ -499,16 +505,29 @@ function createUnavailableInteractionHandlers() {
   };
 }
 
+function createUnavailableMessageHandlers(): MessageOperationHandlerMap {
+  const unavailable = createUnavailableDomainOperationHandlers();
+  return {
+    'turn.message.submit': unavailable['turn.message.submit'],
+    'queue.retract': unavailable['queue.retract'],
+    'turn.interrupt': unavailable['turn.interrupt'],
+  };
+}
+
 function createContinuity(hostEpoch: string, sessionId: string): SessionContinuityCoordinator {
   return new SessionContinuityCoordinator(
     hostEpoch,
     async (requestedSessionId) =>
-      requestedSessionId === sessionId ? canonicalProjection(sessionId, 1) : null,
+      requestedSessionId === sessionId ? canonicalProjection(hostEpoch, sessionId, 1) : null,
     new SessionAdmissionGate(),
   );
 }
 
-function canonicalProjection(sessionId: string, lastUsedAt: number): CanonicalSessionProjection {
+function canonicalProjection(
+  hostEpoch: string,
+  sessionId: string,
+  lastUsedAt: number,
+): CanonicalSessionProjection {
   return {
     session: {
       sessionId,
@@ -519,6 +538,12 @@ function canonicalProjection(sessionId: string, lastUsedAt: number): CanonicalSe
     },
     rootTurn: runningSnapshot(sessionId, 'turn'),
     interactions: { pending: [] },
+    queue: {
+      hostEpoch,
+      queueRevision: 0,
+      steering: [],
+      followup: [],
+    },
   };
 }
 

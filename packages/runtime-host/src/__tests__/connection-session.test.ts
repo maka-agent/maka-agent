@@ -20,6 +20,7 @@ import { RuntimeHostConnectionSession } from '../server/connection-session.js';
 import {
   combineDomainOperationHandlers,
   createUnavailableDomainOperationHandlers,
+  type MessageOperationHandlerMap,
   type OperationHandlerMap,
   type TurnOperationHandlerMap,
 } from '../server/operation-dispatcher.js';
@@ -251,6 +252,12 @@ test('disconnect while operation admission is pending cannot attach phantom cont
       },
       rootTurn: runningSnapshot(sessionId, 'turn'),
       interactions: { pending: [] },
+      queue: {
+        hostEpoch: 'host-epoch',
+        queueRevision: 0,
+        steering: [],
+        followup: [],
+      },
     }),
     new SessionAdmissionGate(),
   );
@@ -435,12 +442,16 @@ async function openAcceptedTransport(
 function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['handlers'] {
   const turnHandlers = createTurnHandlers(queryTurn);
   const unavailable = createUnavailableDomainOperationHandlers();
-  return combineDomainOperationHandlers(turnHandlers, {
-    'subscription.open': unavailable['subscription.open'],
-    'subscription.close': unavailable['subscription.close'],
-    'interaction.query': unavailable['interaction.query'],
-    'interaction.answer': unavailable['interaction.answer'],
-  });
+  return combineDomainOperationHandlers(
+    turnHandlers,
+    createUnavailableMessageHandlers(),
+    {
+      'subscription.open': unavailable['subscription.open'],
+      'subscription.close': unavailable['subscription.close'],
+      'interaction.query': unavailable['interaction.query'],
+      'interaction.answer': unavailable['interaction.answer'],
+    },
+  );
 }
 
 function createTurnHandlers(queryTurn: TurnQueryHandler): TurnOperationHandlerMap {
@@ -474,10 +485,24 @@ function createConnectionHandlers(continuity: SessionContinuityCoordinator): Ope
         activeResidencies: 0,
       },
     }),
-    ...combineDomainOperationHandlers(createTurnHandlers(queryTurn), continuity.handlers, {
-      'interaction.query': unavailable['interaction.query'],
-      'interaction.answer': unavailable['interaction.answer'],
-    }),
+    ...combineDomainOperationHandlers(
+      createTurnHandlers(queryTurn),
+      createUnavailableMessageHandlers(),
+      continuity.handlers,
+      {
+        'interaction.query': unavailable['interaction.query'],
+        'interaction.answer': unavailable['interaction.answer'],
+      },
+    ),
+  };
+}
+
+function createUnavailableMessageHandlers(): MessageOperationHandlerMap {
+  const unavailable = createUnavailableDomainOperationHandlers();
+  return {
+    'turn.message.submit': unavailable['turn.message.submit'],
+    'queue.retract': unavailable['queue.retract'],
+    'turn.interrupt': unavailable['turn.interrupt'],
   };
 }
 

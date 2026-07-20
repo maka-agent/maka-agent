@@ -3329,7 +3329,7 @@ export class AiSdkBackend implements AgentBackend {
           id: eventId,
           turnId,
           ts: this.now(),
-          messageId: this.newId(),
+          messageId: lease.messageId,
           text: lease.text,
         } satisfies SessionEvent);
         const pushedThrough = queue.pushedCount;

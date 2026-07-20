@@ -15,10 +15,15 @@ import {
   decodeSessionInteractionProjection,
   type SessionInteractionProjection,
 } from './interaction.js';
+import {
+  decodeSessionMessageQueueProjection,
+  type SessionMessageQueueProjection,
+} from './message.js';
 import { decodeTurnSnapshot, type TurnSnapshot } from './turn.js';
 
-export const SESSION_CONTINUITY_SCHEMA_VERSION = 2 as const;
+export const SESSION_CONTINUITY_SCHEMA_VERSION = 3 as const;
 export const SESSION_LIVE_DELTA_MAX_BYTES = 16 * 1024;
+export const SESSION_CONTINUITY_SNAPSHOT_MAX_BYTES = 56 * 1024;
 
 export type SessionLifecycleStatus =
   | 'active'
@@ -45,6 +50,7 @@ export interface SessionContinuitySnapshot {
   projectionRevision: number;
   rootTurn: TurnSnapshot | null;
   interactions: SessionInteractionProjection;
+  queue: SessionMessageQueueProjection;
 }
 
 export interface SubscriptionOpenInput {
@@ -148,10 +154,14 @@ export function decodeSubscriptionFrame(value: unknown): SubscriptionFrame {
       'sequence',
       'snapshot',
     ]);
+    const snapshot = decodeSessionContinuitySnapshot(record.snapshot);
+    if (snapshot.queue.hostEpoch !== envelope.hostEpoch) {
+      throw invalidProtocolFrame('Session queue projection belongs to a different Host Epoch');
+    }
     return {
       kind: record.kind,
       ...envelope,
-      snapshot: decodeSessionContinuitySnapshot(record.snapshot),
+      snapshot,
     };
   }
   if (record.kind === 'subscription.session_delta') {
@@ -226,11 +236,16 @@ function decodeSubscriptionOpenResult(value: unknown): SubscriptionOpenResult {
     'nextSequence',
     'snapshot',
   ]);
+  const hostEpoch = requireId(record.hostEpoch, 'hostEpoch');
+  const snapshot = decodeSessionContinuitySnapshot(record.snapshot);
+  if (snapshot.queue.hostEpoch !== hostEpoch) {
+    throw invalidProtocolFrame('Session queue projection belongs to a different Host Epoch');
+  }
   return {
-    hostEpoch: requireId(record.hostEpoch, 'hostEpoch'),
+    hostEpoch,
     subscriptionId: requireId(record.subscriptionId, 'subscriptionId'),
     nextSequence: requirePositiveCount(record.nextSequence, 'nextSequence'),
-    snapshot: decodeSessionContinuitySnapshot(record.snapshot),
+    snapshot,
   };
 }
 
@@ -244,13 +259,19 @@ function decodeSubscriptionCloseResult(value: unknown): SubscriptionCloseResult 
   return { subscriptionId: requireId(record.subscriptionId, 'subscriptionId') };
 }
 
-function decodeSessionContinuitySnapshot(value: unknown): SessionContinuitySnapshot {
+export function decodeSessionContinuitySnapshot(value: unknown): SessionContinuitySnapshot {
+  requireEncodedByteLimit(
+    value,
+    'Session continuity snapshot',
+    SESSION_CONTINUITY_SNAPSHOT_MAX_BYTES,
+  );
   const record = requireExactRecord(value, 'Session continuity snapshot', [
     'schemaVersion',
     'session',
     'projectionRevision',
     'rootTurn',
     'interactions',
+    'queue',
   ]);
   if (record.schemaVersion !== SESSION_CONTINUITY_SCHEMA_VERSION) {
     throw invalidProtocolFrame('Unsupported Session continuity snapshot schema');
@@ -266,7 +287,20 @@ function decodeSessionContinuitySnapshot(value: unknown): SessionContinuitySnaps
     projectionRevision: requirePositiveCount(record.projectionRevision, 'projectionRevision'),
     rootTurn,
     interactions: decodeSessionInteractionProjection(record.interactions, session.sessionId),
+    queue: decodeSessionMessageQueueProjection(record.queue),
   };
+}
+
+function requireEncodedByteLimit(value: unknown, label: string, maxBytes: number): void {
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    throw invalidProtocolFrame(`Invalid ${label}`);
+  }
+  if (encoded === undefined || Buffer.byteLength(encoded, 'utf8') > maxBytes) {
+    throw invalidProtocolFrame(`Invalid ${label}`);
+  }
 }
 
 function decodeSessionContinuityIdentity(value: unknown): SessionContinuityIdentity {

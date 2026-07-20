@@ -876,6 +876,137 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
   });
 });
 
+test('a disconnected Client leaves one retried follow-up for the Host to execute', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const subscription = await second.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const firstTurnId = randomUUID();
+    await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId: firstTurnId,
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
+    });
+    const pending = await waitForPendingInteraction(subscription, firstTurnId);
+    const messageId = randomUUID();
+    const text = 'execute this follow-up exactly once';
+    const input = {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId,
+      text,
+      placement: 'next_turn' as const,
+    };
+
+    let submitted: Awaited<ReturnType<typeof first.request<'turn.message.submit'>>>;
+    try {
+      submitted = await first.request('turn.message.submit', input);
+    } catch (error) {
+      throw new Error('Host connection failed during initial follow-up submit', {
+        cause: error,
+      });
+    }
+    assert.equal(submitted.disposition, 'followup');
+    if (submitted.disposition !== 'followup') return;
+    try {
+      assert.deepEqual(await first.request('turn.message.submit', input), submitted);
+    } catch (error) {
+      throw new Error('Host connection failed during same-Epoch follow-up retry', {
+        cause: error,
+      });
+    }
+    await first.close();
+
+    const iterator = subscription[Symbol.asyncIterator]();
+    let queuedEntry: (typeof subscription.snapshot.queue.followup)[number] | undefined;
+    while (!queuedEntry) {
+      let next: Awaited<ReturnType<typeof iterator.next>>;
+      try {
+        next = await withTimeout(
+          iterator.next(),
+          PROCESS_TIMEOUT_MS,
+          'surviving Client did not observe the canonical follow-up queue',
+        );
+      } catch (error) {
+        throw new Error('Host connection failed before B observed the committed follow-up queue', {
+          cause: error,
+        });
+      }
+      if (next.done) throw new Error('Session subscription closed before follow-up admission');
+      if (next.value.kind !== 'subscription.session_projection') continue;
+      const queue = next.value.snapshot.queue;
+      queuedEntry = queue.followup.find((entry) => entry.messageId === messageId);
+      if (!queuedEntry) continue;
+      assert.equal(queue.hostEpoch, host.hostEpoch);
+      assert.equal(queue.queueRevision, submitted.queueRevision);
+      assert.equal(queue.followup.length, 1);
+      assert.ok(queuedEntry.entryId.length > 0);
+    }
+
+    try {
+      await second.request('interaction.answer', {
+        interactionId: pending.interactionId,
+        answer: questionAnswer('邀请制', '本周', '是'),
+      });
+    } catch (error) {
+      throw new Error('surviving Client lost the Host while completing the old Turn', {
+        cause: error,
+      });
+    }
+    let firstTerminalObserved = false;
+    let nextTerminal: TurnSnapshot | undefined;
+    while (!nextTerminal) {
+      let next: Awaited<ReturnType<typeof iterator.next>>;
+      try {
+        next = await withTimeout(
+          iterator.next(),
+          PROCESS_TIMEOUT_MS,
+          'Host did not automatically complete the queued follow-up Turn',
+        );
+      } catch (error) {
+        throw new Error(
+          `Host connection failed while awaiting the follow-up; old terminal observed: ${firstTerminalObserved}`,
+          { cause: error },
+        );
+      }
+      if (next.done) throw new Error('Session subscription closed before follow-up completion');
+      if (next.value.kind !== 'subscription.session_projection') continue;
+      const rootTurn = next.value.snapshot.rootTurn;
+      if (rootTurn?.turnId === firstTurnId && rootTurn.status === 'completed') {
+        firstTerminalObserved = true;
+        continue;
+      }
+      if (!rootTurn || rootTurn.turnId === firstTurnId) continue;
+      assert.equal(firstTerminalObserved, true);
+      if (rootTurn.status === 'completed') nextTerminal = rootTurn;
+    }
+
+    const terminal = await second.openSessionSubscription({ sessionId: fixture.sessionId });
+    assert.deepEqual(terminal.snapshot.rootTurn, nextTerminal);
+    assert.ok(terminal.snapshot.queue.queueRevision > submitted.queueRevision);
+    assert.deepEqual(terminal.snapshot.queue.followup, []);
+    await terminal.close();
+    await subscription.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const successor = await fixture.startHost();
+    const successorClient = await connectClient(fixture.root, 'desktop');
+    const proven = await successorClient.request('turn.message.submit', input);
+    assert.equal(proven.disposition, 'followup');
+    await successorClient.close();
+    await fixture.stopHost(successor);
+
+    const ledger = await fixture.readTurn(nextTerminal.turnId);
+    assert.equal(ledger.runs.length, 1);
+    assert.equal(ledger.userMessages.length, 1);
+    assert.equal(ledger.terminalEvents.length, 1);
+  });
+});
+
 test('two Clients arbitrate one per-Run Interaction winner', async () => {
   await withExecutionRoot(async (fixture) => {
     const host = await fixture.startHost();
@@ -993,12 +1124,32 @@ test('SIGTERM gracefully closes an active Interaction', {
       text: FAKE_ASK_USER_QUESTION_PROMPT,
     });
     await waitForPendingInteraction(subscription, turnId);
+    const messageId = randomUUID();
+    const text = 'cancel this queued follow-up during administrative shutdown';
+    const input = {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId,
+      text,
+      placement: 'next_turn' as const,
+    };
+    const submitted = await client.request('turn.message.submit', input);
+    assert.equal(submitted.disposition, 'followup');
 
     await fixture.stopHost(host);
     assert.equal(host.child.exitCode, 0);
     assert.equal(host.child.signalCode, null);
     await client.closed;
     await fixture.assertOwnerAvailable();
+
+    const successor = await fixture.startHost();
+    const successorClient = await connectClient(fixture.root, 'tui');
+    await assert.rejects(
+      () => successorClient.request('turn.message.submit', input),
+      operationError('outcome_unknown'),
+    );
+    await successorClient.close();
+    await fixture.stopHost(successor);
   });
 });
 

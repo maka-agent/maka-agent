@@ -10,6 +10,7 @@ import {
   type SessionContinuitySnapshot,
   type SessionDeltaFrame,
   type SessionInteractionProjection,
+  type SessionMessageQueueProjection,
   type SubscriptionFrame,
   type SubscriptionOpenResult,
   type TurnSnapshot,
@@ -25,6 +26,7 @@ export interface CanonicalSessionProjection {
   readonly session: SessionContinuityIdentity;
   readonly rootTurn: TurnSnapshot | null;
   readonly interactions: SessionInteractionProjection;
+  readonly queue: SessionMessageQueueProjection;
 }
 
 export type AcceptedAssistantDeltaEvent =
@@ -704,6 +706,7 @@ function snapshotValue(
     projectionRevision: revision,
     rootTurn: canonical.rootTurn,
     interactions: canonical.interactions,
+    queue: canonical.queue,
   });
 }
 
