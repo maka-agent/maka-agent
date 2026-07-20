@@ -1099,7 +1099,18 @@ class _ToolExecutorServer:
                     with self._futures_lock:
                         if self._command_cleanup_error is None:
                             self._command_cleanup_error = cleanup_error
-            _write_http(handler, 500, {"error": str(exc)})
+            if isinstance(
+                exc, (asyncio.TimeoutError, concurrent.futures.TimeoutError)
+            ):
+                _write_http(handler, 200, {
+                    "exitCode": 124,
+                    "returnCode": 124,
+                    "stdout": "",
+                    "stderr": "",
+                    "timedOut": True,
+                })
+            else:
+                _write_http(handler, 500, {"error": str(exc)})
 
     def _cleanup_failed_command(self, command_id: str) -> BaseException | None:
         assert self._loop is not None

@@ -31,6 +31,7 @@ export interface IsolatedCommandResult {
   stderr: string;
   stdoutTruncated?: boolean;
   stderrTruncated?: boolean;
+  timedOut?: boolean;
 }
 
 export interface IsolatedToolExecutionControl {

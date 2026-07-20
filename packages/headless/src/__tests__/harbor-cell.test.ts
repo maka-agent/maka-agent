@@ -4230,6 +4230,64 @@ setTimeout(() => {
 });
 
 describe('createHarborHttpToolExecutor', () => {
+  test('keeps bridge failures out of command stderr', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ error: 'executor bridge failed' }), { status: 500 });
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor failed: executor bridge failed/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects a malformed successful bridge response', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(JSON.stringify(['not', 'an', 'envelope']));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('preserves a typed bridge timeout instead of command stderr', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ exitCode: 124, stdout: '', stderr: '', timedOut: true }));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      assert.deepEqual(await executor.exec({ command: 'sleep 60', cwd: '/workspace' }), {
+        exitCode: 124,
+        stdout: '',
+        stderr: '',
+        timedOut: true,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test('forwards active-tool cancellation to fetch without serializing execution control', async () => {
     const previousFetch = globalThis.fetch;
     const controller = new AbortController();

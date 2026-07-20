@@ -1231,10 +1231,17 @@ async def fix5_timed_out_command_is_reclaimed_immediately():
                 ">/dev/null 2>&1 & sleep 30"
             )
             async with server:
-                try:
-                    await asyncio.to_thread(post, server.url, server.token, {"command": command})
-                except Exception:
-                    pass
+                status, body = await asyncio.to_thread(
+                    post, server.url, server.token, {"command": command}
+                )
+                assert status == 200, status
+                assert body == {
+                    "exitCode": 124,
+                    "returnCode": 124,
+                    "stdout": "",
+                    "stderr": "",
+                    "timedOut": True,
+                }, body
             assert env.command_pgid is not None
             detached_pid = int(state_path.read_text(encoding="utf-8"))
             can_scan_process_env = Path("/proc").is_dir()
