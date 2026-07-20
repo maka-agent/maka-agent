@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
 import re
+import secrets
 import shlex
 import time
 from pathlib import Path
@@ -15,6 +17,7 @@ from harbor.agents.installed.codex import Codex
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from process_scope import cleanup_process_scope, scoped_command
 from trial_pricing import estimate_cost, pricing_from_env
 
 _TOOLCHAIN_ROOT = Path("/opt/maka-codex-toolchain")
@@ -28,7 +31,7 @@ _OUTPUT_FILENAME = "codex.txt"
 
 
 class MakaCodexAgent(Codex):
-    """Run a fixed Codex CLI build with native OAuth or Maka's provider proxy."""
+    """Run a fixed Codex CLI build behind Maka's host provider proxy."""
 
     def get_version_command(self) -> str | None:
         return f"{shlex.quote(str(_TOOLCHAIN_CODEX))} --version"
@@ -84,9 +87,18 @@ class MakaCodexAgent(Codex):
         if output_path.exists():
             output_path.unlink()
         self._extra_env["PATH"] = f"{_TOOLCHAIN_BIN}:{_DEFAULT_PATH}"
+        command_scope = secrets.token_urlsafe(24)
+        self._active_command_scope = command_scope
+        abnormal_exit = False
         try:
             await super().run(instruction, environment, context)
+        except asyncio.CancelledError:
+            abnormal_exit = True
+            self._deadline_settled = True
+            self._failure_class = "budget_exhausted"
+            raise
         except BaseException as error:
+            abnormal_exit = True
             self._failure_class = (
                 _classify_failure(error, self._events())
                 if isinstance(error, Exception)
@@ -94,7 +106,27 @@ class MakaCodexAgent(Codex):
             )
             raise
         finally:
-            self._finished_at_ms = int(time.time() * 1000)
+            self._active_command_scope = None
+            try:
+                if abnormal_exit:
+                    await cleanup_process_scope(self, environment, command_scope)
+            finally:
+                self._finished_at_ms = int(time.time() * 1000)
+
+    async def exec_as_agent(
+        self,
+        environment: BaseEnvironment,
+        command: str,
+        **kwargs: Any,
+    ) -> Any:
+        command_scope = getattr(self, "_active_command_scope", None)
+        if command_scope:
+            command = scoped_command(
+                command,
+                command_scope,
+                secrets.token_urlsafe(12),
+            )
+        return await super().exec_as_agent(environment, command=command, **kwargs)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
@@ -232,6 +264,16 @@ class MakaCodexAgent(Codex):
             "schemaVersion": 1,
             "status": "failed" if failed else "completed",
             **({"errorClass": error_class} if error_class else {}),
+            **(
+                {
+                    "deadlineSettlement": {
+                        "source": "benchmark.deadline",
+                        "mode": "immediate",
+                    }
+                }
+                if getattr(self, "_deadline_settled", False)
+                else {}
+            ),
             "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
             "promptHash": identity["systemPromptHash"],
             "executionIdentity": identity,

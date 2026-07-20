@@ -2,12 +2,38 @@
 
 from __future__ import annotations
 
+import asyncio
 import shlex
+from typing import Any
 
 
 COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
 COMMAND_ID_ENV = "MAKA_HARBOR_COMMAND_ID"
 COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
+
+
+async def cleanup_process_scope(
+    agent: Any, environment: Any, scope: str
+) -> None:
+    first_error: BaseException | None = None
+    try:
+        await agent.exec_as_agent(
+            environment,
+            command=scoped_process_cleanup_command(scope, "TERM"),
+        )
+    except BaseException as error:
+        first_error = error
+    await asyncio.sleep(0.2)
+    try:
+        await agent.exec_as_agent(
+            environment,
+            command=scoped_process_cleanup_command(scope, "KILL"),
+        )
+    except BaseException as error:
+        if first_error is None:
+            first_error = error
+    if first_error is not None:
+        raise first_error
 
 
 def scoped_command(command: str, scope: str, command_id: str) -> str:

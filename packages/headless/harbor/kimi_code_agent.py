@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
@@ -17,7 +16,7 @@ from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_templat
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
-from process_scope import scoped_command, scoped_process_cleanup_command
+from process_scope import cleanup_process_scope, scoped_command
 
 _TOOLCHAIN_ROOT = Path("/opt/maka-kimi-code-toolchain")
 _TOOLCHAIN_NODE = _TOOLCHAIN_ROOT / "bin" / "node"
@@ -114,32 +113,9 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
         finally:
             try:
                 if abnormal_exit:
-                    await self._cleanup_process_scope(environment, command_scope)
+                    await cleanup_process_scope(self, environment, command_scope)
             finally:
                 self._finished_at_ms = int(time.time() * 1000)
-
-    async def _cleanup_process_scope(
-        self, environment: BaseEnvironment, command_scope: str
-    ) -> None:
-        first_error: BaseException | None = None
-        try:
-            await self.exec_as_agent(
-                environment,
-                command=scoped_process_cleanup_command(command_scope, "TERM"),
-            )
-        except BaseException as error:
-            first_error = error
-        await asyncio.sleep(0.2)
-        try:
-            await self.exec_as_agent(
-                environment,
-                command=scoped_process_cleanup_command(command_scope, "KILL"),
-            )
-        except BaseException as error:
-            if first_error is None:
-                first_error = error
-        if first_error is not None:
-            raise first_error
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         self._write_cell_output()

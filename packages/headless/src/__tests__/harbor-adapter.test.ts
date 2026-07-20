@@ -2715,8 +2715,10 @@ function pythonCodexAdapterSmokeScript(root: string): string {
 import asyncio
 import json
 import os
+import signal
 import sys
 import tempfile
+import time
 import types
 from pathlib import Path
 
@@ -2767,6 +2769,9 @@ class Codex:
         })
         if instruction == "fail":
             raise RuntimeError("401 unauthorized")
+        if instruction == "cancel":
+            await self.exec_as_agent(environment, command="sleep 30")
+            return
         if instruction == "transport-2500":
             (self.logs_dir / "codex.txt").write_text(
                 json.dumps({
@@ -2955,6 +2960,73 @@ with tempfile.TemporaryDirectory() as tmp:
     incomplete_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
     assert incomplete_cell["status"] == "failed", incomplete_cell
     assert incomplete_cell["errorClass"] == "rate_limit", incomplete_cell
+
+    class TimeoutEnvironment(Environment):
+        def __init__(self):
+            self.process = None
+            self.started = asyncio.Event()
+
+        async def exec(self, command, env=None, **kwargs):
+            process = await asyncio.create_subprocess_exec(
+                "bash",
+                "-lc",
+                command,
+                start_new_session=True,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if "sleep 30" in command and self.process is None:
+                self.process = process
+                self.started.set()
+            await process.wait()
+            return types.SimpleNamespace(return_code=process.returncode, stdout="", stderr="")
+
+    timeout_environment = TimeoutEnvironment()
+    timeout_agent = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+
+    async def cancel_codex():
+        task = asyncio.create_task(timeout_agent.run("cancel", timeout_environment, context))
+        await asyncio.wait_for(timeout_environment.started.wait(), timeout=2)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("expected Codex cancellation")
+
+    try:
+        asyncio.run(cancel_codex())
+        deadline = time.time() + 2
+        while timeout_environment.process.returncode is None and time.time() < deadline:
+            time.sleep(0.01)
+        assert timeout_environment.process.returncode is not None, (
+            "Codex deadline left a child process alive for the verifier"
+        )
+        timeout_agent.populate_context_post_run(context)
+        timeout_cell = json.loads(
+            (logs / "maka-cell-output.json").read_text(encoding="utf-8")
+        )
+        assert timeout_cell["status"] == "failed", timeout_cell
+        assert timeout_cell["errorClass"] == "budget_exhausted", timeout_cell
+        assert timeout_cell["deadlineSettlement"] == {
+            "source": "benchmark.deadline",
+            "mode": "immediate",
+        }, timeout_cell
+    finally:
+        if timeout_environment.process is not None and timeout_environment.process.returncode is None:
+            os.killpg(timeout_environment.process.pid, signal.SIGKILL)
     print("codex adapter ok")
 `;
 }
