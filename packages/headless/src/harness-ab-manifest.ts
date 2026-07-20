@@ -183,6 +183,7 @@ export interface HarnessAbRunManifestInput {
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
   pairConcurrency?: number;
+  armExecution?: 'parallel' | 'sequential';
   oracleEvidence?: {
     registryUrl?: string;
     expectedSnapshotFingerprint?: string;
@@ -197,6 +198,9 @@ export type HarnessAbRunManifest = AbRunManifest & {
   metadata: {
     benchmark: HarnessAbRunManifestInput['benchmark'];
     metric: 'pass@1';
+    execution: {
+      armExecution: 'parallel' | 'sequential';
+    };
     order: {
       algorithm: 'sha256-rank-v1';
       seed: string;
@@ -231,6 +235,7 @@ export function deterministicHarnessTaskOrder(taskIds: readonly string[], seed: 
 export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): HarnessAbRunManifest {
   const evaluationTaskIds = deterministicHarnessTaskOrder(input.taskIds, input.orderSeed);
   const pairConcurrency = input.pairConcurrency ?? HARNESS_AB_PAIR_CONCURRENCY;
+  const armExecution = input.armExecution ?? 'parallel';
   if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
     throw new Error('pairConcurrency must be a positive integer');
   }
@@ -244,6 +249,7 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
   const metadata: HarnessAbRunManifest['metadata'] = {
     benchmark: { ...input.benchmark },
     metric: 'pass@1',
+    execution: { armExecution },
     order: {
       algorithm: 'sha256-rank-v1',
       seed: input.orderSeed,
@@ -280,7 +286,7 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     reps: 1,
     candidateLimit: null,
     maxConcurrency: pairConcurrency,
-    maxConcurrentAttempts: pairConcurrency * 2,
+    maxConcurrentAttempts: pairConcurrency * (armExecution === 'parallel' ? 2 : 1),
     selectionMode: 'explicit',
   });
   return manifest as HarnessAbRunManifest;

@@ -28,6 +28,7 @@ export interface RunHarnessAbComparisonInput {
   evaluationTasks: readonly FixedPromptTask[];
   arms: readonly [HarnessAbRuntimeArm, HarnessAbRuntimeArm];
   pairConcurrency?: number;
+  armExecution?: 'parallel' | 'sequential';
   now?: () => number;
   newId?: () => string;
 }
@@ -66,7 +67,7 @@ export async function runHarnessAbComparisonUnlocked(
     evaluationTasks: input.evaluationTasks,
     reps: 1,
     maxConcurrency: pairConcurrency,
-    armExecution: 'parallel',
+    armExecution: input.armExecution ?? 'parallel',
     runArm: async ({ roundId, arm, task }) => {
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
       if (!runtimeArm) throw new Error(`harness A/B arm ${arm.id} is not configured`);

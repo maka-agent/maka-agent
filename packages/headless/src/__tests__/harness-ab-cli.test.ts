@@ -258,6 +258,14 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   });
   assert.equal(codexProfile.config.adapter, 'codex_agent:MakaCodexAgent');
   assert.equal(codexProfile.config.permissions, 'container-full-access');
+  const codexManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    competitorProfile: codexProfile,
+  });
+  assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'sequential' });
+  assert.equal(codexManifest.maxConcurrentAttempts, codexManifest.maxConcurrency);
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
     provider: 'kimi-coding-plan',

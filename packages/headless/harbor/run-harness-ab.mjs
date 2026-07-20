@@ -113,6 +113,7 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
   }),
   codex: Object.freeze({
     id: 'codex',
+    armExecution: 'sequential',
     version: CODEX_TOOLCHAIN_SPEC.codex.version,
     toolchainFingerprint: CODEX_TOOLCHAIN_FINGERPRINT,
     runtime: Object.freeze({
@@ -425,6 +426,7 @@ export function buildHarnessAbManifest({
     taskSourceFingerprint,
     toolchainFingerprint,
     pairConcurrency,
+    armExecution: competitorProfile.armExecution ?? 'parallel',
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
@@ -633,6 +635,7 @@ async function runLocked({
           },
         ],
         pairConcurrency: selection.pairConcurrency,
+        armExecution: manifest.metadata.execution.armExecution,
       });
       const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
       const report = buildHarnessAbReport(

@@ -63,6 +63,39 @@ describe('runHarnessAbComparison', () => {
     }
   });
 
+  test('runs paired harness arms sequentially when requested', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-sequential-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      await writeFile(promptPath, '', 'utf8');
+      let active = 0;
+      let maxActive = 0;
+      const calls: string[] = [];
+      const beforeRun = async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+      };
+
+      await runHarnessAbComparison({
+        runId: 'codex-oauth-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
+        arms: [harnessArm('maka', calls, beforeRun), harnessArm('opencode', calls, beforeRun)],
+        armExecution: 'sequential',
+      });
+
+      assert.equal(maxActive, 1);
+      assert.deepEqual(calls, ['a:maka', 'a:opencode']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('extends a completed prefix without rerunning valid cells', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-'));
     try {
