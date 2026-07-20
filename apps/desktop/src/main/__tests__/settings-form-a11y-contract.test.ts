@@ -247,8 +247,8 @@ describe('Settings form accessibility labels', () => {
       ['Open Gateway host', /ariaLabel=\{copy\.form\.hostAria\}/],
       ['Open Gateway port', /aria-label=\{copy\.form\.portAria\}/],
       ['Open Gateway session ID', /aria-label=\{copy\.form\.sessionAria\}/],
-      ['usage request filter', /aria-label=\{copy\.filterAria\}/],
-      ['usage status filter', /ariaLabel=\{copy\.statusAria\}/],
+      ['usage request filter', /aria-label=\{props\.copy\.filterAria\}/],
+      ['usage status filter', /ariaLabel=\{props\.copy\.statusAria\}/],
       ['MEMORY.md content', /aria-label=\{copy\.text\.contentEditorAria\}/],
     ] as const) {
       assert.match(settings, pattern, `SettingsModal must label ${label}`);
