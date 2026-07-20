@@ -10,11 +10,8 @@ import type {
   AbTaskComparison,
   AbTaskLevelSummary,
 } from './ab-types.js';
-import type {
-  FixedPromptTask,
-  FixedPromptTaskWalEvent,
-  HarborTaskRunner,
-} from './fixed-prompt-controller.js';
+import type { FixedPromptTask, HarborTaskRunner } from './fixed-prompt-controller.js';
+import type { FixedPromptTaskWalEvent } from './fixed-prompt-wal-types.js';
 
 export interface SummarizePromptAbComparisonInput {
   runId: string;
