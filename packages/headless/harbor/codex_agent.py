@@ -66,7 +66,7 @@ class MakaCodexAgent(Codex):
         if key == "OPENAI_API_KEY":
             return super()._get_env("MAKA_PROVIDER_PROXY_TOKEN")
         if key == "OPENAI_BASE_URL":
-            return super()._get_env("MAKA_PROVIDER_PROXY_URL")
+            return None
         if key in {"CODEX_AUTH_JSON_PATH", "CODEX_FORCE_AUTH_JSON"}:
             return None
         return super()._get_env(key)
@@ -77,7 +77,7 @@ class MakaCodexAgent(Codex):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        proxy_url = self._get_env("OPENAI_BASE_URL")
+        proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
         proxy_token = self._get_env("OPENAI_API_KEY")
         if not proxy_url or not proxy_token:
             raise ValueError("Codex requires the host provider proxy")
@@ -91,6 +91,7 @@ class MakaCodexAgent(Codex):
         self._active_command_scope = command_scope
         abnormal_exit = False
         try:
+            await self._write_http_provider_config(environment, proxy_url)
             await super().run(instruction, environment, context)
         except asyncio.CancelledError:
             abnormal_exit = True
@@ -112,6 +113,32 @@ class MakaCodexAgent(Codex):
                     await cleanup_process_scope(self, environment, command_scope)
             finally:
                 self._finished_at_ms = int(time.time() * 1000)
+
+    async def _write_http_provider_config(
+        self, environment: BaseEnvironment, proxy_url: str
+    ) -> None:
+        codex_home = self._REMOTE_CODEX_HOME.as_posix()
+        config_path = (self._REMOTE_CODEX_HOME / "config.toml").as_posix()
+        config = "\n".join(
+            (
+                'model_provider = "maka-http"',
+                "",
+                "[model_providers.maka-http]",
+                'name = "Maka HTTP"',
+                f"base_url = {json.dumps(proxy_url)}",
+                'wire_api = "responses"',
+                "requires_openai_auth = true",
+                "supports_websockets = false",
+                "",
+            )
+        )
+        await self.exec_as_agent(
+            environment,
+            command=(
+                f"mkdir -p {shlex.quote(codex_home)}; "
+                f"printf '%s\\n' {shlex.quote(config)} > {shlex.quote(config_path)}"
+            ),
+        )
 
     async def exec_as_agent(
         self,

@@ -2735,6 +2735,8 @@ module("harbor.agents.installed")
 codex_mod = module("harbor.agents.installed.codex")
 
 class Codex:
+    _REMOTE_CODEX_HOME = Path("/tmp/codex-home")
+
     def __init__(self, logs_dir, prompt_template_path=None, version=None, extra_env=None, model_name=None, reasoning_effort=None, **kwargs):
         self.logs_dir = Path(logs_dir)
         self._prompt_template_path = Path(prompt_template_path) if prompt_template_path else None
@@ -2869,10 +2871,17 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "curl" not in install_command, install_command
 
     asyncio.run(agent.run("hi", environment, context))
+    http_provider_command = next(
+        command for command, _env in commands if "supports_websockets = false" in command
+    )
+    assert 'model_provider = "maka-http"' in http_provider_command, http_provider_command
+    assert 'base_url = "http://host.docker.internal:43210"' in http_provider_command, http_provider_command
+    assert 'wire_api = "responses"' in http_provider_command, http_provider_command
+    assert "ephemeral-token" not in http_provider_command, http_provider_command
     assert len(agent.parent_calls) == 1, agent.parent_calls
     assert agent.parent_calls[0]["instruction"] == "templated: hi", agent.parent_calls
     assert agent.parent_calls[0]["api_key"] == "ephemeral-token", agent.parent_calls
-    assert agent.parent_calls[0]["base_url"] == "http://host.docker.internal:43210", agent.parent_calls
+    assert agent.parent_calls[0]["base_url"] is None, agent.parent_calls
     assert agent.parent_calls[0]["path"] == "/opt/maka-codex-toolchain/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", agent.parent_calls
     assert agent._get_env("CODEX_AUTH_JSON_PATH") is None
     assert agent._get_env("CODEX_FORCE_AUTH_JSON") is None

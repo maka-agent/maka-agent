@@ -259,6 +259,7 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   });
   assert.equal(codexProfile.config.adapter, 'codex_agent:MakaCodexAgent');
   assert.equal(codexProfile.config.permissions, 'container-full-access');
+  assert.equal(codexProfile.config.transport, 'responses-http');
   const codexSelection = resolveHarnessAbTaskSelection(undefined, '5', undefined, codexProfile);
   assert.equal(codexSelection.pairConcurrency, 1);
   assert.throws(

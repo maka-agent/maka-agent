@@ -48,10 +48,8 @@ test('Codex OAuth broker resolves the current host authority for every request',
 
     assert.equal(first.value, firstAccessToken);
     assert.equal(second.value, secondAccessToken);
-    assert.equal(first.headers?.['ChatGPT-Account-Id'], accountId);
-    assert.equal(second.headers?.['ChatGPT-Account-Id'], accountId);
-    assert.equal(second.headers?.['OpenAI-Beta'], 'responses=experimental');
-    assert.equal(second.headers?.originator, 'codex_cli_rs');
+    assert.deepEqual(first.headers, { 'ChatGPT-Account-Id': accountId });
+    assert.deepEqual(second.headers, { 'ChatGPT-Account-Id': accountId });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

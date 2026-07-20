@@ -135,6 +135,7 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
     }),
     config: Object.freeze({
       adapter: 'codex_agent:MakaCodexAgent',
+      transport: 'responses-http',
       permissions: 'container-full-access',
       attemptPolicy: 'single',
       billingMode: 'account-plan',
