@@ -12,6 +12,7 @@ import {
   buildChildAgentTools,
   buildProviderOptions,
   buildSubscriptionModelFetch,
+  createProviderRequestCaptureRecorder,
   getAIModel,
   getBuiltinPricing,
   loadSynthesisCacheBlocksFromArtifacts,
@@ -799,22 +800,25 @@ export function buildAiSdkCellBackendRegistration(input: {
         recordRunTrace: ctx.recordRunTrace,
         ...(ctx.recordProviderRequestCapture
           ? {
-              recordProviderRequestCapture: async (capture) => {
-                const artifact = await persistProviderRequestCaptureArtifact(
-                  providerRequestArtifactStore,
-                  {
-                    sessionId: ctx.sessionId,
-                    turnId: capture.turnId,
-                    captureId: capture.captureId,
-                    step: capture.step,
-                    serializedRequest: capture.serializedRequest,
-                    now: input.now(),
-                  },
-                );
-                const { serializedRequest: _serializedRequest, ...metadata } = capture;
-                await ctx.recordProviderRequestCapture!({ ...metadata, artifactId: artifact.id });
-                return { artifactId: artifact.id };
-              },
+              recordProviderRequestCapture: createProviderRequestCaptureRecorder({
+                persistArtifact: async (capture) => {
+                  const artifact = await persistProviderRequestCaptureArtifact(
+                    providerRequestArtifactStore,
+                    {
+                      sessionId: ctx.sessionId,
+                      turnId: capture.turnId,
+                      captureId: capture.captureId,
+                      step: capture.step,
+                      serializedRequest: capture.serializedRequest,
+                      now: input.now(),
+                    },
+                  );
+                  return { artifactId: artifact.id };
+                },
+                recordLedger: ctx.recordProviderRequestCapture,
+                purgeArtifact: async (artifactId) =>
+                  providerRequestArtifactStore.purge([artifactId]),
+              }),
               recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
             }
           : {}),

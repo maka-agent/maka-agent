@@ -11,6 +11,7 @@ import {
   buildLlmHistorySummarizer,
   buildMcpTools,
   buildProviderOptions,
+  createProviderRequestCaptureRecorder,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
   loadSynthesisCacheBlocksFromArtifacts,
@@ -255,19 +256,21 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       recordRunTrace: ctx.recordRunTrace,
       ...(ctx.recordProviderRequestCapture
         ? {
-            recordProviderRequestCapture: async (capture) => {
-              const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
-                sessionId: ctx.sessionId,
-                turnId: capture.turnId,
-                captureId: capture.captureId,
-                step: capture.step,
-                serializedRequest: capture.serializedRequest,
-                now: Date.now(),
-              });
-              const { serializedRequest: _serializedRequest, ...metadata } = capture;
-              await ctx.recordProviderRequestCapture!({ ...metadata, artifactId: artifact.id });
-              return { artifactId: artifact.id };
-            },
+            recordProviderRequestCapture: createProviderRequestCaptureRecorder({
+              persistArtifact: async (capture) => {
+                const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                  sessionId: ctx.sessionId,
+                  turnId: capture.turnId,
+                  captureId: capture.captureId,
+                  step: capture.step,
+                  serializedRequest: capture.serializedRequest,
+                  now: Date.now(),
+                });
+                return { artifactId: artifact.id };
+              },
+              recordLedger: ctx.recordProviderRequestCapture,
+              purgeArtifact: async (artifactId) => artifactStore.purge([artifactId]),
+            }),
             recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
           }
         : {}),

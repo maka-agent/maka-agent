@@ -124,6 +124,117 @@ describe('strict provider-request usage', () => {
   });
 });
 
+describe('provider request capture commit', () => {
+  test('links body-free metadata and returns the committed artifact reference', async () => {
+    const ledgerCaptures: Array<Record<string, unknown>> = [];
+    const recordCapture = telemetry.createProviderRequestCaptureRecorder({
+      persistArtifact: async () => ({ artifactId: 'artifact-capture-1' }),
+      recordLedger: async (capture) => {
+        ledgerCaptures.push(capture as unknown as Record<string, unknown>);
+      },
+      purgeArtifact: async () => assert.fail('successful commits must not purge their artifact'),
+    });
+
+    const result = await recordCapture({
+      schemaVersion: 1,
+      traceId: 'trace-1',
+      captureId: 'capture-1',
+      turnId: 'turn-1',
+      step: 0,
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      requestHash: 'sha256:request',
+      requestBytes: 2,
+      segments: [],
+      serializedRequest: '{}',
+    });
+
+    assert.deepEqual(result, { artifactId: 'artifact-capture-1' });
+    assert.equal(ledgerCaptures.length, 1);
+    assert.equal(ledgerCaptures[0]?.artifactId, 'artifact-capture-1');
+    assert.equal(Object.hasOwn(ledgerCaptures[0]!, 'serializedRequest'), false);
+  });
+
+  test('purges the request artifact when its durable ledger link fails', async () => {
+    const ledgerError = new Error('capture ledger append failed');
+    const purgedArtifactIds: string[] = [];
+    const createRecorder = Reflect.get(
+      telemetry,
+      'createProviderRequestCaptureRecorder',
+    ) as unknown as
+      | ((input: Record<string, unknown>) => (capture: Record<string, unknown>) => Promise<unknown>)
+      | undefined;
+    assert.equal(typeof createRecorder, 'function');
+    const recordCapture = createRecorder!({
+      persistArtifact: async () => ({ artifactId: 'artifact-capture-1' }),
+      recordLedger: async () => {
+        throw ledgerError;
+      },
+      purgeArtifact: async (artifactId: string) => {
+        purgedArtifactIds.push(artifactId);
+      },
+    });
+
+    await assert.rejects(
+      recordCapture({
+        schemaVersion: 1,
+        traceId: 'trace-1',
+        captureId: 'capture-1',
+        turnId: 'turn-1',
+        step: 0,
+        providerId: 'openai',
+        modelId: 'gpt-test',
+        requestHash: 'sha256:request',
+        requestBytes: 2,
+        segments: [],
+        serializedRequest: '{}',
+      }),
+      (error) => error === ledgerError,
+    );
+    assert.deepEqual(purgedArtifactIds, ['artifact-capture-1']);
+  });
+
+  test('preserves both ledger and cleanup failures when compensation also fails', async () => {
+    const ledgerError = new Error('capture ledger append failed');
+    const cleanupError = new Error('capture artifact purge failed');
+    const createRecorder = Reflect.get(
+      telemetry,
+      'createProviderRequestCaptureRecorder',
+    ) as unknown as (
+      input: Record<string, unknown>,
+    ) => (capture: Record<string, unknown>) => Promise<unknown>;
+    const recordCapture = createRecorder({
+      persistArtifact: async () => ({ artifactId: 'artifact-capture-1' }),
+      recordLedger: async () => {
+        throw ledgerError;
+      },
+      purgeArtifact: async () => {
+        throw cleanupError;
+      },
+    });
+
+    await assert.rejects(
+      recordCapture({
+        schemaVersion: 1,
+        traceId: 'trace-1',
+        captureId: 'capture-1',
+        turnId: 'turn-1',
+        step: 0,
+        providerId: 'openai',
+        modelId: 'gpt-test',
+        requestHash: 'sha256:request',
+        requestBytes: 2,
+        segments: [],
+        serializedRequest: '{}',
+      }),
+      (error) =>
+        error instanceof AggregateError &&
+        error.errors[0] === ledgerError &&
+        error.errors[1] === cleanupError,
+    );
+  });
+});
+
 describe('provider request tracker', () => {
   test('persists a logical capture before each physical attempt and reuses it for retries', async () => {
     const captures: Array<{

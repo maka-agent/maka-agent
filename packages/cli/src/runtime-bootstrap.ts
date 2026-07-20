@@ -19,6 +19,7 @@ import {
   buildRuntimeEventModelReplayPlan,
   buildChildAgentTools,
   createBuiltinSandboxManager,
+  createProviderRequestCaptureRecorder,
   createFilesystemWorkerLaunchSpecProvider,
   createLocalContinuationSafetyInspector,
   FilesystemWorkerClient,
@@ -634,19 +635,21 @@ export async function createMakaCliRuntimeContext(
       shellRunContextSummary: ctx.shellRunContextSummary,
       ...(ctx.recordProviderRequestCapture
         ? {
-            recordProviderRequestCapture: async (capture) => {
-              const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
-                sessionId: ctx.sessionId,
-                turnId: capture.turnId,
-                captureId: capture.captureId,
-                step: capture.step,
-                serializedRequest: capture.serializedRequest,
-                now: Date.now(),
-              });
-              const { serializedRequest: _serializedRequest, ...metadata } = capture;
-              await ctx.recordProviderRequestCapture!({ ...metadata, artifactId: artifact.id });
-              return { artifactId: artifact.id };
-            },
+            recordProviderRequestCapture: createProviderRequestCaptureRecorder({
+              persistArtifact: async (capture) => {
+                const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                  sessionId: ctx.sessionId,
+                  turnId: capture.turnId,
+                  captureId: capture.captureId,
+                  step: capture.step,
+                  serializedRequest: capture.serializedRequest,
+                  now: Date.now(),
+                });
+                return { artifactId: artifact.id };
+              },
+              recordLedger: ctx.recordProviderRequestCapture,
+              purgeArtifact: async (artifactId) => artifactStore.purge([artifactId]),
+            }),
             recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
           }
         : {}),

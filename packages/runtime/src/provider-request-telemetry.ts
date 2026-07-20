@@ -81,12 +81,45 @@ export interface ProviderRequestTrackerInput {
   recordAttempt: (attempt: ProviderRequestAttemptRecord) => void | Promise<void>;
 }
 
+export interface ProviderRequestCaptureRecorderInput {
+  persistArtifact: (
+    capture: ProviderRequestCaptureRecord,
+  ) => Promise<Pick<ProviderRequestCaptureRef, 'artifactId'>>;
+  recordLedger: (capture: ProviderRequestCaptureLedgerRecord) => Promise<void>;
+  purgeArtifact: (artifactId: string) => Promise<void>;
+}
+
 export interface TrackProviderStreamInput {
   providerId: string;
   modelId: string;
   params: Record<string, unknown>;
   abortSignal?: AbortSignal;
   doStream: () => PromiseLike<ProviderStreamResult>;
+}
+
+export function createProviderRequestCaptureRecorder(
+  input: ProviderRequestCaptureRecorderInput,
+): (
+  capture: ProviderRequestCaptureRecord,
+) => Promise<Pick<ProviderRequestCaptureRef, 'artifactId'>> {
+  return async (capture) => {
+    const artifact = await input.persistArtifact(capture);
+    const { serializedRequest: _serializedRequest, ...metadata } = capture;
+    try {
+      await input.recordLedger({ ...metadata, artifactId: artifact.artifactId });
+    } catch (error) {
+      try {
+        await input.purgeArtifact(artifact.artifactId);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Provider request capture ledger and artifact cleanup both failed',
+        );
+      }
+      throw error;
+    }
+    return artifact;
+  };
 }
 
 export interface ProviderStreamResult {

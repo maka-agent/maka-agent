@@ -113,6 +113,7 @@ export {
   findFirstChangedCacheableSegment,
   capturePreparedProviderRequest,
 } from './request-shape.js';
+export { createProviderRequestCaptureRecorder } from './provider-request-telemetry.js';
 export type {
   PreparedProviderRequestCapture,
   PreparedRequestSegment,
@@ -122,6 +123,7 @@ export type {
   ProviderRequestAttemptRecord,
   ProviderRequestCaptureLedgerRecord,
   ProviderRequestCaptureRecord,
+  ProviderRequestCaptureRecorderInput,
   ProviderRequestUsage,
 } from './provider-request-telemetry.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
