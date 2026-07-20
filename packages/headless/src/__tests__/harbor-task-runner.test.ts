@@ -649,11 +649,9 @@ describe('createHarborTaskRunner', () => {
           agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}` },
           resolveProviderCredential: async () => ({ value: 'current-oauth-token' }),
           runHarbor: async (request: HarborRunRequest) => {
-            const proxyUrl = request.env?.MAKA_HOST_BASE_URL?.replace(
-              'host.docker.internal',
-              '127.0.0.1',
-            );
+            const proxyUrl = request.env?.MAKA_HOST_BASE_URL;
             assert.ok(proxyUrl);
+            assert.match(proxyUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
             const response = await fetch(`${proxyUrl}/responses`, {
               method: 'POST',
               headers: { authorization: `Bearer ${request.env?.MAKA_HOST_API_KEY}` },

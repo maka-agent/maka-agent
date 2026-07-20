@@ -1057,6 +1057,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
     if (!baseUrl) throw new Error(`${options.agent} provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
+      ...(options.agent === 'maka' ? { advertisedHost: '127.0.0.1' } : {}),
       ...(resolveProviderCredential
         ? { resolveUpstreamCredential: resolveProviderCredential }
         : { apiKeyFile: apiKeyFile! }),
