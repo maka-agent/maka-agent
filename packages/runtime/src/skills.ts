@@ -35,6 +35,23 @@ import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 
 export type SkillRuntimeStatus = 'enabled' | 'disabled' | 'state_error';
 
+export type SkillDiscoveryOrigin =
+  | 'project_maka'
+  | 'project_agents'
+  | 'workspace'
+  | 'user_maka'
+  | 'user_agents';
+
+export type SkillMetadataStatus = 'valid' | 'warning' | 'invalid';
+
+export type SkillOperationalStatus =
+  | 'invalid'
+  | 'shadowed'
+  | 'state_error'
+  | 'disabled'
+  | 'host_incompatible'
+  | 'eligible';
+
 /** Parsed, runtime-relevant metadata from one SKILL.md frontmatter block. */
 export interface SkillManifest {
   name?: string;
@@ -71,7 +88,9 @@ export type SkillValidationCode =
   | 'unsupported_field'
   | 'body_too_large'
   | 'duplicate_id'
-  | 'duplicate_name';
+  | 'duplicate_name'
+  | 'blocked_path'
+  | 'unreadable_skill';
 
 /** One deterministic, user-inspectable metadata validation finding. */
 export interface SkillValidationIssue {
@@ -92,6 +111,9 @@ export interface SkillMetadataValidationResult {
 export interface SkillScanDiagnostic {
   id: string;
   path: string;
+  discoveryOrigin: SkillDiscoveryOrigin;
+  runtimeStatus: SkillRuntimeStatus;
+  manifest?: SkillManifest;
   issues: SkillValidationIssue[];
 }
 
@@ -143,6 +165,34 @@ export interface ScannedSkill extends RuntimeSkillDefinition {
    * the actual subpath.
    */
   discoveryRoot: string;
+  discoveryOrigin: SkillDiscoveryOrigin;
+}
+
+/** Complete read-only lifecycle projection, including rejected and shadowed candidates. */
+export interface SkillInspectionEntry {
+  entryKey: string;
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  discoveryOrigin: SkillDiscoveryOrigin;
+  effective: boolean;
+  shadowedBy?: string;
+  metadataStatus: SkillMetadataStatus;
+  operationalStatus: SkillOperationalStatus;
+  issues: SkillValidationIssue[];
+  declaredTools: string[];
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  missingDeclaredTools: string[];
+  missingRequiredTools: string[];
+  missingRequiredCapabilities: string[];
+  enabled: boolean;
+  runtimeStatus: SkillRuntimeStatus;
+}
+
+export interface SkillInspectionResult {
+  entries: SkillInspectionEntry[];
 }
 
 /**
@@ -174,6 +224,8 @@ export interface SkillHostCompatibility {
   eligible: boolean;
   hiddenReason?: 'required_tools_missing' | 'required_capabilities_missing';
   missingDeclaredTools: string[];
+  missingRequiredTools: string[];
+  missingRequiredCapabilities: string[];
 }
 
 /** A scanned skill annotated with its host-compatibility verdict. */
@@ -232,6 +284,7 @@ export type SkillSourceResolver = (
 export interface SkillDiscoveryEntry {
   dir: string;
   containmentRoot: string;
+  origin: SkillDiscoveryOrigin;
 }
 
 export function resolveSkillDiscoveryPaths(
@@ -241,11 +294,11 @@ export function resolveSkillDiscoveryPaths(
 ): { entries: SkillDiscoveryEntry[]; dirs: string[]; stateRoot: string } {
   const home = homeDir ?? homedir();
   const entries: SkillDiscoveryEntry[] = [
-    { dir: join(cwd, '.maka', 'skills'), containmentRoot: cwd },
-    { dir: join(cwd, '.agents', 'skills'), containmentRoot: cwd },
-    { dir: join(workspaceRoot, 'skills'), containmentRoot: workspaceRoot },
-    { dir: join(home, '.maka', 'skills'), containmentRoot: home },
-    { dir: join(home, '.agents', 'skills'), containmentRoot: home },
+    { dir: join(cwd, '.maka', 'skills'), containmentRoot: cwd, origin: 'project_maka' },
+    { dir: join(cwd, '.agents', 'skills'), containmentRoot: cwd, origin: 'project_agents' },
+    { dir: join(workspaceRoot, 'skills'), containmentRoot: workspaceRoot, origin: 'workspace' },
+    { dir: join(home, '.maka', 'skills'), containmentRoot: home, origin: 'user_maka' },
+    { dir: join(home, '.agents', 'skills'), containmentRoot: home, origin: 'user_agents' },
   ];
   return { entries, dirs: entries.map((e) => e.dir), stateRoot: workspaceRoot };
 }
@@ -256,7 +309,7 @@ function normalizeSkillSource(source: SkillSource): {
 } {
   if (typeof source === 'string') {
     return {
-      entries: [{ dir: join(source, 'skills'), containmentRoot: source }],
+      entries: [{ dir: join(source, 'skills'), containmentRoot: source, origin: 'workspace' }],
       stateRoot: source,
     };
   }
@@ -267,7 +320,7 @@ function normalizeSkillSource(source: SkillSource): {
   // entries: use each dir as its own containment root. This is the least
   // permissive option that still works.
   return {
-    entries: source.dirs.map((dir) => ({ dir, containmentRoot: dir })),
+    entries: source.dirs.map((dir) => ({ dir, containmentRoot: dir, origin: 'workspace' })),
     stateRoot: source.stateRoot,
   };
 }
@@ -298,53 +351,157 @@ const SKILLS_PROMPT_CHARS_PER_TOKEN = 4;
  * project-level skills are never crowded out by user-level ones.
  */
 export async function scanSkillsWithDiagnostics(source: SkillSource): Promise<SkillScanResult> {
+  return resolveSkillCandidates(await collectSkillCandidates(source)).scan;
+}
+
+/**
+ * Inspect every discovered candidate, including invalid and lower-precedence
+ * copies. This is a read model for management surfaces; model-facing callers
+ * continue to consume {@link scanSkills}, which projects only effective valid
+ * skills from the same candidate set.
+ */
+export async function inspectSkills(
+  source: SkillSource,
+  host?: HostCapabilities,
+): Promise<SkillInspectionResult> {
+  const resolved = resolveSkillCandidates(await collectSkillCandidates(source));
+  const diagnosticByPath = new Map(
+    resolved.scan.diagnostics.map((diagnostic) => [diagnostic.path, diagnostic]),
+  );
+  const entries: SkillInspectionEntry[] = [];
+
+  for (const skill of resolved.candidates) {
+    const diagnostic = diagnosticByPath.get(skill.path);
+    const issues = diagnostic?.issues ?? [];
+    const shadowedBy = resolved.shadowedByPath.get(skill.path);
+    const compatibility = host
+      ? gateSkillsByHostCapabilities([skill], host)[0]
+      : {
+          eligible: true,
+          hiddenReason: undefined,
+          missingDeclaredTools: [] as string[],
+          missingRequiredTools: [] as string[],
+          missingRequiredCapabilities: [] as string[],
+        };
+    entries.push(
+      toInspectionEntry({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        path: skill.path,
+        discoveryOrigin: skill.discoveryOrigin,
+        runtimeStatus: skill.runtimeStatus,
+        declaredTools: skill.declaredTools,
+        requiredTools: skill.requiredTools,
+        requiredCapabilities: skill.requiredCapabilities,
+        issues,
+        shadowedBy,
+        compatibility,
+      }),
+    );
+  }
+
+  const candidatePaths = new Set(resolved.candidates.map((skill) => skill.path));
+  for (const diagnostic of resolved.scan.diagnostics) {
+    if (candidatePaths.has(diagnostic.path)) continue;
+    const manifest = diagnostic.manifest ?? emptySkillManifest();
+    entries.push(
+      toInspectionEntry({
+        id: diagnostic.id,
+        name: manifest.name ?? diagnostic.id,
+        description: manifest.description ?? '',
+        path: diagnostic.path,
+        discoveryOrigin: diagnostic.discoveryOrigin,
+        runtimeStatus: diagnostic.runtimeStatus,
+        declaredTools: manifest.allowedTools,
+        requiredTools: manifest.requiredTools,
+        requiredCapabilities: manifest.requiredCapabilities,
+        issues: diagnostic.issues,
+        compatibility: {
+          eligible: false,
+          hiddenReason: undefined,
+          missingDeclaredTools: [],
+          missingRequiredTools: [],
+          missingRequiredCapabilities: [],
+        },
+      }),
+    );
+  }
+
+  return { entries };
+}
+
+interface CollectedSkillCandidates {
+  candidates: ScannedSkill[];
+  diagnostics: SkillScanDiagnostic[];
+}
+
+async function collectSkillCandidates(source: SkillSource): Promise<CollectedSkillCandidates> {
   const { entries, stateRoot } = normalizeSkillSource(source);
   const runtimeState = await readSkillRuntimeState(stateRoot);
+  const candidates: ScannedSkill[] = [];
+  const diagnostics: SkillScanDiagnostic[] = [];
+  for (const { dir, containmentRoot, origin } of entries) {
+    const found = await scanSkillDir(dir, containmentRoot, origin, runtimeState);
+    candidates.push(...found.skills);
+    diagnostics.push(...found.diagnostics);
+  }
+  return { candidates, diagnostics };
+}
+
+function resolveSkillCandidates(collected: CollectedSkillCandidates): {
+  scan: SkillScanResult;
+  candidates: ScannedSkill[];
+  shadowedByPath: Map<string, string>;
+} {
   const seenIds = new Map<string, ScannedSkill>();
   const seenNames = new Map<string, ScannedSkill>();
   const out: ScannedSkill[] = [];
-  const diagnostics = new Map<string, SkillScanDiagnostic>();
-  for (const { dir, containmentRoot } of entries) {
-    const found = await scanSkillDir(dir, containmentRoot, runtimeState);
-    for (const diagnostic of found.diagnostics) {
-      appendSkillDiagnostic(diagnostics, diagnostic.id, diagnostic.path, diagnostic.issues);
-    }
-    for (const skill of found.skills) {
-      const normalizedId = skill.id.toLowerCase();
-      const retainedId = seenIds.get(normalizedId);
-      if (retainedId) {
-        appendSkillDiagnostic(diagnostics, skill.id, skill.path, [
-          {
-            code: 'duplicate_id',
-            severity: 'warning',
-            field: 'id',
-            message: `Skill id "${skill.id}" is shadowed by a higher-precedence discovered skill.`,
-          },
-        ]);
-        continue;
-      }
-      seenIds.set(normalizedId, skill);
-
-      const normalizedName = skill.name.toLowerCase();
-      const retainedName = seenNames.get(normalizedName);
-      if (retainedName) {
-        const duplicateNameIssue: SkillValidationIssue = {
-          code: 'duplicate_name',
+  const diagnostics = new Map<string, SkillScanDiagnostic>(
+    collected.diagnostics.map((diagnostic) => [
+      diagnostic.path,
+      { ...diagnostic, issues: [...diagnostic.issues] },
+    ]),
+  );
+  const shadowedByPath = new Map<string, string>();
+  for (const skill of collected.candidates) {
+    const normalizedId = skill.id.toLowerCase();
+    const retainedId = seenIds.get(normalizedId);
+    if (retainedId) {
+      shadowedByPath.set(skill.path, skillEntryKey(retainedId.discoveryOrigin, retainedId.id));
+      appendSkillDiagnostic(diagnostics, skill, [
+        {
+          code: 'duplicate_id',
           severity: 'warning',
-          field: 'name',
-          message: `Skill display name "${skill.name}" is also used by another discovered skill. Load by id to avoid ambiguity.`,
-        };
-        appendSkillDiagnostic(diagnostics, retainedName.id, retainedName.path, [
-          duplicateNameIssue,
-        ]);
-        appendSkillDiagnostic(diagnostics, skill.id, skill.path, [duplicateNameIssue]);
-      } else {
-        seenNames.set(normalizedName, skill);
-      }
-      out.push(skill);
+          field: 'id',
+          message: `Skill id "${skill.id}" is shadowed by a higher-precedence discovered skill.`,
+        },
+      ]);
+      continue;
     }
+    seenIds.set(normalizedId, skill);
+
+    const normalizedName = skill.name.toLowerCase();
+    const retainedName = seenNames.get(normalizedName);
+    if (retainedName) {
+      const duplicateNameIssue: SkillValidationIssue = {
+        code: 'duplicate_name',
+        severity: 'warning',
+        field: 'name',
+        message: `Skill display name "${skill.name}" is also used by another discovered skill. Load by id to avoid ambiguity.`,
+      };
+      appendSkillDiagnostic(diagnostics, retainedName, [duplicateNameIssue]);
+      appendSkillDiagnostic(diagnostics, skill, [duplicateNameIssue]);
+    } else {
+      seenNames.set(normalizedName, skill);
+    }
+    out.push(skill);
   }
-  return { skills: out, diagnostics: [...diagnostics.values()] };
+  return {
+    scan: { skills: out, diagnostics: [...diagnostics.values()] },
+    candidates: collected.candidates,
+    shadowedByPath,
+  };
 }
 
 /** Backward-compatible scan API. Use scanSkillsWithDiagnostics for inspection. */
@@ -383,6 +540,7 @@ export async function scanWorkspaceSkillsWithDiagnostics(root: string): Promise<
 async function scanSkillDir(
   dir: string,
   containmentRoot: string,
+  discoveryOrigin: SkillDiscoveryOrigin,
   runtimeState: SkillRuntimeStateReadResult,
 ): Promise<SkillScanResult> {
   let entries: import('node:fs').Dirent[];
@@ -402,26 +560,89 @@ async function scanSkillDir(
   const out: ScannedSkill[] = [];
   const diagnostics: SkillScanDiagnostic[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    const runtimeStatus: SkillRuntimeStatus = runtimeState.ok
+      ? runtimeState.states.get(entry.name) === false
+        ? 'disabled'
+        : 'enabled'
+      : 'state_error';
     const skillPath = join(dir, entry.name);
     const skillFile = join(skillPath, 'SKILL.md');
+    if (entry.isSymbolicLink()) {
+      diagnostics.push({
+        id: entry.name,
+        path: skillPath,
+        discoveryOrigin,
+        runtimeStatus,
+        issues: [
+          {
+            code: 'blocked_path',
+            severity: 'error',
+            field: 'path',
+            message:
+              'Skill directory is a symbolic link and was blocked by the containment policy.',
+          },
+        ],
+      });
+      continue;
+    }
+    if (!entry.isDirectory()) continue;
     try {
+      const skillFileStat = await lstat(skillFile).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (skillFileStat === null) continue;
+      if (!skillFileStat.isFile() || skillFileStat.isSymbolicLink()) {
+        diagnostics.push({
+          id: entry.name,
+          path: skillPath,
+          discoveryOrigin,
+          runtimeStatus,
+          issues: [
+            {
+              code: 'blocked_path',
+              severity: 'error',
+              field: 'path',
+              message: 'SKILL.md is not a contained regular file and was blocked.',
+            },
+          ],
+        });
+        continue;
+      }
       const read = await readContainedRegularFile(skillPath, skillFile);
-      if (!read.ok) continue;
+      if (!read.ok) {
+        diagnostics.push({
+          id: entry.name,
+          path: skillPath,
+          discoveryOrigin,
+          runtimeStatus,
+          issues: [
+            {
+              code: 'unreadable_skill',
+              severity: 'error',
+              field: 'path',
+              message: 'SKILL.md could not be read safely.',
+            },
+          ],
+        });
+        continue;
+      }
       const bytes = read.bytes;
       const text = bytes.toString('utf8');
       const validation = validateSkillMetadata(text);
       if (validation.issues.length > 0) {
-        diagnostics.push({ id: entry.name, path: skillPath, issues: validation.issues });
+        diagnostics.push({
+          id: entry.name,
+          path: skillPath,
+          discoveryOrigin,
+          runtimeStatus,
+          manifest: validation.manifest,
+          issues: validation.issues,
+        });
       }
       if (!validation.valid) continue;
       const { name, description, allowedTools, requiredTools, requiredCapabilities } =
         validation.manifest;
-      const runtimeStatus: SkillRuntimeStatus = runtimeState.ok
-        ? runtimeState.states.get(entry.name) === false
-          ? 'disabled'
-          : 'enabled'
-        : 'state_error';
       out.push({
         id: entry.name,
         name: name ?? entry.name,
@@ -433,11 +654,25 @@ async function scanSkillDir(
         content: validation.body,
         contentSha256: `sha256:${sha256Buffer(bytes)}`,
         discoveryRoot: containmentRoot,
+        discoveryOrigin,
         enabled: runtimeStatus === 'enabled',
         runtimeStatus,
       });
     } catch {
-      // Skip directories without a readable SKILL.md.
+      diagnostics.push({
+        id: entry.name,
+        path: skillPath,
+        discoveryOrigin,
+        runtimeStatus,
+        issues: [
+          {
+            code: 'unreadable_skill',
+            severity: 'error',
+            field: 'path',
+            message: 'SKILL.md could not be inspected.',
+          },
+        ],
+      });
     }
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
@@ -472,15 +707,23 @@ export function gateSkillsByHostCapabilities(
   return skills.map((skill) => {
     const missingDeclaredTools = skill.declaredTools.filter((tool) => !host.toolNames.has(tool));
     const requiredTools = effectiveRequiredTools(skill);
-    const requiredToolsMissing = requiredTools.some((tool) => !host.toolNames.has(tool));
-    const requiredCapabilitiesMissing = skill.requiredCapabilities.some((cap) => !caps.has(cap));
-    const eligible = !requiredToolsMissing && !requiredCapabilitiesMissing;
-    const hiddenReason: SkillHostCompatibility['hiddenReason'] = requiredToolsMissing
-      ? 'required_tools_missing'
-      : requiredCapabilitiesMissing
-        ? 'required_capabilities_missing'
-        : undefined;
-    return { ...skill, eligible, hiddenReason, missingDeclaredTools };
+    const missingRequiredTools = requiredTools.filter((tool) => !host.toolNames.has(tool));
+    const missingRequiredCapabilities = skill.requiredCapabilities.filter((cap) => !caps.has(cap));
+    const eligible = missingRequiredTools.length === 0 && missingRequiredCapabilities.length === 0;
+    const hiddenReason: SkillHostCompatibility['hiddenReason'] =
+      missingRequiredTools.length > 0
+        ? 'required_tools_missing'
+        : missingRequiredCapabilities.length > 0
+          ? 'required_capabilities_missing'
+          : undefined;
+    return {
+      ...skill,
+      eligible,
+      hiddenReason,
+      missingDeclaredTools,
+      missingRequiredTools,
+      missingRequiredCapabilities,
+    };
   });
 }
 
@@ -583,6 +826,8 @@ export function loadSkillInstructionsFromScan(
         eligible: true,
         hiddenReason: undefined,
         missingDeclaredTools: [] as string[],
+        missingRequiredTools: [] as string[],
+        missingRequiredCapabilities: [] as string[],
       }));
   const eligibleSkills = gated.filter((candidate) => candidate.eligible);
   const availableSkills = eligibleSkills.map((skill) => ({
@@ -1222,14 +1467,27 @@ function readSkillMetadataMap(
 
 function appendSkillDiagnostic(
   diagnostics: Map<string, SkillScanDiagnostic>,
-  id: string,
-  path: string,
+  skill: ScannedSkill,
   issues: SkillValidationIssue[],
 ): void {
   if (issues.length === 0) return;
-  const existing = diagnostics.get(path);
+  const existing = diagnostics.get(skill.path);
   if (!existing) {
-    diagnostics.set(path, { id, path, issues: [...issues] });
+    diagnostics.set(skill.path, {
+      id: skill.id,
+      path: skill.path,
+      discoveryOrigin: skill.discoveryOrigin,
+      runtimeStatus: skill.runtimeStatus,
+      manifest: {
+        name: skill.name,
+        description: skill.description,
+        allowedTools: skill.declaredTools,
+        requiredTools: skill.requiredTools,
+        requiredCapabilities: skill.requiredCapabilities,
+        metadata: {},
+      },
+      issues: [...issues],
+    });
     return;
   }
   for (const issue of issues) {
@@ -1244,6 +1502,66 @@ function appendSkillDiagnostic(
       existing.issues.push(issue);
     }
   }
+}
+
+function skillEntryKey(origin: SkillDiscoveryOrigin, id: string): string {
+  return `${origin}:${id}`;
+}
+
+function toInspectionEntry(input: {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  discoveryOrigin: SkillDiscoveryOrigin;
+  runtimeStatus: SkillRuntimeStatus;
+  declaredTools: string[];
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  issues: SkillValidationIssue[];
+  shadowedBy?: string;
+  compatibility: SkillHostCompatibility;
+}): SkillInspectionEntry {
+  const metadataStatus: SkillMetadataStatus = input.issues.some(
+    (issue) => issue.severity === 'error',
+  )
+    ? 'invalid'
+    : input.issues.length > 0
+      ? 'warning'
+      : 'valid';
+  const operationalStatus: SkillOperationalStatus =
+    metadataStatus === 'invalid'
+      ? 'invalid'
+      : input.shadowedBy
+        ? 'shadowed'
+        : input.runtimeStatus === 'state_error'
+          ? 'state_error'
+          : input.runtimeStatus === 'disabled'
+            ? 'disabled'
+            : !input.compatibility.eligible
+              ? 'host_incompatible'
+              : 'eligible';
+  return {
+    entryKey: skillEntryKey(input.discoveryOrigin, input.id),
+    id: input.id,
+    name: input.name,
+    description: input.description,
+    path: input.path,
+    discoveryOrigin: input.discoveryOrigin,
+    effective: !input.shadowedBy && metadataStatus !== 'invalid',
+    ...(input.shadowedBy ? { shadowedBy: input.shadowedBy } : {}),
+    metadataStatus,
+    operationalStatus,
+    issues: input.issues,
+    declaredTools: input.declaredTools,
+    requiredTools: input.requiredTools,
+    requiredCapabilities: input.requiredCapabilities,
+    missingDeclaredTools: input.compatibility.missingDeclaredTools,
+    missingRequiredTools: input.compatibility.missingRequiredTools,
+    missingRequiredCapabilities: input.compatibility.missingRequiredCapabilities,
+    enabled: input.runtimeStatus === 'enabled',
+    runtimeStatus: input.runtimeStatus,
+  };
 }
 
 function sha256(text: string): string {

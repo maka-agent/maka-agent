@@ -20,7 +20,6 @@ export const STATIC_COMMAND_IDS = [
   'theme:auto',
   'nav:sessions',
   'nav:automations',
-  'nav:skills',
   'nav:mcp',
   'nav:daily-review',
   'diag:open-workspace',
@@ -56,7 +55,6 @@ const STATIC_COMMAND_KEYWORDS: Record<StaticCommandId, readonly string[]> = {
   'theme:auto': ['auto', 'system', 'theme', '跟随', '系统', '主题'],
   'nav:sessions': ['sessions', 'chats', '会话', '对话', 'left'],
   'nav:automations': ['automations', 'plan', 'reminder', 'schedule', 'cron', '定时任务', '计划', '提醒'],
-  'nav:skills': ['skills', '技能'],
   'nav:mcp': ['mcp', 'server', 'tools', '扩展', '工具'],
   'nav:daily-review': ['daily', 'review', 'today', '每日', '回顾', '今天'],
   'diag:open-workspace': ['workspace', 'folder', 'open', 'finder', '工作区', '文件夹', '目录'],
@@ -231,8 +229,6 @@ type ShellCopy = {
   skillActions: {
     refreshSkillsFailedTitle: string;
     refreshSkillsFallback: string;
-    refreshSourcesFailedTitle: string;
-    refreshSourcesFallback: string;
     refreshBundledFailedTitle: string;
     refreshBundledFallback: string;
     installBundledFailedTitle: string;
@@ -246,12 +242,6 @@ type ShellCopy = {
     openedExistingTemplateTitle: string;
     openedExistingTemplateDescription: string;
     openTemplateFailedTitle: string;
-    importSourceFailedTitle: string;
-    importSourceFallback: string;
-    importedSourceTitle: string;
-    installFailedTitle: string;
-    installFallback: string;
-    installedTitle: string;
     previewFailedTitle: string;
     previewFallback: string;
     updateFailedTitle: string;
@@ -275,7 +265,6 @@ type ShellCopy = {
       'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed',
       string
     >;
-    sourceFailures: Record<'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' | 'cancelled', string>;
     installFailures: Record<'not_found' | 'already_exists' | 'blocked_path' | 'write_failed', string>;
     updateFailures: Record<
       'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed',
@@ -373,7 +362,6 @@ type ShellCopy = {
   app: {
     loadingWorkbarLabel: string;
     loadingWorkbar: string;
-    useSkillPrompt(skillName: string): string;
     newConversation: string;
     compactErrorTitle: string;
     compactErrorFallback: string;
@@ -432,7 +420,6 @@ const ZH_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
   'theme:auto': { label: '主题 · 跟随系统', group: '主题' },
   'nav:sessions': { label: '侧栏 · 会话', group: '导航' },
   'nav:automations': { label: '侧栏 · 定时任务', group: '导航' },
-  'nav:skills': { label: '打开 · 技能', group: '导航' },
   'nav:mcp': { label: '打开 · MCP', group: '导航' },
   'nav:daily-review': { label: '打开 · 每日回顾', group: '导航' },
   'diag:open-workspace': {
@@ -528,7 +515,6 @@ const EN_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
   'theme:auto': { label: 'Theme · Follow system', group: 'Theme' },
   'nav:sessions': { label: 'Sidebar · Conversations', group: 'Navigation' },
   'nav:automations': { label: 'Sidebar · Automations', group: 'Navigation' },
-  'nav:skills': { label: 'Open · Skills', group: 'Navigation' },
   'nav:mcp': { label: 'Open · MCP', group: 'Navigation' },
   'nav:daily-review': { label: 'Open · Daily Review', group: 'Navigation' },
   'diag:open-workspace': {
@@ -597,6 +583,7 @@ const ZH_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
   general: '通用',
   appearance: '外观',
   models: '模型',
+  skills: '技能',
   usage: '使用统计',
   memory: '记忆',
   'daily-review': '每日回顾',
@@ -614,6 +601,7 @@ const EN_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
   general: 'General',
   appearance: 'Appearance',
   models: 'Models',
+  skills: 'Skills',
   usage: 'Usage',
   memory: 'Memory',
   'daily-review': 'Daily Review',
@@ -758,14 +746,12 @@ const SHELL_COPY_BY_LOCALE = {
     skillActions: {
       refreshSkillsFailedTitle: '刷新技能失败',
       refreshSkillsFallback: '刷新技能失败，请稍后重试。',
-      refreshSourcesFailedTitle: '刷新来源库失败',
-      refreshSourcesFallback: '刷新来源库失败，请稍后重试。',
       refreshBundledFailedTitle: '刷新内置技能失败',
       refreshBundledFallback: '刷新内置技能失败，请稍后重试。',
-      installBundledFailedTitle: '无法安装内置 Skill',
-      installBundledFallback: '无法安装内置 Skill，请稍后重试。',
-      installedBundledTitle: '已安装内置 Skill',
-      installedDescription: (id: string) => `${id}/SKILL.md 已放到当前工作区。`,
+      installBundledFailedTitle: '无法启用 Skill 模板',
+      installBundledFallback: '无法把 Skill 模板启用到 Maka，请稍后重试。',
+      installedBundledTitle: '已启用到 Maka',
+      installedDescription: (id: string) => `${id}/SKILL.md 已复制到 Maka 全局工作区，将从下一次 Skill 扫描开始生效。`,
       createTemplateFailedTitle: '无法创建示例技能',
       createTemplateFallback: '无法创建示例技能，请稍后重试。',
       createdTemplateTitle: '已创建示例技能',
@@ -773,12 +759,6 @@ const SHELL_COPY_BY_LOCALE = {
       openedExistingTemplateTitle: '已打开现有示例技能',
       openedExistingTemplateDescription: '示例技能已存在，直接打开了 SKILL.md（不会重复创建）。',
       openTemplateFailedTitle: '无法打开示例技能',
-      importSourceFailedTitle: '无法导入 Skill 来源',
-      importSourceFallback: '无法导入 Skill 来源，请稍后重试。',
-      importedSourceTitle: '已导入 Skill 来源',
-      installFailedTitle: '无法安装 Skill',
-      installFallback: '无法安装 Skill，请稍后重试。',
-      installedTitle: '已安装 Skill',
       previewFailedTitle: '无法预览 Skill 更新',
       previewFallback: '无法预览 Skill 更新，请稍后重试。',
       updateFailedTitle: '无法更新 Skill',
@@ -810,15 +790,8 @@ const SHELL_COPY_BY_LOCALE = {
         not_directory: '目标不是一个可打开的目录。',
         open_failed: '系统打开文件失败。',
       },
-      sourceFailures: {
-        invalid_skill: '请选择有效的 SKILL.md 文件。',
-        already_exists: '来源库里已经有同名 Skill。',
-        blocked_path: '该文件路径不允许导入。',
-        write_failed: '写入来源库失败，请检查文件权限。',
-        cancelled: '已取消。',
-      },
       installFailures: {
-        not_found: '没有找到这个 Skill 来源。',
+        not_found: '没有找到这个内置 Skill。',
         already_exists: '当前工作区已经有同名 Skill。',
         blocked_path: '目标路径不允许写入。',
         write_failed: '写入工作区失败，请检查文件权限。',
@@ -1021,7 +994,6 @@ const SHELL_COPY_BY_LOCALE = {
     app: {
       loadingWorkbarLabel: '正在加载会话工作栏',
       loadingWorkbar: '正在加载会话工作栏…',
-      useSkillPrompt: (skillName: string) => `使用 ${skillName} 技能：`,
       newConversation: '新建对话',
       compactErrorTitle: '压缩失败',
       compactErrorFallback: '对话暂时无法压缩，请稍后重试。',
@@ -1193,14 +1165,12 @@ const SHELL_COPY_BY_LOCALE = {
     skillActions: {
       refreshSkillsFailedTitle: 'Could not refresh Skills',
       refreshSkillsFallback: 'Skills could not be refreshed. Try again later.',
-      refreshSourcesFailedTitle: 'Could not refresh Skill sources',
-      refreshSourcesFallback: 'Skill sources could not be refreshed. Try again later.',
       refreshBundledFailedTitle: 'Could not refresh built-in Skills',
       refreshBundledFallback: 'Built-in Skills could not be refreshed. Try again later.',
-      installBundledFailedTitle: 'Could not install built-in Skill',
-      installBundledFallback: 'The built-in Skill could not be installed. Try again later.',
-      installedBundledTitle: 'Built-in Skill installed',
-      installedDescription: (id: string) => `${id}/SKILL.md was added to the current workspace.`,
+      installBundledFailedTitle: 'Could not activate Skill template',
+      installBundledFallback: 'The Skill template could not be activated in Maka. Try again later.',
+      installedBundledTitle: 'Activated in Maka',
+      installedDescription: (id: string) => `${id}/SKILL.md was copied to the global Maka workspace and will take effect on the next Skill scan.`,
       createTemplateFailedTitle: 'Could not create sample Skill',
       createTemplateFallback: 'The sample Skill could not be created. Try again later.',
       createdTemplateTitle: 'Sample Skill created',
@@ -1209,12 +1179,6 @@ const SHELL_COPY_BY_LOCALE = {
       openedExistingTemplateDescription:
         'The sample Skill already exists, so its SKILL.md was opened without creating a duplicate.',
       openTemplateFailedTitle: 'Could not open sample Skill',
-      importSourceFailedTitle: 'Could not import Skill source',
-      importSourceFallback: 'The Skill source could not be imported. Try again later.',
-      importedSourceTitle: 'Skill source imported',
-      installFailedTitle: 'Could not install Skill',
-      installFallback: 'The Skill could not be installed. Try again later.',
-      installedTitle: 'Skill installed',
       previewFailedTitle: 'Could not preview Skill update',
       previewFallback: 'The Skill update could not be previewed. Try again later.',
       updateFailedTitle: 'Could not update Skill',
@@ -1246,15 +1210,8 @@ const SHELL_COPY_BY_LOCALE = {
         not_directory: 'The target is not an openable folder.',
         open_failed: 'The system could not open the file.',
       },
-      sourceFailures: {
-        invalid_skill: 'Select a valid SKILL.md file.',
-        already_exists: 'A Skill with the same name already exists in the source library.',
-        blocked_path: 'This file path cannot be imported.',
-        write_failed: 'The source library could not be written. Check file permissions.',
-        cancelled: 'Cancelled.',
-      },
       installFailures: {
-        not_found: 'This Skill source was not found.',
+        not_found: 'This built-in Skill was not found.',
         already_exists: 'A Skill with the same name already exists in this workspace.',
         blocked_path: 'The target path cannot be written.',
         write_failed: 'The workspace could not be written. Check file permissions.',
@@ -1497,7 +1454,6 @@ const SHELL_COPY_BY_LOCALE = {
     app: {
       loadingWorkbarLabel: 'Loading conversation workbar',
       loadingWorkbar: 'Loading conversation workbar…',
-      useSkillPrompt: (skillName: string) => `Use the ${skillName} skill: `,
       newConversation: 'New conversation',
       compactErrorTitle: 'Compaction failed',
       compactErrorFallback: 'The conversation could not be compacted. Try again later.',

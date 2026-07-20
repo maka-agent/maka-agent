@@ -24,10 +24,13 @@ test('session tools share one user-controlled workbar', async ({ sessionWorkbarW
   }));
   expect(narrowLayout.height).toBeLessThanOrEqual(narrowLayout.viewportHeight * 0.42 + 1);
 
-  await page.locator('button[aria-label="展开侧边栏"]').dispatchEvent('click');
-  await page.locator('button[aria-label="技能"]').dispatchEvent('click');
-  await expect(workbar).toBeHidden();
-  await expect(page.getByRole('main', { name: '技能' })).toBeVisible();
+  await page.keyboard.press('Meta+,');
+  const settings = page.getByRole('main', { name: '设置内容' });
+  await settings.getByRole('button', { name: '技能', exact: true }).click();
+  await expect(settings.getByRole('heading', { name: '技能', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(workbar).toBeVisible();
+  await expect(tabs.getByRole('tab', { name: /文件/ })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('workbar toggle stays unmounted without an active session', async ({ window: page }) => {

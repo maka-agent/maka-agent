@@ -7,7 +7,7 @@ import { readRendererContractCss } from './contract-css-helpers.js';
 const repoRoot = resolve(process.cwd(), '..', '..');
 
 describe('sidebar extensions tree contract', () => {
-  it('renders Extensions as a disclosure with only Skills and MCP children', async () => {
+  it('keeps Skills out of app navigation while preserving the MCP extension child', async () => {
     const source = await readFile(
       resolve(repoRoot, 'packages/ui/src/session-sidebar-nav.tsx'),
       'utf8',
@@ -18,9 +18,15 @@ describe('sidebar extensions tree contract', () => {
     assert.match(source, /className="maka-sidebar-nav-tree"/);
     assert.match(source, /hidden=\{!extensionsOpen\}/);
     assert.match(source, /maka-nav-extension-hover-icon/);
-    assert.match(source, /moduleNavLabel\.skills/);
     assert.match(source, /moduleNavLabel\.mcp/);
+    assert.doesNotMatch(source, /moduleNavLabel\.skills/);
     assert.doesNotMatch(source, /专家套件|连接器/);
+
+    const settingsSource = await readFile(
+      resolve(repoRoot, 'apps/desktop/src/renderer/settings/settings-nav.ts'),
+      'utf8',
+    );
+    assert.match(settingsSource, /id:\s*'skills'/);
   });
 
   it('uses a hairline tree guide and an expanded state surface', async () => {

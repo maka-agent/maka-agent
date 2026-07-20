@@ -9,8 +9,6 @@ import type {
   BundledSkillCatalogEntry,
   DailyReviewBridge,
   DailyReviewMarkdownActionInput,
-  ManagedSkillSourceEntry,
-  ManagedSkillUpdatePreview,
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
   SkillEntry,
@@ -39,24 +37,15 @@ function ModulePanelFallback(props: { message: string }) {
 }
 
 export function SkillsPage(props: {
+  embedded?: boolean;
   skills?: SkillEntry[];
+  skillHostBasis?: 'session' | 'desktop_default';
   planReminders?: PlanReminder[];
   onRefreshSkills?(): void | Promise<void>;
-  onCreateSkillTemplate?(): void | Promise<void>;
-  onOpenSkill?(skillId: string): void | Promise<void>;
-  onUseSkill?(skillId: string, skillName: string): void;
-  onOpenSkillsFolder?(): void | Promise<void>;
-  managedSkillSources?: ManagedSkillSourceEntry[];
-  onRefreshManagedSkillSources?(): void | Promise<void>;
-  onImportManagedSkillSource?(): void | Promise<void>;
-  onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  onOpenSkill?(entryKey: string, repairTarget: SkillEntry['repairTarget']): void | Promise<void>;
   bundledSkillCatalog?: BundledSkillCatalogEntry[];
   onRefreshBundledSkillCatalog?(): void | Promise<void>;
-  onInstallBundledSkill?(id: string): void | Promise<void>;
-  onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
-  onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
-  onDeleteSkill?(skillId: string): void | Promise<void>;
+  onActivateBundledSkill?(id: string): boolean | Promise<boolean>;
 }) {
   const copy = getSharedUiCopy(useUiLocale()).modules;
   const auditReport = deriveCapabilityAuditReport({
@@ -64,7 +53,13 @@ export function SkillsPage(props: {
     planReminders: props.planReminders ?? [],
   });
   return (
-    <Suspense fallback={<ModulePageFallback label={copy.skills} message={copy.loadingSkills} />}>
+    <Suspense
+      fallback={
+        props.embedded
+          ? <ModulePanelFallback message={copy.loadingSkills} />
+          : <ModulePageFallback label={copy.skills} message={copy.loadingSkills} />
+      }
+    >
       <SkillsModuleMain {...props} auditReport={auditReport} />
     </Suspense>
   );

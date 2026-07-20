@@ -38,7 +38,7 @@ const navRowVariants = cva(
   },
 );
 
-type ModuleNavId = 'daily-review' | 'skills' | 'mcp' | 'automations';
+type ModuleNavId = 'daily-review' | 'mcp' | 'automations';
 
 const settingsButtonClass =
   'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-1.5 py-1.5 ' +
@@ -58,7 +58,6 @@ export function SessionSidebarNav(props: {
   const [extensionsOpen, setExtensionsOpen] = useState(true);
   const moduleNavLabel: Record<ModuleNavId, string> = {
     automations: copy.automations,
-    skills: copy.skills,
     mcp: copy.mcp,
     'daily-review': copy.dailyReview,
   };
@@ -108,16 +107,6 @@ export function SessionSidebarNav(props: {
           aria-label={copy.extensions}
           hidden={!extensionsOpen}
         >
-          <BaseButton
-            className={cn('maka-nav-row maka-nav-tree-row', navRowVariants())}
-            data-active={isModuleActive('skills')}
-            aria-current={isModuleActive('skills') ? 'page' : undefined}
-            aria-label={moduleNavLabel.skills}
-            type="button"
-            onClick={() => selectModule('skills')}
-          >
-            <span>{moduleNavLabel.skills}</span>
-          </BaseButton>
           <BaseButton
             className={cn('maka-nav-row maka-nav-tree-row', navRowVariants())}
             data-active={isModuleActive('mcp')}

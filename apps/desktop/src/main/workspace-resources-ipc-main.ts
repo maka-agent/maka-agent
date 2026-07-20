@@ -2,33 +2,27 @@ import { ipcMain, shell } from 'electron';
 import { copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ArtifactSaveResult } from '@maka/core';
+import type { HostCapabilities } from '@maka/runtime';
 import { createArtifactStore, resolveArtifactPath } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
+import { resolveDesktopSkillDiscoverySource } from './skill-discovery-main.js';
 import {
-  createStarterSkill,
-  deleteSkill,
-  getSkillGovernanceDetails,
   installBundledSkill,
-  installManagedSkill,
   listBundledSkillCatalog,
-  listSkillEntries,
-  previewManagedSkillUpdate,
-  resolveSkillOpenPath,
-  setSkillEnabled,
+  listSkillInventory,
+  resolveDiscoveredSkillOpenPath,
+  resolveSkillRepairOpenPath,
   toSkillEntry,
-  updateManagedSkill,
 } from './skills.js';
-import {
-  importManagedSkillSource,
-  listManagedSkillSources,
-  toManagedSkillSourceEntry,
-} from './managed-skill-sources.js';
 
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
 type MainWindowController = ReturnType<typeof createMainWindowController>;
 
 interface WorkspaceResourcesIpcDeps {
   workspaceRoot: string;
+  skillHomeRoot?: string;
+  getProjectRoot(sessionId?: string): Promise<string>;
+  getSkillHost(sessionId?: string): { host: HostCapabilities; basis: 'session' | 'desktop_default' };
   artifactStore: ArtifactStore;
   mainWindowController: MainWindowController;
   sendToRenderer: MainWindowController['send'];
@@ -108,71 +102,54 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     }
   });
 
-  ipcMain.handle('skills:list', async () => {
-    return listSkillEntries(deps.workspaceRoot);
+  ipcMain.handle('skills:list', async (_event, input?: { sessionId?: string }) => {
+    const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : undefined;
+    const skillHost = deps.getSkillHost(sessionId);
+    return listSkillInventory({
+      workspaceRoot: deps.workspaceRoot,
+      source: await resolveDesktopSkillDiscoverySource(deps, sessionId),
+      host: skillHost.host,
+      hostBasis: skillHost.basis,
+    });
   });
   ipcMain.handle('skills:catalog:list', async () => {
     return listBundledSkillCatalog(deps.workspaceRoot);
   });
-  ipcMain.handle('skills:catalog:install', async (_event, id: string) => {
+  ipcMain.handle('skills:catalog:activate', async (_event, id: string) => {
     const result = await installBundledSkill(deps.workspaceRoot, id);
     if (!result.ok) return result;
     return { ok: true as const, skill: toSkillEntry(result.skill) };
   });
-  ipcMain.handle('skills:sources:list', async () => {
-    const sources = await listManagedSkillSources();
-    return sources.map(toManagedSkillSourceEntry);
-  });
-  ipcMain.handle('skills:sources:importLocalFile', async () => {
-    const result = await deps.mainWindowController.showOpenDialog({
-      title: '导入 Skill 来源',
-      properties: ['openFile'],
-      filters: [
-        { name: 'Skill Markdown', extensions: ['md'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    });
-    if (result.canceled || result.filePaths.length === 0) return { ok: false as const, reason: 'cancelled' as const };
-    const imported = await importManagedSkillSource({ sourceFile: result.filePaths[0] });
-    if (!imported.ok) return imported;
-    return { ok: true as const, source: toManagedSkillSourceEntry(imported.source) };
-  });
-  ipcMain.handle('skills:installManaged', async (_event, sourceId: string) => {
-    const result = await installManagedSkill(deps.workspaceRoot, sourceId);
-    if (!result.ok) return result;
-    return { ok: true as const, skill: toSkillEntry(result.skill) };
-  });
-  ipcMain.handle('skills:details', async (_event, skillId: string) => {
-    return getSkillGovernanceDetails(deps.workspaceRoot, skillId);
-  });
-  ipcMain.handle('skills:previewUpdate', async (_event, skillId: string) => {
-    return previewManagedSkillUpdate(deps.workspaceRoot, skillId);
-  });
-  ipcMain.handle('skills:updateManaged', async (_event, skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }) => {
-    const result = await updateManagedSkill(deps.workspaceRoot, skillId, undefined, {
-      force: options?.force === true,
-      expectedCurrentSha256: options?.expectedCurrentSha256,
-      expectedSourceSha256: options?.expectedSourceSha256,
-    });
-    if (!result.ok) return result;
-    return { ok: true as const, skill: toSkillEntry(result.skill) };
-  });
-  ipcMain.handle('skills:setEnabled', async (_event, skillId: string, enabled: boolean) => {
-    return setSkillEnabled(deps.workspaceRoot, skillId, enabled === true);
-  });
-  ipcMain.handle('skills:createStarter', async () => {
-    const result = await createStarterSkill(deps.workspaceRoot);
-    if (!result.ok) return result;
-    return { ok: true as const, created: result.created, skill: toSkillEntry(result.skill), filePath: result.filePath };
-  });
-  ipcMain.handle('skills:delete', async (_event, id: string) => {
-    return deleteSkill(deps.workspaceRoot, id);
-  });
-  ipcMain.handle('skills:open', async (_event, id: string, target: 'file' | 'directory' = 'file') => {
-    const resolved = await resolveSkillOpenPath(deps.workspaceRoot, id, target);
-    if (!resolved.ok) return resolved;
-    const error = await shell.openPath(resolved.path);
-    if (error) return { ok: false, reason: 'open_failed' as const };
-    return { ok: true as const, target: resolved.target };
-  });
+  ipcMain.handle(
+    'skills:openEntry',
+    async (
+      _event,
+      input: { entryKey: string; sessionId?: string; target?: 'file' | 'directory' },
+    ) => {
+      const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : undefined;
+      const resolved = await resolveDiscoveredSkillOpenPath(
+        await resolveDesktopSkillDiscoverySource(deps, sessionId),
+        input?.entryKey,
+        input?.target ?? 'file',
+      );
+      if (!resolved.ok) return resolved;
+      const error = await shell.openPath(resolved.path);
+      if (error) return { ok: false, reason: 'open_failed' as const };
+      return { ok: true as const, target: resolved.target };
+    },
+  );
+  ipcMain.handle(
+    'skills:openRepairTarget',
+    async (_event, input: { entryKey: string; sessionId?: string }) => {
+      const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : undefined;
+      const resolved = await resolveSkillRepairOpenPath(
+        await resolveDesktopSkillDiscoverySource(deps, sessionId),
+        input?.entryKey,
+      );
+      if (!resolved.ok) return resolved;
+      const error = await shell.openPath(resolved.path);
+      if (error) return { ok: false, reason: 'open_failed' as const };
+      return { ok: true as const, target: resolved.target };
+    },
+  );
 }

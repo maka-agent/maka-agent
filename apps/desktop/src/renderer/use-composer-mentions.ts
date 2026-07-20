@@ -20,7 +20,7 @@ export function useComposerMentions(options: { skills: readonly SkillEntry[]; se
       skills
         // Only skills the runtime will actually honor — mirrors how the skills
         // panel treats enabled + runtimeStatus.
-        .filter((skill) => skill.enabled && skill.runtimeStatus === 'enabled')
+        .filter((skill) => skill.effective && skill.operationalStatus === 'eligible')
         .map((skill) => ({ id: skill.id, name: skill.name, description: skill.description })),
     [skills],
   );

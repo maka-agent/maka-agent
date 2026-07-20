@@ -1243,6 +1243,7 @@ export {
   scanWorkspaceSkillsWithDiagnostics,
   scanSkills,
   scanSkillsWithDiagnostics,
+  inspectSkills,
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
   loadSkillInstructions,
@@ -1275,6 +1276,9 @@ export {
 export type { PathInsideApi } from './path-containment.js';
 export type {
   SkillRuntimeStatus,
+  SkillDiscoveryOrigin,
+  SkillMetadataStatus,
+  SkillOperationalStatus,
   SkillManifest,
   SkillValidationSeverity,
   SkillValidationCode,
@@ -1284,6 +1288,8 @@ export type {
   SkillScanResult,
   RuntimeSkillDefinition,
   ScannedSkill,
+  SkillInspectionEntry,
+  SkillInspectionResult,
   HostCapabilities,
   HostCapabilitiesResolver,
   SkillCatalogBudgetOptions,

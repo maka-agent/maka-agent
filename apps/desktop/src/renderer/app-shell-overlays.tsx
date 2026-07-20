@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback } from 'react';
+import { lazy, Suspense, useCallback, type ReactNode } from 'react';
 import type {
   LlmConnection,
   SettingsSection,
@@ -55,6 +55,8 @@ export function AppShellOverlays(props: {
   settingsConnectionDetailSlug: string | undefined;
   onOpenDailyReview(): void;
   onOpenSettingsSession(sessionId: string): void;
+  onSettingsSectionChange(section: SettingsSection): void;
+  renderSettingsExtensionPage(section: 'skills'): ReactNode;
   helpOpen: boolean;
   closeHelp(): void;
   searchModalOpen: boolean;
@@ -130,6 +132,8 @@ export function AppShellOverlays(props: {
             initialConnectionSlug={settingsConnectionDetailSlug}
             onOpenDailyReview={props.onOpenDailyReview}
             onOpenSession={props.onOpenSettingsSession}
+            onSectionChange={props.onSettingsSectionChange}
+            renderExtensionPage={props.renderSettingsExtensionPage}
           />
         </Suspense>
       )}

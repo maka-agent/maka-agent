@@ -20,6 +20,7 @@ import {
   parseSkillFrontMatter,
   previewManagedSkillUpdate,
   resolveSkillOpenPath,
+  resolveSkillRepairOpenPath,
   setSkillEnabled,
   updateManagedSkill,
 } from '../skills.js';
@@ -1220,7 +1221,7 @@ description: Exercise workspace-contained open paths.
     });
   });
 
-  it('skills empty state can refresh without restarting Maka', async () => {
+  it.skip('legacy Skills mutation surface contract (replaced by the diagnostic-only contract)', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
@@ -1267,7 +1268,7 @@ description: Exercise workspace-contained open paths.
     assert.match(main, /ipcMain\.handle\('skills:setEnabled'/);
   });
 
-  it('gates Skills module actions while async work is pending', async () => {
+  it.skip('legacy Skills mutation pending-state contract (replaced by the diagnostic-only contract)', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
@@ -1308,8 +1309,6 @@ description: Exercise workspace-contained open paths.
     assert.match(skillPanel, /actionBusy\?: boolean/);
     assert.match(skillPanel, /createPending\?: boolean/);
     assert.match(skillPanel, /openingSkillId\?: string \| null/);
-    assert.match(skillPanel, /managedSkillSources\?: ManagedSkillSourceEntry\[]/);
-    assert.match(skillPanel, /installingSourceId\?: string \| null/);
     assert.match(skillPanel, /updatingSkillId\?: string \| null/);
     assert.doesNotMatch(skillPanel, /maka-skill-workbench-rail/);
     assert.doesNotMatch(skillPanel, /maka-skill-workbench-summary/);
@@ -1327,18 +1326,13 @@ description: Exercise workspace-contained open paths.
     assert.match(skillPanel, /const runtimeLabel = formatSkillRuntimeLabel\(skill, copy\)/);
     assert.match(skillPanel, /copy\.row\.hoverWithTools\(skill\.id, runtimeLabel, statusLabel, toolsLabel\)/);
     assert.match(skillPanel, /copy\.row\.hover\(skill\.id, runtimeLabel, statusLabel\)/);
-    // Detail round 6, exception-only: the runtime chip renders ONLY for
-    // state_error — enabled/disabled is already expressed by the Switch.
-    // Round 1 convergence (#520 follow-up): the two status labels now render
-    // the squared Chip primitive (was a hand-rolled span). data-status is
-    // preserved for tone derivation; the render condition is unchanged.
-    assert.match(skillPanel, /\{skill\.runtimeStatus === 'state_error' && \([\s\S]*?<Chip[\s\S]*?className="maka-skill-library-runtime-label"[\s\S]*>\{runtimeLabel\}<\/Chip>/);
-    assert.match(skillPanel, /<Chip[\s\S]*?className="maka-skill-library-status-label"[\s\S]*>\{statusLabel\}<\/Chip>/);
+    // Expected eligible rows remain quiet; lifecycle exceptions are explicit.
+    assert.match(skillPanel, /\{skill\.operationalStatus !== 'eligible' && \([\s\S]*?<Chip[\s\S]*?className="maka-skill-library-runtime-label"[\s\S]*>\{runtimeLabel\}<\/Chip>/);
+    assert.match(skillPanel, /shouldShowSkillGovernanceChip\(skill\) && \([\s\S]*?<Chip[\s\S]*?className="maka-skill-library-status-label"[\s\S]*>\{statusLabel\}<\/Chip>/);
     assert.match(skillPanel, /function skillStatusChipTone\(skill: SkillEntry\)/, 'status-label tone derives from data-status via skillStatusChipTone');
-    assert.match(ui, /function formatSkillStatusLabel\(skill: SkillEntry, copy: SkillsCopy\): string/);
+    assert.match(ui, /function formatSkillStatusLabel\(skill: SkillEntry \| SkillGovernanceDetails, copy: SkillsCopy\): string/);
     assert.match(ui, /function formatSkillRuntimeLabel\(skill: SkillEntry, copy: SkillsCopy\): string/);
-    assert.match(ui, /runtimeStatus === 'state_error'\) return copy\.status\.stateError/);
-    assert.match(ui, /skill\.enabled \? copy\.status\.enabled : copy\.status\.disabled/);
+    assert.match(ui, /return copy\.status\.operational\[skill\.operationalStatus\]/);
     assert.match(ui, /validationStatus === 'metadata_error'\) return copy\.status\.metadataError/);
     assert.match(ui, /userModified\) return copy\.status\.modified/);
     assert.match(ui, /sourceType === 'bundled'\) return copy\.status\.bundled/);
@@ -1351,19 +1345,18 @@ description: Exercise workspace-contained open paths.
     assert.doesNotMatch(skillEntryContract, /sourceName|sourceVersion|contentSha256|installedAt|validationCodes|validationMessages|write_failed/, 'renderer SkillEntry must not expose lock internals');
     assert.match(workspaceResourcesIpc, /toSkillEntry/, 'Skills IPC must scrub main-internal lock fields before crossing to renderer');
     assert.doesNotMatch(workspaceResourcesIpc, /ipcMain\.handle\('skills:list'[\s\S]*listInstalledSkills\(deps\.workspaceRoot\)/, 'Skills list IPC must not return InstalledSkill objects directly');
-    // Marketplace redesign: managed sources ARE the 市场 tab now — the
-    // separate 来源库 list under 已安装 was folded into a card grid. The
-    // source cache is still surfaced (never runtime), just as a browse
-    // grid keyed off props.managedSkillSources.
-    assert.match(skillPanel, /const market = \(/, 'Phase 2 must surface the managed source cache without making it runtime');
-    assert.match(skillPanel, /<section className="maka-skill-market" aria-label=\{copy\.market\.ariaLabel\}>/);
-    assert.match(skillPanel, /<div className="maka-skill-market-grid">/, '市场 tab renders managed sources as a card grid');
-    assert.match(skillPanel, /const marketSources = useMemo\(/, '市场 grid is a pure client-side filter/sort over managedSkillSources');
-    assert.match(skillPanel, /copy\.market\.official/, '市场 grid carries the localized official section label');
-    assert.match(skillPanel, /variant="secondary"\s+size="icon-sm"[\s\S]*aria-label=\{copy\.install\.action\(source\.name\)\}/, 'only the governed install icon-button acts; the market card body stays inert');
-    assert.match(skillPanel, /copy\.market\.importLocal/);
-    assert.doesNotMatch(skillPanel, /const managedSources = \(/, '来源库 list was replaced by the 市场 card grid');
-    assert.match(skillPanel, /onInstallManagedSkill\?\(sourceId: string\): void \| Promise<void>/);
+    // The former 市场 was only a projection of the machine-local source cache.
+    // Keep the built-in and discovered surfaces plus update governance for
+    // already-installed managed Skills, but expose no market/install entry.
+    assert.doesNotMatch(
+      skillPanel,
+      /value="market"|copy\.market|managedSkillSources|onImportManagedSkillSource|onInstallManagedSkill|installingSourceId|maka-skill-market/,
+      'the local-source market and its import/install controls must stay removed',
+    );
+    assert.match(skillPanel, /\['builtin', copy\.tabs\.builtin, bundledCatalog\.length\]/);
+    assert.match(skillPanel, /\['installed', copy\.tabs\.installed, installedSkills\.length\]/);
+    assert.match(skillPanel, /<div className="maka-skill-catalog-grid">/, 'the built-in catalog remains available');
+    assert.match(skillPanel, /onInstallBundledSkill\?\(id: string\): void \| Promise<void>/);
     assert.match(skillPanel, /onPreviewManagedSkillUpdate\?\(skillId: string\): Promise<ManagedSkillUpdatePreview \| null>/);
     assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\): boolean \| Promise<boolean>/);
     assert.match(skillPanel, /onSetSkillEnabled\?\(skillId: string, enabled: boolean\): void \| Promise<void>/);
@@ -1380,7 +1373,7 @@ description: Exercise workspace-contained open paths.
     assert.match(skillPanel, /confirmingDelete \? copy\.row\.confirmDelete : copy\.row\.delete/);
     assert.match(skillPanel, /<div[\s\S]*className="maka-skill-library-row"[\s\S]*<\/div>/, 'Skill row body must be information, not the open-file control');
     assert.match(skillPanel, /className="maka-skill-library-open-button"[\s\S]*aria-label=\{copy\.row\.openAriaLabel\(skill\.name\)\}/);
-    assert.match(skillPanel, /<\/UiButton>\s*<Switch/, 'per-skill enable switch must sit next to the explicit open-file icon button');
+    assert.match(skillPanel, /<\/UiButton>\s*\{skill\.discoveryOrigin === 'workspace' && \(\s*<Switch/, 'only workspace Skills expose an enable switch next to the open-file button');
     assert.match(skillPanel, /const updated = await props\.onUpdateManagedSkill\(preview\.skill\.id/);
     assert.match(skillPanel, /expectedCurrentSha256: preview\.expectedCurrentSha256/);
     assert.match(skillPanel, /expectedSourceSha256: preview\.expectedSourceSha256/);
@@ -1400,7 +1393,7 @@ description: Exercise workspace-contained open paths.
     assert.match(skillPanel, /label: props\.refreshPending \? copy\.installed\.refreshPending : copy\.installed\.refresh/);
     assert.match(skillPanel, /disabled: props\.actionBusy/);
     assert.match(skillPanel, /aria-busy=\{props\.actionBusy \? 'true' : undefined\}/);
-    assert.match(skillPanel, /disabled=\{props\.actionBusy \|\| !props\.onOpenSkill\}/, 'Skill open icon button must be disabled while a Skills action is pending');
+    assert.match(skillPanel, /disabled=\{props\.actionBusy \|\| !props\.onOpenSkill \|\| !skill\.canOpen\}/, 'Skill open icon button must respect pending and containment policy');
     assert.match(skillPanel, /opening && <span>\{copy\.row\.opening\}<\/span>/);
     assert.match(skillPanel, /updating && <span>\{copy\.row\.updating\}<\/span>/);
     assert.match(emptyState, /disabled\?: boolean/);
@@ -1412,37 +1405,102 @@ description: Exercise workspace-contained open paths.
     assert.doesNotMatch(renderer, /onOpenSkill=\{\(skillId\) => void openSkill\(skillId\)\}/, 'renderer must return the open promise to the UI pending gate');
   });
 
+  it('keeps discovered Skills diagnostic-only and activation semantics explicit', async () => {
+    const repoRoot = process.cwd().endsWith('apps/desktop')
+      ? join(process.cwd(), '..', '..')
+      : process.cwd();
+    const ui = await readFile(join(repoRoot, 'packages/ui/src/skills-panel.tsx'), 'utf8');
+    const types = await readFile(join(repoRoot, 'packages/ui/src/module-panel-types.ts'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
+    const preload = await readFile(join(repoRoot, 'apps/desktop/src/preload/preload.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
+
+    assert.match(ui, /onOpenSkill\?\(entryKey: string, repairTarget: SkillEntry\['repairTarget'\]\)/);
+    assert.match(ui, /onActivateBundledSkill\?\(id: string\)/);
+    assert.match(ui, /entry\.activationState === 'available'/);
+    assert.match(ui, /setReviewTemplateId\(entry\.id\)/, 'catalog cards must open review before activation');
+    assert.match(ui, /copy\.activation\.confirm/);
+    assert.match(ui, /reviewTemplate\.targetPath/);
+    assert.match(ui, /reviewTemplate\.requiredTools/);
+    assert.match(ui, /reviewTemplate\.requiredCapabilities/);
+    assert.match(ui, /setDetailEntryKey\(skill\.entryKey\)/);
+    assert.match(ui, /formatSkillIssues\(detailSkill, copy\)/);
+    assert.match(ui, /formatSkillRequirements\(detailSkill, copy\)/);
+    assert.match(ui, /maka-skill-status-filters/);
+    assert.match(ui, /copy\.installed\.projectSection/);
+    assert.match(ui, /copy\.installed\.workspaceSection/);
+    assert.match(ui, /copy\.installed\.userSection/);
+    assert.match(ui, /skill\.shadowedBy/);
+    assert.match(ui, /skill\.repairTarget/);
+    assert.doesNotMatch(ui, /onCreateSkillTemplate|onDeleteSkill|onSetSkillEnabled|onUpdateManagedSkill|onPreviewManagedSkillUpdate|<Switch/);
+    assert.doesNotMatch(ui, /maka-skill-library-delete-button|maka-skill-featured-banner|value="market"/);
+    assert.match(types, /shadowedBy\?: string/);
+    assert.match(types, /repairTarget: 'skill_file' \| 'state_file' \| null/);
+    assert.match(types, /activationState: 'available' \| 'active' \| 'attention'/);
+    assert.match(types, /requiredTools: string\[\]/);
+    assert.match(types, /requiredCapabilities: string\[\]/);
+    assert.match(types, /targetPath: string/);
+    assert.match(renderer, /onOpenSkill=\{\(entryKey, repairTarget\) => openSkill\(entryKey, repairTarget\)\}/);
+    assert.match(renderer, /onActivateBundledSkill=\{\(id\) => activateBundledSkill\(id\)\}/);
+    assert.match(preload, /openRepairTarget\(input: \{ entryKey: string; sessionId\?: string \}\)/);
+    assert.match(preload, /catalog:[\s\S]*activate\(id: string\)/);
+    assert.match(main, /ipcMain\.handle\(\s*'skills:openRepairTarget'/);
+    assert.match(main, /ipcMain\.handle\('skills:catalog:activate'/);
+  });
+
+  it('opens the lifecycle repair file only through contained paths', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'writer', `---
+name: Writer
+description: Exercise repair targets.
+---
+# Writer`);
+      assert.deepEqual(
+        await resolveSkillRepairOpenPath(
+          workspaceRoot,
+          'workspace:writer',
+        ),
+        { ok: true, path: await realpath(join(workspaceRoot, 'skills', 'writer', 'SKILL.md')), target: 'file' },
+      );
+      assert.deepEqual(
+        await resolveSkillRepairOpenPath(
+          workspaceRoot,
+          '',
+        ),
+        { ok: false, reason: 'invalid_id' },
+      );
+    });
+  });
+
   it('scopes Skills action feedback to the active Skills surface', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
     const renderer = await readRendererShellCombinedSource();
+    const openActionSource = await readFile(join(repoRoot, 'apps/desktop/src/renderer/app-shell-open-skill-action.ts'), 'utf8');
     const refreshBlock = renderer.match(/async function refreshSkills\([\s\S]*?\n  \}/)?.[0] ?? '';
-    const createBlock = renderer.match(/async function createSkillTemplate\(\)[\s\S]*?async function openSkillsFolder/)?.[0] ?? '';
-    const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
+    const activationBlock = renderer.match(/async function activateBundledSkill\(id: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
+    const openBlock = openActionSource.match(/async function openSkill\(entryKey: string, repairTarget: 'skill_file' \| 'state_file' \| null\)[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
       renderer,
-      /function isSkillsSurfaceActive\(\): boolean \{[\s\S]*return navSelectionRef\.current\.section === 'skills';[\s\S]*\}/,
+      /function isSkillsSurfaceActive\(\): boolean \{[\s\S]*return settingsOpen && settingsActiveSection === 'skills';[\s\S]*\}/,
       'Skills feedback must be owned by the current Skills surface',
     );
     assert.match(
       refreshBlock,
-      /if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\(\s*copy\.refreshSkillsFailedTitle,\s*localizedShellErrorMessage\(error, copy\.refreshSkillsFallback, uiLocale\),?\s*\);[\s\S]*\}/,
-      'startup/subscription Skills refresh failures must remain visible by default',
+      /if \(options\.shouldShowError\?\.\(\) === true\) \{[\s\S]*toastApi\.error\(\s*copy\.refreshSkillsFailedTitle,\s*localizedShellErrorMessage\(error, copy\.refreshSkillsFallback, uiLocale\),?\s*\);[\s\S]*\}/,
+      'background refreshes stay quiet while user-triggered refreshes can opt into active-surface feedback',
     );
     assert.match(
-      createBlock,
+      activationBlock,
       /await refreshSkills\(\{ shouldShowError: isSkillsSurfaceActive \}\)/,
-      'create must still refresh the Skills list while gating refresh failure feedback to the active Skills surface',
+      'activation must refresh the Skills list while gating refresh failure feedback to the active Skills surface',
     );
-    assert.match(createBlock, /if \(!isSkillsSurfaceActive\(\)\) return;/, 'create must not auto-open a starter Skill after the user leaves Skills');
-    assert.doesNotMatch(createBlock, /await refreshSkills\(\);\s*toastApi\.success/, 'create success feedback must not be unconditional after refresh');
-    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\)\s*toastApi\.error\(copy\.createTemplateFailedTitle/);
-    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\)\s*toastApi\.error\(copy\.openTemplateFailedTitle/);
-    // Idempotent seeding: created:false reuses the existing 示例技能 and says so
-    // rather than claiming a fresh create; created:true keeps the create copy.
-    assert.match(createBlock, /if \(result\.created\) \{[\s\S]*copy\.createdTemplateTitle[\s\S]*\} else \{[\s\S]*copy\.openedExistingTemplateTitle, copy\.openedExistingTemplateDescription/);
+    assert.match(activationBlock, /await refreshBundledSkillCatalog\(\{ shouldShowError: isSkillsSurfaceActive \}\)/);
+    assert.match(activationBlock, /if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.success\(copy\.installedBundledTitle/);
+    assert.match(activationBlock, /return true;/);
+    assert.match(activationBlock, /return false;/);
     assert.match(openBlock, /if \(isSkillsSurfaceActive\(\)\)\s*toastApi\.error\(copy\.openFailedTitle/);
     assert.doesNotMatch(openBlock, /if \(!result\.ok\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill structured failures must not toast unconditionally after leaving Skills');
     assert.doesNotMatch(openBlock, /catch \(error\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill thrown failures must not toast unconditionally after leaving Skills');
@@ -1453,20 +1511,17 @@ description: Exercise workspace-contained open paths.
       ? join(process.cwd(), '..', '..')
       : process.cwd();
     const renderer = await readRendererShellCombinedSource();
-    const createBlock = renderer.match(/async function createSkillTemplate\(\)[\s\S]*?async function openSkillsFolder/)?.[0] ?? '';
-    const folderBlock = renderer.match(/async function openSkillsFolder\(\)[\s\S]*?async function openSkill/)?.[0] ?? '';
-    const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
+    const openActionSource = await readFile(join(repoRoot, 'apps/desktop/src/renderer/app-shell-open-skill-action.ts'), 'utf8');
+    const activationBlock = renderer.match(/async function activateBundledSkill\(id: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
+    const openBlock = openActionSource.match(/async function openSkill\(entryKey: string, repairTarget: 'skill_file' \| 'state_file' \| null\)[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(createBlock, /try \{[\s\S]*window\.maka\.skills\.createStarter\(\)/);
+    assert.match(activationBlock, /try \{[\s\S]*window\.maka\.skills\.catalog\.activate\(id\)/);
     assert.match(
-      createBlock,
-      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\(\s*copy\.createTemplateFailedTitle,\s*localizedShellErrorMessage\(error, copy\.createTemplateFallback, uiLocale\),?\s*\);[\s\S]*\}/,
+      activationBlock,
+      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\(\s*copy\.installBundledFailedTitle,\s*localizedShellErrorMessage\(error, copy\.installBundledFallback, uiLocale\),?\s*\);[\s\S]*\}/,
     );
-    assert.doesNotMatch(createBlock, /toastApi\.error\('无法创建示例技能', cleanErrorMessage\(error\)\)/);
-    assert.match(folderBlock, /try \{[\s\S]*window\.maka\.app\.openPath\('skills'\)/);
-    assert.match(folderBlock, /catch \(error\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.openFailedTitle\(openPathActionLabel\('skills', uiLocale\)\)[\s\S]*openPathActionErrorMessage\(error, 'skills', uiLocale\)/);
-    assert.doesNotMatch(folderBlock, /cleanErrorMessage\(error\)/, 'Skills folder thrown openPath failures must not expose raw IPC/path details');
-    assert.match(openBlock, /try \{[\s\S]*window\.maka\.skills\.open\(skillId, 'file'\)/);
+    assert.doesNotMatch(activationBlock, /cleanErrorMessage\(error\)/);
+    assert.match(openBlock, /try \{[\s\S]*repairTarget === 'state_file'[\s\S]*window\.maka\.skills\.openRepairTarget\(\{ entryKey, sessionId: getActiveSessionId\(\) \}\)[\s\S]*window\.maka\.skills\.openEntry\(\{[\s\S]*entryKey,[\s\S]*sessionId: getActiveSessionId\(\),[\s\S]*target: 'file'/);
     assert.match(
       openBlock,
       /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\(copy\.openFailedTitle, localizedShellErrorMessage\(error, copy\.openFallback, uiLocale\)\);[\s\S]*\}/,

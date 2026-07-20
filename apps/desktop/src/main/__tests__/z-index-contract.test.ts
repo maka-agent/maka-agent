@@ -22,13 +22,7 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  *  inside a single container, no global side-effects. Each entry is
  *  a substring of a styles.css selector that uniquely identifies the
  *  rule containing the bare z-index. */
-const BARE_ALLOWLIST: ReadonlyArray<{ selector: string; value: number; reason: string }> = [
-  {
-    selector: '.maka-skill-featured-art span:nth-child(2)',
-    value: 2,
-    reason: 'decorative sticker stack — 3 spans inside a fixed container, no escape',
-  },
-];
+const BARE_ALLOWLIST: ReadonlyArray<{ selector: string; value: number; reason: string }> = [];
 
 describe('PR-FE-BUG-HUNT-9 z-index contract', () => {
   it('every bare `z-index: <integer>` in renderer CSS is either tokenized or explicitly allowlisted', async () => {

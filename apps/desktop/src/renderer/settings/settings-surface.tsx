@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ArrowLeft } from '@maka/ui/icons';
 import { Button as BaseButton } from '@base-ui/react/button';
 import type {
@@ -55,6 +55,8 @@ export function SettingsSurface(props: {
   initialFocusRef: RefObject<HTMLButtonElement | null>;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
+  onSectionChange?(section: SettingsSection): void;
+  renderExtensionPage?(section: 'skills'): ReactNode;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -110,7 +112,8 @@ export function SettingsSurface(props: {
 
   useEffect(() => {
     safeLocalStorageSet('maka-settings-section-v1', section);
-  }, [section]);
+    props.onSectionChange?.(section);
+  }, [section, props.onSectionChange]);
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -209,6 +212,7 @@ export function SettingsSurface(props: {
   // silently rendering 通用 copy over a different page's body. The nav
   // highlight below still keys off `section === item.id` independently.
   const headerCopy = getSettingsNavigationCopy(locale).sections[section];
+  const extensionSection = section === 'skills' ? section : null;
 
   return (
     <main className="settingsSurface agents-layout-body" data-modal="true" aria-label={copy.contentLabel}>
@@ -258,7 +262,15 @@ export function SettingsSurface(props: {
         </div>
       </aside>
 
-      <section className="settingsMainPane agents-content-area" data-agents-view="settings">
+      <section
+        className="settingsMainPane agents-content-area"
+        data-agents-view="settings"
+        data-section={section}
+      >
+        {extensionSection ? (
+          props.renderExtensionPage?.(extensionSection)
+        ) : (
+          <>
         <header className="settingsPageHeader">
           <div className="settingsPageHeaderTitleStack">
             <h2>{headerCopy.label}</h2>
@@ -297,6 +309,8 @@ export function SettingsSurface(props: {
             />
           )}
         </OverlayScrollArea>
+          </>
+        )}
       </section>
     </main>
   );

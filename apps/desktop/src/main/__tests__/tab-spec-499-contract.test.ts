@@ -189,19 +189,15 @@ describe('issue #499 P0-3 tab spec contract', () => {
     // Each skill tab value has a corresponding panel (tabpanel a11y pairing).
     assert.match(
       panel,
-      /TabsPanel[^>]*value="market"/,
-      'skill must have a TabsPanel for the market view',
-    );
-    assert.match(
-      panel,
       /TabsPanel[^>]*value="builtin"/,
-      'skill must have a TabsPanel for the builtin view',
+      'skill must have a TabsPanel for the available-template view',
     );
     assert.match(
       panel,
       /TabsPanel[^>]*value="installed"/,
       'skill must have a TabsPanel for the installed view',
     );
+    assert.doesNotMatch(panel, /TabsPanel[^>]*value="market"/, 'the local-source market must stay removed');
     // hand-rolled tab-switcher markers removed (Base UI TabsTrigger carries the
     // tab role + aria-selected; the aria-pressed segmented-switcher pattern goes).
     assert.doesNotMatch(

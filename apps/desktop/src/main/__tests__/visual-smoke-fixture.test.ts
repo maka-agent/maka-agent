@@ -631,17 +631,21 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('module fixtures open Skills, MCP and Daily Review in the app module surface', async () => {
+  it('module fixtures open Skills in Settings while MCP and Daily Review stay in app navigation', async () => {
     const skills = resolveVisualSmokeFixture('module-skills', false);
+    const skillDiagnostics = resolveVisualSmokeFixture('module-skills-diagnostics', false);
     const mcp = resolveVisualSmokeFixture('module-mcp', false);
     const dailyReview = resolveVisualSmokeFixture('module-daily-review', false);
 
     assert.ok(skills);
     assert.ok(mcp);
+    assert.ok(skillDiagnostics);
     assert.ok(dailyReview);
-    assert.equal(getVisualSmokeState(skills)?.sidebarSection, 'skills');
-    assert.equal(getVisualSmokeState(skills)?.sidebarCollapsed, false);
+    assert.equal(getVisualSmokeState(skills)?.openSettingsSection, 'skills');
+    assert.equal(getVisualSmokeState(skills)?.sidebarSection, undefined);
     assert.equal(getVisualSmokeState(skills)?.activeSessionId, 'visual-smoke-turn');
+    assert.equal(getVisualSmokeState(skills)?.extensionView, 'skills_available');
+    assert.equal(getVisualSmokeState(skillDiagnostics)?.extensionView, 'skills_diagnostics');
     assert.equal(getVisualSmokeState(mcp)?.sidebarSection, 'mcp');
     assert.equal(getVisualSmokeState(mcp)?.sidebarCollapsed, false);
     assert.equal(getVisualSmokeState(mcp)?.activeSessionId, 'visual-smoke-turn');
@@ -678,11 +682,10 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('module-skills seeds a managed-source market catalog (>=6 entries with categories) plus workspace skills', async () => {
+  it('module-skills-diagnostics seeds deterministic project/workspace/user lifecycle states', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-skills-'));
-    const previousSourcesRoot = process.env.MAKA_SKILL_SOURCES_ROOT;
     try {
-      const fixture = resolveVisualSmokeFixture('module-skills', false);
+      const fixture = resolveVisualSmokeFixture('module-skills-diagnostics', false);
       assert.ok(fixture);
       await seedVisualSmokeFixture({
         workspaceRoot,
@@ -691,34 +694,16 @@ describe('visual smoke fixture mode', () => {
         now: 1_700_000_000_000,
       });
 
-      const sourcesRoot = join(workspaceRoot, '.maka', 'skill-sources');
-      assert.equal(process.env.MAKA_SKILL_SOURCES_ROOT, sourcesRoot, 'seeder points the sources-root override at the fixture workspace');
-
-      const expectedSources: ReadonlyArray<{ id: string; category: string }> = [
-        { id: 'research-brief', category: '研究与分析' },
-        { id: 'doc-review', category: '文档与写作' },
-        { id: 'meeting-followup', category: '效率工具' },
-        { id: 'release-checklist', category: 'DevOps与部署' },
-        { id: 'data-analyst', category: '数据与AI' },
-        { id: 'ui-audit', category: '设计与UI' },
-        { id: 'blog-outline', category: '内容创作' },
-      ];
-      assert.ok(expectedSources.length >= 6, 'market grid needs >=6 entries to render meaningfully');
-      const categories = new Set<string>();
-      for (const source of expectedSources) {
-        const content = await readFile(join(sourcesRoot, source.id, 'SKILL.md'), 'utf8');
-        assert.match(content, new RegExp(`category: ${source.category}`), `${source.id} carries its category front-matter`);
-        categories.add(source.category);
-      }
-      assert.ok(categories.size >= 5, 'sources span several taxonomy buckets so the filter is exercised');
-
-      // meeting-followup is also a workspace skill so the grid shows an
-      // installed state; daily-standup fills 已安装 with a second row.
       await readFile(join(workspaceRoot, 'skills', 'meeting-followup', 'SKILL.md'), 'utf8');
       await readFile(join(workspaceRoot, 'skills', 'daily-standup', 'SKILL.md'), 'utf8');
+      await readFile(join(workspaceRoot, 'skills', 'broken-metadata', 'SKILL.md'), 'utf8');
+      await readFile(join(workspaceRoot, '.visual-project', '.maka', 'skills', 'daily-standup', 'SKILL.md'), 'utf8');
+      await readFile(join(workspaceRoot, '.visual-home', '.agents', 'skills', 'personal-notes', 'SKILL.md'), 'utf8');
+      const runtimeState = JSON.parse(await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8')) as {
+        skills: Record<string, { enabled: boolean }>;
+      };
+      assert.equal(runtimeState.skills['paused-helper']?.enabled, false);
     } finally {
-      if (previousSourcesRoot === undefined) delete process.env.MAKA_SKILL_SOURCES_ROOT;
-      else process.env.MAKA_SKILL_SOURCES_ROOT = previousSourcesRoot;
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });

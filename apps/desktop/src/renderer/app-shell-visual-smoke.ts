@@ -57,6 +57,9 @@ export function createAppShellVisualSmokeActions(options: {
       Date.now = () => state.now!;
     }
     document.documentElement.setAttribute('data-maka-visual-smoke', 'true');
+    if (state.extensionView) {
+      document.documentElement.setAttribute('data-maka-extension-view', state.extensionView);
+    }
     if (state.liveTurnBySession) {
       setLiveTurnBySession((current) => ({ ...current, ...state.liveTurnBySession }));
     }
@@ -148,8 +151,6 @@ export function createAppShellVisualSmokeActions(options: {
     }
     if (state.sidebarSection === 'automations') {
       setNavSelection({ section: 'automations' });
-    } else if (state.sidebarSection === 'skills') {
-      setNavSelection({ section: 'skills' });
     } else if (state.sidebarSection === 'mcp') {
       setNavSelection({ section: 'mcp' });
     } else if (state.sidebarSection === 'daily-review') {

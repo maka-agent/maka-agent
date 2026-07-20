@@ -5,6 +5,7 @@ import {
   isPathInside,
   isRecord,
   isSafeSkillId,
+  inspectSkills,
   parseSkillFrontMatter,
   readContainedRegularTextFile,
   readSkillRuntimeState,
@@ -13,6 +14,12 @@ import {
   writeSkillRuntimeState,
   type RuntimeSkillDefinition,
   type ScannedSkill,
+  type HostCapabilities,
+  type SkillDiscoveryOrigin,
+  type SkillMetadataStatus,
+  type SkillOperationalStatus,
+  type SkillSource,
+  type SkillValidationIssue as RuntimeSkillValidationIssue,
   type SkillRuntimeStatus,
 } from '@maka/runtime';
 import {
@@ -72,10 +79,22 @@ export interface InstalledSkill extends RuntimeSkillDefinition {
 }
 
 export interface SkillEntry {
+  entryKey: string;
   id: string;
   name: string;
   description: string;
-  path: string;
+  displayPath: string;
+  discoveryOrigin: SkillDiscoveryOrigin;
+  effective: boolean;
+  shadowedBy?: string;
+  metadataStatus: SkillMetadataStatus;
+  operationalStatus: SkillOperationalStatus;
+  issues: RuntimeSkillValidationIssue[];
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  missingDeclaredTools: string[];
+  missingRequiredTools: string[];
+  missingRequiredCapabilities: string[];
   declaredTools: string[];
   sourceType: 'workspace' | 'bundled' | 'managed' | 'unknown';
   userModified: boolean;
@@ -83,6 +102,17 @@ export interface SkillEntry {
   managedUpdateStatus?: ManagedSkillUpdateStatus;
   enabled: boolean;
   runtimeStatus: SkillRuntimeStatus;
+  canUse: boolean;
+  canOpen: boolean;
+  canToggle: boolean;
+  canDelete: boolean;
+  canUpdate: boolean;
+  repairTarget: 'skill_file' | 'state_file' | null;
+}
+
+export interface SkillInventorySnapshot {
+  hostBasis: 'session' | 'desktop_default';
+  entries: SkillEntry[];
 }
 
 export interface SkillGovernanceDetails {
@@ -175,11 +205,10 @@ const BUNDLED_OFFICE_SKILL_HASH_BY_ID = new Map(
 const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
 const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
 
-// Reverse-engineered built-in skills (shipped, install-on-demand). Distinct
-// from the auto-seeded Office skills above: these never auto-install — the 内置
-// tab offers a per-skill install action (installBundledSkill). Their installed
-// copies carry a trusted `bundled` lock (sourceName maka-bundled) validated
-// against these hashes.
+// Reverse-engineered shipped Skill templates. Distinct from the auto-seeded
+// Office skills above: these do not enter Runtime until the user activates a
+// safe Maka-workspace copy. Those copies carry a trusted `bundled` lock
+// (sourceName maka-bundled) validated against these hashes.
 const BUNDLED_CATALOG_SOURCE_NAME = 'maka-bundled';
 const BUNDLED_CATALOG_SOURCE_VERSION = '1';
 const BUNDLED_CATALOG_BODY_BY_ID = new Map(BUNDLED_REVERSE_ENGINEERED_SKILLS.map((skill) => [skill.id, skill.body]));
@@ -224,12 +253,89 @@ export async function listSkillEntries(root: string): Promise<SkillEntry[]> {
   return (await listInstalledSkills(root)).map(toSkillEntry);
 }
 
+export async function listSkillInventory(input: {
+  workspaceRoot: string;
+  source: SkillSource;
+  host: HostCapabilities;
+  hostBasis: SkillInventorySnapshot['hostBasis'];
+}): Promise<SkillInventorySnapshot> {
+  const [inspection, installed] = await Promise.all([
+    inspectSkills(input.source, input.host),
+    listInstalledSkills(input.workspaceRoot),
+  ]);
+  const installedById = new Map(installed.map((skill) => [skill.id, skill]));
+  return {
+    hostBasis: input.hostBasis,
+    entries: inspection.entries.map((entry) => {
+      const workspaceSkill = entry.discoveryOrigin === 'workspace'
+        ? installedById.get(entry.id)
+        : undefined;
+      const blockedPath = entry.issues.some(
+        (issue) => issue.code === 'blocked_path' || issue.code === 'unreadable_skill',
+      );
+      return {
+        entryKey: entry.entryKey,
+        id: entry.id,
+        name: entry.name,
+        description: entry.description,
+        displayPath: skillDisplayPath(entry.discoveryOrigin, entry.id),
+        discoveryOrigin: entry.discoveryOrigin,
+        effective: entry.effective,
+        ...(entry.shadowedBy ? { shadowedBy: entry.shadowedBy } : {}),
+        metadataStatus: entry.metadataStatus,
+        operationalStatus: entry.operationalStatus,
+        issues: entry.issues,
+        requiredTools: entry.requiredTools,
+        requiredCapabilities: entry.requiredCapabilities,
+        missingDeclaredTools: entry.missingDeclaredTools,
+        missingRequiredTools: entry.missingRequiredTools,
+        missingRequiredCapabilities: entry.missingRequiredCapabilities,
+        declaredTools: entry.declaredTools,
+        sourceType: workspaceSkill?.sourceType ?? 'unknown',
+        userModified: workspaceSkill?.userModified ?? false,
+        validationStatus: workspaceSkill?.validationStatus ?? 'ok',
+        ...(workspaceSkill?.managedUpdateStatus
+          ? { managedUpdateStatus: workspaceSkill.managedUpdateStatus }
+          : {}),
+        enabled: entry.enabled,
+        runtimeStatus: entry.runtimeStatus,
+        canUse: false,
+        canOpen: !blockedPath,
+        canToggle: false,
+        canDelete: false,
+        canUpdate: false,
+        repairTarget: blockedPath
+          ? null
+          : entry.operationalStatus === 'state_error'
+            ? 'state_file'
+            : 'skill_file',
+      };
+    }),
+  };
+}
+
 export function toSkillEntry(skill: InstalledSkill): SkillEntry {
   return {
+    entryKey: `workspace:${skill.id}`,
     id: skill.id,
     name: skill.name,
     description: skill.description,
-    path: skill.path,
+    displayPath: `skills/${skill.id}`,
+    discoveryOrigin: 'workspace',
+    effective: true,
+    metadataStatus: 'valid',
+    operationalStatus:
+      skill.runtimeStatus === 'state_error'
+        ? 'state_error'
+        : skill.runtimeStatus === 'disabled'
+          ? 'disabled'
+          : 'eligible',
+    issues: [],
+    requiredTools: skill.requiredTools,
+    requiredCapabilities: skill.requiredCapabilities,
+    missingDeclaredTools: [],
+    missingRequiredTools: [],
+    missingRequiredCapabilities: [],
     declaredTools: skill.declaredTools,
     sourceType: skill.sourceType === 'bundled' || skill.sourceType === 'managed' || skill.sourceType === 'unknown'
       ? skill.sourceType
@@ -238,8 +344,29 @@ export function toSkillEntry(skill: InstalledSkill): SkillEntry {
     validationStatus: skill.validationStatus,
     enabled: skill.enabled,
     runtimeStatus: skill.runtimeStatus,
+    canUse: false,
+    canOpen: true,
+    canToggle: false,
+    canDelete: false,
+    canUpdate: false,
+    repairTarget: skill.runtimeStatus === 'state_error' ? 'state_file' : 'skill_file',
     ...(skill.sourceType === 'managed' && skill.managedUpdateStatus ? { managedUpdateStatus: skill.managedUpdateStatus } : {}),
   };
+}
+
+function skillDisplayPath(origin: SkillDiscoveryOrigin, id: string): string {
+  switch (origin) {
+    case 'project_maka':
+      return `.maka/skills/${id}`;
+    case 'project_agents':
+      return `.agents/skills/${id}`;
+    case 'workspace':
+      return `skills/${id}`;
+    case 'user_maka':
+      return `~/.maka/skills/${id}`;
+    case 'user_agents':
+      return `~/.agents/skills/${id}`;
+  }
 }
 
 export async function ensureBundledOfficeSkills(root: string): Promise<{ created: string[]; updated: string[]; skipped: string[]; failed: string[] }> {
@@ -597,7 +724,10 @@ export interface BundledSkillCatalogEntry {
   description: string;
   category: ManagedSkillCategory;
   declaredTools: string[];
-  installed: boolean;
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  targetPath: string;
+  activationState: 'available' | 'active' | 'attention';
 }
 
 export type InstallBundledSkillResult =
@@ -621,22 +751,37 @@ function parseBundledSkillCategory(body: string): ManagedSkillCategory {
 
 /**
  * The built-in (内置) catalog: the auto-seeded Office skills plus the
- * reverse-engineered skills. `installed` reflects whether the current workspace
- * already has skills/<id>. The renderer surfaces this under the 内置 tab with a
- * per-entry install action that calls `installBundledSkill`.
+ * reverse-engineered skills. A catalog entry only becomes runtime-visible after
+ * it is activated into the Maka workspace. The projection deliberately keeps
+ * that copy lifecycle separate from runtime eligibility.
  */
 export async function listBundledSkillCatalog(root: string): Promise<BundledSkillCatalogEntry[]> {
-  const installedIds = new Set((await listInstalledSkills(root)).map((skill) => skill.id));
+  const workspaceSkills = new Map((await listInstalledSkills(root)).map((skill) => [skill.id, skill]));
   return [...BUNDLED_OFFICE_SKILLS, ...BUNDLED_REVERSE_ENGINEERED_SKILLS]
     .map(({ id, body }) => {
-      const { name, description, allowedTools } = parseSkillFrontMatter(body);
+      const {
+        name,
+        description,
+        allowedTools,
+        requiredTools,
+        requiredCapabilities,
+      } = parseSkillFrontMatter(body);
+      const workspaceSkill = workspaceSkills.get(id);
+      const activationState: BundledSkillCatalogEntry['activationState'] = workspaceSkill === undefined
+        ? 'available'
+        : workspaceSkill.runtimeStatus === 'enabled' && workspaceSkill.validationStatus === 'ok'
+          ? 'active'
+          : 'attention';
       return {
         id,
         name: name ?? id,
         description: description ?? '',
         category: parseBundledSkillCategory(body),
         declaredTools: allowedTools,
-        installed: installedIds.has(id),
+        requiredTools,
+        requiredCapabilities,
+        targetPath: `skills/${id}`,
+        activationState,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1100,6 +1245,72 @@ export async function resolveSkillOpenPath(
   if (target === 'file' && !openedStat.isFile()) return { ok: false, reason: 'not_file' };
   if (target === 'directory' && !openedStat.isDirectory()) return { ok: false, reason: 'not_directory' };
   return { ok: true, path: openedPath, target };
+}
+
+export async function resolveDiscoveredSkillOpenPath(
+  source: SkillSource,
+  entryKey: string,
+  target: SkillOpenTarget,
+): Promise<ResolveSkillOpenPathResult> {
+  if (typeof entryKey !== 'string' || entryKey.length === 0 || entryKey.length > 300) {
+    return { ok: false, reason: 'invalid_id' };
+  }
+  if (target !== 'file' && target !== 'directory') return { ok: false, reason: 'missing' };
+  const inspection = await inspectSkills(source);
+  const entry = inspection.entries.find((candidate) => candidate.entryKey === entryKey);
+  if (!entry) return { ok: false, reason: 'missing' };
+  if (entry.issues.some((issue) => issue.code === 'blocked_path' || issue.code === 'unreadable_skill')) {
+    return { ok: false, reason: 'blocked_path' };
+  }
+  const candidate = target === 'file' ? join(entry.path, 'SKILL.md') : entry.path;
+  try {
+    const [entryReal, candidateReal, candidateStat] = await Promise.all([
+      realpath(entry.path),
+      realpath(candidate),
+      lstat(candidate),
+    ]);
+    if (candidateStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    if (target === 'file' && !candidateStat.isFile()) return { ok: false, reason: 'not_file' };
+    if (target === 'directory' && !candidateStat.isDirectory()) return { ok: false, reason: 'not_directory' };
+    if (target === 'file' && !isPathInside(entryReal, candidateReal)) {
+      return { ok: false, reason: 'blocked_path' };
+    }
+    return { ok: true, path: candidateReal, target };
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
+}
+
+export async function resolveSkillRepairOpenPath(
+  source: SkillSource,
+  entryKey: string,
+): Promise<ResolveSkillOpenPathResult> {
+  if (typeof entryKey !== 'string' || entryKey.length === 0 || entryKey.length > 300) {
+    return { ok: false, reason: 'invalid_id' };
+  }
+  const inspection = await inspectSkills(source);
+  const entry = inspection.entries.find((candidate) => candidate.entryKey === entryKey);
+  if (!entry) return { ok: false, reason: 'missing' };
+  if (entry.operationalStatus !== 'state_error') {
+    return resolveDiscoveredSkillOpenPath(source, entryKey, 'file');
+  }
+
+  const stateRoot = typeof source === 'string' ? source : source.stateRoot;
+  const stateFile = join(stateRoot, '.maka', 'skills-state.json');
+  try {
+    const [rootReal, fileReal, fileStat] = await Promise.all([
+      realpath(stateRoot),
+      realpath(stateFile),
+      lstat(stateFile),
+    ]);
+    if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+      return { ok: false, reason: 'blocked_path' };
+    }
+    if (!isPathInside(rootReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    return { ok: true, path: fileReal, target: 'file' };
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
 }
 
 async function readInstalledSkillDefinitions(root: string, options: SkillReadOptions = {}): Promise<InstalledSkillDefinition[]> {

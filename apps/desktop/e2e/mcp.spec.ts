@@ -12,7 +12,7 @@ test('MCP module completes stdio add, discovery, disable, JSON import, and delet
   const sidebar = page.getByRole('complementary', { name: '对话列表' });
   const extensions = sidebar.getByRole('button', { name: '扩展', exact: true });
   await expect(extensions).toHaveAttribute('aria-expanded', 'true');
-  await expect(sidebar.getByRole('button', { name: '技能', exact: true })).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: '技能', exact: true })).toHaveCount(0);
   await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
   await extensions.click();
   await expect(extensions).toHaveAttribute('aria-expanded', 'false');

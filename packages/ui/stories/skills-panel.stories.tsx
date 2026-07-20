@@ -15,34 +15,56 @@ type Story = StoryObj<typeof meta>;
 
 const noop = () => undefined;
 
+function skill(overrides: Partial<SkillEntry> & Pick<SkillEntry, 'id' | 'name' | 'description'>): SkillEntry {
+  return {
+    entryKey: `workspace:${overrides.id}`,
+    displayPath: `skills/${overrides.id}`,
+    discoveryOrigin: 'workspace',
+    effective: true,
+    metadataStatus: 'valid',
+    operationalStatus: 'eligible',
+    issues: [],
+    requiredTools: [],
+    requiredCapabilities: [],
+    missingDeclaredTools: [],
+    missingRequiredTools: [],
+    missingRequiredCapabilities: [],
+    declaredTools: [],
+    enabled: true,
+    runtimeStatus: 'enabled',
+    canUse: false,
+    canOpen: true,
+    canToggle: false,
+    canDelete: false,
+    canUpdate: false,
+    repairTarget: 'skill_file',
+    ...overrides,
+  };
+}
+
 const skills: SkillEntry[] = [
-  {
+  skill({
     id: 'skill-git-flow',
     name: 'git-flow',
     description: '封装分支创建、合并与发布打 tag 的常用 git 操作。',
-    path: '~/.maka/skills/git-flow',
     declaredTools: ['Bash', 'Write'],
-    enabled: true,
-    runtimeStatus: 'enabled',
-  },
-  {
+  }),
+  skill({
     id: 'skill-docs-screenshot',
     name: 'docs-screenshot',
     description: '把组件截图同步进设计文档，按 token 分类命名。',
-    path: '~/.maka/skills/docs-screenshot',
     declaredTools: ['Bash', 'Read'],
     enabled: false,
     runtimeStatus: 'disabled',
-  },
-  {
+    operationalStatus: 'disabled',
+    canUse: false,
+  }),
+  skill({
     id: 'skill-release-notes',
     name: 'release-notes',
     description: '从最近的 commit 历史生成发布说明草稿。',
-    path: '~/.maka/skills/release-notes',
     declaredTools: ['Bash'],
-    enabled: true,
-    runtimeStatus: 'enabled',
-  },
+  }),
 ];
 
 function ModuleFrame(props: { children: React.ReactNode }) {
@@ -71,9 +93,7 @@ export const Populated: Story = {
       <SkillsModuleMain
         skills={skills}
         onRefreshSkills={noop}
-        onCreateSkillTemplate={noop}
         onOpenSkill={noop}
-        onOpenSkillsFolder={noop}
       />
     </ModuleFrame>
   ),
@@ -85,9 +105,7 @@ export const Empty: Story = {
       <SkillsModuleMain
         skills={[]}
         onRefreshSkills={noop}
-        onCreateSkillTemplate={noop}
         onOpenSkill={noop}
-        onOpenSkillsFolder={noop}
       />
     </ModuleFrame>
   ),

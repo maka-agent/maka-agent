@@ -55,6 +55,7 @@ export const LONG_SIDEBAR_SESSION_COUNT = 60;
  */
 export const LONG_SIDEBAR_SCENARIOS = new Set<VisualSmokeScenario>([
   'module-skills',
+  'module-skills-diagnostics',
   'module-daily-review',
   'plan-reminders',
   'sidebar-long-sessions',

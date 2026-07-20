@@ -45,19 +45,6 @@ export interface ManagedSkillSourceRecord {
   updatedAt: string;
 }
 
-export interface ManagedSkillSourceEntry {
-  id: string;
-  name: string;
-  description: string;
-  /**
-   * Marketplace taxonomy bucket. Always one of MANAGED_SKILL_CATEGORIES —
-   * unknown / missing front-matter resolves to 效率工具 at read time, so
-   * the renderer can treat this as a required field.
-   */
-  category: ManagedSkillCategory;
-  sourceType: 'local';
-}
-
 export type ImportManagedSkillSourceResult =
   | { ok: true; source: ManagedSkillSourceRecord }
   | {
@@ -203,16 +190,6 @@ export async function readManagedSkillSource(
   } catch {
     return { ok: false, reason: 'read_failed' };
   }
-}
-
-export function toManagedSkillSourceEntry(source: ManagedSkillSourceRecord): ManagedSkillSourceEntry {
-  return {
-    id: source.id,
-    name: source.name,
-    description: source.description,
-    category: source.category,
-    sourceType: source.sourceType,
-  };
 }
 
 async function resolveExistingSourceRoot(root: string): Promise<

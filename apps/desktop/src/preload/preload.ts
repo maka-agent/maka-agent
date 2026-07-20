@@ -87,7 +87,12 @@ import type {
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { GoalState } from '@maka/runtime';
-import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { BundledSkillCatalogEntry, SkillEntry } from '@maka/ui';
+
+type SkillInventorySnapshot = {
+  hostBasis: 'session' | 'desktop_default';
+  entries: SkillEntry[];
+};
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
@@ -1024,78 +1029,31 @@ const makaBridge = {
     },
   },
   skills: {
-    list(): Promise<SkillEntry[]> {
-      return ipcRenderer.invoke('skills:list');
+    list(input?: { sessionId?: string }): Promise<SkillInventorySnapshot> {
+      return ipcRenderer.invoke('skills:list', input);
     },
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]> {
         return ipcRenderer.invoke('skills:catalog:list');
       },
-      install(id: string): Promise<
+      activate(id: string): Promise<
         | { ok: true; skill: SkillEntry }
         | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
       > {
-        return ipcRenderer.invoke('skills:catalog:install', id);
+        return ipcRenderer.invoke('skills:catalog:activate', id);
       },
     },
-    sources: {
-      list(): Promise<ManagedSkillSourceEntry[]> {
-        return ipcRenderer.invoke('skills:sources:list');
-      },
-      importLocalFile(): Promise<
-        | { ok: true; source: ManagedSkillSourceEntry }
-        | { ok: false; reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' }
-      > {
-        return ipcRenderer.invoke('skills:sources:importLocalFile');
-      },
-    },
-    installManaged(sourceId: string): Promise<
-      | { ok: true; skill: SkillEntry }
-      | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
-    > {
-      return ipcRenderer.invoke('skills:installManaged', sourceId);
-    },
-    details(skillId: string): Promise<
-      | { ok: true; details: SkillGovernanceDetails }
-      | { ok: false; reason: 'not_found' | 'invalid_id' }
-    > {
-      return ipcRenderer.invoke('skills:details', skillId);
-    },
-    previewUpdate(skillId: string): Promise<
-      | { ok: true; preview: ManagedSkillUpdatePreview }
-      | { ok: false; reason: 'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed' }
-    > {
-      return ipcRenderer.invoke('skills:previewUpdate', skillId);
-    },
-    updateManaged(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<
-      | { ok: true; skill: SkillEntry }
-      | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
-    > {
-      return ipcRenderer.invoke('skills:updateManaged', skillId, options);
-    },
-    setEnabled(skillId: string, enabled: boolean): Promise<
-      | { ok: true; skill: SkillEntry }
-      | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
-    > {
-      return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
-    },
-    createStarter(): Promise<
-      | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
-      | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
-    > {
-      return ipcRenderer.invoke('skills:createStarter');
-    },
-    delete(id: string): Promise<
-      | { ok: true }
-      | { ok: false; reason: 'not_found' | 'blocked_path' | 'delete_failed' }
-    > {
-      return ipcRenderer.invoke('skills:delete', id);
-    },
-    open(id: string, target: 'file' | 'directory' = 'file'): Promise<
+    openEntry(input: { entryKey: string; sessionId?: string; target?: 'file' | 'directory' }): Promise<
       | { ok: true; target: 'file' | 'directory' }
       | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed' }
     > {
-      return ipcRenderer.invoke('skills:open', id, target);
+      return ipcRenderer.invoke('skills:openEntry', input);
+    },
+    openRepairTarget(input: { entryKey: string; sessionId?: string }): Promise<
+      | { ok: true; target: 'file' | 'directory' }
+      | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed' }
+    > {
+      return ipcRenderer.invoke('skills:openRepairTarget', input);
     },
   },
   // Embedded browser (P3). The native WebContentsView floats above the DOM; the

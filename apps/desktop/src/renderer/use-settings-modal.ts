@@ -16,10 +16,16 @@ export function useSettingsModal() {
   const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(
     undefined,
   );
+  const [settingsActiveSection, setSettingsActiveSection] = useState<SettingsSection | undefined>(undefined);
   const [settingsProviderCatalogOpen, setSettingsProviderCatalogOpen] = useState(false);
   const [settingsConnectionDetailSlug, setSettingsConnectionDetailSlug] = useState<string | undefined>(undefined);
 
   function openSettings() {
+    // A plain Settings open follows the last page persisted by SettingsSurface.
+    // Clear any older command-palette/deep-link request so it cannot override
+    // a section the user selected later inside the modal.
+    setSettingsRequestedSection(undefined);
+    setSettingsActiveSection(undefined);
     setSettingsProviderCatalogOpen(false);
     setSettingsConnectionDetailSlug(undefined);
     setSettingsOpen(true);
@@ -28,6 +34,7 @@ export function useSettingsModal() {
   function openSettingsSection(section: SettingsSection) {
     safeLocalStorageSet('maka-settings-section-v1', section);
     setSettingsRequestedSection(section);
+    setSettingsActiveSection(section);
     setSettingsProviderCatalogOpen(false);
     setSettingsConnectionDetailSlug(undefined);
     setSettingsOpen(true);
@@ -36,6 +43,7 @@ export function useSettingsModal() {
   function openProviderCatalog() {
     safeLocalStorageSet('maka-settings-section-v1', 'models');
     setSettingsRequestedSection('models');
+    setSettingsActiveSection('models');
     setSettingsProviderCatalogOpen(true);
     setSettingsConnectionDetailSlug(undefined);
     setSettingsOpen(true);
@@ -45,6 +53,7 @@ export function useSettingsModal() {
   function openConnectionDetail(slug: string) {
     safeLocalStorageSet('maka-settings-section-v1', 'models');
     setSettingsRequestedSection('models');
+    setSettingsActiveSection('models');
     setSettingsProviderCatalogOpen(false);
     setSettingsConnectionDetailSlug(slug);
     setSettingsOpen(true);
@@ -53,9 +62,11 @@ export function useSettingsModal() {
   return {
     settingsOpen,
     settingsRequestedSection,
+    settingsActiveSection,
     settingsProviderCatalogOpen,
     settingsConnectionDetailSlug,
     setSettingsOpen,
+    setSettingsActiveSection,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,

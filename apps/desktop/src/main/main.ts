@@ -861,6 +861,18 @@ function registerIpc(): void {
   registerWorkspaceInstructionsIpc({ getCurrentProjectRoot: currentProjectRoot });
   registerWorkspaceResourcesIpc({
     workspaceRoot,
+    ...((visualSmokeFixture?.scenario === 'module-skills' || visualSmokeFixture?.scenario === 'module-skills-diagnostics')
+      ? { skillHomeRoot: join(workspaceRoot, '.visual-home') }
+      : {}),
+    getProjectRoot: (sessionId) => (visualSmokeFixture?.scenario === 'module-skills' || visualSmokeFixture?.scenario === 'module-skills-diagnostics')
+      ? Promise.resolve(join(workspaceRoot, '.visual-project'))
+      : resolveProjectRootForContext(sessionId),
+    getSkillHost: (sessionId) => {
+      const sessionHost = sessionId ? desktopSessionSkillHosts.get(sessionId) : undefined;
+      return sessionHost
+        ? { host: sessionHost, basis: 'session' as const }
+        : { host: desktopHostCapabilities, basis: 'desktop_default' as const };
+    },
     artifactStore,
     mainWindowController,
     sendToRenderer: safeSendToRenderer,

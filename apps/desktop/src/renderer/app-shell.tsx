@@ -242,9 +242,11 @@ function AppShellContent({
   const {
     settingsOpen,
     settingsRequestedSection,
+    settingsActiveSection,
     settingsProviderCatalogOpen,
     settingsConnectionDetailSlug,
     setSettingsOpen,
+    setSettingsActiveSection,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,
@@ -642,27 +644,6 @@ function AppShellContent({
     setSearchModalInitialQuery(query);
     setSearchModalOpen(true);
   }, []);
-  /** 技能页 使用: jump to the chat view and seed the composer with a skill
-   *  invocation. Same human-in-the-loop rule as maka://compose — we never
-   *  auto-send; the user finishes the sentence and presses Enter.
-   *  U4: append (not replace) so an in-progress draft survives — appendText
-   *  falls back to a plain set when the draft is empty, so the empty-composer
-   *  path is unchanged while a half-written message is no longer clobbered. */
-  const useSkillInChat = useCallback(
-    (_skillId: string, skillName: string) => {
-    setNavSelection({ section: 'sessions', filter: 'chats' });
-    const seed = () => {
-        composerRef.current?.appendText(shellCopy.useSkillPrompt(skillName));
-      composerRef.current?.focus();
-    };
-    if (activeIdRef.current) {
-      window.requestAnimationFrame(seed);
-      return;
-    }
-    void createSession().then(() => window.requestAnimationFrame(seed));
-    },
-    [shellCopy],
-  );
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
   }, []);
@@ -833,7 +814,7 @@ function AppShellContent({
   }
 
   function isSkillsSurfaceActive(): boolean {
-    return navSelectionRef.current.section === 'skills';
+    return settingsOpen && settingsActiveSection === 'skills';
   }
 
   function isDailyReviewSurfaceActive(): boolean {
@@ -842,7 +823,7 @@ function AppShellContent({
 
   const {
     skills,
-    managedSkillSources,
+    skillHostBasis,
     bundledSkillCatalog,
     planReminders,
     refreshPlanReminders,
@@ -854,23 +835,21 @@ function AppShellContent({
     clearPlanReminderRunHistory,
     deletePlanReminder,
     refreshSkills,
-    refreshManagedSkillSources,
     refreshBundledSkillCatalog,
-    createSkillTemplate,
-    importManagedSkillSource,
-    installManagedSkill,
-    installBundledSkill,
-    previewManagedSkillUpdate,
-    updateManagedSkill,
-    setSkillEnabled,
-    deleteSkill,
+    activateBundledSkill,
     openSkill,
   } = useAppShellModuleData({
     uiLocale,
     isSkillsSurfaceActive,
+    getActiveSessionId: () => activeIdRef.current,
     isAutomationsSurfaceActive,
     toastApi,
   });
+
+  const refreshSkillsForActiveSession = useEffectEvent(() => refreshSkills());
+  useEffect(() => {
+    void refreshSkillsForActiveSession();
+  }, [activeId]);
 
   // 保持系统唤醒 capability for the 定时任务 page: reads/writes
   // settings.system.keepSystemAwake over the existing settings bridge. When
@@ -1099,7 +1078,6 @@ function AppShellContent({
     refreshPlanReminders,
     refreshShellSettings,
     refreshSkills,
-    refreshManagedSkillSources,
     refreshBundledSkillCatalog,
     refreshSessions,
     rendererMountedRef,
@@ -1388,11 +1366,9 @@ function AppShellContent({
           data-agents-view={
             navSelection.section === 'automations'
               ? 'cron'
-              : navSelection.section === 'skills'
-                ? 'skills'
-                : navSelection.section === 'mcp'
-                  ? 'mcp'
-                : navSelection.section === 'sessions'
+              : navSelection.section === 'mcp'
+                ? 'mcp'
+              : navSelection.section === 'sessions'
                   ? 'im_hub'
                   : navSelection.section
           }
@@ -1417,28 +1393,7 @@ function AppShellContent({
           <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
-              {navSelection.section === 'skills' ? (
-                <SkillsPage
-                  skills={skills}
-                  planReminders={planReminders}
-                  onRefreshSkills={() => refreshSkills()}
-                  onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
-                  onCreateSkillTemplate={() => createSkillTemplate()}
-                  onOpenSkill={(skillId) => openSkill(skillId)}
-                  onUseSkill={useSkillInChat}
-                  onOpenSkillsFolder={() => openSkillsFolder()}
-                  managedSkillSources={managedSkillSources}
-                  onImportManagedSkillSource={() => importManagedSkillSource()}
-                  onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
-                  bundledSkillCatalog={bundledSkillCatalog}
-                  onRefreshBundledSkillCatalog={() => refreshBundledSkillCatalog()}
-                  onInstallBundledSkill={(id) => installBundledSkill(id)}
-                  onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
-                  onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
-                  onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
-                  onDeleteSkill={(skillId) => deleteSkill(skillId)}
-                />
-              ) : navSelection.section === 'mcp' ? (
+              {navSelection.section === 'mcp' ? (
                 <McpPage />
               ) : navSelection.section === 'automations' ? (
                 <AutomationsPage
@@ -1732,6 +1687,20 @@ function AppShellContent({
         settingsRequestedSection={settingsRequestedSection}
         settingsProviderCatalogOpen={settingsProviderCatalogOpen}
         settingsConnectionDetailSlug={settingsConnectionDetailSlug}
+        onSettingsSectionChange={setSettingsActiveSection}
+        renderSettingsExtensionPage={() => (
+          <SkillsPage
+            embedded
+            skills={skills}
+            skillHostBasis={skillHostBasis}
+            planReminders={planReminders}
+            onRefreshSkills={() => refreshSkills({ shouldShowError: isSkillsSurfaceActive })}
+            onOpenSkill={(entryKey, repairTarget) => openSkill(entryKey, repairTarget)}
+            bundledSkillCatalog={bundledSkillCatalog}
+            onRefreshBundledSkillCatalog={() => refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive })}
+            onActivateBundledSkill={(id) => activateBundledSkill(id)}
+          />
+        )}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });

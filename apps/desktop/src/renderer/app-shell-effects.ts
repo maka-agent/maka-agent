@@ -194,7 +194,6 @@ export function useAppShellBootstrapSubscriptions(options: {
   refreshPlanReminders: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshShellSettings: () => Promise<void>;
   refreshSkills: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
-  refreshManagedSkillSources: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshBundledSkillCatalog: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshSessions: () => Promise<SessionSummary[]>;
   rendererMountedRef: RefBox<boolean>;
@@ -208,7 +207,6 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshAppInfo();
     void options.refreshMemoryActive('load');
     void options.refreshSkills();
-    void options.refreshManagedSkillSources();
     void options.refreshBundledSkillCatalog();
     void options.refreshPlanReminders();
     void options.applyVisualSmokeFixture();

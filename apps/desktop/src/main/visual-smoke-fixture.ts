@@ -44,7 +44,7 @@ import {
 } from './visual-smoke/scenarios-chat.js';
 import {
   seedMcpFixture,
-  seedSkillsMarketFixture,
+  seedSkillsFixture,
 } from './visual-smoke/scenarios-modules.js';
 import {
   healthyMessages,
@@ -120,6 +120,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-usage',
   'settings-health',
   'module-skills',
+  'module-skills-diagnostics',
   // MCP module page (SVG-governance + polish campaign): opens the 扩展 → MCP
   // surface with a seeded mcp.json so the market grid, tab row, hero banner,
   // and the installed server list all render for the alignment auditor + CDP
@@ -494,7 +495,9 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'settings-health':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'health' };
     case 'module-skills':
-      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_available' };
+    case 'module-skills-diagnostics':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_diagnostics' };
     case 'module-mcp':
       // Open the 扩展 → MCP module directly so the CDP baseline captures the
       // real market grid, tab row, hero banner, and installed server list.
@@ -681,8 +684,8 @@ export async function seedVisualSmokeFixture(input: {
   if (input.fixture.scenario === 'module-daily-review' || input.fixture.scenario === 'settings-daily-review') {
     await writeDailyReviewArchives(input.workspaceRoot, now);
   }
-  if (input.fixture.scenario === 'module-skills') {
-    await seedSkillsMarketFixture(input.workspaceRoot);
+  if (input.fixture.scenario === 'module-skills' || input.fixture.scenario === 'module-skills-diagnostics') {
+    await seedSkillsFixture(input.workspaceRoot);
   }
   if (input.fixture.scenario === 'module-mcp') {
     await seedMcpFixture(input.workspaceRoot);

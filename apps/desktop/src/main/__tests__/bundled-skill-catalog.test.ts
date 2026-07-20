@@ -33,7 +33,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 describe('bundled skill catalog', () => {
-  it('ships the Office and reverse-engineered skills as an install-on-demand catalog', async () => {
+  it('ships the Office and reverse-engineered skills as an activate-on-demand catalog', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const catalog = await listBundledSkillCatalog(workspaceRoot);
       assert.equal(catalog.length, EXPECTED_COUNT);
@@ -51,12 +51,12 @@ describe('bundled skill catalog', () => {
           (MANAGED_SKILL_CATEGORIES as readonly string[]).includes(entry.category),
           `${entry.id} has out-of-taxonomy category ${entry.category}`,
         );
-        assert.equal(entry.installed, false);
+        assert.equal(entry.activationState, 'available');
       }
     });
   });
 
-  it('installs a bundled skill on demand into the workspace', async () => {
+  it('activates a bundled skill on demand into the workspace', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const result = await installBundledSkill(workspaceRoot, 'deep-research');
       assert.equal(result.ok, true);
@@ -76,8 +76,8 @@ describe('bundled skill catalog', () => {
       assert.equal(lock.sourceName, 'maka-bundled');
 
       const catalog = await listBundledSkillCatalog(workspaceRoot);
-      assert.equal(catalog.find((entry) => entry.id === 'deep-research')?.installed, true);
-      assert.equal(catalog.find((entry) => entry.id === 'frontend-design')?.installed, false);
+      assert.equal(catalog.find((entry) => entry.id === 'deep-research')?.activationState, 'active');
+      assert.equal(catalog.find((entry) => entry.id === 'frontend-design')?.activationState, 'available');
 
       const installed = await listInstalledSkills(workspaceRoot);
       assert.deepEqual(installed.map((skill) => skill.id), ['deep-research']);

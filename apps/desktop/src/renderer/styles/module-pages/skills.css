@@ -49,7 +49,7 @@
   gap: var(--space-2);
   /* Unboxed (maintainer 2026-07-18): the outer card chrome wrapped the
      whole module (banner + tabs + list) in a second frame the MCP page
-     never had — the inner surfaces (featured banner, skill rows, market
+     never had — the inner surfaces (featured banner, skill rows, catalog
      cards) already carry their own borders, so the wrapper reads as a
      box-in-box. Plain layout container now; content aligns flush with
      the module header like the MCP page. */
@@ -60,142 +60,12 @@
   display: none;
 }
 
-.maka-skill-featured-banner {
-  position: relative;
-  min-height: 128px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-6);
-  overflow: hidden;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--background-elevated);
-  box-shadow: var(--shadow-minimal);
-  padding: var(--space-6) var(--space-8);
-}
-
-.maka-skill-featured-banner h3 {
-  margin: 0;
-  color: var(--foreground);
-  font-size: 1.2em;
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-tight);
-}
-
-.maka-skill-featured-banner p {
-  max-width: 540px;
-  margin: var(--space-2-5) 0 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-}
-
-.maka-skill-featured-art {
-  position: relative;
-  align-self: stretch;
-  width: min(38%, 310px);
-  min-width: 220px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: calc(var(--space-4) * -1) var(--space-0-5) calc(var(--space-5) * -1) 0;
-}
-
-.maka-skill-featured-art span {
-  position: absolute;
-  /* Cards sized + offset so the banner's overflow:hidden never crops
-     their copy: previous 94-122px heights with 28px+ top offsets cut
-     「总结沉淀」mid-glyph at the banner edge. Corners may still bleed
-     off (intentional sticker collage), text must not. */
-  width: 84px;
-  height: 96px;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  /* Fixed inks: these floating cards stay white in both themes (they
-     sit on the theme-independent banner), so their border/copy must
-     not follow --foreground or they wash out in dark mode. */
-  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.2 min(c, 0.01) h / 0.09);
-  border-radius: var(--radius-control);
-  background: linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96));
-  color: oklch(from var(--brand-deep) 0.44 min(c, 0.015) h);
-  box-shadow:
-    0 12px 24px -20px oklch(from var(--brand-deep) 0.2 min(c, 0.02) h / 0.4),
-    0 1px 2px oklch(from var(--brand-deep) 0.2 min(c, 0.02) h / 0.08);
-}
-
-.maka-skill-featured-art strong {
-color: oklch(from var(--brand-deep) 0.34 min(c, 0.02) h);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-tight);
-}
-
-.maka-skill-featured-art small {
-color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-tight);
-}
-
-.maka-skill-featured-art span:first-child {
-  left: 14px;
-  top: 12px;
-  transform: rotate(-14deg);
-  color: oklch(from var(--brand-deep) 0.64 min(c, 0.15) h);
-}
-
-.maka-skill-featured-art span:nth-child(2) {
-  left: 92px;
-  top: 4px;
-  /* PR-FE-BUG-HUNT-9 z-index allowlist: decorative sticker stack
-     local stacking (3 spans within `.maka-skill-featured-art`).
-     Bare 2 is intentional — these never escape the parent container,
-     so they don't need a global token. The contract test
-     `z-index-contract.test.ts` whitelists this exact site. */
-  z-index: 2;
-  width: 92px;
-  height: 106px;
-  transform: rotate(10deg);
-  color: oklch(54% 0.10 236);
-}
-
-.maka-skill-featured-art span:nth-child(3) {
-  right: 4px;
-  top: 18px;
-  width: 78px;
-  height: 92px;
-  transform: rotate(7deg);
-  color: oklch(58% 0.18 32);
-}
-
 .maka-skill-tabs-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   border-bottom: var(--border-width-hairline) solid var(--border);
-}
-
-/* Marketplace launch: category + sort dropdowns ride the tab row's right
-   edge (market tab only). Two quiet SettingsSelect triggers sized down to
-   the tab-row rhythm; the SettingsSelect trigger chrome itself is owned by
-   its own stylesheet — here we only constrain width + height. */
-.maka-skill-market-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 0 0 auto;
-}
-
-.maka-skill-market-select {
-  min-width: 0;
-  width: auto;
-  height: var(--h-control-sm);
-  min-height: var(--h-control-sm);
 }
 
 .maka-skill-tabs {
@@ -233,17 +103,31 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   padding: 0 var(--space-1);
 }
 
-.maka-skill-filter-actions {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.maka-skill-market {
+.maka-skill-catalog {
   display: grid;
   gap: var(--space-3);
+}
+
+.maka-skill-catalog-scope {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.maka-skill-status-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.maka-skill-status-filters button {
+  min-height: 36px;
+}
+
+.maka-skill-status-filters button span {
+  font-variant-numeric: tabular-nums;
 }
 
 .maka-skill-section-row {
@@ -260,15 +144,15 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   font-weight: var(--font-weight-semibold);
 }
 
-.maka-skill-market-grid {
+.maka-skill-catalog-grid {
   display: grid;
-  /* Marketplace grid: 3 columns on wide, collapsing to 2/1 via auto-fit as
+  /* Built-in catalog: 3 columns on wide, collapsing to 2/1 via auto-fit as
      the panel narrows (panel max-width 900px → ~2 cols; narrow → 1). */
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: var(--space-3);
 }
 
-.maka-skill-market-card {
+.maka-skill-catalog-card {
   min-width: 0;
   min-height: 150px;
   display: flex;
@@ -284,27 +168,27 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
     transform var(--duration-emphasized) var(--ease-out-strong);
 }
 
-.maka-skill-market-card:hover {
+.maka-skill-catalog-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.14);
   box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
   transform: translateY(var(--lift-hover));
 }
 
-.maka-skill-market-card-head {
+.maka-skill-catalog-card-head {
   min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2-5);
 }
 
-.maka-skill-market-card-title {
+.maka-skill-catalog-card-title {
   min-width: 0;
   flex: 1 1 auto;
   display: grid;
   gap: var(--space-0-5);
 }
 
-.maka-skill-market-card h3 {
+.maka-skill-catalog-card h3 {
   min-width: 0;
   margin: 0;
   overflow: hidden;
@@ -317,7 +201,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 }
 
 /* Slug caption: soft monospace, matching the library row's id treatment. */
-.maka-skill-market-card-title small {
+.maka-skill-catalog-card-title small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -326,18 +210,18 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   letter-spacing: var(--tracking-normal);
 }
 
-.maka-skill-market-card small,
-.maka-skill-market-card-foot span {
+.maka-skill-catalog-card small,
+.maka-skill-catalog-card-foot span {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
 }
 
-.maka-skill-market-category {
+.maka-skill-catalog-category {
   justify-self: start;
 }
 
-.maka-skill-market-card p {
+.maka-skill-catalog-card p {
   min-height: 40px;
   margin: 0;
   color: var(--foreground-secondary);
@@ -349,7 +233,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   overflow: hidden;
 }
 
-.maka-skill-market-icon {
+.maka-skill-catalog-icon {
   width: 38px;
   height: 38px;
   display: inline-flex;
@@ -363,7 +247,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
 }
 
-.maka-skill-market-card-foot {
+.maka-skill-catalog-card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -377,6 +261,13 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
      `--agents-content-area-gap: 4px` cadence; was 6px. */
   gap: var(--space-1);
   min-width: 0;
+}
+
+.maka-skill-compatibility-basis {
+  margin: var(--space-3) var(--space-0-5) var(--space-1);
+  color: var(--maka-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
 }
 
 .maka-skill-section-label {
@@ -506,6 +397,28 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   line-height: var(--leading-normal);
 }
 
+.maka-skill-library-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+}
+
+.maka-skill-library-lifecycle-reason {
+  min-width: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.maka-skill-library-item[data-runtime-status='invalid'] .maka-skill-library-lifecycle-reason,
+.maka-skill-library-item[data-runtime-status='state_error'] .maka-skill-library-lifecycle-reason {
+  color: var(--warning-foreground, var(--foreground));
+}
+
 .maka-skill-library-meta {
   display: inline-flex;
   justify-self: end;
@@ -544,110 +457,82 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   justify-self: end;
 }
 
-.maka-skill-library-runtime-switch {
-  justify-self: end;
+.maka-skill-dialog {
+  width: min(92vw, 620px);
+  padding: 0;
+  overflow: hidden;
 }
 
-/* Per-row delete: neutral until armed. The two-step confirm state
-   (data-confirming) deepens to the destructive tone so 确认删除 reads as the
-   hot action, matching exception-only status color governance. */
-.maka-skill-library-delete-button {
-  justify-self: end;
+.maka-skill-dialog-body {
+  display: grid;
+  gap: var(--space-3);
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: var(--space-4);
 }
 
-.maka-skill-library-delete-button[data-confirming='true'] {
-  border-color: oklch(from var(--destructive) l c h / 0.4);
-  color: var(--destructive);
+.maka-skill-dialog-body > p {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.maka-skill-detail-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(110px, 0.3fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.maka-skill-detail-field > span {
+  color: var(--muted-foreground);
+}
+
+.maka-skill-detail-field > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-skill-detail-field > strong[data-mono='true'] {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+}
+
+.maka-skill-detail-field > button {
+  justify-self: start;
+  height: auto;
+  min-height: var(--h-control-sm);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.maka-skill-dialog-notice {
+  border-radius: var(--radius-control);
+  background: var(--state-hover-bg);
+  padding: var(--space-2-5) var(--space-3);
+}
+
+.maka-skill-dialog-notice[data-tone='warning'] {
+  color: var(--warning-foreground, var(--foreground));
+}
+
+.maka-skill-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-top: var(--border-width-hairline) solid var(--border);
+  padding: var(--space-3) var(--space-4);
 }
 
 .maka-skill-installed-empty {
   align-self: stretch;
-}
-
-.maka-skill-governance-review {
-  --maka-skill-diff-preview-max-block: calc(var(--space-16) * 4);
-  min-width: 0;
-  display: grid;
-  gap: var(--space-2);
-  border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  padding: var(--space-3);
-}
-
-.maka-skill-governance-summary {
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.maka-skill-governance-summary span {
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border-radius: var(--radius-pill);
-  background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  padding: var(--space-0-5) var(--space-2);
-}
-
-.maka-skill-governance-warning {
-  margin: 0;
-  border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.22);
-  border-radius: var(--radius-control);
-  background: oklch(from var(--warning) l c h / 0.08);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-normal);
-  padding: var(--space-2);
-}
-
-.maka-skill-diff-grid {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.maka-skill-diff-grid > div {
-  min-width: 0;
-  display: grid;
-  gap: var(--space-1);
-}
-
-.maka-skill-diff-grid span {
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-skill-diff-grid pre {
-  min-width: 0;
-  max-height: var(--maka-skill-diff-preview-max-block);
-  overflow: auto;
-  margin: 0;
-  border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
-  background: var(--foreground-2);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-normal);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: var(--space-2);
-}
-
-.maka-skill-governance-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: var(--space-1);
 }
 
 @media (max-width: 820px) {
@@ -675,9 +560,11 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
     white-space: normal;
   }
 
-  .maka-skill-diff-grid {
+  .maka-skill-detail-field {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
   }
+
 }
 
 /* Collision-only slug: revealed inline beside the name ONLY when two visible

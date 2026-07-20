@@ -168,7 +168,7 @@ function localSkillSource(
       ? [`${skillCount} 个本地 Skill`, `${declaredToolKindCount} 类声明工具`]
       : ['等待添加本地 Skill'],
     status: hasSkills ? 'ready' : 'disabled',
-    ...(hasSkills ? { lastTestAt: now } : { lastErrorReason: '未检测到已安装 Skill' }),
+    ...(hasSkills ? { lastTestAt: now } : { lastErrorReason: '未检测到可用 Skill' }),
   };
 }
 

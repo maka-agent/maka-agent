@@ -12,6 +12,7 @@ import {
   buildSkillAgentTool,
   buildSkillsPromptFragment,
   gateSkillsByHostCapabilities,
+  inspectSkills,
   loadSkillInstructions,
   parseSkillFrontMatter,
   readSkillRuntimeState,
@@ -895,6 +896,7 @@ Legacy v2 body.`,
         content: '',
         contentSha256: 'sha256:x',
         discoveryRoot: '/p',
+        discoveryOrigin: 'workspace',
       },
       {
         id: 'plain',
@@ -909,6 +911,7 @@ Legacy v2 body.`,
         content: '',
         contentSha256: 'sha256:y',
         discoveryRoot: '/p',
+        discoveryOrigin: 'workspace',
       },
     ];
     const host: HostCapabilities = { toolNames: new Set(['Read']) };
@@ -938,6 +941,7 @@ Legacy v2 body.`,
         content: '',
         contentSha256: 'sha256:z',
         discoveryRoot: '/p',
+        discoveryOrigin: 'workspace',
       },
     ];
     const noCap = gateSkillsByHostCapabilities(skills, {
@@ -1054,11 +1058,11 @@ Body.`,
       '/home/user',
     );
     assert.deepEqual(entries, [
-      { dir: '/repo/.maka/skills', containmentRoot: '/repo' },
-      { dir: '/repo/.agents/skills', containmentRoot: '/repo' },
-      { dir: '/workspace/skills', containmentRoot: '/workspace' },
-      { dir: '/home/user/.maka/skills', containmentRoot: '/home/user' },
-      { dir: '/home/user/.agents/skills', containmentRoot: '/home/user' },
+      { dir: '/repo/.maka/skills', containmentRoot: '/repo', origin: 'project_maka' },
+      { dir: '/repo/.agents/skills', containmentRoot: '/repo', origin: 'project_agents' },
+      { dir: '/workspace/skills', containmentRoot: '/workspace', origin: 'workspace' },
+      { dir: '/home/user/.maka/skills', containmentRoot: '/home/user', origin: 'user_maka' },
+      { dir: '/home/user/.agents/skills', containmentRoot: '/home/user', origin: 'user_agents' },
     ]);
     assert.deepEqual(dirs, [
       '/repo/.maka/skills',
@@ -1068,6 +1072,117 @@ Body.`,
       '/home/user/.agents/skills',
     ]);
     assert.equal(stateRoot, '/workspace');
+  });
+
+  it('inspectSkills exposes the complete lifecycle without changing effective scan precedence', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-inspection-project-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-inspection-workspace-'));
+    const homeRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-inspection-home-'));
+    try {
+      await writeSkillAt(
+        join(projectRoot, '.maka', 'skills'),
+        'shared',
+        `---
+name: Project Shared
+description: Higher-precedence project copy.
+required-tools: [OfficeDocument]
+required-capabilities: [office]
+---
+# Project Shared`,
+      );
+      await writeSkillAt(
+        join(workspaceRoot, 'skills'),
+        'shared',
+        `---
+name: Workspace Shared
+description: Lower-precedence workspace copy.
+---
+# Workspace Shared`,
+      );
+      await writeSkillAt(
+        join(workspaceRoot, 'skills'),
+        'disabled',
+        `---
+name: Disabled
+description: Explicitly disabled in workspace state.
+---
+# Disabled`,
+      );
+      await writeSkillAt(
+        join(workspaceRoot, 'skills'),
+        'broken',
+        `---
+name: Broken
+---
+# Broken`,
+      );
+      await writeSkillAt(
+        join(homeRoot, '.agents', 'skills'),
+        'user-helper',
+        `---
+name: User Helper
+description: Compatible user-level skill.
+---
+# User Helper`,
+      );
+      assert.equal(
+        (await writeSkillRuntimeState(workspaceRoot, new Map([['disabled', false]]))).ok,
+        true,
+      );
+
+      const source = resolveSkillDiscoveryPaths(projectRoot, workspaceRoot, homeRoot);
+      const inspection = await inspectSkills(source, {
+        toolNames: new Set(['Read']),
+        capabilities: new Set(),
+      });
+      const byKey = new Map(inspection.entries.map((entry) => [entry.entryKey, entry]));
+
+      const projectShared = byKey.get('project_maka:shared');
+      assert.ok(projectShared);
+      assert.equal(projectShared.effective, true);
+      assert.equal(projectShared.operationalStatus, 'host_incompatible');
+      assert.deepEqual(projectShared.missingRequiredTools, ['OfficeDocument']);
+      assert.deepEqual(projectShared.missingRequiredCapabilities, ['office']);
+
+      const workspaceShared = byKey.get('workspace:shared');
+      assert.ok(workspaceShared);
+      assert.equal(workspaceShared.effective, false);
+      assert.equal(workspaceShared.operationalStatus, 'shadowed');
+      assert.equal(workspaceShared.shadowedBy, 'project_maka:shared');
+
+      const disabled = byKey.get('workspace:disabled');
+      assert.ok(disabled);
+      assert.equal(disabled.operationalStatus, 'disabled');
+      assert.equal(disabled.enabled, false);
+
+      const broken = byKey.get('workspace:broken');
+      assert.ok(broken);
+      assert.equal(broken.metadataStatus, 'invalid');
+      assert.equal(broken.operationalStatus, 'invalid');
+      assert.deepEqual(
+        broken.issues.map((issue) => issue.code),
+        ['missing_description'],
+      );
+
+      const user = byKey.get('user_agents:user-helper');
+      assert.ok(user);
+      assert.equal(user.operationalStatus, 'eligible');
+      assert.equal(user.discoveryOrigin, 'user_agents');
+
+      const scanned = await scanSkills(source);
+      assert.equal(scanned.find((skill) => skill.id === 'shared')?.name, 'Project Shared');
+      assert.equal(scanned.filter((skill) => skill.id === 'shared').length, 1);
+      assert.equal(
+        scanned.some((skill) => skill.id === 'broken'),
+        false,
+      );
+    } finally {
+      await Promise.all([
+        rm(projectRoot, { recursive: true, force: true }),
+        rm(workspaceRoot, { recursive: true, force: true }),
+        rm(homeRoot, { recursive: true, force: true }),
+      ]);
+    }
   });
 
   it('parseSkillFrontMatter parses inline and list-style allowed-tools', () => {
@@ -1192,7 +1307,11 @@ async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Prom
 }
 
 async function writeSkill(workspaceRoot: string, id: string, content: string): Promise<void> {
-  const dir = join(workspaceRoot, 'skills', id);
+  await writeSkillAt(join(workspaceRoot, 'skills'), id, content);
+}
+
+async function writeSkillAt(skillsRoot: string, id: string, content: string): Promise<void> {
+  const dir = join(skillsRoot, id);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'SKILL.md'), content, 'utf8');
 }

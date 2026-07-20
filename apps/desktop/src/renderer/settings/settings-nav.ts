@@ -2,6 +2,7 @@ import { type ComponentType } from 'react';
 import {
   Activity,
   BarChart3,
+  Blocks,
   Bot,
   Brain,
   CalendarDays,
@@ -81,6 +82,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'general', Icon: SettingsIcon, enabled: true, group: 'general' },
   { id: 'appearance', Icon: Palette, enabled: true, group: 'general' },
   { id: 'models', Icon: Cpu, enabled: true, group: 'ai-integrations' },
+  { id: 'skills', Icon: Blocks, enabled: true, group: 'ai-integrations' },
   { id: 'usage', Icon: BarChart3, enabled: true, group: 'ai-integrations' },
   { id: 'memory', Icon: Brain, enabled: true, group: 'ai-integrations' },
   { id: 'daily-review', Icon: CalendarDays, enabled: true, group: 'ai-integrations' },

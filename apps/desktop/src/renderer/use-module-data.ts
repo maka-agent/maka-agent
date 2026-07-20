@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { PlanReminder, UiLocale } from '@maka/core';
-import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, SkillEntry } from '@maka/ui';
+import type { BundledSkillCatalogEntry, SkillEntry } from '@maka/ui';
 import { createAppShellPlanActions, type AppShellPlanActions } from './app-shell-plan-actions';
 import { createAppShellSkillActions, type AppShellSkillActions } from './app-shell-skill-actions';
 
@@ -29,17 +29,18 @@ type ToastApi = {
 export function useAppShellModuleData(options: {
   uiLocale: UiLocale;
   isSkillsSurfaceActive: () => boolean;
+  getActiveSessionId: () => string | undefined;
   isAutomationsSurfaceActive: () => boolean;
   toastApi: ToastApi;
 }): AppShellPlanActions & AppShellSkillActions & {
   skills: SkillEntry[];
-  managedSkillSources: ManagedSkillSourceEntry[];
+  skillHostBasis: 'session' | 'desktop_default';
   bundledSkillCatalog: BundledSkillCatalogEntry[];
   planReminders: PlanReminder[];
 } {
   const { uiLocale, isSkillsSurfaceActive, isAutomationsSurfaceActive, toastApi } = options;
   const [skills, setSkills] = useState<SkillEntry[]>([]);
-  const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
+  const [skillHostBasis, setSkillHostBasis] = useState<'session' | 'desktop_default'>('desktop_default');
   const [bundledSkillCatalog, setBundledSkillCatalog] = useState<BundledSkillCatalogEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
 
@@ -54,15 +55,16 @@ export function useAppShellModuleData(options: {
   const skillActions = createAppShellSkillActions({
     uiLocale,
     isSkillsSurfaceActive,
+    getActiveSessionId: options.getActiveSessionId,
     setSkills,
-    setManagedSkillSources,
+    setSkillHostBasis,
     setBundledSkillCatalog,
     toastApi,
   });
 
   return {
     skills,
-    managedSkillSources,
+    skillHostBasis,
     bundledSkillCatalog,
     planReminders,
     ...planActions,

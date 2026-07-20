@@ -5,7 +5,6 @@
 // under tsconfig.main (no JSX). The palette re-exports these helpers.
 
 import {
-  Blocks,
   CalendarDays,
   Clock,
   Database,
@@ -239,14 +238,6 @@ export function buildCommandList(args: {
       Icon: Clock,
       keywords: [...copy.staticKeywords['nav:automations']],
       run: () => select({ section: 'automations' }),
-    });
-    cmds.push({
-      id: 'nav:skills',
-      kind: 'action',
-      ...staticCopy('nav:skills'),
-      Icon: Blocks,
-      keywords: [...copy.staticKeywords['nav:skills']],
-      run: () => select({ section: 'skills' }),
     });
     cmds.push({
       id: 'nav:mcp',

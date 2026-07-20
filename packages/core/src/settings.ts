@@ -70,6 +70,7 @@ export const SETTINGS_SECTIONS = [
   'memory',
   'daily-review',
   'models',
+  'skills',
   'usage',
   'voice',
   'open-gateway',

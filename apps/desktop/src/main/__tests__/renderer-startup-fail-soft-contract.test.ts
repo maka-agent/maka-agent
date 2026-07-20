@@ -69,8 +69,8 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshSkills,
-      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.refreshSkillsFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.refreshSkillsFallback, uiLocale\)[\s\S]*\);[\s\S]*\}/,
-      'skills refresh failures must be visible and must preserve the existing list',
+      /try \{[\s\S]*window\.maka\.skills\.list\(\{ sessionId: getActiveSessionId\(\) \}\)[\s\S]*setSkills\(next\.entries\)[\s\S]*setSkillHostBasis\(next\.hostBasis\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) === true\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.refreshSkillsFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.refreshSkillsFallback, uiLocale\)[\s\S]*\);[\s\S]*\}/,
+      'user-triggered Skill refresh failures must be visible while background refreshes stay quiet and preserve the existing list',
     );
     assert.doesNotMatch(
       refreshSkills,

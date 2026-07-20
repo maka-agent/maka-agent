@@ -410,6 +410,19 @@
   padding: var(--space-12) 0 0;
 }
 
+/* Skills retains its purpose-built workbench layout inside the
+   Settings shell. They own their header, scrolling, and content width, so the
+   generic settings header/scroll wrapper is intentionally skipped. */
+.settingsMainPane[data-section="skills"] {
+  grid-template-rows: minmax(0, 1fr);
+  padding-top: 0;
+}
+
+.settingsMainPane[data-section="skills"] > .maka-module-main {
+  min-height: 0;
+  height: 100%;
+}
+
 /* PR-SETTINGS-REVIEW-0 fix-2: max-width centering on a grid child
    didn't actually align the H2 with the centered column underneath.
    Use the same edge math the content column uses

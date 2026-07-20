@@ -267,9 +267,9 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(skillsCss, /\.maka-skill-library-open-button\s*\{\s*justify-self:\s*end;\s*\}/);
 
     const skills = consumers[3];
-    assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+onClick=\{\(\) => props\.onInstallManagedSkill/);
+    assert.match(skills, /variant="secondary"\s+size="sm"\s+onClick=\{\(\) => setReviewTemplateId\(entry\.id\)\}/);
     assert.match(skills, /variant="secondary"\s+size="icon-sm"\s+className="maka-skill-library-open-button"/);
-    assert.match(skills, /variant="secondary"\s+size="sm"\s+onClick=\{\(\) => void reviewManagedSkillUpdate/);
+    assert.match(skills, /variant="quiet"\s+size="sm"\s+onClick=\{\(\) => setDetailEntryKey\(skill\.entryKey\)\}/);
     assert.doesNotMatch(skills, /className="maka-skill-filter-pill"/);
     assert.doesNotMatch(skills, /className="maka-skill-market-install-button"/);
     assert.doesNotMatch(skills, /className="maka-skill-market-install"/);

@@ -1,12 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { UiLocale } from '@maka/core';
-import type {
-  BundledSkillCatalogEntry,
-  ManagedSkillSourceEntry,
-  ManagedSkillUpdatePreview,
-  SkillEntry,
-} from '@maka/ui';
-import { createSkillFailureCopy, openSkillFailureCopy } from './app-shell-copy';
+import type { BundledSkillCatalogEntry, SkillEntry } from '@maka/ui';
 import { createOpenSkillAction } from './app-shell-open-skill-action';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 
@@ -17,65 +11,47 @@ type ToastApi = {
 
 export interface AppShellSkillActions {
   refreshSkills(options?: { shouldShowError?: () => boolean }): Promise<void>;
-  refreshManagedSkillSources(options?: { shouldShowError?: () => boolean }): Promise<void>;
   refreshBundledSkillCatalog(options?: { shouldShowError?: () => boolean }): Promise<void>;
-  createSkillTemplate(): Promise<void>;
-  importManagedSkillSource(): Promise<void>;
-  installManagedSkill(sourceId: string): Promise<void>;
-  installBundledSkill(id: string): Promise<void>;
-  previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  updateManagedSkill(
-    skillId: string,
-    options?: {
-      force?: boolean;
-      expectedCurrentSha256?: string;
-      expectedSourceSha256?: string;
-    },
-  ): Promise<boolean>;
-  setSkillEnabled(skillId: string, enabled: boolean): Promise<void>;
-  deleteSkill(skillId: string): Promise<void>;
-  openSkill(skillId: string): Promise<void>;
+  activateBundledSkill(id: string): Promise<boolean>;
+  openSkill(entryKey: string, repairTarget: SkillEntry['repairTarget']): Promise<void>;
 }
 
 export function createAppShellSkillActions(deps: {
   uiLocale: UiLocale;
   isSkillsSurfaceActive: () => boolean;
+  getActiveSessionId: () => string | undefined;
   setSkills: Dispatch<SetStateAction<SkillEntry[]>>;
-  setManagedSkillSources: Dispatch<SetStateAction<ManagedSkillSourceEntry[]>>;
+  setSkillHostBasis: Dispatch<SetStateAction<'session' | 'desktop_default'>>;
   setBundledSkillCatalog: Dispatch<SetStateAction<BundledSkillCatalogEntry[]>>;
   toastApi: ToastApi;
 }): AppShellSkillActions {
-  const { uiLocale, isSkillsSurfaceActive, setBundledSkillCatalog, setManagedSkillSources, setSkills, toastApi } = deps;
+  const {
+    uiLocale,
+    isSkillsSurfaceActive,
+    getActiveSessionId,
+    setBundledSkillCatalog,
+    setSkillHostBasis,
+    setSkills,
+    toastApi,
+  } = deps;
   const copy = getShellCopy(uiLocale).skillActions;
   const openSkill = createOpenSkillAction({
     uiLocale,
     isSkillsSurfaceActive,
+    getActiveSessionId,
     toastApi,
   });
 
   async function refreshSkills(options: { shouldShowError?: () => boolean } = {}) {
     try {
-      const next = await window.maka.skills.list();
-      setSkills(next);
+      const next = await window.maka.skills.list({ sessionId: getActiveSessionId() });
+      setSkills(next.entries);
+      setSkillHostBasis(next.hostBasis);
     } catch (error) {
-      if (options.shouldShowError?.() ?? true) {
+      if (options.shouldShowError?.() === true) {
         toastApi.error(
           copy.refreshSkillsFailedTitle,
           localizedShellErrorMessage(error, copy.refreshSkillsFallback, uiLocale),
-        );
-      }
-    }
-  }
-
-  async function refreshManagedSkillSources(options: { shouldShowError?: () => boolean } = {}) {
-    try {
-      const next = await window.maka.skills.sources.list();
-      setManagedSkillSources(next);
-    } catch (error) {
-      if (options.shouldShowError?.() ?? true) {
-        toastApi.error(
-          copy.refreshSourcesFailedTitle,
-          localizedShellErrorMessage(error, copy.refreshSourcesFallback, uiLocale),
         );
       }
     }
@@ -86,7 +62,7 @@ export function createAppShellSkillActions(deps: {
       const next = await window.maka.skills.catalog.list();
       setBundledSkillCatalog(next);
     } catch (error) {
-      if (options.shouldShowError?.() ?? true) {
+      if (options.shouldShowError?.() === true) {
         toastApi.error(
           copy.refreshBundledFailedTitle,
           localizedShellErrorMessage(error, copy.refreshBundledFallback, uiLocale),
@@ -95,20 +71,21 @@ export function createAppShellSkillActions(deps: {
     }
   }
 
-  async function installBundledSkill(id: string) {
+  async function activateBundledSkill(id: string) {
     try {
-      const result = await window.maka.skills.catalog.install(id);
+      const result = await window.maka.skills.catalog.activate(id);
       if (!result.ok) {
-        if (isSkillsSurfaceActive())
+        if (isSkillsSurfaceActive()) {
           toastApi.error(copy.installBundledFailedTitle, copy.installFailures[result.reason]);
-        return;
+        }
+        return false;
       }
       await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      await refreshBundledSkillCatalog({
-        shouldShowError: isSkillsSurfaceActive,
-      });
-      if (isSkillsSurfaceActive())
+      await refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive });
+      if (isSkillsSurfaceActive()) {
         toastApi.success(copy.installedBundledTitle, copy.installedDescription(result.skill.id));
+      }
+      return true;
     } catch (error) {
       if (isSkillsSurfaceActive()) {
         toastApi.error(
@@ -116,181 +93,14 @@ export function createAppShellSkillActions(deps: {
           localizedShellErrorMessage(error, copy.installBundledFallback, uiLocale),
         );
       }
-    }
-  }
-
-  async function createSkillTemplate() {
-    try {
-      const result = await window.maka.skills.createStarter();
-      if (!result.ok) {
-        if (isSkillsSurfaceActive())
-          toastApi.error(copy.createTemplateFailedTitle, createSkillFailureCopy(result.reason, uiLocale));
-        return;
-      }
-      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      if (!isSkillsSurfaceActive()) return;
-      // Idempotent seeding: a repeat 添加 click reuses the existing 示例技能
-      // instead of minting a duplicate. Tell the user we opened the existing
-      // one rather than pretending a new skill was created.
-      if (result.created) {
-        toastApi.success(copy.createdTemplateTitle, copy.createdTemplateDescription(result.skill.id));
-      } else {
-        toastApi.success(copy.openedExistingTemplateTitle, copy.openedExistingTemplateDescription);
-      }
-      const openResult = await window.maka.skills.open(result.skill.id, 'file');
-      if (!openResult.ok) {
-        if (isSkillsSurfaceActive())
-          toastApi.error(copy.openTemplateFailedTitle, openSkillFailureCopy(openResult.reason, uiLocale));
-      }
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(
-          copy.createTemplateFailedTitle,
-          localizedShellErrorMessage(error, copy.createTemplateFallback, uiLocale),
-        );
-      }
-    }
-  }
-
-  async function importManagedSkillSource() {
-    try {
-      const result = await window.maka.skills.sources.importLocalFile();
-      if (!result.ok) {
-        if (result.reason !== 'cancelled' && isSkillsSurfaceActive()) {
-          toastApi.error(copy.importSourceFailedTitle, copy.sourceFailures[result.reason]);
-        }
-        return;
-      }
-      await refreshManagedSkillSources({
-        shouldShowError: isSkillsSurfaceActive,
-      });
-      if (isSkillsSurfaceActive()) toastApi.success(copy.importedSourceTitle, result.source.name);
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(
-          copy.importSourceFailedTitle,
-          localizedShellErrorMessage(error, copy.importSourceFallback, uiLocale),
-        );
-      }
-    }
-  }
-
-  async function installManagedSkill(sourceId: string) {
-    try {
-      const result = await window.maka.skills.installManaged(sourceId);
-      if (!result.ok) {
-        if (isSkillsSurfaceActive()) toastApi.error(copy.installFailedTitle, copy.installFailures[result.reason]);
-        return;
-      }
-      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      await refreshManagedSkillSources({
-        shouldShowError: isSkillsSurfaceActive,
-      });
-      if (isSkillsSurfaceActive()) toastApi.success(copy.installedTitle, copy.installedDescription(result.skill.id));
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(copy.installFailedTitle, localizedShellErrorMessage(error, copy.installFallback, uiLocale));
-      }
-    }
-  }
-
-  async function previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null> {
-    try {
-      const result = await window.maka.skills.previewUpdate(skillId);
-      if (!result.ok) {
-        if (isSkillsSurfaceActive()) toastApi.error(copy.previewFailedTitle, copy.previewFailures[result.reason]);
-        return null;
-      }
-      return result.preview;
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(copy.previewFailedTitle, localizedShellErrorMessage(error, copy.previewFallback, uiLocale));
-      }
-      return null;
-    }
-  }
-
-  async function updateManagedSkill(
-    skillId: string,
-    options: {
-      force?: boolean;
-      expectedCurrentSha256?: string;
-      expectedSourceSha256?: string;
-    } = {},
-  ): Promise<boolean> {
-    try {
-      const result = await window.maka.skills.updateManaged(skillId, options);
-      if (!result.ok) {
-        if (isSkillsSurfaceActive()) toastApi.error(copy.updateFailedTitle, copy.updateFailures[result.reason]);
-        return false;
-      }
-      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      if (isSkillsSurfaceActive()) {
-        toastApi.success(
-          options.force ? copy.forceUpdatedTitle : copy.updatedTitle,
-          copy.updatedDescription(result.skill.id),
-        );
-      }
-      return true;
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(copy.updateFailedTitle, localizedShellErrorMessage(error, copy.updateFallback, uiLocale));
-      }
       return false;
-    }
-  }
-
-  async function setSkillEnabled(skillId: string, enabled: boolean) {
-    try {
-      const result = await window.maka.skills.setEnabled(skillId, enabled);
-      if (!result.ok) {
-        if (isSkillsSurfaceActive()) toastApi.error(copy.toggleFailedTitle, copy.runtimeFailures[result.reason]);
-        return;
-      }
-      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      if (isSkillsSurfaceActive()) {
-        toastApi.success(enabled ? copy.enabledTitle : copy.disabledTitle, copy.runtimeDescription(result.skill.name));
-      }
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(copy.toggleFailedTitle, localizedShellErrorMessage(error, copy.toggleFallback, uiLocale));
-      }
-    }
-  }
-
-  async function deleteSkill(skillId: string) {
-    try {
-      const result = await window.maka.skills.delete(skillId);
-      if (!result.ok) {
-        if (isSkillsSurfaceActive()) toastApi.error(copy.deleteFailedTitle, copy.deleteFailures[result.reason]);
-        return;
-      }
-      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      // A deleted bundled skill must reappear as installable under 内置, so
-      // refresh the catalog's installed flags after removal.
-      await refreshBundledSkillCatalog({
-        shouldShowError: isSkillsSurfaceActive,
-      });
-      if (isSkillsSurfaceActive()) toastApi.success(copy.deletedTitle, copy.deletedDescription(skillId));
-    } catch (error) {
-      if (isSkillsSurfaceActive()) {
-        toastApi.error(copy.deleteFailedTitle, localizedShellErrorMessage(error, copy.deleteFallback, uiLocale));
-      }
     }
   }
 
   return {
     refreshSkills,
-    refreshManagedSkillSources,
     refreshBundledSkillCatalog,
-    createSkillTemplate,
-    importManagedSkillSource,
-    installManagedSkill,
-    installBundledSkill,
-    previewManagedSkillUpdate,
-    updateManagedSkill,
-    setSkillEnabled,
-    deleteSkill,
+    activateBundledSkill,
     openSkill,
   };
 }

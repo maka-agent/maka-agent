@@ -58,6 +58,7 @@ export type VisualSmokeScenario =
   | 'settings-usage'
   | 'settings-health'
   | 'module-skills'
+  | 'module-skills-diagnostics'
   | 'module-mcp'
   | 'module-daily-review'
   | 'workstation-statuses'
@@ -189,6 +190,7 @@ export interface VisualSmokeState {
    */
   liveBrowserSessionIds?: string[];
   openSettingsSection?: SettingsSection;
+  extensionView?: 'skills_available' | 'skills_diagnostics';
   /**
    * When set, open Settings → 模型 with this connection's detail sheet
    * expanded (rather than just the section). Seeded by `oauth-relogin` so the
@@ -292,7 +294,7 @@ export interface VisualSmokeState {
    * to screenshot non-session sidebar content without adding a real
    * router path.
    */
-  sidebarSection?: 'sessions' | 'automations' | 'skills' | 'mcp' | 'daily-review';
+  sidebarSection?: 'sessions' | 'automations' | 'mcp' | 'daily-review';
   /**
    * Fixture-only sidebar collapsed override. Screenshot runs use a
    * fresh userData dir, while the real app defaults to the collapsed

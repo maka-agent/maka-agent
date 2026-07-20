@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type {
   LlmConnection,
   SettingsSection,
@@ -52,6 +52,8 @@ export function SettingsModal(props: {
    * source conversation. Settings owns the table, shell owns navigation.
    */
   onOpenSession?(sessionId: string): void;
+  onSectionChange?(section: SettingsSection): void;
+  renderExtensionPage?(section: 'skills'): ReactNode;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -101,6 +103,8 @@ export function SettingsModal(props: {
         initialFocusRef={activeNavRef}
         onOpenDailyReview={props.onOpenDailyReview}
         onOpenSession={props.onOpenSession}
+        onSectionChange={props.onSectionChange}
+        renderExtensionPage={props.renderExtensionPage}
       />
     </div>
   );

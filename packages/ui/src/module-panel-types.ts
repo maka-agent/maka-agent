@@ -11,10 +11,27 @@ import type {
 import type { SettingsSelectOption } from './primitives/settings-select.js';
 
 export interface SkillEntry {
+  entryKey: string;
   id: string;
   name: string;
   description: string;
-  path: string;
+  displayPath: string;
+  discoveryOrigin: 'project_maka' | 'project_agents' | 'workspace' | 'user_maka' | 'user_agents';
+  effective: boolean;
+  shadowedBy?: string;
+  metadataStatus: 'valid' | 'warning' | 'invalid';
+  operationalStatus: 'invalid' | 'shadowed' | 'state_error' | 'disabled' | 'host_incompatible' | 'eligible';
+  issues: Array<{
+    code: string;
+    severity: 'warning' | 'error';
+    message: string;
+    field?: string;
+  }>;
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  missingDeclaredTools: string[];
+  missingRequiredTools: string[];
+  missingRequiredCapabilities: string[];
   /**
    * Tools the skill *declares* it would like to use. This is a request, not
    * a grant — PermissionEngine still applies. We surface the list so users
@@ -27,6 +44,17 @@ export interface SkillEntry {
   managedUpdateStatus?: 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
   enabled: boolean;
   runtimeStatus: 'enabled' | 'disabled' | 'state_error';
+  canUse: boolean;
+  canOpen: boolean;
+  canToggle: boolean;
+  canDelete: boolean;
+  canUpdate: boolean;
+  repairTarget: 'skill_file' | 'state_file' | null;
+}
+
+export interface SkillInventorySnapshot {
+  hostBasis: 'session' | 'desktop_default';
+  entries: SkillEntry[];
 }
 
 export type SkillGovernanceStatus = 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
@@ -76,10 +104,8 @@ export interface ManagedSkillUpdatePreview {
 }
 
 /**
- * Marketplace taxonomy buckets surfaced by the 市场 tab category filter.
- * Mirrors MANAGED_SKILL_CATEGORIES in apps/desktop's managed-skill-sources;
- * the main-process reader always resolves an entry to one of these, so the
- * renderer can treat `category` as required (unknown → 效率工具 upstream).
+ * Stable category buckets shared by the built-in catalog and managed Skill
+ * source metadata. Unknown categories normalize to 效率工具 upstream.
  */
 export type ManagedSkillCategory =
   | '内容创作'
@@ -90,19 +116,10 @@ export type ManagedSkillCategory =
   | '效率工具'
   | '研究与分析';
 
-export interface ManagedSkillSourceEntry {
-  id: string;
-  name: string;
-  description: string;
-  category: ManagedSkillCategory;
-  sourceType: 'local';
-}
-
 /**
  * One entry in the built-in (内置) skill catalog shipped with the app. Mirrors
- * listBundledSkillCatalog in apps/desktop's skills module. `installed` reflects
- * whether the current workspace already has skills/<id>; nothing here is
- * auto-installed — the 内置 tab offers a per-entry install action.
+ * listBundledSkillCatalog in apps/desktop's skills module. Nothing here is
+ * auto-activated: the catalog action creates a Maka-workspace copy first.
  */
 export interface BundledSkillCatalogEntry {
   id: string;
@@ -110,7 +127,10 @@ export interface BundledSkillCatalogEntry {
   description: string;
   category: ManagedSkillCategory;
   declaredTools: string[];
-  installed: boolean;
+  requiredTools: string[];
+  requiredCapabilities: string[];
+  targetPath: string;
+  activationState: 'available' | 'active' | 'attention';
 }
 
 export type PlanReminderDraftInput = {

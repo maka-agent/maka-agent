@@ -30,71 +30,70 @@ export async function seedMcpFixture(workspaceRoot: string): Promise<void> {
   await writeJson(join(workspaceRoot, 'mcp.json'), config);
 }
 
-/**
- * Marketplace fixture: seeds a managed-source catalog (≥6 entries across
- * categories with varied recency) plus a couple of workspace skills so the
- * 市场 grid, category filter, sort, and the 内置/已安装 rows all render
- * meaningfully in the CDP capture. Managed sources normally live in
- * ~/.maka/skill-sources; the dev-gated MAKA_SKILL_SOURCES_ROOT override
- * (resolveManagedSkillSourcesRoot) points both the seeder and the runtime
- * IPC at a fixture-local dir so nothing touches the real home catalog.
- */
-export async function seedSkillsMarketFixture(workspaceRoot: string): Promise<void> {
-  const sourcesRoot = join(workspaceRoot, '.maka', 'skill-sources');
-  process.env.MAKA_SKILL_SOURCES_ROOT = sourcesRoot;
-  await mkdir(sourcesRoot, { recursive: true });
-
-  const sources: ReadonlyArray<{ id: string; name: string; description: string; category: string }> = [
-    { id: 'research-brief', name: '研究简报', category: '研究与分析', description: '把网页资料、引用和结论整理成结构化 brief，适合快速进入陌生领域。' },
-    { id: 'doc-review', name: '文档审阅', category: '文档与写作', description: '检查 DOCX / Markdown 的结构、语气和遗漏项，并输出可执行修改建议。' },
-    { id: 'meeting-followup', name: '会议跟进', category: '效率工具', description: '从会议记录里抽取决定、风险和 owner，生成下一步任务清单。' },
-    { id: 'release-checklist', name: '发布检查', category: 'DevOps与部署', description: '按发布前 checklist 扫描 diff、测试和文档，减少临门一脚的遗漏。' },
-    { id: 'data-analyst', name: '数据分析助手', category: '数据与AI', description: '读取 CSV / 表格，做透视、异常检测和趋势总结，产出可复述的结论。' },
-    { id: 'ui-audit', name: 'UI 走查', category: '设计与UI', description: '对照设计规范逐项走查间距、层级和状态色，列出需要修的细节。' },
-    { id: 'blog-outline', name: '博客提纲', category: '内容创作', description: '把零散想法整理成有节奏的文章提纲，附上每段的论据方向。' },
-  ];
-
-  // Stagger mtimes so 排序：最近 has a meaningful order (the last-written
-  // source is the most recent). Written newest-last on purpose.
-  for (const source of sources) {
-    const dir = join(sourcesRoot, source.id);
-    await mkdir(dir, { recursive: true });
-    const content = [
-      '---',
-      `name: ${source.name}`,
-      `description: ${source.description}`,
-      `category: ${source.category}`,
-      '---',
-      '',
-      `# ${source.name}`,
-      '',
-      source.description,
-      '',
-    ].join('\n');
-    await writeFile(join(dir, 'SKILL.md'), content, { encoding: 'utf8', mode: 0o600 });
-  }
-
-  // A couple of workspace skills so 已安装 is not empty and one managed
-  // source shows as installed in the grid. The bundled OfficeCLI skills
-  // (seeded separately after the fixture) populate the 内置 tab.
-  const workspaceSkills: ReadonlyArray<{ id: string; name: string; description: string }> = [
-    { id: 'meeting-followup', name: '会议跟进', description: '从会议记录里抽取决定、风险和 owner，生成下一步任务清单。' },
-    { id: 'daily-standup', name: '每日站会', description: '汇总昨日进展、今日计划和阻塞，生成简短的站会同步。' },
-  ];
-  for (const skill of workspaceSkills) {
-    const dir = join(workspaceRoot, 'skills', skill.id);
+/** Seeds project/workspace/user lifecycle examples for the Skills page. */
+export async function seedSkillsFixture(workspaceRoot: string): Promise<void> {
+  async function writeSkill(
+    skillsRoot: string,
+    skill: { id: string; name: string; description?: string; requiredTools?: string[] },
+  ): Promise<void> {
+    const dir = join(skillsRoot, skill.id);
     await mkdir(dir, { recursive: true });
     const content = [
       '---',
       `name: ${skill.name}`,
-      `description: ${skill.description}`,
+      ...(skill.description ? [`description: ${skill.description}`] : []),
+      ...(skill.requiredTools?.length ? [`required-tools: [${skill.requiredTools.join(', ')}]`] : []),
       '---',
       '',
       `# ${skill.name}`,
       '',
-      skill.description,
+      skill.description ?? '这是一个故意缺少 description 的视觉测试样例。',
       '',
     ].join('\n');
     await writeFile(join(dir, 'SKILL.md'), content, { encoding: 'utf8', mode: 0o600 });
   }
+
+  const workspaceSkillsRoot = join(workspaceRoot, 'skills');
+  await writeSkill(workspaceSkillsRoot, {
+    id: 'meeting-followup',
+    name: '会议跟进',
+    description: '从会议记录里抽取决定、风险和 owner，生成下一步任务清单。',
+  });
+  await writeSkill(workspaceSkillsRoot, {
+    id: 'daily-standup',
+    name: '每日站会（工作区副本）',
+    description: '低优先级副本，用于展示同名 id 被项目级 Skill 覆盖。',
+  });
+  await writeSkill(workspaceSkillsRoot, {
+    id: 'visual-tool-required',
+    name: '需要额外工具',
+    description: '用于展示宿主缺少必需工具时的精确原因。',
+    requiredTools: ['VisualSmokeMissingTool'],
+  });
+  await writeSkill(workspaceSkillsRoot, {
+    id: 'paused-helper',
+    name: '已停用助手',
+    description: '用于展示用户主动停用后的生命周期状态。',
+  });
+  await writeSkill(workspaceSkillsRoot, {
+    id: 'broken-metadata',
+    name: '元数据异常样例',
+  });
+
+  await writeSkill(join(workspaceRoot, '.visual-project', '.maka', 'skills'), {
+    id: 'daily-standup',
+    name: '每日站会',
+    description: '项目级高优先级副本，用于展示来源优先级。',
+  });
+  await writeSkill(join(workspaceRoot, '.visual-home', '.agents', 'skills'), {
+    id: 'personal-notes',
+    name: '个人笔记助手',
+    description: '用于展示可读但不由当前工作区管理的用户级 Skill。',
+  });
+  await mkdir(join(workspaceRoot, '.maka'), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, '.maka', 'skills-state.json'),
+    `${JSON.stringify({ schemaVersion: 1, skills: { 'paused-helper': { enabled: false } } }, null, 2)}\n`,
+    { encoding: 'utf8', mode: 0o600 },
+  );
 }

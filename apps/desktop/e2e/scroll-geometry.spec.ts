@@ -142,15 +142,15 @@ test('scrolling a settled long session to the top never inflates the document', 
   expectHonestClimb(await climbToTop(page));
 });
 
-test('returning to the session after visiting skills re-settles the new transcript DOM', async ({ longTranscriptWindow: page }) => {
+test('returning to the session after visiting Daily Review re-settles the new transcript DOM', async ({ longTranscriptWindow: page }) => {
   await expect(page.locator('.maka-turn')).toHaveCount(24);
   await settleGeometry(page, { pinned: true });
 
-  // A mode switch unmounts the chat scroller; coming back rebuilds every
-  // `.maka-turn` node with no remembered size, so the warm-up must walk the
-  // NEW DOM. Fixture windows don't pass OS hit-testing — dispatch clicks.
+  // A true module switch still unmounts the chat scroller. Coming back
+  // rebuilds every `.maka-turn` node with no remembered size, so the warm-up
+  // must walk the NEW DOM. Skills no longer qualifies: it is a Settings page.
   await page.locator('button[aria-label="展开侧边栏"]').dispatchEvent('click');
-  await page.locator('button[aria-label="技能"]').dispatchEvent('click');
+  await page.locator('button[aria-label="每日回顾"]').dispatchEvent('click');
   await expect(page.locator('.maka-turn')).toHaveCount(0);
   await page.getByText('超长会话滚动几何').first().dispatchEvent('click');
   await expect(page.locator('.maka-turn')).toHaveCount(24);

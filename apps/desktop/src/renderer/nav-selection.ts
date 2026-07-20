@@ -14,7 +14,6 @@ export function readNavSelection(): NavSelection {
     // entry with `{section:'search'}` would otherwise leave the
     // app stuck on an invalid section. Reject anything that is not
     // in the current closed-enum.
-    if (parsed.section === 'skills') return { section: 'skills' };
     if (parsed.section === 'mcp') return { section: 'mcp' };
     if (parsed.section === 'automations') return { section: 'automations' };
     if (parsed.section === 'daily-review') return { section: 'daily-review' };
