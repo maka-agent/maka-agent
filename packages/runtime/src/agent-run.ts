@@ -844,6 +844,7 @@ export class AgentRun {
       cwd: this.header.cwd,
       ...(this.input.workspaceIdentity ? { workspaceIdentity: this.input.workspaceIdentity } : {}),
       permissionMode: this.header.permissionMode,
+      collaborationMode: this.header.collaborationMode ?? 'agent',
       createdAt,
       updatedAt: createdAt,
       ...this.lineage,

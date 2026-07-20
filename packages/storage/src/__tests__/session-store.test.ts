@@ -41,12 +41,14 @@ describe('FileSessionStore CRUD', () => {
       const header = await store.create(makeInput({ name: 'Status' }));
 
       assert.equal(header.status, 'active');
+      assert.equal(header.collaborationMode, 'agent');
       assert.equal(typeof header.statusUpdatedAt, 'number');
       const [summary] = await store.list();
       assert.equal(summary?.status, 'active');
       assert.equal(summary?.statusUpdatedAt, header.statusUpdatedAt);
       assert.equal(summary?.model, 'fake-model');
       assert.equal(summary?.cwd, '/tmp/cwd');
+      assert.equal(summary?.collaborationMode, 'agent');
     });
   });
 

@@ -8,6 +8,8 @@
  */
 
 export * from './mcp.js';
+export * from './collaboration.js';
+export * from './plan.js';
 
 // events.ts
 export type {

@@ -25,6 +25,8 @@ import type {
   PermissionResponse,
   UserQuestionResponse,
   PermissionMode,
+  CollaborationMode,
+  PlanSessionState,
   SearchErrorReason,
   SearchRequest,
   SearchResult,
@@ -205,6 +207,29 @@ const makaBridge = {
     },
     setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setPermissionMode', sessionId, mode);
+    },
+    setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setCollaborationMode', sessionId, mode);
+    },
+    getPlanState(sessionId: string): Promise<PlanSessionState> {
+      return ipcRenderer.invoke('plan-mode:getState', sessionId);
+    },
+    requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanSessionState> {
+      return ipcRenderer.invoke('plan-mode:requestRevision', sessionId, proposalId);
+    },
+    approvePlan(sessionId: string, input: {
+      proposalId: string;
+      expectedRevision: number;
+      expectedStoreVersion?: number;
+    }): Promise<{ state: PlanSessionState; turnId: string; executionId: string }> {
+      return ipcRenderer.invoke('plan-mode:approve', sessionId, input);
+    },
+    resumePlan(sessionId: string, executionId: string): Promise<{
+      state: PlanSessionState;
+      turnId: string;
+      executionId: string;
+    }> {
+      return ipcRenderer.invoke('plan-mode:resume', sessionId, executionId);
     },
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setModel', sessionId, input);

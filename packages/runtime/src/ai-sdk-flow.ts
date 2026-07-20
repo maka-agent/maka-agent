@@ -476,8 +476,13 @@ function mapBackendSessionEvent(
         actions: {
           stateDelta: {
             planId: event.planId,
+            ...(event.proposalId ? { proposalId: event.proposalId } : {}),
+            ...(event.revision !== undefined ? { revision: event.revision } : {}),
             title: event.title,
-            markdownPath: event.markdownPath,
+            ...(event.overview ? { overview: event.overview } : {}),
+            ...(event.risks ? { risks: event.risks } : {}),
+            ...(event.markdownPath ? { markdownPath: event.markdownPath } : {}),
+            ...(event.steps ? { steps: event.steps } : {}),
           },
         },
       };

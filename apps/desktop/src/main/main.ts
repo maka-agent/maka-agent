@@ -56,6 +56,7 @@ import {
   createReadImageSnapshotter,
   createConnectionStore,
   createPlanReminderStore,
+  createPlanStore,
   openRuntimeEventPersistence,
   createSessionStore,
   createSettingsStore,
@@ -195,6 +196,7 @@ const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFix
 // process, so quit needs no special teardown.
 const keepSystemAwake = createKeepSystemAwakeController(powerSaveBlocker);
 const store = createSessionStore(workspaceRoot);
+const planStore = createPlanStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimePersistence = await openRuntimeEventPersistence({
   workspaceRoot,
@@ -692,6 +694,7 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
   persistArchivedToolResult,
   readArchivedToolResult,
   runtimeCommitStore: runtimePersistence.runtimeCommitStore,
+  planStore,
   safeSendToRenderer,
   getRuntime: () => runtime,
   getLookupPricing: () => lookupPricing,
@@ -714,6 +717,7 @@ if (isE2e) {
 
 const runtime = new SessionManager({
   store,
+  planStore,
   runStore,
   runtimeEventStore,
   ...(runtimePersistence.runtimeCommitStore
@@ -992,6 +996,8 @@ const streamEvents = createSessionStreamer({
   computerUseTools,
   safeSendToRenderer,
   emitSessionsChanged,
+  interruptActivePlanExecution: (sessionId, reason) =>
+    runtime.interruptActivePlanExecution(sessionId, reason),
 });
 
 async function ensureSessionCanSend(sessionId: string): Promise<void> {

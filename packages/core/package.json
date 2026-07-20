@@ -12,6 +12,8 @@
     "./execution-evidence": "./dist/execution-evidence.js",
     "./events": "./dist/events.js",
     "./session": "./dist/session.js",
+    "./collaboration": "./dist/collaboration.js",
+    "./plan": "./dist/plan.js",
     "./agent-run": "./dist/agent-run.js",
     "./shell-run": "./dist/shell-run.js",
     "./browser": "./dist/browser.js",

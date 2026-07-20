@@ -6,6 +6,7 @@ import type { AttachmentRef } from './events.js';
 import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
+import type { CollaborationMode } from './collaboration.js';
 
 export interface CreateSessionInput {
   /** Absolute path to the session's working dir (project root). */
@@ -19,6 +20,8 @@ export interface CreateSessionInput {
   /** Per-model reasoning-depth variant; `undefined` = model default. */
   thinkingLevel?: ThinkingLevel;
   permissionMode: PermissionMode;
+  /** Defaults to `agent`. */
+  collaborationMode?: CollaborationMode;
   status?: SessionStatus;
   blockedReason?: SessionBlockedReason;
   parentSessionId?: string;

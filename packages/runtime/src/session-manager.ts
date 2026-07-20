@@ -45,6 +45,13 @@ import type {
 import type { PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { PermissionMode } from '@maka/core/permission';
+import type { CollaborationMode } from '@maka/core/collaboration';
+import type {
+  ApprovePlanProposalInput,
+  PlanMutationResult,
+  PlanSessionState,
+  PlanStore,
+} from '@maka/core/plan';
 import {
   DEFAULT_SESSION_NAME,
   DEEP_RESEARCH_SESSION_LABEL,
@@ -297,6 +304,7 @@ export class BackendRegistry {
 
 export interface SessionManagerDeps {
   store: SessionStore;
+  planStore?: PlanStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
   /** Host capability; RuntimeKernel gates it by the selected backend. */
@@ -486,6 +494,14 @@ export class SessionManager {
     const recovered = new Set<string>();
     for (const session of interrupted) {
       if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
+      if (this.deps.planStore) {
+        const planRecovery = await recoverOr(
+          policy,
+          () => this.deps.planStore!.interruptActiveExecution(session.id, 'runtime_recovery'),
+          null,
+        );
+        if (planRecovery) recovered.add(session.id);
+      }
       if (this.deps.shellRuns) {
         const recoveredShellRuns = await recoverOr(
           policy,
@@ -667,6 +683,85 @@ export class SessionManager {
     // backend before the next turn so PermissionEngine receives the new mode.
     await this.runtimeKernel.disposeBackend(sessionId);
     return headerToSummary(next);
+  }
+
+  async getPlanState(sessionId: string): Promise<PlanSessionState> {
+    return this.requirePlanStore().readState(sessionId);
+  }
+
+  async setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary> {
+    const previous = await this.deps.store.readHeader(sessionId);
+    const from = previous.collaborationMode ?? 'agent';
+    if (from === mode) return headerToSummary(previous);
+    if (this.runtimeKernel.hasActiveRuns(sessionId)) {
+      throw new Error('当前对话正在运行，等结束后再切换协作模式。');
+    }
+    if (previous.status === 'waiting_for_user') {
+      throw new Error('当前有工具调用正在等待确认，处理后再切换协作模式。');
+    }
+    const planState = await this.requirePlanStore().readState(sessionId);
+    if (mode === 'plan' && planState.activeExecutionId) {
+      throw new Error('当前计划仍在执行，结束或中断后才能切换到 Plan Mode。');
+    }
+
+    const next = await this.deps.store.updateHeader(sessionId, {
+      collaborationMode: mode,
+    });
+    await this.deps.store.appendMessage(sessionId, {
+      type: 'system_note',
+      id: this.deps.newId(),
+      ts: this.deps.now(),
+      kind: 'mode_change',
+      data: { dimension: 'collaboration', from, to: mode },
+    } satisfies SystemNoteMessage);
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
+    await this.runtimeKernel.disposeBackend(sessionId);
+    return headerToSummary(next);
+  }
+
+  async requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanMutationResult> {
+    const result = await this.requirePlanStore().requestRevision({ sessionId, proposalId });
+    const header = await this.deps.store.readHeader(sessionId);
+    if ((header.collaborationMode ?? 'agent') !== 'plan') {
+      const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'plan' });
+      this.runtimeKernel.updateCachedHeader(sessionId, next);
+    }
+    await this.runtimeKernel.disposeBackend(sessionId);
+    return result;
+  }
+
+  async approvePlan(input: ApprovePlanProposalInput): Promise<PlanMutationResult> {
+    const header = await this.deps.store.readHeader(input.sessionId);
+    if (this.runtimeKernel.hasActiveRuns(input.sessionId)) {
+      throw new Error('当前对话仍在运行，无法批准计划。');
+    }
+    if (header.status === 'waiting_for_user') {
+      throw new Error('当前有工具调用正在等待确认，无法批准计划。');
+    }
+    const result = await this.requirePlanStore().approveProposal(input);
+    const next = await this.deps.store.updateHeader(input.sessionId, {
+      collaborationMode: 'agent',
+    });
+    this.runtimeKernel.updateCachedHeader(input.sessionId, next);
+    await this.runtimeKernel.disposeBackend(input.sessionId);
+    return result;
+  }
+
+  async resumePlanExecution(sessionId: string, executionId: string): Promise<PlanMutationResult> {
+    const result = await this.requirePlanStore().resumeExecution(sessionId, executionId);
+    const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'agent' });
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
+    await this.runtimeKernel.disposeBackend(sessionId);
+    return result;
+  }
+
+  async interruptActivePlanExecution(
+    sessionId: string,
+    reason: string,
+  ): Promise<PlanMutationResult | null> {
+    const result = await this.requirePlanStore().interruptActiveExecution(sessionId, reason);
+    if (result) await this.runtimeKernel.disposeBackend(sessionId);
+    return result;
   }
 
   async remove(sessionId: string): Promise<void> {
@@ -1296,6 +1391,11 @@ export class SessionManager {
     return next;
   }
 
+  private requirePlanStore(): PlanStore {
+    if (!this.deps.planStore) throw new Error('Plan Mode is unavailable on this surface');
+    return this.deps.planStore;
+  }
+
   private async appendTurnState(
     sessionId: string,
     turnId: string,
@@ -1697,6 +1797,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     connectionLocked: h.connectionLocked,
     model: h.model,
     permissionMode: h.permissionMode ?? 'ask',
+    collaborationMode: h.collaborationMode ?? 'agent',
   };
   if (h.thinkingLevel !== undefined) summary.thinkingLevel = h.thinkingLevel;
   if (h.lastMessageAt !== undefined) {
@@ -1715,7 +1816,8 @@ export function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
     'llmConnectionSlug' in patch ||
     'model' in patch ||
     'thinkingLevel' in patch ||
-    'cwd' in patch
+    'cwd' in patch ||
+    'collaborationMode' in patch
   );
 }
 

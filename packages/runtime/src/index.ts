@@ -113,6 +113,17 @@ export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
+export {
+  buildSubmitPlanTool,
+  buildUpdatePlanTool,
+  buildCancelPlanTool,
+} from './plan-tools.js';
+export type { PlanToolResult } from './plan-tools.js';
+export {
+  selectCollaborationTools,
+  renderPlanModePrompt,
+  renderPlanExecutionPrompt,
+} from './plan-mode.js';
 export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type { AttachmentByteReader } from '@maka/core/attachments';
 export type {

@@ -16,12 +16,22 @@ export type RunTracePhase =
   | 'tool'
   | 'permission'
   | 'sandbox'
+  | 'plan'
   | 'abort'
   | 'usage';
 
 export type RunTraceEventType =
   | 'turn_started'
   | 'sandbox_context_resolved'
+  | 'plan_context_resolved'
+  | 'plan_submitted'
+  | 'plan_execution_started'
+  | 'plan_progress_updated'
+  | 'plan_execution_completed'
+  | 'plan_execution_cancelled'
+  | 'plan_execution_interrupted'
+  | 'plan_execution_resumed'
+  | 'plan_transition_failed'
   | 'model_resolved'
   | 'model_resolve_failed'
   | 'model_stream_started'

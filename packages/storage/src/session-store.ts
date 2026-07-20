@@ -12,6 +12,7 @@ import { chainWrite } from './write-queue.js';
 import {
   DEFAULT_SESSION_NAME,
   deriveTurnRecords,
+  isCollaborationMode,
   isPermissionMode,
   isSessionBlockedReason,
   isSessionStatus,
@@ -114,6 +115,7 @@ class FileSessionStore implements SessionStore {
       connectionLocked: false,
       model: input.model ?? 'default',
       permissionMode: input.permissionMode,
+      collaborationMode: input.collaborationMode ?? 'agent',
       ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       schemaVersion: 1,
     };
@@ -544,11 +546,18 @@ export function isSafeSessionId(sessionId: string): boolean {
 
 type StoredSessionHeader = Omit<
   SessionHeader,
-  'backend' | 'model' | 'permissionMode' | 'status' | 'blockedReason' | 'titleIsManual'
+  | 'backend'
+  | 'model'
+  | 'permissionMode'
+  | 'collaborationMode'
+  | 'status'
+  | 'blockedReason'
+  | 'titleIsManual'
 > & {
   backend: string;
   model?: unknown;
   permissionMode?: unknown;
+  collaborationMode?: unknown;
   status?: unknown;
   blockedReason?: unknown;
   titleIsManual?: unknown;
@@ -574,6 +583,9 @@ function createJsonlCorruptionNote(
 
 function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionHeader {
   const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
+  const collaborationMode = isCollaborationMode(header.collaborationMode)
+    ? header.collaborationMode
+    : 'agent';
   const model =
     typeof header.model === 'string' && header.model.length > 0 ? header.model : 'default';
   const status = resolveMigratedStatus(header);
@@ -597,19 +609,43 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
       : normalizeSessionName(header.name) !== DEFAULT_SESSION_NAME;
   if (header.backend === 'claude') {
     return normalizeMigratedHeader(
-      { ...header, ...statusFields, titleIsManual, backend: 'ai-sdk', model, permissionMode },
+      {
+        ...header,
+        ...statusFields,
+        titleIsManual,
+        backend: 'ai-sdk',
+        model,
+        permissionMode,
+        collaborationMode,
+      },
       sessionId,
     );
   }
   if (header.backend === 'pi-agent') {
     return normalizeMigratedHeader(
-      { ...header, ...statusFields, titleIsManual, backend: 'pi-agent', model, permissionMode },
+      {
+        ...header,
+        ...statusFields,
+        titleIsManual,
+        backend: 'pi-agent',
+        model,
+        permissionMode,
+        collaborationMode,
+      },
       sessionId,
     );
   }
   if (header.backend === 'pi') {
     return normalizeMigratedHeader(
-      { ...header, ...statusFields, titleIsManual, backend: 'pi-agent', model, permissionMode },
+      {
+        ...header,
+        ...statusFields,
+        titleIsManual,
+        backend: 'pi-agent',
+        model,
+        permissionMode,
+        collaborationMode,
+      },
       sessionId,
     );
   }
@@ -621,6 +657,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
       backend: header.backend === 'ai-sdk' ? 'ai-sdk' : 'fake',
       model,
       permissionMode,
+      collaborationMode,
     },
     sessionId,
   );
@@ -660,6 +697,7 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
     typeof header.connectionLocked === 'boolean' &&
     typeof header.model === 'string' &&
     isPermissionMode(header.permissionMode) &&
+    isCollaborationMode(header.collaborationMode) &&
     header.schemaVersion === 1;
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
@@ -709,6 +747,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     connectionLocked: header.connectionLocked,
     model: header.model,
     permissionMode: header.permissionMode,
+    collaborationMode: header.collaborationMode ?? 'agent',
     ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
   };
 }

@@ -33,6 +33,7 @@ import { useCommandPalette } from './command-palette';
 import { ChatMessageSurface } from './chat-message-surface';
 import { ChatComposerRegion } from './chat-composer-region';
 import { ChatWorkbar } from './chat-workbar';
+import { PlanModePanel } from './plan-mode-panel';
 import { McpPage } from './mcp-page';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
@@ -1491,6 +1492,13 @@ function AppShellContent({
                 onStartPlanReminder={openPlanReminderForm}
               />
               )}
+              <PlanModePanel
+                session={activeSessionForView}
+                disabled={activeStreamingLive || activeSessionForView?.status === 'running' || activeSessionForView?.status === 'waiting_for_user'}
+                onSessionChanged={(next) => {
+                  setSessions((current) => current.map((session) => session.id === next.id ? next : session));
+                }}
+              />
               <ChatComposerRegion
                 composerRef={composerRef}
                 active={navSelection.section === 'sessions'}

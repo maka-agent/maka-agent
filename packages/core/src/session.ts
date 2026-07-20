@@ -13,6 +13,7 @@ import {
   type ToolResultContent,
 } from './events.js';
 import type { PermissionMode } from './permission.js';
+import type { CollaborationMode } from './collaboration.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -119,6 +120,8 @@ export interface SessionHeader {
   /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
   thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
+  /** Defaults to `agent` when absent on legacy session records. */
+  collaborationMode?: CollaborationMode;
 
   /** Forward-compatible schema versioning. V0.1 only writes 1. */
   schemaVersion: 1;
@@ -157,6 +160,8 @@ export interface SessionSummary {
   /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
   thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
+  /** Defaults to `agent` when absent on legacy summaries. */
+  collaborationMode?: CollaborationMode;
 }
 
 export type SessionChangedReason =

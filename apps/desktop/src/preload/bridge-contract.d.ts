@@ -13,6 +13,8 @@ import type {
   PermissionResponse,
   UserQuestionResponse,
   PermissionMode,
+  CollaborationMode,
+  PlanSessionState,
   SearchErrorReason,
   SearchRequest,
   SearchResult,
@@ -206,6 +208,19 @@ export interface MakaBridge {
     setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
     rename(sessionId: string, name: string): Promise<void>;
     setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
+    setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary>;
+    getPlanState(sessionId: string): Promise<PlanSessionState>;
+    requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanSessionState>;
+    approvePlan(sessionId: string, input: {
+      proposalId: string;
+      expectedRevision: number;
+      expectedStoreVersion?: number;
+    }): Promise<{ state: PlanSessionState; turnId: string; executionId: string }>;
+    resumePlan(sessionId: string, executionId: string): Promise<{
+      state: PlanSessionState;
+      turnId: string;
+      executionId: string;
+    }>;
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
     setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
     remove(sessionId: string): Promise<void>;

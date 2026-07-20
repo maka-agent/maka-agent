@@ -1,4 +1,5 @@
 import { isPermissionMode, type PermissionMode } from './permission.js';
+import { isCollaborationMode, type CollaborationMode } from './collaboration.js';
 import type { BackendKind } from './session.js';
 import {
   defineObjectShape,
@@ -45,6 +46,8 @@ export interface AgentRunHeader {
   /** Authoritative host identity for the workspace observed when the run was created. */
   workspaceIdentity?: string;
   permissionMode: PermissionMode;
+  /** Snapshot of the session collaboration mode. Optional on legacy runs. */
+  collaborationMode?: CollaborationMode;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -76,6 +79,15 @@ export const AGENT_RUN_EVENT_TYPES = [
   'run_started',
   'turn_started',
   'sandbox_context_resolved',
+  'plan_context_resolved',
+  'plan_submitted',
+  'plan_execution_started',
+  'plan_progress_updated',
+  'plan_execution_completed',
+  'plan_execution_cancelled',
+  'plan_execution_interrupted',
+  'plan_execution_resumed',
+  'plan_transition_failed',
   'run_status_changed',
   'model_resolved',
   'model_resolve_failed',
@@ -156,6 +168,7 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'failureMessage',
     'abortSource',
     'traceWriteError',
+    'collaborationMode',
   ],
 );
 
@@ -178,6 +191,7 @@ export function decodeAgentRunHeader(value: unknown): AgentRunHeader {
     typeof value.modelId === 'string' &&
     typeof value.cwd === 'string' &&
     isPermissionMode(value.permissionMode) &&
+    (value.collaborationMode === undefined || isCollaborationMode(value.collaborationMode)) &&
     isFiniteNumber(value.createdAt) &&
     isFiniteNumber(value.updatedAt) &&
     isOptionalString(value.invocationId) &&
