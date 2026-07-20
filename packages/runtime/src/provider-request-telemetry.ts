@@ -393,7 +393,11 @@ export function strictProviderRequestUsage(
   };
 
   if (raw) {
-    applyAnthropicCacheUsage(result, raw);
+    const normalizedCacheMiss =
+      typeof usage.inputTokens === 'object' && usage.inputTokens !== null
+        ? finiteToken(usage.inputTokens.noCache)
+        : undefined;
+    applyAnthropicCacheUsage(result, raw, normalizedCacheMiss);
     applyOpenAiCacheUsage(result, raw);
     applyGoogleCacheUsage(result, raw);
     const reasoningTokens = firstToken(
@@ -421,6 +425,7 @@ function applyGoogleCacheUsage(result: ProviderRequestUsage, raw: Record<string,
 function applyAnthropicCacheUsage(
   result: ProviderRequestUsage,
   raw: Record<string, unknown>,
+  normalizedCacheMiss: number | undefined,
 ): void {
   const cacheRead = ownToken(raw, 'cache_read_input_tokens');
   const cacheWrite = ownToken(raw, 'cache_creation_input_tokens');
@@ -437,9 +442,9 @@ function applyAnthropicCacheUsage(
   // usage object, rather than an OpenAI Responses usage object with the same
   // top-level input_tokens spelling.
   if (cacheRead !== undefined || cacheWrite !== undefined) {
-    const cacheMiss = ownToken(raw, 'input_tokens');
-    if (cacheMiss !== undefined) {
-      result.cacheMissInputTokens = cacheMiss;
+    const rawCacheMiss = ownToken(raw, 'input_tokens');
+    if (rawCacheMiss !== undefined) {
+      result.cacheMissInputTokens = normalizedCacheMiss ?? rawCacheMiss;
       result.cacheMissInputSource = 'provider';
     }
   }

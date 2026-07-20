@@ -28,6 +28,34 @@ describe('strict provider-request usage', () => {
     });
   });
 
+  test('reconciles Anthropic compaction iterations with normalized input usage', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 115, noCache: 105, cacheRead: 10, cacheWrite: 0 },
+      outputTokens: { total: 9, text: 9, reasoning: undefined },
+      raw: {
+        input_tokens: 5,
+        output_tokens: 9,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 10,
+        iterations: [
+          { type: 'message', input_tokens: 5, output_tokens: 4 },
+          { type: 'compaction', input_tokens: 100, output_tokens: 5 },
+        ],
+      },
+    });
+
+    assert.deepEqual(usage, {
+      inputTokens: 115,
+      cacheReadInputTokens: 10,
+      cacheReadInputSource: 'provider',
+      cacheMissInputTokens: 105,
+      cacheMissInputSource: 'provider',
+      cacheWriteInputTokens: 0,
+      cacheWriteInputSource: 'provider',
+      outputTokens: 9,
+    });
+  });
+
   test('marks OpenAI cache miss as derived and leaves unsupported cache-write missing', () => {
     const usage = telemetry.strictProviderRequestUsage({
       inputTokens: { total: 100, noCache: 30, cacheRead: 70, cacheWrite: undefined },
