@@ -6,6 +6,7 @@ import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRunHeader } from '@maka/core/agent-run';
+import type { MessageContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import { isTerminalRuntimeEvent, type RuntimeEvent } from '@maka/core/runtime-event';
 import { classifyTerminalRuntimeLedger } from '@maka/runtime';
@@ -113,7 +114,7 @@ export class ExecutionFixture {
   }
 
   seedAdmission(turnId: string, text: string): Promise<{ runId: string; userMessageId: string }> {
-    return this.seedTurnState(turnId, text, false);
+    return this.seedTurnState(turnId, { text }, false);
   }
 
   async archiveSession(): Promise<void> {
@@ -130,14 +131,14 @@ export class ExecutionFixture {
 
   seedRunWithoutUserMessage(
     turnId: string,
-    text: string,
+    content: MessageContent,
   ): Promise<{ runId: string; userMessageId: string }> {
-    return this.seedTurnState(turnId, text, true);
+    return this.seedTurnState(turnId, content, true);
   }
 
   private async seedTurnState(
     turnId: string,
-    text: string,
+    content: MessageContent,
     createRun: boolean,
   ): Promise<{ runId: string; userMessageId: string }> {
     const owner = await tryAcquireInteractiveRootOwner(this.capability);
@@ -152,7 +153,7 @@ export class ExecutionFixture {
         proposedRunId: randomUUID(),
         proposedUserMessageId: randomUUID(),
         previousRootTurnId: null,
-        normalizedInput: { text },
+        normalizedInput: content,
         sourceMessages: [],
         admittedAt,
       });

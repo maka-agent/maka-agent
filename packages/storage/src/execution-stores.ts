@@ -39,11 +39,11 @@ const executionStoresReaderBrand: unique symbol = Symbol('ExecutionStoresReader'
 const executionStoresWriterKinds = new WeakMap<object, StorageRootKind>();
 const executionStoresReaderKinds = new WeakMap<object, StorageRootKind>();
 
-export type {
-  RootTurnAdmission,
-  RootTurnAdmissionInput,
-  RootTurnSourceMessage,
-  RootTurnSourceMessageReceipt,
+export {
+  ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+  type RootTurnAdmission,
+  type RootTurnSourceMessage,
+  type RootTurnSourceMessageReceipt,
 } from './agent-run-store.js';
 
 export type ExecutionSessionWriter = SessionStore;

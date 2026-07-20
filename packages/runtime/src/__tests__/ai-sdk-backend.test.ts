@@ -31,6 +31,7 @@ import {
   formatSyntheticToolErrorText,
   normalizeAiSdkUsage,
   repairMakaToolCall,
+  type AiSdkBackendInput,
   type RunTraceEvent,
 } from '../ai-sdk-backend.js';
 import type { MakaTool } from '../tool-runtime.js';
@@ -11422,7 +11423,10 @@ function archiveGatedTurnEvents(suffix: 'a' | 'b', path: string, result: unknown
 }
 
 describe('AiSdkBackend steering durability and identity', () => {
-  const steeringBackend = (model: MockLanguageModelV4): AiSdkBackend =>
+  const steeringBackend = (
+    model: MockLanguageModelV4,
+    options: Partial<Pick<AiSdkBackendInput, 'supportsVision' | 'readAttachmentBytes'>> = {},
+  ): AiSdkBackend =>
     new AiSdkBackend({
       execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
@@ -11436,16 +11440,17 @@ describe('AiSdkBackend steering durability and identity', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
+      ...options,
     });
 
   const pullOnce = (
     text: string,
-  ): (() => Array<{ id: string; messageId: string; text: string }>) => {
+  ): (() => Array<{ id: string; messageId: string; content: { text: string } }>) => {
     let pulled = false;
     return () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: `lease-${text}`, messageId: `message-${text}`, text }];
+      return [{ id: `lease-${text}`, messageId: `message-${text}`, content: { text } }];
     };
   };
 
@@ -11498,6 +11503,84 @@ describe('AiSdkBackend steering durability and identity', () => {
       events.some((event) => event.type === 'complete' && event.stopReason === 'end_turn'),
       true,
     );
+  });
+
+  test('persists complete steering content and sends only authoritative text plus real images', async () => {
+    const model = textCompletionModel('done');
+    const pngBytes = new Uint8Array([137, 80, 78, 71]);
+    const image = {
+      kind: 'image' as const,
+      name: 'first.png',
+      mimeType: 'image/png',
+      bytes: pngBytes.length,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'first.png' },
+    };
+    const document = {
+      kind: 'pdf' as const,
+      name: 'second.pdf',
+      mimeType: 'application/pdf',
+      bytes: 12,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'second.pdf' },
+    };
+    const backend = steeringBackend(model, {
+      supportsVision: true,
+      readAttachmentBytes: async (ref) => {
+        assert.deepEqual(ref, image.ref);
+        return { ok: true, bytes: pngBytes };
+      },
+    });
+    const content = {
+      text: 'inspect the authoritative inputs',
+      displayText: 'human-only command',
+      attachments: [image, document],
+    };
+    let pulled = false;
+    const acked: string[] = [];
+    const iterator = backend
+      .send({
+        turnId: 'turn-1',
+        text: 'start',
+        context: [],
+        pullSteering: () => {
+          if (pulled) return [];
+          pulled = true;
+          return [{ id: 'lease-content', messageId: 'message-content', content }];
+        },
+        ackSteering: (leaseIds) => acked.push(...leaseIds),
+      })
+      [Symbol.asyncIterator]();
+
+    const steeringEvent = await nextSteeringEvent(iterator);
+    assert.equal(steeringEvent.type, 'steering_message');
+    if (steeringEvent.type !== 'steering_message') assert.fail('expected steering event');
+    assert.deepEqual(steeringEvent.content, content);
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.deepEqual(acked, []);
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next()) {}
+    assert.deepEqual(acked, ['lease-content']);
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const steeringPrompt = prompt.at(-1);
+    assert.equal(steeringPrompt?.role, 'user');
+    const parts = steeringPrompt?.content as Array<{
+      type: string;
+      text?: string;
+      mediaType?: string;
+      data?: unknown;
+    }>;
+    assert.deepEqual(
+      parts.map((part) => part.type),
+      ['text', 'file'],
+    );
+    assert.equal(
+      parts[0]?.text,
+      buildSteeringEnvelope(
+        'inspect the authoritative inputs\n\n[attachment: first.png (image/png)] [attachment: second.pdf (application/pdf)]',
+      ),
+    );
+    assert.equal(parts[1]?.mediaType, 'image/png');
+    assert.notEqual(parts[1]?.data, undefined);
+    assert.equal(JSON.stringify(prompt).includes('human-only command'), false);
   });
 
   test('a steering message never reaches the provider when the consumer detaches before the ack', async () => {
@@ -11785,8 +11868,8 @@ describe('AiSdkBackend steering durability and identity', () => {
           if (pulled) return [];
           pulled = true;
           return [
-            { id: 'lease-1', messageId: 'message-1', text: 'do it' },
-            { id: 'lease-2', messageId: 'message-2', text: 'do it' },
+            { id: 'lease-1', messageId: 'message-1', content: { text: 'do it' } },
+            { id: 'lease-2', messageId: 'message-2', content: { text: 'do it' } },
           ];
         },
       }),

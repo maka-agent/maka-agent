@@ -11098,7 +11098,9 @@ describe('SessionManager steering and followup queues', () => {
     expect(steerOutcome).toEqual({ kind: 'queued' });
     // The interjection is echoed as a first-class user event…
     expect(
-      events.some((event) => event.type === 'steering_message' && event.text === 'also do X'),
+      events.some(
+        (event) => event.type === 'steering_message' && event.content.text === 'also do X',
+      ),
     ).toBe(true);
     // …the enqueue and the step-boundary consumption both push a queue snapshot…
     const queueUpdates = events.filter(
@@ -11227,7 +11229,9 @@ describe('SessionManager steering and followup queues', () => {
     });
     expect(outcome?.kind).toBe('queued');
     expect(
-      events.some((event) => event.type === 'steering_message' && event.text === 'now consumed'),
+      events.some(
+        (event) => event.type === 'steering_message' && event.content.text === 'now consumed',
+      ),
     ).toBe(true);
   });
 
@@ -11273,7 +11277,7 @@ describe('SessionManager steering and followup queues', () => {
     expect(backend?.pulls.get('turn-b')).toEqual([['for the owner']]);
     expect(
       secondEvents.some(
-        (event) => event.type === 'steering_message' && event.text === 'for the owner',
+        (event) => event.type === 'steering_message' && event.content.text === 'for the owner',
       ),
     ).toBe(true);
   });
@@ -11928,7 +11932,7 @@ class GatedSteeringBackend implements AgentBackend {
     await gate.promise;
     const leases = input.pullSteering?.() ?? [];
     const record = this.pulls.get(input.turnId) ?? [];
-    record.push(leases.map((lease) => lease.text));
+    record.push(leases.map((lease) => lease.content.text));
     this.pulls.set(input.turnId, record);
     let seq = 0;
     for (const lease of leases) {
@@ -11939,7 +11943,7 @@ class GatedSteeringBackend implements AgentBackend {
         turnId: input.turnId,
         ts: seq,
         messageId: `${input.turnId}-steer-m-${seq}`,
-        text: lease.text,
+        content: lease.content,
       };
     }
     // Delivery for this fake is the echo itself; ack the leases.

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRunHeader } from '@maka/core/agent-run';
+import { messageContentsEqual, normalizeMessageContent } from '@maka/core/events';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
 import {
   type RuntimeInteractionFailStopError,
@@ -176,7 +177,7 @@ export class RootTurnCoordinator {
           if (
             messageIdOwner !== userMessage ||
             userMessage.id !== admission.userMessageId ||
-            userMessage.text !== admission.normalizedInput.text
+            !messageContentsEqual(userMessage, admission.normalizedInput)
           ) {
             throw new Error(`Admitted Turn ${admission.turnId} does not match its UserMessage`);
           }
@@ -190,7 +191,7 @@ export class RootTurnCoordinator {
           id: admission.userMessageId,
           turnId: admission.turnId,
           ts: admission.admittedAt,
-          text: admission.normalizedInput.text,
+          ...normalizeMessageContent(admission.normalizedInput),
         } satisfies RecoveryUserMessage;
         missingMessages.push(recoveredMessage);
         indexRecoveryMessage(messageIndex, recoveredMessage);
@@ -245,7 +246,7 @@ export class RootTurnCoordinator {
       const input = {
         sessionId,
         turnId: admission.turnId,
-        text: admission.normalizedInput.text,
+        content: normalizeMessageContent(admission.normalizedInput),
       };
       const disposition = await this.sessionAdmission.run(sessionId, (lease) =>
         this.prepareAdmittedTurn(input, admission, this.acquireRecoveryResidency, lease),
@@ -341,6 +342,11 @@ export class RootTurnCoordinator {
     if (input.sourceMessage.disposition !== 'turn_started') {
       throw new RuntimeInteractionInvariantError('Idle message start requires turn_started source');
     }
+    const content = normalizeMessageContent(input.content);
+    if (!messageContentsEqual(input.sourceMessage.content, content)) {
+      throw new RuntimeInteractionInvariantError('Idle message start changed its source content');
+    }
+    const sourceMessage = { ...input.sourceMessage, content };
     if (this.#activeBySession.has(input.sessionId)) {
       throw new RuntimeInteractionInvariantError(
         'Message coordinator attempted an idle start while a root Turn was active',
@@ -354,10 +360,10 @@ export class RootTurnCoordinator {
       sessionId: input.sessionId,
       turnId,
       proposedRunId: randomUUID(),
-      proposedUserMessageId: input.sourceMessage.messageId,
+      proposedUserMessageId: sourceMessage.messageId,
       previousRootTurnId,
-      normalizedInput: { text: input.text },
-      sourceMessages: [input.sourceMessage],
+      normalizedInput: content,
+      sourceMessages: [sourceMessage],
       admittedAt: Date.now(),
     });
     this.#throwIfPoisoned();
@@ -368,7 +374,7 @@ export class RootTurnCoordinator {
     let disposition: TurnStartDisposition;
     try {
       disposition = await this.prepareAdmittedTurn(
-        { sessionId: input.sessionId, turnId, text: input.text },
+        { sessionId: input.sessionId, turnId, content },
         admission.admission,
         this.acquireRecoveryResidency,
         admissionLease,
@@ -417,6 +423,8 @@ export class RootTurnCoordinator {
   private startTurn(input: TurnStartInput, context: ConnectionContext): Promise<TurnStartOutcome> {
     return this.runCommand(async () => {
       this.#throwIfPoisoned();
+      const content = normalizeMessageContent(input.content);
+      const canonicalInput = { ...input, content };
       const disposition = await this.sessionAdmission.run(input.sessionId, async (lease) => {
         this.#throwIfPoisoned();
         const existing = await this.stores.agentRunStore.readRootTurnAdmission(
@@ -426,14 +434,19 @@ export class RootTurnCoordinator {
         this.#throwIfPoisoned();
         if (existing) {
           if (
-            existing.normalizedInput.text !== input.text ||
+            !messageContentsEqual(existing.normalizedInput, content) ||
             existing.sourceMessages.length !== 0
           ) {
             return completedStart(
               operationConflict('Turn identity was already admitted with a different payload'),
             );
           }
-          return this.prepareAdmittedTurn(input, existing, context.acquireResidency, lease);
+          return this.prepareAdmittedTurn(
+            canonicalInput,
+            existing,
+            context.acquireResidency,
+            lease,
+          );
         }
 
         let header: SessionHeader;
@@ -461,13 +474,13 @@ export class RootTurnCoordinator {
           proposedRunId: randomUUID(),
           proposedUserMessageId: randomUUID(),
           previousRootTurnId,
-          normalizedInput: { text: input.text },
+          normalizedInput: content,
           sourceMessages: [],
           admittedAt: Date.now(),
         });
         this.#throwIfPoisoned();
         if (
-          admission.admission.normalizedInput.text !== input.text ||
+          !messageContentsEqual(admission.admission.normalizedInput, content) ||
           admission.admission.sourceMessages.length !== 0
         ) {
           return completedStart(
@@ -478,14 +491,14 @@ export class RootTurnCoordinator {
           this.rootAdmissionWriter.record(admission.admission);
         }
         return this.prepareAdmittedTurn(
-          input,
+          canonicalInput,
           admission.admission,
           context.acquireResidency,
           lease,
         );
       });
       this.#throwIfPoisoned();
-      return this.resolveStartDisposition(input, disposition);
+      return this.resolveStartDisposition(canonicalInput, disposition);
     });
   }
 
@@ -732,7 +745,7 @@ export class RootTurnCoordinator {
       let terminalEventObserved = false;
       for await (const event of this.manager.sendMessage(
         input.sessionId,
-        { turnId: input.turnId, text: input.text },
+        { turnId: input.turnId, ...input.content },
         {
           runId: active.runId,
           userMessageId: active.userMessageId,
@@ -921,7 +934,7 @@ export class RootTurnCoordinator {
       proposedRunId: runId,
       proposedUserMessageId: randomUUID(),
       previousRootTurnId,
-      normalizedInput: { text: batch.text },
+      normalizedInput: batch.content,
       sourceMessages: batch.sources,
       admittedAt: Date.now(),
     });
@@ -940,7 +953,7 @@ export class RootTurnCoordinator {
       nextRootCommitted = true;
       previous.messageTransitionCommitted = true;
       const disposition = await this.prepareAdmittedTurn(
-        { sessionId: batch.sessionId, turnId, text: batch.text },
+        { sessionId: batch.sessionId, turnId, content: batch.content },
         admission.admission,
         () => {
           if (residencyTransferred) {

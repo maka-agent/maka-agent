@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core/attachments';
 import {
   decodeClientFrame,
   decodeHostFrame,
@@ -12,6 +13,7 @@ import {
   RUNTIME_HOST_PROTOCOL_VERSION,
   SESSION_CONTINUITY_SCHEMA_VERSION,
   SESSION_LIVE_DELTA_MAX_BYTES,
+  TURN_MESSAGE_CONTENT_MAX_BYTES,
   TURN_MESSAGE_TEXT_MAX_BYTES,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
@@ -22,8 +24,8 @@ describe('Runtime Host bootstrap protocol', () => {
     assert.equal(negotiateProtocol({ min: 1, max: 1 }, { min: 2, max: 2 }), undefined);
   });
 
-  test('uses protocol v5 and Session continuity schema v3 without compatibility aliases', () => {
-    assert.equal(RUNTIME_HOST_PROTOCOL_VERSION, 5);
+  test('uses protocol v6 and Session continuity schema v3 without compatibility aliases', () => {
+    assert.equal(RUNTIME_HOST_PROTOCOL_VERSION, 6);
     assert.equal(SESSION_CONTINUITY_SCHEMA_VERSION, 3);
   });
 
@@ -120,7 +122,7 @@ describe('Runtime Host bootstrap protocol', () => {
         originHostEpoch: 'epoch-1',
         sessionId: 'session-1',
         messageId: 'message-1',
-        text: 'please adjust the active turn',
+        content: { text: 'please adjust the active turn' },
         placement: 'current_turn' as const,
       },
     };
@@ -239,12 +241,189 @@ describe('Runtime Host bootstrap protocol', () => {
     );
   });
 
+  test('requires nested canonical content for turn start and Message submit', () => {
+    const start = {
+      requestId: 'start-request-1',
+      operation: 'turn.start' as const,
+      input: {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        content: { text: 'start with context', displayText: 'start' },
+      },
+    };
+    assert.deepEqual(decodeClientFrame(start), start);
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          ...start,
+          input: { sessionId: 'session-1', turnId: 'turn-1', text: 'legacy' },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('normalizes Message content while preserving ordered AttachmentRefs', () => {
+    const content = {
+      text: 'model input',
+      displayText: 'model input',
+      attachments: [
+        attachmentRef({ kind: 'workspace_file', relativePath: 'second.ts' }, 'second.ts'),
+        attachmentRef(
+          { kind: 'session_file', sessionId: 'session-1', relativePath: 'first.ts' },
+          'first.ts',
+        ),
+        attachmentRef({ kind: 'external_file', absolutePath: '/tmp/third.ts' }, 'third.ts'),
+      ],
+    };
+    const decoded = decodeClientFrame({
+      requestId: 'submit-request-1',
+      operation: 'turn.message.submit',
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        content,
+        placement: 'next_turn',
+      },
+    });
+    assert.deepEqual(decoded, {
+      requestId: 'submit-request-1',
+      operation: 'turn.message.submit',
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        content: { text: 'model input', attachments: content.attachments },
+        placement: 'next_turn',
+      },
+    });
+
+    const empty = decodeClientFrame({
+      requestId: 'submit-request-2',
+      operation: 'turn.message.submit',
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        messageId: 'message-2',
+        content: { text: 'model input', displayText: '', attachments: [] },
+        placement: 'next_turn',
+      },
+    });
+    assert.deepEqual(empty, {
+      requestId: 'submit-request-2',
+      operation: 'turn.message.submit',
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        messageId: 'message-2',
+        content: { text: 'model input', displayText: '' },
+        placement: 'next_turn',
+      },
+    });
+  });
+
+  test('closes and bounds Message content and every AttachmentRef field', () => {
+    const submit = (content: unknown) =>
+      decodeClientFrame({
+        requestId: 'submit-request-bounds',
+        operation: 'turn.message.submit',
+        input: {
+          originHostEpoch: 'epoch-1',
+          sessionId: 'session-1',
+          messageId: 'message-bounds',
+          content,
+          placement: 'next_turn',
+        },
+      });
+    assert.throws(() => submit({ text: 'valid', parts: [] }), isInvalidFrame);
+    assert.throws(
+      () =>
+        submit({
+          text: 'valid',
+          attachments: [
+            { ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }), sha256: 'guess' },
+          ],
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        submit({
+          text: 'valid',
+          attachments: [
+            attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts', absolutePath: '/a.ts' }),
+          ],
+        }),
+      isInvalidFrame,
+    );
+    assert.doesNotThrow(() =>
+      submit({
+        text: 'valid',
+        attachments: Array.from({ length: MAX_ATTACHMENT_COUNT }, (_, index) =>
+          attachmentRef({ kind: 'workspace_file', relativePath: `${index}.ts` }),
+        ),
+      }),
+    );
+    assert.throws(
+      () =>
+        submit({
+          text: 'valid',
+          attachments: Array.from({ length: MAX_ATTACHMENT_COUNT + 1 }, (_, index) =>
+            attachmentRef({ kind: 'workspace_file', relativePath: `${index}.ts` }),
+          ),
+        }),
+      isInvalidFrame,
+    );
+    assert.doesNotThrow(() =>
+      submit({
+        text: 'valid',
+        attachments: [
+          {
+            ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }),
+            bytes: MAX_ATTACHMENT_BYTES,
+          },
+        ],
+      }),
+    );
+    for (const bytes of [-1, 1.5, MAX_ATTACHMENT_BYTES + 1]) {
+      assert.throws(
+        () =>
+          submit({
+            text: 'valid',
+            attachments: [
+              { ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }), bytes },
+            ],
+          }),
+        isInvalidFrame,
+      );
+    }
+    assert.throws(
+      () =>
+        submit({
+          text: 'valid',
+          attachments: [
+            { ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }), name: '' },
+          ],
+        }),
+      isInvalidFrame,
+    );
+    const halfOverallBudget = Math.floor(TURN_MESSAGE_CONTENT_MAX_BYTES / 2);
+    assert.throws(
+      () =>
+        submit({
+          text: 'a'.repeat(halfOverallBudget),
+          displayText: 'b'.repeat(halfOverallBudget),
+        }),
+      isInvalidFrame,
+    );
+  });
+
   test('bounds Message text in UTF-8 bytes while leaving enough room for frame overhead', () => {
     const input = {
       originHostEpoch: 'epoch-1',
       sessionId: 'session-1',
       messageId: 'message-1',
-      text: 'a'.repeat(TURN_MESSAGE_TEXT_MAX_BYTES),
+      content: { text: 'a'.repeat(TURN_MESSAGE_TEXT_MAX_BYTES) },
       placement: 'next_turn' as const,
     };
     const frame = decodeClientFrame({
@@ -256,11 +435,34 @@ describe('Runtime Host bootstrap protocol', () => {
     assert.throws(
       () =>
         decodeClientFrame({
+          requestId: 'submit-request-empty',
+          operation: 'turn.message.submit',
+          input: { ...input, content: { text: '' } },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          requestId: 'submit-request-display',
+          operation: 'turn.message.submit',
+          input: {
+            ...input,
+            content: { text: 'valid', displayText: 'a'.repeat(TURN_MESSAGE_TEXT_MAX_BYTES + 1) },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
           requestId: 'submit-request-2',
           operation: 'turn.message.submit',
           input: {
             ...input,
-            text: '界'.repeat(Math.floor(TURN_MESSAGE_TEXT_MAX_BYTES / 3) + 1),
+            content: {
+              text: '界'.repeat(Math.floor(TURN_MESSAGE_TEXT_MAX_BYTES / 3) + 1),
+            },
           },
         }),
       isInvalidFrame,
@@ -577,7 +779,7 @@ function queuedMessage(
   return {
     entryId: 'entry-1',
     messageId: 'message-queued-1',
-    text,
+    content: { text },
     placement,
     state: 'queued' as const,
   };
@@ -596,9 +798,25 @@ function retractedMessage() {
   return {
     entryId: 'entry-2',
     messageId: 'message-retracted-1',
-    text: 'do this next',
+    content: { text: 'do this next' },
     placement: 'next_turn' as const,
     state: 'retracted' as const,
+  };
+}
+
+function attachmentRef(
+  ref:
+    | { kind: 'session_file'; sessionId: string; relativePath: string }
+    | { kind: 'workspace_file'; relativePath: string; absolutePath?: string }
+    | { kind: 'external_file'; absolutePath: string },
+  name = 'a.ts',
+) {
+  return {
+    kind: 'code' as const,
+    name,
+    mimeType: 'text/typescript',
+    bytes: 1,
+    ref,
   };
 }
 

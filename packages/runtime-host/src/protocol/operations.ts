@@ -12,7 +12,10 @@ import {
 import { SESSION_CONTINUITY_OPERATION_SPECS } from './session-continuity.js';
 import { TURN_OPERATION_SPECS } from './turn.js';
 
-export { TURN_MESSAGE_TEXT_MAX_BYTES } from './turn.js';
+export {
+  TURN_MESSAGE_CONTENT_MAX_BYTES,
+  TURN_MESSAGE_TEXT_MAX_BYTES,
+} from './turn.js';
 
 export type {
   InFlightMessageSnapshot,

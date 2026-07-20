@@ -1,3 +1,8 @@
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core/attachments';
+import {
+  decodeMessageContent as decodeCanonicalMessageContent,
+  type MessageContent,
+} from '@maka/core/events';
 import { invalidProtocolFrame } from './errors.js';
 import {
   assertExactKeys,
@@ -9,13 +14,19 @@ import {
 } from './codec.js';
 import { defineOperation } from './operation-spec.js';
 
+export type { MessageContent };
+
 export interface TurnStartInput {
   sessionId: string;
   turnId: string;
-  text: string;
+  content: MessageContent;
 }
 
 export const TURN_MESSAGE_TEXT_MAX_BYTES = 48 * 1024;
+export const TURN_MESSAGE_CONTENT_MAX_BYTES = 52 * 1024;
+const ATTACHMENT_NAME_MAX_BYTES = 512;
+const ATTACHMENT_MIME_TYPE_MAX_BYTES = 256;
+const ATTACHMENT_PATH_MAX_BYTES = 4096;
 
 export interface TurnQueryInput {
   sessionId: string;
@@ -109,12 +120,76 @@ export const TURN_OPERATION_SPECS = {
 } as const;
 
 function decodeTurnStartInput(value: unknown): TurnStartInput {
-  const record = requireExactTurnInput(value, 'turn.start input', ['sessionId', 'turnId', 'text']);
+  const record = requireExactTurnInput(value, 'turn.start input', [
+    'sessionId',
+    'turnId',
+    'content',
+  ]);
   return {
     sessionId: requireEntityId(record.sessionId, 'sessionId'),
     turnId: requireEntityId(record.turnId, 'turnId'),
-    text: requireUtf8BoundedString(record.text, 'text', TURN_MESSAGE_TEXT_MAX_BYTES),
+    content: decodeMessageContent(record.content),
   };
+}
+
+export function decodeMessageContent(value: unknown): MessageContent {
+  let content: MessageContent;
+  try {
+    content = decodeCanonicalMessageContent(value);
+  } catch {
+    throw invalidProtocolFrame('Invalid Message content');
+  }
+  requireUtf8BoundedString(content.text, 'Message text', TURN_MESSAGE_TEXT_MAX_BYTES);
+  if (content.displayText !== undefined) {
+    requireUtf8ByteBoundedString(
+      content.displayText,
+      'Message displayText',
+      TURN_MESSAGE_TEXT_MAX_BYTES,
+    );
+  }
+  if ((content.attachments?.length ?? 0) > MAX_ATTACHMENT_COUNT) {
+    throw invalidProtocolFrame('Invalid Message attachments');
+  }
+  for (const attachment of content.attachments ?? []) {
+    requireUtf8BoundedString(attachment.name, 'AttachmentRef name', ATTACHMENT_NAME_MAX_BYTES);
+    requireUtf8BoundedString(
+      attachment.mimeType,
+      'AttachmentRef mimeType',
+      ATTACHMENT_MIME_TYPE_MAX_BYTES,
+    );
+    if (attachment.bytes > MAX_ATTACHMENT_BYTES) {
+      throw invalidProtocolFrame('Invalid AttachmentRef bytes');
+    }
+    if (attachment.ref.kind === 'session_file') {
+      requireEntityId(attachment.ref.sessionId, 'AttachmentRef sessionId');
+    }
+    const path =
+      attachment.ref.kind === 'external_file'
+        ? attachment.ref.absolutePath
+        : attachment.ref.relativePath;
+    requireUtf8BoundedString(path, 'AttachmentRef path', ATTACHMENT_PATH_MAX_BYTES);
+  }
+  requireEncodedByteLimit(content, 'Message content', TURN_MESSAGE_CONTENT_MAX_BYTES);
+  return content;
+}
+
+function requireUtf8ByteBoundedString(value: unknown, label: string, maxBytes: number): string {
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > maxBytes) {
+    throw invalidProtocolFrame(`Invalid ${label}`);
+  }
+  return value;
+}
+
+function requireEncodedByteLimit(value: unknown, label: string, maxBytes: number): void {
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    throw invalidProtocolFrame(`Invalid ${label}`);
+  }
+  if (encoded === undefined || Buffer.byteLength(encoded, 'utf8') > maxBytes) {
+    throw invalidProtocolFrame(`Invalid ${label}`);
+  }
 }
 
 function decodeTurnQueryInput(value: unknown): TurnQueryInput {

@@ -6,10 +6,14 @@ import {
   requireExactRecord,
   requireId,
   requireRecord,
-  requireUtf8BoundedString,
 } from './codec.js';
 import { defineOperation } from './operation-spec.js';
-import { decodeTurnSnapshot, TURN_MESSAGE_TEXT_MAX_BYTES, type TurnSnapshot } from './turn.js';
+import {
+  decodeMessageContent,
+  decodeTurnSnapshot,
+  type MessageContent,
+  type TurnSnapshot,
+} from './turn.js';
 
 export const MESSAGE_QUEUE_MAX_ENTRIES = 64;
 export const MESSAGE_QUEUE_PROJECTION_MAX_BYTES = 52 * 1024;
@@ -20,7 +24,7 @@ export type MessagePlacement = 'current_turn' | 'next_turn';
 interface MessageQueueEntrySnapshotBase {
   readonly entryId: string;
   readonly messageId: string;
-  readonly text: string;
+  readonly content: MessageContent;
   readonly placement: MessagePlacement;
 }
 
@@ -57,7 +61,7 @@ export interface TurnMessageSubmitInput {
   readonly originHostEpoch: string;
   readonly sessionId: string;
   readonly messageId: string;
-  readonly text: string;
+  readonly content: MessageContent;
   readonly placement: MessagePlacement;
 }
 
@@ -131,11 +135,6 @@ export const MESSAGE_OPERATION_SPECS = {
 } as const;
 
 export function decodeSessionMessageQueueProjection(value: unknown): SessionMessageQueueProjection {
-  requireEncodedByteLimit(
-    value,
-    'Session message queue projection',
-    MESSAGE_QUEUE_PROJECTION_MAX_BYTES,
-  );
   const record = requireExactRecord(value, 'Session message queue projection', [
     'hostEpoch',
     'queueRevision',
@@ -148,12 +147,18 @@ export function decodeSessionMessageQueueProjection(value: unknown): SessionMess
     throw invalidProtocolFrame('Invalid Session message queue projection');
   }
   assertUniqueQueueEntries([...steering, ...followup], 'Session message queue projection');
-  return {
+  const projection = {
     hostEpoch: requireId(record.hostEpoch, 'queue hostEpoch'),
     queueRevision: requireCount(record.queueRevision, 'queueRevision'),
     steering,
     followup,
   };
+  requireEncodedByteLimit(
+    projection,
+    'Session message queue projection',
+    MESSAGE_QUEUE_PROJECTION_MAX_BYTES,
+  );
+  return projection;
 }
 
 function decodeTurnMessageSubmitInput(value: unknown): TurnMessageSubmitInput {
@@ -161,14 +166,14 @@ function decodeTurnMessageSubmitInput(value: unknown): TurnMessageSubmitInput {
     'originHostEpoch',
     'sessionId',
     'messageId',
-    'text',
+    'content',
     'placement',
   ]);
   return {
     originHostEpoch: requireId(record.originHostEpoch, 'originHostEpoch'),
     sessionId: requireEntityId(record.sessionId, 'sessionId'),
     messageId: requireEntityId(record.messageId, 'messageId'),
-    text: requireUtf8BoundedString(record.text, 'text', TURN_MESSAGE_TEXT_MAX_BYTES),
+    content: decodeMessageContent(record.content),
     placement: requireMessagePlacement(record.placement),
   };
 }
@@ -206,12 +211,13 @@ function decodeQueueRetractInput(value: unknown): QueueRetractInput {
 }
 
 function decodeQueueRetractResult(value: unknown): QueueRetractResult {
-  requireEncodedByteLimit(value, 'queue.retract result', MESSAGE_OPERATION_RESULT_MAX_BYTES);
   const record = requireExactRecord(value, 'queue.retract result', ['queueRevision', 'retracted']);
-  return {
+  const result = {
     queueRevision: requireCount(record.queueRevision, 'queueRevision'),
     retracted: decodeRetractedMessages(record.retracted),
   };
+  requireEncodedByteLimit(result, 'queue.retract result', MESSAGE_OPERATION_RESULT_MAX_BYTES);
+  return result;
 }
 
 function decodeTurnInterruptInput(value: unknown): TurnInterruptInput {
@@ -232,17 +238,18 @@ function decodeTurnInterruptInput(value: unknown): TurnInterruptInput {
 }
 
 function decodeTurnInterruptResult(value: unknown): TurnInterruptResult {
-  requireEncodedByteLimit(value, 'turn.interrupt result', MESSAGE_OPERATION_RESULT_MAX_BYTES);
   const record = requireExactRecord(value, 'turn.interrupt result', [
     'queueRevision',
     'retracted',
     'turn',
   ]);
-  return {
+  const result = {
     queueRevision: requireCount(record.queueRevision, 'queueRevision'),
     retracted: decodeRetractedMessages(record.retracted),
     turn: decodeTurnSnapshot(record.turn),
   };
+  requireEncodedByteLimit(result, 'turn.interrupt result', MESSAGE_OPERATION_RESULT_MAX_BYTES);
+  return result;
 }
 
 function decodeSteeringMessages(value: unknown): SteeringMessageSnapshot[] {
@@ -287,14 +294,14 @@ function decodeMessageQueueEntrySnapshot(value: unknown): MessageQueueEntrySnaps
   const record = requireExactRecord(value, 'message queue entry snapshot', [
     'entryId',
     'messageId',
-    'text',
+    'content',
     'placement',
     'state',
   ]);
   const base = {
     entryId: requireEntityId(record.entryId, 'entryId'),
     messageId: requireEntityId(record.messageId, 'messageId'),
-    text: requireUtf8BoundedString(record.text, 'queue message text', TURN_MESSAGE_TEXT_MAX_BYTES),
+    content: decodeMessageContent(record.content),
     placement: requireMessagePlacement(record.placement),
   };
   if (record.state === 'queued' || record.state === 'retracted') {

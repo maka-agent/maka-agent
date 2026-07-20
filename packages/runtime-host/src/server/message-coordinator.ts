@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { SteeringLease } from '@maka/core/backend-types';
+import {
+  messageContentsEqual,
+  normalizeMessageContent,
+  type MessageContent,
+} from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   RuntimeMessageAuthorityInvariantError,
@@ -58,7 +63,7 @@ export type HostMessageRootState =
 
 export interface HostMessageStartInput {
   readonly sessionId: string;
-  readonly text: string;
+  readonly content: MessageContent;
   readonly sourceMessage: RootTurnSourceMessage;
 }
 
@@ -112,7 +117,7 @@ export interface HostMessageCoordinatorOptions {
 interface LiveEntry {
   readonly entryId: string;
   readonly messageId: string;
-  readonly text: string;
+  readonly content: MessageContent;
   readonly placement: MessagePlacement;
   readonly disposition: 'steering' | 'followup';
   readonly generation: number;
@@ -127,7 +132,7 @@ interface BoundRun extends RuntimeMessageRunIdentity {
 }
 
 interface SubmitReceipt {
-  readonly payload: TurnMessageSubmitInput;
+  readonly payload: CanonicalSubmitPayload;
   readonly result: TurnMessageSubmitResult;
 }
 
@@ -168,7 +173,7 @@ interface SessionState {
 
 export interface RootFollowupSource {
   readonly messageId: string;
-  readonly text: string;
+  readonly content: MessageContent;
   readonly placement: MessagePlacement;
   readonly disposition: 'steering' | 'followup';
 }
@@ -177,7 +182,7 @@ export interface RootFollowupBatch {
   readonly transitionId: string;
   readonly sessionId: string;
   readonly previousTurnId: string;
-  readonly text: string;
+  readonly content: MessageContent;
   readonly sources: readonly RootFollowupSource[];
 }
 
@@ -312,7 +317,7 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       transitionId: transition.transitionId,
       sessionId: identity.sessionId,
       previousTurnId: identity.turnId,
-      text: entries.map((entry) => entry.text).join('\n\n'),
+      content: aggregateMessageContent(entries.map((entry) => entry.content)),
       sources: entries.map(sourceFromEntry),
     };
   }
@@ -412,15 +417,26 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
 
   private submit(input: TurnMessageSubmitInput): Promise<MessageOutcome<TurnMessageSubmitResult>> {
     return this.#sessionAdmission.run(input.sessionId, async (lease) => {
-      if (input.originHostEpoch !== this.#hostEpoch) return this.#proveOldSubmit(input);
-      this.#assertHealthy();
-      const state = this.#state(input.sessionId);
-      const receipt = state.submitReceipts.get(input.messageId);
-      if (receipt) {
-        return samePayload(receipt.payload, input)
-          ? success(receipt.result)
-          : failure('operation_conflict', 'Message identity has a different payload');
+      const payload = canonicalSubmitPayload(input);
+      const isCurrentEpoch = input.originHostEpoch === this.#hostEpoch;
+      if (isCurrentEpoch) {
+        this.#assertHealthy();
+        const receipt = this.#state(input.sessionId).submitReceipts.get(input.messageId);
+        if (receipt) {
+          return samePayload(receipt.payload, payload)
+            ? success(receipt.result)
+            : failure('operation_conflict', 'Message identity has a different payload');
+        }
       }
+      const durableProof = await this.#queryDurableSubmitProof(input, payload);
+      if (durableProof) return durableProof;
+      if (!isCurrentEpoch) {
+        return failure(
+          'outcome_unknown',
+          'Message disposition cannot be proven in this Host Epoch',
+        );
+      }
+      const state = this.#state(input.sessionId);
       const header = await this.#root.readSessionHeader(input.sessionId);
       if (!header) return failure('not_found', 'Session does not exist');
       if (header.isArchived) return failure('session_archived', 'Session is archived');
@@ -438,16 +454,16 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
         }
         const sourceMessage: RootTurnSourceMessage = {
           messageId: input.messageId,
-          text: input.text,
+          content: payload.content,
           placement: input.placement,
           disposition: 'turn_started',
         };
         const started = await this.#root.startFromMessage(
-          { sessionId: input.sessionId, text: input.text, sourceMessage },
+          { sessionId: input.sessionId, content: payload.content, sourceMessage },
           lease,
         );
         const result = { disposition: 'turn_started', turnId: started.turnId } as const;
-        state.submitReceipts.set(input.messageId, { payload: input, result });
+        state.submitReceipts.set(input.messageId, { payload, result });
         return success(result);
       }
       if (state.phase !== 'open') {
@@ -468,7 +484,7 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       const candidateEntry: QueuedMessageSnapshot = {
         entryId,
         messageId: input.messageId,
-        text: input.text,
+        content: payload.content,
         placement: input.placement,
         state: 'queued',
       };
@@ -502,7 +518,7 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       const entry: LiveEntry = {
         entryId,
         messageId: input.messageId,
-        text: input.text,
+        content: payload.content,
         placement: input.placement,
         disposition,
         generation: state.generation,
@@ -513,7 +529,7 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       else state.followup.push(entry);
       state.revision += 1;
       const result = { disposition, queueRevision: state.revision } as const;
-      state.submitReceipts.set(input.messageId, { payload: input, result });
+      state.submitReceipts.set(input.messageId, { payload, result });
       this.#notifyProjection(input.sessionId, lease);
       return success(result);
     });
@@ -601,16 +617,17 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
     return success({ ...claimed.fence, turn });
   }
 
-  async #proveOldSubmit(
+  async #queryDurableSubmitProof(
     input: TurnMessageSubmitInput,
-  ): Promise<MessageOutcome<TurnMessageSubmitResult>> {
+    payload: CanonicalSubmitPayload,
+  ): Promise<MessageOutcome<TurnMessageSubmitResult> | undefined> {
     const receipt = await this.#durableProof.readRootTurnSourceMessageReceipt(
       input.sessionId,
       input.messageId,
     );
     if (receipt) {
       const source = receipt.sourceMessage;
-      if (!sameSourcePayload(source, input)) {
+      if (!sameSourcePayload(source, payload)) {
         return failure('operation_conflict', 'Durable message receipt has a different payload');
       }
       if (source.disposition === 'turn_started') {
@@ -618,7 +635,7 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       }
       return success({
         disposition: source.disposition,
-        queueRevision: this.#state(input.sessionId).revision,
+        queueRevision: this.#sessions.get(input.sessionId)?.revision ?? 0,
       });
     }
     const events = await this.#durableProof.readSessionRuntimeEvents(input.sessionId);
@@ -636,16 +653,16 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       if (
         input.placement !== 'current_turn' ||
         event.content?.kind !== 'text' ||
-        event.content.text !== input.text
+        !messageContentsEqual(runtimeEventContent(event.content), payload.content)
       ) {
         return failure('operation_conflict', 'Durable steering fact has a different payload');
       }
       return success({
         disposition: 'steering',
-        queueRevision: this.#state(input.sessionId).revision,
+        queueRevision: this.#sessions.get(input.sessionId)?.revision ?? 0,
       });
     }
-    return failure('outcome_unknown', 'Message disposition cannot be proven in this Host Epoch');
+    return undefined;
   }
 
   #pull(run: BoundRun): readonly SteeringLease[] {
@@ -659,7 +676,11 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       entry.state = 'in_flight';
       entry.leaseId = leaseId;
       state.inFlight.set(leaseId, entry);
-      return { id: leaseId, messageId: entry.messageId, text: entry.text };
+      return {
+        id: leaseId,
+        messageId: entry.messageId,
+        content: normalizeMessageContent(entry.content),
+      };
     });
     this.#mutated(run.sessionId, state);
     return leases;
@@ -784,7 +805,10 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       transition.transitionId !== batch.transitionId ||
       transition.identity.turnId !== batch.previousTurnId ||
       !isDeepStrictEqual(transition.entries.map(sourceFromEntry), batch.sources) ||
-      transition.entries.map((entry) => entry.text).join('\n\n') !== batch.text
+      !messageContentsEqual(
+        aggregateMessageContent(transition.entries.map((entry) => entry.content)),
+        batch.content,
+      )
     ) {
       throw new RuntimeMessageAuthorityInvariantError(
         'Follow-up batch does not own the transition',
@@ -917,10 +941,10 @@ function sameRun(left: RuntimeMessageRunIdentity, right: RuntimeMessageRunIdenti
   );
 }
 
-function sameSourcePayload(source: RootTurnSourceMessage, input: TurnMessageSubmitInput): boolean {
+function sameSourcePayload(source: RootTurnSourceMessage, input: CanonicalSubmitPayload): boolean {
   return (
     source.messageId === input.messageId &&
-    source.text === input.text &&
+    messageContentsEqual(source.content, input.content) &&
     source.placement === input.placement
   );
 }
@@ -928,7 +952,7 @@ function sameSourcePayload(source: RootTurnSourceMessage, input: TurnMessageSubm
 function sourceFromEntry(entry: LiveEntry): RootFollowupSource {
   return {
     messageId: entry.messageId,
-    text: entry.text,
+    content: normalizeMessageContent(entry.content),
     placement: entry.placement,
     disposition: entry.disposition,
   };
@@ -938,7 +962,7 @@ function queuedSnapshot(entry: LiveEntry): QueuedMessageSnapshot {
   return {
     entryId: entry.entryId,
     messageId: entry.messageId,
-    text: entry.text,
+    content: normalizeMessageContent(entry.content),
     placement: entry.placement,
     state: 'queued',
   };
@@ -958,7 +982,7 @@ function inFlightSnapshot(entry: LiveEntry): SteeringMessageSnapshot {
   return {
     entryId: entry.entryId,
     messageId: entry.messageId,
-    text: entry.text,
+    content: normalizeMessageContent(entry.content),
     placement: 'current_turn',
     state: 'in_flight',
   };
@@ -982,8 +1006,46 @@ function assertFollowupBounds(entries: readonly LiveEntry[]): void {
   if (entries.length > MESSAGE_QUEUE_MAX_ENTRIES) {
     throw new RuntimeMessageAuthorityInvariantError('Follow-up batch exceeds source capacity');
   }
-  const bytes = Buffer.byteLength(entries.map((entry) => entry.text).join('\n\n'), 'utf8');
+  const bytes = Buffer.byteLength(
+    aggregateMessageContent(entries.map((entry) => entry.content)).text,
+    'utf8',
+  );
   if (bytes > MAX_FOLLOWUP_TEXT_BYTES) {
     throw new RuntimeMessageAuthorityInvariantError('Follow-up batch exceeds UTF-8 capacity');
   }
+}
+
+interface CanonicalSubmitPayload {
+  readonly originHostEpoch: string;
+  readonly sessionId: string;
+  readonly messageId: string;
+  readonly content: MessageContent;
+  readonly placement: MessagePlacement;
+}
+
+function canonicalSubmitPayload(input: TurnMessageSubmitInput): CanonicalSubmitPayload {
+  return {
+    originHostEpoch: input.originHostEpoch,
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    content: normalizeMessageContent(input.content),
+    placement: input.placement,
+  };
+}
+
+function aggregateMessageContent(contents: readonly MessageContent[]): MessageContent {
+  const text = contents.map((content) => content.text).join('\n\n');
+  const displayText = contents.map((content) => content.displayText ?? content.text).join('\n\n');
+  const attachments = contents.flatMap((content) => content.attachments ?? []);
+  return normalizeMessageContent({ text, displayText, attachments });
+}
+
+function runtimeEventContent(
+  content: Extract<RuntimeEvent['content'], { kind: 'text' }>,
+): MessageContent {
+  return normalizeMessageContent({
+    text: content.text,
+    ...(content.displayText !== undefined ? { displayText: content.displayText } : {}),
+    ...(content.attachments !== undefined ? { attachments: content.attachments } : {}),
+  });
 }

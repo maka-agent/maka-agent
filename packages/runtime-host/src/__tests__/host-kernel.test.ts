@@ -576,7 +576,7 @@ describe('non-serving Runtime Host kernel', () => {
           input: {
             sessionId: 'session',
             turnId: 'turn',
-            text: 'must remain fenced',
+            content: { text: 'must remain fenced' },
           },
         });
         await writeSocket(transport.socket, request);
@@ -852,7 +852,7 @@ describe('non-serving Runtime Host kernel', () => {
       const command = connected.connection.startTurn({
         sessionId: 'session',
         turnId: 'turn',
-        text: 'hold shutdown',
+        content: { text: 'hold shutdown' },
       });
       await commandEntered;
       try {
@@ -864,7 +864,7 @@ describe('non-serving Runtime Host kernel', () => {
             connected.connection.startTurn({
               sessionId: 'session',
               turnId: 'must-not-enter-composition',
-              text: 'must be rejected by Host admission',
+              content: { text: 'must be rejected by Host admission' },
             }),
           (error: unknown) =>
             error instanceof RuntimeHostOperationError &&
@@ -1054,7 +1054,7 @@ describe('non-serving Runtime Host kernel', () => {
         const started = await connected.connection.startTurn({
           sessionId: session.id,
           turnId,
-          text: FAKE_ASK_USER_QUESTION_PROMPT,
+          content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
         });
         const pendingDeadline = Date.now() + 5_000;
         let pending;

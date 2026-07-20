@@ -30,6 +30,7 @@ import type {
   PrefixChangeReason,
   PromptSegmentEstimate,
 } from './usage-stats/types.js';
+import { defineObjectShape, hasExactShape, isRecord } from './record-schema.js';
 
 export const TOOL_OUTPUT_STREAMS = ['stdout', 'stderr'] as const;
 export const TOOL_OUTPUT_DELTA_MAX_CHARS = 8192;
@@ -76,6 +77,154 @@ export interface QuoteRef {
   label?: string;
   /** Provenance: the transcript turn the excerpt was selected from. */
   sourceTurnId?: string;
+}
+
+/** Canonical user-authored content shared by storage, runtime, and Host wire. */
+export interface MessageContent {
+  /**
+   * Authoritative model-facing input. This may be a composed envelope when a
+   * client injects context such as explicit skill instructions.
+   */
+  text: string;
+  /** Human-facing text when it differs from `text`; omit when equal. */
+  displayText?: string;
+  /** Ordered attachment references; omit when empty. Attachment bytes never travel here. */
+  attachments?: AttachmentRef[];
+}
+
+const MESSAGE_CONTENT_SHAPE = defineObjectShape<MessageContent>()(
+  ['text'],
+  ['displayText', 'attachments'],
+);
+const ATTACHMENT_REF_SHAPE = defineObjectShape<AttachmentRef>()(
+  ['kind', 'name', 'mimeType', 'bytes', 'ref'],
+  [],
+);
+const SESSION_FILE_REF_SHAPE = defineObjectShape<Extract<StorageRef, { kind: 'session_file' }>>()(
+  ['kind', 'sessionId', 'relativePath'],
+  [],
+);
+const WORKSPACE_FILE_REF_SHAPE = defineObjectShape<
+  Extract<StorageRef, { kind: 'workspace_file' }>
+>()(['kind', 'relativePath'], []);
+const EXTERNAL_FILE_REF_SHAPE = defineObjectShape<Extract<StorageRef, { kind: 'external_file' }>>()(
+  ['kind', 'absolutePath'],
+  [],
+);
+
+export function normalizeMessageContent(content: MessageContent): MessageContent {
+  return {
+    text: content.text,
+    ...(content.displayText !== undefined && content.displayText !== content.text
+      ? { displayText: content.displayText }
+      : {}),
+    ...(content.attachments !== undefined && content.attachments.length > 0
+      ? {
+          attachments: content.attachments.map((attachment) => ({
+            ...attachment,
+            bytes: Object.is(attachment.bytes, -0) ? 0 : attachment.bytes,
+            ref: { ...attachment.ref },
+          })),
+        }
+      : {}),
+  };
+}
+
+export function decodeMessageContent(value: unknown): MessageContent {
+  if (!isMessageContent(value)) throw new TypeError('Invalid MessageContent');
+  return normalizeMessageContent(value);
+}
+
+export function isMessageContent(value: unknown): value is MessageContent {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, MESSAGE_CONTENT_SHAPE) &&
+    typeof value.text === 'string' &&
+    (value.displayText === undefined || typeof value.displayText === 'string') &&
+    (value.attachments === undefined ||
+      (Array.isArray(value.attachments) && value.attachments.every(isAttachmentRef)))
+  );
+}
+
+export function isAttachmentRef(value: unknown): value is AttachmentRef {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, ATTACHMENT_REF_SHAPE) &&
+    (value.kind === 'image' ||
+      value.kind === 'pdf' ||
+      value.kind === 'doc' ||
+      value.kind === 'code' ||
+      value.kind === 'other') &&
+    typeof value.name === 'string' &&
+    typeof value.mimeType === 'string' &&
+    typeof value.bytes === 'number' &&
+    Number.isSafeInteger(value.bytes) &&
+    value.bytes >= 0 &&
+    isStorageRef(value.ref)
+  );
+}
+
+export function isStorageRef(value: unknown): value is StorageRef {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'session_file') {
+    return (
+      hasExactShape(value, SESSION_FILE_REF_SHAPE) &&
+      typeof value.sessionId === 'string' &&
+      typeof value.relativePath === 'string'
+    );
+  }
+  if (value.kind === 'workspace_file') {
+    return hasExactShape(value, WORKSPACE_FILE_REF_SHAPE) && typeof value.relativePath === 'string';
+  }
+  return (
+    value.kind === 'external_file' &&
+    hasExactShape(value, EXTERNAL_FILE_REF_SHAPE) &&
+    typeof value.absolutePath === 'string'
+  );
+}
+
+export function messageContentsEqual(left: MessageContent, right: MessageContent): boolean {
+  const leftDisplayText = left.displayText === left.text ? undefined : left.displayText;
+  const rightDisplayText = right.displayText === right.text ? undefined : right.displayText;
+  const leftAttachments = left.attachments?.length ? left.attachments : undefined;
+  const rightAttachments = right.attachments?.length ? right.attachments : undefined;
+  return (
+    left.text === right.text &&
+    leftDisplayText === rightDisplayText &&
+    ((leftAttachments === undefined && rightAttachments === undefined) ||
+      (leftAttachments !== undefined &&
+        rightAttachments !== undefined &&
+        leftAttachments.length === rightAttachments.length &&
+        leftAttachments.every((attachment, index) =>
+          attachmentRefsEqual(attachment, rightAttachments[index]!),
+        )))
+  );
+}
+
+function attachmentRefsEqual(left: AttachmentRef, right: AttachmentRef): boolean {
+  if (
+    left.kind !== right.kind ||
+    left.name !== right.name ||
+    left.mimeType !== right.mimeType ||
+    left.bytes !== right.bytes ||
+    left.ref.kind !== right.ref.kind
+  ) {
+    return false;
+  }
+  switch (left.ref.kind) {
+    case 'session_file':
+      return (
+        right.ref.kind === 'session_file' &&
+        left.ref.sessionId === right.ref.sessionId &&
+        left.ref.relativePath === right.ref.relativePath
+      );
+    case 'workspace_file':
+      return (
+        right.ref.kind === 'workspace_file' && left.ref.relativePath === right.ref.relativePath
+      );
+    case 'external_file':
+      return right.ref.kind === 'external_file' && left.ref.absolutePath === right.ref.absolutePath;
+  }
 }
 
 // ============================================================================
@@ -542,13 +691,13 @@ export interface TokenUsageEvent extends BaseEvent {
 /**
  * A user message injected into a running turn at a step boundary (steering).
  * The runtime persists it as a user event in the ledger and echoes it through
- * the stream so the transcript renders the interjection in place. `text` is the
- * raw user text; the backend wraps it in a steering envelope for the model.
+ * the stream so the transcript renders the interjection in place. The backend
+ * wraps authoritative `content.text` in a steering envelope for the model.
  */
 export interface SteeringMessageEvent extends BaseEvent {
   type: 'steering_message';
   messageId: string;
-  text: string;
+  content: MessageContent;
 }
 
 /**

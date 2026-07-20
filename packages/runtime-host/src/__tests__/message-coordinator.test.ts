@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { MessageContent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { RootTurnSourceMessageReceipt } from '@maka/storage/execution-stores';
+import {
+  ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+  type RootTurnSourceMessageReceipt,
+} from '@maka/storage/execution-stores';
 import type { TurnSnapshot } from '../protocol/index.js';
 import {
   HostMessageCoordinator,
@@ -44,7 +48,7 @@ test('pull crosses the retract commit cut and only queued entries are retracted'
       {
         entryId: 'id-1',
         messageId: 'steer-1',
-        text: 'steer me',
+        content: { text: 'steer me' },
         placement: 'current_turn',
         state: 'in_flight',
       },
@@ -64,7 +68,12 @@ test('an interrupt generation fence makes a late nack discard its in-flight entr
   fixture.coordinator.reserveRootTurn(ROOT);
   const owner = fixture.coordinator.bindRun(ROOT);
   await submit(fixture, 'steer-1', 'leased', 'current_turn');
-  await submit(fixture, 'follow-1', 'queued', 'next_turn');
+  const interruptedContent = {
+    text: '<model>queued</model>',
+    displayText: 'queued',
+    attachments: [attachment('interrupt', 'queued.png')],
+  };
+  await submitContent(fixture, 'follow-1', interruptedContent, 'next_turn');
   const [lease] = owner.pull();
   assert.ok(lease);
 
@@ -103,10 +112,15 @@ test('an interrupt generation fence makes a late nack discard its in-flight entr
   assert.equal(outcome.ok, true);
   assert.deepEqual(retryOutcome, outcome);
   if (outcome.ok) {
-    assert.deepEqual(
-      outcome.result.retracted.map((entry) => entry.messageId),
-      ['follow-1'],
-    );
+    assert.deepEqual(outcome.result.retracted, [
+      {
+        entryId: 'id-2',
+        messageId: 'follow-1',
+        content: interruptedContent,
+        placement: 'next_turn',
+        state: 'retracted',
+      },
+    ]);
   }
 
   owner.release();
@@ -118,29 +132,67 @@ test('release folds unpulled steering ahead of follow-up without changing source
   const fixture = createFixture();
   fixture.coordinator.reserveRootTurn(ROOT);
   const owner = fixture.coordinator.bindRun(ROOT);
-  await submit(fixture, 'steer-1', 'first', 'current_turn');
-  await submit(fixture, 'follow-1', 'third', 'next_turn');
-  await submit(fixture, 'steer-2', 'second', 'current_turn');
+  const firstAttachment = attachment('first-source', 'same-name.png');
+  const secondAttachment = attachment('second-source', 'same-name.png');
+  const thirdAttachment = attachment('third-source', 'same-name.png');
+  await submitContent(
+    fixture,
+    'steer-1',
+    {
+      text: '<model>first</model>',
+      displayText: 'first',
+      attachments: [firstAttachment],
+    },
+    'current_turn',
+  );
+  await submitContent(
+    fixture,
+    'follow-1',
+    {
+      text: '<model>third</model>',
+      displayText: 'third',
+      attachments: [thirdAttachment],
+    },
+    'next_turn',
+  );
+  await submitContent(
+    fixture,
+    'steer-2',
+    { text: 'second', attachments: [secondAttachment] },
+    'current_turn',
+  );
 
   owner.release();
   const batch = fixture.coordinator.beginTerminalTransition(ROOT);
-  assert.equal(batch.text, 'first\n\nsecond\n\nthird');
+  assert.deepEqual(batch.content, {
+    text: '<model>first</model>\n\nsecond\n\n<model>third</model>',
+    displayText: 'first\n\nsecond\n\nthird',
+    attachments: [firstAttachment, secondAttachment, thirdAttachment],
+  });
   assert.deepEqual(batch.sources, [
     {
       messageId: 'steer-1',
-      text: 'first',
+      content: {
+        text: '<model>first</model>',
+        displayText: 'first',
+        attachments: [firstAttachment],
+      },
       placement: 'current_turn',
       disposition: 'steering',
     },
     {
       messageId: 'steer-2',
-      text: 'second',
+      content: { text: 'second', attachments: [secondAttachment] },
       placement: 'current_turn',
       disposition: 'steering',
     },
     {
       messageId: 'follow-1',
-      text: 'third',
+      content: {
+        text: '<model>third</model>',
+        displayText: 'third',
+        attachments: [thirdAttachment],
+      },
       placement: 'next_turn',
       disposition: 'followup',
     },
@@ -239,7 +291,7 @@ test('semantic retry history does not become a permanent Session admission cap',
   }
 });
 
-test('same-Epoch submit dedupes, conflicts on payload change, and old Epoch needs proof', async () => {
+test('submit retries reuse memory and durable proof while old-Epoch rich conflicts fail', async () => {
   const fixture = createFixture();
   fixture.coordinator.reserveRootTurn(ROOT);
   const owner = fixture.coordinator.bindRun(ROOT);
@@ -253,27 +305,103 @@ test('same-Epoch submit dedupes, conflicts on payload change, and old Epoch need
   assert.equal(fixture.coordinator.projection(ROOT.sessionId).steering.length, 1);
 
   fixture.receipts.set(
-    'old-follow',
-    sourceReceipt('old-follow', 'durable follow-up', 'next_turn', 'followup'),
+    'current-follow',
+    sourceReceipt('current-follow', 'durable current follow-up', 'next_turn', 'followup'),
   );
-  const oldFollow = await submit(
+  fixture.receipts.set(
+    'old-follow',
+    sourceReceipt(
+      'old-follow',
+      {
+        text: '<model>durable follow-up</model>',
+        displayText: 'durable follow-up',
+        attachments: [attachment('proof-follow', 'proof.png')],
+      },
+      'next_turn',
+      'followup',
+    ),
+  );
+  const oldFollow = await submitContent(
     fixture,
     'old-follow',
-    'durable follow-up',
+    {
+      text: '<model>durable follow-up</model>',
+      displayText: 'durable follow-up',
+      attachments: [attachment('proof-follow', 'proof.png')],
+    },
     'next_turn',
     'old-epoch',
   );
   assert.equal(oldFollow.ok && oldFollow.result.disposition, 'followup');
 
-  fixture.events.push(steeringEvent('old-steer', 'durable steering'));
-  const oldSteer = await submit(
+  fixture.events.push(
+    steeringEvent('old-steer', {
+      text: '<model>durable steering</model>',
+      displayText: 'durable steering',
+      attachments: [attachment('proof-steer', 'proof.png')],
+    }),
+  );
+  const oldSteer = await submitContent(
     fixture,
     'old-steer',
-    'durable steering',
+    {
+      text: '<model>durable steering</model>',
+      displayText: 'durable steering',
+      attachments: [attachment('proof-steer', 'proof.png')],
+    },
     'current_turn',
     'old-epoch',
   );
   assert.equal(oldSteer.ok && oldSteer.result.disposition, 'steering');
+
+  const durableBeforeRetries = {
+    receipts: structuredClone([...fixture.receipts]),
+    events: structuredClone(fixture.events),
+  };
+  const queueBeforeRetries = structuredClone(fixture.coordinator.projection(ROOT.sessionId));
+  const currentFollow = await submit(
+    fixture,
+    'current-follow',
+    'durable current follow-up',
+    'next_turn',
+  );
+  assert.equal(currentFollow.ok && currentFollow.result.disposition, 'followup');
+  const displayConflict = await submitContent(
+    fixture,
+    'old-follow',
+    {
+      text: '<model>durable follow-up</model>',
+      displayText: 'changed display',
+      attachments: [attachment('proof-follow', 'proof.png')],
+    },
+    'next_turn',
+    'old-epoch',
+  );
+  assert.equal(displayConflict.ok, false);
+  if (!displayConflict.ok) assert.equal(displayConflict.error.code, 'operation_conflict');
+  const attachmentRefConflict = await submitContent(
+    fixture,
+    'old-steer',
+    {
+      text: '<model>durable steering</model>',
+      displayText: 'durable steering',
+      attachments: [attachment('changed-proof-steer', 'proof.png')],
+    },
+    'current_turn',
+    'old-epoch',
+  );
+  assert.equal(attachmentRefConflict.ok, false);
+  if (!attachmentRefConflict.ok) {
+    assert.equal(attachmentRefConflict.error.code, 'operation_conflict');
+  }
+  assert.deepEqual(
+    {
+      receipts: [...fixture.receipts],
+      events: fixture.events,
+    },
+    durableBeforeRetries,
+  );
+  assert.deepEqual(fixture.coordinator.projection(ROOT.sessionId), queueBeforeRetries);
 
   const unknown = await submit(fixture, 'old-unknown', 'not durable', 'current_turn', 'old-epoch');
   assert.equal(unknown.ok, false);
@@ -288,6 +416,86 @@ test('same-Epoch submit dedupes, conflicts on payload change, and old Epoch need
     operationContext(),
   );
   assert.equal(retracted.ok, true);
+  owner.release();
+  const batch = fixture.coordinator.beginTerminalTransition(ROOT);
+  fixture.coordinator.completeIdle(batch);
+});
+
+test('canonical content preserves attachment identity in projection and steering leases', async () => {
+  const fixture = createFixture();
+  fixture.coordinator.reserveRootTurn(ROOT);
+  const owner = fixture.coordinator.bindRun(ROOT);
+  const firstAttachment = attachment('first', 'same-name.png');
+  const secondAttachment = attachment('second', 'same-name.png');
+
+  const submitted = await submitContent(
+    fixture,
+    'rich-steer',
+    {
+      text: '<model>first</model>',
+      displayText: 'first',
+      attachments: [firstAttachment, secondAttachment],
+    },
+    'current_turn',
+  );
+  assert.equal(submitted.ok, true);
+  const reordered = await submitContent(
+    fixture,
+    'rich-steer',
+    {
+      text: '<model>first</model>',
+      displayText: 'first',
+      attachments: [secondAttachment, firstAttachment],
+    },
+    'current_turn',
+  );
+  assert.equal(reordered.ok, false);
+  if (!reordered.ok) assert.equal(reordered.error.code, 'operation_conflict');
+
+  const [lease] = owner.pull();
+  assert.ok(lease);
+  assert.deepEqual(lease.content, {
+    text: '<model>first</model>',
+    displayText: 'first',
+    attachments: [firstAttachment, secondAttachment],
+  });
+  assert.deepEqual(
+    fixture.coordinator.projection(ROOT.sessionId).steering[0]?.content,
+    lease.content,
+  );
+  owner.ack([lease.id]);
+  owner.release();
+  const batch = fixture.coordinator.beginTerminalTransition(ROOT);
+  fixture.coordinator.completeIdle(batch);
+});
+
+test('canonical retry omits redundant display text and empty attachments', async () => {
+  const fixture = createFixture();
+  fixture.coordinator.reserveRootTurn(ROOT);
+  const owner = fixture.coordinator.bindRun(ROOT);
+
+  const first = await submitContent(
+    fixture,
+    'canonical',
+    { text: 'same', displayText: 'same', attachments: [] },
+    'current_turn',
+  );
+  assert.deepEqual(
+    await submitContent(fixture, 'canonical', { text: 'same' }, 'current_turn'),
+    first,
+  );
+  assert.deepEqual(fixture.coordinator.projection(ROOT.sessionId).steering[0]?.content, {
+    text: 'same',
+  });
+
+  const retracted = await fixture.coordinator.handlers['queue.retract'](
+    { originHostEpoch: 'epoch-1', sessionId: ROOT.sessionId, retractId: 'cleanup' },
+    operationContext(),
+  );
+  assert.equal(retracted.ok, true);
+  if (retracted.ok) {
+    assert.deepEqual(retracted.result.retracted[0]?.content, { text: 'same' });
+  }
   owner.release();
   const batch = fixture.coordinator.beginTerminalTransition(ROOT);
   fixture.coordinator.completeIdle(batch);
@@ -310,7 +518,7 @@ function createFixture() {
         input.sourceMessage.messageId,
         sourceReceipt(
           input.sourceMessage.messageId,
-          input.sourceMessage.text,
+          input.sourceMessage.content,
           input.sourceMessage.placement,
           'turn_started',
           turnId,
@@ -367,12 +575,22 @@ function submit(
   placement: 'current_turn' | 'next_turn',
   originHostEpoch = 'epoch-1',
 ) {
+  return submitContent(fixture, messageId, { text }, placement, originHostEpoch);
+}
+
+function submitContent(
+  fixture: ReturnType<typeof createFixture>,
+  messageId: string,
+  content: MessageContent,
+  placement: 'current_turn' | 'next_turn',
+  originHostEpoch = 'epoch-1',
+) {
   return fixture.coordinator.handlers['turn.message.submit'](
     {
       originHostEpoch,
       sessionId: ROOT.sessionId,
       messageId,
-      text,
+      content,
       placement,
     },
     operationContext(),
@@ -381,21 +599,22 @@ function submit(
 
 function sourceReceipt(
   messageId: string,
-  text: string,
+  content: MessageContent | string,
   placement: 'current_turn' | 'next_turn',
   disposition: 'steering' | 'followup' | 'turn_started',
   turnId = 'durable-turn',
 ): RootTurnSourceMessageReceipt {
-  const sourceMessage = { messageId, text, placement, disposition };
+  const normalizedContent = typeof content === 'string' ? { text: content } : content;
+  const sourceMessage = { messageId, content: normalizedContent, placement, disposition };
   return {
     admission: {
-      schemaVersion: 3,
+      schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
       sessionId: ROOT.sessionId,
       turnId,
       runId: 'durable-run',
       userMessageId: 'durable-user-message',
       previousRootTurnId: ROOT.turnId,
-      normalizedInput: { text },
+      normalizedInput: normalizedContent,
       sourceMessages: [sourceMessage],
       admittedAt: 1,
     },
@@ -403,7 +622,8 @@ function sourceReceipt(
   };
 }
 
-function steeringEvent(messageId: string, text: string): RuntimeEvent {
+function steeringEvent(messageId: string, content: MessageContent | string): RuntimeEvent {
+  const normalizedContent = typeof content === 'string' ? { text: content } : content;
   return {
     id: `event-${messageId}`,
     invocationId: 'invocation-1',
@@ -414,8 +634,18 @@ function steeringEvent(messageId: string, text: string): RuntimeEvent {
     partial: false,
     role: 'user',
     author: 'user',
-    content: { kind: 'text', text, steering: true },
+    content: { kind: 'text', ...normalizedContent, steering: true },
     refs: { providerEventId: messageId },
+  };
+}
+
+function attachment(id: string, name: string) {
+  return {
+    kind: 'image' as const,
+    name,
+    mimeType: 'image/png',
+    bytes: 10,
+    ref: { kind: 'workspace_file' as const, relativePath: `attachments/${id}.png` },
   };
 }
 

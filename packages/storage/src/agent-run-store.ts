@@ -24,11 +24,17 @@ import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js
 import { chainWrite } from './write-queue.js';
 import {
   DurableStoreWriteError,
+  decodeMessageContent,
+  isAttachmentRef,
   isTerminalRuntimeEvent,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_COUNT,
+  messageContentsEqual,
   type AgentRunEvent,
   type AgentRunEventType,
   type AgentRunHeader,
   type AgentRunStore,
+  type MessageContent,
   type RuntimeEvent,
   type RuntimeEventStore,
 } from '@maka/core';
@@ -37,17 +43,15 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
-export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 3 as const;
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 4 as const;
 export const ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES = 64;
-export const ROOT_TURN_ADMISSION_MAX_TEXT_BYTES = 64 * 1024;
-
-export interface RootTurnAdmissionInput {
-  text: string;
-}
+export const ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES = 64 * 1024;
+const ROOT_TURN_ADMISSION_MAX_AGGREGATED_ATTACHMENTS =
+  ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES * MAX_ATTACHMENT_COUNT;
 
 export interface RootTurnSourceMessage {
   messageId: string;
-  text: string;
+  content: MessageContent;
   placement: 'current_turn' | 'next_turn';
   disposition: 'steering' | 'followup' | 'turn_started';
 }
@@ -59,7 +63,7 @@ export interface RootTurnAdmission {
   runId: string;
   userMessageId: string;
   previousRootTurnId: string | null;
-  normalizedInput: RootTurnAdmissionInput;
+  normalizedInput: MessageContent;
   sourceMessages: readonly RootTurnSourceMessage[];
   admittedAt: number;
 }
@@ -70,7 +74,7 @@ export interface AdmitRootTurnInput {
   proposedRunId: string;
   proposedUserMessageId: string;
   previousRootTurnId: string | null;
-  normalizedInput: RootTurnAdmissionInput;
+  normalizedInput: MessageContent;
   sourceMessages: readonly RootTurnSourceMessage[];
   admittedAt: number;
 }
@@ -209,10 +213,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
     if (created) return { kind: 'admitted', admission };
     const existing = await this.readRootTurnAdmission(input.sessionId, input.turnId);
     if (!existing) throw new Error(`Root turn admission disappeared: ${input.turnId}`);
-    return isDeepStrictEqual(
-      rootTurnAdmissionSemanticPayload(existing),
-      rootTurnAdmissionSemanticPayload(admission),
-    )
+    return rootTurnAdmissionPayloadsEqual(existing, admission)
       ? { kind: 'existing', admission: existing }
       : { kind: 'conflict', admission: existing };
   }
@@ -1418,31 +1419,83 @@ function assertAcyclicRootTurnAdmissions(
   }
 }
 
-function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput {
-  if (!isPlainRecord(value)) {
-    throw new Error('Invalid root turn normalized input: expected an object');
+function normalizeRootTurnMessageContent(
+  value: unknown,
+  description: string,
+  maxAttachments: number,
+): MessageContent {
+  let normalized: MessageContent;
+  try {
+    normalized = decodeMessageContent(value);
+  } catch {
+    if (isPlainRecord(value) && Array.isArray(value.attachments)) {
+      const invalidAttachmentIndex = value.attachments.findIndex(
+        (attachment) => !isAttachmentRef(attachment),
+      );
+      if (invalidAttachmentIndex >= 0) {
+        throw new Error(`Invalid ${description} attachment at index ${invalidAttachmentIndex}`);
+      }
+    }
+    throw new Error(`Invalid ${description}`);
   }
-  const record = value;
-  if (!hasExactKeys(record, ['text']) || !isBoundedAdmissionText(record.text)) {
-    throw new Error('Invalid root turn normalized input');
+  if (normalized.text.length === 0 || (normalized.attachments?.length ?? 0) > maxAttachments) {
+    throw new Error(`Invalid ${description}`);
   }
-  return Object.freeze({ text: record.text });
+  for (const [index, attachment] of (normalized.attachments ?? []).entries()) {
+    const invalid =
+      attachment.name.length === 0 ||
+      attachment.mimeType.length === 0 ||
+      attachment.bytes > MAX_ATTACHMENT_BYTES ||
+      (attachment.ref.kind === 'session_file' && attachment.ref.sessionId.length === 0) ||
+      (attachment.ref.kind === 'external_file'
+        ? attachment.ref.absolutePath.length === 0
+        : attachment.ref.relativePath.length === 0);
+    if (invalid) throw new Error(`Invalid ${description} attachment at index ${index}`);
+  }
+  if (
+    Buffer.byteLength(JSON.stringify(normalized), 'utf8') > ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES
+  ) {
+    throw new Error(`Invalid ${description}: content exceeds size limit`);
+  }
+  deepFreezeRootTurnMessageContent(normalized);
+  return normalized;
 }
 
 function normalizeRootTurnAdmissionPayload(
   normalizedInputValue: unknown,
   sourceMessagesValue: unknown,
 ): {
-  normalizedInput: RootTurnAdmissionInput;
+  normalizedInput: MessageContent;
   sourceMessages: readonly RootTurnSourceMessage[];
 } {
-  const normalizedInput = normalizeRootTurnAdmissionInput(normalizedInputValue);
   const sourceMessages = normalizeRootTurnSourceMessages(sourceMessagesValue);
-  if (
-    sourceMessages.length > 0 &&
-    normalizedInput.text !== sourceMessages.map((source) => source.text).join('\n\n')
-  ) {
-    throw new Error('Root turn admission input text does not match source messages');
+  const normalizedInputMaxAttachments =
+    sourceMessages.length > 1
+      ? ROOT_TURN_ADMISSION_MAX_AGGREGATED_ATTACHMENTS
+      : MAX_ATTACHMENT_COUNT;
+  const normalizedInput = normalizeRootTurnMessageContent(
+    normalizedInputValue,
+    'root turn normalized input',
+    normalizedInputMaxAttachments,
+  );
+  if (sourceMessages.length > 0) {
+    const sourceText = sourceMessages.map((source) => source.content.text).join('\n\n');
+    const sourceDisplayText = sourceMessages
+      .map((source) => source.content.displayText ?? source.content.text)
+      .join('\n\n');
+    const sourceAttachments = sourceMessages.flatMap((source) => source.content.attachments ?? []);
+    const expectedInput = normalizeRootTurnMessageContent(
+      {
+        text: sourceText,
+        ...(sourceDisplayText !== sourceText ? { displayText: sourceDisplayText } : {}),
+        ...(sourceAttachments.length > 0 ? { attachments: sourceAttachments } : {}),
+      },
+      'root turn aggregated source content',
+      normalizedInputMaxAttachments,
+    );
+    if (!messageContentsEqual(normalizedInput, expectedInput)) {
+      throw new Error('Root turn admission input content does not match source messages');
+    }
   }
   const turnStartedCount = sourceMessages.filter(
     (source) => source.disposition === 'turn_started',
@@ -1461,15 +1514,14 @@ function normalizeRootTurnSourceMessages(value: unknown): readonly RootTurnSourc
   const normalized = value.map((item, index): RootTurnSourceMessage => {
     if (
       !isPlainRecord(item) ||
-      !hasExactKeys(item, ['messageId', 'text', 'placement', 'disposition'])
+      !hasExactKeys(item, ['messageId', 'content', 'placement', 'disposition'])
     ) {
       throw new Error(`Invalid root turn source message at index ${index}`);
     }
-    const { messageId, text, placement, disposition } = item;
+    const { messageId, content, placement, disposition } = item;
     if (
       typeof messageId !== 'string' ||
       !isSafeId(messageId) ||
-      !isBoundedAdmissionText(text) ||
       (placement !== 'current_turn' && placement !== 'next_turn') ||
       (disposition !== 'steering' &&
         disposition !== 'followup' &&
@@ -1478,38 +1530,62 @@ function normalizeRootTurnSourceMessages(value: unknown): readonly RootTurnSourc
     ) {
       throw new Error(`Invalid root turn source message at index ${index}`);
     }
+    const normalizedContent = normalizeRootTurnMessageContent(
+      content,
+      `root turn source message content at index ${index}`,
+      MAX_ATTACHMENT_COUNT,
+    );
     if (messageIds.has(messageId)) {
       throw new Error(`Duplicate root turn source message id: ${messageId}`);
     }
     messageIds.add(messageId);
-    return Object.freeze({ messageId, text, placement, disposition });
+    return Object.freeze({
+      messageId,
+      content: normalizedContent,
+      placement,
+      disposition,
+    });
   });
   return Object.freeze(normalized);
 }
 
-function isBoundedAdmissionText(value: unknown): value is string {
+function rootTurnAdmissionPayloadsEqual(
+  left: RootTurnAdmission,
+  right: RootTurnAdmission,
+): boolean {
   return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    Buffer.byteLength(value, 'utf8') <= ROOT_TURN_ADMISSION_MAX_TEXT_BYTES
+    messageContentsEqual(left.normalizedInput, right.normalizedInput) &&
+    left.sourceMessages.length === right.sourceMessages.length &&
+    left.sourceMessages.every((source, index) => {
+      const other = right.sourceMessages[index];
+      return (
+        other !== undefined &&
+        source.messageId === other.messageId &&
+        source.placement === other.placement &&
+        source.disposition === other.disposition &&
+        messageContentsEqual(source.content, other.content)
+      );
+    })
   );
 }
 
-function rootTurnAdmissionSemanticPayload(admission: RootTurnAdmission): {
-  normalizedInput: RootTurnAdmissionInput;
-  sourceMessages: readonly RootTurnSourceMessage[];
-} {
-  return {
-    normalizedInput: admission.normalizedInput,
-    sourceMessages: admission.sourceMessages,
-  };
-}
-
 function deepFreezeRootTurnAdmission(admission: RootTurnAdmission): RootTurnAdmission {
-  Object.freeze(admission.normalizedInput);
-  for (const sourceMessage of admission.sourceMessages) Object.freeze(sourceMessage);
+  deepFreezeRootTurnMessageContent(admission.normalizedInput);
+  for (const sourceMessage of admission.sourceMessages) {
+    deepFreezeRootTurnMessageContent(sourceMessage.content);
+    Object.freeze(sourceMessage);
+  }
   Object.freeze(admission.sourceMessages);
   return Object.freeze(admission);
+}
+
+function deepFreezeRootTurnMessageContent(content: MessageContent): void {
+  for (const attachment of content.attachments ?? []) {
+    Object.freeze(attachment.ref);
+    Object.freeze(attachment);
+  }
+  if (content.attachments) Object.freeze(content.attachments);
+  Object.freeze(content);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

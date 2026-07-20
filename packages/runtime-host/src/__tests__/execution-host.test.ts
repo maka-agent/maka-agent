@@ -63,7 +63,7 @@ test('publishes the durable running projection before a controlled first event',
     const start = client.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
 
     let running: TurnSnapshot | undefined;
@@ -116,7 +116,7 @@ test('keeps same-millisecond root admissions in durable predecessor order live a
     await client.startTurn({
       sessionId: fixture.sessionId,
       turnId: firstTurnId,
-      text: 'first root turn',
+      content: { text: 'first root turn' },
     });
     let firstTerminal: TurnSnapshot | undefined;
     while (!firstTerminal) {
@@ -143,7 +143,7 @@ test('keeps same-millisecond root admissions in durable predecessor order live a
     const secondStarted = await client.startTurn({
       sessionId: fixture.sessionId,
       turnId: secondTurnId,
-      text: 'second root turn',
+      content: { text: 'second root turn' },
     });
     let liveSecond: TurnSnapshot | undefined;
     while (!liveSecond) {
@@ -165,7 +165,7 @@ test('keeps same-millisecond root admissions in durable predecessor order live a
       await client.startTurn({
         sessionId: fixture.sessionId,
         turnId: firstTurnId,
-        text: 'first root turn',
+        content: { text: 'first root turn' },
       }),
       firstTerminal,
     );
@@ -229,7 +229,7 @@ test('reopens a canonical Session snapshot after the subscribing Client disconne
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     await first.close();
     await assert.rejects(
@@ -296,7 +296,7 @@ test('live subscription reads do not perform root admission recovery cleanup', a
     const started = await client.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const stagingPath = fixture.admissionStagingPath(randomUUID());
     await writeFile(stagingPath, 'in-flight admission');
@@ -331,7 +331,7 @@ test('keeps a concurrent snapshot and live cut gap-free and converges on the dur
       client.startTurn({
         sessionId: fixture.sessionId,
         turnId,
-        text: inputText,
+        content: { text: inputText },
       }),
       client.openSessionSubscription({ sessionId: fixture.sessionId }),
     ]);
@@ -394,7 +394,7 @@ test('two Clients share one execution after the starting Client disconnects', as
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     assert.equal(started.turnId, turnId);
     await assert.rejects(
@@ -402,7 +402,7 @@ test('two Clients share one execution after the starting Client disconnects', as
         second.startTurn({
           sessionId: fixture.sessionId,
           turnId: randomUUID(),
-          text: 'must stay busy',
+          content: { text: 'must stay busy' },
         }),
       operationError('session_busy'),
     );
@@ -428,13 +428,13 @@ test('two Clients share one execution after the starting Client disconnects', as
     const next = await second.startTurn({
       sessionId: fixture.sessionId,
       turnId: nextTurnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     assert.deepEqual(
       await second.startTurn({
         sessionId: fixture.sessionId,
         turnId,
-        text: FAKE_ASK_USER_QUESTION_PROMPT,
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
       }),
       stopped,
     );
@@ -487,7 +487,7 @@ test('an archived Session rejects a new Turn before durable admission', async ()
         client.startTurn({
           sessionId: fixture.sessionId,
           turnId,
-          text: 'must not execute',
+          content: { text: 'must not execute' },
         }),
       operationError('session_archived'),
     );
@@ -517,7 +517,7 @@ test('a killed Host is recovered exactly once before its successor becomes ready
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const observedBeforeCrash = await withTimeout(
       firstIterator.next(),
@@ -553,7 +553,7 @@ test('a killed Host is recovered exactly once before its successor becomes ready
     const successorStarted = await second.startTurn({
       sessionId: fixture.sessionId,
       turnId: successorTurnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const successorFirstFrame = await withTimeout(
       successorIterator.next(),
@@ -609,7 +609,7 @@ test('graceful Host shutdown stops and drains an active Turn before releasing ow
     const started = await client.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
 
     await fixture.stopHost(host);
@@ -654,7 +654,7 @@ test('a durable admission without a Run resumes before the Host becomes ready', 
         client.startTurn({
           sessionId: fixture.sessionId,
           turnId: randomUUID(),
-          text: 'must remain behind the recovered admission',
+          content: { text: 'must remain behind the recovered admission' },
         }),
       operationError('session_busy'),
     );
@@ -684,10 +684,12 @@ test('a durable admission without a Run resumes before the Host becomes ready', 
 test('startup recovery restores the admitted UserMessage before terminalizing its Run', async () => {
   await withExecutionRoot(async (fixture) => {
     const turnId = randomUUID();
-    const { runId, userMessageId } = await fixture.seedRunWithoutUserMessage(
-      turnId,
-      'recover the admitted message',
-    );
+    const content = {
+      text: '<model>recover the admitted message</model>',
+      displayText: 'recover the admitted message',
+      attachments: [attachment('recovery', 'same-name.png')],
+    };
+    const { runId, userMessageId } = await fixture.seedRunWithoutUserMessage(turnId, content);
     const host = await fixture.startHost();
     const client = await connectClient(fixture.root, 'tui');
 
@@ -707,6 +709,13 @@ test('startup recovery restores the admitted UserMessage before terminalizing it
     assert.equal(ledger.runs.length, 1);
     assert.equal(ledger.userMessages.length, 1);
     assert.equal(ledger.userMessages[0]?.id, userMessageId);
+    assert.deepEqual(ledger.userMessages[0], {
+      type: 'user',
+      id: userMessageId,
+      turnId,
+      ts: ledger.userMessages[0]?.ts,
+      ...content,
+    });
     assert.equal(ledger.terminalEvents.length, 1);
   });
 });
@@ -714,10 +723,9 @@ test('startup recovery restores the admitted UserMessage before terminalizing it
 test('startup recovery repairs a truncated RuntimeEvent tail before terminalizing the Run', async () => {
   await withExecutionRoot(async (fixture) => {
     const turnId = randomUUID();
-    const { runId } = await fixture.seedRunWithoutUserMessage(
-      turnId,
-      'recover after a partial RuntimeEvent write',
-    );
+    const { runId } = await fixture.seedRunWithoutUserMessage(turnId, {
+      text: 'recover after a partial RuntimeEvent write',
+    });
     const runtimeEventsPath = fixture.runtimeEventsPath(runId);
     await writeFile(runtimeEventsPath, '{"id":"truncated"', 'utf8');
 
@@ -745,10 +753,9 @@ test('startup recovery repairs a truncated RuntimeEvent tail before terminalizin
 test('startup recovery fails closed on a complete malformed RuntimeEvent record', async () => {
   await withExecutionRoot(async (fixture) => {
     const turnId = randomUUID();
-    const { runId } = await fixture.seedRunWithoutUserMessage(
-      turnId,
-      'do not recover across durable corruption',
-    );
+    const { runId } = await fixture.seedRunWithoutUserMessage(turnId, {
+      text: 'do not recover across durable corruption',
+    });
     const runtimeEventsPath = fixture.runtimeEventsPath(runId);
     const malformed = '{"id":"malformed"\n';
     await writeFile(runtimeEventsPath, malformed, 'utf8');
@@ -761,10 +768,9 @@ test('startup recovery fails closed on a complete malformed RuntimeEvent record'
 
 test('startup recovery fails closed on a complete malformed Session record', async () => {
   await withExecutionRoot(async (fixture) => {
-    await fixture.seedRunWithoutUserMessage(
-      randomUUID(),
-      'do not rewrite durable Session corruption',
-    );
+    await fixture.seedRunWithoutUserMessage(randomUUID(), {
+      text: 'do not rewrite durable Session corruption',
+    });
     const sessionPath = fixture.sessionPath();
     const malformed = '{"type":"user"\n';
     await appendFile(sessionPath, malformed, 'utf8');
@@ -778,10 +784,9 @@ test('startup recovery fails closed on a complete malformed Session record', asy
 
 test('startup recovery fails closed on a complete malformed AgentRun record', async () => {
   await withExecutionRoot(async (fixture) => {
-    const { runId } = await fixture.seedRunWithoutUserMessage(
-      randomUUID(),
-      'do not recover across durable AgentRun corruption',
-    );
+    const { runId } = await fixture.seedRunWithoutUserMessage(randomUUID(), {
+      text: 'do not recover across durable AgentRun corruption',
+    });
     const eventsPath = fixture.eventsPath(runId);
     const malformed = '{"type":"run_started"\n';
     await writeFile(eventsPath, malformed, 'utf8');
@@ -808,7 +813,7 @@ test('a pre-start durability failure rejects turn.start and drains the Host', {
           client.startTurn({
             sessionId: fixture.sessionId,
             turnId,
-            text: 'fail before the durable start barrier',
+            content: { text: 'fail before the durable start barrier' },
           }),
         operationError('internal_failure'),
       );
@@ -839,11 +844,15 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
   await withExecutionRoot(async (fixture) => {
     const host = await fixture.startHost();
     const turnId = randomUUID();
-    const text = 'response loss must not duplicate this Turn';
+    const content = {
+      text: '<model>response loss must not duplicate this Turn</model>',
+      displayText: 'response loss must not duplicate this Turn',
+      attachments: [attachment('start-retry', 'same-name.png')],
+    };
     const dropped = await sendRequestWithoutReadingResponse(host.endpoint, 'turn.start', {
       sessionId: fixture.sessionId,
       turnId,
-      text,
+      content,
     });
     const observer = await connectClient(fixture.root, 'tui');
     const committed = await waitForTurn(observer, fixture.sessionId, turnId);
@@ -852,7 +861,7 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const retried = await observer.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text,
+      content,
     });
     assert.equal(retried.runId, committed.runId);
     await assert.rejects(
@@ -860,7 +869,7 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
         observer.startTurn({
           sessionId: fixture.sessionId,
           turnId,
-          text: `${text} changed`,
+          content: { ...content, displayText: 'different human input' },
         }),
       operationError('operation_conflict'),
     );
@@ -872,6 +881,13 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const ledger = await fixture.readTurn(turnId);
     assert.equal(ledger.runs.length, 1);
     assert.equal(ledger.userMessages.length, 1);
+    assert.deepEqual(ledger.userMessages[0], {
+      type: 'user',
+      id: ledger.userMessages[0]?.id,
+      turnId,
+      ts: ledger.userMessages[0]?.ts,
+      ...content,
+    });
     assert.equal(ledger.terminalEvents.length, 1);
   });
 });
@@ -888,16 +904,20 @@ test('a disconnected Client leaves one retried follow-up for the Host to execute
     await first.startTurn({
       sessionId: fixture.sessionId,
       turnId: firstTurnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const pending = await waitForPendingInteraction(subscription, firstTurnId);
     const messageId = randomUUID();
-    const text = 'execute this follow-up exactly once';
+    const content = {
+      text: '<model>execute this follow-up exactly once</model>',
+      displayText: 'execute this follow-up exactly once',
+      attachments: [attachment('follow-up', 'same-name.png')],
+    };
     const input = {
       originHostEpoch: host.hostEpoch,
       sessionId: fixture.sessionId,
       messageId,
-      text,
+      content,
       placement: 'next_turn' as const,
     };
 
@@ -944,6 +964,7 @@ test('a disconnected Client leaves one retried follow-up for the Host to execute
       assert.equal(queue.queueRevision, submitted.queueRevision);
       assert.equal(queue.followup.length, 1);
       assert.ok(queuedEntry.entryId.length > 0);
+      assert.deepEqual(queuedEntry.content, content);
     }
 
     try {
@@ -997,12 +1018,34 @@ test('a disconnected Client leaves one retried follow-up for the Host to execute
     const successorClient = await connectClient(fixture.root, 'desktop');
     const proven = await successorClient.request('turn.message.submit', input);
     assert.equal(proven.disposition, 'followup');
+    await assert.rejects(
+      () =>
+        successorClient.request('turn.message.submit', {
+          ...input,
+          content: {
+            ...content,
+            attachments: [attachment('changed-follow-up', 'same-name.png')],
+          },
+        }),
+      operationError('operation_conflict'),
+    );
     await successorClient.close();
     await fixture.stopHost(successor);
 
+    const durableAdmission = JSON.parse(
+      await readFile(fixture.admissionPath(nextTerminal.turnId), 'utf8'),
+    ) as { sourceMessages: Array<{ content: unknown }> };
+    assert.deepEqual(durableAdmission.sourceMessages[0]?.content, content);
     const ledger = await fixture.readTurn(nextTerminal.turnId);
     assert.equal(ledger.runs.length, 1);
     assert.equal(ledger.userMessages.length, 1);
+    assert.deepEqual(ledger.userMessages[0], {
+      type: 'user',
+      id: ledger.userMessages[0]?.id,
+      turnId: nextTerminal.turnId,
+      ts: ledger.userMessages[0]?.ts,
+      ...content,
+    });
     assert.equal(ledger.terminalEvents.length, 1);
   });
 });
@@ -1019,7 +1062,7 @@ test('two Clients arbitrate one per-Run Interaction winner', async () => {
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const pending = await waitForPendingInteraction(subscription, turnId);
     assert.equal(pending.runId, started.runId);
@@ -1077,7 +1120,7 @@ test('a Store-first retry returns the durable answer after response loss', async
     await observer.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const pending = await waitForPendingInteraction(subscription, turnId);
     const answer = questionAnswer('邀请制', '下周', '是');
@@ -1121,7 +1164,7 @@ test('SIGTERM gracefully closes an active Interaction', {
     await client.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     await waitForPendingInteraction(subscription, turnId);
     const messageId = randomUUID();
@@ -1130,7 +1173,7 @@ test('SIGTERM gracefully closes an active Interaction', {
       originHostEpoch: host.hostEpoch,
       sessionId: fixture.sessionId,
       messageId,
-      text,
+      content: { text },
       placement: 'next_turn' as const,
     };
     const submitted = await client.request('turn.message.submit', input);
@@ -1166,7 +1209,7 @@ test('SIGKILL successor closes a pending Interaction as host_restarted', {
     await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     const pending = await waitForPendingInteraction(subscription, turnId);
 
@@ -1190,6 +1233,16 @@ test('SIGKILL successor closes a pending Interaction as host_restarted', {
   });
 });
 
+function attachment(id: string, name: string) {
+  return {
+    kind: 'image' as const,
+    name,
+    mimeType: 'image/png',
+    bytes: 10,
+    ref: { kind: 'workspace_file' as const, relativePath: `attachments/${id}.png` },
+  };
+}
+
 test('root prepare failure leaves an inherited Interaction pending', async () => {
   await withExecutionRoot(async (fixture) => {
     const request = await fixture.seedPendingQuestion({
@@ -1208,10 +1261,9 @@ test('root prepare failure leaves an inherited Interaction pending', async () =>
 test('startup commits Interaction closure before strict Run recovery', async () => {
   await withExecutionRoot(async (fixture) => {
     const turnId = randomUUID();
-    const { runId } = await fixture.seedRunWithoutUserMessage(
-      turnId,
-      'recover only after closing inherited interactions',
-    );
+    const { runId } = await fixture.seedRunWithoutUserMessage(turnId, {
+      text: 'recover only after closing inherited interactions',
+    });
     const request = await fixture.seedPendingQuestion({ turnId, runId });
     const host = await fixture.startHost({ steppingNow: 1_900_000_000_000 });
     const client = await connectClient(fixture.root, 'tui');

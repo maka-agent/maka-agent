@@ -37,7 +37,12 @@ const allowedServerExternalImports = new Set([
 ]);
 const allowedExternalImports = {
   client: allowedHostExternalImports,
-  protocol: new Set(['@maka/core/interaction', 'node:util']),
+  protocol: new Set([
+    '@maka/core/attachments',
+    '@maka/core/events',
+    '@maka/core/interaction',
+    'node:util',
+  ]),
 } as const;
 
 async function dependencyScannerFixture(target: string): Promise<void> {

@@ -192,7 +192,29 @@ describe('hosted Runtime lifecycle', () => {
           pull: () => {
             if (pulled) return [];
             pulled = true;
-            return [{ id: 'host-lease-1', messageId: 'host-message-1', text: 'host steer' }];
+            return [
+              {
+                id: 'host-lease-1',
+                messageId: 'host-message-1',
+                content: {
+                  text: 'host steer',
+                  displayText: 'visible steer',
+                  attachments: [
+                    {
+                      kind: 'image',
+                      name: 'steer.png',
+                      mimeType: 'image/png',
+                      bytes: 4,
+                      ref: {
+                        kind: 'session_file',
+                        sessionId: identity.sessionId,
+                        relativePath: 'steer.png',
+                      },
+                    },
+                  ],
+                },
+              },
+            ];
           },
           ack: (leaseIds) => leaseIds.forEach((leaseId) => acked.add(leaseId)),
           nack: (leaseIds) => leaseIds.forEach((leaseId) => nacked.add(leaseId)),
@@ -239,6 +261,25 @@ describe('hosted Runtime lifecycle', () => {
         (event) => event.content?.kind === 'text' && event.content.steering === true,
       );
       assert.equal(steering?.refs?.providerEventId, 'host-message-1');
+      assert.deepEqual(steering?.content, {
+        kind: 'text',
+        text: 'host steer',
+        displayText: 'visible steer',
+        attachments: [
+          {
+            kind: 'image',
+            name: 'steer.png',
+            mimeType: 'image/png',
+            bytes: 4,
+            ref: {
+              kind: 'session_file',
+              sessionId: session.id,
+              relativePath: 'steer.png',
+            },
+          },
+        ],
+        steering: true,
+      });
       assert.deepEqual([...acked], ['host-lease-1']);
       assert.deepEqual([...nacked], []);
       assert.deepEqual([...activeOwners], []);
@@ -522,7 +563,7 @@ describe('hosted Runtime lifecycle', () => {
                   {
                     id: 'lease-clean-drain',
                     messageId: 'message-clean-drain',
-                    text: 'settle before release',
+                    content: { text: 'settle before release' },
                   },
                 ];
               },

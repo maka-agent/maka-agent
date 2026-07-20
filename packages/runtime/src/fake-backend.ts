@@ -195,7 +195,7 @@ export class FakeBackend implements AgentBackend {
       if (leases.length === 0) return [];
       outstanding.push(...leases.map((lease) => lease.id));
       return leases.map((lease) => {
-        steered.push(lease.text);
+        steered.push(lease.content.text);
         return {
           leaseId: lease.id,
           event: {
@@ -204,7 +204,7 @@ export class FakeBackend implements AgentBackend {
             turnId,
             ts: Date.now(),
             messageId: lease.messageId,
-            text: lease.text,
+            content: lease.content,
           } satisfies SessionEvent,
         };
       });
