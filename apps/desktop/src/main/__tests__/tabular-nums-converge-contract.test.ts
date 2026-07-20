@@ -58,8 +58,8 @@ const TABULAR_NUMS_SELECTORS = [
   '.maka-skill-section-row small',
   // search result counts
   '.maka-search-modal-result-summary',
-  // provider counts
-  '.providerRootHeader > span',
+  // provider counts (the connected-section count converged onto SectionHeader,
+  // whose count slot bakes tabular-nums — pinned against the primitive below)
   '.providerEnabledModelsHeader strong',
   // plan search count
   '.maka-plan-search-summary',
@@ -91,6 +91,11 @@ describe('PR-ANTI-LAYOUT-SHIFT-TABULAR-NUMS-0 contract', () => {
   it('StatTile bakes tabular-nums into its value slot (stat-tile surfaces converged in R4)', async () => {
     const statTile = await readFile(resolve(REPO_ROOT, 'packages/ui/src/primitives/stat-tile.tsx'), 'utf8');
     assert.match(statTile, /\[font-variant-numeric:tabular-nums\]/, 'StatTile value must keep tabular-nums baked in');
+  });
+
+  it('SectionHeader bakes tabular-nums into its count slot (provider count converged here)', async () => {
+    const sectionHeader = await readFile(resolve(REPO_ROOT, 'packages/ui/src/primitives/section-header.tsx'), 'utf8');
+    assert.match(sectionHeader, /\[font-variant-numeric:tabular-nums\]/, 'SectionHeader count must keep tabular-nums baked in');
   });
 
   it('every whitelisted numeric surface declares tabular-nums in renderer CSS', async () => {

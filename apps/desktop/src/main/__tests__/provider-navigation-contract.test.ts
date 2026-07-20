@@ -44,7 +44,10 @@ describe('Settings model provider page hierarchy', () => {
       readFile(PROVIDER_CSS, 'utf8'),
     ]);
 
-    assert.match(source, /className="providerCatalogSection"[\s\S]*id="provider-catalog-title">\{copy\.add\}/);
+    // The catalog title converged onto SectionHeader; it still carries the id
+    // the section's aria-labelledby points at (via the primitive's titleId).
+    assert.match(source, /className="providerCatalogSection" aria-labelledby="provider-catalog-title"/);
+    assert.match(source, /<SectionHeader[\s\S]*titleId="provider-catalog-title"[\s\S]*title=\{copy\.add\}/);
     assert.match(
       source,
       /<PrimitiveTabsList[\s\S]*<InputGroup className="providerCatalogSearch">[\s\S]*<InputGroupAddon>[\s\S]*<Search[\s\S]*<InputGroupInput/,

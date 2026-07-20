@@ -420,40 +420,16 @@
   padding-right: var(--space-1);
 }
 
-.providerRootHeader {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
+/* Polish wave: .providerRootHeader (connected + catalog section titles)
+   converged onto the shared SectionHeader primitive — the fourth bespoke
+   section-header dialect retired. The primitive owns the title/subtitle/
+   count recipe (count keeps tabular-nums baked in). */
 
 .providerCatalogSection {
   display: grid;
   gap: var(--space-3);
   padding-top: var(--space-5);
   border-top: var(--border-width-hairline) solid var(--border);
-}
-
-.providerRootHeader h3 {
-  margin: 0;
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
-}
-
-.providerRootHeader p {
-  margin: var(--space-1) 0 0;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-normal);
-}
-
-.providerRootHeader > span {
-  flex: none;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-variant-numeric: tabular-nums;
-  line-height: var(--leading-normal);
 }
 
 .providerCatalogSearch {
@@ -469,16 +445,6 @@
   text-align: center;
 }
 
-@media (max-width: 620px) {
-  .providerRootHeader {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .providerRootHeader > button {
-    align-self: start;
-  }
-}
 .providerOAuthError {
   border: var(--border-width-hairline) solid color-mix(in srgb, var(--warning) 32%, transparent);
   border-radius: var(--radius-surface);

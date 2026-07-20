@@ -15,6 +15,7 @@ import {
   InputGroup, InputGroupAddon, InputGroupInput,
   PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, PrimitiveTabsPanel,
   Item, ItemMedia, ItemContent, ItemTitle, ItemDescription, ItemActions,
+  SectionHeader,
   useMountedRef,
   useUiLocale,
   useToast,
@@ -181,13 +182,12 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
     <div ref={providersPanelRef} className="providersPanel providersMarketPanel">
       <section className="providerMarket">
         <div className="enabledStrip" aria-label={copy.connectionsAria}>
-          <div className="providerRootHeader">
-            <div>
-              <h3>{copy.connected}</h3>
-              <p>{copy.connectedHelp}</p>
-            </div>
-            {connections.length > 0 && <span>{copy.count(connections.length)}</span>}
-          </div>
+          <SectionHeader
+            as="h3"
+            title={copy.connected}
+            subtitle={copy.connectedHelp}
+            count={connections.length > 0 ? copy.count(connections.length) : undefined}
+          />
           {loadError ? (
             <BaseButton className="enabledEmptyChip enabledEmptyAction" type="button" onClick={() => void reload()}>
               <strong>{copy.loadFailed}</strong>
@@ -234,12 +234,12 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
         </div>
 
         <section ref={providerCatalogRef} className="providerCatalogSection" aria-labelledby="provider-catalog-title">
-          <div className="providerRootHeader">
-            <div>
-              <h3 id="provider-catalog-title">{copy.add}</h3>
-              <p>{copy.addHelp}</p>
-            </div>
-          </div>
+          <SectionHeader
+            as="h3"
+            titleId="provider-catalog-title"
+            title={copy.add}
+            subtitle={copy.addHelp}
+          />
           <PrimitiveTabs
             className="catalogTabsRoot"
             value={catalogCategory}
