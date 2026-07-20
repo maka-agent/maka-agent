@@ -78,7 +78,8 @@ export type ResumePlanDiagnosticCode =
   | 'resume_candidate_missing'
   | 'tool_not_dispatched'
   | 'tool_recovery_corruption'
-  | 'protocol_marker_invalid';
+  | 'protocol_marker_invalid'
+  | 'runtime_fact_unsupported';
 
 export type ResumeRejectionReason =
   | 'runtime_offset_mismatch'
@@ -102,7 +103,8 @@ export type ResumeRejectionReason =
   | 'workspace_identity_missing'
   | 'safety_observation_unavailable'
   | 'resume_feature_disabled'
-  | 'resume_candidate_missing';
+  | 'resume_candidate_missing'
+  | 'runtime_fact_unsupported';
 
 export interface ResumePlanDiagnostic {
   code: ResumePlanDiagnosticCode;
@@ -837,11 +839,20 @@ function collectResumeDiagnostics(
   }
 
   for (const issue of recovery.issues) {
-    diagnostics.push({
-      code: 'protocol_marker_invalid',
-      message: 'runtime protocol marker is only valid on the first canonical event',
-      eventId: issue.eventId,
-    });
+    if (issue.code === 'runtime_fact_unsupported') {
+      diagnostics.push({
+        code: 'runtime_fact_unsupported',
+        message: `runtime fact ${issue.kind}@${issue.version} is not supported by this recovery runtime`,
+        eventId: issue.eventId,
+        detail: { kind: issue.kind, version: issue.version },
+      });
+    } else {
+      diagnostics.push({
+        code: 'protocol_marker_invalid',
+        message: 'runtime protocol marker is only valid on the first canonical event',
+        eventId: issue.eventId,
+      });
+    }
   }
 
   for (const decision of recovery.decisions) {
@@ -901,6 +912,9 @@ function deriveRejectionReasons(
     switch (diagnostic.code) {
       case 'runtime_offset_mismatch':
         reasons.add('runtime_offset_mismatch');
+        break;
+      case 'runtime_fact_unsupported':
+        reasons.add('runtime_fact_unsupported');
         break;
       case 'pending_tool_result':
       case 'tool_not_dispatched':

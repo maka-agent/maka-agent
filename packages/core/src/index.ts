@@ -103,6 +103,7 @@ export type {
   RuntimeEventPermissionDecision,
   RuntimeEventProtocolMarker,
   RuntimeEventToolDispatch,
+  RuntimeFactEnvelope,
   RuntimeEventActions,
   RuntimeEventRefs,
   ToolBoundaryProtocol,

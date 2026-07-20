@@ -19,6 +19,7 @@ import { isArchivedToolResultPlaceholder } from './tool-result-archive.js';
 
 export type RuntimeEventReadModelDiagnosticCode =
   | 'partial_skipped'
+  | 'unknown_runtime_fact'
   | 'unsupported_event'
   | 'incomplete_event'
   | 'archived_tool_result_placeholder'
@@ -173,6 +174,21 @@ export function projectRuntimeEventsToStoredMessages(
     if (event.actions?.toolDispatch) {
       // Dispatch is a canonical recovery fact with no legacy chat row. It is
       // consumed by RecoveryResolver, but must remain invisible to messages.
+      projected = true;
+    }
+
+    if (event.actions?.runtimeFact) {
+      const { kind, version } = event.actions.runtimeFact;
+      // The envelope explicitly promises no legacy chat row, so older readers
+      // can preserve session readability. Recovery remains fail-closed until a
+      // handler recognizes this exact kind/version.
+      diagnostic(
+        state,
+        event,
+        'unknown_runtime_fact',
+        `runtime fact ${kind}@${version} is unknown and was omitted from the legacy read model`,
+        { kind, version },
+      );
       projected = true;
     }
 

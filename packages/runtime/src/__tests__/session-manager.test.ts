@@ -4557,7 +4557,7 @@ describe('SessionManager permission mode updates', () => {
     ).toBe(false);
   });
 
-  test('getMessages includes continuation output without inlining child agent output', async () => {
+  test('getMessages includes continuation output and tolerates its unknown invisible facts', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const manager = makeManagerForReadCutover(store, runStore);
@@ -4643,6 +4643,24 @@ describe('SessionManager permission mode updates', () => {
           },
         }),
         runtimeEvent({
+          id: 'continuation-future-fact',
+          invocationId: 'continuation-invocation',
+          sessionId: session.id,
+          runId: 'continuation-run',
+          turnId: 'continuation-turn',
+          ts: 104,
+          role: 'system',
+          author: 'system',
+          actions: {
+            runtimeFact: {
+              kind: 'future.recovery_fact',
+              version: 7,
+              legacyProjection: 'invisible',
+              payload: { checkpointId: 'checkpoint-1' },
+            },
+          },
+        }),
+        runtimeEvent({
           id: 'continuation-article',
           invocationId: 'continuation-invocation',
           sessionId: session.id,
@@ -4712,6 +4730,19 @@ describe('SessionManager permission mode updates', () => {
     expect(assistantTexts).toContain('the resumed article');
     expect(assistantTexts).not.toContain('private child output');
     expect(messages.some((message) => message.id === 'continuation-start')).toBe(false);
+    expect(messages.some((message) => message.id === 'continuation-future-fact')).toBe(false);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+    }).getSessionView(session.id);
+    expect(
+      view.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === 'unknown_runtime_fact' &&
+          diagnostic.eventId === 'continuation-future-fact',
+      ),
+    ).toBe(true);
   });
 
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {

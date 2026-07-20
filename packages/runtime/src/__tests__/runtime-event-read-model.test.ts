@@ -774,6 +774,38 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics).toEqual([]);
   });
 
+  test('unknown invisible runtime facts keep the session readable and emit a soft diagnostic', () => {
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'future-runtime-fact',
+          role: 'system',
+          author: 'system',
+          actions: {
+            runtimeFact: {
+              kind: 'future.recovery_fact',
+              version: 7,
+              legacyProjection: 'invisible',
+              payload: { checkpointId: 'checkpoint-1' },
+            },
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    expect(out.messages).toEqual([]);
+    expect(out.diagnostics.map(({ code, eventId, detail }) => ({ code, eventId, detail }))).toEqual(
+      [
+        {
+          code: 'unknown_runtime_fact',
+          eventId: 'future-runtime-fact',
+          detail: { kind: 'future.recovery_fact', version: 7 },
+        },
+      ],
+    );
+  });
+
   test('continuation-start recovery facts are accepted without creating legacy message rows', () => {
     const out = projectRuntimeEventsToStoredMessages(
       [

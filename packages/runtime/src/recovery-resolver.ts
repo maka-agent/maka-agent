@@ -37,11 +37,20 @@ export interface ToolRecoveryDecision {
 export interface RuntimeRecoveryResolution {
   toolBoundaryProtocol?: ToolBoundaryProtocol;
   decisions: ToolRecoveryDecision[];
-  issues: Array<{
-    code: 'protocol_marker_invalid';
-    eventId: string;
-  }>;
+  issues: Array<
+    | {
+        code: 'protocol_marker_invalid';
+        eventId: string;
+      }
+    | {
+        code: 'runtime_fact_unsupported';
+        eventId: string;
+        kind: string;
+        version: number;
+      }
+  >;
   hasCorruption: boolean;
+  hasUnsupportedFacts: boolean;
   requiresReconciliation: boolean;
 }
 
@@ -64,6 +73,18 @@ export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): Runtime
       .filter((event) => event.actions?.runtimeProtocol !== undefined)
       .map((event) => ({ code: 'protocol_marker_invalid' as const, eventId: event.id })),
   );
+  for (const event of events) {
+    const fact = event.actions?.runtimeFact;
+    if (!fact) continue;
+    // PR 0 introduces the compatibility envelope but intentionally registers
+    // no recovery handlers. Every fact therefore remains a fail-closed gate.
+    issues.push({
+      code: 'runtime_fact_unsupported',
+      eventId: event.id,
+      kind: fact.kind,
+      version: fact.version,
+    });
+  }
   const decisions: ToolRecoveryDecision[] = [];
   const decisionsByToolCallId = new Map<string, ToolRecoveryDecision>();
   for (const event of events) {
@@ -152,7 +173,9 @@ export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): Runtime
     decisions,
     issues,
     hasCorruption:
-      issues.length > 0 || decisions.some((decision) => decision.status === 'corruption'),
+      issues.some((issue) => issue.code === 'protocol_marker_invalid') ||
+      decisions.some((decision) => decision.status === 'corruption'),
+    hasUnsupportedFacts: issues.some((issue) => issue.code === 'runtime_fact_unsupported'),
     requiresReconciliation: decisions.some((decision) => decision.status === 'indeterminate'),
   };
 }

@@ -133,6 +133,35 @@ describe('runtime resume phase 0 projection', () => {
       ['runtime_offset_mismatch'],
     );
   });
+
+  test('parks recovery at an unknown runtime fact kind and version', () => {
+    const fact = base({
+      id: 'future-runtime-fact',
+      actions: {
+        runtimeFact: {
+          kind: 'future.recovery_fact',
+          version: 7,
+          legacyProjection: 'invisible',
+          payload: { checkpointId: 'checkpoint-1' },
+        },
+      },
+    });
+    const plan = buildResumePlanFromRuntimeEvents([
+      textEvent('user-1', 'user', 'continue the task'),
+      fact,
+    ]);
+
+    assert.equal(plan.disposition, 'blocked');
+    assert.deepEqual(plan.rejectionReasons, ['runtime_fact_unsupported']);
+    assert.deepEqual(plan.diagnostics, [
+      {
+        code: 'runtime_fact_unsupported',
+        message: 'runtime fact future.recovery_fact@7 is not supported by this recovery runtime',
+        eventId: 'future-runtime-fact',
+        detail: { kind: 'future.recovery_fact', version: 7 },
+      },
+    ]);
+  });
 });
 
 describe('runtime resume phase 1 safe-boundary continuation', () => {

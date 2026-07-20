@@ -194,6 +194,34 @@ describe('RecoveryResolver', () => {
     assert.equal(resolution.hasCorruption, true);
   });
 
+  it('reports an unknown runtime fact as unsupported without calling the ledger corrupt', () => {
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      event({
+        id: 'future-runtime-fact',
+        actions: {
+          runtimeFact: {
+            kind: 'future.recovery_fact',
+            version: 7,
+            legacyProjection: 'invisible',
+            payload: { checkpointId: 'checkpoint-1' },
+          },
+        },
+      }),
+    ]);
+
+    assert.deepEqual(resolution.issues, [
+      {
+        code: 'runtime_fact_unsupported',
+        eventId: 'future-runtime-fact',
+        kind: 'future.recovery_fact',
+        version: 7,
+      },
+    ]);
+    assert.equal(resolution.hasUnsupportedFacts, true);
+    assert.equal(resolution.hasCorruption, false);
+  });
+
   it('rejects an unknown protocol marker on the first canonical event', () => {
     const resolution = resolveRuntimeRecovery([
       initialEvent('future_protocol' as 't1_after_preflight_v1'),

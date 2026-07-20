@@ -28,6 +28,34 @@ describe('SqliteRuntimeStore', () => {
     });
   });
 
+  it('round-trips an unknown versioned runtime fact without requiring a schema migration', async () => {
+    await withStore(async (store) => {
+      const fact: RuntimeEvent = {
+        id: 'future-runtime-fact',
+        invocationId: 'invocation-1',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        ts: 1,
+        partial: false,
+        role: 'system',
+        author: 'system',
+        actions: {
+          runtimeFact: {
+            kind: 'future.recovery_fact',
+            version: 7,
+            legacyProjection: 'invisible',
+            payload: { checkpointId: 'checkpoint-1' },
+          },
+        },
+      };
+
+      await store.appendRuntimeEvent('session-1', 'run-1', fact);
+
+      assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), [fact]);
+    });
+  });
+
   it('commits function_call, dispatch fact, and operation projection atomically in T1', async () => {
     await withStore(async (store) => {
       const call = functionCallEvent();
