@@ -1093,6 +1093,7 @@ class _ToolExecutorServer:
                 "stderr": _exec_stderr(result),
             })
         except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
+            cleanup_error: BaseException | None = None
             if command_id is not None and future is not None:
                 cleanup_error = self._cleanup_failed_command(command_id)
                 if cleanup_error is not None:
@@ -1102,13 +1103,18 @@ class _ToolExecutorServer:
             if isinstance(
                 exc, (asyncio.TimeoutError, concurrent.futures.TimeoutError)
             ):
-                _write_http(handler, 200, {
-                    "exitCode": 124,
-                    "returnCode": 124,
-                    "stdout": "",
-                    "stderr": "",
-                    "timedOut": True,
-                })
+                if cleanup_error is not None:
+                    _write_http(handler, 500, {
+                        "error": f"timed-out command cleanup failed: {cleanup_error}"
+                    })
+                else:
+                    _write_http(handler, 200, {
+                        "exitCode": 124,
+                        "returnCode": 124,
+                        "stdout": "",
+                        "stderr": "",
+                        "timedOut": True,
+                    })
             else:
                 _write_http(handler, 500, {"error": str(exc)})
 
