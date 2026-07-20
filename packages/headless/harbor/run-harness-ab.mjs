@@ -114,6 +114,7 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
   codex: Object.freeze({
     id: 'codex',
     armExecution: 'sequential',
+    maxPairConcurrency: 1,
     version: CODEX_TOOLCHAIN_SPEC.codex.version,
     toolchainFingerprint: CODEX_TOOLCHAIN_FINGERPRINT,
     runtime: Object.freeze({
@@ -319,18 +320,24 @@ function runLimit(raw) {
   return parsed;
 }
 
-function runPairConcurrency(raw) {
-  const parsed = Number(raw ?? PAIR_CONCURRENCY);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > PAIR_CONCURRENCY) {
-    throw new Error(
-      `MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${PAIR_CONCURRENCY}`,
-    );
+function runPairConcurrency(raw, maximum = PAIR_CONCURRENCY) {
+  const parsed = Number(raw ?? maximum);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new Error(`MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${maximum}`);
   }
   return parsed;
 }
 
-export function resolveHarnessAbTaskSelection(rawTaskId, rawLimit, rawPairConcurrency) {
-  const pairConcurrency = runPairConcurrency(rawPairConcurrency);
+export function resolveHarnessAbTaskSelection(
+  rawTaskId,
+  rawLimit,
+  rawPairConcurrency,
+  competitorProfile = resolveHarnessCompetitorProfile(),
+) {
+  const pairConcurrency = runPairConcurrency(
+    rawPairConcurrency,
+    competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
+  );
   const taskId = rawTaskId?.trim();
   if (!taskId) {
     return {
@@ -370,9 +377,12 @@ export function buildHarnessAbManifest({
   taskSourceFingerprint,
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
-  pairConcurrency = Math.min(PAIR_CONCURRENCY, taskIds.length),
-  oracleEvidence,
   competitorProfile = resolveHarnessCompetitorProfile(),
+  pairConcurrency = Math.min(
+    competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
+    taskIds.length,
+  ),
+  oracleEvidence,
 }) {
   const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   return buildHarnessAbRunManifest({
@@ -450,6 +460,7 @@ export async function main() {
     process.env.MAKA_HARNESS_AB_TASK_ID,
     process.env.MAKA_HARNESS_AB_LIMIT,
     process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
+    competitorProfile,
   );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {

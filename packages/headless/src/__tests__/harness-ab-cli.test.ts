@@ -50,8 +50,8 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
 test('harness A/B selects one named task only with an explicit run identity', async () => {
   const {
     buildHarnessAbManifest,
-    resolveHarnessAbRunId,
     resolveHarnessAbTaskSelection,
+    resolveHarnessAbRunId,
     resolveHarnessCompetitorProfile,
   } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
   const taskId = 'extract-moves-from-video';
@@ -222,6 +222,7 @@ test('harness A/B freezes the stored advisory evidence when resuming a run', asy
 test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', async () => {
   const {
     buildHarnessAbManifest,
+    resolveHarnessAbTaskSelection,
     resolveHarnessAbRunId,
     resolveHarnessCompetitorProfile,
     resolveHarnessCompetitorToolchainPath,
@@ -258,13 +259,21 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   });
   assert.equal(codexProfile.config.adapter, 'codex_agent:MakaCodexAgent');
   assert.equal(codexProfile.config.permissions, 'container-full-access');
+  const codexSelection = resolveHarnessAbTaskSelection(undefined, '5', undefined, codexProfile);
+  assert.equal(codexSelection.pairConcurrency, 1);
+  assert.throws(
+    () => resolveHarnessAbTaskSelection(undefined, '5', '2', codexProfile),
+    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 1/,
+  );
   const codexManifest = buildHarnessAbManifest({
     subjectFingerprint: 'subject',
     taskSourceFingerprint: 'tasks',
     toolchainFingerprint: 'tools',
+    pairConcurrency: codexSelection.pairConcurrency,
     competitorProfile: codexProfile,
   });
   assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'sequential' });
+  assert.equal(codexManifest.maxConcurrency, 1);
   assert.equal(codexManifest.maxConcurrentAttempts, codexManifest.maxConcurrency);
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
