@@ -33,7 +33,12 @@ export async function readProviderRequestTrace(
   const captures: ProviderRequestTraceCaptureAnalysis[] = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    const event = decodeAgentRunEvent(JSON.parse(line));
+    let event: ReturnType<typeof decodeAgentRunEvent>;
+    try {
+      event = decodeAgentRunEvent(JSON.parse(line));
+    } catch {
+      continue;
+    }
     if (event.type !== 'provider_request_captured') continue;
     const capture = captureFromEvent(event.turnId, event.data);
     if (!capture) continue;

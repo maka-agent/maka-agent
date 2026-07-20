@@ -69,3 +69,38 @@ test('derives the first changed cacheable segment from the existing AgentRun tra
     role: 'assistant',
   });
 });
+
+test('keeps complete provider captures when the AgentRun trace ends with a torn record', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-trace-'));
+  const traceEventsPath = join(dir, 'events.jsonl');
+  await writeFile(
+    traceEventsPath,
+    `${JSON.stringify({
+      type: 'provider_request_captured',
+      id: 'capture-1',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      ts: 1,
+      data: {
+        schemaVersion: 1,
+        traceId: 'provider-trace-1',
+        captureId: 'capture-1',
+        artifactId: 'artifact-capture-1',
+        step: 0,
+        providerId: 'openai',
+        modelId: 'gpt-test',
+        requestHash: 'sha256:request-1',
+        requestBytes: 100,
+        segments: [],
+      },
+    })}\n{"type":"provider_request_captured"`,
+  );
+
+  const result = await traceAnalysis.readProviderRequestTrace(traceEventsPath);
+
+  assert.deepEqual(
+    result.captures.map((capture) => capture.captureId),
+    ['capture-1'],
+  );
+});
