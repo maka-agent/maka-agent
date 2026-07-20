@@ -810,6 +810,7 @@ describe('Harbor adapter contract', () => {
     assert.deepEqual(JSON.parse(result.stdout), [
       { label: 'success', returnCode: 0, stdout: 'success-out', stderr: 'success-err' },
       { label: 'failure', returnCode: 7, stdout: 'failure-out', stderr: 'failure-err' },
+      { label: 'signal', returnCode: 143, stdout: 'signal-out', stderr: 'signal-err' },
     ]);
   });
 
@@ -1302,6 +1303,7 @@ scope_dir = Path(COMMAND_SCOPE_ROOT) / scope
 cases = [
     ("success", "printf success-out; printf success-err >&2"),
     ("failure", "printf failure-out; printf failure-err >&2; exit 7"),
+    ("signal", "printf signal-out; printf signal-err >&2; kill -TERM $$"),
 ]
 results = []
 
