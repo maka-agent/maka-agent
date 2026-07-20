@@ -44,7 +44,7 @@ import type { MainGoalWiring } from './goal-wiring.js';
 import type { MainAutomationWiring } from './automation-wiring.js';
 import type { AttachmentApprovalRegistry } from './attachment-approval.js';
 import type { createMainWindowController } from './main-window.js';
-import { handleBranchFromTurn } from './session-branch.js';
+import { handleBranchBeforeTurn, handleBranchFromTurn } from './session-branch.js';
 
 type SessionStore = ReturnType<typeof createSessionStore>;
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
@@ -389,6 +389,13 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     return handleBranchFromTurn(sessionId, input, {
       ensureSessionWorkspaceAvailable,
       branchFromTurn: (id, normalized) => runtime.branchFromTurn(id, normalized),
+      emitCreated: (id) => emitSessionsChanged('created', id),
+    });
+  });
+  ipcMain.handle('sessions:branchBeforeTurn', async (_event, sessionId: string, input: unknown) => {
+    return handleBranchBeforeTurn(sessionId, input, {
+      ensureSessionWorkspaceAvailable,
+      branchBeforeTurn: (id, normalized) => runtime.branchBeforeTurn(id, normalized),
       emitCreated: (id) => emitSessionsChanged('created', id),
     });
   });

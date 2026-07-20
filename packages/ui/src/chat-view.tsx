@@ -126,6 +126,11 @@ export function ChatView(props: {
   turnFooterActionsByTurn?: Record<string, ReadonlyArray<TurnFooterActionMeta>>;
   onTurnFooterAction?: (turnId: string, actionId: TurnFooterActionMeta['id']) => void;
   /**
+   * Edit-and-resend for a user turn. Desktop owns revision draft creation
+   * (branch-before + composer refill); ChatView only forwards the click.
+   */
+  onEditUserMessage?: (turnId: string) => void;
+  /**
    * PR109e-d/e: per-turn metadata for failed banner + lineage badges.
    * Renderer computes from materialized turns + lineage map + the
    * generalized error-class mapping (`describeTurnErrorClass()`),
@@ -248,6 +253,18 @@ export function ChatView(props: {
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
   // on every render.
+  const transformedUserTurnIds = useMemo(
+    () => new Set(
+      props.messages.flatMap((message) =>
+        message.type === 'user' &&
+        message.displayText !== undefined &&
+        message.displayText !== message.text
+          ? [message.turnId]
+          : [],
+      ),
+    ),
+    [props.messages],
+  );
   const promptRailTurns = useMemo(
     () =>
       turns
@@ -267,6 +284,12 @@ export function ChatView(props: {
   onTurnFooterActionRef.current = props.onTurnFooterAction;
   const stableTurnFooterAction = useCallback(
     (turnId: string, actionId: TurnFooterActionMeta['id']) => onTurnFooterActionRef.current?.(turnId, actionId),
+    [],
+  );
+  const onEditUserMessageRef = useRef(props.onEditUserMessage);
+  onEditUserMessageRef.current = props.onEditUserMessage;
+  const stableEditUserMessage = useCallback(
+    (turnId: string) => onEditUserMessageRef.current?.(turnId),
     [],
   );
   const onLineageBadgeClickRef = useRef(props.onLineageBadgeClick);
@@ -436,6 +459,8 @@ export function ChatView(props: {
                   userLabel={props.userLabel}
                   footerActions={props.turnFooterActionsByTurn?.[turn.turnId]}
                   onFooterAction={stableTurnFooterAction}
+                  onEditUserMessage={props.onEditUserMessage ? stableEditUserMessage : undefined}
+                  editUserMessageTransformed={transformedUserTurnIds.has(turn.turnId)}
                   failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
                   failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                   safeResumeAction={props.safeResumeAction?.turnId === turn.turnId

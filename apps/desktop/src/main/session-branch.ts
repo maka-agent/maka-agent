@@ -15,3 +15,19 @@ export async function handleBranchFromTurn(
   deps.emitCreated(session.id);
   return session;
 }
+
+/** Exclusive dual of handleBranchFromTurn: keep context strictly before the turn. */
+export async function handleBranchBeforeTurn(
+  sessionId: string,
+  input: unknown,
+  deps: {
+    ensureSessionWorkspaceAvailable(id: string): Promise<void>;
+    branchBeforeTurn(id: string, input: BranchFromTurnInput): Promise<SessionSummary>;
+    emitCreated(id: string): void;
+  },
+): Promise<SessionSummary> {
+  await deps.ensureSessionWorkspaceAvailable(sessionId);
+  const session = await deps.branchBeforeTurn(sessionId, normalizeBranchFromTurnInput(input));
+  deps.emitCreated(session.id);
+  return session;
+}

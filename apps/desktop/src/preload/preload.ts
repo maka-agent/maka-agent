@@ -175,6 +175,9 @@ const makaBridge = {
     branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:branchFromTurn', sessionId, input);
     },
+    branchBeforeTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:branchBeforeTurn', sessionId, input);
+    },
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
       return ipcRenderer.invoke('sessions:respondToPermission', sessionId, response);
     },

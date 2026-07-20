@@ -129,11 +129,14 @@ describe('permission response IPC boundary', () => {
     const main = await readMainProcessCombinedSource();
     const regenerateHandler = main.match(/ipcMain\.handle\('sessions:regenerateTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const branchHandler = main.match(/ipcMain\.handle\('sessions:branchFromTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
+    const branchBeforeHandler = main.match(/ipcMain\.handle\('sessions:branchBeforeTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
 
     assert.match(regenerateHandler, /normalizeRegenerateTurnInput\(input\)/);
     assert.doesNotMatch(regenerateHandler, /runtime\.regenerateTurn\(sessionId,\s*\{\s*\.\.\.input/);
     assert.match(branchHandler, /handleBranchFromTurn\(sessionId, input/);
     assert.doesNotMatch(branchHandler, /runtime\.branchFromTurn\(sessionId,\s*input\)/);
+    assert.match(branchBeforeHandler, /handleBranchBeforeTurn\(sessionId, input/);
+    assert.doesNotMatch(branchBeforeHandler, /runtime\.branchBeforeTurn\(sessionId,\s*input\)/);
   });
 
   it('normalizes session send commands and rejects malformed send payloads', () => {

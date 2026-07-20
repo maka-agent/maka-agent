@@ -199,6 +199,7 @@ export interface MakaBridge {
     >;
     regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
     branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
+    branchBeforeTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
     respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void>;
     saveConversationToFile(input: {

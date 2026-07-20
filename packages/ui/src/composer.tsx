@@ -143,6 +143,15 @@ export const Composer = forwardRef<
      * constant footprint (#740).
      */
     noModelConnection?: boolean;
+    /**
+     * Optional edit-and-resend banner above the composer. Desktop owns the
+     * revision draft; Composer only renders the notice + cancel affordance.
+     */
+    revisionNotice?: {
+      message: string;
+      cancelLabel: string;
+      onCancel(): void;
+    };
     workspacePicker?: ComposerWorkspacePicker;
     /**
      * Git branch picker for the workspace row, shown to the right of
@@ -515,6 +524,18 @@ export const Composer = forwardRef<
               {copy.noModelAction}
             </button>
           )}
+        </div>
+      )}
+      {!props.hidden && props.revisionNotice && (
+        <div className="maka-composer-no-model-hint" role="status" data-revision-notice="true">
+          <span>{props.revisionNotice.message}</span>
+          <button
+            type="button"
+            className="maka-composer-no-model-hint-action"
+            onClick={() => props.revisionNotice?.onCancel()}
+          >
+            {props.revisionNotice.cancelLabel}
+          </button>
         </div>
       )}
       <form
