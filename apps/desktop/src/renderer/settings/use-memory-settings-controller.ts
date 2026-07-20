@@ -470,6 +470,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
         case 'not_found':
           toast.error(copy.text.updateFailed, copy.text.locateFailedDetail);
           return;
+        case 'invalid_transition':
+          toast.error(copy.text.updateFailed, copy.text.updateBlocked);
+          return;
         case 'oversize':
           toast.error(copy.text.updateFailed, copy.text.oversizeDetail);
           return;

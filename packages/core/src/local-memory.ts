@@ -13,13 +13,7 @@ export interface LocalMemorySettings {
 }
 
 export type LocalMemoryOrigin = 'manual' | 'extracted' | 'imported' | 'unknown';
-export type LocalMemoryEntryStatus =
-  | 'draft'
-  | 'review_required'
-  | 'active'
-  | 'archived'
-  | 'rejected'
-  | 'unknown';
+export type LocalMemoryEntryStatus = 'proposal' | 'active' | 'archived' | 'unknown';
 export type LocalMemoryScope = 'workspace' | 'session';
 export type LocalMemorySource = 'user_authored' | 'chat_extracted' | 'unknown';
 
@@ -31,14 +25,12 @@ export interface LocalMemoryEntryPreview {
   readonly title: string;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
-  readonly proposalId?: string;
   readonly sourceTurnId?: string;
   readonly createdAt?: number;
   readonly updatedAt?: number;
   readonly proposedAt?: number;
   readonly confirmedAt?: number;
   readonly archivedAt?: number;
-  readonly rejectedAt?: number;
   readonly approvedBy?: 'user';
   readonly approvalSurface?: 'settings_review_queue' | 'inline_approval' | 'manual_editor_save';
   readonly archiveReason?: string;
@@ -113,7 +105,6 @@ export interface AppendApprovedLocalMemoryEntryInput {
   readonly content: string;
   readonly source: 'user_authored' | 'chat_extracted';
   readonly scope?: LocalMemoryScope;
-  readonly proposalId?: string;
   readonly sourceTurnId?: string;
   readonly confirmedAt: number;
   readonly approvalSurface?: 'settings_review_queue' | 'inline_approval' | 'manual_editor_save';
@@ -128,7 +119,7 @@ export type AppendApprovedLocalMemoryEntryResult =
     };
 
 export interface AppendLocalMemoryProposalInput {
-  readonly proposalId: string;
+  readonly id: string;
   readonly title: string;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
@@ -145,8 +136,7 @@ export type AppendLocalMemoryProposalResult =
     };
 
 export interface ApproveLocalMemoryProposalInput {
-  readonly proposalId: string;
-  readonly entryId: string;
+  readonly id: string;
   readonly confirmedAt: number;
   readonly approvalSurface?: 'settings_review_queue' | 'inline_approval' | 'manual_editor_save';
 }
@@ -154,8 +144,7 @@ export interface ApproveLocalMemoryProposalInput {
 export type ApproveLocalMemoryProposalResult =
   | {
       readonly ok: true;
-      readonly memoryDraft: string;
-      readonly pendingDraft: string;
+      readonly draft: string;
       readonly entry: LocalMemoryEntryPreview;
     }
   | {
@@ -164,8 +153,7 @@ export type ApproveLocalMemoryProposalResult =
     };
 
 export interface RejectLocalMemoryProposalInput {
-  readonly proposalId: string;
-  readonly rejectedAt: number;
+  readonly id: string;
 }
 
 export type RejectLocalMemoryProposalResult =
@@ -185,7 +173,10 @@ export interface SetLocalMemoryEntryStatusInput {
 
 export type SetLocalMemoryEntryStatusResult =
   | { readonly ok: true; readonly draft: string }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'oversize' };
+  | {
+      readonly ok: false;
+      readonly reason: 'invalid_id' | 'not_found' | 'invalid_transition' | 'oversize';
+    };
 
 export interface LocalMemoryEntryDraftRange {
   readonly start: number;
@@ -198,11 +189,10 @@ export interface LocalMemoryEntryDraft {
   readonly status: LocalMemoryEntryStatus;
   readonly content: string;
   readonly scope?: LocalMemoryScope;
-  readonly proposalId?: string;
   readonly sourceTurnId?: string;
 }
 
-export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
+export const LOCAL_MEMORY_MAX_BYTES = 32 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
 export const LOCAL_MEMORY_PROMPT_TRUNCATION_MARKER = '[本地记忆已按长度截断]';
 
@@ -273,7 +263,7 @@ export function appendManualLocalMemoryEntryDraft(
   const title = normalizeManualEntryTitle(input.title);
   if (!title) return { ok: false, reason: 'empty_title' };
 
-  const content = input.content.trim();
+  const content = canonicalizeLocalMemoryEntryContent(input.content);
   if (!content) return { ok: false, reason: 'empty_content' };
 
   const now =
@@ -308,7 +298,7 @@ export function appendApprovedLocalMemoryEntryDraft(
   const title = normalizeManualEntryTitle(input.title);
   if (!title) return { ok: false, reason: 'empty_title' };
 
-  const content = input.content.trim();
+  const content = canonicalizeLocalMemoryEntryContent(input.content);
   if (!content) return { ok: false, reason: 'empty_content' };
 
   const confirmedAt = normalizeTimestamp(input.confirmedAt);
@@ -326,7 +316,6 @@ export function appendApprovedLocalMemoryEntryDraft(
     `scope=${input.scope === 'session' ? 'session' : 'workspace'}`,
     'approvedBy=user',
     `approvalSurface=${input.approvalSurface ?? (source === 'chat_extracted' ? 'settings_review_queue' : 'manual_editor_save')}`,
-    ...(input.proposalId ? [`proposalId=${normalizeId(input.proposalId, 'proposal-')}`] : []),
     ...(input.sourceTurnId ? [`sourceTurnId=${normalizeMetaValue(input.sourceTurnId)}`] : []),
     ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
   ].join(' ');
@@ -337,24 +326,23 @@ export function appendLocalMemoryProposalDraft(
   currentDraft: string,
   input: AppendLocalMemoryProposalInput,
 ): AppendLocalMemoryProposalResult {
-  const proposalId = normalizeId(input.proposalId, 'proposal-');
-  if (!proposalId) return { ok: false, reason: 'invalid_id' };
+  const id = normalizeId(input.id, 'proposal-');
+  if (!id) return { ok: false, reason: 'invalid_id' };
 
   const title = normalizeManualEntryTitle(input.title);
   if (!title) return { ok: false, reason: 'empty_title' };
 
-  const content = input.content.trim();
+  const content = canonicalizeLocalMemoryEntryContent(input.content);
   if (!content) return { ok: false, reason: 'empty_content' };
 
   const proposedAt = normalizeTimestamp(input.proposedAt);
   const tags = normalizeManualEntryTags(input.tags ?? []);
   const meta = [
-    `id=${proposalId}`,
-    `proposalId=${proposalId}`,
+    `id=${id}`,
     'origin=extracted',
     'source=chat_extracted',
     `proposedAt=${proposedAt}`,
-    'status=review_required',
+    'status=proposal',
     `scope=${input.scope === 'session' ? 'session' : 'workspace'}`,
     ...(input.sourceTurnId ? [`sourceTurnId=${normalizeMetaValue(input.sourceTurnId)}`] : []),
     ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
@@ -385,6 +373,11 @@ export function setLocalMemoryEntryStatusDraft(
 
   const section = findLocalMemoryEntrySection(currentDraft, id);
   if (!section) return { ok: false, reason: 'not_found' };
+  const currentStatus = normalizeEntryStatus(section.meta?.status);
+  const transitionAllowed =
+    (currentStatus === 'active' && input.status === 'archived') ||
+    (currentStatus === 'archived' && input.status === 'active');
+  if (!transitionAllowed) return { ok: false, reason: 'invalid_transition' };
 
   const now =
     Number.isFinite(input.now) && input.now !== undefined
@@ -419,69 +412,31 @@ export function setLocalMemoryEntryStatusDraft(
 }
 
 export function approveLocalMemoryProposalDraft(
-  memoryDraft: string,
-  pendingDraft: string,
+  currentDraft: string,
   input: ApproveLocalMemoryProposalInput,
 ): ApproveLocalMemoryProposalResult {
-  const proposalId = normalizeId(input.proposalId, 'proposal-');
-  const entryId = normalizeId(input.entryId, 'mem-');
-  if (!proposalId || !entryId) return { ok: false, reason: 'invalid_id' };
+  const id = normalizeId(input.id, 'proposal-');
+  if (!id) return { ok: false, reason: 'invalid_id' };
 
-  const proposal = findLocalMemoryEntryFullSection(pendingDraft, proposalId);
+  const proposal = findLocalMemoryEntryFullSection(currentDraft, id);
   if (!proposal) return { ok: false, reason: 'not_found' };
-  const status = normalizeEntryStatus(proposal.meta?.status, true);
-  if (status !== 'draft' && status !== 'review_required')
+  if (normalizeEntryStatus(proposal.meta?.status) !== 'proposal') {
     return { ok: false, reason: 'not_pending' };
+  }
   if (!proposal.content.trim()) return { ok: false, reason: 'empty_content' };
 
-  const approved = appendApprovedLocalMemoryEntryDraft(memoryDraft, {
-    id: entryId,
-    title: proposal.title,
-    content: proposal.content,
-    source: 'chat_extracted',
-    scope: normalizeScope(proposal.meta?.scope),
-    proposalId,
-    sourceTurnId: proposal.meta?.sourceTurnId,
-    confirmedAt: input.confirmedAt,
-    approvalSurface: input.approvalSurface ?? 'settings_review_queue',
-    tags: parseTags(proposal.meta?.tags),
-  });
-  if (!approved.ok) {
-    return approved.reason === 'oversize'
-      ? { ok: false, reason: 'oversize' }
-      : { ok: false, reason: 'empty_content' };
-  }
-
-  const pendingWithoutProposal = removeLocalMemoryEntrySection(pendingDraft, proposal.range);
-  if (new TextEncoder().encode(pendingWithoutProposal).byteLength > LOCAL_MEMORY_MAX_BYTES) {
-    return { ok: false, reason: 'oversize' };
-  }
-  const parsed = parseLocalMemoryMarkdown(approved.draft);
-  const entry = parsed.activeEntries.find((candidate) => candidate.id === entryId);
-  if (!entry) return { ok: false, reason: 'not_found' };
-  return { ok: true, memoryDraft: approved.draft, pendingDraft: pendingWithoutProposal, entry };
-}
-
-export function rejectLocalMemoryProposalDraft(
-  currentDraft: string,
-  input: RejectLocalMemoryProposalInput,
-): RejectLocalMemoryProposalResult {
-  const proposalId = normalizeId(input.proposalId, 'proposal-');
-  if (!proposalId) return { ok: false, reason: 'invalid_id' };
-  const section = findLocalMemoryEntrySection(currentDraft, proposalId);
+  const section = findLocalMemoryEntrySection(currentDraft, id);
   if (!section) return { ok: false, reason: 'not_found' };
-  const status = normalizeEntryStatus(section.meta?.status, true);
-  if (status !== 'draft' && status !== 'review_required')
-    return { ok: false, reason: 'not_pending' };
-
-  const rejectedAt = normalizeTimestamp(input.rejectedAt);
+  const confirmedAt = normalizeTimestamp(input.confirmedAt);
   const lines = currentDraft.split(/\r?\n/);
   const meta = {
     ...(section.meta ?? {}),
-    id: section.id,
-    proposalId,
-    status: 'rejected',
-    rejectedAt: String(rejectedAt),
+    id,
+    status: 'active',
+    updatedAt: String(confirmedAt),
+    confirmedAt: String(confirmedAt),
+    approvedBy: 'user',
+    approvalSurface: input.approvalSurface ?? 'settings_review_queue',
   };
   const metaLine = `<!-- maka-memory: ${serializeMetaComment(meta)} -->`;
   if (section.metaLineIndex !== undefined) {
@@ -489,12 +444,29 @@ export function rejectLocalMemoryProposalDraft(
   } else {
     lines.splice(section.headingLineIndex + 1, 0, metaLine);
   }
-
   const draft = lines.join('\n');
   if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
     return { ok: false, reason: 'oversize' };
   }
-  return { ok: true, draft };
+  const entry = parseLocalMemoryMarkdown(draft).activeEntries.find(
+    (candidate) => candidate.id === id,
+  );
+  if (!entry) return { ok: false, reason: 'not_found' };
+  return { ok: true, draft, entry };
+}
+
+export function rejectLocalMemoryProposalDraft(
+  currentDraft: string,
+  input: RejectLocalMemoryProposalInput,
+): RejectLocalMemoryProposalResult {
+  const id = normalizeId(input.id, 'proposal-');
+  if (!id) return { ok: false, reason: 'invalid_id' };
+  const section = findLocalMemoryEntryFullSection(currentDraft, id);
+  if (!section) return { ok: false, reason: 'not_found' };
+  if (normalizeEntryStatus(section.meta?.status) !== 'proposal') {
+    return { ok: false, reason: 'not_pending' };
+  }
+  return { ok: true, draft: removeLocalMemoryEntrySection(currentDraft, section.range) };
 }
 
 export function findLocalMemoryEntryDraftRange(
@@ -555,10 +527,9 @@ export function findLocalMemoryEntryDraft(
   return {
     id,
     title: section.title,
-    status: normalizeEntryStatus(section.meta?.status, false),
+    status: normalizeEntryStatus(section.meta?.status),
     content: section.content,
     scope: normalizeScope(section.meta?.scope),
-    ...(section.meta?.proposalId ? { proposalId: section.meta.proposalId } : {}),
     ...(section.meta?.sourceTurnId ? { sourceTurnId: section.meta.sourceTurnId } : {}),
   };
 }
@@ -595,14 +566,13 @@ function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
       const id = current.meta?.id ?? slugId(current.title);
       const origin = normalizeOrigin(current.meta?.origin);
       const source = normalizeSource(current.meta?.source, origin);
-      const status = normalizeEntryStatus(current.meta?.status, false);
+      const status = normalizeEntryStatus(current.meta?.status);
       const scope = normalizeScope(current.meta?.scope);
       const createdAt = parseFiniteNumber(current.meta?.createdAt);
       const updatedAt = parseFiniteNumber(current.meta?.updatedAt);
       const proposedAt = parseFiniteNumber(current.meta?.proposedAt);
       const confirmedAt = parseFiniteNumber(current.meta?.confirmedAt);
       const archivedAt = parseFiniteNumber(current.meta?.archivedAt);
-      const rejectedAt = parseFiniteNumber(current.meta?.rejectedAt);
       const decayTtlMs = parseFiniteNumber(current.meta?.decayTtlMs);
       const approvedBy = current.meta?.approvedBy === 'user' ? 'user' : undefined;
       const approvalSurface = normalizeApprovalSurface(current.meta?.approvalSurface);
@@ -615,14 +585,12 @@ function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
         content: content.slice(0, 500),
         promptContent: content,
         scope,
-        ...(current.meta?.proposalId ? { proposalId: current.meta.proposalId } : {}),
         ...(current.meta?.sourceTurnId ? { sourceTurnId: current.meta.sourceTurnId } : {}),
         ...(Number.isFinite(createdAt) ? { createdAt } : {}),
         ...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
         ...(Number.isFinite(proposedAt) ? { proposedAt } : {}),
         ...(Number.isFinite(confirmedAt) ? { confirmedAt } : {}),
         ...(Number.isFinite(archivedAt) ? { archivedAt } : {}),
-        ...(Number.isFinite(rejectedAt) ? { rejectedAt } : {}),
         ...(approvedBy ? { approvedBy } : {}),
         ...(approvalSurface ? { approvalSurface } : {}),
         ...(current.meta?.archiveReason ? { archiveReason: current.meta.archiveReason } : {}),
@@ -705,8 +673,7 @@ function findLocalMemoryEntrySection(
   const matchCurrent = () => {
     if (!current) return null;
     const id = current.meta?.id ?? slugId(current.title);
-    const proposalId = current.meta?.proposalId;
-    return id === entryId || proposalId === entryId ? { id, ...current } : null;
+    return id === entryId ? { id, ...current } : null;
   };
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -761,8 +728,7 @@ function findLocalMemoryEntryFullSection(
   const matchCurrent = (endLineIndex: number) => {
     if (!current) return null;
     const currentId = current.meta?.id ?? slugId(current.title);
-    const proposalId = current.meta?.proposalId;
-    if (currentId !== id && proposalId !== id) return null;
+    if (currentId !== id) return null;
     return {
       title: current.title,
       meta: current.meta,
@@ -803,7 +769,6 @@ function removeLocalMemoryEntrySection(input: string, range: LocalMemoryEntryDra
 function serializeMetaComment(meta: Record<string, string>): string {
   const orderedKeys = [
     'id',
-    'proposalId',
     'origin',
     'source',
     'createdAt',
@@ -812,7 +777,6 @@ function serializeMetaComment(meta: Record<string, string>): string {
     'proposedAt',
     'confirmedAt',
     'archivedAt',
-    'rejectedAt',
     'scope',
     'approvedBy',
     'approvalSurface',
@@ -859,6 +823,18 @@ function appendEntrySection(
     return { ok: false, reason: 'oversize' };
   }
   return { ok: true, draft };
+}
+
+function canonicalizeLocalMemoryEntryContent(input: string): string {
+  return input
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => {
+      if (/^##\s+/.test(line)) return `#${line}`;
+      if (parseMetaComment(line)) return `\\${line}`;
+      return line;
+    })
+    .join('\n');
 }
 
 function normalizeManualEntryTitle(input: string): string {
@@ -927,18 +903,13 @@ function normalizeSource(input: string | undefined, origin: LocalMemoryOrigin): 
   }
 }
 
-function normalizeEntryStatus(
-  input: string | undefined,
-  missingIsPending: boolean,
-): LocalMemoryEntryStatus {
+function normalizeEntryStatus(input: string | undefined): LocalMemoryEntryStatus {
   switch (input) {
     case undefined:
-      return missingIsPending ? 'review_required' : 'active';
-    case 'draft':
-    case 'review_required':
+      return 'active';
+    case 'proposal':
     case 'active':
     case 'archived':
-    case 'rejected':
       return input;
     default:
       return 'unknown';
