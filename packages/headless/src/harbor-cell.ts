@@ -261,6 +261,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   await registerBackends(backends, {
     config,
     task,
+    storageRoot: input.storageRoot,
     workspaceDir: input.cwd,
     ...sessionCapabilities.capabilities,
     ...(backendNeedsIsolation(input.config.backend)
@@ -723,15 +724,6 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
-  // FileArtifactStore owns an in-memory metadata index, so every artifact
-  // consumer under this Harbor root must share the same instance.
-  const artifactStore = createArtifactStore(
-    input.env.MAKA_STORAGE_ROOT ?? join(input.env.MAKA_OUTPUT_DIR ?? '/logs/agent', 'maka-storage'),
-  );
-  const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
-    artifactStore,
-    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
-  );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
@@ -740,6 +732,13 @@ export function buildAiSdkCellBackendRegistration(input: {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
     }
+    // FileArtifactStore owns an in-memory metadata index, so every artifact
+    // consumer under the run's authoritative storage root shares this instance.
+    const artifactStore = createArtifactStore(context.storageRoot);
+    const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
+      artifactStore,
+      contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
+    );
     registry.register('ai-sdk', (ctx) => {
       const subscriptionFetch = buildSubscriptionModelFetch({
         connection,

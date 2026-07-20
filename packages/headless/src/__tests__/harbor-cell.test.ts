@@ -1964,6 +1964,7 @@ describe('runHarborCell', () => {
           systemPrompt: DEFAULT_HEADLESS_SYSTEM_PROMPT,
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -1995,8 +1996,8 @@ describe('runHarborCell', () => {
     });
   });
 
-  test('Harbor persists provider captures and synthesis blocks through one artifact owner', async () => {
-    await withDirs(async ({ workspaceDir, storageRoot }) => {
+  test('Harbor persists provider captures and synthesis blocks under the run storage root', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2004,14 +2005,14 @@ describe('runHarborCell', () => {
         model: 'gpt-4o-mini',
         env: {
           OPENAI_API_KEY: 'test-key',
-          MAKA_STORAGE_ROOT: storageRoot,
+          MAKA_STORAGE_ROOT: outputDir,
           MAKA_CONTEXT_SYNTHESIS_CACHE: 'on',
           MAKA_CONTEXT_SYNTHESIS_CACHE_MODE: 'read_write',
         },
         now: () => 123,
         newId: testIdFactory(),
       });
-      await register(registry, {
+      const context: HeadlessBackendContext = {
         config: {
           id: 'harbor-ai-sdk',
           backend: 'ai-sdk',
@@ -2020,9 +2021,11 @@ describe('runHarborCell', () => {
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         workspaceDir,
+        storageRoot,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
-      });
+      };
+      await register(registry, context);
 
       const backend = await registry.build('ai-sdk', {
         ...backendContext(workspaceDir),
@@ -2116,6 +2119,7 @@ describe('runHarborCell', () => {
         'provider_request_capture',
         'synthesis_cache_block',
       ]);
+      assert.deepEqual(await createArtifactStore(outputDir).list('session-1'), []);
     });
   });
 
@@ -2141,6 +2145,7 @@ describe('runHarborCell', () => {
           model: 'gpt-5.4',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2214,6 +2219,7 @@ describe('runHarborCell', () => {
           model: 'gpt-4o-mini',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2246,6 +2252,7 @@ describe('runHarborCell', () => {
           model: 'gpt-4o-mini',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2325,6 +2332,7 @@ describe('runHarborCell', () => {
           systemPrompt: candidatePrompt,
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2364,6 +2372,7 @@ describe('runHarborCell', () => {
           model: 'deepseek-v4-flash',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2422,6 +2431,7 @@ describe('runHarborCell', () => {
           model: 'gpt-4o-mini',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2521,6 +2531,7 @@ describe('runHarborCell', () => {
           model: 'gpt-4o-mini',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2568,6 +2579,7 @@ describe('runHarborCell', () => {
           model: 'gpt-4o-mini',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
@@ -2612,6 +2624,7 @@ describe('runHarborCell', () => {
                 model: 'gpt-4o-mini',
               },
               task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+              storageRoot: workspaceDir,
               workspaceDir,
               realBackendIsolation: {
                 kind: 'external',
@@ -2689,6 +2702,7 @@ describe('runHarborCell', () => {
             model: 'gpt-4o-mini',
           },
           task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+          storageRoot: workspaceDir,
           workspaceDir,
           realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
           toolExecutor,
@@ -2723,6 +2737,7 @@ describe('runHarborCell', () => {
           model: 'gpt-4o-mini',
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
         workspaceDir,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,

@@ -113,6 +113,7 @@ export async function runExperiment(
     await registerBackends(backends, {
       config: effectiveConfig,
       task,
+      storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
       ...sessionCapabilities.capabilities,
       ...(backendNeedsIsolation(config.backend)

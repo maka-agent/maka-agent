@@ -186,6 +186,8 @@ export type RealBackendIsolation = ExternalRealBackendIsolation;
 export interface HeadlessBackendContext extends Partial<HeadlessSessionCapabilities> {
   config: Config;
   task: Task;
+  /** Authoritative persistence root for this run. */
+  storageRoot: string;
   /** Absolute throwaway workspace path for this run. */
   workspaceDir: string;
   /**

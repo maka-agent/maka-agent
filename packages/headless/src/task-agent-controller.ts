@@ -285,6 +285,7 @@ export async function runTaskOnce(
     await registerBackends(backends, {
       config: effectiveConfig,
       task,
+      storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
