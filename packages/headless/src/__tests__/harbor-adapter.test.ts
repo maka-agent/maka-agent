@@ -2023,6 +2023,10 @@ with tempfile.TemporaryDirectory() as tmp:
     original_deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
     original_http_proxy = os.environ.get("HTTP_PROXY")
     original_https_proxy = os.environ.get("HTTPS_PROXY")
+    original_no_proxy = os.environ.get("NO_PROXY")
+    original_http_proxy_lower = os.environ.get("http_proxy")
+    original_https_proxy_lower = os.environ.get("https_proxy")
+    original_no_proxy_lower = os.environ.get("no_proxy")
     original_all_proxy = os.environ.get("ALL_PROXY")
     original_node_use_env_proxy = os.environ.get("NODE_USE_ENV_PROXY")
     original_context_foo = os.environ.get("MAKA_CONTEXT_FOO")
@@ -2033,6 +2037,10 @@ with tempfile.TemporaryDirectory() as tmp:
         os.environ["DEEPSEEK_API_KEY"] = "host-secret"
         os.environ["HTTP_PROXY"] = "http://user:pass@proxy.example"
         os.environ["HTTPS_PROXY"] = "http://user:pass@secure-proxy.example"
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        os.environ["http_proxy"] = "http://lower-user:pass@proxy.example"
+        os.environ["https_proxy"] = "http://lower-user:pass@secure-proxy.example"
+        os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
         os.environ["ALL_PROXY"] = "socks5://user:pass@socks-proxy.example"
         os.environ["NODE_USE_ENV_PROXY"] = "1"
         os.environ["MAKA_CONTEXT_FOO"] = "1"
@@ -2114,6 +2122,22 @@ with tempfile.TemporaryDirectory() as tmp:
             os.environ.pop("HTTPS_PROXY", None)
         else:
             os.environ["HTTPS_PROXY"] = original_https_proxy
+        if original_no_proxy is None:
+            os.environ.pop("NO_PROXY", None)
+        else:
+            os.environ["NO_PROXY"] = original_no_proxy
+        if original_http_proxy_lower is None:
+            os.environ.pop("http_proxy", None)
+        else:
+            os.environ["http_proxy"] = original_http_proxy_lower
+        if original_https_proxy_lower is None:
+            os.environ.pop("https_proxy", None)
+        else:
+            os.environ["https_proxy"] = original_https_proxy_lower
+        if original_no_proxy_lower is None:
+            os.environ.pop("no_proxy", None)
+        else:
+            os.environ["no_proxy"] = original_no_proxy_lower
         if original_all_proxy is None:
             os.environ.pop("ALL_PROXY", None)
         else:
@@ -2130,10 +2154,14 @@ with tempfile.TemporaryDirectory() as tmp:
     host_process_env = captured_host_process["kwargs"]["env"]
     assert "SHOULD_NOT_LEAK" not in host_process_env, host_process_env
     assert "DEEPSEEK_API_KEY" not in host_process_env, host_process_env
-    assert "HTTP_PROXY" not in host_process_env, host_process_env
-    assert "HTTPS_PROXY" not in host_process_env, host_process_env
+    assert host_process_env["HTTP_PROXY"] == "http://user:pass@proxy.example", host_process_env
+    assert host_process_env["HTTPS_PROXY"] == "http://user:pass@secure-proxy.example", host_process_env
+    assert host_process_env["NO_PROXY"] == "localhost,127.0.0.1", host_process_env
+    assert host_process_env["http_proxy"] == "http://lower-user:pass@proxy.example", host_process_env
+    assert host_process_env["https_proxy"] == "http://lower-user:pass@secure-proxy.example", host_process_env
+    assert host_process_env["no_proxy"] == "localhost,127.0.0.1,::1", host_process_env
     assert "ALL_PROXY" not in host_process_env, host_process_env
-    assert "NODE_USE_ENV_PROXY" not in host_process_env, host_process_env
+    assert host_process_env["NODE_USE_ENV_PROXY"] == "1", host_process_env
     assert host_process_env["MAKA_CONTEXT_FOO"] == "1", host_process_env
     assert host_process_env["MAKA_ECONOMY_TASK_MODE"] == "true", host_process_env
     assert host_process_env["MAKA_HOST_API_KEY_FILE"] == "/host/deepseek-key", host_process_env

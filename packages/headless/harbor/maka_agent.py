@@ -65,6 +65,16 @@ _HOST_NODE_ENV_ALLOWLIST = {
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    # Host-side model requests must retain the operator's standard Node proxy
+    # configuration. NO_PROXY keeps the localhost tool bridge direct. These
+    # values reach only the trusted host child, never the task container.
+    "NODE_USE_ENV_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
     # Windows-specific variables Node/OpenSSL need to initialize the CSPRNG
     # and resolve system paths when the host cell is launched from a subprocess.
     "SystemRoot",
