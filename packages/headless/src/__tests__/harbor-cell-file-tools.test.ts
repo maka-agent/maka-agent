@@ -73,6 +73,36 @@ describe('Harbor local executor file tools (real spawn)', () => {
     //  head-first guarantee covers them too without generating MBs of matches.)
   });
 
+  test('structured file tools reject stdout appended at the real executor boundary', async (t) => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-harbor-file-tool-noise-'));
+    await writeFile(join(cwd, 'data.txt'), 'needle\n', 'utf8');
+    const realExecutor = createHarborCellLocalToolExecutor();
+    const tools = buildIsolatedHeadlessTools({
+      ...realExecutor,
+      async exec(input, control) {
+        const result = await realExecutor.exec(input, control);
+        if (input.command.includes('MAKA_FILE_TOOL_OUTPUT_V1') && result.exitCode === 0) {
+          return { ...result, stdout: `${result.stdout}[1]+ Done cleanup\n` };
+        }
+        return result;
+      },
+    });
+    const cases = [
+      { name: 'Read', input: { path: 'data.txt' } },
+      { name: 'Glob', input: { pattern: '*.txt' } },
+      { name: 'Grep', input: { pattern: 'needle' } },
+    ];
+
+    for (const scenario of cases) {
+      await t.test(scenario.name, async () => {
+        await assert.rejects(
+          async () => await tool(tools, scenario.name).impl(scenario.input, toolCtx(cwd)),
+          new RegExp(`${scenario.name} output transport integrity check failed`),
+        );
+      });
+    }
+  });
+
   test('Edit fails closed when the real executor boundary appends job-control output', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-harbor-edit-noise-'));
     const file = join(cwd, 'data.txt');
