@@ -4410,12 +4410,14 @@ describe('createHarborCellLocalToolExecutor', () => {
       'local isolated file command ignored tool cancellation',
     );
     assert.notEqual(result.exitCode, 0);
+    assert.equal(result.timedOut, undefined);
   });
 
   test('lets MAKA_CELL_COMMAND_TIMEOUT_MS lower the default per-command timeout', async () => {
     const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '50' });
     const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd() });
-    assert.notEqual(result.exitCode, 0);
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.timedOut, true);
   });
 
   test('lets MAKA_CELL_COMMAND_TIMEOUT_MS lower the bounded-tail Bash default timeout', async () => {
@@ -4431,7 +4433,15 @@ describe('createHarborCellLocalToolExecutor', () => {
   test('honors an explicit per-command timeout over the configured default', async () => {
     const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '60000' });
     const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd(), timeoutMs: 50 });
-    assert.notEqual(result.exitCode, 0);
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.timedOut, true);
+  });
+
+  test('does not classify a command-authored exit 124 as a timeout', async () => {
+    const executor = createHarborCellLocalToolExecutor({});
+    const result = await executor.exec({ command: 'exit 124', cwd: process.cwd() });
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.timedOut, undefined);
   });
 
   test('runs a quick command to completion under the default timeout', async () => {

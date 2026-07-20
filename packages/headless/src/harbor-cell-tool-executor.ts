@@ -158,6 +158,7 @@ export function createHarborCellLocalToolExecutor(
           exitCode: shellErrorExitCode(error),
           stdout: shellErrorText(error, 'stdout'),
           stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
+          ...(shellErrorTimedOut(error) ? { timedOut: true } : {}),
         };
       }
     },
@@ -201,6 +202,16 @@ function shellErrorExitCode(error: unknown): number {
   if (isRecord(error) && typeof error.code === 'number') return error.code;
   if (isRecord(error) && typeof error.signal === 'string') return 124;
   return 1;
+}
+
+function shellErrorTimedOut(error: unknown): boolean {
+  return (
+    isRecord(error) &&
+    error.killed === true &&
+    typeof error.signal === 'string' &&
+    error.name !== 'AbortError' &&
+    error.code !== 'ABORT_ERR'
+  );
 }
 
 function shellErrorText(error: unknown, field: 'stdout' | 'stderr'): string {
