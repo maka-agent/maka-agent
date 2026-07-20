@@ -247,32 +247,27 @@ export class AgentRun {
 
   recordProviderRequestCapture(capture: ProviderRequestCaptureLedgerRecord): Promise<void> {
     if (!this.input.runStore) return Promise.reject(new Error('AgentRun store is not configured'));
-    if (!this.runStoreAvailable) return Promise.reject(new Error('AgentRun store is unavailable'));
-    return this.enqueueRunStore(
-      'append provider request capture',
-      async () => {
-        const {
-          schemaVersion,
-          serializedRequest: _serializedRequest,
-          ...data
-        } = capture as ProviderRequestCaptureLedgerRecord & { serializedRequest?: string };
-        await this.input.runStore?.appendEvent(
-          this.sessionId,
-          this.runId,
-          {
-            type: 'provider_request_captured',
-            id: capture.captureId,
-            runId: this.runId,
-            sessionId: this.sessionId,
-            turnId: capture.turnId,
-            ts: this.input.now(),
-            data: { schemaVersion, ...data },
-          },
-          { durable: true },
-        );
-      },
-      { rethrow: true },
-    );
+    return this.enqueueRequiredProviderCapture('append provider request capture', async () => {
+      const {
+        schemaVersion,
+        serializedRequest: _serializedRequest,
+        ...data
+      } = capture as ProviderRequestCaptureLedgerRecord & { serializedRequest?: string };
+      await this.input.runStore?.appendEvent(
+        this.sessionId,
+        this.runId,
+        {
+          type: 'provider_request_captured',
+          id: capture.captureId,
+          runId: this.runId,
+          sessionId: this.sessionId,
+          turnId: capture.turnId,
+          ts: this.input.now(),
+          data: { schemaVersion, ...data },
+        },
+        { durable: true },
+      );
+    });
   }
 
   recordProviderRequestAttempt(attempt: ProviderRequestAttemptRecord): void {
@@ -1329,6 +1324,25 @@ export class AgentRun {
       this.runStoreAvailable = false;
       await this.enqueueTraceWriteFailure(error, label);
       if (options.rethrow) throw error;
+    });
+    this.traceQueue = next.catch(() => {});
+    return next;
+  }
+
+  /**
+   * A prepared-request capture is a dispatch gate, not diagnostic telemetry.
+   * Always attempt its durable append even when an earlier best-effort run
+   * trace write marked the general run ledger unavailable; only this append's
+   * own outcome may decide whether the provider request can be dispatched.
+   */
+  private enqueueRequiredProviderCapture(
+    label: string,
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    const next = this.traceQueue.then(operation, operation).catch(async (error) => {
+      this.runStoreAvailable = false;
+      await this.enqueueTraceWriteFailure(error, label);
+      throw error;
     });
     this.traceQueue = next.catch(() => {});
     return next;
