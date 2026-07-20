@@ -797,6 +797,23 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /maka-cell-output\.json/);
   });
 
+  test('process scope preserves command results without emitting job notifications', (t) => {
+    const result = spawnSync('python3', ['-c', pythonProcessScopeSmokeScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('python3 is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), [
+      { label: 'success', returnCode: 0, stdout: 'success-out', stderr: 'success-err' },
+      { label: 'failure', returnCode: 7, stdout: 'failure-out', stderr: 'failure-err' },
+      { label: 'signal', returnCode: 143, stdout: 'signal-out', stderr: 'signal-err' },
+    ]);
+  });
+
   test('opencode_agent.py bridges credentials and estimates trial cost without Harbor installed', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonOpenCodeAdapterSmokeScript(repoRoot)], {
       cwd: repoRoot,
@@ -965,6 +982,7 @@ import sys
 import tempfile
 import time
 import types
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -985,6 +1003,13 @@ def post(url, token, body):
     )
     resp = urllib.request.urlopen(request, timeout=5)
     return resp.status, json.loads(resp.read())
+
+
+def post_allow_error(url, token, body):
+    try:
+        return post(url, token, body)
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read())
 
 
 class FakeExecEnv:
@@ -1185,6 +1210,11 @@ class LocalProcessCleanupAgent:
         return ExecResult(stdout="", stderr="", return_code=process.returncode)
 
 
+class ImmediateTimeoutEnv:
+    async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
+        raise asyncio.TimeoutError("simulated Harbor exec timeout")
+
+
 async def fix5_timed_out_command_is_reclaimed_immediately():
     env = TimedOutLocalShellEnv()
     server = m._ToolExecutorServer(LocalProcessCleanupAgent(), env)
@@ -1214,10 +1244,17 @@ async def fix5_timed_out_command_is_reclaimed_immediately():
                 ">/dev/null 2>&1 & sleep 30"
             )
             async with server:
-                try:
-                    await asyncio.to_thread(post, server.url, server.token, {"command": command})
-                except Exception:
-                    pass
+                status, body = await asyncio.to_thread(
+                    post, server.url, server.token, {"command": command}
+                )
+                assert status == 200, status
+                assert body == {
+                    "exitCode": 124,
+                    "returnCode": 124,
+                    "stdout": "",
+                    "stderr": "",
+                    "timedOut": True,
+                }, body
             assert env.command_pgid is not None
             detached_pid = int(state_path.read_text(encoding="utf-8"))
             can_scan_process_env = Path("/proc").is_dir()
@@ -1259,12 +1296,77 @@ async def fix5_timed_out_command_is_reclaimed_immediately():
             scope_dir.rmdir()
 
 
+async def fix6_cleanup_failure_is_not_reported_as_a_typed_timeout():
+    server = m._ToolExecutorServer(LocalProcessCleanupAgent(), ImmediateTimeoutEnv())
+    server._cleanup_failed_command = lambda command_id: RuntimeError("cleanup failed")
+    await server.__aenter__()
+    try:
+        status, body = await asyncio.to_thread(
+            post_allow_error, server.url, server.token, {"command": "sleep 30"}
+        )
+    finally:
+        # This test has no real command to reclaim; suppress the expected
+        # teardown re-raise after capturing the HTTP boundary behavior.
+        server._command_cleanup_error = None
+        await server.__aexit__(None, None, None)
+    assert status == 500, (status, body)
+    assert body == {"error": "timed-out command cleanup failed: cleanup failed"}, body
+
+
 asyncio.run(fix1_bridge_exec_contract())
 asyncio.run(fix2_workdir_probe_falls_back())
 asyncio.run(fix3_infra_failure_reclaims_scoped_processes())
 asyncio.run(fix4_deadline_reclaims_all_scoped_commands())
 asyncio.run(fix5_timed_out_command_is_reclaimed_immediately())
+asyncio.run(fix6_cleanup_failure_is_not_reported_as_a_typed_timeout())
 print("bridge-contract ok")
+`;
+}
+
+function pythonProcessScopeSmokeScript(root: string): string {
+  return String.raw`
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+
+from process_scope import COMMAND_SCOPE_ROOT, scoped_command
+
+scope = f"job-notification-test-{os.getpid()}"
+scope_dir = Path(COMMAND_SCOPE_ROOT) / scope
+cases = [
+    ("success", "printf success-out; printf success-err >&2"),
+    ("failure", "printf failure-out; printf failure-err >&2; exit 7"),
+    ("signal", "printf signal-out; printf signal-err >&2; kill -TERM $$"),
+]
+results = []
+
+try:
+    for label, command in cases:
+        result = subprocess.run(
+            ["bash", "-lc", scoped_command(command, scope, label)],
+            capture_output=True,
+            text=True,
+        )
+        results.append(
+            {
+                "label": label,
+                "returnCode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        )
+finally:
+    if scope_dir.exists():
+        for path in scope_dir.iterdir():
+            path.unlink()
+        scope_dir.rmdir()
+
+print(json.dumps(results))
 `;
 }
 

@@ -7,12 +7,15 @@ import { exec as nodeExec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/runtime';
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
-import type { IsolatedToolExecutor } from './isolation.js';
+import type { IsolatedCommandResult, IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
-import { buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
+import {
+  buildIsolatedHeadlessTools,
+  FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES,
+  type BuildIsolatedHeadlessToolsOptions,
+} from './tools.js';
 
 const execAsync = promisify(nodeExec);
-const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
 export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 
@@ -48,18 +51,48 @@ export function createHarborHttpToolExecutor(
         signal: control?.abortSignal,
       });
       const body = await response.text();
-      if (!response.ok) return { exitCode: 1, stdout: '', stderr: body };
-      const parsed: unknown = JSON.parse(body);
-      if (!isRecord(parsed))
-        return { exitCode: 1, stdout: '', stderr: 'Harbor bridge returned a non-object response' };
-      const exitCode = parsed.exitCode ?? parsed.returnCode;
-      return {
-        exitCode: typeof exitCode === 'number' && Number.isInteger(exitCode) ? exitCode : 1,
-        stdout: typeof parsed.stdout === 'string' ? parsed.stdout : '',
-        stderr: typeof parsed.stderr === 'string' ? parsed.stderr : '',
-      };
+      if (!response.ok) {
+        throw new Error(
+          `Harbor tool executor failed: ${harborBridgeErrorMessage(body, response.status)}`,
+        );
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        throw new Error('Harbor tool executor returned an invalid response');
+      }
+      return decodeHarborCommandResult(parsed);
     },
   };
+}
+
+function decodeHarborCommandResult(parsed: unknown): IsolatedCommandResult {
+  if (!isRecord(parsed)) throw invalidHarborResponse();
+  const { exitCode, returnCode } = parsed;
+  if (
+    (exitCode !== undefined && (typeof exitCode !== 'number' || !Number.isSafeInteger(exitCode))) ||
+    (returnCode !== undefined &&
+      (typeof returnCode !== 'number' || !Number.isSafeInteger(returnCode))) ||
+    (exitCode === undefined && returnCode === undefined) ||
+    (exitCode !== undefined && returnCode !== undefined && exitCode !== returnCode) ||
+    typeof parsed.stdout !== 'string' ||
+    typeof parsed.stderr !== 'string' ||
+    (parsed.timedOut !== undefined && typeof parsed.timedOut !== 'boolean') ||
+    (parsed.timedOut === true && (exitCode ?? returnCode) !== 124)
+  ) {
+    throw invalidHarborResponse();
+  }
+  return {
+    exitCode: (exitCode ?? returnCode) as number,
+    stdout: parsed.stdout,
+    stderr: parsed.stderr,
+    ...(parsed.timedOut !== undefined ? { timedOut: parsed.timedOut } : {}),
+  };
+}
+
+function invalidHarborResponse(): Error {
+  return new Error('Harbor tool executor returned an invalid response');
 }
 
 export function createHarborCellLocalToolExecutor(
@@ -98,6 +131,7 @@ export function createHarborCellLocalToolExecutor(
             stderr: result.stderr,
             stdoutTruncated: result.stdoutTruncated,
             stderrTruncated: result.stderrTruncated,
+            timedOut: result.timedOut,
           };
         } catch (error) {
           // runShellWithBoundedTail only rejects when the process cannot be
@@ -118,7 +152,7 @@ export function createHarborCellLocalToolExecutor(
           cwd,
           env: childEnv,
           timeout: timeoutMs ?? defaultTimeoutMs,
-          maxBuffer: HARBOR_CELL_TOOL_MAX_BUFFER_BYTES,
+          maxBuffer: FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES,
           signal: control?.abortSignal,
         });
         return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
@@ -127,10 +161,23 @@ export function createHarborCellLocalToolExecutor(
           exitCode: shellErrorExitCode(error),
           stdout: shellErrorText(error, 'stdout'),
           stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
+          ...(shellErrorTimedOut(error) ? { timedOut: true } : {}),
         };
       }
     },
   };
+}
+
+function harborBridgeErrorMessage(body: string, status: number): string {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (isRecord(parsed) && typeof parsed.error === 'string' && parsed.error.trim()) {
+      return parsed.error.trim();
+    }
+  } catch {
+    // The bridge response is untrusted transport data; do not expose it as command stderr.
+  }
+  return `HTTP ${status}`;
 }
 
 function requiredHarborEnv(env: RunHarborCellEnv, name: string): string {
@@ -158,6 +205,16 @@ function shellErrorExitCode(error: unknown): number {
   if (isRecord(error) && typeof error.code === 'number') return error.code;
   if (isRecord(error) && typeof error.signal === 'string') return 124;
   return 1;
+}
+
+function shellErrorTimedOut(error: unknown): boolean {
+  return (
+    isRecord(error) &&
+    error.killed === true &&
+    typeof error.signal === 'string' &&
+    error.name !== 'AbortError' &&
+    error.code !== 'ABORT_ERR'
+  );
 }
 
 function shellErrorText(error: unknown, field: 'stdout' | 'stderr'): string {

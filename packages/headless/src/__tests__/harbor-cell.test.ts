@@ -4230,6 +4230,123 @@ setTimeout(() => {
 });
 
 describe('createHarborHttpToolExecutor', () => {
+  test('keeps bridge failures out of command stderr', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ error: 'executor bridge failed' }), { status: 500 });
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor failed: executor bridge failed/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects a malformed successful bridge response', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(JSON.stringify(['not', 'an', 'envelope']));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects conflicting bridge exit-code aliases', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ exitCode: 0, returnCode: 9, stdout: '', stderr: '' }));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects a bridge timeout paired with a successful exit code', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ exitCode: 0, stdout: '', stderr: '', timedOut: true }));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects an unsafe bridge exit code', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(
+          JSON.stringify({ exitCode: Number.MAX_SAFE_INTEGER + 1, stdout: '', stderr: '' }),
+        );
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('preserves a typed bridge timeout instead of command stderr', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ exitCode: 124, stdout: '', stderr: '', timedOut: true }));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      assert.deepEqual(await executor.exec({ command: 'sleep 60', cwd: '/workspace' }), {
+        exitCode: 124,
+        stdout: '',
+        stderr: '',
+        timedOut: true,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test('forwards active-tool cancellation to fetch without serializing execution control', async () => {
     const previousFetch = globalThis.fetch;
     const controller = new AbortController();
@@ -4293,12 +4410,14 @@ describe('createHarborCellLocalToolExecutor', () => {
       'local isolated file command ignored tool cancellation',
     );
     assert.notEqual(result.exitCode, 0);
+    assert.equal(result.timedOut, undefined);
   });
 
   test('lets MAKA_CELL_COMMAND_TIMEOUT_MS lower the default per-command timeout', async () => {
     const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '50' });
     const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd() });
-    assert.notEqual(result.exitCode, 0);
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.timedOut, true);
   });
 
   test('lets MAKA_CELL_COMMAND_TIMEOUT_MS lower the bounded-tail Bash default timeout', async () => {
@@ -4314,7 +4433,15 @@ describe('createHarborCellLocalToolExecutor', () => {
   test('honors an explicit per-command timeout over the configured default', async () => {
     const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '60000' });
     const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd(), timeoutMs: 50 });
-    assert.notEqual(result.exitCode, 0);
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.timedOut, true);
+  });
+
+  test('does not classify a command-authored exit 124 as a timeout', async () => {
+    const executor = createHarborCellLocalToolExecutor({});
+    const result = await executor.exec({ command: 'exit 124', cwd: process.cwd() });
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.timedOut, undefined);
   });
 
   test('runs a quick command to completion under the default timeout', async () => {

@@ -52,7 +52,18 @@ const fileWriteKey = (cwd: string, normalizedPath: string) =>
 const EDIT_READ_FRAME_END = 'MAKA_EDIT_BYTES_END';
 const EDIT_READ_FRAME_HEADER_PATTERN =
   /^MAKA_EDIT_BYTES_V1 length=(0|[1-9]\d*) sha256=([a-f0-9]{64})$/;
+const FILE_TOOL_OUTPUT_FRAME_END = 'MAKA_FILE_TOOL_OUTPUT_END';
+const FILE_TOOL_OUTPUT_FRAME_HEADER_PATTERN =
+  /^MAKA_FILE_TOOL_OUTPUT_V1 tool=([A-Za-z]+) nonce=(0|[1-9]\d*)$/;
+const FILE_TOOL_OUTPUT_STATUS_PREFIX = '\0MAKA_FILE_TOOL_STATUS_';
 const CANONICAL_BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+type FramedFileToolName = 'Read' | 'Glob' | 'Grep';
+
+// Base64 expands the decoded tool payload by 4/3 before the local executor sees
+// it. Keep the framed transport budget above the existing 10 MiB decoded-output
+// capacity, with room for the embedded status marker and frame lines.
+const FRAMED_FILE_TOOL_MAX_DECODED_BYTES = 10 * 1024 * 1024;
+export const FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES = 16 * 1024 * 1024;
 /**
  * Build Maka's standard headless tool surface with shell and file operations
  * routed through the isolated executor boundary.
@@ -167,10 +178,12 @@ export function buildIsolatedReadTool(
       const input = { cwd, path: normalizedPath, offset, limit };
       // Read has no native fast path: every result must go through READ_SCRIPT so
       // it carries the line-number / line+byte-cap / binary-guard contract (#92).
-      const stdout = await execFileCommand(
+      const stdout = await execFramedFileCommand(
         executor,
         cwd,
-        shellFileCommand(READ_SCRIPT, [normalizedPath, numberArg(offset), numberArg(limit)]),
+        'Read',
+        READ_SCRIPT,
+        [normalizedPath, numberArg(offset), numberArg(limit)],
         ctx.abortSignal,
       );
       const result = { content: stdout };
@@ -288,14 +301,12 @@ export function buildIsolatedGlobTool(
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Glob', input, result }, ctx);
         return result;
       }
-      const stdout = await execFileCommand(
+      const stdout = await execFramedFileCommand(
         executor,
         cwd,
-        shellFileCommand(GLOB_SCRIPT, [
-          normalizedPattern,
-          globPatternToEre(normalizedPattern),
-          normalizedRelCwd ?? '',
-        ]),
+        'Glob',
+        GLOB_SCRIPT,
+        [normalizedPattern, globPatternToEre(normalizedPattern), normalizedRelCwd ?? ''],
         ctx.abortSignal,
       );
       const result = { files: parseLineArray(stdout) };
@@ -335,15 +346,17 @@ export function buildIsolatedGrepTool(
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Grep', input, result }, ctx);
         return result;
       }
-      const stdout = await execFileCommand(
+      const stdout = await execFramedFileCommand(
         executor,
         cwd,
-        shellFileCommand(GREP_SCRIPT, [
+        'Grep',
+        GREP_SCRIPT,
+        [
           pattern,
           normalizedPath ?? '',
           normalizedGlob ?? '',
           normalizedGlob === undefined ? '' : globPatternToEre(normalizedGlob),
-        ]),
+        ],
         ctx.abortSignal,
       );
       const result = { matches: parseLineArray(stdout) };
@@ -366,6 +379,36 @@ async function execFileCommand(
     );
   }
   return result.stdout;
+}
+
+async function execFramedFileCommand(
+  executor: IsolatedToolExecutor,
+  cwd: string,
+  toolName: FramedFileToolName,
+  script: string,
+  args: string[],
+  abortSignal: AbortSignal,
+): Promise<string> {
+  const result = await executor.exec(
+    {
+      command: framedShellFileCommand(toolName, script, args),
+      cwd,
+      timeoutMs: 120_000,
+    },
+    { abortSignal },
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(
+      result.stderr.trim() || `isolated file command failed with exit code ${result.exitCode}`,
+    );
+  }
+  const frame = parseFileToolOutputFrame(result.stdout, toolName);
+  if (frame.exitCode !== 0) {
+    throw new Error(
+      result.stderr.trim() || `isolated file command failed with exit code ${frame.exitCode}`,
+    );
+  }
+  return frame.content;
 }
 
 async function readIsolatedFileBytes(
@@ -413,6 +456,39 @@ function parseEditReadFrame(stdout: string): Buffer {
 
 function editReadIntegrityError(reason: string): Error {
   return new Error(`Edit read transport integrity check failed: ${reason}`);
+}
+
+function parseFileToolOutputFrame(
+  stdout: string,
+  expectedTool: FramedFileToolName,
+): { content: string; exitCode: number } {
+  const lines = stdout.split('\n');
+  const fail = (reason: string): never => {
+    throw new Error(`${expectedTool} output transport integrity check failed: ${reason}`);
+  };
+  if (lines.length < 4 || lines.at(-1) !== '' || lines.at(-2) !== FILE_TOOL_OUTPUT_FRAME_END) {
+    return fail('expected exactly one complete frame with no surrounding output');
+  }
+
+  const header = lines[0]?.match(FILE_TOOL_OUTPUT_FRAME_HEADER_PATTERN);
+  if (!header) return fail('frame header is missing or malformed');
+  if (header[1] !== expectedTool)
+    return fail(`expected ${expectedTool} frame but received ${header[1]}`);
+
+  const payload = lines.slice(1, -2).join('');
+  const decoded = Buffer.from(payload, 'base64');
+  if (decoded.toString('base64') !== payload) return fail('payload is not canonical Base64');
+  const statusMarker = Buffer.from(`${FILE_TOOL_OUTPUT_STATUS_PREFIX}${header[2]}=`, 'ascii');
+  const markerIndex = decoded.lastIndexOf(statusMarker);
+  if (markerIndex < 0) return fail('inner command status is missing');
+  if (markerIndex > FRAMED_FILE_TOOL_MAX_DECODED_BYTES) {
+    return fail(`decoded payload exceeds ${FRAMED_FILE_TOOL_MAX_DECODED_BYTES} bytes`);
+  }
+  const status = decoded.subarray(markerIndex + statusMarker.length).toString('ascii');
+  if (!/^(0|[1-9]\d*)$/.test(status)) return fail('inner command status is malformed');
+  const exitCode = Number(status);
+  if (!Number.isSafeInteger(exitCode)) return fail('inner command status is not safe');
+  return { content: decoded.subarray(0, markerIndex).toString('utf8'), exitCode };
 }
 
 async function writeIsolatedFileBytes(
@@ -485,6 +561,17 @@ function countNewlines(buffer: Buffer, end: number): number {
 
 function shellFileCommand(script: string, args: string[]): string {
   return ['sh', '-c', shellQuote(script), '--', ...args.map(shellQuote)].join(' ');
+}
+
+function framedShellFileCommand(
+  toolName: FramedFileToolName,
+  script: string,
+  args: string[],
+): string {
+  return shellFileCommand(FRAME_FILE_TOOL_OUTPUT_SCRIPT, [
+    toolName,
+    shellFileCommand(script, args),
+  ]);
 }
 
 function shellQuote(value: string): string {
@@ -620,6 +707,21 @@ writable_target() {
   [ -L "$real" ] && fail "$label must stay inside workspace"
   printf '%s\n' "$real"
 }
+`;
+
+const FRAME_FILE_TOOL_OUTPUT_SCRIPT = String.raw`
+tool=$1
+command=$2
+nonce=$$
+printf 'MAKA_FILE_TOOL_OUTPUT_V1 tool=%s nonce=%s\n' "$tool" "$nonce"
+{
+  sh -c "$command"
+  status=$?
+  printf '\000MAKA_FILE_TOOL_STATUS_%s=%s' "$nonce" "$status"
+} | base64
+encoded_status=$?
+[ "$encoded_status" -eq 0 ] || exit "$encoded_status"
+printf 'MAKA_FILE_TOOL_OUTPUT_END\n'
 `;
 
 const READ_SCRIPT = `${COMMON_SHELL_HELPERS}

@@ -206,7 +206,7 @@ describe('isolated headless tools', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         seen.push({ boundedTail: (input as { boundedTail?: boolean }).boundedTail });
-        return { exitCode: 0, stdout: '', stderr: '' };
+        return { exitCode: 0, stdout: fileToolOutputForCommand(input.command), stderr: '' };
       },
     });
 
@@ -225,9 +225,9 @@ describe('isolated headless tools', () => {
   test('command-backed file tools forward active-turn cancellation to the isolated executor', async () => {
     const seenSignals: Array<AbortSignal | undefined> = [];
     const tools = buildIsolatedHeadlessTools({
-      async exec(_input, control) {
+      async exec(input, control) {
         seenSignals.push(control?.abortSignal);
-        return { exitCode: 0, stdout: '', stderr: '' };
+        return { exitCode: 0, stdout: fileToolOutputForCommand(input.command), stderr: '' };
       },
     });
     const ctx = toolCtx('/workspace');
@@ -488,6 +488,74 @@ describe('isolated headless tools', () => {
     assert.ok(!r.content.includes('RAW-NATIVE-BYPASS'), 'the native readFile result is never used');
   });
 
+  test('Read rejects executor stdout outside its output frame', async () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return {
+          exitCode: 0,
+          stdout: `${fileToolOutputFrame('Read', '     1\talpha\n')}[1]+ Done cleanup\n`,
+          stderr: '',
+        };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Read').impl({ path: 'data.txt' }, toolCtx('/workspace')),
+      /Read output transport integrity check failed/,
+    );
+  });
+
+  test('Glob rejects executor stdout outside its output frame', async () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return {
+          exitCode: 0,
+          stdout: `profile noise\n${fileToolOutputFrame('Glob', 'src/a.ts\n')}`,
+          stderr: '',
+        };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Glob').impl({ pattern: '**/*.ts' }, toolCtx('/workspace')),
+      /Glob output transport integrity check failed/,
+    );
+  });
+
+  test('Grep rejects executor stdout outside its output frame', async () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return {
+          exitCode: 0,
+          stdout: `${fileToolOutputFrame('Grep', 'src/a.ts:1:needle\n')}cleanup complete\n`,
+          stderr: '',
+        };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Grep').impl({ pattern: 'needle' }, toolCtx('/workspace')),
+      /Grep output transport integrity check failed/,
+    );
+  });
+
+  test('Grep rejects framed decoded output above the existing 10 MiB capacity', async () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return {
+          exitCode: 0,
+          stdout: fileToolOutputFrame('Grep', 'x'.repeat(10 * 1024 * 1024 + 1)),
+          stderr: '',
+        };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Grep').impl({ pattern: 'x' }, toolCtx('/workspace')),
+      /Grep output transport integrity check failed: decoded payload exceeds 10485760 bytes/,
+    );
+  });
+
   test('Edit ignores native file ops and still uses the shared replacer', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-native-'));
     await mkdir(join(cwd, 'src'));
@@ -670,7 +738,11 @@ describe('isolated headless tools', () => {
           // Read now runs through READ_SCRIPT (no native fast path); the script
           // carries the distinctive 'Read path' label, so stub its content here.
           if (input.command.includes('Read path')) {
-            return { exitCode: 0, stdout: `read src/file.ts\n${'r'.repeat(5_000)}`, stderr: '' };
+            return {
+              exitCode: 0,
+              stdout: fileToolOutputFrame('Read', `read src/file.ts\n${'r'.repeat(5_000)}`),
+              stderr: '',
+            };
           }
           return {
             exitCode: 2,
@@ -821,7 +893,7 @@ describe('isolated headless tools', () => {
     // in /usr/bin, so findTools would silently run rg and the parity check below
     // would be vacuous.
     const noRgBin = await mkdtemp(join(tmpdir(), 'maka-headless-norg-bin-'));
-    for (const bin of ['sh', 'find', 'sed', 'awk', 'sort', 'dirname', 'basename']) {
+    for (const bin of ['sh', 'find', 'sed', 'awk', 'sort', 'dirname', 'basename', 'base64']) {
       const resolved = (await execAsync(`command -v ${bin}`, { env: process.env })).stdout.trim();
       await symlink(resolved, join(noRgBin, bin));
     }
@@ -867,7 +939,7 @@ describe('isolated headless tools', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         captured = input.command;
-        return { exitCode: 0, stdout: '', stderr: '' };
+        return { exitCode: 0, stdout: fileToolOutputFrame('Glob', ''), stderr: '' };
       },
     });
     await tool(tools, 'Glob').impl({ pattern: '*.txt' }, toolCtx('/workspace'));
@@ -1207,7 +1279,7 @@ describe('isolated headless tools', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         captured = input.command;
-        return { exitCode: 0, stdout: '', stderr: '' };
+        return { exitCode: 0, stdout: fileToolOutputFrame('Grep', ''), stderr: '' };
       },
     });
     await tool(tools, 'Grep').impl({ pattern: 'needle' }, toolCtx('/workspace'));
@@ -1640,4 +1712,20 @@ function toolCtx(cwd: string) {
 function editReadFrame(content: Buffer): string {
   const digest = createHash('sha256').update(content).digest('hex');
   return `MAKA_EDIT_BYTES_V1 length=${content.length} sha256=${digest}\n${content.toString('base64')}\nMAKA_EDIT_BYTES_END\n`;
+}
+
+function fileToolOutputFrame(toolName: string, content: string): string {
+  const nonce = '1';
+  const bytes = Buffer.concat([
+    Buffer.from(content, 'utf8'),
+    Buffer.from(`\0MAKA_FILE_TOOL_STATUS_${nonce}=0`, 'ascii'),
+  ]);
+  return `MAKA_FILE_TOOL_OUTPUT_V1 tool=${toolName} nonce=${nonce}\n${bytes.toString('base64')}\nMAKA_FILE_TOOL_OUTPUT_END\n`;
+}
+
+function fileToolOutputForCommand(command: string): string {
+  for (const toolName of ['Read', 'Glob', 'Grep']) {
+    if (command.includes(`-- '${toolName}' `)) return fileToolOutputFrame(toolName, '');
+  }
+  return '';
 }

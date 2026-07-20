@@ -19,8 +19,9 @@ def scoped_command(command: str, scope: str, command_id: str) -> str:
         f"{COMMAND_ID_ENV}={shlex.quote(command_id)} "
         f"bash -lc {shlex.quote(command)} & "
         "command_pid=$!; "
+        "set +m; "
         f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
-        "wait \"$command_pid\"; command_status=$?; "
+        "wait \"$command_pid\" 2>/dev/null; command_status=$?; "
         f"kill -0 -- \"-$command_pid\" 2>/dev/null || rm -f -- {pgid_path}; "
         "exit \"$command_status\""
     )

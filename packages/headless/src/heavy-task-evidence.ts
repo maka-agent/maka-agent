@@ -57,7 +57,7 @@ export type HeavyTaskToolEvidenceInput =
   | {
       name: 'Bash';
       input: IsolatedCommandInput;
-      result: IsolatedCommandResult & { timedOut?: boolean };
+      result: IsolatedCommandResult;
       error?: unknown;
     }
   | {
