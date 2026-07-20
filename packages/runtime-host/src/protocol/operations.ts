@@ -4,6 +4,7 @@ import { invalidProtocolFrame } from './errors.js';
 import { HOST_STATUS_OPERATION_SPECS } from './host-status.js';
 import { INTERACTION_OPERATION_SPECS } from './interaction.js';
 import { MESSAGE_OPERATION_SPECS } from './message.js';
+import { MEMORY_OPERATION_SPECS } from './memory.js';
 import {
   composeOperationSpecMaps,
   type HostOperationError,
@@ -21,7 +22,31 @@ export {
   TURN_MESSAGE_CONTENT_MAX_BYTES,
   TURN_MESSAGE_TEXT_MAX_BYTES,
 } from './turn.js';
+export {
+  decodeMemoryMutateInput,
+  decodeMemoryMutateResult,
+  decodeMemoryQueryInput,
+  decodeMemoryQueryResult,
+  encodeMemoryMutateResult,
+  encodeMemoryQueryResult,
+  MEMORY_ENTRY_CONTENT_MAX_BYTES,
+  MEMORY_TITLE_MAX_BYTES,
+} from './memory.js';
 
+export type {
+  MemoryBlockedReason,
+  MemoryEntryStatus,
+  MemoryExpectedRevision,
+  MemoryMutateInput,
+  MemoryMutateResult,
+  MemoryMutation,
+  MemoryMutationRejectedReason,
+  MemoryQueryInput,
+  MemoryQueryResult,
+  MemoryRevision,
+  MemorySafeModeReason,
+  MemoryScope,
+} from './memory.js';
 export type {
   ArtifactBinaryPreview,
   ArtifactDeleteInput,
@@ -225,8 +250,13 @@ const HOST_TASK_AND_ARTIFACT_OPERATION_SPECS = composeOperationSpecMaps(
   ARTIFACT_OPERATION_SPECS,
 );
 
-export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_TASK_AND_ARTIFACT_OPERATION_SPECS,
+  MEMORY_OPERATION_SPECS,
+);
+
+export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS,
   USAGE_PRICING_OPERATION_SPECS,
 );
 

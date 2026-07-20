@@ -47,6 +47,7 @@ export type RuntimePolicyOperationKey = Extract<
 export type SkillCatalogOperationKey = Extract<OperationKey, `skill.catalog.${string}`>;
 export type TaskLedgerOperationKey = Extract<OperationKey, 'task.ledger.query'>;
 export type ArtifactOperationKey = Extract<OperationKey, `artifact.${string}`>;
+export type MemoryOperationKey = Extract<OperationKey, `memory.${string}`>;
 export type UsagePricingOperationKey = Extract<OperationKey, 'usage.query' | `pricing.${string}`>;
 export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
 export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
@@ -60,6 +61,7 @@ export type RuntimePolicyOperationHandlerMap = Pick<OperationHandlerMap, Runtime
 export type SkillCatalogOperationHandlerMap = Pick<OperationHandlerMap, SkillCatalogOperationKey>;
 export type TaskLedgerOperationHandlerMap = Pick<OperationHandlerMap, TaskLedgerOperationKey>;
 export type ArtifactOperationHandlerMap = Pick<OperationHandlerMap, ArtifactOperationKey>;
+export type MemoryOperationHandlerMap = Pick<OperationHandlerMap, MemoryOperationKey>;
 export type UsagePricingOperationHandlerMap = Pick<OperationHandlerMap, UsagePricingOperationKey>;
 
 export function combineDomainOperationHandlers(

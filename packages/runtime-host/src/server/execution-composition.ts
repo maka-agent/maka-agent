@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { defaultLocalMemoryMarkdown } from '@maka/core/local-memory';
 import {
   BackendRegistry,
   FakeBackend,
@@ -10,6 +11,7 @@ import {
 } from '@maka/runtime';
 import { openInteractiveArtifactStoreForWrite } from '@maka/storage/artifact-stores';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
+import { openInteractiveMemoryStoreForWrite } from '@maka/storage/memory-store';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import { openInteractiveTaskLedgerStoreForWrite } from '@maka/storage/task-ledger-store';
 import { openInteractiveUsageStoresForWrite } from '@maka/storage/usage-stores';
@@ -23,6 +25,7 @@ import type {
 import { HostArtifactCoordinator } from './artifact-coordinator.js';
 import { HostInteractionAuthority } from './interaction-coordinator.js';
 import { HostMessageCoordinator, type HostMessageRootPort } from './message-coordinator.js';
+import { HostMemoryCoordinator } from './memory-coordinator.js';
 import { combineDomainOperationHandlers } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
 import { RootTurnCoordinator } from './root-turn-coordinator.js';
@@ -41,8 +44,10 @@ export async function createExecutionRuntimeHostComposition(
   const runtimePolicyStores = await openInteractiveRuntimePolicyStoresForWrite(context.owner.lease);
   const taskLedgerStore = await openInteractiveTaskLedgerStoreForWrite(context.owner.lease);
   const artifactStore = await openInteractiveArtifactStoreForWrite(context.owner.lease);
+  const memoryStore = await openInteractiveMemoryStoreForWrite(context.owner.lease);
   const usageStores = await openInteractiveUsageStoresForWrite(context.owner.lease);
   const runtimePolicy = new HostRuntimePolicyCoordinator(runtimePolicyStores);
+  const memory = new HostMemoryCoordinator(memoryStore, runtimePolicyStores.runtimePolicy);
   const usagePricing = new HostUsagePricingCoordinator(usageStores);
   const skills = new HostSkillCatalogCoordinator(
     new HostSkillCatalogFilesystem(context.owner.lease),
@@ -141,6 +146,7 @@ export async function createExecutionRuntimeHostComposition(
   let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
   let usageDrain: Promise<void> | undefined;
   let artifactDrain: Promise<void> | undefined;
+  let memoryDrain: Promise<void> | undefined;
   const beginArtifactDrain = () => {
     artifactDrain ??= artifactStore.beginDrain();
     observe(artifactDrain);
@@ -151,8 +157,14 @@ export async function createExecutionRuntimeHostComposition(
     observe(usageDrain);
     return usageDrain;
   };
+  const beginMemoryDrain = () => {
+    memoryDrain ??= memoryStore.beginDrain();
+    observe(memoryDrain);
+    return memoryDrain;
+  };
   const beginRuntimeDrain = () => {
     beginArtifactDrain();
+    beginMemoryDrain();
     beginUsageDrain();
     skills.beginDrain();
     messageCoordinator.beginDrain();
@@ -167,6 +179,7 @@ export async function createExecutionRuntimeHostComposition(
     const handoffFailures: unknown[] = [];
     try {
       beginArtifactDrain();
+      beginMemoryDrain();
       beginUsageDrain();
       skills.beginDrain();
       const runtimeFailStop = manager.installInteractionFailStop(error);
@@ -233,11 +246,13 @@ export async function createExecutionRuntimeHostComposition(
       skills.handlers,
       taskLedger.handlers,
       artifacts.handlers,
+      memory.handlers,
       usagePricing.handlers,
     ),
     continuity,
     beginDrain: () => {
       beginArtifactDrain();
+      beginMemoryDrain();
       beginUsageDrain();
       skills.beginDrain();
       messageCoordinator.beginDrain();
@@ -247,6 +262,9 @@ export async function createExecutionRuntimeHostComposition(
     recover: async () => {
       await rootCoordinator.prepareRecovery();
       await artifactStore.recover();
+      await memoryStore.recover({
+        defaultDocument: Buffer.from(defaultLocalMemoryMarkdown(), 'utf8'),
+      });
       await skills.recover();
       await interaction.recoverPendingAfterHostRestart();
       await manager.recoverInterruptedSessionsStrict(stores);
@@ -265,6 +283,7 @@ export async function createExecutionRuntimeHostComposition(
         continuity,
         skills,
         artifactStore,
+        memoryStore,
         usageStores,
         drain,
         () => failStopDisposition,
@@ -281,6 +300,7 @@ async function closeComposition(
   continuity: SessionContinuityCoordinator,
   skills: HostSkillCatalogCoordinator,
   artifactStore: Awaited<ReturnType<typeof openInteractiveArtifactStoreForWrite>>,
+  memoryStore: Awaited<ReturnType<typeof openInteractiveMemoryStoreForWrite>>,
   usageStores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>>,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
   getFailStop: () => RuntimeHostFailStopDisposition | undefined,
@@ -298,6 +318,7 @@ async function closeComposition(
     continuity,
     skills,
     artifactStore,
+    memoryStore,
     usageStores,
     runtimeDrain,
   );
@@ -329,6 +350,7 @@ async function closeNormally(
   continuity: SessionContinuityCoordinator,
   skills: HostSkillCatalogCoordinator,
   artifactStore: Awaited<ReturnType<typeof openInteractiveArtifactStoreForWrite>>,
+  memoryStore: Awaited<ReturnType<typeof openInteractiveMemoryStoreForWrite>>,
   usageStores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>>,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
 ): Promise<{ readonly kind: 'clean' }> {
@@ -346,6 +368,7 @@ async function closeNormally(
     await messages.close().catch((error: unknown) => errors.push(error));
     await skills.close().catch((error: unknown) => errors.push(error));
     await artifactStore.close().catch((error: unknown) => errors.push(error));
+    await memoryStore.close().catch((error: unknown) => errors.push(error));
     await usageStores.close().catch((error: unknown) => errors.push(error));
   } finally {
     continuity.close();
