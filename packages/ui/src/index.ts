@@ -71,6 +71,7 @@ export * from './primitives/kbd.js';
 export * from './primitives/menu.js';
 export * from './primitives/dialog-header.js';
 export * from './primitives/stat-tile.js';
+export * from './primitives/data-table.js';
 export * from './primitives/section-header.js';
 export { EmptyState } from './empty-state.js';
 export * from './primitives/choice-card.js';

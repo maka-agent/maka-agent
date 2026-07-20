@@ -11,6 +11,8 @@ import {
   AlertAction,
   AlertDescription,
   Button,
+  DataTable,
+  type DataTableColumn,
   EmptyState,
   Input,
   Segmented,
@@ -405,22 +407,16 @@ function usageRequestStatusLabel(status: UsageStats['logs'][number]['status'], c
   }
 }
 
-// ── Shared table primitive ─────────────────────────────────────────────────
-// The local table recipe reproduces the retired public Table primitive (a
-// single HTML <table> surface did not justify one in packages/ui). All five
-// usage tabs render through it so the column rhythm, hairline separators,
-// muted+medium header row, and per-column alignment stay identical.
-//
-// Column model: the `grow` column absorbs the row's slack so numeric columns
-// shrink to content (no floating giant gaps); numeric columns right-align and
-// force tabular-nums; the first column is a scoped row header.
+// ── Shared table wrapper ────────────────────────────────────────────────────
+// The hairline/column-rhythm/tabular-nums recipe now lives in the shared
+// `DataTable` primitive (@maka/ui) — the #1252 table grew health + permission
+// consumers, so it was promoted. This thin wrapper keeps the usage-local
+// concern the primitive deliberately omits: routing an empty tab to the shared
+// EmptyState (icon + copy) instead of a bare header row. All five tabs funnel
+// through it, so every tab inherits the same table and the same empty surface.
 
-interface UsageColumn {
+interface UsageColumn extends DataTableColumn {
   header: string;
-  /** Numeric columns right-align and force tabular-nums. */
-  numeric?: boolean;
-  /** The column that absorbs slack so the others size to content. */
-  grow?: boolean;
 }
 
 interface UsageEmpty {
@@ -446,41 +442,12 @@ function UsageStatsTable(props: {
       />
     );
   }
-  const base = 'border-b border-border px-[var(--space-2)] py-[var(--space-1-5)] align-middle';
-  // Only the grow column wraps; every other column stays on one line and sizes
-  // to its content (no per-character header wrapping, no floating giant gaps).
-  const shape = (column: UsageColumn) =>
-    [
-      column.numeric ? 'text-right [font-variant-numeric:tabular-nums]' : 'text-left',
-      column.grow ? 'w-full' : 'whitespace-nowrap',
-    ].join(' ');
-  const cellClass = (column: UsageColumn) => `${base} text-foreground-secondary ${shape(column)}`;
-  const headClass = (column: UsageColumn) => `${base} font-medium text-muted-foreground ${shape(column)}`;
   return (
-    <table
-      aria-label={props.ariaLabel}
-      className="settingsUsageTable w-full border-collapse overflow-hidden rounded-[var(--radius-surface)] border border-border text-[length:var(--font-size-caption)]"
-    >
-      <thead>
-        <tr>
-          {props.columns.map((column) => (
-            <th key={column.header} scope="col" className={headClass(column)}>{column.header}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {props.rows.map((row, rowIndex) => (
-          <tr key={rowIndex}>
-            {row.map((cell, cellIndex) => (
-              cellIndex === 0 ? (
-                <th key={cellIndex} scope="row" className={`${cellClass(props.columns[cellIndex])} font-medium text-foreground`}>{cell}</th>
-              ) : (
-                <td key={cellIndex} className={cellClass(props.columns[cellIndex])}>{cell}</td>
-              )
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      ariaLabel={props.ariaLabel}
+      columns={props.columns}
+      rows={props.rows}
+      className="settingsUsageTable"
+    />
   );
 }

@@ -160,7 +160,7 @@ describe('Settings usage dashboard contract', () => {
     );
   });
 
-  it('names every usage stats table and boxes it in the shared table primitive', async () => {
+  it('names every usage stats table and boxes it in the shared DataTable primitive', async () => {
     const src = await readSettingsCombinedSource();
     const statsTable = statsTableBlock(src);
 
@@ -173,51 +173,33 @@ describe('Settings usage dashboard contract', () => {
     ]) {
       assert.match(src, new RegExp(`ariaLabel=\\{props\\.copy\\.tables\\.${label}\\}`), `A usage tab must name its ${label}`);
     }
-    // Every tab funnels through the one shared table so the column rhythm /
-    // hairline / tabular-nums recipe stays in a single place.
+    // Every tab funnels through the one shared wrapper so the column rhythm /
+    // hairline / tabular-nums recipe stays in a single place. The wrapper keeps
+    // its typed-column + EmptyState signature; the table markup itself now lives
+    // in @maka/ui's DataTable primitive (pinned by packages/ui data-table.test),
+    // so the wrapper delegates the non-empty branch to <DataTable/>.
     assert.match(
       statsTable,
       /function UsageStatsTable\(props: \{\s*ariaLabel: string;\s*columns: UsageColumn\[\];\s*rows: Array<Array<ReactNode>>;\s*empty: UsageEmpty;\s*\}\)/,
       'UsageStatsTable callers must provide a table-specific accessible name, typed columns, and an EmptyState config',
     );
-    assert.match(
-      statsTable,
-      /<table\s+aria-label=\{props\.ariaLabel\}/,
-      'Usage stats table must expose its caller-provided name',
-    );
-    assert.match(
-      statsTable,
-      /<th key=\{column\.header\} scope="col"/,
-      'Usage stats table column headers must expose column scope',
-    );
-    assert.match(
-      statsTable,
-      /cellIndex === 0 \? \(\s*<th key=\{cellIndex\} scope="row"/,
-      'Usage stats table rows must expose the first data cell as a scoped row header',
-    );
-    // Numeric columns right-align + tabular-nums; every non-grow column stays on
-    // one line and sizes to content, while the grow column absorbs slack and
-    // wraps — so numeric columns never float apart and headers never wrap.
-    assert.match(
-      statsTable,
-      /column\.numeric \? 'text-right \[font-variant-numeric:tabular-nums\]' : 'text-left'/,
-      'Usage stats columns must right-align numeric data with tabular-nums',
-    );
-    assert.match(
-      statsTable,
-      /column\.grow \? 'w-full' : 'whitespace-nowrap'/,
-      'Usage stats tables must let one column absorb slack while the rest size to content on one line',
-    );
-    // Empty tabs render the shared EmptyState rather than a header-only table.
+    // Empty tabs render the shared EmptyState rather than a header-only table…
     assert.match(
       statsTable,
       /if \(props\.rows\.length === 0\) \{\s*return \(\s*<EmptyState/,
       'An empty usage tab must render the EmptyState primitive, not a bare header row',
     );
+    // …and the non-empty branch delegates to the shared DataTable primitive,
+    // passing the caller-provided name, typed columns, rows, and the pin class.
+    assert.match(
+      statsTable,
+      /<DataTable\s+ariaLabel=\{props\.ariaLabel\}\s+columns=\{props\.columns\}\s+rows=\{props\.rows\}\s+className="settingsUsageTable"/,
+      'The non-empty usage table must delegate to the shared DataTable primitive',
+    );
     assert.doesNotMatch(
       statsTable,
-      /<table className="settingsStatsTable">\s*<thead>/,
-      'Usage stats tables must not regress to anonymous tables',
+      /<table\b/,
+      'Usage stats tables must not hand-roll a <table> — the markup lives in the DataTable primitive',
     );
   });
 
