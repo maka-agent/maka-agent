@@ -25,6 +25,7 @@ import {
   createArtifactStore,
   createRuntimeEventStore,
   createSessionStore,
+  persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import { registerFakeBackend } from './backends.js';
 import {
@@ -729,6 +730,9 @@ export function buildAiSdkCellBackendRegistration(input: {
     input.env,
     contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
   );
+  const providerRequestArtifactStore = createArtifactStore(
+    input.env.MAKA_STORAGE_ROOT ?? join(input.env.MAKA_OUTPUT_DIR ?? '/logs/agent', 'maka-storage'),
+  );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
@@ -793,6 +797,27 @@ export function buildAiSdkCellBackendRegistration(input: {
         newId: input.newId,
         now: input.now,
         recordRunTrace: ctx.recordRunTrace,
+        ...(ctx.recordProviderRequestCapture
+          ? {
+              recordProviderRequestCapture: async (capture) => {
+                const artifact = await persistProviderRequestCaptureArtifact(
+                  providerRequestArtifactStore,
+                  {
+                    sessionId: ctx.sessionId,
+                    turnId: capture.turnId,
+                    captureId: capture.captureId,
+                    step: capture.step,
+                    serializedRequest: capture.serializedRequest,
+                    now: input.now(),
+                  },
+                );
+                const { serializedRequest: _serializedRequest, ...metadata } = capture;
+                await ctx.recordProviderRequestCapture!({ ...metadata, artifactId: artifact.id });
+                return { artifactId: artifact.id };
+              },
+              recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
+            }
+          : {}),
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
         ...(input.recordUsageCheckpoint

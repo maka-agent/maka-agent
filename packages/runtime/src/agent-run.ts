@@ -41,6 +41,10 @@ import { AiSdkFlow } from './ai-sdk-flow.js';
 import type { InvocationContext } from './invocation-context.js';
 import { buildInitialUserRuntimeEvent } from './runtime-runner.js';
 import type { RuntimeContinuation } from './runtime-resume.js';
+import type {
+  ProviderRequestAttemptRecord,
+  ProviderRequestCaptureLedgerRecord,
+} from './provider-request-telemetry.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -238,6 +242,51 @@ export class AgentRun {
         this.runId,
         traceToRunEvent(event, this.runId),
       );
+    });
+  }
+
+  recordProviderRequestCapture(capture: ProviderRequestCaptureLedgerRecord): Promise<void> {
+    if (!this.input.runStore) return Promise.reject(new Error('AgentRun store is not configured'));
+    if (!this.runStoreAvailable) return Promise.reject(new Error('AgentRun store is unavailable'));
+    return this.enqueueRunStore(
+      'append provider request capture',
+      async () => {
+        const {
+          schemaVersion,
+          serializedRequest: _serializedRequest,
+          ...data
+        } = capture as ProviderRequestCaptureLedgerRecord & { serializedRequest?: string };
+        await this.input.runStore?.appendEvent(
+          this.sessionId,
+          this.runId,
+          {
+            type: 'provider_request_captured',
+            id: capture.captureId,
+            runId: this.runId,
+            sessionId: this.sessionId,
+            turnId: capture.turnId,
+            ts: this.input.now(),
+            data: { schemaVersion, ...data },
+          },
+          { durable: true },
+        );
+      },
+      { rethrow: true },
+    );
+  }
+
+  recordProviderRequestAttempt(attempt: ProviderRequestAttemptRecord): void {
+    if (!this.input.runStore || !this.runStoreAvailable) return;
+    this.enqueueRunStore('append provider request attempt', async () => {
+      await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
+        type: 'provider_request_attempt_recorded',
+        id: attempt.attemptId,
+        runId: this.runId,
+        sessionId: this.sessionId,
+        turnId: attempt.turnId,
+        ts: attempt.completedAt,
+        data: { ...attempt },
+      });
     });
   }
 

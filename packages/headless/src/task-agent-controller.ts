@@ -1172,6 +1172,14 @@ function createSingleRunActiveSession(
           header,
           store,
           recordRunTrace: (event) => boundRun?.recordRunTrace(event),
+          recordProviderRequestCapture: (capture) => {
+            if (!boundRun) {
+              return Promise.reject(new Error('No active AgentRun for provider request capture'));
+            }
+            return boundRun.recordProviderRequestCapture(capture);
+          },
+          recordProviderRequestAttempt: (attempt) =>
+            boundRun?.recordProviderRequestAttempt(attempt),
           recordActiveFullCompactBlock: (block) => boundRun?.recordActiveFullCompactBlock(block),
           recordSemanticCompactBlock: (block) => boundRun?.recordSemanticCompactBlock(block),
         });

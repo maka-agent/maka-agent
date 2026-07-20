@@ -518,6 +518,8 @@ export interface TokenUsageEvent extends BaseEvent {
   requestShapeChangeReason?: PrefixChangeReason;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
+  /** Links this aggregate to per-physical-request AgentRun trace rows. */
+  providerRequestTraceId?: string;
 }
 
 /**

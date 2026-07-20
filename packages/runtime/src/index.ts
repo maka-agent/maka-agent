@@ -109,6 +109,21 @@ export type {
 } from './filesystem-worker/index.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
+export {
+  findFirstChangedCacheableSegment,
+  capturePreparedProviderRequest,
+} from './request-shape.js';
+export type {
+  PreparedProviderRequestCapture,
+  PreparedRequestSegment,
+  PreparedRequestSegmentRef,
+} from './request-shape.js';
+export type {
+  ProviderRequestAttemptRecord,
+  ProviderRequestCaptureLedgerRecord,
+  ProviderRequestCaptureRecord,
+  ProviderRequestUsage,
+} from './provider-request-telemetry.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';

@@ -14,6 +14,7 @@ import type { ModelMessage } from 'ai';
 import type { AsyncEventQueue } from './async-queue.js';
 import { resolveModelRuntime } from './model-runtime.js';
 import { classifyError, errorPresentationFromClass } from './provider-error-classification.js';
+import type { ProviderRequestTracker } from './provider-request-telemetry.js';
 
 /**
  * Build an ai-sdk LanguageModel from a single input object.
@@ -130,6 +131,8 @@ export interface ModelAdapterStreamInput {
   maxSteps?: number;
   /** Stop the SDK tool loop after the current provider step completes. */
   stopAfterStep?: () => boolean;
+  /** Main-agent provider-call tracker. Auxiliary model calls intentionally omit it. */
+  providerRequestTracker?: ProviderRequestTracker;
 }
 
 export interface ModelAdapterStreamCallbacks {
@@ -145,6 +148,16 @@ export interface ModelAdapterStreamCallbacks {
    * `text_complete`), carrying the accumulated text plus this signature.
    */
   onThinkingSignature: (signature: string) => void;
+}
+
+interface ProviderMiddlewareStreamInput {
+  doStream: () => PromiseLike<{
+    stream: ReadableStream<unknown>;
+    request?: unknown;
+    response?: unknown;
+  }>;
+  params: Record<string, unknown> & { abortSignal?: AbortSignal };
+  model: { provider: string; modelId: string };
 }
 
 export class ModelAdapter {
@@ -176,10 +189,11 @@ export class ModelAdapter {
         `Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`,
       );
     });
-    const { streamText, isStepCount, isLoopFinished } = ai as unknown as {
+    const { streamText, isStepCount, isLoopFinished, wrapLanguageModel } = ai as unknown as {
       streamText: (opts: Record<string, unknown>) => StreamTextResult;
       isStepCount: (n: number) => unknown;
       isLoopFinished: () => unknown;
+      wrapLanguageModel: (input: Record<string, unknown>) => unknown;
     };
 
     const maxSteps = input.maxSteps ?? this.input.maxSteps;
@@ -190,8 +204,23 @@ export class ModelAdapter {
     );
     const configuredStop = maxSteps === undefined ? isLoopFinished() : isStepCount(maxSteps);
     const stopAfterStep = input.stopAfterStep;
+    const trackedModel = input.providerRequestTracker
+      ? wrapLanguageModel({
+          model: input.model,
+          middleware: {
+            wrapStream: async ({ doStream, params, model }: ProviderMiddlewareStreamInput) =>
+              await input.providerRequestTracker!.trackStream({
+                providerId: model.provider,
+                modelId: model.modelId,
+                params,
+                abortSignal: input.abortSignal,
+                doStream,
+              }),
+          },
+        })
+      : input.model;
     return streamText({
-      model: input.model,
+      model: trackedModel,
       messages: input.messages,
       tools: input.tools,
       activeTools: input.activeTools,

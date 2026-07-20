@@ -298,6 +298,8 @@ export interface RuntimeEventRefs {
   traceEventId?: string;
   toolCallId?: string;
   providerEventId?: string;
+  /** Trace-group id linking aggregate usage to physical provider attempts. */
+  providerRequestTraceId?: string;
   artifactId?: string;
   /** Runtime-owned durable identity for one tool side-effect boundary. */
   operationId?: string;
@@ -453,6 +455,7 @@ const RUNTIME_REFS_SHAPE = defineObjectShape<RuntimeEventRefs>()(
     'traceEventId',
     'toolCallId',
     'providerEventId',
+    'providerRequestTraceId',
     'artifactId',
     'operationId',
     'stepId',
@@ -594,6 +597,7 @@ function isRuntimeEventRefs(value: unknown): value is RuntimeEventRefs {
       value.traceEventId,
       value.toolCallId,
       value.providerEventId,
+      value.providerRequestTraceId,
       value.artifactId,
       value.operationId,
       value.stepId,

@@ -63,6 +63,7 @@ import {
   createSettingsStore,
   createShellRunStore,
   type ForeignSessionStore,
+  persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
@@ -631,6 +632,25 @@ export async function createMakaCliRuntimeContext(
       turnTailPrompt: ({ cwd }) =>
         buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
+      recordRunTrace: ctx.recordRunTrace,
+      ...(ctx.recordProviderRequestCapture
+        ? {
+            recordProviderRequestCapture: async (capture) => {
+              const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                sessionId: ctx.sessionId,
+                turnId: capture.turnId,
+                captureId: capture.captureId,
+                step: capture.step,
+                serializedRequest: capture.serializedRequest,
+                now: Date.now(),
+              });
+              const { serializedRequest: _serializedRequest, ...metadata } = capture;
+              await ctx.recordProviderRequestCapture!({ ...metadata, artifactId: artifact.id });
+              return { artifactId: artifact.id };
+            },
+            recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
+          }
+        : {}),
       newId: randomUUID,
       now: Date.now,
       ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),

@@ -80,6 +80,10 @@ import {
 import type { AgentBackend, BackendStopMode } from '@maka/core/backend-types';
 import type { AgentTeamExecutionContext, MakaTool } from './tool-runtime.js';
 import type { RunTraceRecorder } from './run-trace.js';
+import type {
+  ProviderRequestAttemptRecord,
+  ProviderRequestCaptureLedgerRecord,
+} from './provider-request-telemetry.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
@@ -254,6 +258,10 @@ export interface BackendFactoryContext {
   /** Trusted child expert-team identity. Main-session factories leave this undefined. */
   agentTeam?: AgentTeamExecutionContext;
   recordRunTrace?: RunTraceRecorder;
+  /** Durable AgentRun metadata row written after the private capture artifact. */
+  recordProviderRequestCapture?: (capture: ProviderRequestCaptureLedgerRecord) => Promise<void>;
+  /** Best-effort AgentRun row for one physical provider call. */
+  recordProviderRequestAttempt?: (attempt: ProviderRequestAttemptRecord) => void;
   loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
   recordHistoryCompactCheckpoint?: (
     checkpoint: HistoryCompactCheckpoint,

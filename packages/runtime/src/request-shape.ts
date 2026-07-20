@@ -49,6 +49,42 @@ export interface RequestShapeDiagnostic {
   toolAvailability?: ToolAvailabilityDiagnostic;
 }
 
+export type PreparedRequestSegmentKind =
+  | 'tool_schema'
+  | 'system_prompt'
+  | 'message'
+  | 'provider_options';
+
+export interface PreparedRequestSegment {
+  kind: PreparedRequestSegmentKind;
+  index: number;
+  cacheable: boolean;
+  hash: string;
+  bytes: number;
+  role?: string;
+}
+
+export interface PreparedProviderRequestInput {
+  providerId: string;
+  modelId: string;
+  instructions?: unknown;
+  messages: readonly unknown[];
+  tools?: readonly unknown[];
+  providerOptions?: Record<string, unknown>;
+  /** Exact secret-free model-call parameters captured at the provider seam. */
+  requestPayload?: unknown;
+}
+
+export interface PreparedProviderRequestCapture {
+  schemaVersion: 1;
+  requestHash: string;
+  requestBytes: number;
+  serializedRequest: string;
+  segments: PreparedRequestSegment[];
+}
+
+export type PreparedRequestSegmentRef = Pick<PreparedRequestSegment, 'kind' | 'index' | 'role'>;
+
 /**
  * Split the registry into the full dispatch set (`providerTools`) and the
  * model-visible subset (`activeTools`).
@@ -138,6 +174,89 @@ export function toolSchemaCharsForDiagnostics(
   }).length;
 }
 
+/**
+ * Capture the standardized request immediately before the provider call.
+ *
+ * Segment order follows the stable Maka request-prefix model used for cache
+ * diagnostics: tools, system instructions, then conversation messages.
+ * Provider options are retained for exact replay evidence, but are not claimed
+ * to be a provider-cacheable prefix segment.
+ */
+export function capturePreparedProviderRequest(
+  input: PreparedProviderRequestInput,
+): PreparedProviderRequestCapture {
+  const payload = input.requestPayload ?? {
+    instructions: input.instructions,
+    messages: input.messages,
+    tools: input.tools ?? [],
+    providerOptions: input.providerOptions ?? {},
+  };
+  // This is the evidence body, not the hash canonicalizer: preserve the exact
+  // JSON ordering and values presented at the model-call seam.
+  const serializedRequest = JSON.stringify(payload);
+  const segments: PreparedRequestSegment[] = [];
+
+  for (const [index, tool] of (input.tools ?? []).entries()) {
+    segments.push(preparedSegment('tool_schema', index, tool, true));
+  }
+  if (input.instructions !== undefined) {
+    const instructions = Array.isArray(input.instructions)
+      ? input.instructions
+      : [input.instructions];
+    for (const [index, instruction] of instructions.entries()) {
+      segments.push(preparedSegment('system_prompt', index, instruction, true));
+    }
+  }
+  for (const [index, message] of input.messages.entries()) {
+    const role =
+      isObjectLike(message) && typeof message.role === 'string' ? message.role : undefined;
+    segments.push(preparedSegment('message', index, message, true, role));
+  }
+  if (input.providerOptions !== undefined) {
+    segments.push(preparedSegment('provider_options', 0, input.providerOptions, false));
+  }
+
+  return {
+    schemaVersion: 1,
+    requestHash: stableHash({
+      providerId: input.providerId,
+      modelId: input.modelId,
+      payload,
+    }),
+    requestBytes: Buffer.byteLength(serializedRequest, 'utf8'),
+    serializedRequest,
+    segments,
+  };
+}
+
+export function findFirstChangedCacheableSegment(
+  current: Pick<PreparedProviderRequestCapture, 'segments'>,
+  prior: Pick<PreparedProviderRequestCapture, 'segments'>,
+): PreparedRequestSegmentRef | undefined {
+  const currentSegments = current.segments.filter((segment) => segment.cacheable);
+  const priorSegments = prior.segments.filter((segment) => segment.cacheable);
+  const segmentCount = Math.max(currentSegments.length, priorSegments.length);
+  for (let position = 0; position < segmentCount; position += 1) {
+    const currentSegment = currentSegments[position];
+    const priorSegment = priorSegments[position];
+    if (
+      currentSegment?.kind === priorSegment?.kind &&
+      currentSegment?.index === priorSegment?.index &&
+      currentSegment?.hash === priorSegment?.hash
+    ) {
+      continue;
+    }
+    const changed = currentSegment ?? priorSegment;
+    if (!changed) return undefined;
+    return {
+      kind: changed.kind,
+      index: changed.index,
+      ...(changed.role !== undefined ? { role: changed.role } : {}),
+    };
+  }
+  return undefined;
+}
+
 /** The provider-visible tools — the active subset actually serialized on the wire. */
 function providerVisibleTools(
   providerTools: readonly MakaTool[],
@@ -145,6 +264,24 @@ function providerVisibleTools(
 ): MakaTool[] {
   const active = new Set(activeTools);
   return providerTools.filter((tool) => active.has(tool.name));
+}
+
+function preparedSegment(
+  kind: PreparedRequestSegmentKind,
+  index: number,
+  value: unknown,
+  cacheable: boolean,
+  role?: string,
+): PreparedRequestSegment {
+  const serialized = stableStringify(value);
+  return {
+    kind,
+    index,
+    cacheable,
+    hash: stableHash(value),
+    bytes: Buffer.byteLength(serialized, 'utf8'),
+    ...(role !== undefined ? { role } : {}),
+  };
 }
 
 export function stableHash(value: unknown): string {

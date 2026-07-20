@@ -38,6 +38,7 @@ import {
   createAttachmentByteReader,
   createTelemetryRepo,
   openRuntimeEventPersistence,
+  persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import { WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
 import {
@@ -252,6 +253,24 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
         },
       }),
       recordRunTrace: ctx.recordRunTrace,
+      ...(ctx.recordProviderRequestCapture
+        ? {
+            recordProviderRequestCapture: async (capture) => {
+              const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                sessionId: ctx.sessionId,
+                turnId: capture.turnId,
+                captureId: capture.captureId,
+                step: capture.step,
+                serializedRequest: capture.serializedRequest,
+                now: Date.now(),
+              });
+              const { serializedRequest: _serializedRequest, ...metadata } = capture;
+              await ctx.recordProviderRequestCapture!({ ...metadata, artifactId: artifact.id });
+              return { artifactId: artifact.id };
+            },
+            recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
+          }
+        : {}),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
       recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,

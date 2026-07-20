@@ -1,0 +1,451 @@
+import {
+  capturePreparedProviderRequest,
+  type PreparedProviderRequestCapture,
+  type PreparedRequestSegment,
+} from './request-shape.js';
+
+export type ProviderRequestCacheValueSource = 'provider' | 'derived';
+
+export interface ProviderRequestUsage {
+  inputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheReadInputSource?: ProviderRequestCacheValueSource;
+  cacheMissInputTokens?: number;
+  cacheMissInputSource?: ProviderRequestCacheValueSource;
+  cacheWriteInputTokens?: number;
+  cacheWriteInputSource?: ProviderRequestCacheValueSource;
+  outputTokens?: number;
+  reasoningTokens?: number;
+}
+
+export interface ProviderRequestUsageLike {
+  inputTokens?:
+    | number
+    | { total?: number; noCache?: number; cacheRead?: number; cacheWrite?: number };
+  outputTokens?: number | { total?: number; text?: number; reasoning?: number };
+  raw?: Record<string, unknown>;
+}
+
+export type ProviderRequestAttemptStatus = 'completed' | 'failed' | 'interrupted' | 'aborted';
+
+export interface ProviderRequestCaptureRecord extends PreparedProviderRequestCapture {
+  traceId: string;
+  captureId: string;
+  turnId: string;
+  step: number;
+  providerId: string;
+  modelId: string;
+}
+
+export interface ProviderRequestCaptureRef {
+  captureId: string;
+  artifactId: string;
+}
+
+export type ProviderRequestCaptureLedgerRecord = Omit<
+  ProviderRequestCaptureRecord,
+  'serializedRequest'
+> & {
+  artifactId: string;
+};
+
+export interface ProviderRequestAttemptRecord extends ProviderRequestUsage {
+  traceId: string;
+  attemptId: string;
+  turnId: string;
+  step: number;
+  attempt: number;
+  captureId: string;
+  captureArtifactId: string;
+  providerId: string;
+  modelId: string;
+  requestHash: string;
+  requestBytes: number;
+  segments: PreparedRequestSegment[];
+  startedAt: number;
+  completedAt: number;
+  status: ProviderRequestAttemptStatus;
+  finishReason?: string;
+  latencyMs: number;
+  timeToFirstTokenMs?: number;
+}
+
+export interface ProviderRequestTrackerInput {
+  traceId: string;
+  turnId: string;
+  now: () => number;
+  newId: () => string;
+  persistCapture: (
+    capture: ProviderRequestCaptureRecord,
+  ) => Promise<Pick<ProviderRequestCaptureRef, 'artifactId'>>;
+  recordAttempt: (attempt: ProviderRequestAttemptRecord) => void | Promise<void>;
+}
+
+export interface TrackProviderStreamInput {
+  providerId: string;
+  modelId: string;
+  params: Record<string, unknown>;
+  abortSignal?: AbortSignal;
+  doStream: () => PromiseLike<ProviderStreamResult>;
+}
+
+export interface ProviderStreamResult {
+  stream: ReadableStream<unknown>;
+  request?: unknown;
+  response?: unknown;
+}
+
+interface StoredCapture {
+  capture: ProviderRequestCaptureRecord;
+  ref: ProviderRequestCaptureRef;
+}
+
+export class ProviderRequestTracker {
+  private step = 0;
+  private readonly attemptsByStep = new Map<number, number>();
+  private readonly captures = new Map<string, Promise<StoredCapture>>();
+
+  constructor(private readonly input: ProviderRequestTrackerInput) {}
+
+  get traceId(): string {
+    return this.input.traceId;
+  }
+
+  setStep(step: number): void {
+    this.step = step;
+  }
+
+  async trackStream(input: TrackProviderStreamInput): Promise<ProviderStreamResult> {
+    if (input.abortSignal?.aborted) {
+      throw new DOMException('The provider request was cancelled before dispatch', 'AbortError');
+    }
+    const step = this.step;
+    const capture = await this.capture(step, input);
+    const attempt = (this.attemptsByStep.get(step) ?? 0) + 1;
+    this.attemptsByStep.set(step, attempt);
+    const attemptId = this.input.newId();
+    const startedAt = this.input.now();
+    let sawOutput = false;
+    let timeToFirstTokenMs: number | undefined;
+    let finished = false;
+    let abortListener: (() => void) | undefined;
+
+    const finalize = async (
+      status: ProviderRequestAttemptStatus,
+      finish?: { reason?: string; usage?: ProviderRequestUsageLike },
+    ): Promise<void> => {
+      if (finished) return;
+      finished = true;
+      if (abortListener) input.abortSignal?.removeEventListener('abort', abortListener);
+      const completedAt = this.input.now();
+      const usage = strictProviderRequestUsage(finish?.usage);
+      const record: ProviderRequestAttemptRecord = {
+        traceId: this.input.traceId,
+        attemptId,
+        turnId: this.input.turnId,
+        step,
+        attempt,
+        captureId: capture.ref.captureId,
+        captureArtifactId: capture.ref.artifactId,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        requestHash: capture.capture.requestHash,
+        requestBytes: capture.capture.requestBytes,
+        segments: capture.capture.segments,
+        startedAt,
+        completedAt,
+        status,
+        ...(finish?.reason !== undefined ? { finishReason: finish.reason } : {}),
+        latencyMs: Math.max(0, completedAt - startedAt),
+        ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
+        ...(usage ?? {}),
+      };
+      try {
+        await this.input.recordAttempt(record);
+      } catch {
+        // Attempt telemetry is diagnostic. The provider outcome remains authoritative.
+      }
+    };
+
+    if (input.abortSignal) {
+      abortListener = () => {
+        void finalize('aborted');
+      };
+      if (input.abortSignal.aborted) await finalize('aborted');
+      else input.abortSignal.addEventListener('abort', abortListener, { once: true });
+    }
+
+    let result: ProviderStreamResult;
+    try {
+      result = await input.doStream();
+    } catch (error) {
+      await finalize(abortStatus(input.abortSignal, error));
+      throw error;
+    }
+
+    const reader = result.stream.getReader();
+    const stream = new ReadableStream<unknown>({
+      pull: async (controller) => {
+        try {
+          const next = await reader.read();
+          if (next.done) {
+            await finalize(input.abortSignal?.aborted ? 'aborted' : 'interrupted');
+            controller.close();
+            return;
+          }
+          const part = asRecord(next.value);
+          if (part && isOutputPart(part.type)) {
+            sawOutput = true;
+            if (timeToFirstTokenMs === undefined) {
+              timeToFirstTokenMs = Math.max(0, this.input.now() - startedAt);
+            }
+          }
+          if (part?.type === 'finish') {
+            await finalize(input.abortSignal?.aborted ? 'aborted' : 'completed', {
+              reason: finishReason(part.finishReason),
+              usage: asUsage(part.usage),
+            });
+          } else if (part?.type === 'error') {
+            await finalize(
+              input.abortSignal?.aborted ? 'aborted' : sawOutput ? 'interrupted' : 'failed',
+            );
+          }
+          controller.enqueue(next.value);
+        } catch (error) {
+          await finalize(
+            input.abortSignal?.aborted
+              ? 'aborted'
+              : sawOutput
+                ? 'interrupted'
+                : abortStatus(input.abortSignal, error),
+          );
+          controller.error(error);
+        }
+      },
+      cancel: async (reason) => {
+        try {
+          await reader.cancel(reason);
+        } finally {
+          await finalize(input.abortSignal?.aborted ? 'aborted' : 'interrupted');
+        }
+      },
+    });
+    return { ...result, stream };
+  }
+
+  private async capture(step: number, input: TrackProviderStreamInput): Promise<StoredCapture> {
+    const prepared = preparedCapture(input.providerId, input.modelId, input.params);
+    const key = `${step}:${prepared.requestHash}`;
+    const existing = this.captures.get(key);
+    if (existing) return await existing;
+
+    const pending = (async (): Promise<StoredCapture> => {
+      const captureId = this.input.newId();
+      const capture: ProviderRequestCaptureRecord = {
+        ...prepared,
+        traceId: this.input.traceId,
+        captureId,
+        turnId: this.input.turnId,
+        step,
+        providerId: input.providerId,
+        modelId: input.modelId,
+      };
+      const persisted = await this.input.persistCapture(capture);
+      return { capture, ref: { captureId, artifactId: persisted.artifactId } };
+    })();
+    this.captures.set(key, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      this.captures.delete(key);
+      throw error;
+    }
+  }
+}
+
+function preparedCapture(
+  providerId: string,
+  modelId: string,
+  params: Record<string, unknown>,
+): PreparedProviderRequestCapture {
+  const prompt = Array.isArray(params.prompt) ? params.prompt : [];
+  const instructions: unknown[] = [];
+  const messages: unknown[] = [];
+  for (const item of prompt) {
+    const record = asRecord(item);
+    if (record?.role === 'system') instructions.push(record.content);
+    else messages.push(item);
+  }
+  const tools = Array.isArray(params.tools) ? params.tools : [];
+  const providerOptions = asRecord(params.providerOptions);
+  return capturePreparedProviderRequest({
+    providerId,
+    modelId,
+    instructions,
+    messages,
+    tools,
+    ...(providerOptions ? { providerOptions } : {}),
+    requestPayload: secretFreeParams(params),
+  });
+}
+
+function secretFreeParams(params: Record<string, unknown>): Record<string, unknown> {
+  const { abortSignal: _abortSignal, headers: _headers, ...safe } = params;
+  return safe;
+}
+
+function abortStatus(signal: AbortSignal | undefined, error: unknown): 'failed' | 'aborted' {
+  if (signal?.aborted) return 'aborted';
+  return error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'failed';
+}
+
+function finishReason(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  const reason = asRecord(value);
+  if (typeof reason?.raw === 'string') return reason.raw;
+  return typeof reason?.unified === 'string' ? reason.unified : undefined;
+}
+
+function isOutputPart(type: unknown): boolean {
+  return (
+    typeof type === 'string' &&
+    ![
+      'stream-start',
+      'response-metadata',
+      'raw',
+      'finish',
+      'error',
+      'text-start',
+      'text-end',
+      'reasoning-start',
+      'reasoning-end',
+      'tool-input-start',
+      'tool-input-end',
+    ].includes(type)
+  );
+}
+
+function asUsage(value: unknown): ProviderRequestUsageLike | undefined {
+  return asRecord(value) as ProviderRequestUsageLike | undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Extract provider-request usage without inheriting adapter-filled zeroes.
+ * Cache evidence is read from the raw provider payload; only cache miss may be
+ * derived, and only when the total plus every cache component needed for the
+ * subtraction was explicitly reported.
+ */
+export function strictProviderRequestUsage(
+  usage: ProviderRequestUsageLike | undefined,
+): ProviderRequestUsage | undefined {
+  if (!usage) return undefined;
+  const inputTokens = tokenTotal(usage.inputTokens);
+  const outputTokens = tokenTotal(usage.outputTokens);
+  const raw = usage.raw;
+  const result: ProviderRequestUsage = {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+  };
+
+  if (raw) {
+    applyAnthropicCacheUsage(result, raw);
+    applyOpenAiCacheUsage(result, raw, inputTokens);
+    const reasoningTokens = firstToken(
+      nestedToken(raw, 'completion_tokens_details', 'reasoning_tokens'),
+      nestedToken(raw, 'output_tokens_details', 'reasoning_tokens'),
+    );
+    if (reasoningTokens !== undefined) result.reasoningTokens = reasoningTokens;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function applyAnthropicCacheUsage(
+  result: ProviderRequestUsage,
+  raw: Record<string, unknown>,
+): void {
+  const cacheRead = ownToken(raw, 'cache_read_input_tokens');
+  const cacheWrite = ownToken(raw, 'cache_creation_input_tokens');
+  if (cacheRead !== undefined) {
+    result.cacheReadInputTokens = cacheRead;
+    result.cacheReadInputSource = 'provider';
+  }
+  if (cacheWrite !== undefined) {
+    result.cacheWriteInputTokens = cacheWrite;
+    result.cacheWriteInputSource = 'provider';
+  }
+  // Anthropic defines input_tokens as the non-cached input component. Treat it
+  // as cache-miss evidence only when this is recognizably an Anthropic cache
+  // usage object, rather than an OpenAI Responses usage object with the same
+  // top-level input_tokens spelling.
+  if (cacheRead !== undefined || cacheWrite !== undefined) {
+    const cacheMiss = ownToken(raw, 'input_tokens');
+    if (cacheMiss !== undefined) {
+      result.cacheMissInputTokens = cacheMiss;
+      result.cacheMissInputSource = 'provider';
+    }
+  }
+}
+
+function applyOpenAiCacheUsage(
+  result: ProviderRequestUsage,
+  raw: Record<string, unknown>,
+  normalizedInputTokens: number | undefined,
+): void {
+  const promptInput = ownToken(raw, 'prompt_tokens');
+  const responsesInput = ownToken(raw, 'input_tokens');
+  const cacheRead = firstToken(
+    nestedToken(raw, 'prompt_tokens_details', 'cached_tokens'),
+    nestedToken(raw, 'input_tokens_details', 'cached_tokens'),
+  );
+  const cacheWrite = nestedToken(raw, 'input_tokens_details', 'cache_write_tokens');
+  if (cacheRead === undefined && cacheWrite === undefined) return;
+
+  if (cacheRead !== undefined) {
+    result.cacheReadInputTokens = cacheRead;
+    result.cacheReadInputSource = 'provider';
+  }
+  if (cacheWrite !== undefined) {
+    result.cacheWriteInputTokens = cacheWrite;
+    result.cacheWriteInputSource = 'provider';
+  }
+  const totalInput = promptInput ?? responsesInput ?? normalizedInputTokens;
+  if (totalInput === undefined || cacheRead === undefined) return;
+  result.cacheMissInputTokens = Math.max(0, totalInput - cacheRead - (cacheWrite ?? 0));
+  result.cacheMissInputSource = 'derived';
+}
+
+function tokenTotal(
+  value: ProviderRequestUsageLike['inputTokens'] | ProviderRequestUsageLike['outputTokens'],
+): number | undefined {
+  return finiteToken(typeof value === 'object' && value !== null ? value.total : value);
+}
+
+function ownToken(value: Record<string, unknown>, key: string): number | undefined {
+  return Object.hasOwn(value, key) ? finiteToken(value[key]) : undefined;
+}
+
+function nestedToken(
+  value: Record<string, unknown>,
+  key: string,
+  nestedKey: string,
+): number | undefined {
+  if (!Object.hasOwn(value, key)) return undefined;
+  const nested = value[key];
+  if (!nested || typeof nested !== 'object' || !Object.hasOwn(nested, nestedKey)) return undefined;
+  return finiteToken((nested as Record<string, unknown>)[nestedKey]);
+}
+
+function firstToken(...values: Array<number | undefined>): number | undefined {
+  return values.find((value) => value !== undefined);
+}
+
+function finiteToken(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
