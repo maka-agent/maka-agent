@@ -151,6 +151,7 @@ describe('permission response IPC boundary', () => {
         type: 'send',
         turnId: 'turn-1',
         text: 'hello',
+        skillIds: ['weekly-report'],
         attachmentItems: [{ approvalId: 'a', name: 'n' }],
         extra: true,
       }),
@@ -158,6 +159,7 @@ describe('permission response IPC boundary', () => {
         type: 'send',
         turnId: 'turn-1',
         text: 'hello',
+        skillIds: ['weekly-report'],
         attachmentItems: [{ approvalId: 'a', name: 'n' }],
       },
     );
@@ -165,9 +167,17 @@ describe('permission response IPC boundary', () => {
       normalizeSessionSendCommand({ type: 'send', text: 'hello' }),
       { type: 'send', text: 'hello' },
     );
+    assert.deepEqual(
+      normalizeSessionSendCommand({ type: 'send', text: '', skillIds: ['weekly-report'] }),
+      { type: 'send', text: '', skillIds: ['weekly-report'] },
+    );
     assert.equal(normalizeSessionSendCommand({ type: 'stop' }), undefined);
     assert.throws(() => normalizeSessionSendCommand(null), /session command/);
     assert.throws(() => normalizeSessionSendCommand({ type: 'send', text: '' }), /send text/);
+    assert.throws(
+      () => normalizeSessionSendCommand({ type: 'send', text: 'hello', skillIds: ['/bad'] }),
+      /skillIds/,
+    );
     assert.throws(() => normalizeSessionSendCommand({ type: 'send', turnId: 1, text: 'hello' }), /send turnId/);
   });
 

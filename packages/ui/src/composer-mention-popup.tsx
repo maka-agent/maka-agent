@@ -104,7 +104,9 @@ export function ComposerMentionPopup(props: {
                       {item.type === 'file' ? fileBasename(item.relativePath) : item.name}
                     </span>
                     <span className="maka-composer-mention-secondary">
-                      {item.type === 'file' ? item.relativePath : item.description ?? ''}
+                      {item.type === 'file'
+                        ? item.relativePath
+                        : `${item.id}${item.description ? ` · ${item.description}` : ''}`}
                     </span>
                   </span>
                 </div>

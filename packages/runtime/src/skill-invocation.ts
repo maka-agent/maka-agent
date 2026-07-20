@@ -10,12 +10,10 @@ import {
 
 /**
  * Explicit skill invocation (issue #1148): the shared, client-agnostic
- * contract behind the TUI's `/skill:<name>` tokens and the desktop
- * composer's invocation chips. Both clients turn a user gesture into a set
- * of skill ids/names; this module lists what can be invoked, resolves those
+ * contract behind the TUI and Desktop `/skill:<name>` tokens. This module
+ * owns the shared token syntax, lists what can be invoked, resolves those
  * names against one scan, and composes the final user message with the
- * loaded instructions injected. Token/chip syntax and any UI rendering stay
- * client-local — nothing here knows how a surface serializes an invocation.
+ * loaded instructions injected. UI rendering stays client-local.
  *
  * The trust model matches the always-on skill catalog: skill instructions
  * are user-provided content, lower priority than system/developer/safety/
@@ -34,6 +32,83 @@ export interface SkillInvocationResolution {
   /** The id or name the user asked for (already token-stripped by the client). */
   request: string;
   result: LoadSkillInstructionsResult;
+}
+
+export interface SkillInvocationToken {
+  name: string;
+  start: number;
+  end: number;
+}
+
+export type SkillInvocationFailureReason =
+  | Exclude<LoadSkillInstructionsResult, { ok: true }>['reason']
+  | 'resolution_failed';
+
+export interface SkillInvocationFailure {
+  request: string;
+  reason: SkillInvocationFailureReason;
+}
+
+export interface SkillInvocationResult {
+  loaded: Array<{ id: string; name: string }>;
+  failed: SkillInvocationFailure[];
+}
+
+export type PreparedSkillInvocationMessage =
+  | {
+      disposition: 'passthrough';
+      sendText: string;
+      skillInvocation: SkillInvocationResult;
+    }
+  | {
+      disposition: 'ready';
+      sendText: string;
+      skillInvocation: SkillInvocationResult;
+    }
+  | {
+      disposition: 'blocked';
+      skillInvocation: SkillInvocationResult;
+    };
+
+export const SKILL_INVOCATION_TOKEN_SOURCE = String.raw`(?:^|(?<=\s))\/skill:([A-Za-z0-9._-]+)`;
+
+/** Parse distinct invocation tokens in first-appearance order. */
+export function parseSkillInvocationTokens(text: string): SkillInvocationToken[] {
+  const tokens: SkillInvocationToken[] = [];
+  const seen = new Set<string>();
+  // Construct per call so no caller can observe state from a global RegExp's
+  // mutable `lastIndex`.
+  const pattern = new RegExp(SKILL_INVOCATION_TOKEN_SOURCE, 'g');
+  for (const match of text.matchAll(pattern)) {
+    const name = match[1];
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const start = match.index;
+    tokens.push({ name, start, end: start + match[0].length });
+  }
+  return tokens;
+}
+
+/** Remove successfully resolved tokens without changing untouched lines. */
+export function stripSkillInvocationTokens(text: string, names: ReadonlySet<string>): string {
+  const pattern = new RegExp(SKILL_INVOCATION_TOKEN_SOURCE, 'g');
+  const out: string[] = [];
+  for (const line of text.split('\n')) {
+    let touched = false;
+    const stripped = line.replace(pattern, (whole, name: string) => {
+      if (!names.has(name.toLowerCase())) return whole;
+      touched = true;
+      return '';
+    });
+    if (!touched) {
+      out.push(line);
+      continue;
+    }
+    const tidied = stripped.replace(/[ \t]+/g, ' ').trim();
+    if (tidied.length > 0) out.push(tidied);
+  }
+  return out.join('\n');
 }
 
 /**
@@ -111,6 +186,83 @@ export function composeSkillInvocationMessage(input: {
       : 'The user provided no additional task text; follow the skill instructions above.',
   );
   return parts.join('\n\n');
+}
+
+/**
+ * Prepare one model-facing message from structured ids and the shared token
+ * syntax. Every invocation token is removed before provider handoff, including
+ * failures, so the model can never imitate a Skill that Runtime did not load.
+ * If every requested Skill fails, the result is blocked and callers must not
+ * create a provider turn.
+ */
+export async function prepareSkillInvocationMessage(input: {
+  text: string;
+  skillIds?: readonly string[];
+  source: SkillSource;
+  host?: HostCapabilities;
+}): Promise<PreparedSkillInvocationMessage> {
+  const passthrough: PreparedSkillInvocationMessage = {
+    disposition: 'passthrough',
+    sendText: input.text,
+    skillInvocation: { loaded: [], failed: [] },
+  };
+  const tokens = parseSkillInvocationTokens(input.text);
+  const requests = distinctInvocationRequests([
+    ...(input.skillIds ?? []),
+    ...tokens.map((token) => token.name),
+  ]);
+  if (requests.length === 0) return passthrough;
+  const strippedText = stripSkillInvocationTokens(
+    input.text,
+    new Set(tokens.map((token) => token.name.toLowerCase())),
+  );
+  try {
+    const resolved = await resolveSkillInvocations(input.source, input.host, requests);
+    const loaded: LoadedSkillInstructions[] = [];
+    const loadedIds = new Set<string>();
+    const failures: SkillInvocationFailure[] = [];
+    for (const entry of resolved) {
+      if (entry.result.ok) {
+        const id = entry.result.skill.id.toLowerCase();
+        if (!loadedIds.has(id)) {
+          loadedIds.add(id);
+          loaded.push(entry.result.skill);
+        }
+      } else {
+        failures.push({ request: entry.request, reason: entry.result.reason });
+      }
+    }
+    const skillInvocation: SkillInvocationResult = {
+      loaded: loaded.map((skill) => ({ id: skill.id, name: skill.name })),
+      failed: failures,
+    };
+    if (loaded.length === 0) return { disposition: 'blocked', skillInvocation };
+    return {
+      disposition: 'ready',
+      sendText: composeSkillInvocationMessage({ userText: strippedText, skills: loaded }),
+      skillInvocation,
+    };
+  } catch {
+    return {
+      disposition: 'blocked',
+      skillInvocation: {
+        loaded: [],
+        failed: requests.map((request) => ({ request, reason: 'resolution_failed' })),
+      },
+    };
+  }
+}
+
+function distinctInvocationRequests(requests: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const distinct: string[] = [];
+  for (const request of requests) {
+    const key = request.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(request);
+  }
+  return distinct;
 }
 
 function sanitizeAttribute(value: string): string {

@@ -7,7 +7,9 @@ import {
   focusTextInputAtEnd,
   isChatInputComposing,
   mentionQueryMatches,
+  skillMentionQuery,
 } from '../chat-input-behavior.js';
+import { addUniqueComposerSkillSelection } from '../use-composer-skill-draft.js';
 
 describe('shared chat input behavior', () => {
   it('recognizes IME composition from either the native flag or Process key', () => {
@@ -134,5 +136,28 @@ describe('mentionQueryMatches', () => {
 
   it('matches everything on an empty query', () => {
     assert.equal(mentionQueryMatches('', 'anything'), true);
+  });
+});
+
+describe('Skill mention filtering', () => {
+  it('supports direct /skill: filtering and bare names', () => {
+    assert.equal(skillMentionQuery('skill:wri'), 'wri');
+    assert.equal(skillMentionQuery('SKILL:wri'), 'wri');
+    assert.equal(skillMentionQuery('writer'), 'writer');
+  });
+});
+
+describe('structured Skill selections', () => {
+  it('deduplicates ids case-insensitively and preserves first-selection order', () => {
+    const first = addUniqueComposerSkillSelection([], { id: 'alpha', name: 'Alpha' });
+    const second = addUniqueComposerSkillSelection(first, { id: 'beta', name: 'Beta' });
+    const duplicate = addUniqueComposerSkillSelection(second, {
+      id: 'ALPHA',
+      name: 'Renamed Alpha',
+    });
+    assert.deepEqual(duplicate, [
+      { id: 'alpha', name: 'Alpha' },
+      { id: 'beta', name: 'Beta' },
+    ]);
   });
 });

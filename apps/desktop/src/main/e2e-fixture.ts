@@ -127,6 +127,7 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'settings-usage',
   'settings-health',
   'module-skills',
+  'composer-skill-invocation',
   // MCP module page (SVG-governance + polish campaign): opens the 扩展 → MCP
   // surface with a seeded mcp.json so the market grid, tab row, hero banner,
   // and the installed server list all render for the alignment auditor
@@ -505,6 +506,13 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'health' };
     case 'module-skills':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
+    case 'composer-skill-invocation':
+      return {
+        ...state,
+        activeSessionId: TURN_SESSION_ID,
+        composerText: '请整理这次会议的行动项',
+        composerSkills: [{ id: 'meeting-followup', name: '会议跟进' }],
+      };
     case 'module-mcp':
       // Open the 扩展 → MCP module directly so the alignment audit reaches the
       // real market grid, tab row, hero banner, and installed server list.
@@ -696,6 +704,9 @@ export async function seedE2eFixture(input: {
     await writeDailyReviewArchives(input.workspaceRoot, now);
   }
   if (input.fixture.scenario === 'module-skills') {
+    await seedSkillsMarketFixture(input.workspaceRoot);
+  }
+  if (input.fixture.scenario === 'composer-skill-invocation') {
     await seedSkillsMarketFixture(input.workspaceRoot);
   }
   if (input.fixture.scenario === 'module-mcp') {

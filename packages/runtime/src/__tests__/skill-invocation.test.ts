@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import {
   composeSkillInvocationMessage,
   listInvocableSkills,
+  prepareSkillInvocationMessage,
   resolveSkillInvocations,
 } from '../skill-invocation.js';
 import {
@@ -268,6 +269,103 @@ Body.`,
       text.endsWith('<user-message>\n    make target\n</user-message>'),
       `expected indented body preserved, got: ${text}`,
     );
+  });
+
+  it('prepares mixed success and failure tokens from one latest scan', async () => {
+    await withWorkspace(async (workspaceRoot, homeDir) => {
+      await writeSkill(
+        workspaceRoot,
+        'alpha',
+        `---
+name: Alpha
+description: First.
+---
+# Alpha
+Alpha body.`,
+      );
+      const source = resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir);
+      const prepared = await prepareSkillInvocationMessage({
+        text: '/skill:alpha /skill:missing 整理一下',
+        source,
+        host: { toolNames: new Set(['Read']) },
+      });
+
+      assert.equal(prepared.disposition, 'ready');
+      assert.deepEqual(prepared.skillInvocation.loaded, [{ id: 'alpha', name: 'Alpha' }]);
+      assert.deepEqual(prepared.skillInvocation.failed, [
+        { request: 'missing', reason: 'not_found' },
+      ]);
+      assert.ok('sendText' in prepared);
+      assert.match(prepared.sendText, /<invoked-skill id="alpha" name="Alpha">/);
+      assert.ok(!prepared.sendText.includes('/skill:alpha'));
+      assert.ok(!prepared.sendText.includes('/skill:missing'));
+      assert.match(prepared.sendText, /<user-message>\n整理一下\n<\/user-message>/);
+    });
+  });
+
+  it('reads the current state at send time and blocks when every invocation fails', async () => {
+    await withWorkspace(async (workspaceRoot, homeDir) => {
+      await writeSkill(
+        workspaceRoot,
+        'alpha',
+        `---
+name: Alpha
+description: First.
+---
+# Alpha`,
+      );
+      const source = resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir);
+      await writeSkillRuntimeState(workspaceRoot, new Map([['alpha', false]]));
+      const prepared = await prepareSkillInvocationMessage({
+        text: '/skill:alpha do it',
+        source,
+      });
+
+      assert.equal(prepared.disposition, 'blocked');
+      assert.deepEqual(prepared.skillInvocation.loaded, []);
+      assert.deepEqual(prepared.skillInvocation.failed, [{ request: 'alpha', reason: 'disabled' }]);
+    });
+  });
+
+  it('merges structured ids before text tokens and deduplicates by id', async () => {
+    await withWorkspace(async (workspaceRoot, homeDir) => {
+      await writeSkill(
+        workspaceRoot,
+        'alpha',
+        `---\nname: Alpha\ndescription: First.\n---\n# Alpha`,
+      );
+      await writeSkill(workspaceRoot, 'beta', `---\nname: Beta\ndescription: Second.\n---\n# Beta`);
+      const prepared = await prepareSkillInvocationMessage({
+        text: '/skill:alpha /skill:beta finish',
+        skillIds: ['beta', 'ALPHA'],
+        source: resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir),
+      });
+
+      assert.equal(prepared.disposition, 'ready');
+      assert.deepEqual(
+        prepared.skillInvocation.loaded.map((entry) => entry.id),
+        ['beta', 'alpha'],
+      );
+      assert.ok('sendText' in prepared);
+      assert.ok(!prepared.sendText.includes('/skill:'));
+    });
+  });
+
+  it('blocks with resolution_failed when the authoritative scan throws', async () => {
+    const prepared = await prepareSkillInvocationMessage({
+      text: '/skill:alpha finish',
+      source: { dirs: null, stateRoot: '/invalid' } as unknown as Parameters<
+        typeof prepareSkillInvocationMessage
+      >[0]['source'],
+    });
+
+    assert.deepEqual(prepared, {
+      disposition: 'blocked',
+      skillInvocation: {
+        loaded: [],
+        failed: [{ request: 'alpha', reason: 'resolution_failed' }],
+      },
+    });
   });
 });
 

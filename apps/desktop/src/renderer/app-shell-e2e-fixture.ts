@@ -1,6 +1,6 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { SettingsSection, ThemePreference, UiLocale } from '@maka/core';
-import type { InteractionQueues, LiveTurnProjection } from '@maka/ui';
+import type { ComposerHandle, InteractionQueues, LiveTurnProjection } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
 import type { SessionWorkbarTab } from './session-workbar-layout';
@@ -13,6 +13,7 @@ export interface AppShellE2eFixtureActions {
 
 export function createAppShellE2eFixtureActions(options: {
   openPalette: () => void;
+  composerRef: RefObject<ComposerHandle | null>;
   openSettingsSection: (section: SettingsSection) => void;
   openConnectionDetail: (slug: string) => void;
   refreshSessions: () => Promise<unknown>;
@@ -30,6 +31,7 @@ export function createAppShellE2eFixtureActions(options: {
 }): AppShellE2eFixtureActions {
   const {
     openPalette,
+    composerRef,
     openSettingsSection,
     openConnectionDetail,
     refreshSessions,
@@ -157,6 +159,23 @@ export function createAppShellE2eFixtureActions(options: {
     } else if (state.sidebarSection === 'sessions') {
       setNavSelection({ section: 'sessions', filter: 'chats' });
     }
+    if (state.composerText !== undefined) {
+      // Wait for the active session + its Skill inventory to commit, then use
+      // the real Composer input path. This keeps the screenshot representative
+      // of keyboard interaction instead of mounting a test-only popup.
+      await nextVisualSmokeFrame();
+      await nextVisualSmokeFrame();
+      composerRef.current?.setText(state.composerText);
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        '.maka-composer textarea[name="text"]',
+      );
+      textarea?.dispatchEvent(new Event('input', { bubbles: true }));
+      await nextVisualSmokeFrame();
+    }
+    if (state.composerSkills !== undefined) {
+      composerRef.current?.setSkills(state.composerSkills);
+      await nextVisualSmokeFrame();
+    }
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): when the fixture sets `focusActiveRow`,
     // focus the active row's button after the next paint so the
@@ -179,4 +198,8 @@ export function createAppShellE2eFixtureActions(options: {
   }
 
   return { applyE2eFixture };
+}
+
+function nextVisualSmokeFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }

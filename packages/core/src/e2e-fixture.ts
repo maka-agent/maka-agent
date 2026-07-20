@@ -60,6 +60,7 @@ export type E2eFixtureScenario =
   | 'settings-usage'
   | 'settings-health'
   | 'module-skills'
+  | 'composer-skill-invocation'
   | 'module-mcp'
   | 'module-daily-review'
   | 'workstation-statuses'
@@ -190,6 +191,14 @@ export interface E2eFixtureState {
    */
   liveBrowserSessionIds?: string[];
   openSettingsSection?: SettingsSection;
+  /**
+   * Fixture-only composer draft. The renderer focuses the real textarea and
+   * dispatches its normal input path so mention popups are captured without a
+   * test-only component branch.
+   */
+  composerText?: string;
+  /** Fixture-only structured Skill Chips rendered through the real composer state. */
+  composerSkills?: Array<{ id: string; name: string }>;
   /**
    * When set, open Settings → 模型 with this connection's detail sheet
    * expanded (rather than just the section). Seeded by `oauth-relogin` so the

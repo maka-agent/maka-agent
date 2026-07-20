@@ -11,6 +11,7 @@ import type {
   UserQuestionResponse,
 } from '@maka/core';
 import { DEFAULT_SESSION_NAME } from '@maka/core';
+import type { SkillInvocationResult } from '@maka/runtime';
 import {
   armLiveTurn,
   dequeueInteractionByRequestId,
@@ -67,6 +68,7 @@ type PendingNewChatThinkingLevel = ThinkingLevel | null;
 
 type ToastApi = {
   error(title: string, description?: string): void;
+  info(title: string, description?: string): void;
 };
 
 export interface RefreshMessagesOptions {
@@ -113,7 +115,11 @@ export interface AppShellChatActions {
   send(
     text: string,
     pending?: readonly PendingAttachment[],
-    options?: { turnOrchestration?: TurnOrchestration; quotes?: readonly QuoteRef[] },
+    options?: {
+      skillIds?: readonly string[];
+      turnOrchestration?: TurnOrchestration;
+      quotes?: readonly QuoteRef[];
+    },
   ): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   respondToUserQuestion(response: UserQuestionResponse): Promise<void>;
@@ -240,6 +246,23 @@ export function createAppShellChatActions(deps: {
     });
   }
 
+  function showSkillInvocationFailures(skillInvocation: SkillInvocationResult): void {
+    const failures = skillInvocation.failed;
+    if (failures.length === 0) return;
+    const items = failures.map(
+      (failure) =>
+        `/skill:${failure.request} (${copy.skillInvocationFailureReason[failure.reason]})`,
+    );
+    if (skillInvocation.loaded.length === 0) {
+      toastApi.error(
+        copy.skillInvocationBlockedTitle,
+        copy.skillInvocationBlockedDescription(items),
+      );
+      return;
+    }
+    toastApi.info(copy.skillInvocationFailedTitle, copy.skillInvocationFailedDescription(items));
+  }
+
   function removeOptimisticUserMessage(sessionId: string, turnId: string): void {
     if (activeIdRef.current !== sessionId) return;
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
@@ -273,10 +296,12 @@ export function createAppShellChatActions(deps: {
     text: string,
     pending?: readonly PendingAttachment[],
     options: {
+      skillIds?: readonly string[];
       turnOrchestration?: TurnOrchestration;
       quotes?: readonly QuoteRef[];
     } = {},
   ): Promise<boolean> {
+    const skillIds = options.skillIds;
     const quotes = options.quotes;
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
@@ -312,9 +337,24 @@ export function createAppShellChatActions(deps: {
           turnId,
           text,
           ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
+          ...(skillIds && skillIds.length > 0 ? { skillIds: [...skillIds] } : {}),
           ...(attachmentItems ? { attachmentItems } : {}),
           ...(quotes && quotes.length > 0 ? { quotes: [...quotes] } : {}),
         });
+        if (!sendResult.ok) {
+          if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
+            showSkillInvocationFailures(sendResult.skillInvocation);
+          }
+          disarmTurnActive(session.id, turnId);
+          restoreOptimisticStatus?.();
+          restoreOptimisticStatus = undefined;
+          await window.maka.sessions.remove(session.id);
+          await refreshSessions();
+          return false;
+        }
+        if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
+          showSkillInvocationFailures(sendResult.skillInvocation);
+        }
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
@@ -340,9 +380,22 @@ export function createAppShellChatActions(deps: {
         turnId,
         text,
         ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
+        ...(skillIds && skillIds.length > 0 ? { skillIds: [...skillIds] } : {}),
         ...(attachmentItems ? { attachmentItems } : {}),
         ...(quotes && quotes.length > 0 ? { quotes: [...quotes] } : {}),
       });
+      if (!sendResult.ok) {
+        if (activeIdRef.current === sessionId) {
+          showSkillInvocationFailures(sendResult.skillInvocation);
+        }
+        disarmTurnActive(sessionId, turnId);
+        restoreOptimisticStatus?.();
+        restoreOptimisticStatus = undefined;
+        return false;
+      }
+      if (activeIdRef.current === sessionId) {
+        showSkillInvocationFailures(sendResult.skillInvocation);
+      }
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments, {
         ...(quotes && quotes.length > 0 ? { quotes } : {}),
       });

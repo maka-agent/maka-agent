@@ -194,11 +194,24 @@ export interface MakaBridge {
             type: 'send';
             turnId: string;
             text: string;
+            skillIds?: string[];
             attachmentItems?: RendererIngestInput[];
             turnOrchestration?: TurnOrchestration;
             quotes?: import('@maka/core').QuoteRef[];
           },
-    ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
+    ): Promise<
+      | {
+          ok: true;
+          turnId: string;
+          attachments: import('@maka/core').AttachmentRef[];
+          skillInvocation: import('@maka/runtime').SkillInvocationResult;
+        }
+      | {
+          ok: false;
+          reason: 'skill_invocation_failed';
+          skillInvocation: import('@maka/runtime').SkillInvocationResult;
+        }
+    >;
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
     readMessages(sessionId: string): Promise<StoredMessage[]>;
     listTurns(sessionId: string): Promise<TurnRecord[]>;

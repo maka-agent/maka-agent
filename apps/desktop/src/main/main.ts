@@ -42,6 +42,8 @@ import {
   BotRegistry,
   ShellRunProcessManager,
   SessionActivityRegistry,
+  prepareSkillInvocationMessage,
+  resolveSkillDiscoveryPaths,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -900,6 +902,16 @@ function registerIpc(): void {
     e2eFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
+    prepareSkillInvocation: async (sessionId, text, skillIds) =>
+      prepareSkillInvocationMessage({
+        text,
+        ...(skillIds ? { skillIds } : {}),
+        source: resolveSkillDiscoveryPaths(
+          await resolveProjectRootForContext(sessionId),
+          workspaceRoot,
+        ),
+        host: desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities,
+      }),
     invalidateSessionBindings: (sessionId) => botIncoming.invalidateSessionBindings(sessionId),
     clearSkillHost: (sessionId) => desktopSessionSkillHosts.delete(sessionId),
     ensureSessionWorkspaceAvailable,

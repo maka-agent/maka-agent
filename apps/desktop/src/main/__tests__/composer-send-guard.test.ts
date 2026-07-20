@@ -39,7 +39,7 @@ describe('composer send guard', () => {
     );
     // U3: `noModelConnection` is folded into the guard so Send stays inert in
     // the post-skip no-model dead end (the inline hint points at Settings · 模型).
-    assert.match(source, /const sendDisabled = props\.disabled \|\| sendPending \|\| importActionBusy \|\| !hasDraftText \|\| noModelConnection;/);
+    assert.match(source, /\(!hasDraftText && skillDraft\.skills\.length === 0\)/);
     assert.match(source, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty, in flight, or with no model connection');
     assert.match(copySource, /sendLabel: '发送'/, 'Chinese UI must not keep English Send button copy');
     assert.match(copySource, /stopLabel: '停止'/, 'Chinese UI must not keep English Stop button copy');
@@ -52,7 +52,7 @@ describe('composer send guard', () => {
 
     assert.match(
       sendCurrent,
-      /const submittedDraftKey = activeDraftKey\(\);[\s\S]*sent = await props\.onSend\(text\);[\s\S]*if \(sent === false\) return;[\s\S]*clearDraft\(submittedDraftKey\);[\s\S]*saveCurrentDraft\(''\);/,
+      /const submittedDraftKey = activeDraftKey\(\);[\s\S]*sent = await props\.onSend\(text, skillIds\);[\s\S]*if \(sent === false\) return;[\s\S]*clearDraft\(submittedDraftKey\);[\s\S]*saveCurrentDraft\(''\);/,
       'successful sends must clear both the original draft key and the current key after a new-session send changes draftKey',
     );
     assert.match(

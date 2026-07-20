@@ -1003,6 +1003,7 @@ function AppShellContent({
 
   const { applyE2eFixture } = useStableActions(createAppShellE2eFixtureActions, {
     openPalette,
+    composerRef,
     openSettingsSection,
     openConnectionDetail,
     refreshSessions,
@@ -1086,7 +1087,10 @@ function AppShellContent({
     upsertSessionSummary,
   });
 
-  async function sendWithAttachments(text: string): Promise<boolean | void> {
+  async function sendWithAttachments(
+    text: string,
+    skillIds: readonly string[],
+  ): Promise<boolean | void> {
     const revision = revisionDraftRef.current;
     const revisionSend = Boolean(
       revision && activeIdRef.current === revision.draftSessionId,
@@ -1114,7 +1118,7 @@ function AppShellContent({
       }
       if (!(await prepareRevisionSend(text))) return false;
     }
-    if (text.trim() === '/compact') {
+    if (skillIds.length === 0 && text.trim() === '/compact') {
       const sessionId = activeIdRef.current;
       if (!sessionId) return true;
       try {
@@ -1159,6 +1163,7 @@ function AppShellContent({
       const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
       const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
       const ok = await send(swarmCommand.task, pending, {
+        ...(skillIds.length > 0 ? { skillIds } : {}),
         turnOrchestration: { mode: 'swarm', source: 'slash_command' },
         ...(quotes ? { quotes } : {}),
       });
@@ -1171,7 +1176,10 @@ function AppShellContent({
       ? revisionDraftRef.current?.draftSessionId
       : undefined;
     const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
-    const ok = await send(text, pending, { ...(quotes ? { quotes } : {}) });
+    const ok = await send(text, pending, {
+      ...(skillIds.length > 0 ? { skillIds } : {}),
+      ...(quotes ? { quotes } : {}),
+    });
     if (ok !== false && pending) clearSubmittedAttachments(pending);
     if (ok !== false && quotes) clearQuotes();
     if (ok !== false && revisionSend) {
