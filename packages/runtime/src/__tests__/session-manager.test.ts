@@ -7749,6 +7749,43 @@ describe('SessionManager permission mode updates', () => {
     expect(events.some((event) => event.id === 'attempt-2')).toBe(true);
   });
 
+  test('finalizes the run when a required provider capture append fails', async () => {
+    const store = new MemorySessionStore();
+    let providerDispatches = 0;
+    let failCaptureOnce = true;
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
+        if (event.type === 'provider_request_captured' && failCaptureOnce) {
+          failCaptureOnce = false;
+          throw new Error('required capture append failed');
+        }
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register(
+      'fake',
+      (ctx) => new ProviderCaptureGateBackend(ctx, () => (providerDispatches += 1)),
+    );
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_764),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })).catch(
+      () => {},
+    );
+
+    expect(providerDispatches).toBe(0);
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.completedAt).toBeDefined();
+  });
+
   test('omits provider request telemetry hooks when no run store is configured', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -11764,6 +11801,46 @@ class ProviderRequestTraceBackend implements AgentBackend {
       finishReason: 'stop',
       latencyMs: 1,
     });
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ProviderCaptureGateBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly dispatch: () => void,
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.ctx.recordProviderRequestCapture?.({
+      schemaVersion: 1,
+      traceId: 'provider-trace-gated',
+      captureId: 'capture-gated',
+      turnId: input.turnId,
+      step: 0,
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:gated',
+      requestBytes: 100,
+      segments: [],
+      artifactId: 'artifact-gated',
+    });
+    this.dispatch();
     yield {
       type: 'complete',
       id: `${input.turnId}-complete`,

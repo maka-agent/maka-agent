@@ -1353,7 +1353,6 @@ export class AgentRun {
     operation: () => Promise<void>,
   ): Promise<void> {
     const next = this.traceQueue.then(operation, operation).catch(async (error) => {
-      this.runStoreAvailable = false;
       await this.enqueueTraceWriteFailure(error, label);
       throw error;
     });
