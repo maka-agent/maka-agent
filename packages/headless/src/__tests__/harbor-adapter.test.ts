@@ -857,7 +857,7 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /kimi-code adapter ok/);
   });
 
-  test('codex_agent.py runs the pinned CLI through the host proxy without Harbor installed', (t: TestContext) => {
+  test('codex_agent.py runs the pinned CLI with OAuth or proxy auth without Harbor installed', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonCodexAdapterSmokeScript(repoRoot)], {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -2727,6 +2727,7 @@ class Codex:
             "instruction": rendered,
             "api_key": self._get_env("OPENAI_API_KEY"),
             "base_url": self._get_env("OPENAI_BASE_URL"),
+            "auth_json_path": self._get_env("CODEX_AUTH_JSON_PATH"),
             "path": self._get_env("PATH"),
         })
         if instruction == "fail":
@@ -2835,6 +2836,29 @@ with tempfile.TemporaryDirectory() as tmp:
     assert abs(cell["tokenSummary"]["costUsd"] - 0.00107) < 1e-12, cell
     assert cell["toolSummary"]["actualToolCallCounts"] == {"command_execution": 1}, cell
     assert "ephemeral-token" not in json.dumps(cell), cell
+
+    native_auth = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_CODEX_AUTH_JSON_PATH": "/secure/codex/auth.json",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    native_context = types.SimpleNamespace(
+        n_input_tokens=None,
+        n_cache_tokens=None,
+        n_output_tokens=None,
+        cost_usd=None,
+        metadata={},
+    )
+    asyncio.run(native_auth.run("hi", environment, native_context))
+    assert native_auth.parent_calls[0]["auth_json_path"] == "/secure/codex/auth.json"
+    assert native_auth.parent_calls[0]["api_key"] is None
+    assert native_auth.parent_calls[0]["base_url"] is None
 
     failing = MakaCodexAgent(
         logs,

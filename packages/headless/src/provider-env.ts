@@ -66,6 +66,11 @@ const PROVIDER_CREDENTIAL_ENV = {
   localai: env('LOCALAI', ['LOCALAI_BASE_URL']),
   'openai-compatible': env('OPENAI', ['OPENAI_BASE_URL']),
   'claude-subscription': env('ANTHROPIC'),
+  'openai-codex': {
+    apiKeys: ['OPENAI_CODEX_OAUTH_TOKEN'],
+    apiKeyFile: 'OPENAI_CODEX_OAUTH_TOKEN_FILE',
+    baseUrls: [],
+  },
   'github-copilot': {
     apiKeys: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
     apiKeyFile: 'COPILOT_GITHUB_TOKEN_FILE',

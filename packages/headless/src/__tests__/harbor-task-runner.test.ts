@@ -562,6 +562,42 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('uses native Codex auth without starting an API-key proxy', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const codexAuthJsonPath = '/secure/codex/auth.json';
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'codex',
+        codexToolchainPath: '/toolchain',
+        codexAuthJsonPath,
+        agentVersion: '0.144.6',
+        model: 'openai-codex/gpt-5.6-sol',
+        provider: 'openai-codex',
+        reasoningEffort: 'max',
+        apiKeyFile: keyFile,
+        runHarbor: async (request: HarborRunRequest) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      } as unknown as Parameters<typeof createHarborTaskRunner>[0]);
+
+      await runner(runInput());
+
+      assert.equal(harborEnv?.MAKA_PROVIDER_PROXY_URL, undefined);
+      assert.equal(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN, undefined);
+      assert.ok(captured.config);
+      const agent = (captured.config.agents as Array<Record<string, unknown>>)[0]!;
+      assert.equal(
+        (agent.env as Record<string, string>).MAKA_CODEX_AUTH_JSON_PATH,
+        codexAuthJsonPath,
+      );
+      assert.doesNotMatch(JSON.stringify(captured.config), /deepseek-key|sk-secret/);
+    });
+  });
+
   test('selects Anthropic x-api-key auth for the OpenCode Kimi Coding Plan proxy', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       let upstreamApiKey = '';

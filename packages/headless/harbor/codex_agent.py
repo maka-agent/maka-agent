@@ -27,7 +27,7 @@ _OUTPUT_FILENAME = "codex.txt"
 
 
 class MakaCodexAgent(Codex):
-    """Run a fixed Codex CLI build through Maka's short-lived provider proxy."""
+    """Run a fixed Codex CLI build with native OAuth or Maka's provider proxy."""
 
     def get_version_command(self) -> str | None:
         return f"{shlex.quote(str(_TOOLCHAIN_CODEX))} --version"
@@ -63,7 +63,9 @@ class MakaCodexAgent(Codex):
             return super()._get_env("MAKA_PROVIDER_PROXY_TOKEN")
         if key == "OPENAI_BASE_URL":
             return super()._get_env("MAKA_PROVIDER_PROXY_URL")
-        if key in {"CODEX_AUTH_JSON_PATH", "CODEX_FORCE_AUTH_JSON"}:
+        if key == "CODEX_AUTH_JSON_PATH":
+            return super()._get_env("MAKA_CODEX_AUTH_JSON_PATH")
+        if key == "CODEX_FORCE_AUTH_JSON":
             return None
         return super()._get_env(key)
 
@@ -75,8 +77,9 @@ class MakaCodexAgent(Codex):
     ) -> None:
         proxy_url = self._get_env("OPENAI_BASE_URL")
         proxy_token = self._get_env("OPENAI_API_KEY")
-        if not proxy_url or not proxy_token:
-            raise ValueError("Codex requires the host provider proxy")
+        auth_json_path = self._get_env("CODEX_AUTH_JSON_PATH")
+        if not auth_json_path and (not proxy_url or not proxy_token):
+            raise ValueError("Codex requires native auth.json or the host provider proxy")
         self._started_at_ms = int(time.time() * 1000)
         self._write_execution_identity()
         output_path = self.logs_dir / _OUTPUT_FILENAME

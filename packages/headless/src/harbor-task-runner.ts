@@ -112,6 +112,8 @@ export interface HarborTaskRunnerOptions {
   kimiCodeToolchainPath?: string;
   /** Prepared Codex CLI toolchain mounted read-only into task containers. */
   codexToolchainPath?: string;
+  /** Host Codex auth.json uploaded by Harbor for native ChatGPT OAuth. */
+  codexAuthJsonPath?: string;
   /** Explicit Docker target platform shared by comparison arms. */
   dockerPlatform?: 'linux/amd64';
   /** Base directory under which each task gets an isolated per-task job dir. */
@@ -878,6 +880,9 @@ export function buildHarborJobConfig(
   }
   if (adapter === 'codex') {
     agentEnv.MAKA_CODEX_TOOLCHAIN_FINGERPRINT = CODEX_TOOLCHAIN_FINGERPRINT;
+    if (options.codexAuthJsonPath) {
+      agentEnv.MAKA_CODEX_AUTH_JSON_PATH = options.codexAuthJsonPath;
+    }
   }
 
   if (options.pricing) {
@@ -997,6 +1002,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
+  if (options.agent === 'codex' && options.codexAuthJsonPath) return null;
   if (usesHostProviderProxy(options.agent) && provider === 'github-copilot') {
     const adapter =
       options.agent === 'kimi-code'
