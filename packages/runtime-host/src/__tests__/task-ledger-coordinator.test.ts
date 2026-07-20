@@ -129,11 +129,7 @@ test('holds the shared Session admission until canonical projection completes', 
 test('maps canonical corruption to a typed persistence failure', async () => {
   await withCoordinator(async ({ coordinator, store, root }) => {
     await store.create(SESSION_ID, [{ subject: 'durable task' }]);
-    await appendFile(
-      join(root, 'sessions', SESSION_ID, 'task-events.jsonl'),
-      '{}\n',
-      'utf8',
-    );
+    await appendFile(join(root, 'sessions', SESSION_ID, 'task-events.jsonl'), '{}\n', 'utf8');
 
     assert.deepEqual(await query(coordinator, { kind: 'list_start', sessionId: SESSION_ID }), {
       ok: false,
@@ -148,10 +144,7 @@ test('maps canonical corruption to a typed persistence failure', async () => {
 type Coordinator = HostTaskLedgerCoordinator;
 type Store = Awaited<ReturnType<typeof openInteractiveTaskLedgerStoreForWrite>>;
 
-function query(
-  coordinator: Coordinator,
-  input: TaskLedgerQueryInput,
-) {
+function query(coordinator: Coordinator, input: TaskLedgerQueryInput) {
   return coordinator.handlers['task.ledger.query'](input, context);
 }
 

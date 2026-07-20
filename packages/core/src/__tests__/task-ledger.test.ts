@@ -562,9 +562,10 @@ describe('task ledger events', () => {
     );
     changedId.taskId = created.id;
     assert.equal(
-      projectTaskLedgerEvents([event('task_created', created, undefined), changedId]).diagnostics.some(
-        (diagnostic) => diagnostic.includes('invalid task ledger event shape'),
-      ),
+      projectTaskLedgerEvents([
+        event('task_created', created, undefined),
+        changedId,
+      ]).diagnostics.some((diagnostic) => diagnostic.includes('invalid task ledger event shape')),
       true,
     );
   });

@@ -127,9 +127,7 @@ function decodeCursor(cursor: string): number | undefined {
   return Number.isSafeInteger(offset) ? offset : undefined;
 }
 
-function success(
-  result: TaskLedgerQueryResult,
-): OperationOutcome<'task.ledger.query'> {
+function success(result: TaskLedgerQueryResult): OperationOutcome<'task.ledger.query'> {
   return { ok: true, result };
 }
 

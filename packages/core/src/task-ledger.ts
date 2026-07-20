@@ -590,7 +590,10 @@ export function projectTaskLedgerEvents(events: readonly TaskLedgerEvent[]): Tas
     }
     tasks.set(event.taskId, { ...event.task });
   }
-  return { tasks: validateAndSortTaskLedger([...tasks.values()], firstSeen, diagnostics), diagnostics };
+  return {
+    tasks: validateAndSortTaskLedger([...tasks.values()], firstSeen, diagnostics),
+    diagnostics,
+  };
 }
 
 function validateTaskLedgerEventType(
@@ -991,11 +994,7 @@ function decodeTaskLedgerEventTask(value: unknown): Task | undefined {
     value.completionEvidence,
     'completionEvidence',
   );
-  if (
-    blockedReason === false ||
-    failureReason === false ||
-    completionEvidence === false
-  ) {
+  if (blockedReason === false || failureReason === false || completionEvidence === false) {
     return undefined;
   }
   const task: Task = {

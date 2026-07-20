@@ -99,10 +99,7 @@ export const TASK_LEDGER_OPERATION_SPECS = {
 export function decodeTaskLedgerQueryInput(value: unknown): TaskLedgerQueryInput {
   const record = requireRecord(value, 'task ledger query input');
   if (record.kind === 'list_start') {
-    const input = requireExactRecord(record, 'task ledger list start input', [
-      'kind',
-      'sessionId',
-    ]);
+    const input = requireExactRecord(record, 'task ledger list start input', ['kind', 'sessionId']);
     return { kind: 'list_start', sessionId: requireEntityId(input.sessionId, 'sessionId') };
   }
   if (record.kind === 'list_continue') {
@@ -143,10 +140,7 @@ export function encodeTaskLedgerQueryResult(value: unknown): TaskLedgerQueryResu
   return decodeQueryResult(value, 'encode');
 }
 
-function decodeQueryResult(
-  value: unknown,
-  direction: 'encode' | 'decode',
-): TaskLedgerQueryResult {
+function decodeQueryResult(value: unknown, direction: 'encode' | 'decode'): TaskLedgerQueryResult {
   const record = requireRecord(value, 'task ledger query result');
   if (record.kind === 'revision_changed') {
     const changed = requireExactRecord(record, 'task ledger revision changed result', [
@@ -280,9 +274,7 @@ function optionalTimestamp(
   return Object.hasOwn(record, field) ? { [field]: timestamp(record[field], `task ${field}`) } : {};
 }
 
-function optionalTaskText<
-  Field extends 'blockedReason' | 'failureReason' | 'completionEvidence',
->(
+function optionalTaskText<Field extends 'blockedReason' | 'failureReason' | 'completionEvidence'>(
   record: Record<string, unknown>,
   field: Field,
   direction: 'encode' | 'decode',
@@ -318,8 +310,7 @@ function safeTaskText(
   value: unknown,
   field: 'subject' | 'blockedReason' | 'failureReason' | 'completionEvidence',
 ): string {
-  const maxCharacters =
-    field === 'subject' ? TASK_SUBJECT_MAX_CHARS : TASK_EVIDENCE_MAX_CHARS;
+  const maxCharacters = field === 'subject' ? TASK_SUBJECT_MAX_CHARS : TASK_EVIDENCE_MAX_CHARS;
   if (typeof value !== 'string' || value.length === 0 || Array.from(value).length > maxCharacters) {
     throw invalidProtocolFrame(`Invalid task ${field}`);
   }

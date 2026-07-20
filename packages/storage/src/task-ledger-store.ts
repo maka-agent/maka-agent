@@ -86,12 +86,10 @@ export async function openInteractiveTaskLedgerStoreForWrite(
     list: (sessionId, options) => run(() => store.list(sessionId, options)),
     listCanonical: (sessionId, options) => run(() => store.listCanonical(sessionId, options)),
     get: (sessionId, id, options) => run(() => store.get(sessionId, id, options)),
-    create: (sessionId, drafts, context) =>
-      run(() => store.create(sessionId, drafts, context)),
+    create: (sessionId, drafts, context) => run(() => store.create(sessionId, drafts, context)),
     update: (sessionId, id, patch, context) =>
       run(() => store.update(sessionId, id, patch, context)),
-    claim: (sessionId, id, owner, context) =>
-      run(() => store.claim(sessionId, id, owner, context)),
+    claim: (sessionId, id, owner, context) => run(() => store.claim(sessionId, id, owner, context)),
     claimAvailable: (sessionId, id, owner, scope, context) =>
       run(() => store.claimAvailable(sessionId, id, owner, scope, context)),
     settleAgentOutcome: (sessionId, id, outcome, context) =>

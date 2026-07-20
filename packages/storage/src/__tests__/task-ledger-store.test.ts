@@ -28,13 +28,13 @@ describe('TaskLedgerStore', () => {
   it('commits a batch create as one complete version 1 record', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
-    const result = await store.create(SESSION_ID, [
-      { subject: ' first ' },
-      { subject: 'second' },
-    ]);
+    const result = await store.create(SESSION_ID, [{ subject: ' first ' }, { subject: 'second' }]);
 
     assert.equal(result.total, 2);
-    assert.deepEqual(result.created.map((task) => task.key), ['T1', 'T2']);
+    assert.deepEqual(
+      result.created.map((task) => task.key),
+      ['T1', 'T2'],
+    );
     const text = await readFile(eventsPath(root), 'utf8');
     assert.equal(text.endsWith('\n'), true);
     assert.equal(text.trimEnd().split('\n').length, 1);
@@ -42,10 +42,10 @@ describe('TaskLedgerStore', () => {
     assert.equal(record?.version, 1);
     assert.equal(record?.sessionId, SESSION_ID);
     assert.equal(record?.events.length, 2);
-    assert.deepEqual(record?.events.map((event) => event.type), [
-      'task_created',
-      'task_created',
-    ]);
+    assert.deepEqual(
+      record?.events.map((event) => event.type),
+      ['task_created', 'task_created'],
+    );
     assert.deepEqual(
       (await createTaskLedgerStore(root).listCanonical(SESSION_ID)).map((task) => task.subject),
       ['first', 'second'],
@@ -121,10 +121,7 @@ describe('TaskLedgerStore', () => {
     await appendFile(eventsPath(root), `${JSON.stringify(duplicate)}\n`, 'utf8');
 
     assert.deepEqual(await store.list(SESSION_ID), []);
-    await assert.rejects(
-      () => store.listCanonical(SESSION_ID),
-      /projection diagnostics|duplicate/,
-    );
+    await assert.rejects(() => store.listCanonical(SESSION_ID), /projection diagnostics|duplicate/);
     await assert.rejects(
       () => store.create(SESSION_ID, [{ subject: 'blocked write' }]),
       /projection diagnostics|duplicate/,
@@ -170,25 +167,31 @@ describe('TaskLedgerStore', () => {
     const store = createTaskLedgerStore(root);
     assert.deepEqual(await store.listCanonical(SESSION_ID), []);
     await store.create(SESSION_ID, [{ subject: 'current' }]);
-    assert.deepEqual((await store.listCanonical(SESSION_ID)).map((task) => task.subject), ['current']);
+    assert.deepEqual(
+      (await store.listCanonical(SESSION_ID)).map((task) => task.subject),
+      ['current'],
+    );
   });
 
   it('preserves hierarchy, claim and settle state-machine behavior', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
-    const { created: [parent] } = await store.create(
-      SESSION_ID,
-      [{ subject: 'parent' }],
-      { actor: 'main_agent', runId: 'lead-run', turnId: 'lead-turn' },
-    );
+    const {
+      created: [parent],
+    } = await store.create(SESSION_ID, [{ subject: 'parent' }], {
+      actor: 'main_agent',
+      runId: 'lead-run',
+      turnId: 'lead-turn',
+    });
     assert.ok(parent);
-    const { created: [child] } = await store.create(SESSION_ID, [
-      { subject: 'child', parentId: parent.key },
-    ]);
+    const {
+      created: [child],
+    } = await store.create(SESSION_ID, [{ subject: 'child', parentId: parent.key }]);
     assert.ok(child);
     await store.update(SESSION_ID, parent.id, { status: 'in_progress' });
     await assert.rejects(
-      () => store.update(SESSION_ID, parent.id, { status: 'completed', completionEvidence: 'done' }),
+      () =>
+        store.update(SESSION_ID, parent.id, { status: 'completed', completionEvidence: 'done' }),
       /descendant T1\.1 is pending/,
     );
     const owner = { actor: 'child_agent' as const, agentId: 'worker', turnId: 'child-turn' };
@@ -240,7 +243,9 @@ describe('TaskLedgerStore', () => {
       ],
       { actor: 'main_agent', runId: 'lead-run', turnId: 'lead-turn' },
     );
-    const { created: [unowned] } = await store.create(SESSION_ID, [{ subject: 'unowned' }]);
+    const {
+      created: [unowned],
+    } = await store.create(SESSION_ID, [{ subject: 'unowned' }]);
     assert.equal(shared.length, 4);
     assert.ok(unowned);
 
@@ -338,10 +343,7 @@ describe('TaskLedgerStore', () => {
     const settled = await createTaskLedgerStore(root).listCanonical(SESSION_ID);
     assert.equal(settled.find((task) => task.id === shared[0]!.id)?.status, 'in_progress');
     assert.equal(settled.find((task) => task.id === shared[1]!.id)?.status, 'failed');
-    assert.equal(
-      settled.find((task) => task.id === shared[1]!.id)?.failureReason,
-      'tests failed',
-    );
+    assert.equal(settled.find((task) => task.id === shared[1]!.id)?.failureReason, 'tests failed');
     assert.equal(settled.find((task) => task.id === shared[2]!.id)?.status, 'blocked');
     assert.equal(
       settled.find((task) => task.id === shared[2]!.id)?.blockedReason,
@@ -374,7 +376,9 @@ describe('TaskLedgerStore', () => {
       }
     });
 
-    const { created: [created] } = await store.create(SESSION_ID, [{ subject: 'observable' }]);
+    const {
+      created: [created],
+    } = await store.create(SESSION_ID, [{ subject: 'observable' }]);
     assert.ok(created);
     assert.equal(listenerError, undefined);
     assert.equal(observations.length, 1);

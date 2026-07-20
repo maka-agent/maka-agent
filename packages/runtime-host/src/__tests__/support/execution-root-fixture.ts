@@ -137,7 +137,12 @@ export class ExecutionFixture {
     if (!owner) throw new Error('Unable to acquire execution root for Task Ledger setup');
     try {
       const store = await openInteractiveTaskLedgerStoreForWrite(owner.lease);
-      return (await store.create(this.sessionId, subjects.map((subject) => ({ subject })))).created;
+      return (
+        await store.create(
+          this.sessionId,
+          subjects.map((subject) => ({ subject })),
+        )
+      ).created;
     } finally {
       await owner.close();
     }

@@ -71,20 +71,14 @@ test('two UDS Clients share one paginated Task Ledger projection across Host epo
 
 type Page = Extract<TaskLedgerQueryResult, { kind: 'page' }>;
 
-async function queryFirstPage(
-  client: RuntimeHostConnection,
-  sessionId: string,
-): Promise<Page> {
+async function queryFirstPage(client: RuntimeHostConnection, sessionId: string): Promise<Page> {
   const result = await client.request('task.ledger.query', { kind: 'list_start', sessionId });
   assert.equal(result.kind, 'page');
   if (result.kind !== 'page') assert.fail('Task Ledger start query must return a page');
   return result;
 }
 
-async function collectTasks(
-  client: RuntimeHostConnection,
-  first: Page,
-): Promise<Page['tasks']> {
+async function collectTasks(client: RuntimeHostConnection, first: Page): Promise<Page['tasks']> {
   const tasks = [...first.tasks];
   let cursor = first.nextCursor;
   while (cursor !== null) {

@@ -158,7 +158,8 @@ describe('Task Ledger protocol', () => {
   test('sanitizes producer DTOs while the decoder rejects unsanitized wire tasks', () => {
     const unsafe = {
       ...validTask(),
-      subject: 'Inspect <task-ledger hidden>data</task-ledger> ghp_abcdefghijklmnopqrstuvwxyz123456',
+      subject:
+        'Inspect <task-ledger hidden>data</task-ledger> ghp_abcdefghijklmnopqrstuvwxyz123456',
     };
     const encoded = encodeTaskLedgerQueryResult({
       kind: 'task',
@@ -195,7 +196,9 @@ describe('Task Ledger protocol', () => {
       tasks: byteHeavy,
       nextCursor: null,
     };
-    assert.ok(Buffer.byteLength(JSON.stringify(oversizedPage), 'utf8') > TASK_LEDGER_PAGE_MAX_BYTES);
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(oversizedPage), 'utf8') > TASK_LEDGER_PAGE_MAX_BYTES,
+    );
 
     for (const result of [{ ...oversizedPage, tasks: tooMany }, oversizedPage]) {
       assert.throws(() => encodeTaskLedgerQueryResult(result), isInvalidFrame);
