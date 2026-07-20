@@ -93,6 +93,7 @@ describe('Harbor adapter contract', () => {
     const hiddenUnicode = /[\u202A-\u202E\u2066-\u2069\u200B\u200C\u200D\uFEFF]/u;
     const files = [
       'packages/headless/harbor/maka-improved-prompt-v1.txt',
+      'packages/headless/harbor/codex_agent.py',
       'packages/headless/harbor/maka_agent.py',
       'packages/headless/harbor/maka_verifier.py',
       'packages/headless/harbor/run-cell.mjs',
@@ -854,6 +855,19 @@ describe('Harbor adapter contract', () => {
     }
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /kimi-code adapter ok/);
+  });
+
+  test('codex_agent.py runs the pinned CLI through the host proxy without Harbor installed', (t: TestContext) => {
+    const result = spawnSync('python3', ['-c', pythonCodexAdapterSmokeScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('python3 is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /codex adapter ok/);
   });
 
   test('trial_pricing.py validates explicit pricing env without Harbor installed', (t: TestContext) => {
@@ -2661,6 +2675,215 @@ with tempfile.TemporaryDirectory() as tmp:
             os.killpg(timeout_environment.process.pid, signal.SIGKILL)
             timeout_environment.process.wait()
     print("kimi-code adapter ok")
+`;
+}
+
+function pythonCodexAdapterSmokeScript(root: string): string {
+  return String.raw`
+import asyncio
+import json
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+
+def module(name):
+    mod = types.ModuleType(name)
+    sys.modules[name] = mod
+    return mod
+
+module("harbor")
+module("harbor.agents")
+module("harbor.agents.installed")
+codex_mod = module("harbor.agents.installed.codex")
+
+class Codex:
+    def __init__(self, logs_dir, prompt_template_path=None, version=None, extra_env=None, model_name=None, reasoning_effort=None, **kwargs):
+        self.logs_dir = Path(logs_dir)
+        self._prompt_template_path = Path(prompt_template_path) if prompt_template_path else None
+        self._extra_env = extra_env or {}
+        self._version = version
+        self.model_name = model_name
+        self.parent_calls = []
+
+    def _get_env(self, key):
+        return self._extra_env.get(key) or os.environ.get(key)
+
+    def render_instruction(self, instruction):
+        if not self._prompt_template_path:
+            return instruction
+        return self._prompt_template_path.read_text(encoding="utf-8").replace("{{ instruction }}", instruction)
+
+    async def exec_as_agent(self, environment, command, env=None, **kwargs):
+        return await environment.exec(command, env=env or {}, **kwargs)
+
+    async def run(self, instruction, environment, context):
+        rendered = self.render_instruction(instruction)
+        assert (self.logs_dir / "maka-cell-execution-identity.json").exists()
+        self.parent_calls.append({
+            "instruction": rendered,
+            "api_key": self._get_env("OPENAI_API_KEY"),
+            "base_url": self._get_env("OPENAI_BASE_URL"),
+            "path": self._get_env("PATH"),
+        })
+        if instruction == "fail":
+            raise RuntimeError("401 unauthorized")
+        if instruction == "no-completion":
+            (self.logs_dir / "codex.txt").write_text(
+                json.dumps({"type": "turn.failed", "error": {"message": "429 rate limit"}}) + "\n",
+                encoding="utf-8",
+            )
+            return
+        (self.logs_dir / "codex.txt").write_text(
+            "\n".join([
+                json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
+                json.dumps({"type": "item.completed", "item": {"type": "command_execution", "command": "pwd"}}),
+                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 25}}),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+
+    def populate_context_post_run(self, context):
+        context.n_input_tokens = 100
+        context.n_cache_tokens = 40
+        context.n_output_tokens = 25
+        context.cost_usd = None
+
+codex_mod.Codex = Codex
+module("harbor.environments")
+env_mod = module("harbor.environments.base")
+env_mod.BaseEnvironment = object
+module("harbor.models")
+module("harbor.models.agent")
+context_mod = module("harbor.models.agent.context")
+context_mod.AgentContext = object
+
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+from codex_agent import MakaCodexAgent
+
+os.environ["CODEX_AUTH_JSON_PATH"] = "/host/codex-auth.json"
+os.environ["CODEX_FORCE_AUTH_JSON"] = "true"
+
+with tempfile.TemporaryDirectory() as tmp:
+    logs = Path(tmp)
+    template = logs / "prompt.j2"
+    template.write_text("templated: {{ instruction }}", encoding="utf-8")
+    commands = []
+
+    class Environment:
+        async def exec(self, command, env=None, **kwargs):
+            commands.append((command, env or {}))
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+
+    context = types.SimpleNamespace(
+        n_input_tokens=None,
+        n_cache_tokens=None,
+        n_output_tokens=None,
+        cost_usd=None,
+        metadata={},
+    )
+    agent = MakaCodexAgent(
+        logs,
+        prompt_template_path=template,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_CODEX_TOOLCHAIN_FINGERPRINT": "sha256:" + "a" * 64,
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_LLM_CONNECTION_SLUG": "openai",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_TRIAL_INPUT_USD_PER_1M": "5",
+            "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
+            "MAKA_TRIAL_OUTPUT_USD_PER_1M": "30",
+            "MAKA_TRIAL_PRICING_SOURCE": "openai-gpt-5.6-sol-2026-07-20",
+        },
+    )
+    environment = Environment()
+    asyncio.run(agent.install(environment))
+    install_command, install_env = commands[0]
+    assert "sha256sum --check" in install_command, install_command
+    assert "/opt/maka-codex-toolchain/bin/codex" in install_command, install_command
+    assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
+    assert "npm" not in install_command, install_command
+    assert "curl" not in install_command, install_command
+
+    asyncio.run(agent.run("hi", environment, context))
+    assert len(agent.parent_calls) == 1, agent.parent_calls
+    assert agent.parent_calls[0]["instruction"] == "templated: hi", agent.parent_calls
+    assert agent.parent_calls[0]["api_key"] == "ephemeral-token", agent.parent_calls
+    assert agent.parent_calls[0]["base_url"] == "http://host.docker.internal:43210", agent.parent_calls
+    assert agent.parent_calls[0]["path"] == "/opt/maka-codex-toolchain/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", agent.parent_calls
+    assert agent._get_env("CODEX_AUTH_JSON_PATH") is None
+    assert agent._get_env("CODEX_FORCE_AUTH_JSON") is None
+    agent.populate_context_post_run(context)
+    cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert cell["status"] == "completed", cell
+    assert cell["executionIdentity"]["model"] == "gpt-5.6-sol", cell
+    assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
+    assert cell["runtimeRefs"]["sessionId"] == "thread-1", cell
+    assert cell["tokenSummary"]["input"] == 100, cell
+    assert cell["tokenSummary"]["cachedInput"] == 40, cell
+    assert cell["tokenSummary"]["cacheMissInput"] == 60, cell
+    assert cell["tokenSummary"]["output"] == 25, cell
+    assert abs(cell["tokenSummary"]["costUsd"] - 0.00107) < 1e-12, cell
+    assert cell["toolSummary"]["actualToolCallCounts"] == {"command_execution": 1}, cell
+    assert "ephemeral-token" not in json.dumps(cell), cell
+
+    failing = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    try:
+        asyncio.run(failing.run("fail", environment, context))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected Codex failure")
+    failing.populate_context_post_run(context)
+    failed = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert failed["status"] == "failed", failed
+    assert failed["errorClass"] == "auth", failed
+
+    incomplete = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    incomplete_context = types.SimpleNamespace(
+        n_input_tokens=None,
+        n_cache_tokens=None,
+        n_output_tokens=None,
+        cost_usd=None,
+        metadata={},
+    )
+    asyncio.run(incomplete.run("no-completion", environment, incomplete_context))
+    incomplete.populate_context_post_run(incomplete_context)
+    incomplete_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert incomplete_cell["status"] == "failed", incomplete_cell
+    assert incomplete_cell["errorClass"] == "rate_limit", incomplete_cell
+    print("codex adapter ok")
 `;
 }
 

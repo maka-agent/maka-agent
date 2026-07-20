@@ -238,6 +238,26 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.equal(competitor?.metadata.config.profile, 'kimi-code');
   assert.equal(competitor?.metadata.config.permissions, 'prompt-auto');
   assert.equal(resolveHarnessCompetitorProfile('opencode').version, '1.17.18');
+  const codexProfile = resolveHarnessCompetitorProfile('codex');
+  assert.equal(codexProfile.version, '0.144.6');
+  assert.deepEqual(codexProfile.runtime, {
+    provider: 'openai',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKeyEnvName: 'OPENAI_API_KEY',
+    billingMode: 'metered',
+    pricing: {
+      currency: 'USD',
+      unit: 'per_1m_tokens',
+      input: 5,
+      cachedInput: 0.5,
+      output: 30,
+      source: 'openai-gpt-5.6-sol-2026-07-20',
+    },
+  });
+  assert.equal(codexProfile.config.adapter, 'codex_agent:MakaCodexAgent');
+  assert.equal(codexProfile.config.permissions, 'container-full-access');
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
     provider: 'kimi-coding-plan',
@@ -271,6 +291,56 @@ test('harness A/B completion log preserves the report status', async () => {
   const source = await readFile(scriptPath, 'utf8');
 
   assert.match(source, /console\.log\(\s*`\$\{report\.runStatus\}:/);
+});
+
+test('Codex comparison freezes the OpenAI model, pricing, and run identity', async () => {
+  const {
+    buildHarnessAbManifest,
+    buildHarnessExecutionProfile,
+    resolveHarnessAbRunId,
+    resolveHarnessCompetitorToolchain,
+    resolveHarnessCompetitorProfile,
+  } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const competitorProfile = resolveHarnessCompetitorProfile('codex');
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    competitorProfile,
+  });
+
+  assert.deepEqual(manifest.metadata.model, {
+    provider: 'openai',
+    id: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+  });
+  assert.deepEqual(manifest.metadata.pricing, competitorProfile.runtime.pricing);
+  assert.equal(manifest.arms[1].id, 'codex');
+  assert.equal(manifest.arms[1].metadata.config.billingMode, 'metered');
+  assert.equal(
+    resolveHarnessAbRunId(competitorProfile),
+    'gpt-5.6-sol-maka-vs-codex-tbench-2.1-full-v1',
+  );
+  const toolchain = resolveHarnessCompetitorToolchain('/run', competitorProfile, {
+    MAKA_HARNESS_AB_CODEX_TOOLCHAIN: '/prepared/codex',
+  });
+  assert.equal(toolchain.path, '/prepared/codex');
+  assert.equal(toolchain.prepare.name, 'prepareCodexToolchain');
+  assert.deepEqual(buildHarnessExecutionProfile(competitorProfile), {
+    modelSpec: 'openai/gpt-5.6-sol',
+    provider: 'openai',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKeyEnvName: 'OPENAI_API_KEY',
+    billingMode: 'metered',
+    pricing: {
+      inputUsdPer1M: 5,
+      cacheReadUsdPer1M: 0.5,
+      outputUsdPer1M: 30,
+      source: 'openai-gpt-5.6-sol-2026-07-20',
+    },
+  });
 });
 
 test('detached named-task launcher requires a run id before creating artifacts', async () => {

@@ -1,0 +1,305 @@
+"""Harbor adapter for the pinned official Codex CLI."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shlex
+import time
+from pathlib import Path
+from typing import Any
+
+from harbor.agents.installed.codex import Codex
+from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
+
+from trial_pricing import estimate_cost, pricing_from_env
+
+_TOOLCHAIN_ROOT = Path("/opt/maka-codex-toolchain")
+_TOOLCHAIN_BIN = _TOOLCHAIN_ROOT / "bin"
+_TOOLCHAIN_CODEX = _TOOLCHAIN_BIN / "codex"
+_TOOLCHAIN_NODE = _TOOLCHAIN_BIN / "node"
+_TOOLCHAIN_MANIFEST = _TOOLCHAIN_ROOT / "manifest.json"
+_TOOLCHAIN_CHECKSUMS = _TOOLCHAIN_ROOT / "checksums.sha256"
+_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_OUTPUT_FILENAME = "codex.txt"
+
+
+class MakaCodexAgent(Codex):
+    """Run a fixed Codex CLI build through Maka's short-lived provider proxy."""
+
+    def get_version_command(self) -> str | None:
+        return f"{shlex.quote(str(_TOOLCHAIN_CODEX))} --version"
+
+    async def install(self, environment: BaseEnvironment) -> None:
+        expected_fingerprint = self._get_env("MAKA_CODEX_TOOLCHAIN_FINGERPRINT")
+        if not expected_fingerprint:
+            raise ValueError("MAKA_CODEX_TOOLCHAIN_FINGERPRINT is required")
+        manifest_check = (
+            "const fs = require('node:fs'); "
+            "const manifest = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); "
+            "if (manifest.fingerprint !== process.env.MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT) "
+            "throw new Error('Codex toolchain fingerprint mismatch');"
+        )
+        command = (
+            "set -euo pipefail; "
+            'test "$(uname -s)" = Linux; '
+            'test "$(uname -m)" = x86_64; '
+            f"cd {shlex.quote(str(_TOOLCHAIN_ROOT))}; "
+            f"sha256sum --check {shlex.quote(_TOOLCHAIN_CHECKSUMS.name)}; "
+            f"{shlex.quote(str(_TOOLCHAIN_NODE))} -e {shlex.quote(manifest_check)} "
+            f"{shlex.quote(str(_TOOLCHAIN_MANIFEST))}; "
+            f"test -x {shlex.quote(str(_TOOLCHAIN_CODEX))}"
+        )
+        await self.exec_as_agent(
+            environment,
+            command=command,
+            env={"MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT": expected_fingerprint},
+        )
+
+    def _get_env(self, key: str) -> str | None:
+        if key == "OPENAI_API_KEY":
+            return super()._get_env("MAKA_PROVIDER_PROXY_TOKEN")
+        if key == "OPENAI_BASE_URL":
+            return super()._get_env("MAKA_PROVIDER_PROXY_URL")
+        if key in {"CODEX_AUTH_JSON_PATH", "CODEX_FORCE_AUTH_JSON"}:
+            return None
+        return super()._get_env(key)
+
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        proxy_url = self._get_env("OPENAI_BASE_URL")
+        proxy_token = self._get_env("OPENAI_API_KEY")
+        if not proxy_url or not proxy_token:
+            raise ValueError("Codex requires the host provider proxy")
+        self._started_at_ms = int(time.time() * 1000)
+        self._write_execution_identity()
+        output_path = self.logs_dir / _OUTPUT_FILENAME
+        if output_path.exists():
+            output_path.unlink()
+        self._extra_env["PATH"] = f"{_TOOLCHAIN_BIN}:{_DEFAULT_PATH}"
+        try:
+            await super().run(instruction, environment, context)
+        except BaseException as error:
+            self._failure_class = (
+                _classify_failure(error) if isinstance(error, Exception) else "infra_failed"
+            )
+            raise
+        finally:
+            self._finished_at_ms = int(time.time() * 1000)
+
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        super().populate_context_post_run(context)
+        self._apply_cost_metadata(context)
+        self._write_cell_output(context)
+
+    def _apply_cost_metadata(self, context: AgentContext) -> None:
+        totals = self._token_totals(context)
+        if totals is None:
+            context.metadata = {
+                **(getattr(context, "metadata", None) or {}),
+                "codex_pricing_source": "missing_usage",
+            }
+            return
+        reported_cost = getattr(context, "cost_usd", None)
+        estimated_cost = reported_cost
+        pricing_source = "codex" if estimated_cost is not None else None
+        pricing = pricing_from_env(self._get_env)
+        if pricing is not None:
+            estimated_cost = estimate_cost(totals, pricing)
+            context.cost_usd = estimated_cost
+            pricing_source = self._get_env("MAKA_TRIAL_PRICING_SOURCE") or "env"
+        context.metadata = {
+            **(getattr(context, "metadata", None) or {}),
+            "codex_input_tokens": totals["input"],
+            "codex_output_tokens": totals["output"],
+            "codex_cached_input_tokens": totals["cache_read"],
+            "codex_cache_miss_input_tokens": totals["cache_miss"],
+            "codex_estimated_cost_usd": estimated_cost,
+            "codex_reported_cost_usd": reported_cost,
+            "codex_pricing_source": pricing_source or "missing_pricing",
+        }
+
+    def _token_totals(self, context: AgentContext) -> dict[str, int] | None:
+        raw_input = getattr(context, "n_input_tokens", None)
+        raw_output = getattr(context, "n_output_tokens", None)
+        raw_cache_read = getattr(context, "n_cache_tokens", None)
+        if raw_input is None and raw_output is None and raw_cache_read is None:
+            return None
+        input_tokens = int(raw_input or 0)
+        output_tokens = int(raw_output or 0)
+        cache_read = int(raw_cache_read or 0)
+        return {
+            "input": input_tokens,
+            "output": output_tokens,
+            "cache_read": cache_read,
+            "cache_write": 0,
+            "cache_miss": max(0, input_tokens - cache_read),
+            "reasoning": self._reasoning_tokens(),
+        }
+
+    def _events(self) -> list[dict[str, Any]]:
+        path = self.logs_dir / _OUTPUT_FILENAME
+        if not path.exists():
+            return []
+        events: list[dict[str, Any]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+        return events
+
+    def _reasoning_tokens(self) -> int:
+        for event in reversed(self._events()):
+            if event.get("type") != "turn.completed":
+                continue
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                value = usage.get("reasoning_output_tokens")
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    return int(value)
+        return 0
+
+    def _write_cell_output(self, context: AgentContext) -> None:
+        events = self._events()
+        completed = any(event.get("type") == "turn.completed" for event in events)
+        failed = hasattr(self, "_failure_class") or not completed
+        error_class = getattr(self, "_failure_class", None)
+        if failed and error_class is None:
+            error_class = _classify_failure(
+                RuntimeError(json.dumps(events, ensure_ascii=False))
+            )
+        totals = self._token_totals(context)
+        started_at = getattr(self, "_started_at_ms", int(time.time() * 1000))
+        finished_at = getattr(self, "_finished_at_ms", started_at)
+        identity = self._execution_identity()
+        tool_call_counts: dict[str, int] = {}
+        session_id = "codex"
+        for event in events:
+            if event.get("type") == "thread.started" and event.get("thread_id"):
+                session_id = str(event["thread_id"])
+            if event.get("type") != "item.completed":
+                continue
+            item = event.get("item")
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type not in {
+                "command_execution",
+                "file_change",
+                "mcp_tool_call",
+                "web_search",
+            }:
+                continue
+            name = str(item_type)
+            tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+        token_summary = None
+        cost = getattr(context, "cost_usd", None)
+        if totals is not None and cost is not None:
+            token_summary = {
+                "input": totals["input"],
+                "cachedInput": totals["cache_read"],
+                "cacheHitInput": totals["cache_read"],
+                "cacheMissInput": totals["cache_miss"],
+                "cacheWriteInput": totals["cache_write"],
+                "cacheMissInputSource": "explicit",
+                "output": totals["output"],
+                "reasoning": totals["reasoning"],
+                "total": totals["input"] + totals["output"],
+                "costUsd": float(cost),
+                "pricingSource": "runtime",
+            }
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        source_path = self.logs_dir / _OUTPUT_FILENAME
+        (self.logs_dir / "runtime-events.jsonl").write_text(
+            source_path.read_text(encoding="utf-8") if source_path.exists() else "",
+            encoding="utf-8",
+        )
+        output = {
+            "schemaVersion": 1,
+            "status": "failed" if failed else "completed",
+            **({"errorClass": error_class} if error_class else {}),
+            "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
+            "promptHash": identity["systemPromptHash"],
+            "executionIdentity": identity,
+            **({"tokenSummary": token_summary} if token_summary is not None else {}),
+            "toolSummary": {
+                "providerVisibleToolCount": 0,
+                "actualToolCalls": sum(tool_call_counts.values()),
+                "actualToolNames": sorted(tool_call_counts),
+                "actualToolCallCounts": tool_call_counts,
+            },
+            "steps": sum(1 for event in events if event.get("type") == "turn.completed"),
+            "durationMs": max(0, finished_at - started_at),
+            "startedAt": started_at,
+            "finishedAt": finished_at,
+            "runtimeRefs": {
+                "invocationId": session_id,
+                "sessionId": session_id,
+                "runId": session_id,
+                "turnId": session_id,
+            },
+        }
+        (self.logs_dir / "maka-cell-output.json").write_text(
+            json.dumps(output, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _execution_identity(self) -> dict[str, str]:
+        system_prompt = self._get_env("MAKA_SYSTEM_PROMPT") or ""
+        prompt_hash = "sha256:" + hashlib.sha256(
+            json.dumps(
+                system_prompt, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        effort = self._get_env("MAKA_REASONING_EFFORT")
+        return {
+            "llmConnectionSlug": self._get_env("MAKA_LLM_CONNECTION_SLUG")
+            or "openai",
+            "model": self._get_env("MAKA_MODEL") or self.model_name or "unknown",
+            **({"reasoningEffort": effort} if effort else {}),
+            "systemPromptHash": prompt_hash,
+            "pricingProfile": self._get_env("MAKA_TRIAL_PRICING_SOURCE")
+            or "unconfigured",
+        }
+
+    def _write_execution_identity(self) -> None:
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        path = self.logs_dir / "maka-cell-execution-identity.json"
+        with path.open("w", encoding="utf-8") as output:
+            output.write(json.dumps(self._execution_identity(), indent=2) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+
+
+def _classify_failure(error: Exception) -> str:
+    text = str(error).lower()
+    if any(
+        marker in text
+        for marker in (
+            "401",
+            "403",
+            "unauthorized",
+            "authentication",
+            "invalid api key",
+        )
+    ):
+        return "auth"
+    if any(marker in text for marker in ("429", "rate limit", "too many requests")):
+        return "rate_limit"
+    if any(marker in text for marker in ("billing", "insufficient credit", "quota exceeded")):
+        return "provider_billing"
+    if any(marker in text for marker in ("connection", "network", "dns", "socket")):
+        return "network"
+    if any(marker in text for marker in ("500", "502", "503", "504", "unavailable")):
+        return "provider_unavailable"
+    return "infra_failed"

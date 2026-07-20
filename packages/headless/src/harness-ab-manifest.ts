@@ -3,7 +3,7 @@ import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.j
 import type { AbRunManifest } from './ab-types.js';
 import type { HarnessOracleAnnotation } from './harness-oracle-registry.js';
 
-export type HarnessAbArmId = 'maka' | 'opencode' | 'kimi-code';
+export type HarnessAbArmId = 'maka' | 'opencode' | 'kimi-code' | 'codex';
 
 export const HARNESS_AB_PAIR_CONCURRENCY = 2;
 export const HARNESS_AB_MAX_CONCURRENT_ATTEMPTS = HARNESS_AB_PAIR_CONCURRENCY * 2;

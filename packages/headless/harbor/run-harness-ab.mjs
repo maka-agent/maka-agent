@@ -34,6 +34,11 @@ import {
   prepareKimiCodeToolchain,
 } from '#kimi-code-toolchain';
 import {
+  CODEX_TOOLCHAIN_FINGERPRINT,
+  CODEX_TOOLCHAIN_SPEC,
+  prepareCodexToolchain,
+} from '#codex-toolchain';
+import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbResumeFingerprint,
@@ -59,7 +64,6 @@ export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v
 const CANARY_TASKS = 5;
 const PROVIDER = 'kimi-coding-plan';
 const MODEL = 'k3';
-const MODEL_SPEC = `${PROVIDER}/${MODEL}`;
 const REASONING_EFFORT = 'max';
 const BASE_URL = 'https://api.kimi.com/coding/v1';
 const ORDER_SEED = 'terminal-bench-2.1:k3:harness-comparison:v1';
@@ -106,6 +110,33 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
       billingMode: BILLING_MODE,
     }),
   }),
+  codex: Object.freeze({
+    id: 'codex',
+    version: CODEX_TOOLCHAIN_SPEC.codex.version,
+    toolchainFingerprint: CODEX_TOOLCHAIN_FINGERPRINT,
+    runtime: Object.freeze({
+      provider: 'openai',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'max',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKeyEnvName: 'OPENAI_API_KEY',
+      billingMode: 'metered',
+      pricing: Object.freeze({
+        currency: 'USD',
+        unit: 'per_1m_tokens',
+        input: 5,
+        cachedInput: 0.5,
+        output: 30,
+        source: 'openai-gpt-5.6-sol-2026-07-20',
+      }),
+    }),
+    config: Object.freeze({
+      adapter: 'codex_agent:MakaCodexAgent',
+      permissions: 'container-full-access',
+      attemptPolicy: 'single',
+      billingMode: 'metered',
+    }),
+  }),
 });
 
 export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
@@ -118,6 +149,39 @@ export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
   return profile;
 }
 
+export function resolveHarnessRuntimeProfile(competitorProfile) {
+  return (
+    competitorProfile.runtime ?? {
+      provider: PROVIDER,
+      model: MODEL,
+      reasoningEffort: REASONING_EFFORT,
+      baseUrl: BASE_URL,
+      apiKeyEnvName: 'ANTHROPIC_API_KEY',
+      billingMode: BILLING_MODE,
+      pricing: PRICING,
+    }
+  );
+}
+
+export function buildHarnessExecutionProfile(competitorProfile) {
+  const runtime = resolveHarnessRuntimeProfile(competitorProfile);
+  return {
+    modelSpec: `${runtime.provider}/${runtime.model}`,
+    provider: runtime.provider,
+    model: runtime.model,
+    reasoningEffort: runtime.reasoningEffort,
+    baseUrl: runtime.baseUrl,
+    apiKeyEnvName: runtime.apiKeyEnvName,
+    billingMode: runtime.billingMode,
+    pricing: {
+      inputUsdPer1M: runtime.pricing.input,
+      cacheReadUsdPer1M: runtime.pricing.cachedInput,
+      outputUsdPer1M: runtime.pricing.output,
+      source: runtime.pricing.source,
+    },
+  };
+}
+
 export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
   if (isolatedTaskId?.trim() && !explicitRunId?.trim()) {
     throw new Error('MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID');
@@ -126,7 +190,7 @@ export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolated
     explicitRunId ||
     (competitorProfile.id === 'kimi-code'
       ? DEFAULT_HARNESS_AB_RUN_ID
-      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`)
+      : `${resolveHarnessRuntimeProfile(competitorProfile).model}-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`)
   );
 }
 
@@ -140,6 +204,34 @@ export function resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile
     'toolchains',
     `${competitorProfile.id}-${competitorProfile.version}-${fingerprintPrefix}-linux-x64`,
   );
+}
+
+export function resolveHarnessCompetitorToolchain(runRoot, competitorProfile, env = process.env) {
+  if (competitorProfile.id === 'kimi-code') {
+    return {
+      path: env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
+        ? resolve(env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
+        : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+      prepare: prepareKimiCodeToolchain,
+    };
+  }
+  if (competitorProfile.id === 'opencode') {
+    return {
+      path: env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
+        ? resolve(env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
+        : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+      prepare: prepareOpenCodeToolchain,
+    };
+  }
+  if (competitorProfile.id === 'codex') {
+    return {
+      path: env.MAKA_HARNESS_AB_CODEX_TOOLCHAIN
+        ? resolve(env.MAKA_HARNESS_AB_CODEX_TOOLCHAIN)
+        : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+      prepare: prepareCodexToolchain,
+    };
+  }
+  throw new Error(`unsupported harness competitor: ${competitorProfile.id}`);
 }
 
 function envPath(name, fallback) {
@@ -211,6 +303,7 @@ export function buildHarnessAbManifest({
   oracleEvidence,
   competitorProfile = resolveHarnessCompetitorProfile(),
 }) {
+  const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   return buildHarnessAbRunManifest({
     benchmark: {
       dataset: 'terminal-bench',
@@ -221,10 +314,17 @@ export function buildHarnessAbManifest({
       outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
     },
     taskIds,
-    orderSeed: ORDER_SEED,
+    orderSeed:
+      runtime.model === MODEL
+        ? ORDER_SEED
+        : `terminal-bench-2.1:${runtime.model}:harness-comparison:v1`,
     pilotTaskCount: Math.min(CANARY_TASKS, taskIds.length),
-    model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
-    pricing: PRICING,
+    model: {
+      provider: runtime.provider,
+      id: runtime.model,
+      reasoningEffort: runtime.reasoningEffort,
+    },
+    pricing: runtime.pricing,
     arms: [
       {
         id: 'maka',
@@ -232,10 +332,10 @@ export function buildHarnessAbManifest({
         config: {
           adapter: 'maka_agent:MakaAgent',
           externalSystemPrompt: 'empty',
-          reasoningEffort: REASONING_EFFORT,
+          reasoningEffort: runtime.reasoningEffort,
           continuation: false,
           attemptPolicy: 'single',
-          billingMode: BILLING_MODE,
+          billingMode: runtime.billingMode,
           contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
         },
       },
@@ -384,25 +484,18 @@ async function runLocked({
   if (evaluationTasks.some((task) => !task))
     throw new Error('manifest contains a task absent from the frozen task source');
 
-  const competitorToolchain =
-    competitorProfile.id === 'kimi-code'
-      ? {
-          path: process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
-            ? resolve(process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
-            : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
-          prepare: prepareKimiCodeToolchain,
-        }
-      : {
-          path: process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
-            ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
-            : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
-          prepare: prepareOpenCodeToolchain,
-        };
+  const competitorToolchain = resolveHarnessCompetitorToolchain(runRoot, competitorProfile);
   await competitorToolchain.prepare(competitorToolchain.path);
 
+  const execution = buildHarnessExecutionProfile(competitorProfile);
   const keyFile = envPath(
     'MAKA_HARNESS_AB_KEY_FILE',
-    join(homedir(), '.maka/secrets/kimi-coding-plan.key'),
+    join(
+      homedir(),
+      execution.provider === 'openai'
+        ? '.maka/secrets/openai.key'
+        : '.maka/secrets/kimi-coding-plan.key',
+    ),
   );
   if ((await readFile(keyFile, 'utf8')).trim().length === 0)
     throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
@@ -414,22 +507,16 @@ async function runLocked({
   await mkdir(jobsDir, { recursive: true });
   const systemPromptPath = join(promptsDir, 'default-system-prompt.txt');
   await writeFile(systemPromptPath, DEFAULT_HEADLESS_SYSTEM_PROMPT, 'utf8');
-  const pricing = {
-    inputUsdPer1M: PRICING.input,
-    cacheReadUsdPer1M: PRICING.cachedInput,
-    outputUsdPer1M: PRICING.output,
-    source: PRICING.source,
-  };
   const runnerOptions = {
     makaRepoPath,
     jobsDir,
-    model: MODEL_SPEC,
-    provider: PROVIDER,
-    reasoningEffort: REASONING_EFFORT,
+    model: execution.modelSpec,
+    provider: execution.provider,
+    reasoningEffort: execution.reasoningEffort,
     apiKeyFile: keyFile,
-    apiKeyEnvName: 'ANTHROPIC_API_KEY',
-    pricing,
-    agentEnv: { MAKA_BASE_URL: BASE_URL },
+    apiKeyEnvName: execution.apiKeyEnvName,
+    pricing: execution.pricing,
+    agentEnv: { MAKA_BASE_URL: execution.baseUrl },
     timeoutMultiplier: 1,
     dockerPlatform: 'linux/amd64',
   };
@@ -437,9 +524,9 @@ async function runLocked({
   const config = (id) => ({
     id: `harness-ab-${id}`,
     backend: 'ai-sdk',
-    llmConnectionSlug: PROVIDER,
-    model: MODEL,
-    thinkingLevel: REASONING_EFFORT,
+    llmConnectionSlug: execution.provider,
+    model: execution.model,
+    thinkingLevel: execution.reasoningEffort,
   });
   const summary = await runHarnessAbComparisonUnlocked({
     runId,
@@ -452,8 +539,8 @@ async function runLocked({
       {
         id: 'maka',
         config: config('maka'),
-        expectedPricingProfile: PRICING.source,
-        billingMode: BILLING_MODE,
+        expectedPricingProfile: execution.pricing.source,
+        billingMode: execution.billingMode,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: 'maka',
@@ -463,15 +550,17 @@ async function runLocked({
       {
         id: competitorProfile.id,
         config: config(competitorProfile.id),
-        expectedPricingProfile: PRICING.source,
-        billingMode: BILLING_MODE,
+        expectedPricingProfile: execution.pricing.source,
+        billingMode: execution.billingMode,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: competitorProfile.id,
           agentVersion: competitorProfile.version,
           ...(competitorProfile.id === 'kimi-code'
             ? { kimiCodeToolchainPath: competitorToolchain.path }
-            : { opencodeToolchainPath: competitorToolchain.path }),
+            : competitorProfile.id === 'opencode'
+              ? { opencodeToolchainPath: competitorToolchain.path }
+              : { codexToolchainPath: competitorToolchain.path }),
         }),
       },
     ],
@@ -489,7 +578,7 @@ async function runLocked({
       ),
       warnings: oracleEvidence.warnings,
     },
-    BILLING_MODE,
+    execution.billingMode,
   );
   await writeFile(
     join(runRoot, 'harness-ab-report.json'),

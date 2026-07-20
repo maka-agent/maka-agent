@@ -40,6 +40,7 @@
     "#harbor-cell": "./dist/harbor-cell.js",
     "#opencode-toolchain": "./dist/opencode-toolchain.js",
     "#kimi-code-toolchain": "./dist/kimi-code-toolchain.js",
+    "#codex-toolchain": "./dist/codex-toolchain.js",
     "#runtime-policy-ab-profile": "./dist/runtime-policy-ab-profile.js",
     "#runtime-policy-ab-spec": "./dist/runtime-policy-ab-spec.js",
     "#runtime-policy-ab-run": "./dist/runtime-policy-ab-run.js",

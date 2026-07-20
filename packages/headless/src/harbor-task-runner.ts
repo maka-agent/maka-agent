@@ -54,6 +54,11 @@ import {
   KIMI_CODE_TOOLCHAIN_FINGERPRINT,
   KIMI_CODE_TOOLCHAIN_SPEC,
 } from './kimi-code-toolchain.js';
+import {
+  CODEX_TOOLCHAIN_CONTAINER_PATH,
+  CODEX_TOOLCHAIN_FINGERPRINT,
+  CODEX_TOOLCHAIN_SPEC,
+} from './codex-toolchain.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -98,13 +103,15 @@ export interface HarborTaskRunnerOptions {
   /** Host path to the maka repo, mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;
   /** Harbor adapter under test (default: Maka). */
-  agent?: 'maka' | 'opencode' | 'kimi-code';
+  agent?: 'maka' | 'opencode' | 'kimi-code' | 'codex';
   /** Version passed to Harbor's installed-agent adapter. */
   agentVersion?: string;
   /** Prepared OpenCode toolchain mounted read-only into task containers. */
   opencodeToolchainPath?: string;
   /** Prepared Kimi Code toolchain mounted read-only into task containers. */
   kimiCodeToolchainPath?: string;
+  /** Prepared Codex CLI toolchain mounted read-only into task containers. */
+  codexToolchainPath?: string;
   /** Explicit Docker target platform shared by comparison arms. */
   dockerPlatform?: 'linux/amd64';
   /** Base directory under which each task gets an isolated per-task job dir. */
@@ -560,7 +567,7 @@ function hostTraceEventsPath(
   cell: HarborCellOutput,
   hostEventsPath: string,
 ): string {
-  if (agent === 'opencode' || agent === 'kimi-code') return hostEventsPath;
+  if (agent !== undefined && agent !== 'maka') return hostEventsPath;
   return join(
     trialDir,
     TRIAL_TRACE_EVENTS_ROOT,
@@ -811,6 +818,14 @@ export function buildHarborJobConfig(
       `Kimi Code adapter version must match toolchain version ${KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version}`,
     );
   }
+  if (adapter === 'codex' && !options.codexToolchainPath) {
+    throw new Error('codexToolchainPath is required for the Codex adapter');
+  }
+  if (adapter === 'codex' && options.agentVersion !== CODEX_TOOLCHAIN_SPEC.codex.version) {
+    throw new Error(
+      `Codex adapter version must match toolchain version ${CODEX_TOOLCHAIN_SPEC.codex.version}`,
+    );
+  }
   const mounts: Array<Record<string, unknown>> = [
     { type: 'bind', source: options.makaRepoPath, target: CONTAINER_MAKA_REPO, read_only: true },
     ...(adapter === 'opencode'
@@ -831,7 +846,16 @@ export function buildHarborJobConfig(
               read_only: true,
             },
           ]
-        : []),
+        : adapter === 'codex'
+          ? [
+              {
+                type: 'bind',
+                source: options.codexToolchainPath!,
+                target: CODEX_TOOLCHAIN_CONTAINER_PATH,
+                read_only: true,
+              },
+            ]
+          : []),
   ];
 
   const agentEnv: Record<string, string> = {
@@ -851,6 +875,9 @@ export function buildHarborJobConfig(
   }
   if (adapter === 'kimi-code') {
     agentEnv.MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT = KIMI_CODE_TOOLCHAIN_FINGERPRINT;
+  }
+  if (adapter === 'codex') {
+    agentEnv.MAKA_CODEX_TOOLCHAIN_FINGERPRINT = CODEX_TOOLCHAIN_FINGERPRINT;
   }
 
   if (options.pricing) {
@@ -908,13 +935,20 @@ export function buildHarborJobConfig(
             ? 'opencode_agent:MakaOpenCodeAgent'
             : adapter === 'kimi-code'
               ? 'kimi_code_agent:MakaKimiCodeAgent'
-              : 'maka_agent:MakaAgent',
+              : adapter === 'codex'
+                ? 'codex_agent:MakaCodexAgent'
+                : 'maka_agent:MakaAgent',
         model_name: agentModel,
         kwargs:
           adapter === 'maka'
             ? { backend: 'ai-sdk' }
             : options.agentVersion
-              ? { version: options.agentVersion }
+              ? {
+                  version: options.agentVersion,
+                  ...(adapter === 'codex' && options.reasoningEffort
+                    ? { reasoning_effort: options.reasoningEffort }
+                    : {}),
+                }
               : {},
         env: agentEnv,
         ...(cellTimeoutSec !== undefined ? { max_timeout_sec: cellTimeoutSec } : {}),
@@ -964,7 +998,12 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
 } | null> {
   const provider = options.provider ?? 'deepseek';
   if (usesHostProviderProxy(options.agent) && provider === 'github-copilot') {
-    const adapter = options.agent === 'kimi-code' ? 'Kimi Code' : 'OpenCode';
+    const adapter =
+      options.agent === 'kimi-code'
+        ? 'Kimi Code'
+        : options.agent === 'codex'
+          ? 'Codex'
+          : 'OpenCode';
     throw new Error(
       `GitHub Copilot Harbor runs use the Maka host agent; the ${adapter} Harbor adapter does not support this provider`,
     );
@@ -1035,7 +1074,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
 }
 
 function usesHostProviderProxy(agent: HarborTaskRunnerOptions['agent']): boolean {
-  return agent === 'opencode' || agent === 'kimi-code';
+  return agent === 'opencode' || agent === 'kimi-code' || agent === 'codex';
 }
 
 function providerTokenSummary(
