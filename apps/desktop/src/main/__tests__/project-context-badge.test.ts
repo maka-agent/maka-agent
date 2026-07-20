@@ -249,7 +249,7 @@ describe('project context workspace picker', () => {
     const palette = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     const renderer = await readRendererShellCombinedSource();
     const openProjectBlock = renderer.match(/async function openProjectFolder\(\)[\s\S]*?async function openWorkspaceFolder/)?.[0] ?? '';
-    const openWorkspaceBlock = renderer.match(/async function openWorkspaceFolder\(\)[\s\S]*?function createSkillFailureCopy/)?.[0] ?? '';
+    const openWorkspaceBlock = renderer.match(/async function openWorkspaceFolder\(\)[\s\S]*?function openSkillFailureCopy/)?.[0] ?? '';
 
     assert.match(palette, /onOpenProjectFolder\?\(\): Promise<void> \| void/);
     assert.match(palette, /id:\s*'diag:open-project-folder'/);
