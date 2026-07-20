@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { ensureAbRunManifest, readAbRunManifest } from '#ab-manifest';
@@ -38,7 +38,7 @@ import {
   CODEX_TOOLCHAIN_SPEC,
   prepareCodexToolchain,
 } from '#codex-toolchain';
-import { createCodexOAuthHarnessCredentialResolver } from '#codex-oauth-harness';
+import { createCodexOAuthHarnessCredentialBinding } from '#codex-oauth-harness';
 import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
@@ -195,19 +195,17 @@ export async function resolveHarnessRuntimeCredentials(input) {
       ),
     };
   }
-  const credentialsPath = envPathFrom(
+  const credentialsRoot = envPathFrom(
     input.env,
-    'MAKA_HARNESS_AB_CREDENTIALS_PATH',
-    defaultMakaCredentialsPath(),
+    'MAKA_HARNESS_AB_WORKSPACE_ROOT',
+    defaultMakaWorkspaceRoot(),
   );
-  const createCredentialResolver =
-    input.createCodexOAuthCredentialResolver ?? createCodexOAuthHarnessCredentialResolver;
-  return {
-    resolveProviderCredential: await createCredentialResolver({
-      credentialsRoot: dirname(credentialsPath),
-      connectionSlug: input.env.MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG || 'codex-subscription',
-    }),
-  };
+  const createCredentialBinding =
+    input.createCodexOAuthCredentialBinding ?? createCodexOAuthHarnessCredentialBinding;
+  return createCredentialBinding({
+    credentialsRoot,
+    connectionSlug: input.env.MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG || 'codex-subscription',
+  });
 }
 
 export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
@@ -273,17 +271,9 @@ function envPathFrom(env, name, fallback) {
   return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
 }
 
-function defaultMakaCredentialsPath() {
+function defaultMakaWorkspaceRoot() {
   if (process.platform === 'darwin') {
-    return join(
-      homedir(),
-      'Library',
-      'Application Support',
-      'Maka',
-      'workspaces',
-      'default',
-      'credentials.json',
-    );
+    return join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default');
   }
   if (process.platform === 'win32') {
     return join(
@@ -291,7 +281,6 @@ function defaultMakaCredentialsPath() {
       'Maka',
       'workspaces',
       'default',
-      'credentials.json',
     );
   }
   return join(
@@ -299,7 +288,6 @@ function defaultMakaCredentialsPath() {
     'Maka',
     'workspaces',
     'default',
-    'credentials.json',
   );
 }
 
@@ -374,6 +362,7 @@ export function buildHarnessAbManifest({
     taskIds.length,
   ),
   oracleEvidence,
+  credentialIdentity,
 }) {
   const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   return buildHarnessAbRunManifest({
@@ -395,6 +384,7 @@ export function buildHarnessAbManifest({
       provider: runtime.provider,
       id: runtime.model,
       reasoningEffort: runtime.reasoningEffort,
+      ...(credentialIdentity ? { credentialIdentity } : {}),
     },
     pricing: runtime.pricing,
     arms: [
@@ -533,6 +523,11 @@ async function runLocked({
   );
   for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
 
+  const credentials = await resolveHarnessRuntimeCredentials({
+    competitorProfile,
+    env: process.env,
+  });
+
   const toolchainFingerprint = `sha256:${createHash('sha256')
     .update(
       JSON.stringify({
@@ -550,6 +545,7 @@ async function runLocked({
     pairConcurrency: selection.pairConcurrency,
     oracleEvidence,
     competitorProfile,
+    credentialIdentity: credentials.credentialIdentity,
   });
   await ensureAbRunManifest(manifestPath, manifest);
   const evaluationTasks = manifest.evaluationTaskIds
@@ -562,10 +558,6 @@ async function runLocked({
   await competitorToolchain.prepare(competitorToolchain.path);
 
   const execution = buildHarnessExecutionProfile(competitorProfile);
-  const credentials = await resolveHarnessRuntimeCredentials({
-    competitorProfile,
-    env: process.env,
-  });
   if (
     credentials.apiKeyFile &&
     (await readFile(credentials.apiKeyFile, 'utf8')).trim().length === 0

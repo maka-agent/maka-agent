@@ -319,17 +319,34 @@ test('Codex comparison freezes the OpenAI model, pricing, and run identity', asy
     resolveHarnessCompetitorProfile,
   } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
   const competitorProfile = resolveHarnessCompetitorProfile('codex');
+  const credentialIdentity = {
+    connectionSlug: 'codex-subscription',
+    accountIdHash: `sha256:${'a'.repeat(64)}`,
+  };
   const manifest = buildHarnessAbManifest({
     subjectFingerprint: 'subject',
     taskSourceFingerprint: 'tasks',
     toolchainFingerprint: 'tools',
     competitorProfile,
+    credentialIdentity,
   });
+  const otherAccountManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    competitorProfile,
+    credentialIdentity: {
+      ...credentialIdentity,
+      accountIdHash: `sha256:${'b'.repeat(64)}`,
+    },
+  });
+  assert.notEqual(manifest.fingerprint, otherAccountManifest.fingerprint);
 
   assert.deepEqual(manifest.metadata.model, {
     provider: 'openai-codex',
     id: 'gpt-5.6-sol',
     reasoningEffort: 'max',
+    credentialIdentity,
   });
   assert.deepEqual(manifest.metadata.pricing, competitorProfile.runtime.pricing);
   assert.equal(manifest.arms[1].id, 'codex');
@@ -366,19 +383,24 @@ test('Codex comparison resolves both arms from one OAuth account workflow', asyn
   );
   const calls: unknown[] = [];
   const resolveProviderCredential = async () => ({ value: 'current-oauth-token' });
+  const credentialIdentity = {
+    connectionSlug: 'codex-subscription',
+    accountIdHash: `sha256:${'a'.repeat(64)}`,
+  };
   const result = await resolveHarnessRuntimeCredentials({
     competitorProfile: resolveHarnessCompetitorProfile('codex'),
     env: {
-      MAKA_HARNESS_AB_CREDENTIALS_PATH: '/workspace/credentials.json',
+      MAKA_HARNESS_AB_WORKSPACE_ROOT: '/workspace',
       MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG: 'codex-subscription',
     },
-    createCodexOAuthCredentialResolver: async (input: unknown) => {
+    createCodexOAuthCredentialBinding: async (input: unknown) => {
       calls.push(input);
-      return resolveProviderCredential;
+      return { credentialIdentity, resolveProviderCredential };
     },
   });
 
   assert.equal(result.resolveProviderCredential, resolveProviderCredential);
+  assert.deepEqual(result.credentialIdentity, credentialIdentity);
   assert.deepEqual(calls, [
     {
       credentialsRoot: '/workspace',

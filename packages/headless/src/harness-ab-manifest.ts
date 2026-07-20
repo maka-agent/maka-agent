@@ -167,6 +167,10 @@ export interface HarnessAbRunManifestInput {
     provider: string;
     id: string;
     reasoningEffort: 'max';
+    credentialIdentity?: {
+      connectionSlug: string;
+      accountIdHash: string;
+    };
   };
   pricing: {
     currency: 'USD';

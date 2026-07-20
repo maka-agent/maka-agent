@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFileCredentialStore } from '@maka/storage';
-import { createCodexOAuthHarnessCredentialResolver } from '../codex-oauth-harness.js';
+import { createCodexOAuthHarnessCredentialBinding } from '../codex-oauth-harness.js';
 
 test('Codex OAuth broker resolves the current host authority for every request', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-codex-oauth-resolver-test-'));
@@ -22,12 +22,17 @@ test('Codex OAuth broker resolves the current host authority for every request',
         account_id: accountId,
       }),
     );
-    const resolveCredential = await createCodexOAuthHarnessCredentialResolver({
+    const binding = await createCodexOAuthHarnessCredentialBinding({
       credentialsRoot: root,
       connectionSlug: 'codex-subscription',
     });
+    const { resolveProviderCredential } = binding;
+    assert.deepEqual(binding.credentialIdentity, {
+      connectionSlug: 'codex-subscription',
+      accountIdHash: 'sha256:4e6909117f1a98c24693367a0cd86e4f3295e7850d8b6ebf97a3a8eae24e3ee9',
+    });
 
-    const first = await resolveCredential();
+    const first = await resolveProviderCredential();
     const secondAccessToken = jwt(accountId, 'second');
     await store.setSecret(
       'codex-subscription',
@@ -39,7 +44,7 @@ test('Codex OAuth broker resolves the current host authority for every request',
         account_id: accountId,
       }),
     );
-    const second = await resolveCredential();
+    const second = await resolveProviderCredential();
 
     assert.equal(first.value, firstAccessToken);
     assert.equal(second.value, secondAccessToken);
@@ -47,6 +52,42 @@ test('Codex OAuth broker resolves the current host authority for every request',
     assert.equal(second.headers?.['ChatGPT-Account-Id'], accountId);
     assert.equal(second.headers?.['OpenAI-Beta'], 'responses=experimental');
     assert.equal(second.headers?.originator, 'codex_cli_rs');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex OAuth broker rejects an account change during a run', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-codex-oauth-account-test-'));
+  try {
+    const store = createFileCredentialStore(root);
+    await store.setSecret(
+      'codex-subscription',
+      'oauth_token',
+      JSON.stringify({
+        access_token: jwt('acct-first', 'first'),
+        refresh_token: 'refresh-first',
+        expires_at: Date.now() + 86_400_000,
+        account_id: 'acct-first',
+      }),
+    );
+    const { resolveProviderCredential } = await createCodexOAuthHarnessCredentialBinding({
+      credentialsRoot: root,
+      connectionSlug: 'codex-subscription',
+    });
+
+    await store.setSecret(
+      'codex-subscription',
+      'oauth_token',
+      JSON.stringify({
+        access_token: jwt('acct-second', 'second'),
+        refresh_token: 'refresh-second',
+        expires_at: Date.now() + 86_400_000,
+        account_id: 'acct-second',
+      }),
+    );
+
+    await assert.rejects(resolveProviderCredential(), /Codex OAuth account changed during the run/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -69,7 +110,7 @@ test('Codex OAuth broker refreshes and persists authority across a long run', as
       }),
     );
     let refreshCount = 0;
-    const resolveCredential = await createCodexOAuthHarnessCredentialResolver({
+    const { resolveProviderCredential } = await createCodexOAuthHarnessCredentialBinding({
       credentialsRoot: root,
       connectionSlug: 'codex-subscription',
       now: () => now,
@@ -86,9 +127,9 @@ test('Codex OAuth broker refreshes and persists authority across a long run', as
       },
     });
 
-    assert.equal((await resolveCredential()).value, jwt(accountId, 'refreshed-1'));
+    assert.equal((await resolveProviderCredential()).value, jwt(accountId, 'refreshed-1'));
     now += 3_600_001;
-    assert.equal((await resolveCredential()).value, jwt(accountId, 'refreshed-2'));
+    assert.equal((await resolveProviderCredential()).value, jwt(accountId, 'refreshed-2'));
     assert.equal(refreshCount, 2);
     const persisted = JSON.parse(
       (await store.getSecret('codex-subscription', 'oauth_token')) ?? 'null',
