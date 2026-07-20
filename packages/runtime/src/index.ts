@@ -109,10 +109,7 @@ export type {
 } from './filesystem-worker/index.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
-export {
-  findFirstChangedCacheableSegment,
-  capturePreparedProviderRequest,
-} from './request-shape.js';
+export { findFirstChangedCacheableSegment } from './request-shape.js';
 export { createProviderRequestCaptureRecorder } from './provider-request-telemetry.js';
 export type {
   PreparedProviderRequestCapture,
