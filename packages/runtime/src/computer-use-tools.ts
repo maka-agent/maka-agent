@@ -901,7 +901,7 @@ export function buildComputerUseTools(deps: {
   }
 
   function deliveredWithoutFreshObservation(
-    action: CuAction,
+    action: ComputerSummaryAction,
     result: CuRunResult,
   ): ComputerToolResult {
     const evidence = summarizeEvidence(result.outcome.evidence);
@@ -1579,11 +1579,11 @@ export function buildComputerUseTools(deps: {
                 : undefined;
             } catch {
               presentation?.finish(result);
-              return deliveredWithoutFreshObservation(summaryAction, result);
+              return deliveredWithoutFreshObservation(semanticAction, result);
             }
             if (result.outcome.ok && !freshObservation) {
               presentation?.finish(result);
-              return deliveredWithoutFreshObservation(summaryAction, result);
+              return deliveredWithoutFreshObservation(semanticAction, result);
             }
             presentation?.finish(result);
             const text = summarize(semanticAction, result);

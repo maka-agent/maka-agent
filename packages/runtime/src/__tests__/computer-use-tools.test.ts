@@ -895,6 +895,54 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.doesNotMatch(result.text, /computer\.type/);
   });
 
+  test('semantic recovery keeps the action name when fresh observation is unavailable', async () => {
+    for (const captureMode of ['missing', 'throws'] as const) {
+      const backend = fakeBackend() as CuDispatchBackend & {
+        observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+        runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+        captureObservation?: NonNullable<CuDispatchBackend['captureObservation']>;
+      };
+      backend.observeApp = async () =>
+        observation({
+          elements: [
+            {
+              elementId: '5',
+              role: 'AXTextField',
+              label: 'Field',
+              value: '',
+            },
+          ],
+        });
+      backend.runSemantic = async () => ({
+        outcome: { ok: true, tier: 'ax', verified: true },
+      });
+      if (captureMode === 'throws') {
+        backend.captureObservation = async () => {
+          throw new Error('capture failed');
+        };
+      }
+      const [tool] = buildComputerUseTools({ backend });
+      const observed = (await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx())) as {
+        text: string;
+      };
+      const observationId = JSON.parse(observed.text).observation_id as string;
+
+      const result = (await tool.impl(
+        {
+          action: 'set_value',
+          observation_id: observationId,
+          element_id: '5',
+          value: 'updated',
+        } as never,
+        ctx(),
+      )) as { text: string; error?: string };
+
+      assert.equal(result.error, 'outcome_unknown');
+      assert.match(result.text, /computer\.set_value failed: outcome_unknown/);
+      assert.doesNotMatch(result.text, /computer\.type/);
+    }
+  });
+
   test('coordinate action is bound to a window-local screenshot and consumes the observation', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
