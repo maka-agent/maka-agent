@@ -79,6 +79,28 @@ describe('FileConnectionStore', () => {
       assert.deepEqual(updated.enabledModelIds, ['gpt-5', 'gpt-4o-mini']);
     });
   });
+  test('repairs a stale default after live models are stored (moonshot regression)', async () => {
+    await withConnectionStore(async (store) => {
+      const created = await store.create({
+        slug: 'moonshot-main',
+        name: 'Moonshot',
+        providerType: 'moonshot',
+        defaultModel: 'moonshot-v1-8k',
+      });
+
+      const updated = await store.update(created.slug, {
+        models: [{ id: 'kimi-k2.6' }, { id: 'kimi-k2.5' }],
+        modelSource: 'fetched',
+        modelsFetchedAt: 1,
+        enabledModelIds: ['moonshot-v1-8k', 'kimi-k2.6'],
+      });
+
+      assert.equal(updated.defaultModel, 'kimi-k2.6');
+      assert.deepEqual(updated.enabledModelIds, ['kimi-k2.6']);
+      assert.equal(updated.modelSource, 'fetched');
+    });
+  });
+
 
   test('persists distinct OpenCode Zen and Go ids with exact selected models', async () => {
     await withConnectionStore(async (store, dir) => {
@@ -859,9 +881,101 @@ describe('FileConnectionStore', () => {
 
       const next = await store.get(created.slug);
       assert.deepEqual(next?.models, [{ id: 'glm-5' }, { id: 'glm-5.1' }]);
-      assert.deepEqual(next?.enabledModelIds, ['glm-4.7']);
+      // Stale default (not in the live inventory) is repaired so readiness
+      // does not fail with model_not_enabled after a successful fetch.
+      assert.equal(next?.defaultModel, 'glm-5');
+      assert.deepEqual(next?.enabledModelIds, ['glm-5']);
       assert.equal(next?.modelSource, 'fetched');
       assert.equal(next?.modelsFetchedAt, 1_800_000_000_000);
+    });
+  });
+
+  test('does not reconcile a stale default from a fallback model catalog', async () => {
+    await withConnectionStore(async (store) => {
+      const created = await store.create({
+        slug: 'fallback-main',
+        name: 'Fallback',
+        providerType: 'openai-compatible',
+        defaultModel: 'configured-model',
+      });
+
+      const next = await store.update(created.slug, {
+        models: [{ id: 'catalog-fallback' }],
+        modelSource: 'fallback',
+        modelsFetchedAt: 1,
+      });
+
+      assert.equal(next.defaultModel, 'configured-model');
+      assert.deepEqual(next.enabledModelIds, ['configured-model']);
+      assert.deepEqual(next.models, [{ id: 'catalog-fallback' }]);
+    });
+  });
+
+  test('does not reconcile when fetched metadata is updated without a model payload', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await writeFile(
+        join(dir, 'llm-connections.json'),
+        JSON.stringify({
+          defaultSlug: 'moonshot-main',
+          connections: [
+            {
+              slug: 'moonshot-main',
+              name: 'Moonshot',
+              providerType: 'moonshot',
+              defaultModel: 'moonshot-v1-8k',
+              enabled: true,
+              enabledModelIds: ['moonshot-v1-8k'],
+              models: [{ id: 'kimi-k2.6' }],
+              modelSource: 'fallback',
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        }),
+        'utf8',
+      );
+
+      const next = await store.update('moonshot-main', {
+        modelSource: 'fetched',
+        modelsFetchedAt: 2,
+      });
+      assert.equal(next.defaultModel, 'moonshot-v1-8k');
+      assert.deepEqual(next.enabledModelIds, ['moonshot-v1-8k']);
+      assert.equal(next.models, undefined);
+    });
+  });
+
+  test('does not reconcile a stale default during an unrelated display-only update', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await writeFile(
+        join(dir, 'llm-connections.json'),
+        JSON.stringify({
+          defaultSlug: 'moonshot-main',
+          connections: [
+            {
+              slug: 'moonshot-main',
+              name: 'Moonshot',
+              providerType: 'moonshot',
+              defaultModel: 'moonshot-v1-8k',
+              enabled: true,
+              enabledModelIds: ['moonshot-v1-8k'],
+              models: [{ id: 'kimi-k2.6' }],
+              modelSource: 'fetched',
+              modelsFetchedAt: 1_800_000_000_000,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        }),
+        'utf8',
+      );
+
+      // A rename does not own model discovery and therefore must not silently
+      // switch the selected model. The next discovery write will reconcile it.
+      await store.update('moonshot-main', { name: 'Moonshot Primary' });
+      const next = await store.get('moonshot-main');
+      assert.equal(next?.defaultModel, 'moonshot-v1-8k');
+      assert.deepEqual(next?.enabledModelIds, ['moonshot-v1-8k']);
     });
   });
 

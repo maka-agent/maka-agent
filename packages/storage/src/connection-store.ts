@@ -5,6 +5,7 @@ import {
   connectionEnabledModelIds,
   migrateConnectionV1ToV2,
   persistedBaseUrl,
+  reconcileConnectionAfterModelFetch,
   validateSlug,
   type CreateConnectionInput,
   type LlmConnection,
@@ -110,7 +111,27 @@ class FileConnectionStore implements ConnectionStore {
           patch.baseUrl !== undefined ||
           patch.defaultModel !== undefined ||
           patch.models !== undefined);
-      const defaultModel = patch.defaultModel ?? current.defaultModel;
+      const models = updatesModelCache ? patch.models : clearsModelCache ? undefined : current.models;
+      let defaultModel = patch.defaultModel ?? current.defaultModel;
+      let enabledModelIds = connectionEnabledModelIds({
+        defaultModel,
+        enabledModelIds: patch.enabledModelIds ?? current.enabledModelIds,
+      });
+      // Authoritative live inventory wins: a retired default (common after
+      // Moonshot renamed moonshot-v1-* → kimi-k2.*) must not strand the
+      // connection as model_not_enabled once models are fetched. Fallback
+      // catalogs and metadata-only updates do not own this selection.
+      const writesFetchedModels =
+        Object.prototype.hasOwnProperty.call(patch, 'models') &&
+        patch.modelSource === 'fetched';
+      if (writesFetchedModels && models && models.length > 0) {
+        const reconciled = reconcileConnectionAfterModelFetch(
+          { defaultModel, enabledModelIds },
+          models,
+        );
+        defaultModel = reconciled.defaultModel;
+        enabledModelIds = reconciled.enabledModelIds;
+      }
       const next: LlmConnection = {
         ...current,
         name: patch.name ?? current.name,
@@ -120,11 +141,8 @@ class FileConnectionStore implements ConnectionStore {
             : current.baseUrl,
         defaultModel,
         enabled: patch.enabled ?? current.enabled,
-        enabledModelIds: connectionEnabledModelIds({
-          defaultModel,
-          enabledModelIds: patch.enabledModelIds ?? current.enabledModelIds,
-        }),
-        models: updatesModelCache ? patch.models : clearsModelCache ? undefined : current.models,
+        enabledModelIds,
+        models,
         modelSource: updatesModelCache
           ? patch.modelSource
           : clearsModelCache
@@ -168,6 +186,9 @@ class FileConnectionStore implements ConnectionStore {
   }
 
   async save(connection: LlmConnection): Promise<LlmConnection> {
+    // save() is a full-snapshot boundary, so callers providing authoritative
+    // fetched models must already reconcile defaultModel/enabledModelIds.
+    // update() performs that reconciliation for partial fetched-model patches.
     let saved: LlmConnection | null = null;
     await this.withQueue(async () => {
       const file = await this.readUnlocked();

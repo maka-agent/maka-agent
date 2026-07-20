@@ -27,6 +27,7 @@ import {
   persistedBaseUrl,
   providerAuthRequiresSecret,
   providerAuthSupportsApiKey,
+  reconcileConnectionAfterModelFetch,
   validateConnectionBaseUrl,
   type ProviderType,
 } from '../llm-connections.js';
@@ -1840,5 +1841,67 @@ describe('normalizeProviderType (persisted providerType alias)', () => {
     });
     assert.equal(migrated.providerType, 'openai-codex');
     assert.equal(migrated.slug, 'codex-subscription');
+  });
+});
+
+describe('reconcileConnectionAfterModelFetch', () => {
+  it('repairs a stale moonshot fallback default to a live enabled model', () => {
+    const next = reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'moonshot-v1-8k',
+        enabledModelIds: ['moonshot-v1-8k', 'kimi-k2.6'],
+      },
+      [{ id: 'kimi-k2.5' }, { id: 'kimi-k2.6' }, { id: 'kimi-k2.7-code' }],
+    );
+    assert.equal(next.defaultModel, 'kimi-k2.6');
+    assert.deepEqual(next.enabledModelIds, ['kimi-k2.6']);
+  });
+
+  it('keeps a still-live default and drops retired enabled ids', () => {
+    const next = reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'kimi-k2.6',
+        enabledModelIds: ['kimi-k2.6', 'moonshot-v1-8k', 'kimi-k2.5'],
+      },
+      [{ id: 'kimi-k2.6' }, { id: 'kimi-k2.5' }],
+    );
+    assert.equal(next.defaultModel, 'kimi-k2.6');
+    assert.deepEqual(next.enabledModelIds, ['kimi-k2.6', 'kimi-k2.5']);
+  });
+
+  it('falls back to the first discovered model when nothing previously enabled is live', () => {
+    const next = reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'moonshot-v1-8k',
+        enabledModelIds: ['moonshot-v1-8k'],
+      },
+      [{ id: 'kimi-k2.6' }, { id: 'kimi-k2.5' }],
+    );
+    assert.equal(next.defaultModel, 'kimi-k2.6');
+    assert.deepEqual(next.enabledModelIds, ['kimi-k2.6']);
+  });
+
+  it('normalizes and deduplicates discovered ids before reconciliation', () => {
+    const next = reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'retired-model',
+        enabledModelIds: ['retired-model'],
+      },
+      [{ id: '  live-model  ' }, { id: '' }, { id: 'live-model' }, { id: 1 }],
+    );
+    assert.equal(next.defaultModel, 'live-model');
+    assert.deepEqual(next.enabledModelIds, ['live-model']);
+  });
+
+  it('leaves defaults alone when discovery returns an empty list', () => {
+    const next = reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'moonshot-v1-8k',
+        enabledModelIds: ['moonshot-v1-8k'],
+      },
+      [],
+    );
+    assert.equal(next.defaultModel, 'moonshot-v1-8k');
+    assert.deepEqual(next.enabledModelIds, ['moonshot-v1-8k']);
   });
 });
