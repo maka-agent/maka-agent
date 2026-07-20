@@ -271,8 +271,8 @@ export class AgentRun {
   }
 
   recordProviderRequestAttempt(attempt: ProviderRequestAttemptRecord): void {
-    if (!this.input.runStore || !this.runStoreAvailable) return;
-    this.enqueueRunStore('append provider request attempt', async () => {
+    if (!this.input.runStore) return;
+    this.enqueueBestEffortProviderAttempt('append provider request attempt', async () => {
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
         type: 'provider_request_attempt_recorded',
         id: attempt.attemptId,
@@ -1327,6 +1327,19 @@ export class AgentRun {
     });
     this.traceQueue = next.catch(() => {});
     return next;
+  }
+
+  /**
+   * Each physical provider request gets its own best-effort diagnostic row.
+   * One failed attempt append must not suppress later attempts or poison the
+   * general AgentRun store latch; a required capture independently gates every
+   * provider dispatch.
+   */
+  private enqueueBestEffortProviderAttempt(label: string, operation: () => Promise<void>): void {
+    const next = this.traceQueue
+      .then(operation, operation)
+      .catch((error) => this.enqueueTraceWriteFailure(error, label));
+    this.traceQueue = next.catch(() => {});
   }
 
   /**

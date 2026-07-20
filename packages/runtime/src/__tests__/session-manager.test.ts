@@ -7706,7 +7706,7 @@ describe('SessionManager permission mode updates', () => {
     expect((attempt?.data?.segments as unknown[])?.length).toBe(75);
   });
 
-  test('required provider capture still writes after a diagnostic attempt append fails', async () => {
+  test('required capture and later attempt still write after an attempt append fails', async () => {
     const store = new MemorySessionStore();
     const attemptFailureRecorded = makeGate();
     const captureOutcomes: string[] = [];
@@ -7746,6 +7746,7 @@ describe('SessionManager permission mode updates', () => {
     const [run] = await runStore.listSessionRuns(session.id);
     const events = await runStore.readEvents(session.id, run!.runId);
     expect(events.some((event) => event.type === 'provider_request_captured')).toBe(true);
+    expect(events.some((event) => event.id === 'attempt-2')).toBe(true);
   });
 
   test('omits provider request telemetry hooks when no run store is configured', async () => {
@@ -11827,6 +11828,24 @@ class ProviderCaptureAfterAttemptFailureBackend implements AgentBackend {
     } catch {
       this.captureOutcomes.push('rejected');
     }
+    await this.ctx.recordProviderRequestAttempt?.({
+      traceId: 'provider-trace-1',
+      attemptId: 'attempt-2',
+      turnId: input.turnId,
+      step: 1,
+      attempt: 1,
+      captureId: 'capture-2',
+      captureArtifactId: 'artifact-capture-2',
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:request-2',
+      requestBytes: 120,
+      segments: [],
+      startedAt: 2,
+      completedAt: 3,
+      status: 'completed',
+      latencyMs: 1,
+    });
     yield {
       type: 'complete',
       id: `${input.turnId}-complete`,
