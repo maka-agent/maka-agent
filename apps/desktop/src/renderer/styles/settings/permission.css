@@ -381,7 +381,6 @@
      below) so denied / granted / not_determined still read at a glance. */
 
 .settingsOsPermissionRow {
-    position: relative;
     display: grid;
     grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: flex-start;
@@ -485,32 +484,12 @@
     flex-shrink: 0;
   }
 
-/* PR-PERMISSIONS-UNIFIED-CARD-0: status accents live as left-edge
-     stripes on the outer grouped card so denied / not_determined /
-     granted are visible at a glance without re-introducing per-row
-     borders that fight the unified card. */
-
-/* Status-color restraint: granted is the expected state — no stripe, no
-   green icon fill; the row label already says 已授权. Only the exception
-   states (denied / not_determined) keep an edge stripe. */
-
-.settingsOsPermissionRow[data-state="denied"]::before,
-  .settingsOsPermissionRow[data-state="not_determined"]::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-  }
-
-.settingsOsPermissionRow[data-state="denied"]::before {
-    background: oklch(from var(--destructive) l c h / 0.55);
-  }
-
-.settingsOsPermissionRow[data-state="not_determined"]::before {
-    background: oklch(from var(--warning, var(--info)) l c h / 0.55);
-  }
+/* Polish wave (#651 status-color restraint): the per-row left-edge status
+   stripe (amber on 等待授权, red on 已拒绝) was a second status channel on
+   top of each row's state Badge — redundant, and the amber stripe read as a
+   standing alarm on an expected waiting state. The row's Chip/text is the
+   single source of state now; the denied icon tint (below) stays as the one
+   exception accent. */
 
 /* PR-PERMISSION-PAGE-REDESIGN: 4-cell summary above system permissions.
      Quick read of overall posture (X granted / Y waiting / Z denied /
