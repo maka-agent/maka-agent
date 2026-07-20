@@ -566,6 +566,7 @@ const {
   builtinTools,
   toolAvailability,
   childAgentTools,
+  sandboxDiagnosticsProvider,
 } = assembleDesktopTools({
   isComputerUseRealModelE2e,
   workspaceRoot,
@@ -686,6 +687,7 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
   agentTeamLeadTools,
   builtinTools,
   toolAvailability,
+  sandboxDiagnosticsProvider,
   persistToolArtifacts,
   persistArchivedToolResult,
   readArchivedToolResult,

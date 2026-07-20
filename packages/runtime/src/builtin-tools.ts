@@ -45,6 +45,7 @@ import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 import type { SandboxManager } from './sandbox/sandbox-manager.js';
+import { SandboxCommandError } from './sandbox/errors.js';
 import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
 import type { SandboxPlatform, SandboxType } from './sandbox/types.js';
 import type { ChildFdInput } from './child-fd-input.js';
@@ -213,6 +214,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
                     command,
                     pty,
                     ctx,
+                    'background_command',
                   ),
               }
             : {}),
@@ -756,6 +758,7 @@ function buildExecutorBashTool(
       const executionResult = {
         ...result,
         ...(transformed?.sandboxType ? { sandboxType: transformed.sandboxType } : {}),
+        ...(transformed?.profileName ? { profileName: transformed.profileName } : {}),
         sandboxed:
           transformed?.sandboxType === 'macos-seatbelt' || transformed?.sandboxType === 'linux',
       };
@@ -800,6 +803,7 @@ function sandboxCommand(
   command: string,
   pty: boolean,
   ctx: MakaToolContext,
+  domain: 'command' | 'background_command' = 'command',
 ):
   | {
       argv?: readonly string[];
@@ -807,6 +811,7 @@ function sandboxCommand(
       env?: NodeJS.ProcessEnv;
       fdInputs?: readonly ChildFdInput[];
       sandboxType?: SandboxType;
+      profileName?: string;
     }
   | undefined {
   const cwd = canonicalExistingPath(ctx.cwd);
@@ -815,7 +820,14 @@ function sandboxCommand(
   const additionalGrant = ctx.permissionContext?.additionalGrant;
   const escalationGrant = ctx.permissionContext?.sandboxEscalationGrant;
   if (additionalGrant && escalationGrant) {
-    throw new Error('Additional permissions and sandbox escalation cannot be applied together.');
+    throw new SandboxCommandError({
+      domain,
+      stage: 'validation',
+      reason: 'conflicting_permission_context',
+      recoverable: false,
+      profileName: effective.profile.name ?? effective.profile.type,
+      message: 'Additional permissions and sandbox escalation cannot be applied together.',
+    });
   }
   if (escalationGrant) {
     assertSandboxEscalationGrantForExecution({ grant: escalationGrant, command, cwd });
@@ -823,15 +835,30 @@ function sandboxCommand(
   if (pty) {
     if (escalationGrant) return { cwd, env, sandboxType: 'none' };
     if (profileRequiresSandbox(effective.profile)) {
-      throw new Error(
-        'PTY Bash is unavailable while the active permission profile requires command sandboxing.',
-      );
+      throw new SandboxCommandError({
+        domain,
+        stage: 'capability',
+        reason: 'pty_sandbox_unavailable',
+        recoverable: false,
+        profileName: effective.profile.name ?? effective.profile.type,
+        message:
+          'PTY Bash is unavailable while the active permission profile requires command sandboxing.',
+      });
     }
     return undefined;
   }
   if (!escalationGrant && !manager.canEnforce({ profile: effective.profile, platform })) {
     if (profileRequiresSandbox(effective.profile)) {
-      throw new Error(`Command sandbox is required but unavailable on platform ${platform}.`);
+      const selection = manager.selectInitial({ profile: effective.profile, platform });
+      throw new SandboxCommandError({
+        domain,
+        stage: selection.ok ? 'capability' : 'selection',
+        reason: selection.ok ? 'backend_not_available' : selection.reason,
+        backend: selection.sandboxType,
+        recoverable: false,
+        profileName: effective.profile.name ?? effective.profile.type,
+        message: `Command sandbox is required but unavailable on platform ${platform}.`,
+      });
     }
     return undefined;
   }
@@ -867,7 +894,15 @@ function sandboxCommand(
     ...(escalationGrant ? { preference: 'forbid' as const } : {}),
   });
   if (!result.ok) {
-    throw new Error(result.message ?? `Sandbox transform failed: ${result.reason}`);
+    throw new SandboxCommandError({
+      domain,
+      stage: 'transform',
+      reason: result.reason,
+      backend: result.sandboxType,
+      recoverable: false,
+      profileName: effective.profile.name ?? effective.profile.type,
+      message: result.message ?? `Sandbox transform failed: ${result.reason}`,
+    });
   }
   return {
     argv: result.exec.argv,
@@ -875,6 +910,7 @@ function sandboxCommand(
     ...(result.exec.env ? { env: { ...result.exec.env } } : {}),
     ...(result.exec.fdInputs ? { fdInputs: result.exec.fdInputs } : {}),
     sandboxType: result.exec.sandboxType,
+    profileName: result.exec.effectiveProfile.name ?? result.exec.effectiveProfile.type,
   };
 }
 
@@ -1017,10 +1053,22 @@ function terminalError(
   result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'> & {
     sandboxType?: SandboxType;
     sandboxed?: boolean;
+    profileName?: string;
   },
   code: number,
 ): Error {
-  const error = new Error(message);
+  const sandboxDenied = isLikelySandboxDenial(result);
+  const error = sandboxDenied
+    ? new SandboxCommandError({
+        domain: 'command',
+        stage: 'operation',
+        reason: 'sandbox_denial',
+        backend: result.sandboxType,
+        recoverable: true,
+        profileName: result.profileName,
+        message,
+      })
+    : new Error(message);
   Object.assign(error, {
     stdout: result.stdout,
     stderr: result.stderr,
@@ -1029,7 +1077,7 @@ function terminalError(
     code,
     ...(result.sandboxType ? { sandboxType: result.sandboxType } : {}),
     sandboxed: result.sandboxed === true,
-    ...(isLikelySandboxDenial(result) ? { reason: 'sandbox_denial', recoverable: true } : {}),
+    ...(sandboxDenied ? { reason: 'sandbox_denial', recoverable: true } : {}),
   });
   return error;
 }

@@ -58,8 +58,174 @@ import { buildRuntimeEventModelReplayPlan, buildSteeringEnvelope } from '../mode
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
 import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
+import type { AutoApprovalReviewContext } from '../approval-reviewer.js';
+import type { SandboxDiagnosticsSnapshot } from '../sandbox/diagnostics.js';
+import { SandboxCommandError } from '../sandbox/errors.js';
+import { RunTrace } from '../run-trace.js';
 
 describe('AiSdkBackend model history', () => {
+  test('exposes one active sandbox snapshot to the model and durable run trace', async () => {
+    const model = completionModel();
+    const traces: RunTraceEvent[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      sandboxDiagnosticsSnapshot: sandboxSnapshot(),
+      recordRunTrace: (event) => traces.push(event),
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-current', text: 'current user', context: [] }));
+
+    assert.match(JSON.stringify(compactPrompt(model)), /Maka runtime sandbox context/);
+    assert.match(JSON.stringify(compactPrompt(model)), /Working directory: \/tmp\/maka/);
+    const contextEvent = traces.find((event) => event.type === 'sandbox_context_resolved');
+    const traceSnapshot = contextEvent?.data?.snapshot as
+      | { profile?: { name?: string } }
+      | undefined;
+    assert.equal(traceSnapshot?.profile?.name, 'workspace-write');
+    assert.equal(JSON.stringify(contextEvent).includes('/tmp/maka'), false);
+  });
+
+  test('passes the active sandbox snapshot into automatic approval review', async () => {
+    let reviewContext: AutoApprovalReviewContext | undefined;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('execute'),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: idGenerator(), now: () => 1 }),
+      autoApprovalReviewer: {
+        review: async ({ context }) => {
+          reviewContext = context;
+          return { outcome: 'allow', riskLevel: 'high', rationale: 'test approval' };
+        },
+      },
+      modelFactory: () => ({}),
+      tools: [],
+      sandboxDiagnosticsSnapshot: sandboxSnapshot(),
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const tool: MakaTool = {
+      name: 'Bash',
+      description: 'shell',
+      parameters: {},
+      permissionRequired: true,
+      impl: async () => ({ kind: 'text', text: 'ok' }),
+    };
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+
+    await execute(
+      { command: 'rm local-file' },
+      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
+    );
+
+    assert.deepEqual(reviewContext?.sandbox, {
+      platform: 'darwin',
+      profileName: 'workspace-write',
+      fileSystem: 'workspace-write',
+      network: 'restricted',
+      commandSandbox: 'available (macos-seatbelt)',
+      filesystemSandbox: 'available (macos-seatbelt)',
+      commandSandboxSelectionReason: 'platform_sandbox_selected',
+      filesystemSandboxSelectionReason: 'platform_sandbox_selected',
+    });
+  });
+
+  test('records structured sandbox failure metadata on tool failure traces', async () => {
+    const traces: RunTraceEvent[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('bypass'),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: idGenerator(), now: () => 1 }),
+      modelFactory: () => ({}),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    (backend as unknown as { currentRunTrace: RunTrace | null }).currentRunTrace = new RunTrace({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      connectionSlug: 'anthropic-main',
+      providerId: 'anthropic',
+      modelId: 'mock-model-id',
+      newId: idGenerator(),
+      now: monotonicClock(),
+      record: (event) => traces.push(event),
+    });
+    const tool: MakaTool = {
+      name: 'Bash',
+      description: 'shell',
+      parameters: {},
+      permissionRequired: false,
+      impl: async () => {
+        throw new SandboxCommandError({
+          domain: 'command',
+          stage: 'transform',
+          reason: 'backend_not_available',
+          backend: 'macos-seatbelt',
+          recoverable: false,
+          profileName: 'workspace-write',
+          message: 'contains /private/workspace/path',
+        });
+      },
+    };
+    const execute = (
+      backend as unknown as {
+        wrapToolExecute(
+          tool: MakaTool,
+          turnId: string,
+          queue: { push(event: SessionEvent): void },
+        ): (
+          args: unknown,
+          ctx: { toolCallId: string; abortSignal: AbortSignal },
+        ) => Promise<unknown>;
+      }
+    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+
+    await execute(
+      { command: 'true' },
+      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
+    );
+
+    const failure = traces.find((event) => event.type === 'tool_failed');
+    assert.deepEqual(failure?.data?.sandbox, {
+      domain: 'command',
+      stage: 'transform',
+      reason: 'backend_not_available',
+      recoverable: false,
+      backend: 'macos-seatbelt',
+      profileName: 'workspace-write',
+    });
+    assert.equal(JSON.stringify(failure).includes('/private/workspace/path'), false);
+  });
+
   test('omits an empty system prompt from the provider request', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
@@ -11467,6 +11633,34 @@ function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): Sessio
     model: 'claude-sonnet-4-5-20250929',
     permissionMode,
     schemaVersion: 1,
+  };
+}
+
+function sandboxSnapshot(): SandboxDiagnosticsSnapshot {
+  return {
+    schemaVersion: 1,
+    platform: 'darwin',
+    profile: {
+      name: 'workspace-write',
+      type: 'managed',
+      fileSystem: 'workspace-write',
+      network: 'restricted',
+      cwd: '/tmp/maka',
+      workspaceRoots: ['/tmp/maka'],
+      protectedMetadata: ['.git', '.agents', '.codex'],
+    },
+    capabilities: {
+      command: {
+        status: 'available',
+        backend: 'macos-seatbelt',
+        selectionReason: 'platform_sandbox_selected',
+      },
+      filesystem: {
+        status: 'available',
+        backend: 'macos-seatbelt',
+        selectionReason: 'platform_sandbox_selected',
+      },
+    },
   };
 }
 

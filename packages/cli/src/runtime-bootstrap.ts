@@ -19,6 +19,7 @@ import {
   buildRuntimeEventModelReplayPlan,
   buildChildAgentTools,
   createBuiltinSandboxManager,
+  createSandboxDiagnosticsProvider,
   createFilesystemWorkerLaunchSpecProvider,
   createLocalContinuationSafetyInspector,
   FilesystemWorkerClient,
@@ -217,16 +218,26 @@ export async function createMakaCliRuntimeContext(
     },
   });
   const sandboxManager = createBuiltinSandboxManager();
-  const filesystemWorker =
-    process.platform === 'darwin' && sandboxManager
-      ? new FilesystemWorkerClient({
-          sandboxManager,
-          getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
-            runtime: 'node',
-            resourceLocation: { kind: 'runtime' },
-          }),
+  const filesystemWorkerLaunchSpecProvider =
+    process.platform === 'darwin'
+      ? createFilesystemWorkerLaunchSpecProvider({
+          runtime: 'node',
+          resourceLocation: { kind: 'runtime' },
         })
       : undefined;
+  const filesystemWorker =
+    sandboxManager && filesystemWorkerLaunchSpecProvider
+      ? new FilesystemWorkerClient({
+          sandboxManager,
+          getLaunchSpec: filesystemWorkerLaunchSpecProvider,
+        })
+      : undefined;
+  const sandboxDiagnosticsProvider = createSandboxDiagnosticsProvider({
+    ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorkerLaunchSpecProvider
+      ? { getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider }
+      : {}),
+  });
   const tools = buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
@@ -571,6 +582,10 @@ export async function createMakaCliRuntimeContext(
           }
         : {}),
     });
+    const sandboxDiagnosticsSnapshot = await sandboxDiagnosticsProvider.resolve({
+      mode: header.permissionMode,
+      cwd: header.cwd,
+    });
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...header, model: ready.model },
@@ -582,6 +597,7 @@ export async function createMakaCliRuntimeContext(
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
+      sandboxDiagnosticsSnapshot,
       toolAvailability,
       ...(input.surface === 'tui'
         ? {
@@ -631,6 +647,7 @@ export async function createMakaCliRuntimeContext(
       turnTailPrompt: ({ cwd }) =>
         buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
+      recordRunTrace: ctx.recordRunTrace,
       newId: randomUUID,
       now: Date.now,
       ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),

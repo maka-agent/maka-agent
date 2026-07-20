@@ -92,6 +92,7 @@ export interface AiSdkBackendFactoryDeps {
   agentTeamLeadTools: AssembledTools['agentTeamLeadTools'];
   builtinTools: AssembledTools['builtinTools'];
   toolAvailability: AssembledTools['toolAvailability'];
+  sandboxDiagnosticsProvider: AssembledTools['sandboxDiagnosticsProvider'];
   persistToolArtifacts: ToolArtifactPersistence['persistToolArtifacts'];
   persistArchivedToolResult: ToolArtifactPersistence['persistArchivedToolResult'];
   readArchivedToolResult: ToolArtifactPersistence['readArchivedToolResult'];
@@ -130,6 +131,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     agentTeamLeadTools,
     builtinTools,
     toolAvailability,
+    sandboxDiagnosticsProvider,
     persistToolArtifacts,
     persistArchivedToolResult,
     readArchivedToolResult,
@@ -196,6 +198,10 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     // narrower tool surface. They do not receive the Desktop Skill tool, so
     // they must not overwrite the parent session's resolver entry.
     if (!ctx.tools) desktopSessionSkillHosts.set(ctx.sessionId, backendSkillHost);
+    const sandboxDiagnosticsSnapshot = await sandboxDiagnosticsProvider.resolve({
+      mode: ctx.header.permissionMode,
+      cwd: ctx.header.cwd,
+    });
 
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
@@ -209,6 +215,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       tools: expertDispatchTool
         ? [...backendTools, expertDispatchTool, ...agentTeamLeadTools]
         : backendTools,
+      sandboxDiagnosticsSnapshot,
       agentTeam,
       toolAvailability: backendToolAvailability,
       spawnChildAgent: (input) => getRuntime().spawnChildAgent(ctx.sessionId, input),

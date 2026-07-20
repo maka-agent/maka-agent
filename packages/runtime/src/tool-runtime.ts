@@ -62,6 +62,7 @@ import {
   type ToolRecoveryMode,
 } from './runtime-commit-sink.js';
 import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
+import { serializeSandboxError } from './sandbox/errors.js';
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
@@ -1323,6 +1324,7 @@ export class ToolRuntime {
     } catch (err) {
       if (err instanceof RuntimeCommitBoundaryError) throw err;
       output.flush();
+      const sandboxError = serializeSandboxError(err);
       const terminalFailure = coerceTerminalFailure(
         tool,
         this.input.header.cwd,
@@ -1397,6 +1399,7 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
+          ...(sandboxError ? { sandbox: sandboxError } : {}),
         });
         return this.errorReturn(terminalFailure.message);
       }
@@ -1429,6 +1432,7 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
+        ...(sandboxError ? { sandbox: sandboxError } : {}),
       });
       return this.errorReturn(msg);
     } finally {

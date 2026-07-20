@@ -8,6 +8,7 @@ import type {
   ToolSchemaChangeReason,
   ToolAvailabilityDiagnostic,
 } from '@maka/core/usage-stats/types';
+import type { SandboxRunTraceProjection } from './sandbox/diagnostics.js';
 
 export type RunTracePhase =
   | 'turn'
@@ -20,6 +21,7 @@ export type RunTracePhase =
 
 export type RunTraceEventType =
   | 'turn_started'
+  | 'sandbox_context_resolved'
   | 'model_resolved'
   | 'model_resolve_failed'
   | 'model_stream_started'
@@ -55,7 +57,7 @@ export interface RunTraceEvent {
   data?: Record<string, unknown>;
 }
 
-export type RunTraceRecorder = (event: RunTraceEvent) => void;
+export type RunTraceRecorder = (event: RunTraceEvent) => unknown;
 
 const REDACTED_ERROR_MESSAGE_MAX_CHARS = 2_048;
 
@@ -90,7 +92,8 @@ export class RunTrace {
       ...(data ? { data: sanitizeTraceData(data) } : {}),
     };
     try {
-      this.input.record?.(event);
+      const recorded = this.input.record?.(event);
+      if (isPromiseLike(recorded)) void Promise.resolve(recorded).catch(() => {});
     } catch {
       // Tracing is diagnostic-only and must not perturb model/tool execution.
     }
@@ -102,6 +105,10 @@ export class RunTrace {
       providerId: this.input.providerId,
       modelId: this.input.modelId,
     });
+  }
+
+  sandboxContextResolved(snapshot: SandboxRunTraceProjection): void {
+    this.emit('sandbox', 'sandbox_context_resolved', 'Sandbox context resolved', { snapshot });
   }
 
   modelResolved(): void {
@@ -278,4 +285,13 @@ function sha256(value: string): string {
 
 function sanitizeTraceData(data: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return Boolean(
+    value &&
+      (typeof value === 'object' || typeof value === 'function') &&
+      'then' in value &&
+      typeof value.then === 'function',
+  );
 }

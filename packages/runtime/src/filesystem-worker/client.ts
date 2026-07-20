@@ -82,10 +82,13 @@ export type FilesystemWorkerClientErrorReason =
 
 export class FilesystemWorkerClientError extends Error {
   readonly code = 'SANDBOX_FILESYSTEM_OPERATION_FAILED';
+  readonly domain = 'filesystem' as const;
   readonly reason: FilesystemWorkerClientErrorReason;
   readonly stage: 'validation' | 'transform' | 'launch' | 'protocol' | 'operation';
   readonly recoverable: boolean;
   readonly requestId?: string;
+  readonly backend?: 'none' | 'macos-seatbelt' | 'linux';
+  readonly profileName?: string;
 
   constructor(input: {
     reason: FilesystemWorkerClientErrorReason;
@@ -93,6 +96,8 @@ export class FilesystemWorkerClientError extends Error {
     message?: string;
     recoverable?: boolean;
     requestId?: string;
+    backend?: 'none' | 'macos-seatbelt' | 'linux';
+    profileName?: string;
   }) {
     super(input.message ?? `Filesystem worker failed: ${input.reason}.`);
     this.name = 'FilesystemWorkerClientError';
@@ -100,6 +105,8 @@ export class FilesystemWorkerClientError extends Error {
     this.stage = input.stage;
     this.recoverable = input.recoverable ?? false;
     this.requestId = input.requestId;
+    this.backend = input.backend;
+    this.profileName = input.profileName;
   }
 }
 
@@ -219,7 +226,10 @@ export class FilesystemWorkerClient {
       },
     });
     if (!transformed.ok) {
-      throw clientError(transformed.reason, 'transform', requestId, transformed.message);
+      throw clientError(transformed.reason, 'transform', requestId, transformed.message, false, {
+        backend: transformed.sandboxType,
+        profileName: effectiveProfile.name ?? effectiveProfile.type,
+      });
     }
 
     let processResult: Awaited<ReturnType<FilesystemWorkerProcessRunner>>;
@@ -327,6 +337,17 @@ function clientError(
   requestId: string,
   message?: string,
   recoverable = false,
+  metadata: {
+    backend?: 'none' | 'macos-seatbelt' | 'linux';
+    profileName?: string;
+  } = {},
 ): FilesystemWorkerClientError {
-  return new FilesystemWorkerClientError({ reason, stage, requestId, message, recoverable });
+  return new FilesystemWorkerClientError({
+    reason,
+    stage,
+    requestId,
+    message,
+    recoverable,
+    ...metadata,
+  });
 }

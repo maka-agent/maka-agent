@@ -362,9 +362,11 @@ export {
   buildSeatbeltPolicy,
   createDefaultSandboxManager,
   createBuiltinSandboxManager,
+  createSandboxDiagnosticsProvider,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
   detectLinuxSandboxCapability,
+  toSandboxRunTraceProjection,
 } from './sandbox/index.js';
 export type {
   BuildSeatbeltPolicyInput,
@@ -374,6 +376,17 @@ export type {
   DetectLinuxSandboxCapabilityInput,
   LinuxBubblewrapBackendOptions,
   LinuxSandboxCapability,
+  CreateSandboxDiagnosticsProviderInput,
+  ResolveSandboxDiagnosticsInput,
+  SandboxDiagnosticCapability,
+  SandboxDiagnosticCapabilityStatus,
+  SandboxDiagnosticFailureReason,
+  SandboxDiagnosticFailureStage,
+  SandboxDiagnosticFileSystemMode,
+  SandboxDiagnosticNetworkMode,
+  SandboxDiagnosticsProvider,
+  SandboxDiagnosticsSnapshot,
+  SandboxRunTraceProjection,
 } from './sandbox/index.js';
 export type {
   SandboxBackend,
@@ -389,6 +402,15 @@ export type {
   SandboxTransformResult,
   SandboxType,
   SandboxablePreference,
+  SandboxErrorDomain,
+  SandboxErrorMetadata,
+  SandboxErrorStage,
+  SandboxErrorWithMetadata,
+} from './sandbox/index.js';
+export {
+  SandboxCommandError,
+  sandboxErrorMetadata,
+  serializeSandboxError,
 } from './sandbox/index.js';
 export {
   AGENT_CONTEXT_ISOLATED,

@@ -75,6 +75,7 @@ export const AGENT_RUN_EVENT_TYPES = [
   'run_created',
   'run_started',
   'turn_started',
+  'sandbox_context_resolved',
   'run_status_changed',
   'model_resolved',
   'model_resolve_failed',

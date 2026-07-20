@@ -84,6 +84,7 @@ import { PermissionEngine } from './permission-engine.js';
 import {
   AiSdkAutoApprovalReviewer,
   ApprovalCoordinator,
+  type AutoApprovalReviewContext,
   type AutoApprovalReviewer,
 } from './approval-reviewer.js';
 import { AsyncEventQueue } from './async-queue.js';
@@ -132,6 +133,12 @@ import {
 } from './ai-sdk-compaction.js';
 import type { ToolArtifactRecorder } from './tool-artifacts.js';
 import { RunTrace, type RunTraceRecorder } from './run-trace.js';
+import {
+  toSandboxRunTraceProjection,
+  type SandboxDiagnosticCapability,
+  type SandboxDiagnosticsSnapshot,
+} from './sandbox/diagnostics.js';
+import { renderSandboxTurnTailPrompt } from './system-prompt/sandbox-context-prompt.js';
 import { computeCost } from './telemetry/cost.js';
 import { getBuiltinPricing } from './telemetry/builtin-pricing.js';
 import {
@@ -272,6 +279,32 @@ function joinPromptFragments(fragments: readonly (string | undefined)[]): string
     .filter((fragment): fragment is string => Boolean(fragment))
     .join('\n\n');
   return joined.length > 0 ? joined : undefined;
+}
+
+function autoApprovalSandboxContext(
+  snapshot: SandboxDiagnosticsSnapshot,
+): NonNullable<AutoApprovalReviewContext['sandbox']> {
+  const { command, filesystem } = snapshot.capabilities;
+  return {
+    platform: snapshot.platform,
+    profileName: snapshot.profile.name,
+    fileSystem: snapshot.profile.fileSystem,
+    network: snapshot.profile.network,
+    commandSandbox: formatSandboxCapability(command),
+    filesystemSandbox: formatSandboxCapability(filesystem),
+    ...(command.selectionReason ? { commandSandboxSelectionReason: command.selectionReason } : {}),
+    ...(filesystem.selectionReason
+      ? { filesystemSandboxSelectionReason: filesystem.selectionReason }
+      : {}),
+    ...(command.failure ? { commandSandboxFailureReason: command.failure.reason } : {}),
+    ...(filesystem.failure ? { filesystemSandboxFailureReason: filesystem.failure.reason } : {}),
+  };
+}
+
+function formatSandboxCapability(capability: SandboxDiagnosticCapability): string {
+  return capability.backend === 'none'
+    ? capability.status
+    : `${capability.status} (${capability.backend})`;
 }
 
 // ============================================================================
@@ -422,6 +455,8 @@ export interface AiSdkBackendInput {
   /** Canonical-named tools available this session. Backend wraps each with
    *  permission gating before passing to ai-sdk. */
   tools: MakaTool[];
+  /** Active profile and enforcement capability snapshot for this session backend. */
+  sandboxDiagnosticsSnapshot?: SandboxDiagnosticsSnapshot;
   /** Trusted identity for expert-team lead/member collaboration tools. */
   agentTeam?: AgentTeamExecutionContext;
   /**
@@ -731,6 +766,9 @@ export class AiSdkBackend implements AgentBackend {
       }),
       getAutoApprovalReviewContext: () => ({
         ...(this.currentUserIntent !== undefined ? { userIntent: this.currentUserIntent } : {}),
+        ...(input.sandboxDiagnosticsSnapshot
+          ? { sandbox: autoApprovalSandboxContext(input.sandboxDiagnosticsSnapshot) }
+          : {}),
       }),
     });
   }
@@ -866,6 +904,11 @@ export class AiSdkBackend implements AgentBackend {
     });
     this.currentRunTrace = trace;
     trace.turnStarted();
+    if (this.input.sandboxDiagnosticsSnapshot) {
+      trace.sandboxContextResolved(
+        toSandboxRunTraceProjection(this.input.sandboxDiagnosticsSnapshot),
+      );
+    }
 
     // --- Resolve model (API key already attached at construct time) ---
     let model: unknown;
@@ -997,6 +1040,9 @@ export class AiSdkBackend implements AgentBackend {
           : joinPromptFragments([
               await this.resolveTurnTailPrompt(),
               await this.resolveShellRunContextSummary(),
+              this.input.sandboxDiagnosticsSnapshot
+                ? renderSandboxTurnTailPrompt(this.input.sandboxDiagnosticsSnapshot)
+                : undefined,
             ]);
         const currentUserContent = input.continuation
           ? undefined

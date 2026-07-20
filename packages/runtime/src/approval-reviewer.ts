@@ -21,10 +21,16 @@ export interface AutoApprovalReviewContext {
   readonly permissionMode: PermissionMode;
   readonly userIntent?: string;
   readonly sandbox?: {
+    readonly platform?: string;
     readonly profileName?: string;
     readonly fileSystem?: string;
     readonly network?: string;
     readonly commandSandbox?: string;
+    readonly filesystemSandbox?: string;
+    readonly commandSandboxSelectionReason?: string;
+    readonly filesystemSandboxSelectionReason?: string;
+    readonly commandSandboxFailureReason?: string;
+    readonly filesystemSandboxFailureReason?: string;
   };
 }
 

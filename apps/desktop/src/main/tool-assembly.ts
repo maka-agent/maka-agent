@@ -10,6 +10,7 @@ import {
   buildParentAgentTools,
   assertProductBindingCatalogClean,
   createBuiltinSandboxManager,
+  createSandboxDiagnosticsProvider,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
   resolveSkillDiscoveryPaths,
@@ -92,18 +93,28 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
   } = deps;
 
   const sandboxManager = createBuiltinSandboxManager();
-  const filesystemWorker = process.platform === 'darwin' && sandboxManager
-    ? new FilesystemWorkerClient({
-        sandboxManager,
-        getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
+  const filesystemWorkerLaunchSpecProvider =
+    process.platform === 'darwin'
+      ? createFilesystemWorkerLaunchSpecProvider({
           runtime: 'electron',
           executable: process.execPath,
           resourceLocation: app.isPackaged
             ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
             : { kind: 'runtime' },
-        }),
+        })
+      : undefined;
+  const filesystemWorker = sandboxManager && filesystemWorkerLaunchSpecProvider
+    ? new FilesystemWorkerClient({
+        sandboxManager,
+        getLaunchSpec: filesystemWorkerLaunchSpecProvider,
       })
     : undefined;
+  const sandboxDiagnosticsProvider = createSandboxDiagnosticsProvider({
+    ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorkerLaunchSpecProvider
+      ? { getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider }
+      : {}),
+  });
   // Unified tool availability (issue #37). Deferred capability groups (Rive,
   // Office, browser, agent orchestration) are withheld from the
   // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -273,5 +284,6 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
     builtinTools,
     toolAvailability,
     childAgentTools,
+    sandboxDiagnosticsProvider,
   };
 }
