@@ -632,7 +632,6 @@ export async function createMakaCliRuntimeContext(
       turnTailPrompt: ({ cwd }) =>
         buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
-      recordRunTrace: ctx.recordRunTrace,
       ...(ctx.recordProviderRequestCapture
         ? {
             recordProviderRequestCapture: async (capture) => {
