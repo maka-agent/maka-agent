@@ -308,6 +308,7 @@ export interface PromptCandidateDecisionEvent {
   heldInPassRateNoiseBand: number;
   heldOutPassRateNoiseBand: number;
   rewardHackScan?: PromptCandidateRewardHackScan;
+  samplingPromptHash?: string;
   metrics: unknown;
 }
 

@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import type { Config } from './contracts.js';
 import {
   appendFixedPromptWalEvent,
   FIXED_PROMPT_WAL_SCHEMA_VERSION,
   runFixedPromptController,
+  hashSystemPrompt,
   readFixedPromptWal,
   writeFixedPromptResultsTsv,
   type FixedPromptControllerResult,
@@ -56,7 +58,9 @@ import {
   buildPromptOptimizationReplayPlan,
   replayStateHasRecoverablePendingCandidateEvidence,
   replayPromptBaselinePartition,
+  replayControllerSweep,
   replayPromptDecisionRound,
+  readPromptHashAtCommit,
 } from './prompt-optimization-replay.js';
 
 /**
@@ -245,7 +249,8 @@ export async function runPromptOptimizationLoop(
   const sweep = (
     roundId: string,
     tasks: readonly FixedPromptTask[],
-    resultsTsvPath: string,
+    resultsTsvPath?: string,
+    options?: { protectPassAtOne?: boolean },
   ): Promise<FixedPromptControllerResult> =>
     runFixedPromptController({
       runId: input.runId,
@@ -258,6 +263,7 @@ export async function runPromptOptimizationLoop(
       harborRunner: input.harborRunner,
       ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
       ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
+      ...(options?.protectPassAtOne ? { protectPassAtOne: true } : {}),
       now,
       newId,
     });
@@ -537,7 +543,7 @@ export async function runPromptOptimizationLoop(
         : {}),
       candidateEvents: latestHeldInFeedbackEvents,
     });
-    const existingDecisionRound = replayPromptDecisionRound({
+    const existingDecisionRound = await replayPromptDecisionRound({
       events: resumeEvents,
       state: replayState,
       runId: input.runId,
@@ -547,6 +553,8 @@ export async function runPromptOptimizationLoop(
       executedHeldInTaskIds: stableHeldInTaskIds,
       executedHeldOutTaskIds: stableHeldOutTaskIds,
       ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+      promptRepoDir: input.git.gitRootPath,
+      systemPromptGitPath: input.git.systemPromptGitPath,
       heldInResultsTsvPath: input.heldInResultsTsvPath,
       heldOutResultsTsvPath: input.heldOutResultsTsvPath,
     });
@@ -562,6 +570,7 @@ export async function runPromptOptimizationLoop(
         );
       }
       const existingHeldInEvents = existingDecisionRound.heldIn.events;
+      if (existingDecisionRound.sampling) accumulate(existingDecisionRound.sampling);
       accumulate(existingDecisionRound.executedHeldIn);
       if (existingDecisionRound.executedHeldOut) accumulate(existingDecisionRound.executedHeldOut);
       const replayedRewardHackScan = await scanHeldIn(existingDecisionRound.executedHeldIn.events);
@@ -573,6 +582,9 @@ export async function runPromptOptimizationLoop(
           candidateHeldInEvents: existingHeldInEvents,
           previousHeldInReferencePassEligibleRate: heldInReference,
           heldInPassRateNoiseBand: activeBaseline.heldIn.noiseBand,
+          ...(existingDecisionRound.sampling
+            ? { samplingBaselineEvents: existingDecisionRound.sampling.events }
+            : {}),
           rewardHackScan: replayedRewardHackScan,
         }) === null
       ) {
@@ -596,6 +608,12 @@ export async function runPromptOptimizationLoop(
           ...existingHeldInEvents,
           ...(existingDecisionRound.heldOut?.events ?? []),
         ],
+        ...(existingDecisionRound.sampling
+          ? {
+              samplingBaselineEvents: existingDecisionRound.sampling.events,
+              samplingPromptHash: existingDecisionRound.decision.samplingPromptHash,
+            }
+          : {}),
         rewardHackScan: replayedRewardHackScan,
       });
       assertReplayedDecisionMatchesResult(existingDecisionRound.decision, replayedResult);
@@ -651,6 +669,53 @@ export async function runPromptOptimizationLoop(
     if (existingCandidate) {
       assertCandidateMatchesStableTaskSet(existingCandidate, decisionHeldInTaskIds);
     }
+    let samplingBaseline: FixedPromptControllerResult | undefined;
+    let samplingPromptHash: string | undefined;
+    if (!existingDecisionRound) {
+      const currentPromptHash = existingCandidate
+        ? await readPromptHashAtCommit({
+            promptRepoDir: input.git.gitRootPath,
+            commitSha: `${existingCandidate.commitSha}^`,
+            systemPromptGitPath: input.git.systemPromptGitPath,
+          })
+        : hashSystemPrompt(await readFile(input.systemPromptPath, 'utf8'));
+      const samplingRoundId = `sampling-${round}`;
+      const replayedSampling = replayControllerSweep({
+        events: resumeEvents,
+        runId: input.runId,
+        roundId: samplingRoundId,
+        taskIds: stableHeldInTaskIds,
+        expectedPromptHash: currentPromptHash,
+        ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+        resultsTsvPath: input.heldInResultsTsvPath,
+      });
+      if (replayedSampling) {
+        samplingBaseline = replayedSampling;
+        samplingPromptHash = currentPromptHash;
+        accumulate(replayedSampling);
+        const postSamplingGuard = stopGuard();
+        if (postSamplingGuard) {
+          stopReason = postSamplingGuard;
+          break;
+        }
+      } else if (!existingCandidate) {
+        const samplingGuard = stopGuard();
+        if (samplingGuard) {
+          stopReason = samplingGuard;
+          break;
+        }
+        samplingBaseline = await sweep(samplingRoundId, roundHeldInTasks, undefined, {
+          protectPassAtOne: true,
+        });
+        accumulate(samplingBaseline);
+        samplingPromptHash = currentPromptHash;
+        const postSamplingGuard = stopGuard();
+        if (postSamplingGuard) {
+          stopReason = postSamplingGuard;
+          break;
+        }
+      }
+    }
     const candidate =
       existingCandidate ??
       (await runPromptCandidateRound({
@@ -690,6 +755,7 @@ export async function runPromptOptimizationLoop(
       candidateHeldInEvents: heldInDecisionEvents,
       previousHeldInReferencePassEligibleRate: heldInReference,
       heldInPassRateNoiseBand: activeBaseline.heldIn.noiseBand,
+      ...(samplingBaseline ? { samplingBaselineEvents: samplingBaseline.events } : {}),
       rewardHackScan,
     });
     let heldOutExecutionEvents: readonly FixedPromptTaskWalEvent[] = [];
@@ -727,6 +793,12 @@ export async function runPromptOptimizationLoop(
       originalEvents: originalHeldOutEvents,
       lastKeptEvents: lastKeptHeldInEvents,
       candidateEvents: [...heldInDecisionEvents, ...heldOutDecisionEvents],
+      ...(samplingBaseline
+        ? {
+            samplingBaselineEvents: samplingBaseline.events,
+            samplingPromptHash,
+          }
+        : {}),
       rewardHackScan,
     });
     if (result.decision === 'discard') {
