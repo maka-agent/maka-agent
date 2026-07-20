@@ -187,7 +187,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /<div className="settingsUsageSummary" role="group" aria-label=\{copy\.summary\.aria\}>/,
+      /<div className="settingsGatewaySummary" role="group" aria-label=\{copy\.summary\.aria\}>/,
       'Open Gateway runtime metric cards must expose an accessible group name',
     );
     assert.match(
@@ -197,7 +197,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.doesNotMatch(
       gatewayBlock,
-      /<div className="settingsUsageSummary" aria-label=\{copy\.summary\.aria\}>/,
+      /<div className="settingsGatewaySummary" aria-label=\{copy\.summary\.aria\}>/,
       'Open Gateway runtime metrics must not regress to an anonymous status summary',
     );
     assert.doesNotMatch(
