@@ -13,6 +13,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const OAUTH_DIR = resolve(DESKTOP_ROOT, 'src', 'main', 'oauth');
@@ -129,16 +130,19 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
         `oauth/${file} must not invoke safeStorage`,
       );
     }
-    const mainSrc = await readFile(resolve(DESKTOP_ROOT, 'src', 'main', 'main.ts'), 'utf8');
+    // R6: credential startup moved to app-lifecycle.ts. Read the combined
+    // main-process source so the "hand safeStorage over, never invoke it" pin
+    // follows the code to its new home.
+    const mainSrc = await readMainProcessCombinedSource();
     assert.doesNotMatch(
       mainSrc,
       /safeStorage\s*\./,
-      'main.ts must only hand safeStorage to the legacy importers, never call it',
+      'main process must only hand safeStorage to the legacy importers, never call it',
     );
   });
 
   it('main.ts runs the one-shot legacy token import at startup, non-fatally', async () => {
-    const src = await readFile(resolve(DESKTOP_ROOT, 'src', 'main', 'main.ts'), 'utf8');
+    const src = await readMainProcessCombinedSource();
     assert.match(
       src,
       /try\s*\{[\s\S]{0,600}importLegacyOAuthTokenFiles\(\{[\s\S]*?\}\);?[\s\S]{0,600}catch/,
@@ -154,7 +158,7 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
   });
 
   it('finishes credential migration before the first window can issue OAuth mutations', async () => {
-    const src = await readFile(resolve(DESKTOP_ROOT, 'src', 'main', 'main.ts'), 'utf8');
+    const src = await readMainProcessCombinedSource();
     const credentialStartup = src.indexOf('await runCredentialStartup();');
     const backgroundStartup = src.indexOf('const backgroundStartup = runBackgroundStartup();');
     const createWindow = src.indexOf('await mainWindowController.createWindow();', backgroundStartup);

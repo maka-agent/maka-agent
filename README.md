@@ -57,7 +57,7 @@ Read [Maka Backend Architecture](./ARCHITECTURE.md) for the complete design.
 
 ### Requirements
 
-- Node.js 22 (the current CI baseline);
+- Node.js 22.19 or newer (CI uses Node.js 24);
 - npm (the lockfile and scripts use npm; the current `packageManager` is npm 11);
 - Git;
 - `ripgrep`, used by Runtime's `Grep` tool.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const MAIN_TS = resolve(import.meta.dirname, '../../../../../apps/desktop/src/main/main.ts');
 
@@ -30,7 +31,10 @@ describe('single-instance lock contract', () => {
   });
 
   it('second-instance shares behavior with activate: focus an existing window, or create one if none exists', async () => {
-    const src = await readFile(MAIN_TS, 'utf8');
+    // R6: the second-instance / activate registrations moved to
+    // app-lifecycle.ts (focusOrCreateMainWindow itself stays in main.ts), so
+    // read the combined main-process source to follow both across the split.
+    const src = await readMainProcessCombinedSource();
 
     // Regression guard for Astro-Han review (#494) P1: a second launch
     // attempt after all windows were closed (app still alive, e.g. macOS

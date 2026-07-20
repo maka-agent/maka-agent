@@ -1,12 +1,14 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
+// The lead/child team tool builders and the childAgentTools surface moved into
+// tool-assembly.ts (arch R4); the expert-dispatch + agentTeam backend wiring
+// stays in main.ts. Reading the combined main-process source keeps every
+// assertion intact across both files.
 describe('desktop agent-team collaboration wiring', () => {
   it('shares one durable mailbox/task ledger across lead and child tools', async () => {
-    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readFile(mainPath, 'utf8');
+    const main = await readMainProcessCombinedSource();
 
     assert.match(main, /const agentMailboxStore = createAgentMailboxStore\(workspaceRoot\)/);
     assert.match(

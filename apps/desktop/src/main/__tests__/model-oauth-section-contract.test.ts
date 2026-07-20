@@ -128,7 +128,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   it('provider detail actions localize and sanitize model-test / model-fetch failures', async () => {
     const providers = await readProviderSettingsCombinedSource();
     const main = await readMainProcessCombinedSource();
-    const detail = providers.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = providers.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
     const addForm = providers.match(/function AddProviderForm[\s\S]*?function nextSlug/)?.[0] ?? '';
 
     assert.match(
@@ -595,7 +595,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('OAuth model connection detail treats Base URL as fixed provider metadata, not an editable endpoint', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -635,14 +635,16 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(advanced > credential, 'credentials must remain the primary task before advanced settings');
     assert.ok(models > advanced, 'enabled-model management must stay inside advanced settings');
     assert.doesNotMatch(detail, /<ModelTable/, 'connection detail must not render a default-model picker');
-    assert.match(detail, /connectionLastTestMessageDisplay\(connection\.lastTestMessage, locale\)/);
+    // The last-test message goes through the display helper in the extracted
+    // controller (use-connection-detail.ts); the view renders the derived value.
+    assert.match(src, /connectionLastTestMessageDisplay\(connection\.lastTestMessage, locale\)/);
     assert.match(detail, /<RelativeTime ts=\{lastTestAtMs\}/);
     assert.doesNotMatch(detail, /<header>[\s\S]*\{connection\.name\}/, 'the shared DialogHeader must be the only title header');
   });
 
   it('does not let disabled OAuth connections become the default model', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -658,7 +660,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('keeps each Save action beside its field, disabled until that field is dirty', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -684,7 +686,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('forwards an empty service-address draft so the stored override can be cleared', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -734,7 +736,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('automatically persists enabled-model edits without a second Save action', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
     const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
     assert.match(
@@ -750,7 +752,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('surfaces provider detail save/delete failures instead of leaking rejected promises from actions', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -771,7 +773,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('surfaces provider detail credential-presence probe failures', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(src, /type CredentialPresenceStatus = boolean \| 'loading' \| 'error'/);
     assert.match(detail, /useState<CredentialPresenceStatus>\([\s\S]*defaults\.authKind === 'none' \? true : 'loading'/);
@@ -799,7 +801,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('shows but does not require LocalAI optional credentials', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(detail, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/);
     assert.match(detail, /const requiresCredential = providerAuthRequiresSecret\(connection\.providerType\)/);
@@ -808,7 +810,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
   it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
@@ -858,7 +860,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // props via useState would otherwise keep showing stale models /
     // defaultModel until the sheet is closed and reopened.
     const src = await readProviderSettingsCombinedSource();
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function GitHubCopilotReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       src,
@@ -1366,7 +1368,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readProviderSettingsCombinedSource();
     const mapping = src.match(/function oauthLoginServiceFor\(providerType: ProviderType\): OAuthLoginService \| null \{[\s\S]*?\n\}/)?.[0] ?? '';
     const notice = src.match(/function OAuthReloginNotice\([\s\S]*?\ntype ConnectionDetailSnapshot/)?.[0] ?? '';
-    const detail = src.match(/function ConnectionDetail[\s\S]*?function OAuthReloginNotice/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     // Loopback services (Codex, Antigravity) get a bridge; Claude's paste flow
     // and plain API-key providers fall through to null so the notice renders

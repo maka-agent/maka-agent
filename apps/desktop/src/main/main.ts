@@ -1,18 +1,13 @@
-import { app, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, safeStorage, shell } from 'electron';
+import { app, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
+import { join } from 'node:path';
+import { wireAppLifecycle } from './app-lifecycle.js';
 import {
   DEFAULT_SESSION_NAME,
   filterModelVisibleTaskLedgerTasks,
-  isDeepResearchSession,
-  resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
-  expertTeamIdFromLabels,
 } from '@maka/core';
 import type {
-  AppSettings,
   BotProvider,
   ConnectionEvent,
   CreateSessionInput,
@@ -20,55 +15,29 @@ import type {
   SessionChangedEvent,
   SessionChangedReason,
   SessionEvent,
-  UpdateAppSettingsInput,
 } from '@maka/core';
 import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
-import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
-import { buildRiveWorkflowTool } from './rive-workflow-tool.js';
 import { runThreadSearch } from './search/thread-search.js';
-import {
-  persistArchivedToolResultToArtifacts,
-  readArchivedToolResultFromArtifacts,
-} from './tool-result-archive-artifacts.js';
+import { assembleDesktopTools } from './tool-assembly.js';
+import { createToolArtifactPersistence } from './tool-artifact-persistence.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
-import { importLegacyOAuthTokenFiles } from './oauth/shared-credential-bridge.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import { ok } from '@maka/core/settings/result';
 import {
-  AiSdkBackend,
   BackendRegistry,
   FakeBackend,
   PermissionEngine,
   SessionManager,
-  buildBuiltinTools,
-  buildMcpTools,
-  buildAskUserQuestionTool,
-  createBuiltinSandboxManager,
-  createFilesystemWorkerLaunchSpecProvider,
-  FilesystemWorkerClient,
-  buildChildAgentTools,
-  buildAgentTeamChildTools,
-  buildAgentTeamLeadTools,
-  buildExpertDispatchToolForTeamId,
-  buildParentAgentTools,
-  assertProductBindingCatalogClean,
-  buildDeferredToolGroupsFromCatalog,
-  buildHostCapabilitiesFromBinding,
-  SKILL_TOOL_NAME,
   createLocalContinuationSafetyInspector,
   getAIModel,
   generateSessionTitle as generateRuntimeSessionTitle,
   buildProviderOptions,
-  recordLlmCall,
-  recordToolInvocation,
   buildPricingLookup,
   BotRegistry,
-  setActiveProxy,
   ShellRunProcessManager,
   SessionActivityRegistry,
 } from '@maka/runtime';
@@ -78,19 +47,11 @@ import type {
   GoalTurnOutcome,
   HostCapabilities,
   HostCapabilitiesResolver,
-  MakaTool,
-  SessionActivityLease,
-  ToolAvailabilityConfig,
-  ToolArtifactRecorderInput,
-  ToolResultArchiveReaderInput,
-  ToolResultArchiveReadResult,
-  ToolResultArchiveRecorderInput,
 } from '@maka/runtime';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import {
   createAgentRunStore,
   createAgentMailboxStore,
-  createAttachmentByteReader,
   createArtifactStore,
   createReadImageSnapshotter,
   createConnectionStore,
@@ -106,69 +67,31 @@ import { McpClientManager } from '@maka/mcp';
 import { registerMcpIpcMain } from './mcp-ipc-main.js';
 import {
   ensureSessionCanSendOrRebind,
-  errorCode,
   errorMessage,
-  errorReason,
   requireReadyConnection,
 } from './chat-readiness.js';
-import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
+import { createFileCredentialStore } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
-import { resolveSkillDiscoveryPaths } from '@maka/runtime';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
-import { preserveSensitivePlaceholders } from './settings-ipc-helpers.js';
-import {
-  buildSkillAgentTool,
-} from './skills.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
-import {
-  resolveVisualSmokeFixture,
-  seedVisualSmokeFixture,
-} from './visual-smoke-fixture.js';
+import { resolveVisualSmokeFixture } from './visual-smoke-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
 import { createAttachmentApprovalRegistry } from './attachment-approval.js';
-import { buildExploreAgentTool } from './explore-agent-tool.js';
-import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
-import {
-  buildLlmHistorySummarizer,
-  cleanupLegacyHistoryCompactArtifacts,
-  loadHistoryCompactBlocksFromArtifacts,
-  loadSynthesisCacheBlocksFromArtifacts,
-  persistSynthesisCacheBlocksToArtifacts,
-} from '@maka/runtime';
-import { buildBrowserTools } from './browser/browser-tools.js';
-import {
-  computerUseServiceHealth,
-  createComputerUseHost,
-} from './computer-use-host.js';
-import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
-import {
-  applyComputerUseRealModelPolicy,
-  parseComputerUseRealModelPolicy,
-} from './computer-use-real-model-policy.js';
-import {
-  computerUseAvailabilityForModel,
-  computerUseToolsForModel,
-} from './computer-use-model-tools.js';
-import { createComputerUseOverlayHook } from '@maka/computer-use';
+import { cleanupLegacyHistoryCompactArtifacts } from '@maka/runtime';
+import { computerUseServiceHealth } from './computer-use-host.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
 import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
-import { buildDefaultContextBudgetPolicy, resolveSelectedModelContextWindow } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createMainGoalWiring } from './goal-wiring.js';
-import { startDesktopSessionTurn, type SessionGoalBoundary } from './session-turn-stream.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
-import {
-  maskNetworkSettings,
-  toContractNetworkSettings,
-} from './network-settings-main.js';
 import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
@@ -191,6 +114,8 @@ import { registerSettingsIpc } from './settings-ipc-main.js';
 import type { SettingsIpcHandle } from './settings-ipc-main.js';
 import { createVisualSmokeBotOnboardingAdapters } from './bot-onboarding-visual-smoke.js';
 import { createKeepSystemAwakeController } from './keep-system-awake.js';
+import { createSettingsRuntimeEffects } from './settings-runtime-effects.js';
+import { createAiSdkBackendFactory, createSessionStreamer } from './session-stream.js';
 import { registerGatewayIpc } from './gateway-ipc-main.js';
 import { registerSessionsIpc } from './sessions-ipc-main.js';
 import {
@@ -263,7 +188,6 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
-let configWatcher: ConfigFileWatcher | undefined;
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
 // machine would otherwise sleep. Injected with electron's blocker; the
@@ -380,20 +304,6 @@ const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
 const agentMailboxStore = createAgentMailboxStore(workspaceRoot);
-
-interface StreamEventsOptions {
-  turnId: string;
-  goalBoundary: SessionGoalBoundary;
-  activity?: SessionActivityLease;
-  observeEvent?: (event: SessionEvent) => void;
-}
-
-interface StreamEventsResult {
-  turnId: string;
-  ok: boolean;
-  error?: string;
-  outcome: GoalTurnOutcome;
-}
 
 const sessionActivities = new SessionActivityRegistry();
 
@@ -637,161 +547,41 @@ const shellRuns = new ShellRunProcessManager({
     safeSendToRenderer('shell-runs:update', update);
   },
 });
-const sandboxManager = createBuiltinSandboxManager();
-const filesystemWorker = process.platform === 'darwin' && sandboxManager
-  ? new FilesystemWorkerClient({
-      sandboxManager,
-      getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
-        runtime: 'electron',
-        executable: process.execPath,
-        resourceLocation: app.isPackaged
-          ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
-          : { kind: 'runtime' },
-      }),
-    })
-  : undefined;
-// Unified tool availability (issue #37). Deferred capability groups (Rive,
-// Office, browser, agent orchestration) are withheld from the
-// per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
-// off the wire until needed. Everything else (ungrouped) stays always-on.
-// Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
-// and advertise every tool every turn (legacy behavior).
-const economyEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
-const riveTools: MakaTool[] = [buildRiveWorkflowTool()];
-const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
-// Embedded-browser observe→act tools. They drive the conversation's own
-// WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
-// outside the app (no host) they report the browser as unavailable.
-const browserTools: MakaTool[] = buildBrowserTools();
-const computerUseOverlay = createCursorOverlayController();
-onMainWindowClose = () => computerUseOverlay.destroyAll();
-const computerUseHost = createComputerUseHost({
-  isPackaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  compressFrame: (base64) => {
-    try {
-      const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
-      return image.isEmpty()
-        ? { base64, mimeType: 'image/png' }
-        : {
-            base64: image.toJPEG(82).toString('base64'),
-            mimeType: 'image/jpeg',
-          };
-    } catch {
-      return { base64, mimeType: 'image/png' };
-    }
-  },
-  physicalInputRecentlyActive: () => powerMonitor.getSystemIdleTime() < 1,
-  ...(isComputerUseRealModelE2e
-    ? {
-        onTrace: (event) => {
-          const tracePath = process.env.MAKA_CU_REAL_MODEL_TRACE;
-          if (!tracePath) return;
-          void import('node:fs/promises').then(({ appendFile }) =>
-            appendFile(tracePath, `${JSON.stringify(event)}\n`, {
-              encoding: 'utf8',
-              mode: 0o600,
-            }),
-          ).catch(() => {});
-        },
-      }
-    : {}),
-  overlay: createComputerUseOverlayHook(computerUseOverlay),
-});
-const computerUse = computerUseHost.selected;
-const computerUseTools = applyComputerUseRealModelPolicy(
-  computerUse.tools,
-  isComputerUseRealModelE2e
-    ? parseComputerUseRealModelPolicy(
-        process.env.MAKA_CU_REAL_MODEL_POLICY,
-      )
-    : undefined,
-);
-const agentTools: MakaTool[] = buildParentAgentTools({
-  taskLedger: taskLedgerStore,
-});
-const agentTeamLeadTools = buildAgentTeamLeadTools({
-  mailbox: agentMailboxStore,
-  taskLedger: taskLedgerStore,
-});
-const agentTeamChildTools = buildAgentTeamChildTools({
-  mailbox: agentMailboxStore,
-  taskLedger: taskLedgerStore,
-});
-const deferredTools: MakaTool[] = [
-  ...riveTools,
-  ...officeTools,
-  ...browserTools,
-  ...computerUseTools,
-  ...agentTools,
-];
-const webSearchTool = buildWebSearchAgentTool({
+const {
+  persistToolArtifacts,
+  snapshotReadImage,
+  persistArchivedToolResult,
+  readArchivedToolResult,
+} = createToolArtifactPersistence({ artifactStore, storeReadImage, safeSendToRenderer });
+
+const {
+  riveTools,
+  officeTools,
+  browserTools,
+  computerUse,
+  computerUseOverlay,
+  computerUseTools,
+  agentTeamLeadTools,
+  desktopHostCapabilities,
+  builtinTools,
+  toolAvailability,
+  childAgentTools,
+} = assembleDesktopTools({
+  isComputerUseRealModelE2e,
+  workspaceRoot,
+  taskLedgerStore,
+  taskLedgerWiring,
+  automationWiring,
+  goalWiring,
+  agentMailboxStore,
   settingsStore,
-  getPrivacyContext: getWorkspacePrivacyContext,
-});
-// Assemble product tools first, then derive skill host + deferred groups from
-// the shared catalog ∩ this binding (#1099 S2). Skill listing uses the same host.
-const toolsBeforeSkill: MakaTool[] = [
-  buildAskUserQuestionTool(),
-  ...buildBuiltinTools({
-    shellRuns,
-    runtimeResources: shellRuns,
-    backgroundTasks: shellRuns,
-    ptyControls: shellRuns,
-    snapshotImage: snapshotReadImage,
-    ...(sandboxManager ? { sandboxManager } : {}),
-    ...(filesystemWorker ? {
-      filesystemWorker,
-      enableBashAdditionalPermissions: true,
-      enableFileToolAdditionalPermissions: true,
-    } : {}),
-  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
-];
-const toolsAfterSkill: MakaTool[] = [
-  // External reference plan-mode borrow: a bounded read-only local worker for
-  // self-contained code/repo investigations. The tool advertises the
-  // `subagent` category; explore mode allows it, but the implementation
-  // itself only reads filenames/text snippets under the session cwd.
-  buildExploreAgentTool(),
-  // PR-AGENT-WEB-SEARCH-TOOL-0: Tavily-backed WebSearch tool. Closed
-  // over settingsStore so the renderer never sees the API key; the
-  // permission engine routes it through the `web_read` policy which
-  // prompts the user in explore / ask modes.
-  webSearchTool,
-  // Session task ledger: model manages a flat task list; the current list is
-  // re-injected each turn tail. Pure local state, so no permission gate.
-  ...taskLedgerWiring.tools,
-  // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
-  ...automationWiring.tools,
-  // Goal execution: GoalSet/Clear/Status/Pause/Resume — autonomous turn-boundary continuation.
-  ...goalWiring.tools,
-  // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
-  // group tools just need to be present so they are dispatchable once loaded.
-  ...deferredTools,
-];
-// Always-on Skill name is part of the host surface even before the tool instance
-// is built (so requiredTools gates and capability tags stay complete).
-const desktopBoundToolNames = [
-  ...toolsBeforeSkill.map((tool) => tool.name),
-  SKILL_TOOL_NAME,
-  ...toolsAfterSkill.map((tool) => tool.name),
-];
-assertProductBindingCatalogClean('desktop', desktopBoundToolNames);
-const desktopHostCapabilities = buildHostCapabilitiesFromBinding(desktopBoundToolNames);
-// External reference lazy-skill pattern: the prompt lists available skills,
-// and this read-only tool loads the full SKILL.md only when the task matches.
-// Resolve per-call from the session cwd so skills at all 5 standard paths
-// (cwd/.maka, cwd/.agents, workspaceRoot/skills, ~/.maka, ~/.agents) are
-// discovered — matching the CLI and the Agent Skills spec (#1068).
-const skillTool = buildSkillAgentTool(
-  ({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot),
+  shellRuns,
+  snapshotReadImage,
+  getWorkspacePrivacyContext,
   resolveDesktopSkillHost,
-);
-const builtinTools: MakaTool[] = [...toolsBeforeSkill, skillTool, ...toolsAfterSkill];
-const toolAvailability: ToolAvailabilityConfig = {
-  economy: economyEnabled,
-  groups: buildDeferredToolGroupsFromCatalog('desktop', desktopBoundToolNames),
-};
+});
+// Cursor-overlay teardown assigns a module-scoped `let`, so it stays in main.ts.
+onMainWindowClose = () => computerUseOverlay.destroyAll();
 const systemPromptService = createSystemPromptMainService({
   settingsStore,
   workspaceRoot,
@@ -800,21 +590,6 @@ const systemPromptService = createSystemPromptMainService({
   goalManager: goalWiring.manager,
   hostCapabilities: desktopHostCapabilities,
 });
-// Child agents stay file-only for local reads; parent runtime refs such as
-// maka://runtime/background-tasks/<id> are not part of their tool surface.
-const childAgentTools = buildChildAgentTools([
-  ...buildBuiltinTools({
-    snapshotImage: snapshotReadImage,
-    ...(sandboxManager ? { sandboxManager } : {}),
-    ...(filesystemWorker ? {
-      filesystemWorker,
-      enableBashAdditionalPermissions: true,
-      enableFileToolAdditionalPermissions: true,
-    } : {}),
-  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
-  webSearchTool,
-  ...agentTeamChildTools,
-]);
 let lookupPricing = buildPricingLookup();
 // Track the last status fields that affect persisted diagnostics. The reason
 // is part of the key because a running bridge can remain degraded while a
@@ -892,226 +667,33 @@ const planReminders = createPlanReminderMainService({
 
 app.setName('Maka');
 
-async function persistToolArtifacts(cwd: string, event: ToolArtifactRecorderInput): Promise<void> {
-  for (const candidate of event.candidates) {
-    let content = candidate.content;
-    if (content === undefined && candidate.sourcePath) {
-      const sourcePath = await resolveToolArtifactSourcePath(cwd, candidate.sourcePath);
-      if (!sourcePath) continue;
-      content = await readFile(sourcePath);
-    }
-    if (content === undefined) continue;
-    const artifact = await artifactStore.create({
-      sessionId: event.sessionId,
-      turnId: event.turnId,
-      name: candidate.name,
-      kind: candidate.kind,
-      content,
-      ...(candidate.mimeType ? { mimeType: candidate.mimeType } : {}),
-      source: candidate.source ?? 'tool_result',
-      ...(candidate.summary ? { summary: candidate.summary } : {}),
-    });
-    safeSendToRenderer('artifacts:changed', {
-      reason: 'created',
-      artifactId: artifact.id,
-      sessionId: artifact.sessionId,
-      ts: Date.now(),
-    });
-  }
-}
-
-async function snapshotReadImage(input: {
-  sessionId: string;
-  turnId: string;
-  name: string;
-  bytes: Uint8Array;
-  mimeType: string;
-}) {
-  const ref = await storeReadImage(input);
-  safeSendToRenderer('artifacts:changed', {
-    reason: 'created',
-    artifactId: ref.relativePath,
-    sessionId: ref.sessionId,
-    ts: Date.now(),
-  });
-  return ref;
-}
-
-async function persistArchivedToolResult(
-  event: ToolResultArchiveRecorderInput,
-): Promise<{ artifactId: string }> {
-  return persistArchivedToolResultToArtifacts(artifactStore, event);
-}
-
-async function readArchivedToolResult(
-  event: ToolResultArchiveReaderInput,
-): Promise<ToolResultArchiveReadResult> {
-  return readArchivedToolResultFromArtifacts(artifactStore, event);
-}
-
-async function resolveToolArtifactSourcePath(cwd: string, sourcePath: string): Promise<string | null> {
-  const candidate = isAbsolute(sourcePath) ? sourcePath : resolve(cwd, sourcePath);
-  let root: string;
-  let target: string;
-  try {
-    [root, target] = await Promise.all([
-      realpath(cwd),
-      realpath(candidate),
-    ]);
-  } catch {
-    return null;
-  }
-  return isInsideOrSamePath(root, target) ? target : null;
-}
-
-function isInsideOrSamePath(root: string, target: string): boolean {
-  if (target === root) return true;
-  const rel = relative(root, target);
-  return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
-}
-
-function modelSupportsVision(connection: LlmConnection, model: string): boolean {
-  return resolveModelVisionSupport(connection.providerType, connection.models, model);
-}
-
-backends.register('ai-sdk', async (ctx) => {
-  // MCP is optional. A corrupt mcp.json remains visible in the MCP module,
-  // but must not prevent builtin-only conversations from creating a backend.
-  await ensureMcpReady().catch(() => {});
-  const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
-  const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
-  const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
-  const supportsVision = modelSupportsVision(connection, model);
-  const candidateTools = isComputerUseRealModelE2e
-    ? computerUseTools
-    : ctx.tools
-      ? [...ctx.tools]
-      : [...builtinTools, ...buildMcpTools(mcpManager)];
-  const candidateToolAvailability = isComputerUseRealModelE2e
-    ? { economy: false, groups: [] }
-    : toolAvailability;
-  // Expert-team lead: a main session (ctx.tools undefined) labeled
-  // `mode:expert-team:<teamId>` gets the team-bound expert_dispatch tool.
-  // Child turns receive scoped `ctx.tools` and inherit the label, but must NOT
-  // get expert_dispatch — members cannot spawn nested teams.
-  const expertTeamId = ctx.tools ? undefined : expertTeamIdFromLabels(ctx.header.labels);
-  const expertDispatchTool = expertTeamId
-    ? buildExpertDispatchToolForTeamId(expertTeamId, { taskLedger: taskLedgerStore })
-    : undefined;
-  const agentTeam = ctx.agentTeam ?? (expertTeamId
-    ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
-    : undefined);
-  const backendTools = computerUseToolsForModel(
-    candidateTools,
-    computerUseTools,
-    supportsVision,
-  );
-  const backendToolAvailability = computerUseAvailabilityForModel(
-    candidateToolAvailability,
-    supportsVision,
-  );
-  const backendToolNames = new Set([
-    ...backendTools.map((tool) => tool.name),
-    ...(expertDispatchTool ? [expertDispatchTool.name, ...agentTeamLeadTools.map((tool) => tool.name)] : []),
-  ]);
-  const backendCapabilities = new Set<string>();
-  for (const [capability, tools] of [
-    ['rive', riveTools],
-    ['office', officeTools],
-    ['browser', browserTools],
-    ['computer_use', computerUseTools],
-  ] as const) {
-    if (tools.some((tool) => backendToolNames.has(tool.name))) backendCapabilities.add(capability);
-  }
-  const backendSkillHost: HostCapabilities = {
-    toolNames: backendToolNames,
-    capabilities: backendCapabilities,
-  };
-  // Child backends share the parent sessionId but intentionally have a
-  // narrower tool surface. They do not receive the Desktop Skill tool, so
-  // they must not overwrite the parent session's resolver entry.
-  if (!ctx.tools) desktopSessionSkillHosts.set(ctx.sessionId, backendSkillHost);
-
-  return new AiSdkBackend({
-    sessionId: ctx.sessionId,
-    header: { ...ctx.header, model },
-    appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
-    connection,
-    apiKey: apiKey ?? '',
-    modelId: model,
-    permissionEngine,
-    modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: expertDispatchTool
-      ? [...backendTools, expertDispatchTool, ...agentTeamLeadTools]
-      : backendTools,
-    agentTeam,
-    toolAvailability: backendToolAvailability,
-    spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
-    listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
-    readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
-    providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
-    contextBudget: buildDefaultContextBudgetPolicy(connection, {
-      name: 'desktop-default-history-budget',
-      modelId: model,
-    }),
-    systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
-      memoryFragment: memoryPromptSnapshot,
-      childInstruction: ctx.systemPrompt,
-      skillBudget: { contextWindow: resolveSelectedModelContextWindow(connection, model) },
-      host: backendSkillHost,
-    }),
-    turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
-    shellRunContextSummary: ctx.shellRunContextSummary,
-    lookupPricing,
-    recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
-    recordToolInvocation: (event: ToolInvocationRecord) =>
-      recordToolInvocation(
-        { repo: telemetryRepo },
-        // PR-AGENT-WEB-SEARCH-TOOL-0: scrub the query out of the
-        // telemetry record. The agent passes the raw user query as
-        // the tool argument; persisting it in `argsSummary` would
-        // leak user-derived content into the usage log.
-        event.toolName === WEB_SEARCH_TOOL_NAME
-          ? { ...event, argsSummary: undefined }
-          : event,
-      ),
-    recordToolArtifacts: (event: ToolArtifactRecorderInput) => persistToolArtifacts(ctx.header.cwd, event),
-    archiveToolResult: (event: ToolResultArchiveRecorderInput) => persistArchivedToolResult(event),
-    readToolResultArchive: (event: ToolResultArchiveReaderInput) => readArchivedToolResult(event),
-    readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
-    ...(runtimePersistence.runtimeCommitStore
-      ? { runtimeCommitSink: runtimePersistence.runtimeCommitStore }
-      : {}),
-    supportsVision,
-    loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
-    loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
-    summarizeHistoryCompact: buildLlmHistorySummarizer({
-      // Reuse the same connection/model the session already drives, so the
-      // summary stays consistent with the model that will consume it.
-      resolveModel: () =>
-        getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
-      providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
-    }),
-    loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
-    writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
-      onArtifactCreated: (artifact) => {
-        safeSendToRenderer('artifacts:changed', {
-          reason: 'created',
-          artifactId: artifact.id,
-          sessionId: artifact.sessionId,
-          ts: Date.now(),
-        });
-      },
-    }),
-    recordRunTrace: ctx.recordRunTrace,
-    recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
-    loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
-    recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
-    recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
-    newId: randomUUID,
-    now: Date.now,
-  });
-});
+backends.register('ai-sdk', createAiSdkBackendFactory({
+  isComputerUseRealModelE2e,
+  ensureMcpReady,
+  getReadyConnection,
+  buildSubscriptionModelFetch,
+  systemPromptService,
+  mcpManager,
+  permissionEngine,
+  taskLedgerStore,
+  telemetryRepo,
+  artifactStore,
+  desktopSessionSkillHosts,
+  riveTools,
+  officeTools,
+  browserTools,
+  computerUseTools,
+  agentTeamLeadTools,
+  builtinTools,
+  toolAvailability,
+  persistToolArtifacts,
+  persistArchivedToolResult,
+  readArchivedToolResult,
+  runtimeCommitStore: runtimePersistence.runtimeCommitStore,
+  safeSendToRenderer,
+  getRuntime: () => runtime,
+  getLookupPricing: () => lookupPricing,
+}));
 
 backends.register('fake', (ctx) =>
   new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
@@ -1389,147 +971,26 @@ function canCreateFakeSessionFromRenderer(): boolean {
   );
 }
 
-async function normalizeSettingsPatch(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsInput> {
-  const current = await settingsStore.get();
-  return preserveSensitivePlaceholders(patch, current);
-}
-
-async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateAppSettingsInput): Promise<void> {
-  if (patch.network) {
-    const network = toContractNetworkSettings(settings.network);
-    setActiveProxy(network.proxy);
-    safeSendToRenderer('settings:network:changed', maskNetworkSettings(network));
-  }
-  if (patch.botChat) {
-    await botRegistry.applySettings(settings.botChat);
-  }
-  if (patch.openGateway) {
-    const status = await openGateway.sync(settings.openGateway);
-    safeSendToRenderer('gateway:statusChanged', status);
-  }
-  if (patch.chatDefaults?.permissionMode) {
-    await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
-  }
-  if (patch.system) {
-    // Start/stop the power-save blocker the instant the toggle flips so the
-    // capability reflects the user's choice without waiting for a relaunch.
-    keepSystemAwake.apply(settings.system.keepSystemAwake);
-  }
-}
-
-async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
-  const sessions = await runtime.listSessions();
-  await Promise.all(sessions.map(async (session) => {
-    if (session.permissionMode === mode) return;
-    if (isDeepResearchSession(session.labels)) return;
-    if (session.status === 'running' || session.status === 'waiting_for_user') return;
-    try {
-      await runtime.setPermissionMode(session.id, mode);
-      emitSessionsChanged('mode-change', session.id);
-    } catch {
-      // Best effort: the persisted global default is still the authority for
-      // new sessions; busy sessions can be reconciled on a later change.
-    }
-  }));
-}
-
-async function handleExternalSettingsChange(): Promise<void> {
-  try {
-    const settings = await settingsStore.get();
-    const fullPatch: UpdateAppSettingsInput = {
-      network: settings.network,
-      botChat: settings.botChat,
-      openGateway: settings.openGateway,
-      system: settings.system,
-    };
-    await applySettingsRuntimeEffects(settings, fullPatch);
-  } catch (error) {
-    console.error('[config-watcher] failed to apply external settings change:', error);
-  }
-  // Always notify renderer, even on partial failure above
-  safeSendToRenderer('settings:externalChanged', { ts: Date.now() });
-}
-
-function streamEvents(
-  sessionId: string,
-  iterator: AsyncIterable<SessionEvent>,
-  options: StreamEventsOptions,
-): Promise<StreamEventsResult> {
-  let userAppendBroadcasted = false;
-  const turnId = options.turnId;
-  const started = startDesktopSessionTurn({
-    sessionId,
-    events: iterator,
-    turnId,
-    goalBoundary: options.goalBoundary,
-    activities: sessionActivities,
-    ...(options.activity ? { activity: options.activity } : {}),
-    beginExternalTurn: (externalSessionId, externalTurnId) =>
-      goalWiring.coordinator.beginExternalTurn(externalSessionId, externalTurnId),
-    onEvent: (event) => {
-      if (!userAppendBroadcasted) {
-        emitSessionsChanged('message-appended', sessionId);
-        userAppendBroadcasted = true;
-      }
-      safeSendToRenderer(`sessions:event:${sessionId}`, event);
-      openGateway.publishSessionEvent(sessionId, event);
-      if (isStatusChangingSessionEvent(event)) {
-        emitSessionsChanged('status-change', sessionId);
-      }
-      if (isTurnStatusChangingSessionEvent(event)) {
-        emitSessionsChanged('turn-status-change', sessionId);
-        computerUseOverlay.clearForSession(sessionId);
-        computerUseTools.clearSession(sessionId);
-      }
-      options.observeEvent?.(event);
-    },
-    onStreamError: (error) => {
-      const event = {
-        type: 'error',
-        id: randomUUID(),
-        turnId,
-        ts: Date.now(),
-        recoverable: false,
-        code: errorCode(error),
-        reason: errorReason(error),
-        message: errorMessage(error),
-      } satisfies SessionEvent;
-      safeSendToRenderer(`sessions:event:${sessionId}`, event);
-      openGateway.publishSessionEvent(sessionId, event);
-      emitSessionsChanged('status-change', sessionId);
-      emitSessionsChanged('turn-status-change', sessionId);
-      computerUseOverlay.clearForSession(sessionId);
-      computerUseTools.clearSession(sessionId);
-    },
-    onDrained: () => {
-      emitSessionsChanged('message-appended', sessionId);
-    },
+const { normalizeSettingsPatch, applySettingsRuntimeEffects, handleExternalSettingsChange } =
+  createSettingsRuntimeEffects({
+    settingsStore,
+    botRegistry,
+    openGateway,
+    keepSystemAwake,
+    runtime,
+    safeSendToRenderer,
+    emitSessionsChanged,
   });
-  if (started.kind === 'unavailable') throw new Error(started.reason);
-  return started.completion.then((outcome) => {
-    const failureReason = outcome.kind === 'errored' || outcome.kind === 'suspended'
-      ? outcome.reason
-      : undefined;
-    return {
-      turnId,
-      ok: outcome.kind === 'completed',
-      ...(failureReason ? { error: failureReason } : {}),
-      outcome,
-    };
-  });
-}
 
-function isStatusChangingSessionEvent(event: SessionEvent): boolean {
-  return event.type === 'permission_request' ||
-    event.type === 'permission_decision_ack' ||
-    event.type === 'complete' ||
-    event.type === 'abort' ||
-    event.type === 'error';
-}
-
-function isTurnStatusChangingSessionEvent(event: SessionEvent): boolean {
-  return event.type === 'complete' || event.type === 'abort' || event.type === 'error';
-}
+const streamEvents = createSessionStreamer({
+  sessionActivities,
+  goalWiring,
+  openGateway,
+  computerUseOverlay,
+  computerUseTools,
+  safeSendToRenderer,
+  emitSessionsChanged,
+});
 
 async function ensureSessionCanSend(sessionId: string): Promise<void> {
   const header = await readAvailableSessionHeader(sessionId);
@@ -1671,228 +1132,39 @@ function emitSessionsChanged(
   safeSendToRenderer('sessions:changed', event);
 }
 
-async function recoverInterruptedSessionsOnStartup(): Promise<void> {
-  try {
-    await runtime.recoverInterruptedSessions();
-    if (process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME !== '1') return;
-    for (const session of await runtime.listSessions()) {
-      const plan = await runtime.planLatestAuthoritativeSafeBoundaryContinuation(session.id);
-      if (!plan.continuation) continue;
-      const iterator = runtime.resumeSafeBoundaryContinuation(plan.continuation);
-      void streamEvents(session.id, iterator, {
-        turnId: plan.continuation.turnId,
-        goalBoundary: 'none',
-      });
-    }
-  } catch {
-    // Best-effort: startup should still reach the renderer so users can inspect
-    // and repair any remaining local session state.
-  }
-}
-
-async function ensureBootstrapConnection(): Promise<void> {
-  await mkdir(workspaceRoot, { recursive: true });
-  if ((await connectionStore.list()).length > 0) return;
-
-  if (process.env.ANTHROPIC_API_KEY) {
-    const slug = 'env-anthropic';
-    await connectionStore.create({
-      slug,
-      name: 'Anthropic (env)',
-      providerType: 'anthropic',
-      defaultModel: 'claude-sonnet-4-5-20250929',
-    });
-    await credentialStore.setSecret(slug, 'api_key', process.env.ANTHROPIC_API_KEY);
-    await connectionStore.setDefault(slug);
-    // Bootstrap runs in BACKGROUND startup (#456): the renderer may have
-    // already seeded its connection list from the onboarding snapshot,
-    // so push the change or the model picker stays empty until an
-    // unrelated action refreshes it.
-    emitConnectionListChanged();
-    return;
-  }
-
-  if (process.env.OPENAI_API_KEY) {
-    const slug = 'env-openai';
-    await connectionStore.create({
-      slug,
-      name: 'OpenAI (env)',
-      providerType: 'openai',
-      defaultModel: 'gpt-4o-mini',
-    });
-    await credentialStore.setSecret(slug, 'api_key', process.env.OPENAI_API_KEY);
-    await connectionStore.setDefault(slug);
-    emitConnectionListChanged();
-  }
-}
-
 registerIpc();
 
-app.whenReady().then(async () => {
-  // PR-GRAY-CARD-LIFT-0 (WAWQAQ msg `0eb99429` 2026-06-20): set the
-  // app's dock icon (macOS) so the dev `npm start` run shows Maka's
-  // brand mark instead of the generic Electron icon. Packaged
-  // builds get the icon via .app bundle Info.plist; this covers the
-  // dev path.
-  if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isIsolatedE2e) {
-      // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
-      // Electron runs as an accessory app — no dock bounce, and it
-      // never becomes frontmost / steals focus from the developer's
-      // active window during a capture run or an E2E run.
-      app.dock.hide();
-    } else {
-      try {
-        const iconPath = join(import.meta.dirname, '..', '..', 'assets', 'icon.png');
-        app.dock.setIcon(nativeImage.createFromPath(iconPath));
-      } catch (error) {
-        console.error('[icon] failed to set dock icon:', error);
-      }
-    }
-  }
-
-  // Credential migration is the one startup phase that must finish before an
-  // interactive window exists: OAuth logout is otherwise able to race the
-  // one-shot legacy import. The work is local and normally a missing-file
-  // check; all non-critical startup below still runs behind the first paint.
-  // The renderer's first
-  // IPC calls (session enumeration, settings read, connection listing)
-  // all read from stores that are initialized synchronously at module load,
-  // so they succeed regardless of whether background startup has
-  // settled. Any state that background startup mutates is pushed to the
-  // renderer via the existing `sessions:changed` / `connections:event`
-  // / `settings:bots:statusChanged` channels, so the UI converges lazily.
-  // Visual-smoke fixture mode wipes and reseeds the whole workspace
-  // (`rm -rf` first). That wipe must finish BEFORE the window opens and
-  // before background startup touches the workspace: createWindow reads
-  // the settings store, and a concurrent wipe lands inside the store's
-  // read-or-create write (mkdir → tmp → rename), rejecting createWindow
-  // so the window never appears. Fixture runs trade first-paint latency
-  // for determinism by definition; production launches skip this await.
-  if (visualSmokeFixture) {
-    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
-    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
-  }
-  await runCredentialStartup();
-  app.on('second-instance', focusOrCreateMainWindow);
-  app.on('activate', focusOrCreateMainWindow);
-  const backgroundStartup = runBackgroundStartup();
-  await mainWindowController.createWindow();
-  // Keep the process alive until background work settles so schedulers
-  // / bridges aren't torn down mid-start by a fast window-all-closed.
-  await backgroundStartup;
+wireAppLifecycle({
+  isIsolatedE2e,
+  visualSmokeFixture,
+  workspaceRoot,
+  credentialStore,
+  connectionStore,
+  settingsStore,
+  telemetryRepo,
+  keepSystemAwake,
+  botRegistry,
+  openGateway,
+  planReminders,
+  dailyReview,
+  automationWiring,
+  goalWiring,
+  computerUse,
+  computerUseOverlay,
+  shellRuns,
+  mcpManager,
+  runtimePersistence,
+  mainWindowController,
+  runtime,
+  streamEvents,
+  focusOrCreateMainWindow,
+  emitConnectionListChanged,
+  handleExternalSettingsChange,
+  getSettingsIpc: () => settingsIpc,
+  setLookupPricing: (value) => {
+    lookupPricing = value;
+  },
 });
-
-async function runCredentialStartup(): Promise<void> {
-  // One-time migration of credentials.json off Electron safeStorage so
-  // the pure-Node runtime can read it (issue #32). Runs before any
-  // credential read/write below; failure is non-fatal (legacy file is
-  // left intact and later credential reads fail closed with guidance).
-  try {
-    await migrateLegacyCredentials(workspaceRoot, safeStorage);
-  } catch (error) {
-    console.error('[credentials] migration off safeStorage failed; legacy file left intact:', error);
-  }
-  // One-shot import of pre-#1125 safeStorage-encrypted OAuth token
-  // files into the shared CredentialStore, which is the only token
-  // authority from here on. Best-effort like the migration above:
-  // files that cannot be decrypted are left intact for a later start.
-  try {
-    const userDataDir = app.getPath('userData');
-    const reports = await importLegacyOAuthTokenFiles({
-      credentialStore,
-      decryptor: safeStorage,
-      files: [
-        { slug: 'claude-subscription', filePath: join(userDataDir, '.claude_subscription_token') },
-        { slug: 'codex-subscription', filePath: join(userDataDir, '.codex_subscription_token') },
-        { slug: 'cursor-subscription', filePath: join(userDataDir, '.cursor_subscription_token') },
-        { slug: 'antigravity-subscription', filePath: join(userDataDir, '.antigravity_subscription_token') },
-      ],
-    });
-    for (const report of reports) {
-      const log = report.outcome === 'failed' ? console.error : console.log;
-      log(`[credentials] legacy OAuth token file for ${report.slug}: ${report.outcome}`, report.error ?? '');
-    }
-  } catch (error) {
-    console.error('[credentials] legacy OAuth token import failed; files left intact:', error);
-  }
-}
-
-/**
- * Non-critical startup work that must NOT block the first window paint.
- *
- * `setActiveProxy` must be applied before any network-bearing step
- * (`botRegistry.applySettings`, `openGateway.sync`); pricing depends on
- * `telemetryRepo.load()`. Everything here is best-effort and logged on
- * failure — none of it should prevent the user from seeing and interacting
- * with the app shell.
- */
-async function runBackgroundStartup(): Promise<void> {
-  // Visual-smoke seeding happens synchronously in `whenReady` before the
-  // window opens (see there for why); only the real bootstrap runs here.
-  if (!visualSmokeFixture) {
-    await ensureBootstrapConnection();
-  }
-  const settings = await settingsStore.get();
-  setActiveProxy(toContractNetworkSettings(settings.network).proxy);
-  // Re-hold the power-save blocker at launch if the user left it enabled, so
-  // scheduled tasks survive machine sleep across restarts.
-  keepSystemAwake.apply(settings.system.keepSystemAwake);
-  await telemetryRepo.load();
-  lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-  await recoverInterruptedSessionsOnStartup();
-  await botRegistry.applySettings(settings.botChat);
-  await openGateway.sync(settings.openGateway);
-  await planReminders.refreshTimers();
-  dailyReview.startScheduler();
-  configWatcher = startConfigFileWatcher(workspaceRoot, {
-    onConnectionsChanged: () => emitConnectionListChanged(),
-    onSettingsChanged: () => void handleExternalSettingsChange(),
-  });
-  automationWiring.scheduler.start();
-}
-
-app.on('window-all-closed', () => {
-  computerUseOverlay.destroyAll();
-  if (process.platform !== 'darwin') app.quit();
-});
-
-let beforeQuitCleanupComplete = false;
-let beforeQuitCleanupStarted = false;
-
-app.on('before-quit', (event) => {
-  if (beforeQuitCleanupComplete) return;
-  event.preventDefault();
-  if (beforeQuitCleanupStarted) return;
-  beforeQuitCleanupStarted = true;
-  void runBeforeQuitCleanup().finally(() => {
-    beforeQuitCleanupComplete = true;
-    app.quit();
-  });
-});
-
-async function runBeforeQuitCleanup(): Promise<void> {
-  automationWiring.scheduler.dispose();
-  goalWiring.coordinator.dispose();
-  goalWiring.manager.dispose();
-  configWatcher?.stop();
-  planReminders.stopTimers();
-  dailyReview.stopScheduler();
-  settingsIpc?.dispose();
-  const results = await Promise.allSettled([
-    Promise.resolve().then(() => computerUseOverlay.destroyAll()),
-    Promise.resolve().then(() => computerUse.backend?.dispose?.()),
-    botRegistry.stopAll(),
-    openGateway.stop(),
-    Promise.resolve(mainWindowController.disposeBrowserViews()),
-    shellRuns.terminateAll(),
-    mcpManager.close(),
-  ]);
-  for (const result of results) {
-    if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
-  }
-  runtimePersistence.close();
-}
 
 function computerUseCapabilityInput() {
   const serviceState = computerUse.backend?.serviceState?.();

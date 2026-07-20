@@ -29,22 +29,74 @@ import {
 // tests lock (#1064/#1066); matches tui-ansi.test.ts's reset convention.
 before(() => _setColorLevelForTesting(3));
 
+// The branded empty-session home opens on a four-line lowercase ASCII `maka`
+// wordmark in Maka blue (#1098). Stored without trailing spaces so the render
+// and these assertions agree after rtrim; the fallback width is derived from it.
+const MAKA_WORDMARK = [
+  ' _ __    __ _  _  __   __ _',
+  "| '_ \\  / _` | | |/ / / _` |",
+  '| |_) | | (_| | |   <  | (_| |',
+  '|_.__/  \\__,_| |_|\\_\\  \\__,_|',
+];
+const MAKA_WORDMARK_WIDTH = Math.max(...MAKA_WORDMARK.map((line) => line.length));
+
 describe('Maka Pi TUI transcript', () => {
-  test('greets on a fresh empty session and drops the welcome once a prompt lands', () => {
+  test('greets on a fresh empty session with the branded maka home and drops it once a prompt lands', () => {
     const state = createMakaPiTranscriptState();
 
-    const welcome = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(welcome, /maka/);
-    assert.match(welcome, /\/help/);
-    // The welcome orients with the active model/connection/folder.
-    assert.match(welcome, /deepseek-v4-flash/);
-    assert.ok(welcome.includes('输入消息开始对话'));
+    const lines = renderMakaPiTranscript(state, meta(), 100).map((line) =>
+      stripAnsi(line).replace(/\s+$/, ''),
+    );
+    // Four-line lowercase ASCII maka wordmark.
+    assert.deepEqual(lines.slice(0, 4), MAKA_WORDMARK);
+    // The wordmark is Maka blue (accent), not plain text.
+    assert.ok(renderMakaPiTranscript(state, meta(), 100)[0].includes('\x1b[38;2;87;163;239m'));
+    // Short Chinese-first tagline.
+    assert.ok(lines.includes('陪你把事做完'));
+    // Command-center hints: direct input + /session + /model + /setup. /help is
+    // no longer a home hint — autocomplete teaches commands as you type.
+    assert.ok(lines.some((line) => line.trim().startsWith('输入消息开始对话')));
+    assert.ok(lines.some((line) => /\/session/.test(line)));
+    assert.ok(lines.some((line) => /\/model/.test(line)));
+    assert.ok(lines.some((line) => /\/setup/.test(line)));
+    assert.equal(
+      lines.some((line) => /\/help/.test(line)),
+      false,
+    );
+    // The active model/connection live in the statusline, not the welcome.
+    assert.equal(
+      lines.some((line) => /deepseek-v4-flash/.test(line)),
+      false,
+    );
 
     // Once a turn exists the transcript takes over — the welcome never returns.
     appendUserPrompt(state, 'hello world');
     const afterPrompt = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.equal(afterPrompt.includes('/help'), false);
+    assert.equal(/\/session/.test(afterPrompt), false);
     assert.ok(afterPrompt.includes('hello world'));
+  });
+
+  test('falls back to a plain maka mark when the terminal is too narrow for the wordmark', () => {
+    const state = createMakaPiTranscriptState();
+
+    // One column below the wordmark's own width degrades it to a single maka line.
+    const narrow = renderMakaPiTranscript(state, meta(), MAKA_WORDMARK_WIDTH - 1).map((line) =>
+      stripAnsi(line).replace(/\s+$/, ''),
+    );
+    assert.equal(narrow[0], 'maka');
+    assert.equal(
+      narrow.slice(0, 4).some((line) => /__/.test(line)),
+      false,
+    );
+    // The tagline and hints still show below the fallback mark.
+    assert.ok(narrow.includes('陪你把事做完'));
+    assert.ok(narrow.some((line) => /\/session/.test(line)));
+
+    // At the wordmark's own width the four-line wordmark still renders.
+    const atThreshold = renderMakaPiTranscript(state, meta(), MAKA_WORDMARK_WIDTH).map((line) =>
+      stripAnsi(line).replace(/\s+$/, ''),
+    );
+    assert.deepEqual(atThreshold.slice(0, 4), MAKA_WORDMARK);
   });
 
   test('keeps assistant text after a tool call visible after the tool block', () => {

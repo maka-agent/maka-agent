@@ -6557,9 +6557,9 @@ describe('AiSdkBackend usage telemetry', () => {
     });
     (
       backend as unknown as {
-        recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void;
+        compaction: { recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void };
       }
-    ).recordActiveFullCompactBlock(activeFullCompactBlockFixture());
+    ).compaction.recordActiveFullCompactBlock(activeFullCompactBlockFixture());
 
     assert.equal(recordedBlocks.length, 1);
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
@@ -6586,16 +6586,18 @@ describe('AiSdkBackend usage telemetry', () => {
 
     (
       backend as unknown as {
-        recordSemanticCompactSummaryCall(input: {
-          callId: string;
-          turnId: string;
-          modelId: string;
-          startedAt: number;
-          latencyMs: number;
-          status: LlmCallRecord['status'];
-        }): void;
+        compaction: {
+          recordSemanticCompactSummaryCall(input: {
+            callId: string;
+            turnId: string;
+            modelId: string;
+            startedAt: number;
+            latencyMs: number;
+            status: LlmCallRecord['status'];
+          }): void;
+        };
       }
-    ).recordSemanticCompactSummaryCall({
+    ).compaction.recordSemanticCompactSummaryCall({
       callId: 'semantic-1',
       turnId: 'turn-1',
       modelId: 'mock-model-id',

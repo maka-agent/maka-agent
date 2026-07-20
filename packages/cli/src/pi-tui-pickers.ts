@@ -19,9 +19,9 @@ import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import type { InvocableSkillEntry } from '@maka/runtime';
-import type { ProviderType } from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
 import type { ModelChoice } from './connection-target.js';
-import type { OnboardableProvider } from './onboarding.js';
+import type { OnboardingProviderEntry } from './onboarding.js';
 import { skillInvocationPrefixAt } from './skill-token.js';
 import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 
@@ -536,7 +536,7 @@ export function modelPickerItems(
  * caller maps it back to the {@link ModelChoice}. The description carries the
  * owning connection so identical model ids on different providers are readable.
  */
-export function modelChoicePickerItems(
+function modelChoicePickerItems(
   choices: readonly ModelChoice[],
   current: { model: string; connectionSlug: string },
 ): SelectItem[] {
@@ -548,6 +548,140 @@ export function modelChoicePickerItems(
     else if (choice.isDefaultConnection) tags.push('default');
     return { value: String(index), label: choice.model, description: tags.join(' · ') };
   });
+}
+
+/**
+ * Case-insensitive substring match for the `/model` search field, against every
+ * criterion the issue names: model id, provider label/type, and connection
+ * name/slug. `ModelChoice` carries no display name, so the model id is the only
+ * model-side match target; a display-name enrichment would slot in here.
+ */
+function matchesModelChoice(choice: ModelChoice, query: string): boolean {
+  if (choice.model.toLowerCase().includes(query)) return true;
+  if (choice.connectionName.toLowerCase().includes(query)) return true;
+  if (choice.connectionSlug.toLowerCase().includes(query)) return true;
+  if (choice.providerType.toLowerCase().includes(query)) return true;
+  const providerLabel = PROVIDER_DEFAULTS[choice.providerType]?.label;
+  if (providerLabel && providerLabel.toLowerCase().includes(query)) return true;
+  return false;
+}
+
+export interface ModelSearchOverlayInput {
+  choices: readonly ModelChoice[];
+  current: { model: string; connectionSlug: string };
+  onSelect: (choice: ModelChoice) => void;
+  onCancel: () => void;
+}
+
+/**
+ * One bottom search field + a bounded single-select list, for the cross-
+ * connection `/model` picker (issue #1098 seam 2). Mirrors the OnboardingWizard
+ * search phase — the same one-field-powers-the-list shape — but stays a focused
+ * single-select: it is not a shared base for the setup multi-select. The list is
+ * rebuilt in place on every keystroke (SelectList has no setItems), and Esc /
+ * Ctrl-C close without rebinding. The `models`-only fallback (minimal hosts,
+ * tests) stays on the non-searchable PickerOverlay.
+ */
+export class ModelSearchOverlay implements Component {
+  private readonly searchEditor: Editor;
+  private filtered: readonly ModelChoice[];
+  private list: SelectList;
+  private readonly initialIndex: number;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly input: ModelSearchOverlayInput,
+  ) {
+    this.filtered = [...input.choices];
+    this.initialIndex = input.choices.findIndex(
+      (choice) =>
+        choice.model === input.current.model &&
+        choice.connectionSlug === input.current.connectionSlug,
+    );
+    this.list = this.buildList();
+    if (this.initialIndex >= 0) this.list.setSelectedIndex(this.initialIndex);
+    this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.searchEditor.onChange = (text) => this.applyQuery(text);
+  }
+
+  private buildList(): SelectList {
+    const list = new SelectList(
+      modelChoicePickerItems(this.filtered, this.input.current),
+      10,
+      selectListTheme(),
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
+    );
+    list.onSelect = (item) => {
+      const choice = this.filtered[Number(item.value)];
+      if (!choice) return;
+      this.input.onSelect(choice);
+    };
+    list.onCancel = () => this.input.onCancel();
+    return list;
+  }
+
+  private applyQuery(text: string): void {
+    const query = text.trim().toLowerCase();
+    const next = query
+      ? this.input.choices.filter((choice) => matchesModelChoice(choice, query))
+      : this.input.choices;
+    if (next === this.filtered) return;
+    this.filtered = next;
+    this.list = this.buildList();
+  }
+
+  invalidate(): void {
+    this.searchEditor.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    // Arrows and Enter drive the list; everything else is typed into the search
+    // field (mirrors the OnboardingWizard search phase).
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (isKeyRepeat(data)) return;
+      this.list.handleInput(data);
+      return;
+    }
+    this.searchEditor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    this.searchEditor.focused = true;
+    return [
+      padLine(`Select Model ${ansi.accent(String(this.filtered.length))}`, safeWidth),
+      padLine(ansi.dim('搜索模型 / 服务商 / 连接 · ↑↓ 选择 · Enter 确认 · Esc 取消'), safeWidth),
+      padLine('', safeWidth),
+      ...this.renderFieldRow(this.searchEditor, '搜索', safeWidth),
+      padLine('', safeWidth),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的模型'), safeWidth)]
+        : this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth))),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
+  }
+
+  private renderFieldRow(editor: Editor, label: string, width: number): string[] {
+    const prefix = `${label} `;
+    const prefixWidth = visibleWidth(prefix);
+    const contentWidth = Math.max(1, width - prefixWidth);
+    const editorLines = editor.render(contentWidth).slice(1, -1);
+    if (editorLines.length === 0) {
+      return [padLine(prefix, width)];
+    }
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width),
+    );
+  }
 }
 
 export function permissionModePickerItems(currentMode: PermissionMode): SelectItem[] {
@@ -571,13 +705,17 @@ export function skillPickerItems(skills: readonly InvocableSkillEntry[]): Select
   }));
 }
 
-export function onboardableProviderPickerItems(
-  providers: readonly OnboardableProvider[],
+/** Provider search items for `/setup`, marking connections that already exist
+ *  `已设置` so a re-onboard reads as edit/rotate rather than create. */
+export function onboardingProviderPickerItems(
+  providers: readonly OnboardingProviderEntry[],
 ): SelectItem[] {
   return providers.map((provider) => ({
     value: provider.providerType,
     label: provider.label,
-    description: provider.providerType,
+    description: provider.hasConnection
+      ? `${provider.providerType} · 已设置`
+      : provider.providerType,
   }));
 }
 
@@ -620,39 +758,60 @@ function padLine(text: string, width: number): string {
   return `${trimmed}${' '.repeat(Math.max(0, safeWidth - visibleWidth(trimmed)))}`;
 }
 
-export type OnboardingWizardPhase = 'search' | 'key';
+export type OnboardingWizardPhase = 'search' | 'key' | 'models' | 'success';
 
 export type OnboardingWizardStatus =
   | { kind: 'prompt' }
   | { kind: 'verifying' }
-  | { kind: 'error'; text: string };
+  | { kind: 'error'; text: string }
+  | { kind: 'saving' };
 
 export interface OnboardingWizardInput {
-  providers: readonly OnboardableProvider[];
-  /** search→key: the user picked a provider. The runner records it for setup. */
+  providers: readonly OnboardingProviderEntry[];
+  /** search→key: the user picked a provider. The runner records it for verify/save. */
   onPickProvider: (providerType: ProviderType) => void;
-  /** key submit: the runner runs onboarding.setup with the recorded provider. */
+  /** key submit. The value may be empty — an existing connection reuses the stored
+   *   secret, while a new required-key provider is rejected by verify. */
   onSubmitKey: (apiKey: string) => void;
-  /** search Esc: the runner closes the wizard (and the TUI on first run). */
+  /** models submit: save the curated enabled set (≥1 model). */
+  onSubmitModels: (enabledModelIds: readonly string[]) => void;
+  /** search Esc / Ctrl+C: close (first-run closes the TUI). */
   onCancel: () => void;
-  /** key Esc: the wizard already returned to search; the runner may react. */
+  /** key Esc → search; models Esc → key. The runner invalidates in-flight work. */
   onBack: () => void;
+  /** success Enter/Esc: close. */
+  onClose: () => void;
 }
 
+const ONBOARDING_MODELS_MAX_VISIBLE = 10;
+
 /**
- * One input field, two phases. The same overlay is the search box (filter the
- * provider list as you type) and then the key field, so onboarding never pushes
- * its prompt/verifying/failure notices into the transcript. Status lives in a
- * single status line beside the field instead of the top entry flow (#1098 UX).
+ * One input field, four phases. The same overlay is the provider search, the
+ * API-key field, the searchable model multi-select, and the in-frame success —
+ * so onboarding never pushes its prompt/verifying/failure/saving/success notices
+ * into the transcript. Status lives in a single status line beside the field
+ * instead of the top entry flow (#1098 UX). `Esc` always moves back exactly one
+ * level (models → key → provider → close); late async results are ignored after
+ * back/close/retry because the runner bumps its attempt id on every transition.
  */
 export class OnboardingWizard implements Component {
   private phase: OnboardingWizardPhase = 'search';
-  private picked: OnboardableProvider | undefined;
+  private picked: OnboardingProviderEntry | undefined;
   private status: OnboardingWizardStatus = { kind: 'prompt' };
   private readonly searchEditor: Editor;
   private readonly keyEditor: Editor;
-  private filtered: readonly OnboardableProvider[];
+  private readonly modelsSearchEditor: Editor;
+  private filtered: readonly OnboardingProviderEntry[];
   private list: SelectList;
+  // Models phase state. Selection seeds from the picked provider's enabled set
+  // on first verify; a re-verify preserves the user's toggles (stale ids drop).
+  private models: ModelInfo[] = [];
+  private filteredModels: ModelInfo[] = [];
+  private selectedIds: Set<string> = new Set();
+  private modelsInitialized = false;
+  private modelHighlight = 0;
+  private modelScroll = 0;
+  private successCount = 0;
 
   constructor(
     private readonly tui: TUI,
@@ -666,14 +825,18 @@ export class OnboardingWizard implements Component {
     // the new instance up.
     this.searchEditor.onChange = (text) => this.applyQuery(text);
     this.keyEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    // Allow a blank submit: an existing connection reuses the stored secret; the
+    // host's verify rejects a blank key for a new required-key provider.
     this.keyEditor.onSubmit = (value) => {
-      if (this.picked && value) this.input.onSubmitKey(value);
+      if (this.picked) this.input.onSubmitKey(value);
     };
+    this.modelsSearchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.modelsSearchEditor.onChange = (text) => this.applyModelQuery(text);
   }
 
   private buildList(): SelectList {
     const list = new SelectList(
-      onboardableProviderPickerItems(this.filtered),
+      onboardingProviderPickerItems(this.filtered),
       10,
       selectListTheme(),
       { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
@@ -681,15 +844,27 @@ export class OnboardingWizard implements Component {
     list.onSelect = (item) => {
       const provider = this.filtered.find((p) => p.providerType === item.value);
       if (!provider) return;
-      this.picked = provider;
-      this.phase = 'key';
-      this.status = { kind: 'prompt' };
-      this.keyEditor.setText('');
-      this.keyEditor.disableSubmit = false;
-      this.searchEditor.setText('');
-      this.input.onPickProvider(provider.providerType);
+      this.enterKeyPhase(provider);
     };
     return list;
+  }
+
+  private enterKeyPhase(provider: OnboardingProviderEntry): void {
+    this.picked = provider;
+    this.phase = 'key';
+    this.status = { kind: 'prompt' };
+    this.keyEditor.setText('');
+    this.keyEditor.disableSubmit = false;
+    this.searchEditor.setText('');
+    // Reset the models phase for the new provider; selection seeds on first verify.
+    this.models = [];
+    this.filteredModels = [];
+    this.selectedIds = new Set();
+    this.modelsInitialized = false;
+    this.modelHighlight = 0;
+    this.modelScroll = 0;
+    this.modelsSearchEditor.setText('');
+    this.input.onPickProvider(provider.providerType);
   }
 
   private applyQuery(text: string): void {
@@ -705,33 +880,96 @@ export class OnboardingWizard implements Component {
     this.list = this.buildList();
   }
 
-  /** Runner hook: the probe is in flight. Lock the key field and show progress. */
+  private applyModelQuery(text: string): void {
+    const query = text.trim().toLowerCase();
+    this.filteredModels = query
+      ? this.models.filter(
+          (m) =>
+            m.id.toLowerCase().includes(query) ||
+            (m.displayName ?? '').toLowerCase().includes(query),
+        )
+      : this.models;
+    this.modelHighlight = 0;
+    this.modelScroll = 0;
+  }
+
+  /** Runner hook: verify is in flight. Lock the key field and show progress. */
   setVerifying(): void {
     if (this.phase !== 'key') return;
     this.status = { kind: 'verifying' };
     this.keyEditor.disableSubmit = true;
   }
 
-  /** Runner hook: the probe settled. An error re-arms the key field in place. */
-  setResult(result: { kind: 'error'; text: string }): void {
-    this.status = result;
-    if (result.kind === 'error') {
-      this.keyEditor.disableSubmit = false;
-      this.keyEditor.setText('');
+  /** Runner hook: verify failed — re-arm the key field in place. */
+  setKeyError(text: string): void {
+    if (this.phase !== 'key') return;
+    this.status = { kind: 'error', text };
+    this.keyEditor.disableSubmit = false;
+    this.keyEditor.setText('');
+  }
+
+  /** Runner hook: verify succeeded — advance to the models step with fresh
+   *  discovered models. Selection seeds from the picked provider's enabled set
+   *  on first entry (existing connections preserve it; new ones start empty);
+   *  a re-verify preserves the user's toggles, dropping ids no longer discovered. */
+  setModels(models: ModelInfo[]): void {
+    if (this.phase !== 'key') return;
+    this.models = models;
+    if (!this.modelsInitialized) {
+      this.selectedIds = new Set(
+        (this.picked?.enabledModelIds ?? []).filter((id) => models.some((m) => m.id === id)),
+      );
+      this.modelsInitialized = true;
+    } else {
+      for (const id of [...this.selectedIds]) {
+        if (!models.some((m) => m.id === id)) this.selectedIds.delete(id);
+      }
     }
+    this.applyModelQuery(this.modelsSearchEditor.getText());
+    this.phase = 'models';
+    this.status = { kind: 'prompt' };
+  }
+
+  /** Runner hook: save is in flight. */
+  setSaving(): void {
+    if (this.phase !== 'models') return;
+    this.status = { kind: 'saving' };
+  }
+
+  /** Runner hook: save failed — stay in the models step with an error. */
+  setModelError(text: string): void {
+    if (this.phase !== 'models') return;
+    this.status = { kind: 'error', text };
+  }
+
+  /** Runner hook: save succeeded — show the enabled-model count in-frame. */
+  setSuccess(enabledCount: number): void {
+    this.phase = 'success';
+    this.successCount = enabledCount;
+    this.status = { kind: 'prompt' };
   }
 
   invalidate(): void {
     this.searchEditor.invalidate();
     this.keyEditor.invalidate();
+    this.modelsSearchEditor.invalidate();
     this.list.invalidate();
   }
 
   handleInput(data: string): void {
-    if (this.phase === 'key') {
-      this.handleKeyInput(data);
-      return;
+    switch (this.phase) {
+      case 'search':
+        return this.handleSearchInput(data);
+      case 'key':
+        return this.handleKeyInput(data);
+      case 'models':
+        return this.handleModelsInput(data);
+      case 'success':
+        return this.handleSuccessInput(data);
     }
+  }
+
+  private handleSearchInput(data: string): void {
     if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
       this.input.onCancel();
       return;
@@ -775,17 +1013,105 @@ export class OnboardingWizard implements Component {
     this.keyEditor.handleInput(data);
   }
 
+  private handleModelsInput(data: string): void {
+    if (matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.escape)) {
+      // models → key (one level back); query/selection state survives.
+      this.phase = 'key';
+      this.status = { kind: 'prompt' };
+      this.keyEditor.setText('');
+      this.keyEditor.disableSubmit = false;
+      this.input.onBack();
+      return;
+    }
+    if (this.status.kind === 'saving') return;
+    if (matchesKey(data, Key.up)) {
+      this.moveModelHighlight(-1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.moveModelHighlight(1);
+      return;
+    }
+    // Space toggles the highlighted model instead of entering the search query —
+    // model ids never contain spaces, so the search field does not need it.
+    if (matchesKey(data, Key.space)) {
+      this.toggleHighlightedModel();
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (isKeyRepeat(data)) return;
+      if (this.selectedIds.size === 0) {
+        this.status = { kind: 'error', text: '至少选择一个模型再保存' };
+        return;
+      }
+      this.input.onSubmitModels([...this.selectedIds]);
+      return;
+    }
+    // Everything else (arrows, backspace, paste, printable text) goes to the
+    // search editor — it owns editing semantics; the wizard only intercepts the
+    // keys the list owns (Esc/Ctrl+C/up/down/Space/Enter). Mirrors handleSearchInput.
+    this.modelsSearchEditor.handleInput(data);
+  }
+
+  private handleSuccessInput(data: string): void {
+    if (
+      matchesKey(data, Key.enter) ||
+      matchesKey(data, Key.return) ||
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl('c'))
+    ) {
+      if (matchesKey(data, Key.enter) && isKeyRepeat(data)) return;
+      this.input.onClose();
+    }
+  }
+
+  private moveModelHighlight(delta: number): void {
+    const count = this.filteredModels.length;
+    if (count === 0) return;
+    this.modelHighlight = (this.modelHighlight + delta + count) % count;
+    // Keep the highlight inside the visible window.
+    if (this.modelHighlight < this.modelScroll) this.modelScroll = this.modelHighlight;
+    else if (this.modelHighlight >= this.modelScroll + ONBOARDING_MODELS_MAX_VISIBLE) {
+      this.modelScroll = this.modelHighlight - ONBOARDING_MODELS_MAX_VISIBLE + 1;
+    }
+  }
+
+  private toggleHighlightedModel(): void {
+    const model = this.filteredModels[this.modelHighlight];
+    if (!model) return;
+    if (this.selectedIds.has(model.id)) this.selectedIds.delete(model.id);
+    else this.selectedIds.add(model.id);
+    // Clear a stale "至少选择一个模型" error once a selection exists.
+    if (this.status.kind === 'error' && this.selectedIds.size > 0) {
+      this.status = { kind: 'prompt' };
+    }
+  }
+
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
-    return this.phase === 'search' ? this.renderSearch(safeWidth) : this.renderKey(safeWidth);
+    switch (this.phase) {
+      case 'search':
+        return this.renderSearch(safeWidth);
+      case 'key':
+        return this.renderKey(safeWidth);
+      case 'models':
+        return this.renderModels(safeWidth);
+      case 'success':
+        return this.renderSuccess(safeWidth);
+    }
   }
 
   private renderSearch(width: number): string[] {
     this.searchEditor.focused = true;
     this.keyEditor.focused = false;
+    this.modelsSearchEditor.focused = false;
     return [
       padLine(
-        `Set Up Provider ${ansi.dim('· 1/2')} ${ansi.accent(String(this.filtered.length))}`,
+        `Set Up Provider ${ansi.dim('· 1/3')} ${ansi.accent(String(this.filtered.length))}`,
         width,
       ),
       padLine(ansi.dim('搜索服务商，↑↓ 选择 · Enter 确认 · Esc 取消'), width),
@@ -801,22 +1127,24 @@ export class OnboardingWizard implements Component {
 
   private renderKey(width: number): string[] {
     this.searchEditor.focused = false;
-    // The cursor stays hidden while the probe is in flight; only an editable
-    // or errored key field takes focus.
     this.keyEditor.focused = this.status.kind === 'prompt' || this.status.kind === 'error';
+    this.modelsSearchEditor.focused = false;
     const label = this.picked?.label ?? '';
+    const hint = this.picked?.hasConnection
+      ? '留空复用已保存的 key，或输入新 key 轮换 · Esc 返回选择服务商'
+      : '输入 API key · 仅本机存储 · Esc 返回选择服务商';
     return [
-      padLine(`Set Up Provider ${ansi.dim('· 2/2')} ${ansi.accent(label)}`, width),
-      padLine(ansi.dim('输入 API key · 仅本机存储 · Esc 返回选择服务商'), width),
+      padLine(`Set Up Provider ${ansi.dim('· 2/3')} ${ansi.accent(label)}`, width),
+      padLine(ansi.dim(hint), width),
       padLine('', width),
       ...this.renderFieldRow(this.keyEditor, 'API key', width),
       padLine('', width),
-      padLine(this.renderStatusLine(), width),
+      padLine(this.renderKeyStatusLine(), width),
       padLine(ansi.accent('-'.repeat(width)), width),
     ];
   }
 
-  private renderStatusLine(): string {
+  private renderKeyStatusLine(): string {
     switch (this.status.kind) {
       case 'prompt':
         return ansi.dim('Enter 提交');
@@ -824,7 +1152,69 @@ export class OnboardingWizard implements Component {
         return `${ansi.yellow('⠋')} 正在验证 key…`;
       case 'error':
         return ansi.red(`✗ ${this.status.text}`);
+      case 'saving':
+        return ansi.dim('Enter 提交');
     }
+  }
+
+  private renderModels(width: number): string[] {
+    this.searchEditor.focused = false;
+    this.keyEditor.focused = false;
+    this.modelsSearchEditor.focused = this.status.kind !== 'saving';
+    const label = this.picked?.label ?? '';
+    const lines = [
+      padLine(`Set Up Provider ${ansi.dim('· 3/3')} ${ansi.accent(label)}`, width),
+      padLine(ansi.dim('搜索模型，↑↓ 选择 · Space 切换 · Enter 保存 · Esc 返回'), width),
+      padLine('', width),
+      ...this.renderFieldRow(this.modelsSearchEditor, '搜索', width),
+      padLine('', width),
+    ];
+    if (this.filteredModels.length === 0) {
+      lines.push(padLine(ansi.dim('没有匹配的模型'), width));
+    } else {
+      const end = Math.min(
+        this.modelScroll + ONBOARDING_MODELS_MAX_VISIBLE,
+        this.filteredModels.length,
+      );
+      for (let i = this.modelScroll; i < end; i++) {
+        const model = this.filteredModels[i]!;
+        const highlighted = i === this.modelHighlight;
+        const mark = this.selectedIds.has(model.id) ? '☑' : '☐';
+        const body = model.displayName ? `${model.displayName} ${ansi.dim(model.id)}` : model.id;
+        lines.push(formatPickerItemLine(`${highlighted ? '→ ' : '  '}${mark} ${body}`, width));
+      }
+    }
+    lines.push(padLine('', width));
+    lines.push(padLine(this.renderModelsStatusLine(), width));
+    lines.push(padLine(ansi.accent('-'.repeat(width)), width));
+    return lines;
+  }
+
+  private renderModelsStatusLine(): string {
+    switch (this.status.kind) {
+      case 'prompt':
+        return ansi.dim(`已选 ${this.selectedIds.size} · Enter 保存`);
+      case 'verifying':
+        return ansi.dim(`已选 ${this.selectedIds.size}`);
+      case 'saving':
+        return `${ansi.yellow('⠋')} 正在保存…`;
+      case 'error':
+        return ansi.red(`✗ ${this.status.text}`);
+    }
+  }
+
+  private renderSuccess(width: number): string[] {
+    this.searchEditor.focused = false;
+    this.keyEditor.focused = false;
+    this.modelsSearchEditor.focused = false;
+    const label = this.picked?.label ?? '';
+    return [
+      padLine(`Set Up Provider ${ansi.dim('· 完成')} ${ansi.accent(label)}`, width),
+      padLine(ansi.green(`✓ 已启用 ${this.successCount} 个模型`), width),
+      padLine('', width),
+      padLine(ansi.dim('Enter 关闭'), width),
+      padLine(ansi.accent('-'.repeat(width)), width),
+    ];
   }
 
   private renderFieldRow(editor: Editor, label: string, width: number): string[] {

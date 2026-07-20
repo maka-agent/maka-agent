@@ -24,6 +24,9 @@ const FIXTURES = [
   'fetched-empty',
   'settings-data',
   'settings-gateway',
+  // 使用统计 restyle: the range/refresh row, underline tab bar, and stats
+  // tables now sit under the alignment auditor's watch.
+  'settings-usage',
   'turn-narrative',
   'settings-permissions',
   // #1233 deferral: bot QR-onboarding modal in its deterministic waiting state.

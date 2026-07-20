@@ -131,6 +131,70 @@ describe('SettingsStore.usageStats request logs', () => {
     }
   });
 
+  it('merges tool stats by tool name across sessions instead of one row per session', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-bytool-'));
+    try {
+      // Two sessions each call Bash; the second also calls Read. Tool-call ids
+      // are only unique within a session, so both sessions reuse `bash`/`read`
+      // ids to prove result matching stays session-scoped after the merge.
+      const bashTurn = (sessionId: string, error: boolean, duration: number): StoredMessage[] => [
+        { type: 'tool_call', id: 'bash', turnId: 't1', ts: 10, toolName: 'Bash', displayName: '终端', args: {} },
+        {
+          type: 'tool_result',
+          id: 'bash-result',
+          turnId: 't1',
+          ts: 10 + duration,
+          toolUseId: 'bash',
+          isError: error,
+          durationMs: duration,
+          content: { kind: 'text', text: error ? 'failed' : 'ok' },
+        },
+      ];
+
+      await seedSession(workspaceRoot, makeHeader({ id: 'session-a' }), [
+        ...bashTurn('session-a', false, 20),
+        { type: 'tool_call', id: 'read', turnId: 't1', ts: 12, toolName: 'Read', displayName: '读取', args: {} },
+        {
+          type: 'tool_result',
+          id: 'read-result',
+          turnId: 't1',
+          ts: 40,
+          toolUseId: 'read',
+          isError: false,
+          durationMs: 28,
+          content: { kind: 'text', text: 'ok' },
+        },
+      ]);
+      await seedSession(workspaceRoot, makeHeader({ id: 'session-b' }), [
+        ...bashTurn('session-b', true, 40),
+      ]);
+
+      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
+
+      // One row per tool name — never a duplicate Bash row per session.
+      assert.equal(stats.byTool.length, 2, 'byTool must have one row per unique tool');
+      const bash = stats.byTool.find((row) => row.tool === 'Bash');
+      assert.ok(bash, 'a single merged Bash row must exist');
+      assert.equal(bash.calls, 2, 'Bash calls merge across sessions');
+      assert.equal(bash.success, 1, 'the successful Bash call is counted');
+      assert.equal(bash.errors, 1, 'the failed Bash call is counted');
+      assert.equal(bash.avgDurationMs, 30, 'Bash duration averages (20 + 40) / 2 across sessions');
+
+      const read = stats.byTool.find((row) => row.tool === 'Read');
+      assert.ok(read);
+      assert.equal(read.calls, 1);
+      assert.equal(read.avgDurationMs, 28);
+
+      // Rows are ordered by call count desc so the busiest tool leads.
+      assert.deepEqual(
+        stats.byTool.map((row) => row.tool),
+        ['Bash', 'Read'],
+      );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('keeps valid usage rows when one session message line is corrupt', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-corrupt-line-'));
     try {

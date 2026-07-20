@@ -33,6 +33,8 @@ const RENDERER_FILES = [
   'apps/desktop/src/renderer/settings/provider-catalog.tsx',
   'apps/desktop/src/renderer/settings/provider-connection-dialog.tsx',
   'apps/desktop/src/renderer/settings/provider-connection-detail.tsx',
+  'apps/desktop/src/renderer/settings/use-connection-detail.ts',
+  'apps/desktop/src/renderer/settings/provider-enabled-model-manager.tsx',
   'apps/desktop/src/renderer/settings/provider-display.tsx',
   'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
   'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',

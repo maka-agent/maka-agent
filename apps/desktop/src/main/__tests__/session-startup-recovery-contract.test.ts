@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = new URL('../../../../..', import.meta.url).pathname;
 
@@ -27,9 +28,12 @@ describe('session startup recovery contract', () => {
     // runId. This contract pins all three legs: recovery still runs at
     // startup, it runs inside runBackgroundStartup (not before the
     // window), and the kernel guard that makes that safe stays put.
-    const src = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    // R6: the startup/lifecycle tail (whenReady flow + runBackgroundStartup +
+    // recoverInterruptedSessionsOnStartup) moved to app-lifecycle.ts. Read the
+    // combined main-process source so the ordering + recovery pins follow it.
+    const src = await readMainProcessCombinedSource();
     const sessionManager = await readFile(join(REPO_ROOT, 'packages/runtime/src/session-manager.ts'), 'utf8');
-    const backgroundBlock = src.match(/async function runBackgroundStartup\(\): Promise<void> \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const backgroundBlock = src.match(/async function runBackgroundStartup\(\): Promise<void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(src, /async function recoverInterruptedSessionsOnStartup\(\): Promise<void>/);
     assert.match(backgroundBlock, /await recoverInterruptedSessionsOnStartup\(\);/, 'recovery must run inside background startup');

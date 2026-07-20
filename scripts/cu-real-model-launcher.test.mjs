@@ -13,7 +13,15 @@ import {
 } from './cu-real-model-launcher.mjs';
 
 const launcher = await readFile(new URL('./cu-real-model-launcher.mjs', import.meta.url), 'utf8');
-const main = await readFile(new URL('../apps/desktop/src/main/main.ts', import.meta.url), 'utf8');
+// The ai-sdk backend wiring (the isComputerUseRealModelE2e tool / economy
+// branches) moved into session-stream.ts (arch R5); scan main.ts + the
+// extracted module together so the isolation-gate pins follow the split.
+const main = (
+  await Promise.all([
+    readFile(new URL('../apps/desktop/src/main/main.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../apps/desktop/src/main/session-stream.ts', import.meta.url), 'utf8'),
+  ])
+).join('\n');
 
 test('real-model launcher uses an isolated profile and the production Desktop IPC path', () => {
   assert.match(launcher, /mkdtemp\(join\(tmpdir\(\), 'maka-cu-real-model-'\)\)/);

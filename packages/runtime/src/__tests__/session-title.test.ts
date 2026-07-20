@@ -92,22 +92,33 @@ describe('session title helper', () => {
     );
   });
 
-  test('aborts title generation when the provider exceeds its deadline', {
-    timeout: 100,
-  }, async () => {
+  test('aborts title generation when the provider exceeds its deadline', async () => {
     let signal: AbortSignal | undefined;
-    const input = {
-      model: {} as never,
-      sourceText: 'hello',
-      timeoutMs: 10,
-      generateText: (options: Record<string, unknown>) =>
-        new Promise<never>((_resolve, reject) => {
-          signal = options.abortSignal as AbortSignal;
-          signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        generateSessionTitle({
+          model: {} as never,
+          sourceText: 'hello',
+          timeoutMs: 10,
+          generateText: (options: Record<string, unknown>) => {
+            signal = options.abortSignal as AbortSignal;
+            // Never settles: verifies the internal deadline, not provider cooperation.
+            return new Promise<never>(() => {});
+          },
         }),
-    };
+        new Promise<never>((_resolve, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error('title generation did not respect its deadline')),
+            250,
+          );
+        }),
+      ]);
 
-    assert.equal(await generateSessionTitle(input), undefined);
-    assert.equal(signal?.aborted, true);
+      assert.equal(result, undefined);
+      assert.equal(signal?.aborted, true);
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+    }
   });
 });
