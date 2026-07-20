@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { CuAction } from '@maka/core';
+import { zodSchema } from 'ai';
 import {
   adaptToCuAction,
   buildComputerUseTools,
@@ -198,6 +199,21 @@ describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction'
       /screenshot requires app or window_id/,
     );
   });
+});
+
+test('provider schema explains the required semantic action fields', async () => {
+  const [tool] = buildComputerUseTools({ backend: fakeBackend() });
+  const schema = (await zodSchema(tool.parameters as never).jsonSchema) as {
+    properties?: Record<string, { description?: string }>;
+  };
+
+  assert.match(schema.properties?.action?.description ?? '', /set_value requires/);
+  assert.match(schema.properties?.observation_id?.description ?? '', /Required for every action/);
+  assert.match(
+    schema.properties?.element_id?.description ?? '',
+    /Required for click_element, set_value/,
+  );
+  assert.match(schema.properties?.value?.description ?? '', /Required only for set_value/);
 });
 
 test('computer params are copied and frozen before asynchronous policy checks', () => {
@@ -417,6 +433,55 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       ctx(),
     );
     assert.deepEqual(point, { x: 300, y: 200 });
+  });
+
+  test('semantic presentation targets the observed element center', async () => {
+    let point: { x: number; y: number } | undefined;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () =>
+      observation({
+        windowBounds: { x: 100, y: 50, width: 400, height: 300 },
+        sourceBoundsPx: { x: 0, y: 0, width: 800, height: 600 },
+        elements: [
+          {
+            elementId: '5',
+            role: 'AXButton',
+            label: 'Continue',
+            frame: { x: 260, y: 155, width: 80, height: 30 },
+          },
+        ],
+      });
+    backend.runSemantic = async () => ({
+      outcome: { ok: true, tier: 'ax', verified: true },
+      resolvedScreenPoint: { x: 300, y: 170 },
+      observation: observation({ observationId: 'backend-obs-2' }),
+    });
+    const [tool] = buildComputerUseTools({
+      backend,
+      overlay: {
+        onActionBegin(_action, context) {
+          point = context.presentationScreenPoint;
+        },
+      },
+    });
+    const observed = (await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx())) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    await tool.impl(
+      {
+        action: 'click_element',
+        observation_id: observationId,
+        element_id: '5',
+      } as never,
+      ctx(),
+    );
+
+    assert.deepEqual(point, { x: 300, y: 170 });
   });
 
   test('discarded dispatch result cancels presentation instead of showing success', async () => {
@@ -824,6 +889,109 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     });
   });
 
+  test('semantic set_value keeps its semantic action name in the model summary', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () =>
+      observation({
+        elements: [
+          {
+            elementId: '5',
+            role: 'AXTextField',
+            label: 'Field',
+            value: '',
+          },
+        ],
+      });
+    backend.runSemantic = async () => ({
+      outcome: {
+        ok: true,
+        tier: 'ax',
+        verified: true,
+        evidence: { path: 'ax', effect: 'confirmed' },
+      },
+      observation: observation({
+        observationId: 'backend-obs-2',
+        elements: [
+          {
+            elementId: '5',
+            role: 'AXTextField',
+            label: 'Field',
+            value: 'updated',
+          },
+        ],
+      }),
+    });
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = (await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx())) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = (await tool.impl(
+      {
+        action: 'set_value',
+        observation_id: observationId,
+        element_id: '5',
+        value: 'updated',
+      } as never,
+      ctx(),
+    )) as { text: string };
+
+    assert.match(result.text, /computer\.set_value ok via ax/);
+    assert.doesNotMatch(result.text, /computer\.type/);
+  });
+
+  test('semantic recovery keeps the action name when fresh observation is unavailable', async () => {
+    for (const captureMode of ['missing', 'throws'] as const) {
+      const backend = fakeBackend() as CuDispatchBackend & {
+        observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+        runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+        captureObservation?: NonNullable<CuDispatchBackend['captureObservation']>;
+      };
+      backend.observeApp = async () =>
+        observation({
+          elements: [
+            {
+              elementId: '5',
+              role: 'AXTextField',
+              label: 'Field',
+              value: '',
+            },
+          ],
+        });
+      backend.runSemantic = async () => ({
+        outcome: { ok: true, tier: 'ax', verified: true },
+      });
+      if (captureMode === 'throws') {
+        backend.captureObservation = async () => {
+          throw new Error('capture failed');
+        };
+      }
+      const [tool] = buildComputerUseTools({ backend });
+      const observed = (await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx())) as {
+        text: string;
+      };
+      const observationId = JSON.parse(observed.text).observation_id as string;
+
+      const result = (await tool.impl(
+        {
+          action: 'set_value',
+          observation_id: observationId,
+          element_id: '5',
+          value: 'updated',
+        } as never,
+        ctx(),
+      )) as { text: string; error?: string };
+
+      assert.equal(result.error, 'outcome_unknown');
+      assert.match(result.text, /computer\.set_value failed: outcome_unknown/);
+      assert.doesNotMatch(result.text, /computer\.type/);
+    }
+  });
+
   test('coordinate action is bound to a window-local screenshot and consumes the observation', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
@@ -1020,7 +1188,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.match(result.text, /verified=false/);
   });
 
-  test('press_key binds the observation window without requiring an element id', async () => {
+  test('press_key binds the exact observed element and forwards its identity', async () => {
     const seen: Array<{ action: unknown; context: CuRunContext }> = [];
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
@@ -1044,6 +1212,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       {
         action: 'press_key',
         observation_id: observationId,
+        element_id: '5',
         text: 'ENTER',
       } as never,
       ctx(),
@@ -1052,11 +1221,34 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.deepEqual(seen[0]?.action, {
       type: 'press_key',
       observationId: 'backend-obs-1',
+      elementId: '5',
       key: 'ENTER',
+      elementIdentity: {
+        token: 'button-token',
+        role: 'AXButton',
+        label: 'Continue',
+      },
     });
-    assert.equal(seen[0]?.context.boundAction?.elementId, undefined);
+    assert.equal(seen[0]?.context.boundAction?.elementId, '5');
     assert.equal(seen[0]?.context.boundAction?.target?.windowId, 7);
     assert.match(result.text, /Fresh observation/);
+  });
+
+  test('press_key requires an element id from the referenced observation', async () => {
+    const [tool] = buildComputerUseTools({ backend: fakeBackend() });
+    await assert.rejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            action: 'press_key',
+            observation_id: 'frame-1',
+            text: 'Return',
+          } as never,
+          ctx(),
+        ),
+      ),
+      /element_id/,
+    );
   });
 
   test('select_text forwards the identity hint for unique semantic refetch', async () => {
