@@ -6,9 +6,11 @@ import { FAKE_ASK_USER_QUESTION_PROMPT } from '@maka/runtime';
 import {
   RuntimeHostOperationError,
   RuntimeHostSubscriptionError,
+  type RuntimeHostConnection,
   type RuntimeHostSessionSubscription,
 } from '../client/index.js';
 import {
+  type ConnectionCatalogQueryResult,
   type InteractionAnswer,
   type InteractionPendingSnapshot,
   type SessionProjectionFrame,
@@ -1230,6 +1232,168 @@ test('SIGKILL successor closes a pending Interaction as host_restarted', {
     if (turn.status === 'failed') assert.equal(turn.failureClass, 'app_restarted');
     await observer.close();
     await fixture.stopHost(successor);
+  });
+});
+
+test('shares one canonical runtime policy, connection catalog, and credential vault across Clients', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    let desktop: RuntimeHostConnection | undefined;
+    let tui: RuntimeHostConnection | undefined;
+    try {
+      desktop = await connectClient(fixture.root, 'desktop');
+      tui = await connectClient(fixture.root, 'tui');
+
+      const initialPolicy = await desktop.request('runtime.policy.query', {});
+      assert.deepEqual(await tui.request('runtime.policy.query', {}), initialPolicy);
+      const policyMutations = await Promise.all([
+        desktop.request('runtime.policy.mutate', {
+          expectedRevision: initialPolicy.revision,
+          operation: {
+            kind: 'set_personalization',
+            value: { displayName: 'Desktop owner', assistantTone: 'precise' },
+          },
+        }),
+        tui.request('runtime.policy.mutate', {
+          expectedRevision: initialPolicy.revision,
+          operation: {
+            kind: 'set_memory',
+            value: { enabled: false, agentReadEnabled: false },
+          },
+        }),
+      ]);
+      assert.deepEqual(policyMutations.map((result) => result.kind).sort(), [
+        'committed',
+        'revision_conflict',
+      ]);
+      const committedPolicy = policyMutations.find((result) => result.kind === 'committed');
+      const conflictedPolicy = policyMutations.find(
+        (result) => result.kind === 'revision_conflict',
+      );
+      assert.ok(committedPolicy);
+      assert.ok(conflictedPolicy);
+      assert.equal(conflictedPolicy.expectedRevision, initialPolicy.revision);
+      assert.equal(conflictedPolicy.actualRevision, committedPolicy.revision);
+      const desktopPolicy = await desktop.request('runtime.policy.query', {});
+      const tuiPolicy = await tui.request('runtime.policy.query', {});
+      assert.equal(desktopPolicy.revision, committedPolicy.revision);
+      assert.deepEqual(tuiPolicy, desktopPolicy);
+      if (policyMutations[0].kind === 'committed') {
+        assert.deepEqual(desktopPolicy.policy.personalization, {
+          displayName: 'Desktop owner',
+          assistantTone: 'precise',
+        });
+        assert.deepEqual(desktopPolicy.policy.memory, initialPolicy.policy.memory);
+      } else {
+        assert.deepEqual(
+          desktopPolicy.policy.personalization,
+          initialPolicy.policy.personalization,
+        );
+        assert.deepEqual(desktopPolicy.policy.memory, {
+          enabled: false,
+          agentReadEnabled: false,
+        });
+      }
+
+      const initialCatalog = await desktop.request('connection.catalog.query', { kind: 'start' });
+      assert.equal(initialCatalog.kind, 'page');
+      if (initialCatalog.kind !== 'page') return;
+      const created = await desktop.request('connection.catalog.create', {
+        expectedCatalogRevision: initialCatalog.revision,
+        connection: {
+          slug: 'cross-client-openai',
+          name: 'Cross-client OpenAI',
+          providerType: 'openai',
+          enabled: true,
+          enabledModelIds: [],
+        },
+      });
+      assert.equal(created.kind, 'committed');
+      if (created.kind !== 'committed') return;
+
+      const firstPage = await tui.request('connection.catalog.query', { kind: 'start' });
+      assert.equal(firstPage.kind, 'page');
+      if (firstPage.kind !== 'page') return;
+      const catalogItems = [...firstPage.items];
+      let page = firstPage;
+      while (page.nextCursor) {
+        const next: ConnectionCatalogQueryResult = await tui.request('connection.catalog.query', {
+          kind: 'continue',
+          revision: page.revision,
+          cursor: page.nextCursor,
+        });
+        assert.equal(next.kind, 'page');
+        if (next.kind !== 'page') return;
+        assert.equal(next.revision, firstPage.revision);
+        catalogItems.push(...next.items);
+        page = next;
+      }
+      const connectionItem = catalogItems.find(
+        (item) =>
+          item.kind === 'connection' && item.connectionId === created.connection.connectionId,
+      );
+      assert.ok(connectionItem);
+      if (!connectionItem || connectionItem.kind !== 'connection') return;
+      assert.equal(connectionItem.slug, 'cross-client-openai');
+      assert.equal(firstPage.revision, created.catalogRevision);
+
+      const credentialClient = tui;
+      await assert.rejects(
+        () =>
+          credentialClient.request('credential.vault.query', {
+            locator: {
+              scope: 'connection',
+              connectionId: created.connection.connectionId,
+              kind: 'oauth_token',
+            },
+          }),
+        operationError('invalid_request'),
+      );
+      assert.deepEqual(await credentialClient.request('runtime.policy.query', {}), desktopPolicy);
+
+      const locator = {
+        scope: 'connection' as const,
+        connectionId: created.connection.connectionId,
+        kind: 'api_key' as const,
+      };
+      const secret = `cross-client-secret-${randomUUID()}`;
+      const setCredential = await desktop.request('credential.vault.set', {
+        locator,
+        expected: null,
+        secret,
+      });
+      assert.equal(setCredential.kind, 'committed');
+      if (setCredential.kind !== 'committed') return;
+
+      const configured = await tui.request('credential.vault.query', { locator });
+      assert.equal(configured.kind, 'status');
+      if (configured.kind !== 'status') return;
+      assert.equal(configured.status.configured, true);
+      assert.deepEqual(configured.status, setCredential.status);
+      assert.equal(JSON.stringify(configured).includes(secret), false);
+      if (!configured.status.configured) return;
+
+      const deleted = await tui.request('credential.vault.delete', {
+        expected: {
+          locator: configured.status.locator,
+          credentialId: configured.status.credentialId,
+          revision: configured.status.revision,
+        },
+      });
+      assert.equal(deleted.kind, 'committed');
+      if (deleted.kind !== 'committed') return;
+      assert.equal(deleted.status.configured, false);
+      assert.equal(JSON.stringify(deleted).includes(secret), false);
+
+      const unconfigured = await desktop.request('credential.vault.query', { locator });
+      assert.deepEqual(unconfigured, { kind: 'status', status: deleted.status });
+      assert.equal(JSON.stringify(unconfigured).includes(secret), false);
+    } finally {
+      await Promise.allSettled([desktop?.close(), tui?.close()]);
+      if (host.child.exitCode === null && host.child.signalCode === null) {
+        await fixture.stopHost(host);
+      }
+    }
   });
 });
 

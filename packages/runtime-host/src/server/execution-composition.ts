@@ -9,6 +9,7 @@ import {
   SessionManager,
 } from '@maka/runtime';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
+import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import { createCanonicalSessionProjectionReader } from './canonical-session-projection.js';
 import type {
   RuntimeHostComposition,
@@ -21,6 +22,7 @@ import { HostMessageCoordinator, type HostMessageRootPort } from './message-coor
 import { combineDomainOperationHandlers } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
 import { RootTurnCoordinator } from './root-turn-coordinator.js';
+import { HostRuntimePolicyCoordinator } from './runtime-policy-coordinator.js';
 import { SessionAdmissionGate } from './session-admission-gate.js';
 import { SessionContinuityCoordinator } from './session-continuity-coordinator.js';
 
@@ -28,6 +30,8 @@ export async function createExecutionRuntimeHostComposition(
   context: RuntimeHostCompositionContext,
 ): Promise<RuntimeHostComposition> {
   const stores = await openInteractiveExecutionStoresForWrite(context.owner.lease);
+  const runtimePolicyStores = await openInteractiveRuntimePolicyStoresForWrite(context.owner.lease);
+  const runtimePolicy = new HostRuntimePolicyCoordinator(runtimePolicyStores);
   const sessionAdmission = new SessionAdmissionGate();
   const rootAdmissionOwner = new RootAdmissionOwner();
   let messages: HostMessageCoordinator | undefined;
@@ -190,6 +194,7 @@ export async function createExecutionRuntimeHostComposition(
       messageCoordinator.handlers,
       interaction.handlers,
       continuity.handlers,
+      runtimePolicy.handlers,
     ),
     continuity,
     beginDrain: () => {

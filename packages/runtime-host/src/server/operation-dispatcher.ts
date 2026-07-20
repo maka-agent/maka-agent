@@ -40,6 +40,10 @@ export type MessageOperationKey = Extract<
 >;
 export type SessionContinuityOperationKey = Extract<OperationKey, `subscription.${string}`>;
 export type InteractionOperationKey = Extract<OperationKey, `interaction.${string}`>;
+export type RuntimePolicyOperationKey = Extract<
+  OperationKey,
+  `runtime.policy.${string}` | `connection.catalog.${string}` | `credential.vault.${string}`
+>;
 export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
 export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
 export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
@@ -48,6 +52,7 @@ export type SessionContinuityOperationHandlerMap = Pick<
   SessionContinuityOperationKey
 >;
 export type InteractionOperationHandlerMap = Pick<OperationHandlerMap, InteractionOperationKey>;
+export type RuntimePolicyOperationHandlerMap = Pick<OperationHandlerMap, RuntimePolicyOperationKey>;
 
 export function combineDomainOperationHandlers(
   ...domains: readonly Partial<AllDomainOperationHandlerMap>[]

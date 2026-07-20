@@ -1,3 +1,5 @@
+import { RuntimePolicyDomainDecodeError } from '@maka/core/runtime-policy';
+
 export type RuntimePolicyStoreErrorCode =
   | 'invalid_document'
   | 'invalid_policy_input'
@@ -27,6 +29,22 @@ export function codecError(source: CodecSource, message: string): RuntimePolicyS
   return new RuntimePolicyStoreError(source, message);
 }
 
+export function decodePolicyInput<T>(decode: () => T): T {
+  return mapDomainError(decode, 'invalid_policy_input');
+}
+
+export function decodeConnectionInput<T>(decode: () => T): T {
+  return mapDomainError(decode, 'invalid_connection_input');
+}
+
+export function decodeCredentialInput<T>(decode: () => T): T {
+  return mapDomainError(decode, 'invalid_credential_input');
+}
+
+export function decodePersistedDomain<T>(decode: () => T): T {
+  return mapDomainError(decode, 'invalid_document');
+}
+
 export function invalidDocument(message: string, cause?: unknown): RuntimePolicyStoreError {
   return new RuntimePolicyStoreError(
     'invalid_document',
@@ -41,4 +59,15 @@ export function ioFailed(message: string, cause: unknown): RuntimePolicyStoreErr
 
 export function commitOutcomeUnknown(message: string, cause: unknown): RuntimePolicyStoreError {
   return new RuntimePolicyStoreError('commit_outcome_unknown', message, { cause });
+}
+
+function mapDomainError<T>(decode: () => T, code: CodecSource): T {
+  try {
+    return decode();
+  } catch (error) {
+    if (error instanceof RuntimePolicyDomainDecodeError) {
+      throw new RuntimePolicyStoreError(code, error.message, { cause: error });
+    }
+    throw error;
+  }
 }

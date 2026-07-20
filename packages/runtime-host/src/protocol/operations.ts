@@ -11,6 +11,7 @@ import {
 } from './operation-spec.js';
 import { SESSION_CONTINUITY_OPERATION_SPECS } from './session-continuity.js';
 import { TURN_OPERATION_SPECS } from './turn.js';
+import { RUNTIME_POLICY_OPERATION_SPECS } from './runtime-policy.js';
 
 export {
   TURN_MESSAGE_CONTENT_MAX_BYTES,
@@ -52,6 +53,37 @@ export type {
   TurnStartInput,
   TurnStopInput,
 } from './turn.js';
+export type {
+  ConnectionCatalogCursor,
+  ConnectionCatalogCreateInput,
+  ConnectionCatalogHeaderItem,
+  ConnectionCatalogPageItem,
+  ConnectionCatalogQueryInput,
+  ConnectionCatalogQueryResult,
+  ConnectionCatalogRemoveInput,
+  ConnectionCatalogSetDefaultTargetInput,
+  ConnectionCatalogUpdateInput,
+  CreateCatalogConnectionResult,
+  CredentialVaultQueryInput,
+  CredentialVaultQueryResult,
+  CredentialVaultDeleteInput,
+  CredentialVaultSetInput,
+  DeleteCredentialResult,
+  RemoveCatalogConnectionResult,
+  RuntimePolicyMutateResult,
+  RuntimePolicyMutateInput,
+  RuntimePolicyQueryInput,
+  RuntimePolicyQueryResult,
+  SetCredentialResult,
+  SetDefaultConnectionTargetResult,
+  UpdateCatalogConnectionResult,
+} from './runtime-policy.js';
+export {
+  CONNECTION_CATALOG_PAGE_MAX_BYTES,
+  CONNECTION_CATALOG_PAGE_MAX_ITEMS,
+  CREDENTIAL_SECRET_MAX_BYTES,
+  RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
+} from './runtime-policy.js';
 
 const HOST_AND_TURN_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_STATUS_OPERATION_SPECS,
@@ -68,9 +100,14 @@ const HOST_TURN_MESSAGE_AND_INTERACTION_OPERATION_SPECS = composeOperationSpecMa
   INTERACTION_OPERATION_SPECS,
 );
 
-export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_TURN_MESSAGE_INTERACTION_AND_CONTINUITY_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_TURN_MESSAGE_AND_INTERACTION_OPERATION_SPECS,
   SESSION_CONTINUITY_OPERATION_SPECS,
+);
+
+export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TURN_MESSAGE_INTERACTION_AND_CONTINUITY_OPERATION_SPECS,
+  RUNTIME_POLICY_OPERATION_SPECS,
 );
 
 export type OperationSpecMap = typeof HOST_OPERATION_SPECS;

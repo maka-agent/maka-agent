@@ -6,7 +6,52 @@ import type {
 } from './llm-connections.js';
 import type { ProviderType } from './provider-registry.js';
 import type { ChatDefaultPermissionMode, ProxyProtocol } from './settings.js';
-import type { WebSearchProvider } from './web-search.js';
+import { WEB_SEARCH_PROVIDERS, type WebSearchProvider } from './web-search.js';
+
+export { WEB_SEARCH_PROVIDERS };
+export {
+  decodeRuntimePolicyEntityId,
+  RuntimePolicyDomainDecodeError,
+} from './runtime-policy/domain-codec.js';
+export {
+  decodeCanonicalRuntimePolicy,
+  normalizeRuntimePolicyMutation,
+  normalizeRuntimePolicySection,
+} from './runtime-policy/policy-codec.js';
+export {
+  CONNECTION_CATALOG_MAX_CONNECTIONS,
+  CONNECTION_CATALOG_MAX_ENABLED_MODEL_IDS,
+  CONNECTION_CATALOG_MAX_MODELS_PER_CONNECTION,
+  CONNECTION_MODEL_ID_MAX_LENGTH,
+  CONNECTION_NAME_MAX_LENGTH,
+  decodeCanonicalConnectionBaseUrl,
+  decodeCanonicalConnectionCatalogEntry,
+  decodeConnectionModelId,
+  decodeConnectionModel,
+  decodeConnectionName,
+  decodeConnectionSlug,
+  decodeConnectionTarget,
+  decodeConnectionTestSummary,
+  decodeConnectionVersionBasis,
+  decodeProviderType,
+  normalizeConnectionBaseUrl,
+  normalizeConnectionCatalogEntryDraft,
+  normalizeConnectionCatalogEntryUpdate,
+  normalizeConnectionCatalogEntryUpdateForProvider,
+  normalizeConnectionModelDiscoveryResult,
+  normalizeCreateCatalogConnectionInput,
+  normalizeRemoveCatalogConnectionInput,
+  normalizeSetDefaultConnectionTargetInput,
+  normalizeUpdateCatalogConnectionInput,
+} from './runtime-policy/connection-catalog-codec.js';
+export {
+  decodeCredentialLocator,
+  decodeCredentialStatus,
+  decodeCredentialVersionBasis,
+  normalizeCredentialSecret,
+  normalizeDeleteCredentialInput,
+  normalizeSetCredentialInput,
+} from './runtime-policy/credential-vault-codec.js';
 
 export type Revision = number;
 export type EntityId = string;

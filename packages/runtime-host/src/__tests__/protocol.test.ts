@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core/attachments';
+import { createDefaultRuntimePolicy } from '@maka/core/runtime-policy';
 import {
   decodeClientFrame,
   decodeHostFrame,
+  CONNECTION_CATALOG_PAGE_MAX_ITEMS,
+  CREDENTIAL_SECRET_MAX_BYTES,
   encodeProtocolFrame,
   HOST_OPERATION_SPECS,
   MESSAGE_QUEUE_MAX_ENTRIES,
@@ -11,6 +14,7 @@ import {
   ProtocolFrameDecoder,
   RUNTIME_HOST_MAX_FRAME_BYTES,
   RUNTIME_HOST_PROTOCOL_VERSION,
+  RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
   SESSION_CONTINUITY_SCHEMA_VERSION,
   SESSION_LIVE_DELTA_MAX_BYTES,
   TURN_MESSAGE_CONTENT_MAX_BYTES,
@@ -24,9 +28,417 @@ describe('Runtime Host bootstrap protocol', () => {
     assert.equal(negotiateProtocol({ min: 1, max: 1 }, { min: 2, max: 2 }), undefined);
   });
 
-  test('uses protocol v6 and Session continuity schema v3 without compatibility aliases', () => {
-    assert.equal(RUNTIME_HOST_PROTOCOL_VERSION, 6);
+  test('uses protocol v7 and Session continuity schema v3 without compatibility aliases', () => {
+    assert.equal(RUNTIME_HOST_PROTOCOL_VERSION, 7);
     assert.equal(SESSION_CONTINUITY_SCHEMA_VERSION, 3);
+  });
+
+  test('declares Runtime Policy Host operations with ready admission and closed retry metadata', () => {
+    const queries = [
+      'runtime.policy.query',
+      'connection.catalog.query',
+      'credential.vault.query',
+    ] as const;
+    const mutations = [
+      'runtime.policy.mutate',
+      'connection.catalog.create',
+      'connection.catalog.update',
+      'connection.catalog.remove',
+      'connection.catalog.set-default-target',
+      'credential.vault.set',
+      'credential.vault.delete',
+    ] as const;
+    for (const operation of queries) {
+      assert.equal(HOST_OPERATION_SPECS[operation].admission, 'ready');
+      assert.equal(HOST_OPERATION_SPECS[operation].retry, 'safe');
+      assert.ok(HOST_OPERATION_SPECS[operation].errors.includes('persistence_failed'));
+    }
+    for (const operation of mutations) {
+      assert.equal(HOST_OPERATION_SPECS[operation].admission, 'ready');
+      assert.equal(HOST_OPERATION_SPECS[operation].retry, 'none');
+      assert.ok(HOST_OPERATION_SPECS[operation].errors.includes('commit_outcome_unknown'));
+      assert.ok(HOST_OPERATION_SPECS[operation].errors.includes('invalid_request'));
+    }
+    assert.ok(HOST_OPERATION_SPECS['connection.catalog.query'].errors.includes('invalid_request'));
+    assert.ok(HOST_OPERATION_SPECS['credential.vault.query'].errors.includes('invalid_request'));
+  });
+
+  test('keeps Runtime Policy query and mutation unions exact and document bounded', () => {
+    assert.doesNotThrow(() =>
+      decodeClientFrame({ requestId: 'policy-1', operation: 'runtime.policy.query', input: {} }),
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          requestId: 'policy-2',
+          operation: 'runtime.policy.query',
+          input: { revision: 1 },
+        }),
+      isInvalidFrame,
+    );
+    const mutation = {
+      requestId: 'policy-3',
+      operation: 'runtime.policy.mutate' as const,
+      input: {
+        expectedRevision: 0,
+        operation: {
+          kind: 'set_personalization' as const,
+          value: { displayName: 'Maka', assistantTone: '界'.repeat(4_096) },
+        },
+      },
+    };
+    assert.doesNotThrow(() => decodeClientFrame(mutation));
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          ...mutation,
+          input: {
+            ...mutation.input,
+            operation: {
+              ...mutation.input.operation,
+              value: { ...mutation.input.operation.value, assistantTone: '界'.repeat(4_097) },
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          ...mutation,
+          input: { ...mutation.input, operation: { kind: 'replace_snapshot', value: {} } },
+        }),
+      isInvalidFrame,
+    );
+    const policy = createDefaultRuntimePolicy();
+    assert.doesNotThrow(() =>
+      decodeHostFrame({
+        requestId: 'policy-4',
+        operation: 'runtime.policy.query',
+        ok: true,
+        result: {
+          revision: 1,
+          policy: {
+            ...policy,
+            networkProxy: {
+              ...policy.networkProxy,
+              bypassList: Array.from({ length: 33 }, (_, index) => `domain-${index}`),
+            },
+            personalization: { ...policy.personalization, assistantTone: '界'.repeat(4_096) },
+          },
+        },
+      }),
+    );
+    const oversizedPolicy = {
+      ...policy,
+      networkProxy: {
+        ...policy.networkProxy,
+        bypassList: Array.from({ length: 256 }, (_, index) => `${index}-${'x'.repeat(196)}`),
+      },
+    };
+    assert.ok(
+      Buffer.byteLength(JSON.stringify({ revision: 1, policy: oversizedPolicy }), 'utf8') >
+        RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'policy-5',
+          operation: 'runtime.policy.query',
+          ok: true,
+          result: { revision: 1, policy: oversizedPolicy },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'policy-noncanonical-host',
+          operation: 'runtime.policy.query',
+          ok: true,
+          result: {
+            revision: 1,
+            policy: {
+              ...policy,
+              networkProxy: { ...policy.networkProxy, host: ' 127.0.0.1 ' },
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'policy-6',
+          operation: 'runtime.policy.mutate',
+          ok: true,
+          result: { kind: 'committed', revision: 1, snapshot: { revision: 1, policy: {} } },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('decodes revision-pinned catalog pages and enforces page item and byte bounds', () => {
+    const connectionId = '123e4567-e89b-42d3-a456-426614174000';
+    const page = {
+      kind: 'page' as const,
+      revision: 4,
+      defaultTarget: { connectionId, modelId: 'gpt-5' },
+      connectionCount: 1,
+      items: [
+        {
+          kind: 'connection' as const,
+          connectionIndex: 0,
+          connectionId,
+          revision: 2,
+          slug: 'openai-main',
+          name: 'OpenAI',
+          providerType: 'openai',
+          enabled: true,
+          modelSource: 'fetched' as const,
+          modelsFetchedAt: 1,
+          enabledModelIdCount: 1,
+          modelCount: 1,
+        },
+        {
+          kind: 'enabled_model_id' as const,
+          connectionIndex: 0,
+          itemIndex: 0,
+          modelId: 'gpt-5',
+        },
+        {
+          kind: 'model' as const,
+          connectionIndex: 0,
+          itemIndex: 0,
+          model: { id: 'gpt-5', capabilities: { chat: true, reasoning: true } },
+        },
+      ],
+      nextCursor: null,
+    };
+    assert.doesNotThrow(() =>
+      decodeHostFrame({
+        requestId: 'catalog-1',
+        operation: 'connection.catalog.query',
+        ok: true,
+        result: page,
+      }),
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'catalog-noncanonical-base-url',
+          operation: 'connection.catalog.query',
+          ok: true,
+          result: {
+            ...page,
+            items: [
+              {
+                ...page.items[0],
+                baseUrl: 'HTTPS://API.OPENAI.COM:443/v1',
+                enabledModelIdCount: 0,
+                modelCount: 0,
+              },
+            ],
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.doesNotThrow(() =>
+      decodeHostFrame({
+        requestId: 'catalog-observe-512',
+        operation: 'connection.catalog.query',
+        ok: true,
+        result: {
+          ...page,
+          items: [
+            { ...page.items[0], enabledModelIdCount: 512, modelCount: 0 },
+            {
+              kind: 'enabled_model_id',
+              connectionIndex: 0,
+              itemIndex: 511,
+              modelId: '界'.repeat(512),
+            },
+          ],
+        },
+      }),
+    );
+    assert.doesNotThrow(() =>
+      decodeClientFrame({
+        requestId: 'catalog-continue-512',
+        operation: 'connection.catalog.query',
+        input: {
+          kind: 'continue',
+          revision: 4,
+          cursor: { connectionIndex: 0, part: 'enabled_model_id', itemIndex: 511 },
+        },
+      }),
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          requestId: 'catalog-continue-513',
+          operation: 'connection.catalog.query',
+          input: {
+            kind: 'continue',
+            revision: 4,
+            cursor: { connectionIndex: 0, part: 'enabled_model_id', itemIndex: 512 },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'catalog-2',
+          operation: 'connection.catalog.query',
+          ok: true,
+          result: {
+            ...page,
+            items: Array.from(
+              { length: CONNECTION_CATALOG_PAGE_MAX_ITEMS + 1 },
+              () => page.items[1],
+            ),
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'catalog-4',
+          operation: 'connection.catalog.query',
+          ok: true,
+          result: { ...page, nextCursor: { connectionIndex: 1, part: 'connection' } },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'catalog-3',
+          operation: 'connection.catalog.query',
+          ok: true,
+          result: {
+            ...page,
+            items: Array.from({ length: CONNECTION_CATALOG_PAGE_MAX_ITEMS }, (_, itemIndex) => ({
+              kind: 'model',
+              connectionIndex: 0,
+              itemIndex,
+              model: { id: `model-${itemIndex}`, displayName: '界'.repeat(170) },
+            })),
+          },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('keeps catalog mutation requests bounded and committed results snapshot-free', () => {
+    const request = {
+      requestId: 'catalog-create-1',
+      operation: 'connection.catalog.create' as const,
+      input: {
+        expectedCatalogRevision: 0,
+        connection: {
+          slug: 'openai-main',
+          name: 'OpenAI',
+          providerType: 'openai',
+          enabled: true,
+          enabledModelIds: ['gpt-5'],
+        },
+      },
+    };
+    assert.doesNotThrow(() => decodeClientFrame(request));
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          ...request,
+          input: {
+            ...request.input,
+            connection: { ...request.input.connection, models: [] },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          ...request,
+          input: {
+            ...request.input,
+            connection: {
+              ...request.input.connection,
+              enabledModelIds: Array.from({ length: 65 }, (_, index) => `model-${index}`),
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'catalog-create-1',
+          operation: 'connection.catalog.create',
+          ok: true,
+          result: {
+            kind: 'committed',
+            catalogRevision: 1,
+            connection: { connectionId: '123e4567-e89b-42d3-a456-426614174000', revision: 1 },
+            snapshot: { revision: 1, connections: [] },
+          },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('bounds credential secrets and rejects secret-bearing status output', () => {
+    const connectionId = '123e4567-e89b-42d3-a456-426614174000';
+    const credentialId = '123e4567-e89b-42d3-a456-426614174001';
+    const locator = { scope: 'connection' as const, connectionId, kind: 'oauth_token' as const };
+    const setFrame = (secret: string) => ({
+      requestId: 'r'.repeat(128),
+      operation: 'credential.vault.set' as const,
+      input: {
+        locator,
+        expected: { credentialId, revision: Number.MAX_SAFE_INTEGER },
+        secret,
+      },
+    });
+    const worstCaseSecret = '\0'.repeat(CREDENTIAL_SECRET_MAX_BYTES);
+    const encoded = encodeProtocolFrame(decodeClientFrame(setFrame(worstCaseSecret)));
+    assert.ok(encoded.byteLength <= RUNTIME_HOST_MAX_FRAME_BYTES);
+    assert.doesNotThrow(() => decodeClientFrame(setFrame(worstCaseSecret)));
+    assert.throws(
+      () => decodeClientFrame(setFrame('\0'.repeat(CREDENTIAL_SECRET_MAX_BYTES + 1))),
+      isInvalidFrame,
+    );
+    assert.doesNotThrow(() =>
+      decodeHostFrame({
+        requestId: 'credential-delete-1',
+        operation: 'credential.vault.delete',
+        ok: true,
+        result: { kind: 'connection_not_found' },
+      }),
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'credential-query-1',
+          operation: 'credential.vault.query',
+          ok: true,
+          result: {
+            kind: 'status',
+            status: {
+              locator,
+              configured: false,
+              credentialId: null,
+              revision: null,
+              updatedAt: null,
+              secret: 'must-not-cross-wire',
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
   });
 
   test('decodes split UTF-8 and multiple newline-delimited frames without an unbounded tail', () => {

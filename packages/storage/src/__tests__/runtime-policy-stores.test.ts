@@ -151,6 +151,34 @@ describe('runtime policy stores', () => {
     });
   });
 
+  test('rejects a valid mutation whose combined policy document exceeds its byte limit', async () => {
+    await withInteractiveOwner(async ({ root, stores }) => {
+      const committed = await stores.runtimePolicy.mutate(personalizationMutation(0));
+      assert.equal(committed.kind, 'committed');
+      if (committed.kind !== 'committed') return;
+      const path = join(root, 'runtime-policy.json');
+      const persistedBefore = await readFile(path);
+
+      const entries = Array.from(
+        { length: 64 },
+        (_, index) => `domain-${index}-${'x'.repeat(480)}`,
+      );
+      await assert.rejects(
+        () =>
+          stores.runtimePolicy.mutate(
+            networkProxyMutation(1, {
+              bypassList: entries.map((entry) => `bypass-${entry}`),
+              autoBypassDomains: entries.map((entry) => `auto-${entry}`),
+            }),
+          ),
+        isStoreError('invalid_policy_input'),
+      );
+
+      assert.deepEqual(await stores.runtimePolicy.getSnapshot(), committed.snapshot);
+      assert.deepEqual(await readFile(path), persistedBefore);
+    });
+  });
+
   test('owns endpoints and fails closed on unsafe or unreachable persisted connection state', async () => {
     await withInteractiveOwner(async ({ root, stores }) => {
       const rejected: ConnectionCatalogEntryDraft[] = [

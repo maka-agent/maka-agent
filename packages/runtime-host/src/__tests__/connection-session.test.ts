@@ -22,6 +22,7 @@ import {
   createUnavailableDomainOperationHandlers,
   type MessageOperationHandlerMap,
   type OperationHandlerMap,
+  type RuntimePolicyOperationHandlerMap,
   type TurnOperationHandlerMap,
 } from '../server/operation-dispatcher.js';
 import { SessionAdmissionGate } from '../server/session-admission-gate.js';
@@ -442,12 +443,17 @@ async function openAcceptedTransport(
 function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['handlers'] {
   const turnHandlers = createTurnHandlers(queryTurn);
   const unavailable = createUnavailableDomainOperationHandlers();
-  return combineDomainOperationHandlers(turnHandlers, createUnavailableMessageHandlers(), {
-    'subscription.open': unavailable['subscription.open'],
-    'subscription.close': unavailable['subscription.close'],
-    'interaction.query': unavailable['interaction.query'],
-    'interaction.answer': unavailable['interaction.answer'],
-  });
+  return combineDomainOperationHandlers(
+    turnHandlers,
+    createUnavailableMessageHandlers(),
+    {
+      'subscription.open': unavailable['subscription.open'],
+      'subscription.close': unavailable['subscription.close'],
+      'interaction.query': unavailable['interaction.query'],
+      'interaction.answer': unavailable['interaction.answer'],
+    },
+    createUnavailableRuntimePolicyHandlers(),
+  );
 }
 
 function createTurnHandlers(queryTurn: TurnQueryHandler): TurnOperationHandlerMap {
@@ -489,7 +495,24 @@ function createConnectionHandlers(continuity: SessionContinuityCoordinator): Ope
         'interaction.query': unavailable['interaction.query'],
         'interaction.answer': unavailable['interaction.answer'],
       },
+      createUnavailableRuntimePolicyHandlers(),
     ),
+  };
+}
+
+function createUnavailableRuntimePolicyHandlers(): RuntimePolicyOperationHandlerMap {
+  const unavailable = createUnavailableDomainOperationHandlers();
+  return {
+    'runtime.policy.query': unavailable['runtime.policy.query'],
+    'runtime.policy.mutate': unavailable['runtime.policy.mutate'],
+    'connection.catalog.query': unavailable['connection.catalog.query'],
+    'connection.catalog.create': unavailable['connection.catalog.create'],
+    'connection.catalog.update': unavailable['connection.catalog.update'],
+    'connection.catalog.remove': unavailable['connection.catalog.remove'],
+    'connection.catalog.set-default-target': unavailable['connection.catalog.set-default-target'],
+    'credential.vault.query': unavailable['credential.vault.query'],
+    'credential.vault.set': unavailable['credential.vault.set'],
+    'credential.vault.delete': unavailable['credential.vault.delete'],
   };
 }
 

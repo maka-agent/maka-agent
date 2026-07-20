@@ -10,7 +10,7 @@ import {
   RuntimePolicyStoreError,
 } from './errors.js';
 
-export const POLICY_DOCUMENT_MAX_BYTES = 256 * 1024;
+export const POLICY_DOCUMENT_MAX_BYTES = 48 * 1024;
 export const CATALOG_DOCUMENT_MAX_BYTES = 4 * 1024 * 1024;
 export const VAULT_DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -136,7 +136,7 @@ export async function writeJsonDocument(
   value: unknown,
   maxBytes: number,
 ): Promise<void> {
-  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  const bytes = serializeJsonDocument(value);
   if (bytes.length > maxBytes) throw invalidDocument(`${file} exceeds its ${maxBytes} byte limit`);
 
   const path = join(root, file);
@@ -182,4 +182,8 @@ export async function writeJsonDocument(
     );
   }
   throw ioFailed(`${file} I/O failed before publication`, failure);
+}
+
+export function serializeJsonDocument(value: unknown): Buffer {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }

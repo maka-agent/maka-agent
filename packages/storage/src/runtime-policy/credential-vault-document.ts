@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
+  decodeCredentialVersionBasis,
+  normalizeCredentialSecret,
+  normalizeDeleteCredentialInput,
+  normalizeSetCredentialInput,
   type CredentialLocator,
   type CredentialMutationResult,
   type CredentialStatus,
@@ -8,19 +12,8 @@ import {
   type DeleteCredentialInput,
   type SetCredentialInput,
 } from '@maka/core/runtime-policy';
-import { WEB_SEARCH_PROVIDERS } from '@maka/core';
-import {
-  deepFreeze,
-  entityId,
-  integer,
-  nextRevision,
-  positiveRevision,
-  record,
-  revision,
-  string,
-  unique,
-} from './codec.js';
-import { codecError, type CodecSource } from './errors.js';
+import { deepFreeze, integer, nextRevision, record, revision, unique } from './codec.js';
+import { codecError, decodeCredentialInput, decodePersistedDomain } from './errors.js';
 import {
   readBoundedJsonDocument,
   VAULT_DOCUMENT_MAX_BYTES,
@@ -55,9 +48,7 @@ export class CredentialVaultDocumentOwner {
     if (!Array.isArray(raw.entries) || raw.entries.length > MAX_VAULT_ENTRIES) {
       throw codecError('invalid_document', `${FILE}.entries must be a bounded array`);
     }
-    const entries = raw.entries.map((item, index) =>
-      parseEntry(item, `${FILE}.entries[${index}]`, 'invalid_document'),
-    );
+    const entries = raw.entries.map((item, index) => parseEntry(item, `${FILE}.entries[${index}]`));
     unique(
       entries.map((entry) => locatorKey(entry.locator)),
       `${FILE} locators`,
@@ -76,7 +67,8 @@ export class CredentialVaultDocumentOwner {
   }
 
   async set(root: string, rawInput: SetCredentialInput): Promise<CredentialMutationResult> {
-    const input = parseSetInput(rawInput);
+    const input = decodeCredentialInput(() => normalizeSetCredentialInput(rawInput));
+    assertCredentialInputSecretLimit(input.secret, 'set credential secret');
     const current = await this.read(root);
     const index = findCredentialIndex(current, input.locator);
     const previous = index < 0 ? undefined : current.entries[index];
@@ -116,7 +108,7 @@ export class CredentialVaultDocumentOwner {
   }
 
   async delete(root: string, rawInput: DeleteCredentialInput): Promise<CredentialMutationResult> {
-    const input = parseDeleteInput(rawInput);
+    const input = decodeCredentialInput(() => normalizeDeleteCredentialInput(rawInput));
     const current = await this.read(root);
     const index = findCredentialIndex(current, input.expected.locator);
     const previous = index < 0 ? undefined : current.entries[index];
@@ -252,126 +244,58 @@ export function sameCredentialStatus(
   );
 }
 
-export function parseCredentialLocator(
-  value: unknown,
-  context: string,
-  source: CodecSource = 'invalid_credential_input',
-): CredentialLocator {
-  const base = record(
-    value,
-    context,
-    source,
-    ['scope', 'connectionId', 'provider', 'kind'],
-    ['scope', 'kind'],
-  );
-  if (base.scope === 'connection') {
-    const item = record(value, context, source, ['scope', 'connectionId', 'kind']);
-    if (item.kind !== 'api_key' && item.kind !== 'oauth_token') {
-      throw codecError(source, `${context}.kind is invalid`);
-    }
-    return {
-      scope: 'connection',
-      connectionId: entityId(item.connectionId, `${context}.connectionId`, source),
-      kind: item.kind,
-    };
-  }
-  if (base.scope === 'web_search') {
-    const item = record(value, context, source, ['scope', 'provider', 'kind']);
-    if (
-      item.kind !== 'api_key' ||
-      !(WEB_SEARCH_PROVIDERS as readonly unknown[]).includes(item.provider)
-    ) {
-      throw codecError(source, `${context} is not a valid web search credential locator`);
-    }
-    return {
-      scope: 'web_search',
-      provider: item.provider as Extract<CredentialLocator, { scope: 'web_search' }>['provider'],
-      kind: 'api_key',
-    };
-  }
-  if (base.scope === 'network_proxy') {
-    const item = record(value, context, source, ['scope', 'kind']);
-    if (item.kind !== 'password') throw codecError(source, `${context}.kind is invalid`);
-    return { scope: 'network_proxy', kind: 'password' };
-  }
-  throw codecError(source, `${context}.scope is invalid`);
-}
-
 export function parseSecret(value: unknown, context: string): string {
-  const parsed = string(value, context, MAX_SECRET_LENGTH, 'invalid_credential_input');
-  if (parsed.length === 0)
-    throw codecError('invalid_credential_input', `${context} must not be empty`);
+  const parsed = decodeCredentialInput(() => normalizeCredentialSecret(value));
+  assertCredentialInputSecretLimit(parsed, context);
   return parsed;
 }
 
-export function parseCredentialBasis(
-  value: unknown,
-  context: string,
-  source: CodecSource = 'invalid_credential_input',
-): CredentialVersionBasis {
-  const item = record(value, context, source, ['locator', 'credentialId', 'revision']);
-  return {
-    locator: parseCredentialLocator(item.locator, `${context}.locator`, source),
-    credentialId: entityId(item.credentialId, `${context}.credentialId`, source),
-    revision: positiveRevision(item.revision, `${context}.revision`, source),
-  };
-}
-
-function parseSetInput(value: unknown): SetCredentialInput {
-  const input = record(value, 'set credential input', 'invalid_credential_input', [
-    'locator',
-    'expected',
-    'secret',
-  ]);
-  const locator = parseCredentialLocator(input.locator, 'set credential locator');
-  let expected: SetCredentialInput['expected'];
-  if (input.expected === null) {
-    expected = null;
-  } else {
-    const item = record(
-      input.expected,
-      'set credential expected basis',
-      'invalid_credential_input',
-      ['credentialId', 'revision'],
-    );
-    expected = {
-      credentialId: entityId(
-        item.credentialId,
-        'set credential expected credentialId',
-        'invalid_credential_input',
-      ),
-      revision: positiveRevision(
-        item.revision,
-        'set credential expected revision',
-        'invalid_credential_input',
-      ),
-    };
-  }
-  return { locator, expected, secret: parseSecret(input.secret, 'set credential secret') };
-}
-
-function parseDeleteInput(value: unknown): DeleteCredentialInput {
-  const input = record(value, 'delete credential input', 'invalid_credential_input', ['expected']);
-  return { expected: parseCredentialBasis(input.expected, 'delete credential expected basis') };
-}
-
-function parseEntry(value: unknown, context: string, source: CodecSource): CredentialVaultEntry {
-  const item = record(value, context, source, [
+function parseEntry(value: unknown, context: string): CredentialVaultEntry {
+  const item = record(value, context, 'invalid_document', [
     'locator',
     'credentialId',
     'revision',
     'secret',
     'updatedAt',
   ]);
-  const secret = string(item.secret, `${context}.secret`, MAX_SECRET_LENGTH, source);
-  if (secret.length === 0) throw codecError(source, `${context}.secret must not be empty`);
+  const basis = decodePersistedDomain(() =>
+    decodeCredentialVersionBasis({
+      locator: item.locator,
+      credentialId: item.credentialId,
+      revision: item.revision,
+    }),
+  );
+  const secret = decodePersistedDomain(() => normalizeCredentialSecret(item.secret));
+  assertPersistedSecretLimit(secret, `${context}.secret`);
   return {
-    locator: parseCredentialLocator(item.locator, `${context}.locator`, source),
-    credentialId: entityId(item.credentialId, `${context}.credentialId`, source),
-    revision: positiveRevision(item.revision, `${context}.revision`, source),
+    ...basis,
     secret,
-    updatedAt: integer(item.updatedAt, `${context}.updatedAt`, 0, Number.MAX_SAFE_INTEGER, source),
+    updatedAt: integer(
+      item.updatedAt,
+      `${context}.updatedAt`,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      'invalid_document',
+    ),
   };
+}
+
+function assertCredentialInputSecretLimit(value: string, context: string): void {
+  if (value.length > MAX_SECRET_LENGTH) {
+    throw codecError(
+      'invalid_credential_input',
+      `${context} must be no longer than ${MAX_SECRET_LENGTH} characters`,
+    );
+  }
+}
+
+function assertPersistedSecretLimit(value: string, context: string): void {
+  if (value.length > MAX_SECRET_LENGTH) {
+    throw codecError(
+      'invalid_document',
+      `${context} must be no longer than ${MAX_SECRET_LENGTH} characters`,
+    );
+  }
 }
 
 function credentialStatusFromEntry(entry: CredentialVaultEntry): CredentialStatus {

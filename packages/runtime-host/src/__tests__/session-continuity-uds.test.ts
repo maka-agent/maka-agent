@@ -25,6 +25,7 @@ import {
   combineDomainOperationHandlers,
   createUnavailableDomainOperationHandlers,
   type MessageOperationHandlerMap,
+  type RuntimePolicyOperationHandlerMap,
   type TurnOperationHandlerMap,
 } from '../server/operation-dispatcher.js';
 import { SessionAdmissionGate } from '../server/session-admission-gate.js';
@@ -89,6 +90,7 @@ test('a connection accepted during recovery resolves ready handlers and continui
           createUnavailableMessageHandlers(),
           continuity.handlers,
           createUnavailableInteractionHandlers(),
+          createUnavailableRuntimePolicyHandlers(),
         ),
         continuity,
         async recover() {
@@ -474,6 +476,7 @@ async function withContinuityHost(
           createUnavailableMessageHandlers(),
           continuity.handlers,
           createUnavailableInteractionHandlers(),
+          createUnavailableRuntimePolicyHandlers(),
         ),
         continuity,
         async recover() {},
@@ -502,6 +505,22 @@ function createUnavailableInteractionHandlers() {
   return {
     'interaction.query': unavailable['interaction.query'],
     'interaction.answer': unavailable['interaction.answer'],
+  };
+}
+
+function createUnavailableRuntimePolicyHandlers(): RuntimePolicyOperationHandlerMap {
+  const unavailable = createUnavailableDomainOperationHandlers();
+  return {
+    'runtime.policy.query': unavailable['runtime.policy.query'],
+    'runtime.policy.mutate': unavailable['runtime.policy.mutate'],
+    'connection.catalog.query': unavailable['connection.catalog.query'],
+    'connection.catalog.create': unavailable['connection.catalog.create'],
+    'connection.catalog.update': unavailable['connection.catalog.update'],
+    'connection.catalog.remove': unavailable['connection.catalog.remove'],
+    'connection.catalog.set-default-target': unavailable['connection.catalog.set-default-target'],
+    'credential.vault.query': unavailable['credential.vault.query'],
+    'credential.vault.set': unavailable['credential.vault.set'],
+    'credential.vault.delete': unavailable['credential.vault.delete'],
   };
 }
 

@@ -1,41 +1,50 @@
-import type {
-  ConnectionCatalogEntry,
-  CreateCatalogConnectionInput,
-  CredentialLocator,
-  CredentialStatus,
-  CredentialVersionBasis,
-  DeleteCredentialInput,
-  MutateRuntimePolicyInput,
-  RemoveCatalogConnectionInput,
-  RuntimePolicy,
-  SetCredentialInput,
-  SetDefaultConnectionTargetInput,
-  UpdateCatalogConnectionInput,
+import {
+  decodeCredentialLocator,
+  decodeCredentialVersionBasis,
+  decodeRuntimePolicyEntityId,
+  normalizeDeleteCredentialInput,
+  normalizeRemoveCatalogConnectionInput,
+  normalizeSetCredentialInput,
+  type ConnectionCatalogEntry,
+  type CreateCatalogConnectionInput,
+  type CredentialLocator,
+  type CredentialStatus,
+  type CredentialVersionBasis,
+  type DeleteCredentialInput,
+  type MutateRuntimePolicyInput,
+  type RemoveCatalogConnectionInput,
+  type RuntimePolicy,
+  type SetCredentialInput,
+  type SetDefaultConnectionTargetInput,
+  type UpdateCatalogConnectionInput,
 } from '@maka/core/runtime-policy';
 import { deriveProviderAuthContract, type ProviderAuthAction } from '@maka/core/provider-auth';
 import { effectiveBaseUrl, PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
-import { deepFreeze, entityId, record } from './codec.js';
+import { deepFreeze, record } from './codec.js';
 import {
   catalogSnapshot,
   connectionBasis,
   ConnectionCatalogDocumentOwner,
   findConnection,
-  parseConnectionBasis,
 } from './connection-catalog-document.js';
 import {
   credentialMaterial,
   credentialStatus,
   CredentialVaultDocumentOwner,
   findCredential,
-  parseCredentialBasis,
-  parseCredentialLocator,
   parseSecret,
   sameCredentialBasis,
   sameCredentialStatus,
   vaultSnapshot,
 } from './credential-vault-document.js';
 import { cleanupRuntimePolicyDocumentTemps } from './document-io.js';
-import { codecError, RuntimePolicyStoreError, type CodecSource } from './errors.js';
+import {
+  codecError,
+  decodeConnectionInput,
+  decodeCredentialInput,
+  RuntimePolicyStoreError,
+  type CodecSource,
+} from './errors.js';
 import {
   connectionCredentialLocator,
   type BeginConnectionTestResult,
@@ -151,7 +160,7 @@ export class RuntimePolicyCoordinator {
 
   getCredentialStatus(rawLocator: CredentialLocator): Promise<CredentialStatusQueryResult> {
     return this.execute(async (root) => {
-      const locator = parseCredentialLocator(rawLocator, 'credential status locator');
+      const locator = decodeCredentialInput(() => decodeCredentialLocator(rawLocator));
       if (!(await this.validateConnectionCredentialLocator(root, locator))) {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
@@ -174,13 +183,8 @@ export class RuntimePolicyCoordinator {
 
   removeConnection(rawInput: RemoveCatalogConnectionInput) {
     return this.inLane(async (root) => {
-      const input = record(rawInput, 'remove connection input', 'invalid_connection_input', [
-        'expected',
-      ]);
-      const expected = parseConnectionBasis(
-        input.expected,
-        'remove connection expected basis',
-        'invalid_connection_input',
+      const { expected } = decodeConnectionInput(() =>
+        normalizeRemoveCatalogConnectionInput(rawInput),
       );
       const catalog = await this.catalog.read(root);
       const connection = findConnection(catalog, expected);
@@ -212,25 +216,18 @@ export class RuntimePolicyCoordinator {
 
   setCredential(rawInput: SetCredentialInput) {
     return this.inLane(async (root) => {
-      const input = record(rawInput, 'set credential input', 'invalid_credential_input', [
-        'locator',
-        'expected',
-        'secret',
-      ]);
-      const locator = parseCredentialLocator(input.locator, 'set credential locator');
+      const input = decodeCredentialInput(() => normalizeSetCredentialInput(rawInput));
+      const { locator } = input;
       if (!(await this.validateConnectionCredentialLocator(root, locator))) {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
-      return this.vault.set(root, rawInput);
+      return this.vault.set(root, input);
     });
   }
 
   deleteCredential(rawInput: DeleteCredentialInput) {
     return this.inLane(async (root) => {
-      const input = record(rawInput, 'delete credential input', 'invalid_credential_input', [
-        'expected',
-      ]);
-      const expected = parseCredentialBasis(input.expected, 'delete credential expected basis');
+      const { expected } = decodeCredentialInput(() => normalizeDeleteCredentialInput(rawInput));
       if (!(await this.validateConnectionCredentialLocator(root, expected.locator))) {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
@@ -240,10 +237,8 @@ export class RuntimePolicyCoordinator {
 
   beginModelFetch(rawConnectionId: string): Promise<BeginModelFetchResult> {
     return this.inLane(async (root) => {
-      const connectionId = entityId(
-        rawConnectionId,
-        'model fetch connectionId',
-        'invalid_connection_input',
+      const connectionId = decodeConnectionInput(() =>
+        decodeRuntimePolicyEntityId(rawConnectionId),
       );
       const prepared = await this.prepareConnectionOperation(root, connectionId, 'fetch_models');
       if (prepared.kind !== 'ready') return prepared;
@@ -292,10 +287,8 @@ export class RuntimePolicyCoordinator {
 
   beginConnectionTest(rawConnectionId: string): Promise<BeginConnectionTestResult> {
     return this.inLane(async (root) => {
-      const connectionId = entityId(
-        rawConnectionId,
-        'connection test connectionId',
-        'invalid_connection_input',
+      const connectionId = decodeConnectionInput(() =>
+        decodeRuntimePolicyEntityId(rawConnectionId),
       );
       const prepared = await this.prepareConnectionOperation(
         root,
@@ -350,10 +343,8 @@ export class RuntimePolicyCoordinator {
 
   beginStoredOAuthRefresh(rawConnectionId: string): Promise<BeginStoredOAuthRefreshResult> {
     return this.inLane(async (root) => {
-      const connectionId = entityId(
-        rawConnectionId,
-        'stored OAuth refresh connectionId',
-        'invalid_credential_input',
+      const connectionId = decodeCredentialInput(() =>
+        decodeRuntimePolicyEntityId(rawConnectionId),
       );
       const prepared = await this.prepareConnectionOperation(root, connectionId, 'refresh_oauth');
       if (prepared.kind !== 'ready') return prepared;

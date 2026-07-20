@@ -29,10 +29,12 @@ const allowedServerExternalImports = new Set([
   '@maka/core/events',
   '@maka/core/interaction',
   '@maka/core/runtime-event',
+  '@maka/core/runtime-policy',
   '@maka/core/session',
   '@maka/runtime',
   '@maka/storage',
   '@maka/storage/execution-stores',
+  '@maka/storage/runtime-policy-stores',
   'node:async_hooks',
 ]);
 const allowedExternalImports = {
@@ -41,6 +43,7 @@ const allowedExternalImports = {
     '@maka/core/attachments',
     '@maka/core/events',
     '@maka/core/interaction',
+    '@maka/core/runtime-policy',
     'node:util',
   ]),
 } as const;
