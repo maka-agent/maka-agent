@@ -797,6 +797,22 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /maka-cell-output\.json/);
   });
 
+  test('process scope preserves command results without emitting job notifications', (t) => {
+    const result = spawnSync('python3', ['-c', pythonProcessScopeSmokeScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('python3 is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), [
+      { label: 'success', returnCode: 0, stdout: 'success-out', stderr: 'success-err' },
+      { label: 'failure', returnCode: 7, stdout: 'failure-out', stderr: 'failure-err' },
+    ]);
+  });
+
   test('opencode_agent.py bridges credentials and estimates trial cost without Harbor installed', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonOpenCodeAdapterSmokeScript(repoRoot)], {
       cwd: repoRoot,
@@ -1265,6 +1281,52 @@ asyncio.run(fix3_infra_failure_reclaims_scoped_processes())
 asyncio.run(fix4_deadline_reclaims_all_scoped_commands())
 asyncio.run(fix5_timed_out_command_is_reclaimed_immediately())
 print("bridge-contract ok")
+`;
+}
+
+function pythonProcessScopeSmokeScript(root: string): string {
+  return String.raw`
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+
+from process_scope import COMMAND_SCOPE_ROOT, scoped_command
+
+scope = f"job-notification-test-{os.getpid()}"
+scope_dir = Path(COMMAND_SCOPE_ROOT) / scope
+cases = [
+    ("success", "printf success-out; printf success-err >&2"),
+    ("failure", "printf failure-out; printf failure-err >&2; exit 7"),
+]
+results = []
+
+try:
+    for label, command in cases:
+        result = subprocess.run(
+            ["bash", "-lc", scoped_command(command, scope, label)],
+            capture_output=True,
+            text=True,
+        )
+        results.append(
+            {
+                "label": label,
+                "returnCode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        )
+finally:
+    if scope_dir.exists():
+        for path in scope_dir.iterdir():
+            path.unlink()
+        scope_dir.rmdir()
+
+print(json.dumps(results))
 `;
 }
 
