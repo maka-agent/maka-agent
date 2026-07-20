@@ -74,6 +74,42 @@ describe('strict provider-request usage', () => {
     });
   });
 
+  test('preserves Google usage and derives cache miss from raw usage metadata', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 100, noCache: 60, cacheRead: 40, cacheWrite: undefined },
+      outputTokens: { total: 20, text: 15, reasoning: 5 },
+      raw: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 15,
+        cachedContentTokenCount: 40,
+        thoughtsTokenCount: 5,
+      },
+    });
+
+    assert.deepEqual(usage, {
+      inputTokens: 100,
+      cacheReadInputTokens: 40,
+      cacheReadInputSource: 'provider',
+      cacheMissInputTokens: 60,
+      cacheMissInputSource: 'derived',
+      outputTokens: 20,
+      reasoningTokens: 5,
+    });
+  });
+
+  test('does not inherit Google adapter zeroes for omitted raw cache and reasoning fields', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: undefined },
+      outputTokens: { total: 20, text: 20, reasoning: 0 },
+      raw: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 20,
+      },
+    });
+
+    assert.deepEqual(usage, { inputTokens: 100, outputTokens: 20 });
+  });
+
   test('does not turn omitted provider cache details into zero-valued evidence', () => {
     const usage = telemetry.strictProviderRequestUsage({
       inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: undefined },

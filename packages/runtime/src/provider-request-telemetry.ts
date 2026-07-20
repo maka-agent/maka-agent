@@ -386,10 +386,18 @@ export function strictProviderRequestUsage(
   const raw = usage.raw;
   const normalizedInputTokens = tokenTotal(usage.inputTokens);
   const normalizedOutputTokens = tokenTotal(usage.outputTokens);
-  const inputTokens = canUseNormalizedTotal(raw, ['prompt_tokens', 'input_tokens'])
+  const inputTokens = canUseNormalizedTotal(raw, [
+    'prompt_tokens',
+    'input_tokens',
+    'promptTokenCount',
+  ])
     ? normalizedInputTokens
     : undefined;
-  const outputTokens = canUseNormalizedTotal(raw, ['completion_tokens', 'output_tokens'])
+  const outputTokens = canUseNormalizedTotal(raw, [
+    'completion_tokens',
+    'output_tokens',
+    'candidatesTokenCount',
+  ])
     ? normalizedOutputTokens
     : undefined;
   const result: ProviderRequestUsage = {
@@ -400,14 +408,27 @@ export function strictProviderRequestUsage(
   if (raw) {
     applyAnthropicCacheUsage(result, raw);
     applyOpenAiCacheUsage(result, raw);
+    applyGoogleCacheUsage(result, raw);
     const reasoningTokens = firstToken(
       nestedToken(raw, 'completion_tokens_details', 'reasoning_tokens'),
       nestedToken(raw, 'output_tokens_details', 'reasoning_tokens'),
+      ownToken(raw, 'thoughtsTokenCount'),
     );
     if (reasoningTokens !== undefined) result.reasoningTokens = reasoningTokens;
   }
 
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function applyGoogleCacheUsage(result: ProviderRequestUsage, raw: Record<string, unknown>): void {
+  const totalInput = ownToken(raw, 'promptTokenCount');
+  const cacheRead = ownToken(raw, 'cachedContentTokenCount');
+  if (cacheRead === undefined) return;
+  result.cacheReadInputTokens = cacheRead;
+  result.cacheReadInputSource = 'provider';
+  if (totalInput === undefined || cacheRead > totalInput) return;
+  result.cacheMissInputTokens = totalInput - cacheRead;
+  result.cacheMissInputSource = 'derived';
 }
 
 function applyAnthropicCacheUsage(
