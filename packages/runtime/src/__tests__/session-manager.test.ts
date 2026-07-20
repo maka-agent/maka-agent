@@ -7706,6 +7706,30 @@ describe('SessionManager permission mode updates', () => {
     expect((attempt?.data?.segments as unknown[])?.length).toBe(75);
   });
 
+  test('omits provider request telemetry hooks when no run store is configured', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    let captureHook: BackendFactoryContext['recordProviderRequestCapture'];
+    let attemptHook: BackendFactoryContext['recordProviderRequestAttempt'];
+    backends.register('fake', (ctx) => {
+      captureHook = ctx.recordProviderRequestCapture;
+      attemptHook = ctx.recordProviderRequestAttempt;
+      return new FakeBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_765),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    expect(captureHook).toBeUndefined();
+    expect(attemptHook).toBeUndefined();
+  });
+
   test('durable run ledger records full active compact blocks asynchronously', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

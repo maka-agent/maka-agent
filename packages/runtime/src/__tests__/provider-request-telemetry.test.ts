@@ -51,6 +51,29 @@ describe('strict provider-request usage', () => {
     });
   });
 
+  test('preserves OpenAI Chat cache-write and derives cache miss from the raw total', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 100, noCache: 50, cacheRead: 20, cacheWrite: 30 },
+      outputTokens: { total: 20, text: 20, reasoning: 0 },
+      raw: {
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        prompt_tokens_details: { cached_tokens: 20, cache_write_tokens: 30 },
+      },
+    });
+
+    assert.deepEqual(usage, {
+      inputTokens: 100,
+      cacheReadInputTokens: 20,
+      cacheReadInputSource: 'provider',
+      cacheMissInputTokens: 50,
+      cacheMissInputSource: 'derived',
+      cacheWriteInputTokens: 30,
+      cacheWriteInputSource: 'provider',
+      outputTokens: 20,
+    });
+  });
+
   test('does not turn omitted provider cache details into zero-valued evidence', () => {
     const usage = telemetry.strictProviderRequestUsage({
       inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: undefined },
@@ -59,6 +82,45 @@ describe('strict provider-request usage', () => {
     });
 
     assert.deepEqual(usage, { inputTokens: 100, outputTokens: 20 });
+  });
+
+  test('does not inherit normalized zero totals when the raw provider fields are missing', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 0, noCache: 0, cacheRead: 10, cacheWrite: undefined },
+      outputTokens: { total: 0, text: 0, reasoning: 0 },
+      raw: { prompt_tokens_details: { cached_tokens: 10 } },
+    });
+
+    assert.deepEqual(usage, {
+      cacheReadInputTokens: 10,
+      cacheReadInputSource: 'provider',
+    });
+  });
+
+  test('keeps normalized totals when no raw provider payload is available', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 8, noCache: 8, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: 3, text: 3, reasoning: undefined },
+    });
+
+    assert.deepEqual(usage, { inputTokens: 8, outputTokens: 3 });
+  });
+
+  test('does not derive cache miss from inconsistent provider components', () => {
+    const usage = telemetry.strictProviderRequestUsage({
+      inputTokens: { total: 10, noCache: 0, cacheRead: 20, cacheWrite: undefined },
+      outputTokens: { total: 0, text: 0, reasoning: 0 },
+      raw: {
+        prompt_tokens: 10,
+        prompt_tokens_details: { cached_tokens: 20 },
+      },
+    });
+
+    assert.deepEqual(usage, {
+      inputTokens: 10,
+      cacheReadInputTokens: 20,
+      cacheReadInputSource: 'provider',
+    });
   });
 });
 
@@ -303,6 +365,45 @@ describe('provider request tracker', () => {
     );
 
     assert.equal(captures, 0);
+    assert.equal(attempts, 0);
+    assert.equal(providerCalls, 0);
+  });
+
+  test('does not dispatch or record an attempt when cancellation happens during capture', async () => {
+    let captures = 0;
+    let attempts = 0;
+    let providerCalls = 0;
+    const abort = new AbortController();
+    const tracker = new telemetry.ProviderRequestTracker({
+      traceId: 'trace-6',
+      turnId: 'turn-6',
+      now: () => Date.now(),
+      newId: () => 'id',
+      persistCapture: async () => {
+        captures += 1;
+        abort.abort();
+        return { artifactId: 'artifact' };
+      },
+      recordAttempt: async () => {
+        attempts += 1;
+      },
+    });
+
+    await assert.rejects(
+      tracker.trackStream({
+        providerId: 'openai',
+        modelId: 'gpt-test',
+        params: preparedParams('hello'),
+        abortSignal: abort.signal,
+        doStream: async () => {
+          providerCalls += 1;
+          return { stream: streamOf([finishPart()]) };
+        },
+      }),
+      { name: 'AbortError' },
+    );
+
+    assert.equal(captures, 1);
     assert.equal(attempts, 0);
     assert.equal(providerCalls, 0);
   });

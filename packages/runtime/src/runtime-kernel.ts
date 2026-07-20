@@ -1343,22 +1343,22 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordRunTrace(event);
       },
-      recordProviderRequestCapture: (capture) => {
-        const active = this.active.get(sessionId);
-        const runId = active?.turnToRunId.get(capture.turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        if (!run)
-          return Promise.reject(new Error('No active AgentRun for provider request capture'));
-        return run.recordProviderRequestCapture(capture);
-      },
-      recordProviderRequestAttempt: (attempt) => {
-        const active = this.active.get(sessionId);
-        const runId = active?.turnToRunId.get(attempt.turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        run?.recordProviderRequestAttempt(attempt);
-      },
       ...(this.deps.runStore
         ? {
+            recordProviderRequestCapture: (capture) => {
+              const active = this.active.get(sessionId);
+              const runId = active?.turnToRunId.get(capture.turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              if (!run)
+                return Promise.reject(new Error('No active AgentRun for provider request capture'));
+              return run.recordProviderRequestCapture(capture);
+            },
+            recordProviderRequestAttempt: (attempt) => {
+              const active = this.active.get(sessionId);
+              const runId = active?.turnToRunId.get(attempt.turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              run?.recordProviderRequestAttempt(attempt);
+            },
             loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
             recordHistoryCompactCheckpoint: (
               checkpoint: HistoryCompactCheckpoint,
@@ -1433,22 +1433,22 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordRunTrace(event);
       },
-      recordProviderRequestCapture: (capture) => {
-        const active = this.childActive.get(activeKey);
-        const runId = active?.turnToRunId.get(capture.turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        if (!run)
-          return Promise.reject(new Error('No active AgentRun for provider request capture'));
-        return run.recordProviderRequestCapture(capture);
-      },
-      recordProviderRequestAttempt: (attempt) => {
-        const active = this.childActive.get(activeKey);
-        const runId = active?.turnToRunId.get(attempt.turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        run?.recordProviderRequestAttempt(attempt);
-      },
       ...(this.deps.runStore
         ? {
+            recordProviderRequestCapture: (capture) => {
+              const active = this.childActive.get(activeKey);
+              const runId = active?.turnToRunId.get(capture.turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              if (!run)
+                return Promise.reject(new Error('No active AgentRun for provider request capture'));
+              return run.recordProviderRequestCapture(capture);
+            },
+            recordProviderRequestAttempt: (attempt) => {
+              const active = this.childActive.get(activeKey);
+              const runId = active?.turnToRunId.get(attempt.turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              run?.recordProviderRequestAttempt(attempt);
+            },
             loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
             recordHistoryCompactCheckpoint: (
               checkpoint: HistoryCompactCheckpoint,

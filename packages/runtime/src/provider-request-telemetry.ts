@@ -116,11 +116,10 @@ export class ProviderRequestTracker {
   }
 
   async trackStream(input: TrackProviderStreamInput): Promise<ProviderStreamResult> {
-    if (input.abortSignal?.aborted) {
-      throw new DOMException('The provider request was cancelled before dispatch', 'AbortError');
-    }
+    throwIfAbortedBeforeDispatch(input.abortSignal);
     const step = this.step;
     const capture = await this.capture(step, input);
+    throwIfAbortedBeforeDispatch(input.abortSignal);
     const attempt = (this.attemptsByStep.get(step) ?? 0) + 1;
     this.attemptsByStep.set(step, attempt);
     const attemptId = this.input.newId();
@@ -263,6 +262,12 @@ export class ProviderRequestTracker {
   }
 }
 
+function throwIfAbortedBeforeDispatch(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new DOMException('The provider request was cancelled before dispatch', 'AbortError');
+  }
+}
+
 function preparedCapture(
   providerId: string,
   modelId: string,
@@ -345,9 +350,15 @@ export function strictProviderRequestUsage(
   usage: ProviderRequestUsageLike | undefined,
 ): ProviderRequestUsage | undefined {
   if (!usage) return undefined;
-  const inputTokens = tokenTotal(usage.inputTokens);
-  const outputTokens = tokenTotal(usage.outputTokens);
   const raw = usage.raw;
+  const normalizedInputTokens = tokenTotal(usage.inputTokens);
+  const normalizedOutputTokens = tokenTotal(usage.outputTokens);
+  const inputTokens = canUseNormalizedTotal(raw, ['prompt_tokens', 'input_tokens'])
+    ? normalizedInputTokens
+    : undefined;
+  const outputTokens = canUseNormalizedTotal(raw, ['completion_tokens', 'output_tokens'])
+    ? normalizedOutputTokens
+    : undefined;
   const result: ProviderRequestUsage = {
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -355,7 +366,7 @@ export function strictProviderRequestUsage(
 
   if (raw) {
     applyAnthropicCacheUsage(result, raw);
-    applyOpenAiCacheUsage(result, raw, inputTokens);
+    applyOpenAiCacheUsage(result, raw);
     const reasoningTokens = firstToken(
       nestedToken(raw, 'completion_tokens_details', 'reasoning_tokens'),
       nestedToken(raw, 'output_tokens_details', 'reasoning_tokens'),
@@ -393,18 +404,17 @@ function applyAnthropicCacheUsage(
   }
 }
 
-function applyOpenAiCacheUsage(
-  result: ProviderRequestUsage,
-  raw: Record<string, unknown>,
-  normalizedInputTokens: number | undefined,
-): void {
+function applyOpenAiCacheUsage(result: ProviderRequestUsage, raw: Record<string, unknown>): void {
   const promptInput = ownToken(raw, 'prompt_tokens');
   const responsesInput = ownToken(raw, 'input_tokens');
   const cacheRead = firstToken(
     nestedToken(raw, 'prompt_tokens_details', 'cached_tokens'),
     nestedToken(raw, 'input_tokens_details', 'cached_tokens'),
   );
-  const cacheWrite = nestedToken(raw, 'input_tokens_details', 'cache_write_tokens');
+  const cacheWrite = firstToken(
+    nestedToken(raw, 'prompt_tokens_details', 'cache_write_tokens'),
+    nestedToken(raw, 'input_tokens_details', 'cache_write_tokens'),
+  );
   if (cacheRead === undefined && cacheWrite === undefined) return;
 
   if (cacheRead !== undefined) {
@@ -415,10 +425,19 @@ function applyOpenAiCacheUsage(
     result.cacheWriteInputTokens = cacheWrite;
     result.cacheWriteInputSource = 'provider';
   }
-  const totalInput = promptInput ?? responsesInput ?? normalizedInputTokens;
+  const totalInput = promptInput ?? responsesInput;
   if (totalInput === undefined || cacheRead === undefined) return;
-  result.cacheMissInputTokens = Math.max(0, totalInput - cacheRead - (cacheWrite ?? 0));
+  const accountedInput = cacheRead + (cacheWrite ?? 0);
+  if (accountedInput > totalInput) return;
+  result.cacheMissInputTokens = totalInput - accountedInput;
   result.cacheMissInputSource = 'derived';
+}
+
+function canUseNormalizedTotal(
+  raw: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): boolean {
+  return raw === undefined || keys.some((key) => ownToken(raw, key) !== undefined);
 }
 
 function tokenTotal(
