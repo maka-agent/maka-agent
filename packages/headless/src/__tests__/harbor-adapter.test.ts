@@ -2767,6 +2767,17 @@ class Codex:
         })
         if instruction == "fail":
             raise RuntimeError("401 unauthorized")
+        if instruction == "transport-2500":
+            (self.logs_dir / "codex.txt").write_text(
+                json.dumps({
+                    "type": "turn.failed",
+                    "error": {
+                        "message": "stream disconnected: invalid peer certificate: UnknownIssuer"
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError("Codex failed while solving a task limited to 2500 bytes")
         if instruction == "no-completion":
             (self.logs_dir / "codex.txt").write_text(
                 json.dumps({"type": "turn.failed", "error": {"message": "429 rate limit"}}) + "\n",
@@ -2929,6 +2940,29 @@ with tempfile.TemporaryDirectory() as tmp:
     failed = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
     assert failed["status"] == "failed", failed
     assert failed["errorClass"] == "auth", failed
+
+    transport = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    try:
+        asyncio.run(transport.run("transport-2500", environment, context))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected Codex transport failure")
+    transport.populate_context_post_run(context)
+    transport_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert transport_cell["status"] == "failed", transport_cell
+    assert transport_cell["errorClass"] == "network", transport_cell
 
     incomplete = MakaCodexAgent(
         logs,

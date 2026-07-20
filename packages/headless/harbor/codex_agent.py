@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import time
 from pathlib import Path
@@ -112,7 +113,9 @@ class MakaCodexAgent(Codex):
             await super().run(instruction, environment, context)
         except BaseException as error:
             self._failure_class = (
-                _classify_failure(error) if isinstance(error, Exception) else "infra_failed"
+                _classify_failure(error, self._events())
+                if isinstance(error, Exception)
+                else "infra_failed"
             )
             raise
         finally:
@@ -202,7 +205,7 @@ class MakaCodexAgent(Codex):
         error_class = getattr(self, "_failure_class", None)
         if failed and error_class is None:
             error_class = _classify_failure(
-                RuntimeError(json.dumps(events, ensure_ascii=False))
+                RuntimeError(json.dumps(events, ensure_ascii=False)), events
             )
         totals = self._token_totals(context)
         started_at = getattr(self, "_started_at_ms", int(time.time() * 1000))
@@ -306,25 +309,48 @@ class MakaCodexAgent(Codex):
             os.fsync(output.fileno())
 
 
-def _classify_failure(error: Exception) -> str:
-    text = str(error).lower()
-    if any(
+def _structured_failure_text(events: list[dict[str, Any]]) -> str | None:
+    for event in reversed(events):
+        if event.get("type") == "turn.failed":
+            error = event.get("error")
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                return error["message"]
+            if isinstance(error, str):
+                return error
+        if event.get("type") == "error" and isinstance(event.get("message"), str):
+            return event["message"]
+    return None
+
+
+def _classify_failure(
+    error: Exception, events: list[dict[str, Any]] | None = None
+) -> str:
+    text = (_structured_failure_text(events or []) or str(error)).lower()
+    if re.search(r"(?<!\d)(401|403)(?!\d)", text) or any(
         marker in text
-        for marker in (
-            "401",
-            "403",
-            "unauthorized",
-            "authentication",
-            "invalid api key",
-        )
+        for marker in ("unauthorized", "authentication", "invalid api key")
     ):
         return "auth"
-    if any(marker in text for marker in ("429", "rate limit", "too many requests")):
+    if re.search(r"(?<!\d)429(?!\d)", text) or any(
+        marker in text for marker in ("rate limit", "too many requests")
+    ):
         return "rate_limit"
     if any(marker in text for marker in ("billing", "insufficient credit", "quota exceeded")):
         return "provider_billing"
-    if any(marker in text for marker in ("connection", "network", "dns", "socket")):
+    if any(
+        marker in text
+        for marker in (
+            "connection",
+            "network",
+            "dns",
+            "socket",
+            "certificate",
+            "unknownissuer",
+            "stream disconnected",
+            "error sending request",
+        )
+    ):
         return "network"
-    if any(marker in text for marker in ("500", "502", "503", "504", "unavailable")):
+    if re.search(r"(?<!\d)(500|502|503|504)(?!\d)", text) or "unavailable" in text:
         return "provider_unavailable"
     return "infra_failed"
