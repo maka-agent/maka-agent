@@ -393,6 +393,16 @@ export function taskEventMatchesPromptIdentity(
   return promptHashForReplayIdentity(event) === expectedPromptHash;
 }
 
+export async function readPromptHashAtCommit(input: {
+  promptRepoDir: string;
+  commitSha: string;
+  systemPromptGitPath: string;
+}): Promise<string> {
+  return hashSystemPrompt(
+    await gitBlob(input.promptRepoDir, `${input.commitSha}:${input.systemPromptGitPath}`),
+  );
+}
+
 async function gitOutput(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8' });
   return stdout.trim();

@@ -18,6 +18,8 @@ export type PromptAcceptanceReason =
   | 'held_in_regressed'
   | 'coverage_regressed'
   | 'held_out_regressed'
+  | 'sampling_baseline_not_beaten'
+  | 'sampling_baseline_incomplete'
   | typeof PROMPT_REWARD_HACK_QUARANTINE_REASON;
 
 export interface PromptAcceptancePartitionSummary {
@@ -44,6 +46,9 @@ export interface PromptAcceptanceMetrics {
   candidate: {
     heldIn: PromptAcceptancePartitionSummary;
     heldOut: PromptAcceptancePartitionSummary;
+  };
+  samplingBaseline?: {
+    heldIn: PromptAcceptancePartitionSummary;
   };
 }
 
@@ -99,6 +104,8 @@ export interface DecidePromptAcceptanceInput {
   originalEvents: readonly FixedPromptTaskWalEvent[];
   lastKeptEvents: readonly FixedPromptTaskWalEvent[];
   candidateEvents: readonly FixedPromptTaskWalEvent[];
+  samplingBaselineEvents?: readonly FixedPromptTaskWalEvent[];
+  samplingPromptHash?: string;
   rewardHackScan?: PromptCandidateRewardHackScan;
 }
 
@@ -117,6 +124,7 @@ export interface PromptAcceptanceResult {
   heldInPassRateNoiseBand: number;
   heldOutPassRateNoiseBand: number;
   rewardHackScan: PromptCandidateRewardHackScan;
+  samplingPromptHash?: string;
   metrics: PromptAcceptanceMetrics;
 }
 
@@ -364,6 +372,16 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
       heldIn: summarizePromptAcceptancePartition(input.candidateEvents, input.heldInTaskIds),
       heldOut: summarizePromptAcceptancePartition(input.candidateEvents, input.heldOutTaskIds),
     },
+    ...(input.samplingBaselineEvents
+      ? {
+          samplingBaseline: {
+            heldIn: summarizePromptAcceptancePartition(
+              input.samplingBaselineEvents,
+              input.heldInTaskIds,
+            ),
+          },
+        }
+      : {}),
   };
   const reason =
     rewardHackGateReason(rewardHackScan) ??
@@ -372,6 +390,7 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
       originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
       heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
       heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
+      samplingBaseline: metrics.samplingBaseline?.heldIn,
     });
   const decision: PromptAcceptanceDecision = reason === 'held_in_improved' ? 'keep' : 'discard';
   const heldInReferencePassEligibleRate = nextHeldInReferencePassEligibleRate({
@@ -396,6 +415,7 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
     heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
     heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
     rewardHackScan,
+    ...(input.samplingPromptHash ? { samplingPromptHash: input.samplingPromptHash } : {}),
     metrics,
   };
 }
@@ -526,6 +546,9 @@ function promptCandidateDecisionEvent(
     heldInPassRateNoiseBand: input.result.heldInPassRateNoiseBand,
     heldOutPassRateNoiseBand: input.result.heldOutPassRateNoiseBand,
     rewardHackScan: input.result.rewardHackScan,
+    ...(input.result.samplingPromptHash
+      ? { samplingPromptHash: input.result.samplingPromptHash }
+      : {}),
     metrics: input.result.metrics,
   };
 }
@@ -544,6 +567,7 @@ function heldInGateReasonFromSummaries(
   input: {
     previousHeldInReferencePassEligibleRate: number | null;
     heldInPassRateNoiseBand: number;
+    samplingBaseline?: PromptAcceptancePartitionSummary;
   },
 ): PromptAcceptanceReason | null {
   if (hasBlockingTaskFailure(heldInReference) || hasBlockingTaskFailure(heldInCandidate)) {
@@ -556,6 +580,8 @@ function heldInGateReasonFromSummaries(
       input.heldInPassRateNoiseBand,
     )
   ) {
+    const samplingReason = samplingBaselineGateReason(heldInCandidate, input.samplingBaseline);
+    if (samplingReason) return samplingReason;
     return null; // held-in cleared → run held-out
   }
   if (
@@ -568,6 +594,26 @@ function heldInGateReasonFromSummaries(
     return 'held_in_regressed';
   }
   return 'held_in_within_noise';
+}
+
+function samplingBaselineGateReason(
+  candidate: PromptAcceptancePartitionSummary,
+  samplingBaseline: PromptAcceptancePartitionSummary | undefined,
+): PromptAcceptanceReason | null {
+  if (!samplingBaseline) return null;
+  if (
+    hasBlockingTaskFailure(samplingBaseline) ||
+    samplingBaseline.observed !== samplingBaseline.taskCount ||
+    samplingBaseline.eligible !== samplingBaseline.taskCount ||
+    samplingBaseline.scored !== samplingBaseline.taskCount ||
+    samplingBaseline.passEligibleRate === null ||
+    candidate.passEligibleRate === null
+  ) {
+    return 'sampling_baseline_incomplete';
+  }
+  return candidate.passEligibleRate > samplingBaseline.passEligibleRate
+    ? null
+    : 'sampling_baseline_not_beaten';
 }
 
 /** Held-out gate (#64 LOOP step 10). Only meaningful once held-in has cleared.
@@ -610,6 +656,7 @@ export function heldInGateReason(input: {
   previousHeldInReferencePassEligibleRate: number | null;
   heldInPassRateNoiseBand: number;
   rewardHackScan?: PromptCandidateRewardHackScan;
+  samplingBaselineEvents?: readonly FixedPromptTaskWalEvent[];
 }): PromptAcceptanceReason | null {
   const rewardHack = rewardHackGateReason(normalizeRewardHackScan(input.rewardHackScan));
   if (rewardHack) return rewardHack;
@@ -619,6 +666,9 @@ export function heldInGateReason(input: {
     {
       previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
       heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
+      samplingBaseline: input.samplingBaselineEvents
+        ? summarizePromptAcceptancePartition(input.samplingBaselineEvents, input.heldInTaskIds)
+        : undefined,
     },
   );
 }
@@ -630,11 +680,13 @@ function acceptanceReason(
     originalHeldOutPassEligibleRate: number | null;
     heldInPassRateNoiseBand: number;
     heldOutPassRateNoiseBand: number;
+    samplingBaseline?: PromptAcceptancePartitionSummary;
   },
 ): PromptAcceptanceReason {
   const heldIn = heldInGateReasonFromSummaries(metrics.candidate.heldIn, metrics.lastKept.heldIn, {
     previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
     heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
+    samplingBaseline: metrics.samplingBaseline?.heldIn,
   });
   if (heldIn !== null) return heldIn;
   const heldOut = heldOutGateReasonFromSummaries(

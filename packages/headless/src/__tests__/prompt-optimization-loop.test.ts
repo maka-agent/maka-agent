@@ -38,6 +38,105 @@ describe('runPromptOptimizationLoop', () => {
     });
   });
 
+  test('runs a budget-matched sampling arm before each candidate and records its Pass@1 evidence', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 4);
+      const heldOutTasks = makeTasks('hout', 2);
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor: (roundId, taskId) => {
+          if (taskId.startsWith('hout-')) return 1;
+          if (roundId.startsWith('baseline-')) return taskIndex(taskId) < 2 ? 1 : 0;
+          if (roundId.startsWith('sampling-')) return taskIndex(taskId) < 2 ? 1 : 0;
+          return taskIndex(taskId) < 4 ? 1 : 0;
+        },
+        rounds: 1,
+        baselineRuns: 1,
+      });
+
+      assert.equal(result.decisions[0]?.decision, 'keep');
+      assert.equal(result.decisions[0]?.metrics.samplingBaseline?.heldIn.taskCount, 4);
+      assert.equal(result.decisions[0]?.metrics.samplingBaseline?.heldIn.passEligibleRate, 0.5);
+      const events = await readFixedPromptWal(harness.resultsJsonlPath);
+      const sampling = events.filter((event) => event.roundId === 'sampling-0');
+      const candidate = events.filter((event) => event.roundId === 'round-0');
+      assert.equal(sampling.filter((event) => event.type === 'task_completed').length, 4);
+      const samplingAttempts = (
+        await readFile(`${harness.resultsJsonlPath}.attempts.jsonl`, 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { roundId: string; type: string });
+      assert.equal(samplingAttempts.length, 4);
+      assert.ok(samplingAttempts.every((event) => event.type === 'task_attempt_started'));
+      assert.ok(samplingAttempts.every((event) => event.roundId === 'sampling-0'));
+      assert.equal(
+        candidate.filter(
+          (event) => event.type === 'task_completed' && event.taskId.startsWith('hin-'),
+        ).length,
+        4,
+      );
+      assert.ok(
+        events.findIndex((event) => event.roundId === 'sampling-0') <
+          events.findIndex((event) => event.type === 'prompt_candidate_committed'),
+      );
+      const replayTaskRuns: string[] = [];
+      const replayed = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor: (roundId, taskId) => {
+          if (taskId.startsWith('hout-')) return 1;
+          if (roundId.startsWith('baseline-') || roundId.startsWith('sampling-')) {
+            return taskIndex(taskId) < 2 ? 1 : 0;
+          }
+          return 1;
+        },
+        rounds: 1,
+        baselineRuns: 1,
+        onTaskRun: (roundId, taskId) => replayTaskRuns.push(`${roundId}:${taskId}`),
+      });
+      assert.deepEqual(replayed.decisions, result.decisions);
+      assert.deepEqual(replayTaskRuns, []);
+    });
+  });
+
+  test('stops after replaying a complete sampling arm when the budget is already exhausted', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 8);
+      const rewardFor = (roundId: string, taskId: string): number => {
+        if (taskId.startsWith('hout-')) return 1;
+        if (roundId.startsWith('baseline-')) return taskIndex(taskId) < 10 ? 1 : 0;
+        return 1;
+      };
+      const first = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 1,
+        costCeilingUsd: 0.959,
+      });
+      assert.deepEqual(first.decisions, []);
+      assert.equal(first.stopReason, 'cost_ceiling_exceeded');
+
+      const resumedTaskRuns: string[] = [];
+      const resumed = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 1,
+        costCeilingUsd: 0.959,
+        onTaskRun: (roundId, taskId) => resumedTaskRuns.push(`${roundId}:${taskId}`),
+      });
+      assert.deepEqual(resumed.decisions, []);
+      assert.equal(resumed.stopReason, 'cost_ceiling_exceeded');
+      assert.deepEqual(resumedTaskRuns, []);
+    });
+  });
+
   test('keeps an improving candidate, discards a regressing one, and reports a passing smoke', async () => {
     await withHarness(async (harness) => {
       const heldInTasks = makeTasks('hin', 20);
@@ -699,7 +798,7 @@ describe('runPromptOptimizationLoop', () => {
       });
 
       assert.equal(result.stopReason, 'cost_ceiling_exceeded');
-      assert.equal(result.decisions.length, 1);
+      assert.equal(result.decisions.length, 0);
       assert.ok(result.totalCostUsd >= 1.5);
     });
   });
@@ -725,8 +824,8 @@ describe('runPromptOptimizationLoop', () => {
       });
 
       assert.equal(result.stopReason, 'cost_ceiling_exceeded');
-      assert.equal(result.decisions.length, 1);
-      assert.equal(result.smoke.totalCostUsd, 1.68);
+      assert.equal(result.decisions.length, 0);
+      assert.equal(result.smoke.totalCostUsd, 1.92);
       assert.ok(result.smoke.failures.includes('cost_ceiling_exceeded'));
     });
   });

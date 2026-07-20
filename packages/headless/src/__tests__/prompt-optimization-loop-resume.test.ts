@@ -60,7 +60,9 @@ describe('runPromptOptimizationLoop resume replay', () => {
       assert.equal(resumed.smoke.status, 'pass');
       assert.ok(Math.abs(resumed.totalCostUsd - resumed.smoke.totalCostUsd) < 1e-9);
       assert.ok(
-        resumedTaskRuns.every((call) => call.startsWith('round-1:')),
+        resumedTaskRuns.every(
+          (call) => call.startsWith('sampling-1:') || call.startsWith('round-1:'),
+        ),
         `unexpected resumed task runs: ${JSON.stringify(resumedTaskRuns)}`,
       );
 
@@ -313,14 +315,14 @@ describe('runPromptOptimizationLoop resume replay', () => {
         },
       });
 
-      assert.deepEqual(resumedMetaAgentRounds, []);
+      assert.deepEqual(resumedMetaAgentRounds, ['round-0']);
       assert.deepEqual(
         resumed.decisions.map((decision) => decision.decision),
         ['keep'],
       );
       assert.equal(resumed.stopReason, 'rounds_complete');
       assert.ok(
-        resumedTaskRuns.every((call) => call.startsWith('round-0:hout-')),
+        resumedTaskRuns.every((call) => call.startsWith('round-0:')),
         `unexpected resumed task runs: ${JSON.stringify(resumedTaskRuns)}`,
       );
     });

@@ -33,7 +33,17 @@ export interface PromptOptimizationRunManifest {
   heldInTaskIds: string[];
   heldOutTaskIds: string[];
   heldOutNoPatternTaskIds: string[];
+  samplingBaseline: PromptOptimizationSamplingBaselineManifest;
   fingerprint: string;
+}
+
+export interface PromptOptimizationSamplingBaselineManifest {
+  enabled: true;
+  armId: 'sampling-baseline';
+  taskSet: 'stable-held-in';
+  budgetBasis: 'candidate-held-in';
+  execution: 'parallel';
+  primaryMetric: 'pass@1';
 }
 
 export interface PromptOptimizationRunManifestInput {
@@ -95,6 +105,14 @@ export function buildPromptOptimizationRunManifest(
     heldInTaskIds: input.heldInTasks.map((task) => task.id),
     heldOutTaskIds: input.heldOutTasks.map((task) => task.id),
     heldOutNoPatternTaskIds: input.heldOutNoPattern.map((task) => task.id),
+    samplingBaseline: {
+      enabled: true,
+      armId: 'sampling-baseline',
+      taskSet: 'stable-held-in',
+      budgetBasis: 'candidate-held-in',
+      execution: 'parallel',
+      primaryMetric: 'pass@1',
+    } as const,
   });
   const { costCeilingUsd: _costCeilingUsd, ...fingerprintPayload } = manifestWithoutFingerprint;
   return {
@@ -123,6 +141,10 @@ export async function ensurePromptOptimizationRunManifest(
       );
     }
   }
+  const migrated = await migrateLegacyPromptOptimizationManifest(path, manifest);
+  if (migrated) return migrated;
+  const legacyResumed = await resumeMigratedPromptOptimizationManifest(path, manifest);
+  if (legacyResumed) return legacyResumed;
   try {
     const ensured = await ensureAbRunManifest(path, manifest);
     if (ensured.costCeilingUsd !== manifest.costCeilingUsd) {
@@ -144,6 +166,92 @@ export async function ensurePromptOptimizationRunManifest(
     }
     throw error;
   }
+}
+
+async function migrateLegacyPromptOptimizationManifest(
+  path: string,
+  manifest: PromptOptimizationRunManifest,
+): Promise<PromptOptimizationRunManifest | undefined> {
+  let existing: unknown;
+  try {
+    existing = JSON.parse(await readFile(path, 'utf8')) as unknown;
+  } catch (error) {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  }
+  if (
+    typeof existing !== 'object' ||
+    existing === null ||
+    (existing as { schemaVersion?: unknown }).schemaVersion !==
+      'maka.prompt_optimization.run_manifest.v1' ||
+    'samplingBaseline' in existing
+  ) {
+    return undefined;
+  }
+  const existingFingerprint = (existing as { fingerprint?: unknown }).fingerprint;
+  const {
+    costCeilingUsd: _costCeilingUsd,
+    fingerprint: _fingerprint,
+    samplingBaseline: _sampling,
+    ...legacyPayload
+  } = manifest;
+  if (
+    existingFingerprint !== buildRunManifestFingerprint(legacyPayload) ||
+    typeof existingFingerprint !== 'string'
+  ) {
+    return undefined;
+  }
+  // Existing WAL task events carry the legacy fingerprint. Add the immutable
+  // sampling contract without changing that identity, otherwise resume fails
+  // closed before it can consume the old evidence.
+  const migrated = { ...manifest, fingerprint: existingFingerprint };
+  await writeFile(path, `${JSON.stringify(migrated, null, 2)}\n`, 'utf8');
+  return migrated;
+}
+
+async function resumeMigratedPromptOptimizationManifest(
+  path: string,
+  manifest: PromptOptimizationRunManifest,
+): Promise<PromptOptimizationRunManifest | undefined> {
+  let existing: unknown;
+  try {
+    existing = JSON.parse(await readFile(path, 'utf8')) as unknown;
+  } catch (error) {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  }
+  if (
+    typeof existing !== 'object' ||
+    existing === null ||
+    (existing as { schemaVersion?: unknown }).schemaVersion !==
+      'maka.prompt_optimization.run_manifest.v1' ||
+    !('samplingBaseline' in existing)
+  ) {
+    return undefined;
+  }
+  const existingFingerprint = (existing as { fingerprint?: unknown }).fingerprint;
+  if (typeof existingFingerprint !== 'string') return undefined;
+  const {
+    costCeilingUsd: _costCeilingUsd,
+    fingerprint: _fingerprint,
+    samplingBaseline: _sampling,
+    ...legacyPayload
+  } = manifest;
+  if (existingFingerprint !== buildRunManifestFingerprint(legacyPayload)) return undefined;
+  if (
+    JSON.stringify((existing as { samplingBaseline?: unknown }).samplingBaseline) !==
+    JSON.stringify(manifest.samplingBaseline)
+  ) {
+    return undefined;
+  }
+  const resumed = {
+    ...(existing as PromptOptimizationRunManifest),
+    costCeilingUsd: manifest.costCeilingUsd,
+  };
+  if ((existing as { costCeilingUsd?: unknown }).costCeilingUsd !== manifest.costCeilingUsd) {
+    await writeFile(path, `${JSON.stringify(resumed, null, 2)}\n`, 'utf8');
+  }
+  return resumed;
 }
 
 export async function buildPromptOptimizationSubjectFingerprint(repoPath: string): Promise<string> {

@@ -339,6 +339,39 @@ describe('prompt acceptance policy', () => {
     assert.equal(decision.metrics.candidate.heldOut.passEligibleRate, 1);
   });
 
+  test('requires a reference-clearing candidate to beat the budget-matched sampling baseline', () => {
+    const decision = decidePromptAcceptance({
+      ...baseDecisionInput(),
+      previousHeldInReferencePassEligibleRate: 0.25,
+      lastKeptEvents: [completed('in-a', false), completed('in-b', false)],
+      candidateEvents: [
+        completed('in-a', true),
+        completed('in-b', false),
+        completed('out-a', true),
+      ],
+      samplingBaselineEvents: [completed('in-a', true), completed('in-b', false)],
+      samplingPromptHash: 'prompt-kept-1',
+    });
+
+    assert.equal(decision.decision, 'discard');
+    assert.equal(decision.reason, 'sampling_baseline_not_beaten');
+    assert.equal(decision.samplingPromptHash, 'prompt-kept-1');
+    assert.equal(decision.metrics.samplingBaseline?.heldIn.passEligibleRate, 0.5);
+  });
+
+  test('fails closed when the sampling baseline is incomplete', () => {
+    const decision = decidePromptAcceptance({
+      ...baseDecisionInput(),
+      previousHeldInReferencePassEligibleRate: 0.25,
+      lastKeptEvents: [completed('in-a', false), completed('in-b', false)],
+      candidateEvents: [completed('in-a', true), completed('in-b', true), completed('out-a', true)],
+      samplingBaselineEvents: [completed('in-a', true)],
+    });
+
+    assert.equal(decision.decision, 'discard');
+    assert.equal(decision.reason, 'sampling_baseline_incomplete');
+  });
+
   test('keeps against the monotonic held-in reference instead of a lucky last-kept run', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
