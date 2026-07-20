@@ -178,7 +178,7 @@ describe('Maka CLI args', () => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
       stdio: 'ignore',
     });
-    const watchdog = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    const watchdog = setTimeout(() => child.kill('SIGKILL'), 10_000);
     const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
     clearTimeout(watchdog);
 

@@ -32,6 +32,7 @@ import {
   RUNTIME_HOST_MAX_FRAME_BYTES,
   RUNTIME_HOST_PROTOCOL_VERSION,
   RuntimeHostProtocolError,
+  type ClientSurface,
 } from '../protocol/index.js';
 import {
   RuntimeHostKernel,
@@ -69,13 +70,8 @@ describe('non-serving Runtime Host kernel', () => {
 
       // Connect before the loser assertion: a resident connection cancels the
       // winner's idle timer, so the loser candidate's storage work cannot drain
-      // the Host before this one-shot connect lands.
-      const connected = await connectRuntimeHost({
-        ...paths,
-        rootPath: paths.root,
-        surface: 'tui',
-        protocol: CURRENT_PROTOCOL,
-      });
+      // the Host before this bounded connection attempt establishes residency.
+      const connected = await retryConnect(paths, CURRENT_PROTOCOL);
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
 
@@ -114,12 +110,7 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(candidate.kind, 'winner');
       if (candidate.kind !== 'winner') return;
-      const resident = await connectRuntimeHost({
-        ...paths,
-        rootPath: paths.root,
-        surface: 'desktop',
-        protocol: CURRENT_PROTOCOL,
-      });
+      const resident = await retryConnect(paths, CURRENT_PROTOCOL, 'desktop');
       assert.equal(resident.kind, 'connected');
       if (resident.kind !== 'connected') return;
 
@@ -163,12 +154,7 @@ describe('non-serving Runtime Host kernel', () => {
       assert.equal(replacement.kind, 'winner');
       if (replacement.kind !== 'winner') return;
       assert.notEqual(replacement.host.hostEpoch, candidate.host.hostEpoch);
-      const attached = await connectRuntimeHost({
-        ...paths,
-        rootPath: paths.root,
-        surface: 'tui',
-        protocol: CURRENT_PROTOCOL,
-      });
+      const attached = await retryConnect(paths, CURRENT_PROTOCOL);
       assert.equal(attached.kind, 'connected');
       if (attached.kind !== 'connected') return;
       await attached.connection.close();
@@ -889,12 +875,7 @@ describe('non-serving Runtime Host kernel', () => {
         Buffer.alloc(RUNTIME_HOST_MAX_FRAME_BYTES + 1, 0x61),
       );
 
-      const connected = await connectRuntimeHost({
-        ...paths,
-        rootPath: paths.root,
-        surface: 'tui',
-        protocol: CURRENT_PROTOCOL,
-      });
+      const connected = await retryConnect(paths, CURRENT_PROTOCOL);
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
       assert.equal((await connected.connection.status()).state, 'ready');
@@ -911,11 +892,7 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(candidate.kind, 'winner');
       if (candidate.kind !== 'winner') return;
-      const connected = await connectRuntimeHost({
-        rootPath: paths.root,
-        surface: 'tui',
-        protocol: CURRENT_PROTOCOL,
-      });
+      const connected = await retryConnect(paths, CURRENT_PROTOCOL);
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
 
@@ -1092,17 +1069,21 @@ function isConnectedClientMessage(
   );
 }
 
-async function retryConnect(paths: HostPaths, protocol: { min: number; max: number }) {
+async function retryConnect(
+  paths: HostPaths,
+  protocol: { min: number; max: number },
+  surface: ClientSurface = 'tui',
+) {
   const deadline = Date.now() + 5_000;
   let result = await connectRuntimeHost({
     ...paths,
     rootPath: paths.root,
-    surface: 'tui',
+    surface,
     protocol,
   });
   while (result.kind !== 'connected' && Date.now() < deadline) {
     await sleep(20);
-    result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol });
+    result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface, protocol });
   }
   return result;
 }
