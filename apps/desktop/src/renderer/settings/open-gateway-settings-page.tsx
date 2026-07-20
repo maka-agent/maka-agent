@@ -155,7 +155,7 @@ export function OpenGatewaySettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <div className="settingsUsageSummary" role="group" aria-label={copy.summary.aria}>
+      <div className="settingsGatewaySummary" role="group" aria-label={copy.summary.aria}>
         <MetricCard title={copy.summary.status} value={state.label} detail={state.detail} />
         <MetricCard title={copy.summary.address} value={baseUrl} detail={gatewayDraft.host === '0.0.0.0' ? copy.summary.lanAccessible : copy.summary.localOnly} />
         <MetricCard title={copy.summary.credentials} value={gatewayDraft.token ? copy.summary.configured : copy.summary.waitingToken} detail={copy.summary.credentialsDetail} />

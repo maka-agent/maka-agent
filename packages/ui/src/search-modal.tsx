@@ -4,6 +4,7 @@ import type { SearchErrorReason, SearchRequest, SearchResult, UiLocale } from '@
 import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core';
 import { Autocomplete } from '@base-ui/react/autocomplete';
 import { Search, X } from './icons.js';
+import { EmptyState } from './empty-state.js';
 import { DialogHeader } from './primitives/dialog-header.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
 import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
@@ -322,7 +323,12 @@ export function SearchModal(props: {
               </div>
             )}
             {searchThread && !error && trimmed.length === 0 && (
-              <p className="maka-search-modal-placeholder">{copy.introduction}</p>
+              <EmptyState
+                variant="inline"
+                title={copy.introduction}
+                body=""
+                extraClassName="maka-search-modal-placeholder"
+              />
             )}
             {searchThread && pending && trimmed.length > 0 && (
               <p className="maka-search-modal-placeholder" aria-live="polite">
