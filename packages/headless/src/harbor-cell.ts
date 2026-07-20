@@ -724,6 +724,14 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
+  const streamConnectTimeoutMs = positiveIntEnv(
+    input.env.MAKA_STREAM_CONNECT_TIMEOUT_MS,
+    'MAKA_STREAM_CONNECT_TIMEOUT_MS',
+  );
+  const streamIdleTimeoutMs = positiveIntEnv(
+    input.env.MAKA_STREAM_IDLE_TIMEOUT_MS,
+    'MAKA_STREAM_IDLE_TIMEOUT_MS',
+  );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
@@ -779,6 +787,8 @@ export function buildAiSdkCellBackendRegistration(input: {
           ? (childInput) => context.readChildAgentOutput!(ctx.sessionId, childInput)
           : undefined,
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
+        ...(streamConnectTimeoutMs !== undefined ? { streamConnectTimeoutMs } : {}),
+        ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
         systemPrompt: context.config.systemPrompt,
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
           ? {

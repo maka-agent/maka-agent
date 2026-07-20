@@ -424,6 +424,11 @@ class MakaAgent(BaseInstalledAgent):
             # Default per-command timeout floor for the in-container Bash tool, so
             # long builds/tests do not hit a hard-coded 2-minute ceiling.
             "MAKA_CELL_COMMAND_TIMEOUT_MS",
+            # Harbor owns the benchmark hard deadline. Forward its matching model
+            # stream watchdogs so max-reasoning first events are not cut off by the
+            # runtime's shorter interactive defaults.
+            "MAKA_STREAM_CONNECT_TIMEOUT_MS",
+            "MAKA_STREAM_IDLE_TIMEOUT_MS",
             # Benchmark-safe deterministic continuation. These are consumed by
             # run-host-cell.mjs/run-cell.mjs, not by the provider backend.
             "MAKA_HARBOR_CONTINUATION",

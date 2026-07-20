@@ -1951,7 +1951,11 @@ describe('runHarborCell', () => {
       const register = buildAiSdkCellBackendRegistration({
         provider: 'openai',
         model: 'gpt-4o-mini',
-        env: { OPENAI_API_KEY: 'test-key' },
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_STREAM_CONNECT_TIMEOUT_MS: '456000',
+          MAKA_STREAM_IDLE_TIMEOUT_MS: '789000',
+        },
         now: () => 123,
         newId: () => 'id',
       });
@@ -1976,6 +1980,8 @@ describe('runHarborCell', () => {
           input: {
             tools: Array<{ name: string; permissionRequired?: boolean }>;
             systemPrompt?: string;
+            streamConnectTimeoutMs?: number;
+            streamIdleTimeoutMs?: number;
           };
         }
       ).input;
@@ -1993,6 +1999,8 @@ describe('runHarborCell', () => {
         false,
       );
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
+      assert.equal(backendInput.streamConnectTimeoutMs, 456_000);
+      assert.equal(backendInput.streamIdleTimeoutMs, 789_000);
     });
   });
 

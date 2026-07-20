@@ -1941,8 +1941,12 @@ with tempfile.TemporaryDirectory() as tmp:
     command_timeout_env = MakaAgent(Path(tmp), extra_env={
         "MAKA_BACKEND": "fake",
         "MAKA_CELL_COMMAND_TIMEOUT_MS": "600000",
+        "MAKA_STREAM_CONNECT_TIMEOUT_MS": "456000",
+        "MAKA_STREAM_IDLE_TIMEOUT_MS": "789000",
     })._cell_env(Path("/logs/agent/instruction.txt"))
     assert command_timeout_env["MAKA_CELL_COMMAND_TIMEOUT_MS"] == "600000", command_timeout_env
+    assert command_timeout_env["MAKA_STREAM_CONNECT_TIMEOUT_MS"] == "456000", command_timeout_env
+    assert command_timeout_env["MAKA_STREAM_IDLE_TIMEOUT_MS"] == "789000", command_timeout_env
 
     economy_env_agent = MakaAgent(Path(tmp), extra_env={
         "MAKA_BACKEND": "fake",

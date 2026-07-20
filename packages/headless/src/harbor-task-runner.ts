@@ -904,7 +904,17 @@ export function buildHarborJobConfig(
   // fall back (metadata, then the adapter's default) rather than fail the run.
   const cellTimeoutSec =
     lenientPositiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC) ?? input.task.metadata?.agentTimeoutSec;
-  if (cellTimeoutSec !== undefined) agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
+  if (cellTimeoutSec !== undefined) {
+    agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
+    const streamTimeoutMs = cellTimeoutSec * 1_000;
+    if (adapter === 'maka' && Number.isSafeInteger(streamTimeoutMs)) {
+      // Harbor already owns the task-native hard deadline. Keep the runtime's
+      // first-event and between-event watchdogs from imposing a shorter,
+      // benchmark-distorting cutoff on long reasoning turns.
+      agentEnv.MAKA_STREAM_CONNECT_TIMEOUT_MS = String(streamTimeoutMs);
+      agentEnv.MAKA_STREAM_IDLE_TIMEOUT_MS = String(streamTimeoutMs);
+    }
+  }
   const verifier = verifierPolicy(input.task);
 
   return {

@@ -1899,6 +1899,16 @@ describe('buildHarborJobConfig', () => {
         withMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
       )[0]!;
       assert.equal(metadataAgent.env.MAKA_CELL_TIMEOUT_SEC, String(parsed ?? 1234), label);
+      assert.equal(
+        metadataAgent.env.MAKA_STREAM_CONNECT_TIMEOUT_MS,
+        String((parsed ?? 1234) * 1_000),
+        label,
+      );
+      assert.equal(
+        metadataAgent.env.MAKA_STREAM_IDLE_TIMEOUT_MS,
+        String((parsed ?? 1234) * 1_000),
+        label,
+      );
       assert.equal(metadataAgent.max_timeout_sec, parsed ?? 1234, label);
 
       // Without metadata, a parsed value is rewritten into the env; a parse
@@ -1942,6 +1952,8 @@ describe('buildHarborJobConfig', () => {
       config.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
     )[0]!;
     assert.equal(agent.env.MAKA_CELL_TIMEOUT_SEC, '1234');
+    assert.equal(agent.env.MAKA_STREAM_CONNECT_TIMEOUT_MS, '1234000');
+    assert.equal(agent.env.MAKA_STREAM_IDLE_TIMEOUT_MS, '1234000');
     assert.equal(agent.max_timeout_sec, 1234);
   });
 
