@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -19,6 +19,8 @@ import {
   type UserQuestionResponse,
 } from '@maka/core';
 import {
+  activateBundledSkillTemplate,
+  BUNDLED_SKILL_TEMPLATES,
   GoalManager,
   SessionActivityRegistry,
   type GoalTurnOutcome,
@@ -4201,17 +4203,18 @@ describe('Maka Pi TUI runner', () => {
 
     // The input surface did not shift while filtering.
     assert.deepEqual(afterRows, beforeRows);
-    // The 's' filter matches three commands — /session, /setup, /skill — bottom-
+    // The 's' filter matches four commands — /session, /setup, /skill, /skills — bottom-
     // aligned immediately above the editor's top border. Scope to the overlay so
     // the empty-session home's /session /model /setup hints don't collide (#1098).
-    assert.equal(afterSuggestions.length, 3);
+    assert.equal(afterSuggestions.length, 4);
     assert.deepEqual(
       afterSuggestions.map((line) => line.match(/\/\w+/)?.[0]),
-      ['/session', '/setup', '/skill'],
+      ['/session', '/setup', '/skill', '/skills'],
     );
-    assert.ok(afterLines[afterRows[0] - 1]!.includes('/skill'));
-    assert.ok(afterLines[afterRows[0] - 2]!.includes('/setup'));
-    assert.ok(afterLines[afterRows[0] - 3]!.includes('/session'));
+    assert.ok(afterLines[afterRows[0] - 1]!.includes('/skills'));
+    assert.ok(afterLines[afterRows[0] - 2]!.includes('/skill'));
+    assert.ok(afterLines[afterRows[0] - 3]!.includes('/setup'));
+    assert.ok(afterLines[afterRows[0] - 4]!.includes('/session'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -4258,13 +4261,15 @@ describe('Maka Pi TUI runner', () => {
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
     const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
+    const afterSkillsRow = afterLines.findIndex((line) => line.includes('/skills'));
     const afterSetupRow = afterLines.findIndex((line) => line.includes('/setup'));
 
     assert.deepEqual(afterRows, beforeRows);
     assert.equal(afterRows[1], terminal.rows - 2);
-    assert.equal(afterSkillRow, afterRows[0] - 1);
-    assert.equal(afterSetupRow, afterRows[0] - 2);
-    assert.equal(afterSessionRow, afterRows[0] - 3);
+    assert.equal(afterSkillsRow, afterRows[0] - 1);
+    assert.equal(afterSkillRow, afterRows[0] - 2);
+    assert.equal(afterSetupRow, afterRows[0] - 3);
+    assert.equal(afterSessionRow, afterRows[0] - 4);
 
     exitMaka(terminal);
     await Promise.race([
@@ -7689,6 +7694,103 @@ describe('Maka Pi TUI runner', () => {
           throw new Error('TUI did not close during test cleanup');
         }),
       ]);
+    });
+  });
+
+  test('/skills opens the read-only discovered inventory and renders diagnostics', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const opened: Array<{ cwd: string; entryKey: string; target: string }> = [];
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: {
+          source: () => workspaceRoot,
+          host: { toolNames: new Set<string>() },
+          openDiscoveredEntry: async (cwd, entryKey, target) => {
+            opened.push({ cwd, entryKey, target });
+            return { ok: true };
+          },
+        },
+      });
+
+      terminal.input('/skills');
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('已发现'));
+      terminal.input('\x1b[B');
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('Skills · 已发现'));
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Skill 诊断 · Alpha'));
+
+      assert.equal(driver.prompts.length, 0, 'management never sends a chat prompt');
+      const output = plainTerminalOutput(terminal.output());
+      assert.match(output, /来源：Maka 工作区/);
+      await waitFor(() => terminal.output().includes('打开 SKILL.md'));
+      terminal.input('\r');
+      await waitFor(() => opened.length === 1);
+      assert.deepEqual(opened, [
+        { cwd: '/repo', entryKey: 'workspace:alpha', target: 'skill_file' },
+      ]);
+      await waitFor(() =>
+        plainTerminalOutput(terminal.output()).includes('已打开经过校验的 Skill 文件'),
+      );
+
+      exitMaka(terminal);
+      await run;
+    });
+  });
+
+  test('/skills reviews and activates a bundled template through the shared service', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const template = BUNDLED_SKILL_TEMPLATES.find(
+        (candidate) => candidate.id === 'summarization',
+      );
+      assert.ok(template);
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: {
+          source: () => workspaceRoot,
+          host: { toolNames: new Set<string>() },
+          bundledTemplates: [template],
+          activateBundledTemplate: (id) => activateBundledSkillTemplate(workspaceRoot, id),
+        },
+      });
+
+      terminal.input('/skills');
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('可启用'));
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('Skills · 可启用'));
+      terminal.input('summarization');
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('模板审查'));
+      await waitFor(() => terminal.output().includes('启用 Skill 模板'));
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('已启用'));
+
+      assert.equal(driver.prompts.length, 0, 'activation never sends a chat prompt');
+      assert.match(
+        await readFile(join(workspaceRoot, 'skills', 'summarization', 'SKILL.md'), 'utf8'),
+        /name: 智能摘要/,
+      );
+
+      exitMaka(terminal);
+      await run;
     });
   });
 

@@ -260,6 +260,14 @@ export type SetDiscoveredSkillEnabledResult =
       reason: 'not_found' | 'not_toggleable' | 'blocked_path' | 'state_error' | 'write_failed';
     };
 
+export type SkillOpenTarget = 'file' | 'directory';
+export type ResolveSkillOpenPathResult =
+  | { ok: true; path: string; target: SkillOpenTarget }
+  | {
+      ok: false;
+      reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory';
+    };
+
 /**
  * Skill source accepted by the multi-path scanning functions. A bare string is
  * a workspace root scanned at `{root}/skills/` (backward-compatible with
@@ -308,6 +316,84 @@ export function resolveSkillDiscoveryPaths(
     { dir: join(home, '.agents', 'skills'), containmentRoot: home, origin: 'user_agents' },
   ];
   return { entries, dirs: entries.map((e) => e.dir), stateRoot: workspaceRoot };
+}
+
+/**
+ * Resolve a discovered entry to a real, contained path. Hosts must call this
+ * immediately before opening the path; inspection-time paths are display data,
+ * not authorization.
+ */
+export async function resolveDiscoveredSkillOpenPath(
+  source: SkillSource,
+  entryKey: string,
+  target: SkillOpenTarget,
+): Promise<ResolveSkillOpenPathResult> {
+  if (typeof entryKey !== 'string' || entryKey.length === 0 || entryKey.length > 300) {
+    return { ok: false, reason: 'invalid_id' };
+  }
+  if (target !== 'file' && target !== 'directory') return { ok: false, reason: 'missing' };
+
+  const inspection = await inspectSkills(source);
+  const entry = inspection.entries.find((candidate) => candidate.entryKey === entryKey);
+  if (!entry) return { ok: false, reason: 'missing' };
+  if (
+    entry.issues.some((issue) => issue.code === 'blocked_path' || issue.code === 'unreadable_skill')
+  ) {
+    return { ok: false, reason: 'blocked_path' };
+  }
+
+  const candidate = target === 'file' ? join(entry.path, 'SKILL.md') : entry.path;
+  try {
+    const [entryReal, candidateReal, candidateStat] = await Promise.all([
+      realpath(entry.path),
+      realpath(candidate),
+      lstat(candidate),
+    ]);
+    if (candidateStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    if (target === 'file' && !candidateStat.isFile()) return { ok: false, reason: 'not_file' };
+    if (target === 'directory' && !candidateStat.isDirectory()) {
+      return { ok: false, reason: 'not_directory' };
+    }
+    if (target === 'file' && !isPathInside(entryReal, candidateReal)) {
+      return { ok: false, reason: 'blocked_path' };
+    }
+    return { ok: true, path: candidateReal, target };
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
+}
+
+/** Resolve the appropriate user-editable repair file for a discovered entry. */
+export async function resolveSkillRepairOpenPath(
+  source: SkillSource,
+  entryKey: string,
+): Promise<ResolveSkillOpenPathResult> {
+  if (typeof entryKey !== 'string' || entryKey.length === 0 || entryKey.length > 300) {
+    return { ok: false, reason: 'invalid_id' };
+  }
+  const inspection = await inspectSkills(source);
+  const entry = inspection.entries.find((candidate) => candidate.entryKey === entryKey);
+  if (!entry) return { ok: false, reason: 'missing' };
+  if (entry.operationalStatus !== 'state_error') {
+    return resolveDiscoveredSkillOpenPath(source, entryKey, 'file');
+  }
+
+  const stateRoot = typeof source === 'string' ? source : source.stateRoot;
+  const stateFile = join(stateRoot, '.maka', 'skills-state.json');
+  try {
+    const [rootReal, fileReal, fileStat] = await Promise.all([
+      realpath(stateRoot),
+      realpath(stateFile),
+      lstat(stateFile),
+    ]);
+    if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+      return { ok: false, reason: 'blocked_path' };
+    }
+    if (!isPathInside(rootReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    return { ok: true, path: fileReal, target: 'file' };
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
 }
 
 function normalizeSkillSource(source: SkillSource): {

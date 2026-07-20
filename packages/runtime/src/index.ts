@@ -1245,6 +1245,8 @@ export {
   scanSkillsWithDiagnostics,
   inspectSkills,
   resolveSkillDiscoveryPaths,
+  resolveDiscoveredSkillOpenPath,
+  resolveSkillRepairOpenPath,
   buildSkillsPromptFragment,
   loadSkillInstructions,
   buildSkillAgentTool,
@@ -1260,6 +1262,7 @@ export {
   writeContainedRegularTextFile,
   isRecord,
 } from './skills.js';
+export type { ResolveSkillOpenPathResult, SkillOpenTarget } from './skills.js';
 export {
   listInvocableSkills,
   resolveSkillInvocations,
@@ -1269,6 +1272,19 @@ export type {
   InvocableSkillEntry,
   SkillInvocationResolution,
 } from './skill-invocation.js';
+export {
+  activateBundledSkillTemplate,
+  BUNDLED_CATALOG_SOURCE_NAME,
+  BUNDLED_OFFICE_SKILLS,
+  BUNDLED_OFFICE_SKILL_SOURCE_NAME,
+  BUNDLED_SKILL_SOURCE_VERSION,
+  BUNDLED_SKILL_TEMPLATES,
+} from './bundled-skills.js';
+export type {
+  ActivateBundledSkillTemplateResult,
+  BundledSkillTemplateSource,
+} from './bundled-skills.js';
+export { BUNDLED_REVERSE_ENGINEERED_SKILLS } from './bundled-skill-catalog.generated.js';
 export {
   isPathInside,
   isSafeSkillId,

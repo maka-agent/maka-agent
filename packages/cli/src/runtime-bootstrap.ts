@@ -1,9 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { ModelMessage } from 'ai';
 import {
   AiSdkBackend,
+  activateBundledSkillTemplate,
   AutomationManager,
   AutomationScheduler,
   BackendRegistry,
@@ -17,6 +19,7 @@ import {
   buildAskUserQuestionTool,
   buildBuiltinTools,
   buildRuntimeEventModelReplayPlan,
+  BUNDLED_SKILL_TEMPLATES,
   buildChildAgentTools,
   createBuiltinSandboxManager,
   createSandboxDiagnosticsProvider,
@@ -42,8 +45,12 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   replayPlanItemsToModelMessages,
   resolveSkillDiscoveryPaths,
+  resolveDiscoveredSkillOpenPath,
+  resolveSkillRepairOpenPath,
   resolveSelectedModelContextWindow,
   type AutomationDefinition,
+  type ActivateBundledSkillTemplateResult,
+  type BundledSkillTemplateSource,
   type HostCapabilities,
   type MakaTool,
   type InvocationResult,
@@ -158,6 +165,33 @@ export interface MakaCliSkillSurface {
   source(cwd: string): SkillSource;
   /** This host's capability surface — the same gate the Skill tool loads through. */
   host: HostCapabilities;
+  /** Bundled templates shipped with Maka; reading this never touches the network. */
+  bundledTemplates?: readonly BundledSkillTemplateSource[];
+  /** Safe, no-overwrite activation into the global Maka workspace. */
+  activateBundledTemplate?(id: string): Promise<ActivateBundledSkillTemplateResult>;
+  /** Revalidate and open a discovered Skill file; raw inspection paths are never opened directly. */
+  openDiscoveredEntry?(
+    cwd: string,
+    entryKey: string,
+    target: 'skill_file' | 'state_file',
+  ): Promise<{ ok: true } | { ok: false; reason: string }>;
+}
+
+async function openLocalFile(path: string): Promise<boolean> {
+  const command =
+    process.platform === 'darwin'
+      ? { file: 'open', args: [path] }
+      : process.platform === 'win32'
+        ? { file: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', path] }
+        : { file: 'xdg-open', args: [path] };
+  return new Promise((resolve) => {
+    const child = spawn(command.file, command.args, { detached: true, stdio: 'ignore' });
+    child.once('error', () => resolve(false));
+    child.once('spawn', () => {
+      child.unref();
+      resolve(true);
+    });
+  });
 }
 
 export function isMakaClaudeSubscriptionCloakEnabled(
@@ -833,6 +867,19 @@ export async function createMakaCliRuntimeContext(
     skills: {
       source: (cwd) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
       host,
+      bundledTemplates: BUNDLED_SKILL_TEMPLATES,
+      activateBundledTemplate: (id) => activateBundledSkillTemplate(input.workspaceRoot, id),
+      openDiscoveredEntry: async (cwd, entryKey, target) => {
+        const source = resolveSkillDiscoveryPaths(cwd, input.workspaceRoot);
+        const resolved =
+          target === 'state_file'
+            ? await resolveSkillRepairOpenPath(source, entryKey)
+            : await resolveDiscoveredSkillOpenPath(source, entryKey, 'file');
+        if (!resolved.ok) return resolved;
+        return (await openLocalFile(resolved.path))
+          ? { ok: true as const }
+          : { ok: false as const, reason: 'open_failed' };
+      },
     },
     automationManager,
     automationScheduler,

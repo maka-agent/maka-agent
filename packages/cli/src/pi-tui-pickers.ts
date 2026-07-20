@@ -18,11 +18,22 @@ import {
 import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
-import type { InvocableSkillEntry } from '@maka/runtime';
+import type { InvocableSkillEntry, SkillInspectionEntry } from '@maka/runtime';
 import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
 import type { ModelChoice } from './connection-target.js';
 import type { OnboardingProviderEntry } from './onboarding.js';
 import { skillInvocationPrefixAt } from './skill-token.js';
+import {
+  filterSkillManagementEntries,
+  filterSkillTemplateManagementEntries,
+  sanitizeSkillTerminalText,
+  SKILL_MANAGEMENT_FILTERS,
+  skillManagementFilterLabel,
+  skillManagementOriginLabel,
+  skillManagementStatusLabel,
+  type SkillManagementFilter,
+  type SkillTemplateManagementEntry,
+} from './skill-management.js';
 import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 
 export class MakaAutocompleteProvider implements AutocompleteProvider {
@@ -681,6 +692,221 @@ export class ModelSearchOverlay implements Component {
     return editorLines.map((line, index) =>
       padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width),
     );
+  }
+}
+
+export interface SkillManagementOverlayInput {
+  entries: readonly SkillInspectionEntry[];
+  onSelect: (entry: SkillInspectionEntry) => void;
+  onCancel: () => void;
+}
+
+/** Searchable, read-only `/skills` inventory with the same four filters as Desktop. */
+export class SkillManagementOverlay implements Component {
+  private readonly searchEditor: Editor;
+  private filter: SkillManagementFilter = 'all';
+  private filtered: SkillInspectionEntry[];
+  private list: SelectList;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly input: SkillManagementOverlayInput,
+  ) {
+    this.filtered = filterSkillManagementEntries(input.entries, this.filter, '');
+    this.list = this.buildList();
+    this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.searchEditor.onChange = () => this.applyFilter();
+  }
+
+  private buildList(): SelectList {
+    const list = new SelectList(
+      this.filtered.map((entry, index) => ({
+        value: String(index),
+        label: sanitizeSkillTerminalText(entry.name || entry.id),
+        description: [
+          sanitizeSkillTerminalText(entry.id),
+          skillManagementOriginLabel(entry.discoveryOrigin),
+          skillManagementStatusLabel(entry.operationalStatus),
+        ].join(' · '),
+      })),
+      8,
+      selectListTheme(),
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 40 },
+    );
+    list.onSelect = (item) => {
+      const entry = this.filtered[Number(item.value)];
+      if (entry) this.input.onSelect(entry);
+    };
+    list.onCancel = () => this.input.onCancel();
+    return list;
+  }
+
+  private applyFilter(): void {
+    this.filtered = filterSkillManagementEntries(
+      this.input.entries,
+      this.filter,
+      this.searchEditor.getText(),
+    );
+    this.list = this.buildList();
+  }
+
+  private cycleFilter(): void {
+    const index = SKILL_MANAGEMENT_FILTERS.indexOf(this.filter);
+    this.filter = SKILL_MANAGEMENT_FILTERS[(index + 1) % SKILL_MANAGEMENT_FILTERS.length] ?? 'all';
+    this.applyFilter();
+  }
+
+  invalidate(): void {
+    this.searchEditor.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.tab) && !isKeyRepeat(data)) {
+      this.cycleFilter();
+      this.tui.requestRender();
+      return;
+    }
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (!isKeyRepeat(data)) this.list.handleInput(data);
+      return;
+    }
+    this.searchEditor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    this.searchEditor.focused = true;
+    return [
+      padLine(`Skills · 已发现 ${ansi.accent(String(this.filtered.length))}`, safeWidth),
+      padLine(
+        ansi.dim(
+          `Tab 筛选：${skillManagementFilterLabel(this.filter)} · ↑↓ 选择 · Enter 详情 · Esc 返回`,
+        ),
+        safeWidth,
+      ),
+      padLine('', safeWidth),
+      ...this.renderSearchField(safeWidth),
+      padLine('', safeWidth),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的 Skill'), safeWidth)]
+        : this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth))),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
+  }
+
+  private renderSearchField(width: number): string[] {
+    const label = '搜索 ';
+    const labelWidth = visibleWidth(label);
+    const editorLines = this.searchEditor.render(Math.max(1, width - labelWidth)).slice(1, -1);
+    if (editorLines.length === 0) return [padLine(label, width)];
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? label : ' '.repeat(labelWidth)}${line}`, width),
+    );
+  }
+}
+
+export interface SkillTemplateManagementOverlayInput {
+  entries: readonly SkillTemplateManagementEntry[];
+  onSelect: (entry: SkillTemplateManagementEntry) => void;
+  onCancel: () => void;
+}
+
+/** Searchable bundled-template half of `/skills`; selection opens a review step. */
+export class SkillTemplateManagementOverlay implements Component {
+  private readonly searchEditor: Editor;
+  private filtered: SkillTemplateManagementEntry[];
+  private list: SelectList;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly input: SkillTemplateManagementOverlayInput,
+  ) {
+    this.filtered = [...input.entries];
+    this.list = this.buildList();
+    this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.searchEditor.onChange = (query) => {
+      this.filtered = filterSkillTemplateManagementEntries(this.input.entries, query);
+      this.list = this.buildList();
+    };
+  }
+
+  private buildList(): SelectList {
+    const list = new SelectList(
+      this.filtered.map((entry, index) => ({
+        value: String(index),
+        label: sanitizeSkillTerminalText(entry.name || entry.id),
+        description: [
+          sanitizeSkillTerminalText(entry.id),
+          entry.activationState === 'available'
+            ? '可启用'
+            : entry.activationState === 'active'
+              ? '已启用'
+              : '需要处理',
+        ].join(' · '),
+      })),
+      8,
+      selectListTheme(),
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 40 },
+    );
+    list.onSelect = (item) => {
+      const entry = this.filtered[Number(item.value)];
+      if (entry) this.input.onSelect(entry);
+    };
+    list.onCancel = () => this.input.onCancel();
+    return list;
+  }
+
+  invalidate(): void {
+    this.searchEditor.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (!isKeyRepeat(data)) this.list.handleInput(data);
+      return;
+    }
+    this.searchEditor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    this.searchEditor.focused = true;
+    const label = '搜索 ';
+    const labelWidth = visibleWidth(label);
+    const editorLines = this.searchEditor.render(Math.max(1, safeWidth - labelWidth)).slice(1, -1);
+    return [
+      padLine(`Skills · 可启用 ${ansi.accent(String(this.filtered.length))}`, safeWidth),
+      padLine(ansi.dim('搜索模板 · ↑↓ 选择 · Enter 审查 · Esc 返回'), safeWidth),
+      padLine('', safeWidth),
+      ...(editorLines.length === 0
+        ? [padLine(label, safeWidth)]
+        : editorLines.map((line, index) =>
+            padLine(`${index === 0 ? label : ' '.repeat(labelWidth)}${line}`, safeWidth),
+          )),
+      padLine('', safeWidth),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的模板'), safeWidth)]
+        : this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth))),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
   }
 }
 

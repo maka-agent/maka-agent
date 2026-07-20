@@ -8,7 +8,7 @@ import {
   listBundledSkillCatalog,
   listInstalledSkills,
 } from '../skills.js';
-import { BUNDLED_REVERSE_ENGINEERED_SKILLS } from '../bundled-skill-catalog.generated.js';
+import { BUNDLED_REVERSE_ENGINEERED_SKILLS } from '@maka/runtime';
 import { MANAGED_SKILL_CATEGORIES } from '../managed-skill-sources.js';
 
 const OFFICE_IDS = ['officecli-docx', 'officecli-xlsx', 'officecli-pptx'];
