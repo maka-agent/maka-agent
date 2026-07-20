@@ -1158,11 +1158,8 @@ export { resolveModelVisionSupport } from './model-metadata.js';
 // settings.ts
 export type {
   AppearanceSettings,
+  AppNetworkSettings,
   AppSettings,
-  BotChannelSettings,
-  BotChatSettings,
-  BotProvider,
-  BotReadinessState,
   ChatDefaultPermissionMode,
   ChatDefaultsSettings,
   NetworkProxySettings,
@@ -1190,27 +1187,37 @@ export type {
   UsageTab,
 } from './settings.js';
 export {
-  BOT_READINESS_STATES,
-  BOT_DELIVERY_PROVIDERS,
-  BOT_PROVIDERS,
   CHAT_DEFAULT_PERMISSION_MODES,
   DEFAULT_PROXY_BYPASS_DOMAINS,
-  MAX_ALLOWED_USER_IDS,
   SETTINGS_SECTIONS,
   THEME_PALETTES,
-  createDefaultBotChannel,
   createDefaultSettings,
-  hasBotChannelCredentials,
-  isBotDeliveryProvider,
-  isBotReadinessState,
   isChatDefaultPermissionMode,
   isThemePalette,
   mergeSettings,
-  normalizeAllowedUserIds,
   normalizeSettings,
-  parseAllowedUserIdsFromText,
 } from './settings.js';
-export type { BotDeliveryProvider } from './settings.js';
+
+// bot-chat-settings.ts
+export type {
+  BotChannelSettings,
+  BotChatSettings,
+  BotDeliveryProvider,
+  BotProvider,
+  BotReadinessState,
+} from './bot-chat-settings.js';
+export {
+  BOT_DELIVERY_PROVIDERS,
+  BOT_PROVIDERS,
+  BOT_READINESS_STATES,
+  MAX_ALLOWED_USER_IDS,
+  createDefaultBotChannel,
+  hasBotChannelCredentials,
+  isBotDeliveryProvider,
+  isBotReadinessState,
+  normalizeAllowedUserIds,
+  parseAllowedUserIdsFromText,
+} from './bot-chat-settings.js';
 
 // bot-onboarding.ts
 export {

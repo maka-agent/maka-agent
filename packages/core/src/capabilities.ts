@@ -1,4 +1,4 @@
-import type { BotProvider, BotReadinessState } from './settings.js';
+import type { BotProvider, BotReadinessState } from './bot-chat-settings.js';
 
 export const OS_PERMISSION_IDS = [
   'accessibility',

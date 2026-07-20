@@ -1,18 +1,17 @@
 import type { OnboardingMilestone } from './onboarding.js';
 import { sanitizeOnboardingMilestones } from './onboarding.js';
-import type {
-  WebSearchProvider,
-  WebSearchProviderSettings,
-  WebSearchSettings,
-} from './web-search.js';
+import type { WebSearchSettingsPatch, WebSearchSettings } from './web-search.js';
+import type { BotChatSettings, BotChatSettingsPatch } from './bot-chat-settings.js';
+import {
+  createDefaultBotChatSettings,
+  mergeBotChatSettings,
+  normalizeBotChatSettings,
+} from './bot-chat-settings.js';
 import type { LocalMemorySettings } from './local-memory.js';
 import {
-  MASKED_TOKEN_SENTINEL,
   defaultWebSearchSettings,
-  isWebSearchCredentialStatus,
-  isWebSearchProvider,
-  reconcileMaskedToken,
-  webSearchCredentialSourceFromStoredKey,
+  mergeWebSearchSettings,
+  normalizeWebSearchSettings,
 } from './web-search.js';
 import { defaultLocalMemorySettings, normalizeLocalMemorySettings } from './local-memory.js';
 import type { PermissionMode } from './permission.js';
@@ -25,6 +24,25 @@ import {
 
 export { UI_LOCALE_PREFERENCES, isUiLocalePreference } from './ui-locale.js';
 export type { UiLocalePreference } from './ui-locale.js';
+export type {
+  BotChannelSettings,
+  BotChatSettings,
+  BotDeliveryProvider,
+  BotProvider,
+  BotReadinessState,
+} from './bot-chat-settings.js';
+export {
+  BOT_DELIVERY_PROVIDERS,
+  BOT_PROVIDERS,
+  BOT_READINESS_STATES,
+  MAX_ALLOWED_USER_IDS,
+  createDefaultBotChannel,
+  hasBotChannelCredentials,
+  isBotDeliveryProvider,
+  isBotReadinessState,
+  normalizeAllowedUserIds,
+  parseAllowedUserIdsFromText,
+} from './bot-chat-settings.js';
 
 /**
  * PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0 (WAWQAQ msg
@@ -79,71 +97,16 @@ export interface NetworkProxySettings {
   autoBypassDomains: string[];
 }
 
-export interface NetworkSettings {
+/**
+ * Persisted application network settings. Runtime proxy execution uses the
+ * separate contract in `settings/network-settings.ts`.
+ */
+export interface AppNetworkSettings {
   proxy: NetworkProxySettings;
 }
 
-export type BotProvider =
-  | 'telegram'
-  | 'feishu'
-  | 'wecom'
-  | 'wechat'
-  | 'discord'
-  | 'dingtalk'
-  | 'qq';
-
-export const BOT_READINESS_STATES = [
-  'unscaffolded',
-  'scaffolded',
-  'configured',
-  'credentials_valid',
-  'operational',
-  'degraded',
-] as const;
-export type BotReadinessState = (typeof BOT_READINESS_STATES)[number];
-
-export interface BotChannelSettings {
-  provider: BotProvider;
-  enabled: boolean;
-  /**
-   * Legacy credential-test boolean. Do not use this to mean runtime
-   * operational; prefer `readiness`.
-   */
-  connected: boolean;
-  readiness: BotReadinessState;
-  readinessReason?: string;
-  readinessUpdatedAt?: number;
-  token: string;
-  proxyUrl: string;
-  webhookUrl?: string;
-  /** Public callback/domain configured in the bot platform console. */
-  domain?: string;
-  appId?: string;
-  appSecret?: string;
-  botUserId?: string;
-  lastTestAt?: number;
-  lastError?: string;
-  /**
-   * PR-BOT-USER-ALLOWLIST-0 (external bot research): platform-native user IDs
-   * permitted to message this bot. `undefined` or empty means no
-   * restriction (preserves the V0.1 behavior for existing installs).
-   * When non-empty, the bot bridge silently drops inbound messages from
-   * any other user — no acknowledgement is sent back, so unauthorized
-   * scanners cannot use bounce behavior to enumerate the bot's policy.
-   *
-   * Stored as a string array since Telegram IDs are 64-bit and JS
-   * `Number` loses precision past 2^53.
-   */
-  allowedUserIds?: ReadonlyArray<string>;
-}
-
-export function isBotReadinessState(value: unknown): value is BotReadinessState {
-  return typeof value === 'string' && (BOT_READINESS_STATES as readonly string[]).includes(value);
-}
-
-export interface BotChatSettings {
-  channels: Record<BotProvider, BotChannelSettings>;
-}
+/** @deprecated Use AppNetworkSettings for the persisted application settings shape. */
+export type NetworkSettings = AppNetworkSettings;
 
 export type UsageRange = '24h' | '7d' | '30d' | 'all';
 export type UsageStatus = 'all' | 'success' | 'error';
@@ -325,7 +288,7 @@ export interface SystemSettings {
 
 export interface AppSettings {
   schemaVersion: 1;
-  network: NetworkSettings;
+  network: AppNetworkSettings;
   botChat: BotChatSettings;
   usage: UsageSettings;
   appearance: AppearanceSettings;
@@ -405,9 +368,7 @@ export type UpdateAppSettingsInput = Partial<{
   network: Partial<{
     proxy: Partial<NetworkProxySettings>;
   }>;
-  botChat: Partial<{
-    channels: Partial<Record<BotProvider, Partial<BotChannelSettings>>>;
-  }>;
+  botChat: BotChatSettingsPatch;
   usage: Partial<UsageSettings>;
   appearance: Partial<AppearanceSettings>;
   personalization: Partial<PersonalizationSettings>;
@@ -418,13 +379,7 @@ export type UpdateAppSettingsInput = Partial<{
   chatDefaults: Partial<ChatDefaultsSettings>;
   notifications: Partial<NotificationSettings>;
   system: Partial<SystemSettings>;
-  webSearch: Partial<{
-    enabled: boolean;
-    defaultProvider: WebSearchProvider;
-    providers: Partial<{
-      tavily: Partial<WebSearchProviderSettings>;
-    }>;
-  }>;
+  webSearch: WebSearchSettingsPatch;
 }>;
 
 export type PersonalizationSettingsWarning =
@@ -441,33 +396,6 @@ export interface UpdateAppSettingsResult {
   warnings?: UpdateAppSettingsWarnings;
 }
 
-export const BOT_PROVIDERS: BotProvider[] = [
-  'telegram',
-  'feishu',
-  'wecom',
-  'wechat',
-  'discord',
-  'dingtalk',
-  'qq',
-];
-
-export type BotDeliveryProvider = Extract<
-  BotProvider,
-  'telegram' | 'wechat' | 'discord' | 'dingtalk' | 'qq'
->;
-
-export const BOT_DELIVERY_PROVIDERS: BotDeliveryProvider[] = [
-  'telegram',
-  'wechat',
-  'discord',
-  'dingtalk',
-  'qq',
-];
-
-export function isBotDeliveryProvider(value: unknown): value is BotDeliveryProvider {
-  return typeof value === 'string' && (BOT_DELIVERY_PROVIDERS as readonly string[]).includes(value);
-}
-
 export const DEFAULT_PROXY_BYPASS_DOMAINS = [
   'localhost',
   '127.0.0.1',
@@ -476,18 +404,6 @@ export const DEFAULT_PROXY_BYPASS_DOMAINS = [
   '10.*',
   '*.local',
 ];
-
-export function createDefaultBotChannel(provider: BotProvider): BotChannelSettings {
-  return {
-    provider,
-    enabled: false,
-    connected: false,
-    readiness: 'scaffolded',
-    token: '',
-    proxyUrl: provider === 'telegram' ? 'http://127.0.0.1:7890' : '',
-    ...(provider === 'wechat' ? { webhookUrl: 'http://127.0.0.1:18400' } : {}),
-  };
-}
 
 export function createDefaultSettings(): AppSettings {
   return {
@@ -505,11 +421,7 @@ export function createDefaultSettings(): AppSettings {
         autoBypassDomains: DEFAULT_PROXY_BYPASS_DOMAINS,
       },
     },
-    botChat: {
-      channels: Object.fromEntries(
-        BOT_PROVIDERS.map((provider) => [provider, createDefaultBotChannel(provider)]),
-      ) as Record<BotProvider, BotChannelSettings>,
-    },
+    botChat: createDefaultBotChatSettings(),
     usage: {
       range: '24h',
       status: 'all',
@@ -564,31 +476,7 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
         ...(patch.network?.proxy ?? {}),
       },
     },
-    botChat: {
-      ...current.botChat,
-      channels: {
-        ...current.botChat.channels,
-        ...Object.fromEntries(
-          Object.entries(patch.botChat?.channels ?? {}).map(([provider, channelPatch]) => {
-            const merged = {
-              ...current.botChat.channels[provider as BotProvider],
-              ...channelPatch,
-            };
-            // PR-BOT-USER-ALLOWLIST-0: keep the persisted allowlist
-            // shape consistent on every save, not only on initial load.
-            // The renderer textarea sends an array; the normalize step
-            // trims/dedups/caps and downgrades the empty case to
-            // `undefined` (the V0.1 "no restriction" sentinel).
-            if ('allowedUserIds' in (channelPatch ?? {})) {
-              const normalized = normalizeAllowedUserIds(merged.allowedUserIds);
-              if (normalized) merged.allowedUserIds = normalized;
-              else delete merged.allowedUserIds;
-            }
-            return [provider, merged];
-          }),
-        ),
-      },
-    },
+    botChat: mergeBotChatSettings(current.botChat, patch.botChat),
     usage: {
       ...current.usage,
       ...(patch.usage ?? {}),
@@ -635,71 +523,6 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
       ...(patch.system ?? {}),
     },
     webSearch: mergeWebSearchSettings(current.webSearch, patch.webSearch),
-  };
-}
-
-function mergeWebSearchSettings(
-  current: WebSearchSettings,
-  patch: UpdateAppSettingsInput['webSearch'],
-): WebSearchSettings {
-  if (!patch) return current;
-  const tavilyPatch = patch.providers?.tavily;
-  const candidateProvider = patch.defaultProvider;
-  const nextProvider: WebSearchProvider = isWebSearchProvider(candidateProvider)
-    ? candidateProvider
-    : current.defaultProvider;
-  // Mask-sentinel preservation lives here so the IPC boundary does
-  // not have to special-case the round-tripped masked value.
-  const nextApiKey =
-    tavilyPatch && typeof tavilyPatch.apiKey === 'string'
-      ? reconcileMaskedToken(current.providers.tavily.apiKey, tavilyPatch.apiKey)
-      : current.providers.tavily.apiKey;
-  const currentCredentialVersion = normalizeCredentialVersion(
-    current.providers.tavily.credentialVersion,
-  );
-  const explicitCredentialCheckedAt =
-    tavilyPatch &&
-    typeof tavilyPatch.credentialCheckedAt === 'string' &&
-    tavilyPatch.credentialCheckedAt.length <= 64
-      ? tavilyPatch.credentialCheckedAt
-      : undefined;
-  const apiKeyChanged =
-    tavilyPatch &&
-    typeof tavilyPatch.apiKey === 'string' &&
-    tavilyPatch.apiKey !== MASKED_TOKEN_SENTINEL &&
-    nextApiKey !== current.providers.tavily.apiKey;
-  const nextCredentialVersion = apiKeyChanged
-    ? currentCredentialVersion + 1
-    : currentCredentialVersion;
-  const patchCredentialVersion = tavilyPatch
-    ? normalizeOptionalCredentialVersion(tavilyPatch.credentialVersion)
-    : undefined;
-  const hasExplicitCredentialStatus =
-    tavilyPatch &&
-    isWebSearchCredentialStatus(tavilyPatch.credentialStatus) &&
-    (patchCredentialVersion === undefined || patchCredentialVersion === currentCredentialVersion);
-  const credentialStatus = hasExplicitCredentialStatus
-    ? tavilyPatch.credentialStatus
-    : apiKeyChanged
-      ? 'untested'
-      : current.providers.tavily.credentialStatus;
-  const credentialCheckedAt = hasExplicitCredentialStatus
-    ? explicitCredentialCheckedAt
-    : apiKeyChanged
-      ? undefined
-      : current.providers.tavily.credentialCheckedAt;
-  return {
-    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : current.enabled,
-    defaultProvider: nextProvider,
-    providers: {
-      tavily: {
-        apiKey: nextApiKey,
-        credentialSource: webSearchCredentialSourceFromStoredKey(nextApiKey),
-        credentialVersion: nextCredentialVersion,
-        credentialStatus,
-        ...(credentialCheckedAt ? { credentialCheckedAt } : {}),
-      },
-    },
   };
 }
 
@@ -768,19 +591,7 @@ export function normalizeSettings(input: unknown): AppSettings {
         ? base.personalization.uiLocale
         : 'auto',
     },
-    botChat: {
-      channels: Object.fromEntries(
-        BOT_PROVIDERS.map((provider) => {
-          const rawChannel = value.botChat?.channels?.[provider] as
-            | Partial<BotChannelSettings>
-            | undefined;
-          return [
-            provider,
-            normalizeBotChannel(provider, base.botChat.channels[provider], rawChannel),
-          ];
-        }),
-      ) as Record<BotProvider, BotChannelSettings>,
-    },
+    botChat: normalizeBotChatSettings(base.botChat, value.botChat),
     onboarding: {
       milestones: sanitizeOnboardingMilestones(rawMilestones),
     },
@@ -847,52 +658,6 @@ function normalizePrivacySettings(settings: PrivacySettings): PrivacySettings {
   };
 }
 
-function normalizeWebSearchSettings(settings: WebSearchSettings): WebSearchSettings {
-  const enabled = settings.enabled === true;
-  const defaultProvider = isWebSearchProvider(settings.defaultProvider)
-    ? settings.defaultProvider
-    : 'tavily';
-  // Cap apiKey length defensively. Tavily keys are < 64 chars; anything
-  // longer is almost certainly garbage that would break log redaction.
-  const rawApiKey = settings.providers?.tavily?.apiKey;
-  const apiKey = typeof rawApiKey === 'string' && rawApiKey.length <= 256 ? rawApiKey : '';
-  const rawCredentialStatus = settings.providers?.tavily?.credentialStatus;
-  const credentialStatus = isWebSearchCredentialStatus(rawCredentialStatus)
-    ? rawCredentialStatus
-    : 'untested';
-  const rawCredentialCheckedAt = settings.providers?.tavily?.credentialCheckedAt;
-  const credentialCheckedAt =
-    typeof rawCredentialCheckedAt === 'string' && rawCredentialCheckedAt.length <= 64
-      ? rawCredentialCheckedAt
-      : undefined;
-  const credentialVersion = normalizeCredentialVersion(
-    settings.providers?.tavily?.credentialVersion,
-  );
-  return {
-    enabled,
-    defaultProvider,
-    providers: {
-      tavily: {
-        apiKey,
-        credentialSource: webSearchCredentialSourceFromStoredKey(apiKey),
-        credentialVersion,
-        credentialStatus,
-        ...(credentialCheckedAt ? { credentialCheckedAt } : {}),
-      },
-    },
-  };
-}
-
-function normalizeCredentialVersion(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return 0;
-  return value;
-}
-
-function normalizeOptionalCredentialVersion(value: unknown): number | undefined {
-  if (value === undefined) return undefined;
-  return normalizeCredentialVersion(value);
-}
-
 function normalizeOpenGatewaySettings(settings: OpenGatewaySettings): OpenGatewaySettings {
   const port =
     Number.isInteger(settings.port) && settings.port >= 1024 && settings.port <= 65535
@@ -907,151 +672,4 @@ function normalizeOpenGatewaySettings(settings: OpenGatewaySettings): OpenGatewa
     port,
     token,
   };
-}
-
-function normalizeBotChannel(
-  provider: BotProvider,
-  channel: BotChannelSettings,
-  rawChannel: Partial<BotChannelSettings> | undefined,
-): BotChannelSettings {
-  const hasExplicitReadiness = rawChannel && 'readiness' in rawChannel;
-  const connected = channel.connected === true;
-  const candidateReadiness =
-    hasExplicitReadiness && isBotReadinessState(rawChannel?.readiness)
-      ? channel.readiness
-      : connected
-        ? 'credentials_valid'
-        : readinessFromChannel(channel);
-  const allowedUserIds = normalizeAllowedUserIds(channel.allowedUserIds);
-  return {
-    ...channel,
-    provider,
-    connected,
-    ...(allowedUserIds ? { allowedUserIds } : { allowedUserIds: undefined }),
-    // PR-HEALTH-1 (xuan msg `e4887ffd`, I1 — bot readiness single-authority,
-    // write path): coerce the persisted readiness to be consistent with
-    // current credential state. The previous behavior trusted whatever was
-    // on disk, so `mergeSettings({channels:{telegram:{token:''}}})` over
-    // `{readiness:'credentials_valid', token:'X'}` would persist a stale
-    // `'credentials_valid'` even though credentials no longer exist.
-    // `coerceReadinessForCurrentState` downgrades credential-claiming states
-    // (`configured` / `credentials_valid` / `operational` / `degraded`)
-    // back to `'scaffolded'` when no credentials remain. Live bridges keep
-    // their own authoritative readiness via `BotStatus`; they are not
-    // affected by this settings-write coerce path.
-    readiness: coerceReadinessForCurrentState(channel, candidateReadiness),
-    readinessReason:
-      typeof channel.readinessReason === 'string' ? channel.readinessReason : undefined,
-    readinessUpdatedAt:
-      typeof channel.readinessUpdatedAt === 'number' && Number.isFinite(channel.readinessUpdatedAt)
-        ? channel.readinessUpdatedAt
-        : undefined,
-  };
-}
-
-export function hasBotChannelCredentials(channel: BotChannelSettings): boolean {
-  if (channel.token.trim().length > 0 || Boolean(channel.appId) || Boolean(channel.appSecret))
-    return true;
-  if (channel.provider === 'wechat' && Boolean(channel.webhookUrl?.trim())) return true;
-  return false;
-}
-
-function readinessFromChannel(channel: BotChannelSettings): BotReadinessState {
-  if (!channel.enabled) return 'scaffolded';
-  if (!hasBotChannelCredentials(channel)) return 'scaffolded';
-  return 'configured';
-}
-
-/**
- * PR-HEALTH-1 (xuan msg `e4887ffd`, I1 lock): downgrade a persisted
- * `BotReadinessState` to be consistent with the channel's current
- * credential state.
- *
- * Why: `mergeSettings` spreads a `channelPatch` over the current channel.
- * If the user clears `token` without explicitly patching `readiness`, the
- * prior `'credentials_valid'` (or any other credential-claiming state)
- * survives. That stale value then surfaces through
- * `bot-registry.scaffoldStatus()` into `BotStatus.readiness`, which the
- * capability snapshot maps into `CapabilityRuntimeProbeSignal.state` —
- * producing a "configured / verified" UI for a channel that actually has
- * no credentials.
- *
- * Rule: credential-claiming readiness (`'configured'` / `'credentials_valid'`
- * / `'operational'` / `'degraded'`) requires SOMETHING in the credential
- * trio (`token` / `appId` / `appSecret`). When all three are empty,
- * downgrade to `'scaffolded'`. `'unscaffolded'` and `'scaffolded'` are
- * always consistent with any credential state, so they pass through.
- *
- * Note: this is a write-path consistency gate, not an operational probe.
- * Even when credentials exist, we do NOT promote `'scaffolded'` to
- * `'configured'` here — that is the live bridge / connection-test path's
- * responsibility. We only downgrade; never upgrade.
- */
-function coerceReadinessForCurrentState(
-  channel: BotChannelSettings,
-  candidate: BotReadinessState,
-): BotReadinessState {
-  const hasCredentials = hasBotChannelCredentials(channel);
-  const claimsCredentials =
-    candidate === 'configured' ||
-    candidate === 'credentials_valid' ||
-    candidate === 'operational' ||
-    candidate === 'degraded';
-  if (claimsCredentials && !hasCredentials) {
-    return 'scaffolded';
-  }
-  return candidate;
-}
-
-/**
- * PR-BOT-USER-ALLOWLIST-0: shape-validate the persisted allowlist.
- * Returns `undefined` when there is nothing to enforce (preserves the
- * V0.1 "no restriction" behavior). Drops non-strings, trims, dedups, and
- * caps at MAX_ALLOWED_USER_IDS entries; the cap is defensive against
- * pathological persisted settings, not a product UX limit.
- *
- * IDs are stored as strings because Telegram user IDs are 64-bit and
- * JS `Number` loses precision past 2^53. Trimming a candidate to '' is
- * treated as absent rather than as a wildcard.
- */
-export const MAX_ALLOWED_USER_IDS = 50;
-export function normalizeAllowedUserIds(
-  candidate: ReadonlyArray<string> | undefined | unknown,
-): ReadonlyArray<string> | undefined {
-  if (!Array.isArray(candidate)) return undefined;
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of candidate) {
-    if (typeof raw !== 'string') continue;
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-    if (out.length >= MAX_ALLOWED_USER_IDS) break;
-  }
-  return out.length === 0 ? undefined : Object.freeze(out);
-}
-
-/**
- * PR-BOT-USER-ALLOWLIST-UI-0: textarea-friendly parse helper for the
- * Settings UI. Splits on newline, trims each line, drops blanks, dedups,
- * and caps at MAX_ALLOWED_USER_IDS. Returns a string[] (not undefined)
- * because the renderer needs to be able to show "current 0 / 50" before
- * commit. The IPC merge layer will downgrade an empty list to `undefined`
- * at persist time so the V0.1 "no restriction" sentinel is preserved.
- */
-export function parseAllowedUserIdsFromText(raw: string): string[] {
-  if (typeof raw !== 'string' || raw.length === 0) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-    if (out.length >= MAX_ALLOWED_USER_IDS) break;
-  }
-  return out;
 }

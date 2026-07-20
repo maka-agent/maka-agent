@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { BOT_DELIVERY_PROVIDERS, BOT_PROVIDERS, isBotDeliveryProvider } from '../settings.js';
+import {
+  BOT_DELIVERY_PROVIDERS,
+  BOT_PROVIDERS,
+  isBotDeliveryProvider,
+} from '../bot-chat-settings.js';
 import {
   isPlanReminderDue,
   nextPlanReminderStateAfterTrigger,

@@ -117,6 +117,14 @@ export interface WebSearchSettings {
   readonly providers: { readonly tavily: WebSearchProviderSettings };
 }
 
+export type WebSearchSettingsPatch = Partial<{
+  enabled: boolean;
+  defaultProvider: WebSearchProvider;
+  providers: Partial<{
+    tavily: Partial<WebSearchProviderSettings>;
+  }>;
+}>;
+
 export function defaultWebSearchSettings(): WebSearchSettings {
   return {
     enabled: false,
@@ -127,6 +135,107 @@ export function defaultWebSearchSettings(): WebSearchSettings {
         credentialSource: 'none',
         credentialVersion: 0,
         credentialStatus: 'untested',
+      },
+    },
+  };
+}
+
+export function mergeWebSearchSettings(
+  current: WebSearchSettings,
+  patch: WebSearchSettingsPatch | undefined,
+): WebSearchSettings {
+  if (!patch) return current;
+  const tavilyPatch = patch.providers?.tavily;
+  const candidateProvider = patch.defaultProvider;
+  const nextProvider: WebSearchProvider = isWebSearchProvider(candidateProvider)
+    ? candidateProvider
+    : current.defaultProvider;
+  // Mask-sentinel preservation lives here so the IPC boundary does
+  // not have to special-case the round-tripped masked value.
+  const nextApiKey =
+    tavilyPatch && typeof tavilyPatch.apiKey === 'string'
+      ? reconcileMaskedToken(current.providers.tavily.apiKey, tavilyPatch.apiKey)
+      : current.providers.tavily.apiKey;
+  const currentCredentialVersion = normalizeCredentialVersion(
+    current.providers.tavily.credentialVersion,
+  );
+  const explicitCredentialCheckedAt =
+    tavilyPatch &&
+    typeof tavilyPatch.credentialCheckedAt === 'string' &&
+    tavilyPatch.credentialCheckedAt.length <= 64
+      ? tavilyPatch.credentialCheckedAt
+      : undefined;
+  const apiKeyChanged =
+    tavilyPatch &&
+    typeof tavilyPatch.apiKey === 'string' &&
+    tavilyPatch.apiKey !== MASKED_TOKEN_SENTINEL &&
+    nextApiKey !== current.providers.tavily.apiKey;
+  const nextCredentialVersion = apiKeyChanged
+    ? currentCredentialVersion + 1
+    : currentCredentialVersion;
+  const patchCredentialVersion = tavilyPatch
+    ? normalizeOptionalCredentialVersion(tavilyPatch.credentialVersion)
+    : undefined;
+  const hasExplicitCredentialStatus =
+    tavilyPatch &&
+    isWebSearchCredentialStatus(tavilyPatch.credentialStatus) &&
+    (patchCredentialVersion === undefined || patchCredentialVersion === currentCredentialVersion);
+  const credentialStatus = hasExplicitCredentialStatus
+    ? tavilyPatch.credentialStatus
+    : apiKeyChanged
+      ? 'untested'
+      : current.providers.tavily.credentialStatus;
+  const credentialCheckedAt = hasExplicitCredentialStatus
+    ? explicitCredentialCheckedAt
+    : apiKeyChanged
+      ? undefined
+      : current.providers.tavily.credentialCheckedAt;
+  return {
+    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : current.enabled,
+    defaultProvider: nextProvider,
+    providers: {
+      tavily: {
+        apiKey: nextApiKey,
+        credentialSource: webSearchCredentialSourceFromStoredKey(nextApiKey),
+        credentialVersion: nextCredentialVersion,
+        credentialStatus,
+        ...(credentialCheckedAt ? { credentialCheckedAt } : {}),
+      },
+    },
+  };
+}
+
+export function normalizeWebSearchSettings(settings: WebSearchSettings): WebSearchSettings {
+  const enabled = settings.enabled === true;
+  const defaultProvider = isWebSearchProvider(settings.defaultProvider)
+    ? settings.defaultProvider
+    : 'tavily';
+  // Cap apiKey length defensively. Tavily keys are < 64 chars; anything
+  // longer is almost certainly garbage that would break log redaction.
+  const rawApiKey = settings.providers?.tavily?.apiKey;
+  const apiKey = typeof rawApiKey === 'string' && rawApiKey.length <= 256 ? rawApiKey : '';
+  const rawCredentialStatus = settings.providers?.tavily?.credentialStatus;
+  const credentialStatus = isWebSearchCredentialStatus(rawCredentialStatus)
+    ? rawCredentialStatus
+    : 'untested';
+  const rawCredentialCheckedAt = settings.providers?.tavily?.credentialCheckedAt;
+  const credentialCheckedAt =
+    typeof rawCredentialCheckedAt === 'string' && rawCredentialCheckedAt.length <= 64
+      ? rawCredentialCheckedAt
+      : undefined;
+  const credentialVersion = normalizeCredentialVersion(
+    settings.providers?.tavily?.credentialVersion,
+  );
+  return {
+    enabled,
+    defaultProvider,
+    providers: {
+      tavily: {
+        apiKey,
+        credentialSource: webSearchCredentialSourceFromStoredKey(apiKey),
+        credentialVersion,
+        credentialStatus,
+        ...(credentialCheckedAt ? { credentialCheckedAt } : {}),
       },
     },
   };
@@ -171,4 +280,14 @@ export function webSearchCredentialStatusFromResponse(
   if (response.ok) return 'valid';
   if (isWebSearchCredentialStatus(response.reason)) return response.reason;
   return 'network_error';
+}
+
+function normalizeCredentialVersion(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return 0;
+  return value;
+}
+
+function normalizeOptionalCredentialVersion(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  return normalizeCredentialVersion(value);
 }

@@ -13,8 +13,10 @@ import {
   isWebSearchCredentialSource,
   isWebSearchProvider,
   maskedTokenForDisplay,
+  mergeWebSearchSettings,
   normalizeWebSearchLimit,
   normalizeWebSearchQuery,
+  normalizeWebSearchSettings,
   reconcileMaskedToken,
   webSearchCredentialStatusFromResponse,
   webSearchCredentialSourceFromStoredKey,
@@ -108,6 +110,112 @@ describe('defaultWebSearchSettings', () => {
     assert.equal(s.providers.tavily.credentialSource, 'none');
     assert.equal(s.providers.tavily.credentialVersion, 0);
     assert.equal(s.providers.tavily.credentialStatus, 'untested');
+  });
+});
+
+describe('web search settings reconciliation', () => {
+  it('preserves credential status and version across a masked key round-trip', () => {
+    const current = mergeWebSearchSettings(defaultWebSearchSettings(), {
+      providers: {
+        tavily: {
+          apiKey: 'stored-key',
+          credentialStatus: 'valid',
+          credentialCheckedAt: '2026-05-29T00:00:00.000Z',
+        },
+      },
+    });
+
+    const patched = mergeWebSearchSettings(current, {
+      providers: { tavily: { apiKey: MASKED_TOKEN_SENTINEL } },
+    });
+
+    assert.equal(patched.providers.tavily.apiKey, 'stored-key');
+    assert.equal(patched.providers.tavily.credentialSource, 'saved');
+    assert.equal(patched.providers.tavily.credentialVersion, 1);
+    assert.equal(patched.providers.tavily.credentialStatus, 'valid');
+    assert.equal(patched.providers.tavily.credentialCheckedAt, '2026-05-29T00:00:00.000Z');
+  });
+
+  it('increments the credential version and clears stale status when the saved key changes', () => {
+    const current = mergeWebSearchSettings(defaultWebSearchSettings(), {
+      providers: {
+        tavily: {
+          apiKey: 'old-key',
+          credentialStatus: 'valid',
+          credentialCheckedAt: '2026-05-29T00:00:00.000Z',
+        },
+      },
+    });
+
+    const patched = mergeWebSearchSettings(current, {
+      providers: { tavily: { apiKey: 'new-key' } },
+    });
+
+    assert.equal(patched.providers.tavily.apiKey, 'new-key');
+    assert.equal(patched.providers.tavily.credentialSource, 'saved');
+    assert.equal(patched.providers.tavily.credentialVersion, 2);
+    assert.equal(patched.providers.tavily.credentialStatus, 'untested');
+    assert.equal(patched.providers.tavily.credentialCheckedAt, undefined);
+  });
+
+  it('ignores a credential result for an older key version', () => {
+    const current = mergeWebSearchSettings(defaultWebSearchSettings(), {
+      providers: { tavily: { apiKey: 'current-key' } },
+    });
+    const updatedKey = mergeWebSearchSettings(current, {
+      providers: { tavily: { apiKey: 'newer-key' } },
+    });
+
+    const staleResult = mergeWebSearchSettings(updatedKey, {
+      providers: {
+        tavily: {
+          credentialVersion: current.providers.tavily.credentialVersion,
+          credentialStatus: 'invalid_credentials',
+          credentialCheckedAt: '2026-05-29T00:00:00.000Z',
+        },
+      },
+    });
+    const freshResult = mergeWebSearchSettings(updatedKey, {
+      providers: {
+        tavily: {
+          credentialVersion: updatedKey.providers.tavily.credentialVersion,
+          credentialStatus: 'valid',
+          credentialCheckedAt: '2026-05-29T00:01:00.000Z',
+        },
+      },
+    });
+
+    assert.equal(updatedKey.providers.tavily.credentialVersion, 2);
+    assert.equal(staleResult.providers.tavily.credentialStatus, 'untested');
+    assert.equal(staleResult.providers.tavily.credentialCheckedAt, undefined);
+    assert.equal(freshResult.providers.tavily.credentialStatus, 'valid');
+    assert.equal(freshResult.providers.tavily.credentialCheckedAt, '2026-05-29T00:01:00.000Z');
+  });
+
+  it('normalizes malformed persisted credential metadata fail-closed', () => {
+    const malformed = {
+      enabled: 'yes',
+      defaultProvider: 'unknown',
+      providers: {
+        tavily: {
+          apiKey: 'x'.repeat(257),
+          credentialSource: 'saved',
+          credentialVersion: -1,
+          credentialStatus: 'unknown',
+          credentialCheckedAt: 'x'.repeat(65),
+        },
+      },
+    } as unknown as Parameters<typeof normalizeWebSearchSettings>[0];
+
+    const normalized = normalizeWebSearchSettings(malformed);
+
+    assert.equal(normalized.enabled, false);
+    assert.equal(normalized.defaultProvider, 'tavily');
+    assert.equal(normalized.providers.tavily.apiKey, '');
+    assert.equal(normalized.providers.tavily.credentialSource, 'none');
+    assert.equal(normalized.providers.tavily.credentialVersion, 0);
+    assert.equal(normalized.providers.tavily.credentialStatus, 'untested');
+    assert.equal(normalized.providers.tavily.credentialCheckedAt, undefined);
   });
 });
 

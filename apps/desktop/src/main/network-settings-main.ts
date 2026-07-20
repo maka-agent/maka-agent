@@ -2,12 +2,12 @@ import type { AppSettings } from '@maka/core';
 import {
   NETWORK_DEFAULTS,
   maskSensitive,
-  type NetworkSettings as ContractNetworkSettings,
+  type RuntimeNetworkSettings,
 } from '@maka/core/settings/network-settings';
 
 type StoredNetworkSettings = AppSettings['network'];
 
-export function toContractNetworkSettings(network: StoredNetworkSettings): ContractNetworkSettings {
+export function toContractNetworkSettings(network: StoredNetworkSettings): RuntimeNetworkSettings {
   const proxy = network.proxy;
   return {
     ...NETWORK_DEFAULTS,
@@ -24,9 +24,7 @@ export function toContractNetworkSettings(network: StoredNetworkSettings): Contr
   };
 }
 
-
-
-export function maskNetworkSettings(settings: ContractNetworkSettings): ContractNetworkSettings {
+export function maskNetworkSettings(settings: RuntimeNetworkSettings): RuntimeNetworkSettings {
   return {
     ...settings,
     proxy: {
@@ -35,4 +33,3 @@ export function maskNetworkSettings(settings: ContractNetworkSettings): Contract
     },
   };
 }
-

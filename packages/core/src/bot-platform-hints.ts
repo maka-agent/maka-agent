@@ -1,4 +1,4 @@
-import { BOT_PROVIDERS, type BotProvider } from './settings.js';
+import { BOT_PROVIDERS, type BotProvider } from './bot-chat-settings.js';
 
 export type BotFormattingProfile = 'plain_text' | 'chat_markdown' | 'enterprise_chat';
 

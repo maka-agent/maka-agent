@@ -1,4 +1,4 @@
-import type { BotProvider } from './settings.js';
+import type { BotProvider } from './bot-chat-settings.js';
 
 export const BOT_ONBOARDING_PROVIDERS = [
   'dingtalk',
