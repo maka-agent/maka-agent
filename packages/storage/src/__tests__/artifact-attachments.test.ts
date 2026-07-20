@@ -1,18 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { MAX_ATTACHMENT_BYTES, type ArtifactBinaryReadResult, type StorageRef } from '@maka/core';
-import type { ArtifactStore } from '../artifact-store.js';
+import { MAX_READ_IMAGE_BYTES, READ_IMAGE_TOO_LARGE_MESSAGE, type StorageRef } from '@maka/core';
 import { createAttachmentByteReader, createReadImageSnapshotter } from '../artifact-attachments.js';
+import { createArtifactStore } from '../artifact-store.js';
 
-function fakeArtifactStore(
-  readBinary: ArtifactStore['readBinary'],
-  artifactSessionId = 's1',
-): ArtifactStore {
-  return {
-    readBinary,
-    get: async (id: string) => ({ id, sessionId: artifactSessionId }),
-  } as unknown as ArtifactStore;
-}
+const pngBytes = (...payload: number[]): Uint8Array =>
+  new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...payload]);
 
 const sessionFileRef = (relativePath: string, sessionId = 's1'): StorageRef => ({
   kind: 'session_file',
@@ -21,107 +17,194 @@ const sessionFileRef = (relativePath: string, sessionId = 's1'): StorageRef => (
 });
 
 describe('createAttachmentByteReader', () => {
-  test('reads session_file bytes with the shared attachment limit', async () => {
-    let maxBytes: number | undefined;
-    const store = fakeArtifactStore(async (_id, options): Promise<ArtifactBinaryReadResult> => {
-      maxBytes = options?.maxBytes;
-      return { ok: true, base64: Buffer.from('hello').toString('base64'), mimeType: 'image/png' };
+  test('reads live and soft-deleted artifacts through the durable attachment authority', async () => {
+    await withStore(async (store) => {
+      const liveBytes = pngBytes(1);
+      const deletedBytes = pngBytes(2);
+      await store.create({
+        id: 'live-image',
+        sessionId: 's1',
+        turnId: 't1',
+        name: 'live.png',
+        kind: 'image',
+        content: liveBytes,
+        mimeType: 'image/png',
+        source: 'fixture',
+      });
+      await store.create({
+        id: 'deleted-image',
+        sessionId: 's1',
+        turnId: 't1',
+        name: 'deleted.png',
+        kind: 'image',
+        content: deletedBytes,
+        mimeType: 'image/png',
+        source: 'fixture',
+      });
+      await store.delete('deleted-image');
+
+      const reader = createAttachmentByteReader({ artifactStore: store, sessionId: 's1' });
+      assert.deepEqual(await reader(sessionFileRef('live-image')), {
+        ok: true,
+        bytes: Buffer.from(liveBytes),
+      });
+      assert.deepEqual(await reader(sessionFileRef('deleted-image')), {
+        ok: true,
+        bytes: Buffer.from(deletedBytes),
+      });
     });
-
-    const result = await createAttachmentByteReader({ artifactStore: store, sessionId: 's1' })(
-      sessionFileRef('art-1'),
-    );
-
-    assert.deepEqual(result, { ok: true, bytes: Buffer.from('hello') });
-    assert.equal(maxBytes, MAX_ATTACHMENT_BYTES);
   });
 
   test('rejects refs and artifacts from a different session', async () => {
-    const readBinary = async (): Promise<ArtifactBinaryReadResult> => ({
-      ok: true,
-      base64: '',
-      mimeType: 'image/png',
-    });
-    const reader = createAttachmentByteReader({
-      artifactStore: fakeArtifactStore(readBinary),
-      sessionId: 's1',
-    });
-    assert.deepEqual(await reader(sessionFileRef('art-1', 'other')), {
-      ok: false,
-      reason: 'session_mismatch',
-    });
+    await withStore(async (store) => {
+      await store.create({
+        id: 'session-one-image',
+        sessionId: 's1',
+        turnId: 't1',
+        name: 'one.png',
+        kind: 'image',
+        content: pngBytes(1),
+        source: 'fixture',
+      });
+      await store.create({
+        id: 'session-two-image',
+        sessionId: 's2',
+        turnId: 't2',
+        name: 'two.png',
+        kind: 'image',
+        content: pngBytes(2),
+        source: 'fixture',
+      });
 
-    const otherArtifactReader = createAttachmentByteReader({
-      artifactStore: fakeArtifactStore(readBinary, 'other'),
-      sessionId: 's1',
-    });
-    assert.deepEqual(await otherArtifactReader(sessionFileRef('art-1')), {
-      ok: false,
-      reason: 'session_mismatch',
+      const reader = createAttachmentByteReader({ artifactStore: store, sessionId: 's1' });
+      assert.deepEqual(await reader(sessionFileRef('session-one-image', 's2')), {
+        ok: false,
+        reason: 'session_mismatch',
+      });
+      assert.deepEqual(await reader(sessionFileRef('session-two-image')), {
+        ok: false,
+        reason: 'session_mismatch',
+      });
     });
   });
 
-  test('rejects unsupported refs and passes through store failures', async () => {
-    const reader = createAttachmentByteReader({
-      artifactStore: fakeArtifactStore(async () => ({ ok: false, reason: 'too_large' })),
-      sessionId: 's1',
+  test('rejects unsupported refs', async () => {
+    await withStore(async (store) => {
+      const reader = createAttachmentByteReader({ artifactStore: store, sessionId: 's1' });
+      assert.deepEqual(await reader({ kind: 'workspace_file', relativePath: 'image.png' }), {
+        ok: false,
+        reason: 'unsupported_ref_kind',
+      });
     });
-    assert.deepEqual(await reader({ kind: 'workspace_file', relativePath: 'image.png' }), {
-      ok: false,
-      reason: 'unsupported_ref_kind',
+  });
+
+  test('passes through bounded durable read failures', async () => {
+    await withStore(async (store) => {
+      await store.create({
+        id: 'bounded-image',
+        sessionId: 's1',
+        turnId: 't1',
+        name: 'bounded.png',
+        kind: 'image',
+        content: pngBytes(1),
+        source: 'fixture',
+      });
+
+      const reader = createAttachmentByteReader({
+        artifactStore: store,
+        sessionId: 's1',
+        maxBytes: 1,
+      });
+      assert.deepEqual(await reader(sessionFileRef('bounded-image')), {
+        ok: false,
+        reason: 'too_large',
+      });
     });
-    assert.deepEqual(await reader(sessionFileRef('art-1')), { ok: false, reason: 'too_large' });
   });
 });
 
-test('createReadImageSnapshotter stores a tool-result image and returns its session ref', async () => {
-  let created: unknown;
-  const store = {
-    create: async (input: unknown) => {
-      created = input;
-      return { id: 'artifact-1' };
-    },
-  } as unknown as ArtifactStore;
-  const bytes = new Uint8Array([1, 2, 3]);
-
-  const ref = await createReadImageSnapshotter(store)({
-    sessionId: 's1',
-    turnId: 't1',
-    name: 'image.png',
-    bytes,
-    mimeType: 'image/png',
-  });
-
-  assert.deepEqual(ref, { kind: 'session_file', sessionId: 's1', relativePath: 'artifact-1' });
-  assert.deepEqual(created, {
-    sessionId: 's1',
-    turnId: 't1',
-    name: 'image.png',
-    kind: 'image',
-    content: bytes,
-    mimeType: 'image/png',
-    source: 'tool_result',
-  });
-});
-
-test('createReadImageSnapshotter rejects images above the provider-safe limit before storing', async () => {
-  let creates = 0;
-  const store = {
-    create: async () => {
-      creates += 1;
-      return { id: 'artifact-1' };
-    },
-  } as unknown as ArtifactStore;
-
-  await assert.rejects(
-    createReadImageSnapshotter(store)({
+test('createReadImageSnapshotter durably stores image metadata and bytes', async () => {
+  await withWorkspace(async (workspaceRoot) => {
+    const bytes = pngBytes(1, 2, 3);
+    const ref = await createReadImageSnapshotter(createArtifactStore(workspaceRoot))({
       sessionId: 's1',
       turnId: 't1',
-      name: 'large.png',
-      bytes: new Uint8Array(5 * 1024 * 1024 + 1),
+      name: 'image.png',
+      bytes,
       mimeType: 'image/png',
-    }),
-    /Image exceeds the 5MB model input limit; downscale it and try again/,
-  );
-  assert.equal(creates, 0);
+    });
+
+    const reopened = createArtifactStore(workspaceRoot);
+    const artifact = await reopened.get(ref.relativePath);
+    assert.ok(artifact);
+    assert.deepEqual(ref, {
+      kind: 'session_file',
+      sessionId: 's1',
+      relativePath: artifact.id,
+    });
+    assert.deepEqual(
+      {
+        id: artifact.id,
+        sessionId: artifact.sessionId,
+        turnId: artifact.turnId,
+        name: artifact.name,
+        kind: artifact.kind,
+        mimeType: artifact.mimeType,
+        source: artifact.source,
+        status: artifact.status,
+        sizeBytes: artifact.sizeBytes,
+        relativePath: artifact.relativePath,
+      },
+      {
+        id: ref.relativePath,
+        sessionId: 's1',
+        turnId: 't1',
+        name: 'image.png',
+        kind: 'image',
+        mimeType: 'image/png',
+        source: 'tool_result',
+        status: 'live',
+        sizeBytes: bytes.byteLength,
+        relativePath: `s1/${ref.relativePath}-image.png`,
+      },
+    );
+
+    const payload = await reopened.readBinary(artifact.id);
+    if (!payload.ok) assert.fail(`Expected image bytes, received ${payload.reason}`);
+    assert.deepEqual(Buffer.from(payload.base64, 'base64'), Buffer.from(bytes));
+  });
 });
+
+test('createReadImageSnapshotter rejects oversize images before writing to the store', async () => {
+  await withWorkspace(async (workspaceRoot) => {
+    const store = createArtifactStore(workspaceRoot);
+
+    await assert.rejects(
+      createReadImageSnapshotter(store)({
+        sessionId: 's1',
+        turnId: 't1',
+        name: 'large.png',
+        bytes: new Uint8Array(MAX_READ_IMAGE_BYTES + 1),
+        mimeType: 'image/png',
+      }),
+      { message: READ_IMAGE_TOO_LARGE_MESSAGE },
+    );
+    assert.deepEqual(await store.list('s1'), []);
+    assert.deepEqual(await readdir(workspaceRoot), []);
+  });
+});
+
+async function withStore(
+  fn: (store: ReturnType<typeof createArtifactStore>) => Promise<void>,
+): Promise<void> {
+  await withWorkspace(async (workspaceRoot) => fn(createArtifactStore(workspaceRoot)));
+}
+
+async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-artifact-attachments-'));
+  try {
+    await fn(workspaceRoot);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+}

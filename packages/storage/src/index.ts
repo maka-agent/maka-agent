@@ -22,6 +22,7 @@ export * from './telemetry-repo.js';
 export * from './artifact-store.js';
 export * from './artifact-attachments.js';
 export * from './provider-request-capture-artifact.js';
+export * from './artifact-stores.js';
 export * from './plan-reminder-store.js';
 export * from './plan-store.js';
 export * from './task-ledger-store.js';

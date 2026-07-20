@@ -1,19 +1,26 @@
-export type ArtifactKind = 'file' | 'diff' | 'html' | 'image' | 'pdf';
+export const ARTIFACT_KINDS = ['file', 'diff', 'html', 'image', 'pdf'] as const;
 
-export type ArtifactSource =
-  | 'tool_result'
-  | 'tool_result_archive'
-  | 'synthesis_cache_block'
-  | 'history_compact_block'
-  | 'history_compact_source'
-  | 'provider_request_capture'
-  | 'deep_research'
-  | 'user_upload'
-  | 'export'
-  | 'snapshot'
-  | 'fixture';
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
-export type ArtifactStatus = 'live' | 'deleted';
+export const ARTIFACT_SOURCES = [
+  'tool_result',
+  'tool_result_archive',
+  'synthesis_cache_block',
+  'history_compact_block',
+  'history_compact_source',
+  'provider_request_capture',
+  'deep_research',
+  'user_upload',
+  'export',
+  'snapshot',
+  'fixture',
+] as const;
+
+export type ArtifactSource = (typeof ARTIFACT_SOURCES)[number];
+
+export const ARTIFACT_STATUSES = ['live', 'deleted'] as const;
+
+export type ArtifactStatus = (typeof ARTIFACT_STATUSES)[number];
 
 export interface ArtifactRecord {
   id: string;
