@@ -9,10 +9,13 @@ import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
 import type { IsolatedCommandResult, IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
-import { buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
+import {
+  buildIsolatedHeadlessTools,
+  FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES,
+  type BuildIsolatedHeadlessToolsOptions,
+} from './tools.js';
 
 const execAsync = promisify(nodeExec);
-const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
 export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 
@@ -149,7 +152,7 @@ export function createHarborCellLocalToolExecutor(
           cwd,
           env: childEnv,
           timeout: timeoutMs ?? defaultTimeoutMs,
-          maxBuffer: HARBOR_CELL_TOOL_MAX_BUFFER_BYTES,
+          maxBuffer: FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES,
           signal: control?.abortSignal,
         });
         return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };

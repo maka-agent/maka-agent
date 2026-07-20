@@ -58,6 +58,12 @@ const FILE_TOOL_OUTPUT_FRAME_HEADER_PATTERN =
 const FILE_TOOL_OUTPUT_STATUS_PREFIX = '\0MAKA_FILE_TOOL_STATUS_';
 const CANONICAL_BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 type FramedFileToolName = 'Read' | 'Glob' | 'Grep';
+
+// Base64 expands the decoded tool payload by 4/3 before the local executor sees
+// it. Keep the framed transport budget above the existing 10 MiB decoded-output
+// capacity, with room for the embedded status marker and frame lines.
+const FRAMED_FILE_TOOL_MAX_DECODED_BYTES = 10 * 1024 * 1024;
+export const FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES = 16 * 1024 * 1024;
 /**
  * Build Maka's standard headless tool surface with shell and file operations
  * routed through the isolated executor boundary.
@@ -470,12 +476,14 @@ function parseFileToolOutputFrame(
     return fail(`expected ${expectedTool} frame but received ${header[1]}`);
 
   const payload = lines.slice(1, -2).join('');
-  if (!CANONICAL_BASE64_PATTERN.test(payload)) return fail('payload is not canonical Base64');
   const decoded = Buffer.from(payload, 'base64');
   if (decoded.toString('base64') !== payload) return fail('payload is not canonical Base64');
   const statusMarker = Buffer.from(`${FILE_TOOL_OUTPUT_STATUS_PREFIX}${header[2]}=`, 'ascii');
   const markerIndex = decoded.lastIndexOf(statusMarker);
   if (markerIndex < 0) return fail('inner command status is missing');
+  if (markerIndex > FRAMED_FILE_TOOL_MAX_DECODED_BYTES) {
+    return fail(`decoded payload exceeds ${FRAMED_FILE_TOOL_MAX_DECODED_BYTES} bytes`);
+  }
   const status = decoded.subarray(markerIndex + statusMarker.length).toString('ascii');
   if (!/^(0|[1-9]\d*)$/.test(status)) return fail('inner command status is malformed');
   const exitCode = Number(status);

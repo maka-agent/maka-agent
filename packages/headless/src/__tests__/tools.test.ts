@@ -539,6 +539,23 @@ describe('isolated headless tools', () => {
     );
   });
 
+  test('Grep rejects framed decoded output above the existing 10 MiB capacity', async () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return {
+          exitCode: 0,
+          stdout: fileToolOutputFrame('Grep', 'x'.repeat(10 * 1024 * 1024 + 1)),
+          stderr: '',
+        };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Grep').impl({ pattern: 'x' }, toolCtx('/workspace')),
+      /Grep output transport integrity check failed: decoded payload exceeds 10485760 bytes/,
+    );
+  });
+
   test('Edit ignores native file ops and still uses the shared replacer', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-native-'));
     await mkdir(join(cwd, 'src'));
