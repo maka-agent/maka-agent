@@ -67,25 +67,27 @@
   line-height: var(--leading-normal);
 }
 
-.settingsAboutPrivacy {
+/* Detail audit / polish wave: the retired `.settingsAboutPrivacy` dialect
+   (uppercase brand-blue h3 + brand-deep tinted card) was a fourth section-
+   header voice used by 关于's privacy card AND 数据's 配置导入导出 header.
+   Both converged onto the sanctioned language — SectionHeader for the
+   heading, Alert variant="passive" for the 关于 callout, plain flow for
+   数据's form — so these blocks are now just neutral gap containers. */
+.settingsPrivacyBlock {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  /* Detail audit: this card family (关于 privacy card + 数据 import/export)
-     wore --success green as SECTION EMPHASIS — a non-status use that read
-     as residual brand-green after the blue rebrand. Brand family instead. */
-  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) l c h / 0.22);
-  border-radius: var(--radius-surface);
-  background: oklch(from var(--brand-deep) l c h / 0.04);
 }
 
-.settingsAboutPrivacy h3 {
+.settingsPrivacyPoints {
   margin: 0;
-  color: oklch(from var(--brand-deep) calc(l - 0.12) c h);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
+  padding: 0 0 0 var(--space-4);
+  display: grid;
+  gap: var(--space-1-5);
+}
+
+.settingsConfigSection {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .settingsConfigCategoryList {
@@ -121,16 +123,3 @@
   white-space: nowrap;
 }
 
-.settingsAboutPrivacy ul {
-  margin: 0;
-  padding: 0 0 0 var(--space-4);
-  display: grid;
-  gap: var(--space-1-5);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-}
-
-.settingsAboutPrivacy li::marker {
-  color: var(--success);
-}

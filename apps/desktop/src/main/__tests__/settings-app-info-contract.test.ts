@@ -120,7 +120,10 @@ describe('Settings app-info loading contract', () => {
 
     const zh = getSettingsPreferencesCopy('zh').about;
     const en = getSettingsPreferencesCopy('en').about;
-    assert.match(aboutBlock, /<ul aria-label=\{copy\.privacyLabel\}>/);
+    // Polish wave: the privacy card converged onto SectionHeader + a passive
+    // Alert; the accessible name now scopes the whole block at the section.
+    assert.match(aboutBlock, /<section className="settingsPrivacyBlock" aria-label=\{copy\.privacyLabel\}>/);
+    assert.match(aboutBlock, /<SectionHeader as="h3" title=\{copy\.privacyTitle\} \/>/);
     assert.equal(zh.privacyPoints.length, 5);
     assert.match(zh.privacyPoints.join('\n'), /本机工作区/);
     assert.match(zh.storageDetail, /凭据/);

@@ -4,6 +4,7 @@ import {
   Alert,
   AlertDescription,
   Button,
+  SectionHeader,
   SettingsSelect,
   SettingsSwitch as Switch,
   clearGlobalInputHistory,
@@ -240,11 +241,8 @@ export function DataSettingsPage() {
         </Alert>
       )}
 
-      <section className="settingsAboutPrivacy" aria-label={copy.configAria}>
-        <h3>{copy.configTitle}</h3>
-        <p className="settingsHelpText">
-          {copy.configHelp}
-        </p>
+      <section className="settingsConfigSection" aria-label={copy.configAria}>
+        <SectionHeader as="h3" title={copy.configTitle} subtitle={copy.configHelp} />
         <div role="group" aria-label={copy.categoryAria} className="settingsConfigCategoryList">
           {CONFIG_CATEGORY_IDS.map((id) => {
             const option = copy.categories[id];

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
-import { Alert, AlertDescription, AlertTitle, Button, PageHeader, useMountedRef, useToast, useUiLocale } from '@maka/ui';
+import { Alert, AlertDescription, AlertTitle, Button, PageHeader, SectionHeader, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -138,11 +138,15 @@ export function AboutSettingsPage() {
         subtitleClassName="settingsAboutTagline"
       />
 
-      <section className="settingsAboutPrivacy" aria-label={copy.privacyLabel}>
-        <h3>{copy.privacyTitle}</h3>
-        <ul aria-label={copy.privacyLabel}>
-          {copy.privacyPoints.map((point) => <li key={point}>{point}</li>)}
-        </ul>
+      <section className="settingsPrivacyBlock" aria-label={copy.privacyLabel}>
+        <SectionHeader as="h3" title={copy.privacyTitle} />
+        <Alert variant="passive">
+          <AlertDescription>
+            <ul className="settingsPrivacyPoints">
+              {copy.privacyPoints.map((point) => <li key={point}>{point}</li>)}
+            </ul>
+          </AlertDescription>
+        </Alert>
       </section>
 
       <SettingsRows>

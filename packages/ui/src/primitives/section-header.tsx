@@ -21,7 +21,9 @@ export interface SectionHeaderProps {
   action?: ReactNode;
   /** Leading accent bar (daily-review's section marker). */
   accent?: boolean;
-  as?: 'h4' | 'span';
+  /** Heading level for the title, or a non-heading `span`. `h3` is for a
+   *  section that sits directly under a page `h2` (关于 privacy, 数据 config). */
+  as?: 'h3' | 'h4' | 'span';
   className?: string;
 }
 

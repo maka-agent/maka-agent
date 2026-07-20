@@ -389,7 +389,10 @@ describe('radius token governance (#406 gap 4)', () => {
       // .settingsNotice retired: last consumer (account page) removed in the
       // UI-quality campaign; notices now ride the Alert primitive.
       '.settingsAboutLogo': '--radius-surface',
-      '.settingsAboutPrivacy': '--radius-surface',
+      // .settingsAboutPrivacy retired (polish wave): the brand-blue section
+      // dialect used by 关于's privacy card + 数据's 配置导入导出 header was
+      // converged onto SectionHeader + Alert; its neutral replacements
+      // (.settingsPrivacyBlock / .settingsConfigSection) carry no radius.
       '.settingsWechatQrFrame': '--radius-surface',
       '.settingsWechatQrState': '--radius-surface',
       '.enabledEmptyChip': '--radius-control',
