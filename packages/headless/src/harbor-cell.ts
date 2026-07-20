@@ -723,16 +723,14 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
-  // Back the synthesis cache with the run-scoped `@maka/storage` artifact store
-  // (blocks land under `{storageRoot}/artifacts/{sessionId}/`, run- and
-  // session-scoped, sharing the same lift as desktop). Only constructed when the
-  // policy is active so a baseline arm stays untouched.
-  const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
-    input.env,
-    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
-  );
-  const providerRequestArtifactStore = createArtifactStore(
+  // FileArtifactStore owns an in-memory metadata index, so every artifact
+  // consumer under this Harbor root must share the same instance.
+  const artifactStore = createArtifactStore(
     input.env.MAKA_STORAGE_ROOT ?? join(input.env.MAKA_OUTPUT_DIR ?? '/logs/agent', 'maka-storage'),
+  );
+  const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
+    artifactStore,
+    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
   );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
@@ -802,17 +800,14 @@ export function buildAiSdkCellBackendRegistration(input: {
           ? {
               recordProviderRequestCapture: createProviderRequestCaptureRecorder({
                 persistArtifact: async (capture) => {
-                  const artifact = await persistProviderRequestCaptureArtifact(
-                    providerRequestArtifactStore,
-                    {
-                      sessionId: ctx.sessionId,
-                      turnId: capture.turnId,
-                      captureId: capture.captureId,
-                      step: capture.step,
-                      serializedRequest: capture.serializedRequest,
-                      now: input.now(),
-                    },
-                  );
+                  const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                    sessionId: ctx.sessionId,
+                    turnId: capture.turnId,
+                    captureId: capture.captureId,
+                    step: capture.step,
+                    serializedRequest: capture.serializedRequest,
+                    now: input.now(),
+                  });
                   return { artifactId: artifact.id };
                 },
                 recordLedger: ctx.recordProviderRequestCapture,
@@ -866,13 +861,10 @@ async function writeHarborCellArtifact(path: string, contents: string): Promise<
 }
 
 function buildHarborCellSynthesisCacheCallbacks(
-  env: RunHarborCellEnv,
+  artifactStore: ReturnType<typeof createArtifactStore>,
   enabled: boolean,
 ): { loadSynthesisCache?: SynthesisCacheLoader; writeSynthesisCache?: SynthesisCacheWriter } {
   if (!enabled) return {};
-  const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
-  const storageRoot = env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage');
-  const artifactStore = createArtifactStore(storageRoot);
   return {
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event),
