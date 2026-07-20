@@ -17,7 +17,7 @@ import type {
   UiLocale,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useMountedRef, useToast, useUiLocale } from '@maka/ui';
+import { Button, Badge, Chip, EmptyState, RelativeTime, SectionHeader, StatTile, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { getPermissionCenterCopy, type PermissionCenterCopy } from '../locales/permission-center-copy';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
@@ -143,14 +143,17 @@ export function PermissionCenterPage() {
 
   return (
     <div className="settingsPermissionPage">
-      <PageHeader
-        className="settingsPermissionIntro"
+      {/* Polish wave Item 5: the intro was a second gray PageHeader banner
+          restating the page title. Converged onto SectionHeader — the unique
+          "open Privacy & Security directly" explainer stays as the subtitle;
+          the last-read timestamp + re-detect button move into the action slot. */}
+      <SectionHeader
         as="h3"
         title={copy.title}
         subtitle={copy.subtitle}
-        meta={
-          <div className="settingsPermissionMeta">
-            <small>
+        action={
+          <>
+            <small className="whitespace-nowrap text-[length:var(--font-size-caption)] text-foreground-secondary">
               {copy.lastRead}<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
             </small>
             <Button
@@ -161,7 +164,7 @@ export function PermissionCenterPage() {
             >
               {copy.detectAgain}
             </Button>
-          </div>
+          </>
         }
       />
 
@@ -329,7 +332,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot; copy: Permission
           <strong>{capabilityLabel}</strong>
           <small className="settingsCapabilityId">{prettyCapabilityId(capability.id)}</small>
         </div>
-        <Badge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</Badge>
+        <Chip variant={readinessCopy.tone}>{readinessCopy.label}</Chip>
       </div>
       <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
       <dl className="settingsCapabilityLayers" aria-label={copy.layers.aria(capabilityLabel)}>

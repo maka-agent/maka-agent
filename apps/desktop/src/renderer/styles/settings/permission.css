@@ -13,43 +13,9 @@
     gap: var(--space-5);
   }
 
-.settingsPermissionIntro {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--space-5);
-    padding: var(--space-4);
-    border: var(--border-width-hairline) solid var(--border);
-    border-radius: var(--radius-surface);
-    background: var(--foreground-3);
-  }
-
-.settingsPermissionIntro h3 {
-    margin: 0 0 var(--space-1-5);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-  }
-
-.settingsPermissionIntro p {
-    margin: 0;
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-    max-width: 52ch;
-  }
-
-.settingsPermissionMeta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: var(--space-1-5);
-    flex-shrink: 0;
-  }
-
-.settingsPermissionMeta small {
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-caption);
-  }
+/* Polish wave Item 5: the intro gray-banner PageHeader (.settingsPermissionIntro
+   + .settingsPermissionMeta) was converged onto the shared SectionHeader
+   primitive; its bespoke banner/meta chrome is retired here. */
 
 .settingsPermissionError {
     display: flex;
@@ -93,40 +59,33 @@
     font-size: var(--font-size-caption);
   }
 
+/* Polish wave Item 3: the per-capability bordered blocks (border + radius +
+   hover shadow + status-tinted borders) were converged onto the shared dense
+   row language. The list is now the ONE hairline card matching the OS
+   permission list above it; rows divide with a per-row top hairline and carry
+   no per-row border/radius/background. Status color is exception-only (carried
+   by the readiness Chip's tone scale, not a tinted row border). */
+
 .settingsCapabilityList {
     list-style: none;
     padding: 0;
     margin: 0;
-    display: grid;
-    gap: var(--space-2-5);
-  }
-
-.settingsCapabilityRow {
     border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
+    overflow: hidden;
+  }
+
+.settingsCapabilityRow {
     padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
     gap: var(--space-2-5);
-    transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
   }
 
-.settingsCapabilityRow:hover {
-    border-color: var(--border-strong);
-    box-shadow: 0 1px 0 0 oklch(from var(--foreground) l c h / 0.03);
+.settingsCapabilityRow + .settingsCapabilityRow {
+    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
   }
-
-.settingsCapabilityRow[data-readiness="denied"] {
-    border-color: oklch(from var(--destructive) l c h / 0.28);
-  }
-
-.settingsCapabilityRow[data-readiness="degraded"] {
-    border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
-  }
-
-/* Status-color restraint: "enabled" is the expected state — it keeps the
-   default hairline. Only exceptions (denied/degraded) wear a colored border. */
 
 .settingsCapabilityHeader {
     display: flex;
@@ -159,14 +118,16 @@
     line-height: var(--leading-normal);
   }
 
+/* Polish wave Item 3: the five-layer breakdown was a nested gray boxed grid
+   (a card inside the row). Converged to structured secondary lines — the same
+   label/value pairs, denser, with no nested surface chrome so the diagnostic
+   detail reads as part of the row rather than a second card. */
+
 .settingsCapabilityLayers {
     margin: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: var(--space-2) var(--space-3);
-    padding: var(--space-2-5) var(--space-3);
-    background: var(--foreground-3);
-    border-radius: var(--radius-surface);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-1-5) var(--space-4);
   }
 
 .settingsCapabilityLayers > div {

@@ -380,11 +380,19 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsModal': '--radius-modal',
       '.maka-palette-modal': '--radius-modal',
       '.maka-palette-input-wrap': '--radius-control',
-      '.settingsPermissionIntro': '--radius-surface',
+      // .settingsPermissionIntro / .settingsHealthIntro retired (polish wave
+      // Item 5): the second gray-banner PageHeader on each page was converged
+      // onto the SectionHeader primitive, which carries no page-level radius.
       '.settingsPermissionError': '--radius-surface',
-      '.settingsCapabilityRow': '--radius-surface',
+      // .settingsCapabilityRow radius retired (polish wave Item 3): the
+      // per-capability bordered blocks were converged onto the shared dense
+      // row language — the LIST is now the one hairline card, rows carry no
+      // per-row border/radius. Same shape as the OS permission list.
+      '.settingsCapabilityList': '--radius-surface',
       '.settingsOsPermissionList': '--radius-surface',
-      '.settingsHealthIntro': '--radius-surface',
+      // .settingsHealthSignalList is the health-page twin of the capability
+      // list card (polish wave Item 2).
+      '.settingsHealthSignalList': '--radius-surface',
       '.settingsBotRuntime': '--radius-surface',
       // .settingsNotice retired: last consumer (account page) removed in the
       // UI-quality campaign; notices now ride the Alert primitive.

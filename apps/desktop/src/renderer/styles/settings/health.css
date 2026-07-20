@@ -14,47 +14,9 @@
     gap: var(--space-5);
   }
 
-.settingsHealthIntro {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--space-5);
-    padding: var(--space-4);
-    border: var(--border-width-hairline) solid var(--border);
-    border-radius: var(--radius-surface);
-    background: var(--foreground-3);
-  }
-
-.settingsHealthIntro h3 {
-    margin: 0 0 var(--space-1-5);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-  }
-
-.settingsHealthIntro p {
-    margin: 0;
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-    max-width: 60ch;
-  }
-
-.settingsHealthIntro p strong {
-    color: var(--foreground);
-  }
-
-.settingsHealthMeta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: var(--space-1-5);
-    flex-shrink: 0;
-  }
-
-.settingsHealthMeta small {
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-caption);
-  }
+/* Polish wave Item 5: the intro gray-banner PageHeader (.settingsHealthIntro
+   + .settingsHealthMeta) was converged onto the shared SectionHeader
+   primitive; its bespoke banner/meta chrome is retired here. */
 
 .settingsHealthSummary {
     /* PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): switched from
@@ -93,106 +55,24 @@
     font-size: var(--font-size-caption);
   }
 
+/* Polish wave Item 2: the per-signal bordered blocks (.settingsHealthSignalRow*
+   + its status-tinted borders and bespoke meta/blocker chrome) were converged
+   onto the shared Item row primitive + Chip. The list is now the ONE hairline
+   card; rows divide with a per-row top hairline. Status color is exception-only
+   (carried by the Chip's tone scale, not a tinted row border). */
+
 .settingsHealthSignalList {
     list-style: none;
     padding: 0;
     margin: 0;
-    display: grid;
-    gap: var(--space-2);
-  }
-
-.settingsHealthSignalRow {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1-5);
-    padding: var(--space-3) var(--space-3);
     border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
-    transition: border-color var(--duration-base) var(--ease-out-strong);
+    overflow: hidden;
   }
 
-/* data-status="ok" keeps the default hairline — ok is the expected state. */
-
-.settingsHealthSignalRow[data-status="warning"] {
-    border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
-  }
-
-.settingsHealthSignalRow[data-status="error"] {
-    border-color: oklch(from var(--destructive) l c h / 0.30);
-  }
-
-.settingsHealthSignalHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-3);
-  }
-
-.settingsHealthSignalHeading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-0-5);
-  }
-
-.settingsHealthSignalHeading strong {
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-  }
-
-.settingsHealthSignalScope {
-    font-size: var(--font-size-caption);
-    color: var(--muted-foreground);
-    letter-spacing: var(--tracking-wider);
-  }
-
-.settingsHealthSignalMessage {
-    margin: 0;
-    font-size: var(--font-size-ui);
-    color: var(--foreground-secondary);
-    line-height: var(--leading-normal);
-  }
-
-.settingsHealthSignalDetail {
-    font-size: var(--font-size-caption);
-    color: var(--foreground-secondary);
-    line-height: var(--leading-normal);
-  }
-
-.settingsHealthSignalMeta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2-5);
-    font-size: var(--font-size-caption);
-    color: var(--muted-foreground);
-  }
-
-.settingsHealthSignalMeta code {
-    font-family: var(--font-mono);
-    background: var(--foreground-5);
-    border-radius: var(--radius-control);
-    padding: 1px var(--space-1);
-    color: var(--foreground-secondary);
-  }
-
-.settingsHealthSignalBlocker {
-    font-size: var(--font-size-caption);
-    padding: 1px var(--space-2);
-    border-radius: var(--radius-pill);
-    border: var(--border-width-hairline) solid var(--border);
-  }
-
-.settingsHealthSignalBlocker[data-tone="destructive"] {
-    color: var(--destructive-text);
-    background: oklch(from var(--destructive) l c h / 0.08);
-    border-color: oklch(from var(--destructive) l c h / 0.22);
-  }
-
-.settingsHealthSignalBlocker[data-tone="warning"] {
-    color: var(--warning-text, var(--info-text));
-    background: oklch(from var(--warning, var(--info)) l c h / 0.10);
-    border-color: oklch(from var(--warning, var(--info)) l c h / 0.22);
+.settingsHealthSignalList > li + li {
+    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
   }
 
 .settingsHealthFootnote {

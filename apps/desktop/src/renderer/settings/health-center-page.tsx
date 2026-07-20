@@ -5,10 +5,9 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Alert, AlertAction, AlertDescription, AlertTitle, Button, Badge, RelativeTime, PageHeader, StatTile, useUiLocale } from '@maka/ui';
+import { Alert, AlertAction, AlertDescription, AlertTitle, Button, Badge, Chip, Item, ItemContent, RelativeTime, SectionHeader, StatTile, useUiLocale } from '@maka/ui';
 import { getHealthCenterCopy, type HealthCenterCopy } from '../locales/settings-health-copy';
 import { settingsActionErrorMessage } from './settings-error-copy';
-import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
 
 /**
@@ -84,8 +83,11 @@ export function HealthCenterPage() {
 
   return (
     <div className="settingsHealthPage">
-      <PageHeader
-        className="settingsHealthIntro"
+      {/* Polish wave Item 5: the intro was a second gray PageHeader banner
+          restating the page title. Converged onto SectionHeader — the unique
+          layer explainer + runtime caveat stay as the subtitle; the read-only
+          badge, last-read timestamp, and refresh move into the action slot. */}
+      <SectionHeader
         as="h3"
         title={copy.title}
         subtitle={
@@ -93,10 +95,10 @@ export function HealthCenterPage() {
             {copy.subtitle} <strong>{copy.validationWarning}</strong>
           </>
         }
-        meta={
-          <div className="settingsHealthMeta">
+        action={
+          <>
             <Badge variant="secondary">{copy.badge}</Badge>
-            <small>
+            <small className="whitespace-nowrap text-[length:var(--font-size-caption)] text-foreground-secondary">
               {copy.lastRead}<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
             </small>
             <Button
@@ -107,7 +109,7 @@ export function HealthCenterPage() {
             >
               {copy.refresh}
             </Button>
-          </div>
+          </>
         }
       />
 
@@ -189,26 +191,36 @@ function HealthSignalRow(props: { signal: HealthSignal; copy: HealthCenterCopy }
   const { signal, copy } = props;
   const statusCopy = copy.statuses[signal.status];
   const detail = copy.signalDetail(signal);
+  // Polish wave Item 2: was a bordered block per signal. Converged onto the
+  // shared Item row primitive inside one hairline card — signals carry
+  // prose-length message + detail, so an Item with stacked secondary lines
+  // beats a table. Status reads as a squared Chip (exception-only color via
+  // its tone scale; expected `ok`/`unknown` stay neutral); the send/capability
+  // blockers are exception Chips. Meta sits on one tabular-nums line.
   return (
-    <li className="settingsHealthSignalRow" data-status={signal.status}>
-      <div className="settingsHealthSignalHeader">
-        <div className="settingsHealthSignalHeading">
-          <strong>{copy.signalLabel(signal)}</strong>
-          <small className="settingsHealthSignalScope">{copy.scopes[signal.scope]}</small>
+    <Item
+      render={<li />}
+      interactive={false}
+      className="settingsHealthSignalRow flex-col items-stretch gap-1 rounded-none border-transparent px-3 py-2.5"
+    >
+      <ItemContent className="gap-1">
+        <div className="flex items-start justify-between gap-3">
+          <span className="inline-flex flex-wrap items-baseline gap-2">
+            <strong className="text-[length:var(--font-size-ui)] font-semibold text-foreground">{copy.signalLabel(signal)}</strong>
+            <small className="text-[length:var(--font-size-caption)] uppercase tracking-wider text-muted-foreground">{copy.scopes[signal.scope]}</small>
+          </span>
+          <Chip variant={statusCopy.tone}>{statusCopy.label}</Chip>
         </div>
-        <Badge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</Badge>
-      </div>
-      <p className="settingsHealthSignalMessage">{copy.signalMessage(signal)}</p>
-      {detail && <small className="settingsHealthSignalDetail">{detail}</small>}
-      <div className="settingsHealthSignalMeta">
-        <span>{copy.source}{copy.sources[signal.source]}</span>
-        <span>
-          {copy.checked}<RelativeTime ts={signal.checkedAt} className="settingsHelpInlineTime" />
-        </span>
-        {signal.blocksSend && <span className="settingsHealthSignalBlocker" data-tone="destructive">{copy.blocksSend}</span>}
-        {signal.blocksCapability && <span className="settingsHealthSignalBlocker" data-tone="warning">{copy.blocksCapability}</span>}
-      </div>
-    </li>
+        <p className="m-0 text-[length:var(--font-size-ui)] leading-normal text-foreground-secondary">{copy.signalMessage(signal)}</p>
+        {detail && <small className="text-[length:var(--font-size-caption)] leading-normal text-foreground-secondary">{detail}</small>}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--font-size-caption)] text-muted-foreground [font-variant-numeric:tabular-nums]">
+          <span>{copy.source}{copy.sources[signal.source]}</span>
+          <span>{copy.checked}<RelativeTime ts={signal.checkedAt} className="settingsHelpInlineTime" /></span>
+          {signal.blocksSend && <Chip size="sm" variant="destructive">{copy.blocksSend}</Chip>}
+          {signal.blocksCapability && <Chip size="sm" variant="warning">{copy.blocksCapability}</Chip>}
+        </div>
+      </ItemContent>
+    </Item>
   );
 }
 
