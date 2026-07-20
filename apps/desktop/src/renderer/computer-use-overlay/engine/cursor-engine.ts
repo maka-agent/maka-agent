@@ -76,6 +76,7 @@ export const CODEX_CURSOR_GLYPH = {
 } as const;
 
 type Point = readonly [number, number];
+type Viewport = { width: number; height: number };
 
 interface SpringValue {
   value: number;
@@ -164,18 +165,52 @@ function settleSpring(spring: SpringValue, value: number): void {
   spring.target = value;
 }
 
-function planCursorPath(start: Point, end: Point, departureAngle: number): CubicCursorPath {
+function directCursorPath(start: Point, end: Point): CubicCursorPath {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  return new CubicCursorPath(
+    start,
+    [start[0] + dx / 3, start[1] + dy / 3],
+    [start[0] + dx * 2 / 3, start[1] + dy * 2 / 3],
+    end,
+  );
+}
+
+function viewportOverflow(
+  path: CubicCursorPath,
+  start: Point,
+  end: Point,
+  viewport: Viewport | null,
+): number {
+  if (!viewport) return 0;
+  const margin = CODEX_CURSOR_MOTION.boundsMargin;
+  const minX = Math.max(0, Math.min(margin, start[0], end[0]));
+  const minY = Math.max(0, Math.min(margin, start[1], end[1]));
+  const maxX = Math.min(viewport.width, Math.max(viewport.width - margin, start[0], end[0]));
+  const maxY = Math.min(viewport.height, Math.max(viewport.height - margin, start[1], end[1]));
+  let overflow = 0;
+  for (let index = 0; index <= 32; index++) {
+    const [x, y] = path.sample(index / 32);
+    overflow += Math.max(0, minX - x) ** 2;
+    overflow += Math.max(0, x - maxX) ** 2;
+    overflow += Math.max(0, minY - y) ** 2;
+    overflow += Math.max(0, y - maxY) ** 2;
+  }
+  return overflow;
+}
+
+function planCursorPath(
+  start: Point,
+  end: Point,
+  departureAngle: number,
+  viewport: Viewport | null,
+): CubicCursorPath {
   const config = CODEX_CURSOR_MOTION;
   const dx = end[0] - start[0];
   const dy = end[1] - start[1];
   const distance = Math.hypot(dx, dy);
   if (distance <= config.straightPathDistanceThreshold) {
-    return new CubicCursorPath(
-      start,
-      [start[0] + dx / 3, start[1] + dy / 3],
-      [start[0] + dx * 2 / 3, start[1] + dy * 2 / 3],
-      end,
-    );
+    return directCursorPath(start, end);
   }
 
   const directAngle = Math.atan2(dy, dx);
@@ -187,6 +222,7 @@ function planCursorPath(start: Point, end: Point, departureAngle: number): Cubic
 
   let bestPath: CubicCursorPath | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
+  let bestOverflow = Number.POSITIVE_INFINITY;
   for (let i = 0; i < config.candidateCount; i++) {
     const normalized = i / (config.candidateCount - 1);
     const arc = (normalized * 2 - 1) * Math.abs(desiredArc);
@@ -207,13 +243,15 @@ function planCursorPath(start: Point, end: Point, departureAngle: number): Cubic
     const controlLength = Math.hypot(p1[0] - start[0], p1[1] - start[1])
       + Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
       + Math.hypot(end[0] - p2[0], end[1] - p2[1]);
-    const score = arcPreference * 0.8 + controlLength * 0.2;
+    const overflow = viewportOverflow(candidate, start, end, viewport);
+    const score = overflow * 1_000_000 + arcPreference * 0.8 + controlLength * 0.2;
     if (score < bestScore) {
       bestScore = score;
+      bestOverflow = overflow;
       bestPath = candidate;
     }
   }
-  return bestPath!;
+  return bestOverflow > 0.0001 ? directCursorPath(start, end) : bestPath!;
 }
 
 export class CursorEngine {
@@ -231,6 +269,7 @@ export class CursorEngine {
   private clickPoint: [number, number] | null = null;
   private clickOnArrive = false;
   private palette: Palette = makaBrandPalette();
+  private viewport: Viewport | null = null;
 
   private readonly axis = makeSpring(
     CODEX_CURSOR_MOTION.clickAngle,
@@ -266,6 +305,12 @@ export class CursorEngine {
     this.palette = palette;
   }
 
+  setViewport(width: number, height: number): void {
+    this.viewport = Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+      ? { width, height }
+      : null;
+  }
+
   moveTo(x: number, y: number, _endHeading?: number, clickOnArrive = false): void {
     const destination: Point = [x, y];
     if (clickOnArrive) this.clickPoint = [x, y];
@@ -294,7 +339,7 @@ export class CursorEngine {
     const departureAngle = Number.isFinite(this.heading)
       ? this.heading
       : Math.atan2(y - start[1], x - start[0]);
-    this.path = planCursorPath(start, destination, departureAngle);
+    this.path = planCursorPath(start, destination, departureAngle, this.viewport);
     this.target = destination;
     this.moveDistance = distance;
     const response = clamp(
@@ -343,6 +388,7 @@ export class CursorEngine {
     this.progress = null;
     this.target = null;
     this.moveDistance = 0;
+    this.opacity = 1;
     this.fadingIn = false;
     this.clickT = null;
     this.clickPoint = null;

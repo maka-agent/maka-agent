@@ -88,6 +88,23 @@ test('short move remains finite and converges without a curved overshoot', () =>
   assert.ok(Math.hypot(engine.pos[0] - 206, engine.pos[1] - 204) < 0.01);
 });
 
+test('boundary path never bows outside the viewport', () => {
+  const engine = new CursorEngine();
+  engine.setViewport(800, 600);
+  engine.moveTo(5, 5);
+  engine.moveTo(5, 500);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  for (let frame = 0; engine.isMoving() && frame < 300; frame++) {
+    engine.tick(1 / 60);
+    minX = Math.min(minX, engine.pos[0]);
+    minY = Math.min(minY, engine.pos[1]);
+  }
+  assert.ok(minX >= 0, `minimum x should remain visible, got ${minX}`);
+  assert.ok(minY >= 0, `minimum y should remain visible, got ${minY}`);
+  assert.deepEqual(engine.pos, [5, 500]);
+});
+
 test('paint uses exact three-curve AgentCursor shape centered on the hotspot', () => {
   const engine = new CursorEngine();
   engine.moveTo(320, 240);
@@ -157,6 +174,45 @@ test('cancel clears path, pressed state, and press animation', () => {
   assert.equal(engine.hasMotionPath(), false);
   assert.equal(engine.isMoving(), false);
   assert.equal(engine.pressed, false);
+});
+
+test('cancel during first fade restores full opacity for the next move', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.tick(1 / 60);
+  engine.cancel();
+  engine.moveTo(200, 200);
+
+  let globalAlpha = -1;
+  const gradient = { addColorStop() {} };
+  const ctx = {
+    createLinearGradient: () => gradient,
+    beginPath() {},
+    fill() {},
+    stroke() {},
+    moveTo() {},
+    lineTo() {},
+    bezierCurveTo() {},
+    closePath() {},
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
+    scale() {},
+    set fillStyle(_value: unknown) {},
+    set strokeStyle(_value: unknown) {},
+    set lineWidth(_value: number) {},
+    set lineJoin(_value: CanvasLineJoin) {},
+    set lineCap(_value: CanvasLineCap) {},
+    set shadowColor(_value: string) {},
+    set shadowBlur(_value: number) {},
+    set shadowOffsetX(_value: number) {},
+    set shadowOffsetY(_value: number) {},
+    set globalAlpha(value: number) { globalAlpha = value; },
+  } as unknown as CanvasRenderingContext2D;
+
+  engine.paint(ctx, 0, 0);
+  assert.equal(globalAlpha, 1);
 });
 
 test('overlay cancel waits for the renderer frame before reporting finished', async () => {

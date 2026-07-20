@@ -35,10 +35,12 @@ declare global {
 
 const canvas = document.getElementById('cursor') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+const engine = new CursorEngine();
 let dpr = window.devicePixelRatio || 1;
 
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
+  engine.setViewport(window.innerWidth, window.innerHeight);
   canvas.width = Math.floor(window.innerWidth * dpr);
   canvas.height = Math.floor(window.innerHeight * dpr);
   canvas.style.width = `${window.innerWidth}px`;
@@ -47,7 +49,6 @@ function resize(): void {
 resize();
 window.addEventListener('resize', resize);
 
-const engine = new CursorEngine();
 let running = false;
 let last = 0;
 let activeActionId: string | null = null;
