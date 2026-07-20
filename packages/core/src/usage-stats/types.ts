@@ -60,6 +60,7 @@ export interface UsageLogRow {
   cacheMissTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  cacheMissInputSource?: CacheMissInputSource;
   reasoningTokens: number;
   totalTokens: number;
   costUsd: number;

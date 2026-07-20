@@ -11,6 +11,7 @@ import {
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import { openInteractiveTaskLedgerStoreForWrite } from '@maka/storage/task-ledger-store';
+import { openInteractiveUsageStoresForWrite } from '@maka/storage/usage-stores';
 import { createCanonicalSessionProjectionReader } from './canonical-session-projection.js';
 import type {
   RuntimeHostComposition,
@@ -29,6 +30,7 @@ import { SessionContinuityCoordinator } from './session-continuity-coordinator.j
 import { HostSkillCatalogCoordinator } from './skill-catalog-coordinator.js';
 import { HostSkillCatalogFilesystem } from './skill-catalog-filesystem.js';
 import { HostTaskLedgerCoordinator } from './task-ledger-coordinator.js';
+import { HostUsagePricingCoordinator } from './usage-pricing-coordinator.js';
 
 export async function createExecutionRuntimeHostComposition(
   context: RuntimeHostCompositionContext,
@@ -36,7 +38,9 @@ export async function createExecutionRuntimeHostComposition(
   const stores = await openInteractiveExecutionStoresForWrite(context.owner.lease);
   const runtimePolicyStores = await openInteractiveRuntimePolicyStoresForWrite(context.owner.lease);
   const taskLedgerStore = await openInteractiveTaskLedgerStoreForWrite(context.owner.lease);
+  const usageStores = await openInteractiveUsageStoresForWrite(context.owner.lease);
   const runtimePolicy = new HostRuntimePolicyCoordinator(runtimePolicyStores);
+  const usagePricing = new HostUsagePricingCoordinator(usageStores);
   const skills = new HostSkillCatalogCoordinator(
     new HostSkillCatalogFilesystem(context.owner.lease),
   );
@@ -131,7 +135,14 @@ export async function createExecutionRuntimeHostComposition(
   );
   coordinator = rootCoordinator;
   let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
+  let usageDrain: Promise<void> | undefined;
+  const beginUsageDrain = () => {
+    usageDrain ??= usageStores.beginDrain();
+    observe(usageDrain);
+    return usageDrain;
+  };
   const beginRuntimeDrain = () => {
+    beginUsageDrain();
     skills.beginDrain();
     messageCoordinator.beginDrain();
     interaction.beginDrain();
@@ -144,6 +155,7 @@ export async function createExecutionRuntimeHostComposition(
     if (failStopDisposition) return;
     const handoffFailures: unknown[] = [];
     try {
+      beginUsageDrain();
       skills.beginDrain();
       const runtimeFailStop = manager.installInteractionFailStop(error);
       observe(runtimeFailStop.ownerIsolationDrain);
@@ -208,9 +220,11 @@ export async function createExecutionRuntimeHostComposition(
       runtimePolicy.handlers,
       skills.handlers,
       taskLedger.handlers,
+      usagePricing.handlers,
     ),
     continuity,
     beginDrain: () => {
+      beginUsageDrain();
       skills.beginDrain();
       messageCoordinator.beginDrain();
       interaction.beginDrain();
@@ -235,6 +249,7 @@ export async function createExecutionRuntimeHostComposition(
         interaction,
         continuity,
         skills,
+        usageStores,
         drain,
         () => failStopDisposition,
       );
@@ -249,6 +264,7 @@ async function closeComposition(
   interaction: HostInteractionAuthority,
   continuity: SessionContinuityCoordinator,
   skills: HostSkillCatalogCoordinator,
+  usageStores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>>,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
   getFailStop: () => RuntimeHostFailStopDisposition | undefined,
 ): Promise<RuntimeHostCompositionCloseResult> {
@@ -264,6 +280,7 @@ async function closeComposition(
     interaction,
     continuity,
     skills,
+    usageStores,
     runtimeDrain,
   );
   const observedNormal = normalClose.then(
@@ -293,6 +310,7 @@ async function closeNormally(
   interaction: HostInteractionAuthority,
   continuity: SessionContinuityCoordinator,
   skills: HostSkillCatalogCoordinator,
+  usageStores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>>,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
 ): Promise<{ readonly kind: 'clean' }> {
   const errors: unknown[] = [];
@@ -308,6 +326,7 @@ async function closeNormally(
     await interaction.close().catch((error: unknown) => errors.push(error));
     await messages.close().catch((error: unknown) => errors.push(error));
     await skills.close().catch((error: unknown) => errors.push(error));
+    await usageStores.close().catch((error: unknown) => errors.push(error));
   } finally {
     continuity.close();
   }

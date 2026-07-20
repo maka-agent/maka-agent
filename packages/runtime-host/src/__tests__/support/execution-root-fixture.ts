@@ -11,12 +11,17 @@ import type { StoredMessage } from '@maka/core/session';
 import type { Task } from '@maka/core/task-ledger';
 import { isTerminalRuntimeEvent, type RuntimeEvent } from '@maka/core/runtime-event';
 import { classifyTerminalRuntimeLedger } from '@maka/runtime';
-import type { InteractionRecord, StoredInteractionRequest } from '@maka/storage';
+import type {
+  InteractionRecord,
+  PersistedLlmCallRecord,
+  StoredInteractionRequest,
+} from '@maka/storage';
 import {
   openInteractiveExecutionStoresForRead,
   openInteractiveExecutionStoresForWrite,
 } from '@maka/storage/execution-stores';
 import { openInteractiveTaskLedgerStoreForWrite } from '@maka/storage/task-ledger-store';
+import { openInteractiveUsageStoresForWrite } from '@maka/storage/usage-stores';
 import {
   resolveRootControlNamespace,
   resolveStorageRoot,
@@ -157,6 +162,24 @@ export class ExecutionFixture {
       return (await store.update(this.sessionId, taskRef, patch)).updated;
     } finally {
       await owner.close();
+    }
+  }
+
+  async seedUsageRecords(records: readonly PersistedLlmCallRecord[]): Promise<void> {
+    const owner = await tryAcquireInteractiveRootOwner(this.capability);
+    assert.ok(owner);
+    if (!owner) throw new Error('Unable to acquire execution root for telemetry setup');
+    let stores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>> | undefined;
+    try {
+      const opened = await openInteractiveUsageStoresForWrite(owner.lease);
+      stores = opened;
+      await Promise.all(records.map((record) => opened.telemetry.recordLlmCall(record)));
+    } finally {
+      try {
+        await stores?.close();
+      } finally {
+        await owner.close();
+      }
     }
   }
 

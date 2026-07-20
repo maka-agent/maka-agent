@@ -17,7 +17,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
-  PRICING_MODEL_KEY_MAX_CHARS,
+  PRICING_MODEL_KEY_MAX_BYTES,
   normalizePricingConfig,
   normalizePricingModelKey,
 } from '../pricing.js';
@@ -34,17 +34,24 @@ describe('normalizePricingModelKey (PR-UI-IPC-3)', () => {
       assert.deepEqual(result, { ok: true, value: 'openai:gpt-4o' });
     });
 
-    it('keeps interior whitespace verbatim (does NOT collapse — keys are exact match keys)', () => {
-      // Unlike session names, pricing keys are matched exactly
-      // against runtime model identifiers. We trim outer whitespace
-      // but never alter interior content (because that would
-      // silently fail to match the runtime emitter).
+    it('keeps interior whitespace verbatim', () => {
       const result = normalizePricingModelKey('  provider:model with space  ');
       assert.deepEqual(result, { ok: true, value: 'provider:model with space' });
     });
 
-    it('accepts at-cap key (128 chars)', () => {
-      const exact = 'a'.repeat(PRICING_MODEL_KEY_MAX_CHARS);
+    it('keeps Unicode, quotes, and backslashes verbatim', () => {
+      const exact = 'provider:模型 "quoted" \\path';
+      assert.deepEqual(normalizePricingModelKey(exact), { ok: true, value: exact });
+    });
+
+    it('accepts an ASCII key at the UTF-8 byte cap', () => {
+      const exact = 'a'.repeat(PRICING_MODEL_KEY_MAX_BYTES);
+      assert.deepEqual(normalizePricingModelKey(exact), { ok: true, value: exact });
+    });
+
+    it('accepts a multibyte key at the UTF-8 byte cap', () => {
+      const exact = `${'界'.repeat(682)}aa`;
+      assert.equal(new TextEncoder().encode(exact).byteLength, PRICING_MODEL_KEY_MAX_BYTES);
       assert.deepEqual(normalizePricingModelKey(exact), { ok: true, value: exact });
     });
   });
@@ -73,24 +80,30 @@ describe('normalizePricingModelKey (PR-UI-IPC-3)', () => {
       }
     });
 
-    it('empty string rejects', () => {
-      assert.equal(normalizePricingModelKey('').ok, false);
-    });
-
     it('whitespace-only rejects', () => {
-      for (const raw of [' ', '   ', '\t\n']) {
+      for (const raw of ['', ' ', '   ', '\t\n']) {
         const result = normalizePricingModelKey(raw);
         assert.equal(result.ok, false, `raw=${JSON.stringify(raw)}`);
       }
     });
 
-    it('> 128 chars rejects', () => {
-      const oversize = 'a'.repeat(PRICING_MODEL_KEY_MAX_CHARS + 1);
+    it('rejects a 2049-byte multibyte key', () => {
+      const oversize = '界'.repeat(683);
+      assert.equal(new TextEncoder().encode(oversize).byteLength, PRICING_MODEL_KEY_MAX_BYTES + 1);
       const result = normalizePricingModelKey(oversize);
       assert.equal(result.ok, false);
       if (!result.ok) {
-        assert.ok(result.error.includes(String(PRICING_MODEL_KEY_MAX_CHARS)));
+        assert.ok(result.error.includes(String(PRICING_MODEL_KEY_MAX_BYTES)));
+        assert.ok(result.error.includes('UTF-8 bytes'));
       }
+    });
+
+    it('rejects C0 control characters and DEL', () => {
+      for (let codeUnit = 0; codeUnit <= 0x1f; codeUnit += 1) {
+        const result = normalizePricingModelKey(`a${String.fromCharCode(codeUnit)}b`);
+        assert.equal(result.ok, false, `U+${codeUnit.toString(16).padStart(4, '0')} must reject`);
+      }
+      assert.equal(normalizePricingModelKey(`a${String.fromCharCode(0x7f)}b`).ok, false);
     });
 
     it('never throws on bad runtime types', () => {
@@ -307,14 +320,6 @@ describe('normalizePricingConfig (PR-UI-IPC-3)', () => {
         assert.equal(result.value.cacheReadUsdPer1M, 1.25);
         assert.ok(!('cacheWriteUsdPer1M' in result.value));
         assert.ok(!('evilExtra' in result.value));
-      }
-    });
-
-    it('canonical modelKey reflects trim — not raw input', () => {
-      const result = normalizePricingConfig(valid({ modelKey: '  trimmed-key  ' }));
-      assert.ok(result.ok);
-      if (result.ok) {
-        assert.equal(result.value.modelKey, 'trimmed-key');
       }
     });
   });

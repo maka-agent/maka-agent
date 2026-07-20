@@ -14,6 +14,7 @@ import { TURN_OPERATION_SPECS } from './turn.js';
 import { RUNTIME_POLICY_OPERATION_SPECS } from './runtime-policy.js';
 import { SKILL_CATALOG_OPERATION_SPECS } from './skill-catalog.js';
 import { TASK_LEDGER_OPERATION_SPECS } from './task-ledger.js';
+import { USAGE_PRICING_OPERATION_SPECS } from './usage-pricing.js';
 
 export {
   TURN_MESSAGE_CONTENT_MAX_BYTES,
@@ -111,6 +112,16 @@ export type {
   TaskLedgerRevision,
   TaskLedgerTask,
 } from './task-ledger.js';
+export type {
+  PricingMutateInput,
+  PricingMutateResult,
+  PricingMutation,
+  PricingQueryInput,
+  PricingQueryResult,
+  UsageQueryInput,
+  UsageQueryResult,
+  UsageLogProjection,
+} from './usage-pricing.js';
 export {
   decodeTaskLedgerQueryInput,
   decodeTaskLedgerQueryResult,
@@ -131,6 +142,22 @@ export {
   CREDENTIAL_SECRET_MAX_BYTES,
   RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
 } from './runtime-policy.js';
+export {
+  decodePricingMutateInput,
+  decodePricingMutateResult,
+  decodePricingQueryInput,
+  decodePricingQueryResult,
+  decodeUsageQueryInput,
+  decodeUsageQueryResult,
+  encodePricingQueryResult,
+  encodeUsageQueryResult,
+  PRICING_CURSOR_MAX_BYTES,
+  PRICING_PAGE_MAX_BYTES,
+  PRICING_PAGE_MAX_ITEMS,
+  USAGE_PAGE_MAX_BYTES,
+  USAGE_PAGE_MAX_ITEMS,
+  USAGE_PROJECTION_TEXT_MAX_BYTES,
+} from './usage-pricing.js';
 
 const HOST_AND_TURN_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_STATUS_OPERATION_SPECS,
@@ -162,9 +189,14 @@ const HOST_AND_SKILL_OPERATION_SPECS = composeOperationSpecMaps(
   SKILL_CATALOG_OPERATION_SPECS,
 );
 
-export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_SKILL_AND_TASK_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_AND_SKILL_OPERATION_SPECS,
   TASK_LEDGER_OPERATION_SPECS,
+);
+
+export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_SKILL_AND_TASK_OPERATION_SPECS,
+  USAGE_PRICING_OPERATION_SPECS,
 );
 
 export type OperationSpecMap = typeof HOST_OPERATION_SPECS;
