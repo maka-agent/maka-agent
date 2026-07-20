@@ -857,7 +857,7 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /kimi-code adapter ok/);
   });
 
-  test('codex_agent.py runs the pinned CLI with OAuth or proxy auth without Harbor installed', (t: TestContext) => {
+  test('codex_agent.py runs the pinned CLI behind the host OAuth proxy without Harbor installed', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonCodexAdapterSmokeScript(repoRoot)], {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -2854,22 +2854,12 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     environment = Environment()
     asyncio.run(agent.install(environment))
-    assert len(commands) == 2, commands
-    ca_command, ca_env = commands[0]
-    assert "ca-certificates" in ca_command, ca_command
-    assert "apt-get" in ca_command, ca_command
-    assert "apk" in ca_command, ca_command
-    assert "dnf" in ca_command, ca_command
-    assert "yum" in ca_command, ca_command
-    assert "/etc/ssl/certs/ca-certificates.crt" in ca_command, ca_command
-    assert "/etc/pki/tls/certs/ca-bundle.crt" in ca_command, ca_command
-    assert "curl" not in ca_command, ca_command
-    assert "npm" not in ca_command, ca_command
-    assert ca_env == {}, ca_env
-    install_command, install_env = commands[1]
+    assert len(commands) == 1, commands
+    install_command, install_env = commands[0]
     assert "sha256sum --check" in install_command, install_command
     assert "/opt/maka-codex-toolchain/bin/codex" in install_command, install_command
     assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
+    assert "ca-certificates" not in install_command, install_command
     assert "npm" not in install_command, install_command
     assert "curl" not in install_command, install_command
 
@@ -2894,29 +2884,6 @@ with tempfile.TemporaryDirectory() as tmp:
     assert abs(cell["tokenSummary"]["costUsd"] - 0.00107) < 1e-12, cell
     assert cell["toolSummary"]["actualToolCallCounts"] == {"command_execution": 1}, cell
     assert "ephemeral-token" not in json.dumps(cell), cell
-
-    native_auth = MakaCodexAgent(
-        logs,
-        version="0.144.6",
-        model_name="gpt-5.6-sol",
-        reasoning_effort="max",
-        extra_env={
-            "MAKA_CODEX_AUTH_JSON_PATH": "/secure/codex/auth.json",
-            "MAKA_MODEL": "gpt-5.6-sol",
-            "MAKA_SYSTEM_PROMPT": "",
-        },
-    )
-    native_context = types.SimpleNamespace(
-        n_input_tokens=None,
-        n_cache_tokens=None,
-        n_output_tokens=None,
-        cost_usd=None,
-        metadata={},
-    )
-    asyncio.run(native_auth.run("hi", environment, native_context))
-    assert native_auth.parent_calls[0]["auth_json_path"] == "/secure/codex/auth.json"
-    assert native_auth.parent_calls[0]["api_key"] is None
-    assert native_auth.parent_calls[0]["base_url"] is None
 
     failing = MakaCodexAgent(
         logs,

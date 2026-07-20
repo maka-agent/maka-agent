@@ -36,6 +36,7 @@ import {
   startProviderAuthProxy,
   type ProviderRequestTelemetry,
   type ProviderTokenUsage,
+  type ProviderUpstreamCredentialResolver,
   type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
 import {
@@ -112,8 +113,6 @@ export interface HarborTaskRunnerOptions {
   kimiCodeToolchainPath?: string;
   /** Prepared Codex CLI toolchain mounted read-only into task containers. */
   codexToolchainPath?: string;
-  /** Host Codex auth.json uploaded by Harbor for native ChatGPT OAuth. */
-  codexAuthJsonPath?: string;
   /** Explicit Docker target platform shared by comparison arms. */
   dockerPlatform?: 'linux/amd64';
   /** Base directory under which each task gets an isolated per-task job dir. */
@@ -126,6 +125,8 @@ export interface HarborTaskRunnerOptions {
   /** Host path to an API key file. The key stays in the Harbor control process;
    * the task container receives no provider key env, key-file path, or secret mount. */
   apiKeyFile?: string;
+  /** Resolves the current provider authority inside the host proxy for every request. */
+  resolveProviderCredential?: ProviderUpstreamCredentialResolver;
   /** Raw API-key env var the host-side cell uses (default derived from provider).
    * A legacy *_API_KEY_FILE name is normalized to its raw *_API_KEY companion. */
   apiKeyEnvName?: string;
@@ -230,6 +231,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
     const hasHostProviderRuntime =
       runnerOptions.apiKeyFile !== undefined ||
+      runnerOptions.resolveProviderCredential !== undefined ||
       githubCopilotAccountTokenFromEnv(runnerOptions.provider, runnerOptions.agentEnv) !==
         undefined ||
       (!usesHostProviderProxy(runnerOptions.agent) &&
@@ -880,9 +882,6 @@ export function buildHarborJobConfig(
   }
   if (adapter === 'codex') {
     agentEnv.MAKA_CODEX_TOOLCHAIN_FINGERPRINT = CODEX_TOOLCHAIN_FINGERPRINT;
-    if (options.codexAuthJsonPath) {
-      agentEnv.MAKA_CODEX_AUTH_JSON_PATH = options.codexAuthJsonPath;
-    }
   }
 
   if (options.pricing) {
@@ -1012,7 +1011,6 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
-  if (options.agent === 'codex' && options.codexAuthJsonPath) return null;
   if (usesHostProviderProxy(options.agent) && provider === 'github-copilot') {
     const adapter =
       options.agent === 'kimi-code'
@@ -1030,7 +1028,13 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
         ? (await readFile(options.apiKeyFile, 'utf8')).trim()
         : githubCopilotAccountTokenFromEnv(provider, options.agentEnv)
       : undefined;
-  if (!options.apiKeyFile && !githubToken && providerRequiresSecret(provider)) return null;
+  if (
+    !options.apiKeyFile &&
+    !options.resolveProviderCredential &&
+    !githubToken &&
+    providerRequiresSecret(provider)
+  )
+    return null;
   const providerEnv = providerCredentialEnv(provider);
   const [primaryBaseUrl] = providerEnv?.baseUrls ?? [];
   const configuredBaseUrl =
@@ -1046,21 +1050,33 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       )
     : undefined;
   const baseUrl = copilotCredential?.baseUrl ?? configuredBaseUrl;
-  if (usesHostProviderProxy(options.agent)) {
+  if (options.resolveProviderCredential || usesHostProviderProxy(options.agent)) {
     const apiKeyFile = options.apiKeyFile;
-    if (!apiKeyFile) return null;
+    const resolveProviderCredential = options.resolveProviderCredential;
+    if (!apiKeyFile && !resolveProviderCredential) return null;
     if (!baseUrl) throw new Error(`${options.agent} provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
-      apiKeyFile,
+      ...(resolveProviderCredential
+        ? { resolveUpstreamCredential: resolveProviderCredential }
+        : { apiKeyFile: apiKeyFile! }),
       authMode: options.agent === 'kimi-code' ? 'bearer' : providerProxyAuthMode(provider),
       usageProtocol: providerProxyUsageProtocol(options.agent, provider),
     });
     return {
-      env: {
-        MAKA_PROVIDER_PROXY_URL: proxy.baseUrl,
-        MAKA_PROVIDER_PROXY_TOKEN: proxy.token,
-      },
+      env:
+        options.agent === 'maka'
+          ? {
+              MAKA_HOST_BASE_URL: proxy.baseUrl,
+              MAKA_HOST_API_KEY: proxy.token,
+              MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(
+                options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!,
+              ),
+            }
+          : {
+              MAKA_PROVIDER_PROXY_URL: proxy.baseUrl,
+              MAKA_PROVIDER_PROXY_TOKEN: proxy.token,
+            },
       usage: proxy.usage,
       telemetry: proxy.telemetry,
       close: proxy.close,

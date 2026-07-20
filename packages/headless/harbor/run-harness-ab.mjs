@@ -38,7 +38,7 @@ import {
   CODEX_TOOLCHAIN_SPEC,
   prepareCodexToolchain,
 } from '#codex-toolchain';
-import { withCodexOAuthHarnessCredentials } from '#codex-oauth-harness';
+import { createCodexOAuthHarnessCredentialResolver } from '#codex-oauth-harness';
 import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
@@ -185,38 +185,29 @@ export function buildHarnessExecutionProfile(competitorProfile) {
   };
 }
 
-export async function withHarnessRuntimeCredentials(input) {
+export async function resolveHarnessRuntimeCredentials(input) {
   if (input.competitorProfile.id !== 'codex') {
-    const apiKeyFile = envPathFrom(
-      input.env,
-      'MAKA_HARNESS_AB_KEY_FILE',
-      join(homedir(), '.maka/secrets/kimi-coding-plan.key'),
-    );
-    return input.run({ apiKeyFile });
+    return {
+      apiKeyFile: envPathFrom(
+        input.env,
+        'MAKA_HARNESS_AB_KEY_FILE',
+        join(homedir(), '.maka/secrets/kimi-coding-plan.key'),
+      ),
+    };
   }
   const credentialsPath = envPathFrom(
     input.env,
     'MAKA_HARNESS_AB_CREDENTIALS_PATH',
     defaultMakaCredentialsPath(),
   );
-  const codexAuthJsonPath = envPathFrom(
-    input.env,
-    'MAKA_HARNESS_AB_CODEX_AUTH_JSON',
-    join(homedir(), '.codex/auth.json'),
-  );
-  const withCredentials = input.withCodexOAuthCredentials ?? withCodexOAuthHarnessCredentials;
-  return withCredentials(
-    {
+  const createCredentialResolver =
+    input.createCodexOAuthCredentialResolver ?? createCodexOAuthHarnessCredentialResolver;
+  return {
+    resolveProviderCredential: await createCredentialResolver({
       credentialsRoot: dirname(credentialsPath),
       connectionSlug: input.env.MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG || 'codex-subscription',
-      codexAuthJsonPath,
-    },
-    ({ makaAccessTokenPath, codexAuthJsonPath: temporaryCodexAuthJsonPath }) =>
-      input.run({
-        apiKeyFile: makaAccessTokenPath,
-        codexAuthJsonPath: temporaryCodexAuthJsonPath,
-      }),
-  );
+    }),
+  };
 }
 
 export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
@@ -571,118 +562,112 @@ async function runLocked({
   await competitorToolchain.prepare(competitorToolchain.path);
 
   const execution = buildHarnessExecutionProfile(competitorProfile);
-  return withHarnessRuntimeCredentials({
+  const credentials = await resolveHarnessRuntimeCredentials({
     competitorProfile,
     env: process.env,
-    run: async ({ apiKeyFile, codexAuthJsonPath }) => {
-      if ((await readFile(apiKeyFile, 'utf8')).trim().length === 0)
-        throw new Error('harness credential is empty');
-      const controllerDir = join(runRoot, 'controller');
-      const promptsDir = join(runRoot, 'prompts');
-      const jobsDir = join(runRoot, 'jobs');
-      await mkdir(controllerDir, { recursive: true });
-      await mkdir(promptsDir, { recursive: true });
-      await mkdir(jobsDir, { recursive: true });
-      const systemPromptPath = join(promptsDir, 'default-system-prompt.txt');
-      await writeFile(systemPromptPath, DEFAULT_HEADLESS_SYSTEM_PROMPT, 'utf8');
-      const runnerOptions = {
-        makaRepoPath,
-        jobsDir,
-        model: execution.modelSpec,
-        provider: execution.provider,
-        reasoningEffort: execution.reasoningEffort,
-        apiKeyFile,
-        apiKeyEnvName: execution.apiKeyEnvName,
-        pricing: execution.pricing,
-        agentEnv: { MAKA_BASE_URL: execution.baseUrl },
-        timeoutMultiplier: 1,
-        dockerPlatform: 'linux/amd64',
-      };
-      const makaContextBudgetEnv = harnessMakaContextBudgetEnv();
-      const config = (id) => ({
-        id: `harness-ab-${id}`,
-        backend: 'ai-sdk',
-        llmConnectionSlug: execution.provider,
-        model: execution.model,
-        thinkingLevel: execution.reasoningEffort,
-      });
-      const summary = await runHarnessAbComparisonUnlocked({
-        runId,
-        runRoot,
-        resultsJsonlPath: join(controllerDir, 'results.jsonl'),
-        systemPromptPath,
-        resumeFingerprint: buildHarnessAbResumeFingerprint(manifest),
-        evaluationTasks,
-        arms: [
-          {
-            id: 'maka',
-            config: config('maka'),
-            expectedPricingProfile: execution.pricing.source,
-            billingMode: execution.billingMode,
-            harborRunner: createHarborTaskRunner({
-              ...runnerOptions,
-              agent: 'maka',
-              agentEnv: { ...runnerOptions.agentEnv, ...makaContextBudgetEnv },
-            }),
-          },
-          {
-            id: competitorProfile.id,
-            config: config(competitorProfile.id),
-            expectedPricingProfile: execution.pricing.source,
-            billingMode: execution.billingMode,
-            harborRunner: createHarborTaskRunner({
-              ...runnerOptions,
-              agent: competitorProfile.id,
-              agentVersion: competitorProfile.version,
-              ...(competitorProfile.id === 'kimi-code'
-                ? { kimiCodeToolchainPath: competitorToolchain.path }
-                : competitorProfile.id === 'opencode'
-                  ? { opencodeToolchainPath: competitorToolchain.path }
-                  : {
-                      codexToolchainPath: competitorToolchain.path,
-                      ...(codexAuthJsonPath ? { codexAuthJsonPath } : {}),
-                    }),
-            }),
-          },
-        ],
-        pairConcurrency: selection.pairConcurrency,
-        armExecution: manifest.metadata.execution.armExecution,
-      });
-      const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
-      const report = buildHarnessAbReport(
-        summary,
-        {
-          ...(oracleEvidence.resolvedSnapshotFingerprint
-            ? { snapshotFingerprint: oracleEvidence.resolvedSnapshotFingerprint }
-            : {}),
-          annotations: oracleEvidence.annotations.filter((annotation) =>
-            evaluatedTaskIds.has(annotation.taskId),
-          ),
-          warnings: oracleEvidence.warnings,
-        },
-        execution.billingMode,
-      );
-      await writeFile(
-        join(runRoot, 'harness-ab-report.json'),
-        `${JSON.stringify(report, null, 2)}\n`,
-        'utf8',
-      );
-      await writeFile(
-        join(runRoot, 'harness-ab-report.csv'),
-        renderHarnessAbReportCsv(report),
-        'utf8',
-      );
-      await writeFile(
-        join(runRoot, 'harness-ab-report.md'),
-        renderHarnessAbReportMarkdown(report),
-        'utf8',
-      );
-      assertHarnessAbReportCompleted(report);
-      console.log(
-        `${report.runStatus}: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`,
-      );
-    },
   });
+  if (
+    credentials.apiKeyFile &&
+    (await readFile(credentials.apiKeyFile, 'utf8')).trim().length === 0
+  )
+    throw new Error('harness credential is empty');
+  const controllerDir = join(runRoot, 'controller');
+  const promptsDir = join(runRoot, 'prompts');
+  const jobsDir = join(runRoot, 'jobs');
+  await mkdir(controllerDir, { recursive: true });
+  await mkdir(promptsDir, { recursive: true });
+  await mkdir(jobsDir, { recursive: true });
+  const systemPromptPath = join(promptsDir, 'default-system-prompt.txt');
+  await writeFile(systemPromptPath, DEFAULT_HEADLESS_SYSTEM_PROMPT, 'utf8');
+  const runnerOptions = {
+    makaRepoPath,
+    jobsDir,
+    model: execution.modelSpec,
+    provider: execution.provider,
+    reasoningEffort: execution.reasoningEffort,
+    ...credentials,
+    apiKeyEnvName: execution.apiKeyEnvName,
+    pricing: execution.pricing,
+    agentEnv: { MAKA_BASE_URL: execution.baseUrl },
+    timeoutMultiplier: 1,
+    dockerPlatform: 'linux/amd64',
+  };
+  const makaContextBudgetEnv = harnessMakaContextBudgetEnv();
+  const config = (id) => ({
+    id: `harness-ab-${id}`,
+    backend: 'ai-sdk',
+    llmConnectionSlug: execution.provider,
+    model: execution.model,
+    thinkingLevel: execution.reasoningEffort,
+  });
+  const summary = await runHarnessAbComparisonUnlocked({
+    runId,
+    runRoot,
+    resultsJsonlPath: join(controllerDir, 'results.jsonl'),
+    systemPromptPath,
+    resumeFingerprint: buildHarnessAbResumeFingerprint(manifest),
+    evaluationTasks,
+    arms: [
+      {
+        id: 'maka',
+        config: config('maka'),
+        expectedPricingProfile: execution.pricing.source,
+        billingMode: execution.billingMode,
+        harborRunner: createHarborTaskRunner({
+          ...runnerOptions,
+          agent: 'maka',
+          agentEnv: { ...runnerOptions.agentEnv, ...makaContextBudgetEnv },
+        }),
+      },
+      {
+        id: competitorProfile.id,
+        config: config(competitorProfile.id),
+        expectedPricingProfile: execution.pricing.source,
+        billingMode: execution.billingMode,
+        harborRunner: createHarborTaskRunner({
+          ...runnerOptions,
+          agent: competitorProfile.id,
+          agentVersion: competitorProfile.version,
+          ...(competitorProfile.id === 'kimi-code'
+            ? { kimiCodeToolchainPath: competitorToolchain.path }
+            : competitorProfile.id === 'opencode'
+              ? { opencodeToolchainPath: competitorToolchain.path }
+              : { codexToolchainPath: competitorToolchain.path }),
+        }),
+      },
+    ],
+    pairConcurrency: selection.pairConcurrency,
+    armExecution: manifest.metadata.execution.armExecution,
+  });
+  const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
+  const report = buildHarnessAbReport(
+    summary,
+    {
+      ...(oracleEvidence.resolvedSnapshotFingerprint
+        ? { snapshotFingerprint: oracleEvidence.resolvedSnapshotFingerprint }
+        : {}),
+      annotations: oracleEvidence.annotations.filter((annotation) =>
+        evaluatedTaskIds.has(annotation.taskId),
+      ),
+      warnings: oracleEvidence.warnings,
+    },
+    execution.billingMode,
+  );
+  await writeFile(
+    join(runRoot, 'harness-ab-report.json'),
+    `${JSON.stringify(report, null, 2)}\n`,
+    'utf8',
+  );
+  await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
+  await writeFile(
+    join(runRoot, 'harness-ab-report.md'),
+    renderHarnessAbReportMarkdown(report),
+    'utf8',
+  );
+  assertHarnessAbReportCompleted(report);
+  console.log(
+    `${report.runStatus}: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`,
+  );
 }
 
 export async function resolveAdvisoryOracleEvidence({

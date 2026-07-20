@@ -34,7 +34,6 @@ class MakaCodexAgent(Codex):
         return f"{shlex.quote(str(_TOOLCHAIN_CODEX))} --version"
 
     async def install(self, environment: BaseEnvironment) -> None:
-        await self._ensure_ca_certificates(environment)
         expected_fingerprint = self._get_env("MAKA_CODEX_TOOLCHAIN_FINGERPRINT")
         if not expected_fingerprint:
             raise ValueError("MAKA_CODEX_TOOLCHAIN_FINGERPRINT is required")
@@ -60,35 +59,12 @@ class MakaCodexAgent(Codex):
             env={"MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT": expected_fingerprint},
         )
 
-    async def _ensure_ca_certificates(self, environment: BaseEnvironment) -> None:
-        command = (
-            "set -euo pipefail; "
-            "has_ca_bundle() { "
-            "test -s /etc/ssl/certs/ca-certificates.crt || "
-            "test -s /etc/pki/tls/certs/ca-bundle.crt || "
-            "test -s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem; "
-            "}; "
-            "if ! has_ca_bundle; then "
-            "if command -v apt-get >/dev/null 2>&1; then "
-            "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates; "
-            "elif command -v apk >/dev/null 2>&1; then apk add --no-cache ca-certificates; "
-            "elif command -v dnf >/dev/null 2>&1; then dnf install -y ca-certificates; "
-            "elif command -v yum >/dev/null 2>&1; then yum install -y ca-certificates; "
-            "else echo 'Codex requires a system CA trust store' >&2; exit 1; "
-            "fi; "
-            "fi; "
-            "has_ca_bundle || { echo 'Codex system CA trust store is unavailable' >&2; exit 1; }"
-        )
-        await self.exec_as_root(environment, command=command)
-
     def _get_env(self, key: str) -> str | None:
         if key == "OPENAI_API_KEY":
             return super()._get_env("MAKA_PROVIDER_PROXY_TOKEN")
         if key == "OPENAI_BASE_URL":
             return super()._get_env("MAKA_PROVIDER_PROXY_URL")
-        if key == "CODEX_AUTH_JSON_PATH":
-            return super()._get_env("MAKA_CODEX_AUTH_JSON_PATH")
-        if key == "CODEX_FORCE_AUTH_JSON":
+        if key in {"CODEX_AUTH_JSON_PATH", "CODEX_FORCE_AUTH_JSON"}:
             return None
         return super()._get_env(key)
 
@@ -100,9 +76,8 @@ class MakaCodexAgent(Codex):
     ) -> None:
         proxy_url = self._get_env("OPENAI_BASE_URL")
         proxy_token = self._get_env("OPENAI_API_KEY")
-        auth_json_path = self._get_env("CODEX_AUTH_JSON_PATH")
-        if not auth_json_path and (not proxy_url or not proxy_token):
-            raise ValueError("Codex requires native auth.json or the host provider proxy")
+        if not proxy_url or not proxy_token:
+            raise ValueError("Codex requires the host provider proxy")
         self._started_at_ms = int(time.time() * 1000)
         self._write_execution_identity()
         output_path = self.logs_dir / _OUTPUT_FILENAME

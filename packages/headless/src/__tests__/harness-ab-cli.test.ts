@@ -361,43 +361,28 @@ test('Codex comparison freezes the OpenAI model, pricing, and run identity', asy
 });
 
 test('Codex comparison resolves both arms from one OAuth account workflow', async () => {
-  const { resolveHarnessCompetitorProfile, withHarnessRuntimeCredentials } = await import(
+  const { resolveHarnessCompetitorProfile, resolveHarnessRuntimeCredentials } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
   );
   const calls: unknown[] = [];
-  const result = await withHarnessRuntimeCredentials({
+  const resolveProviderCredential = async () => ({ value: 'current-oauth-token' });
+  const result = await resolveHarnessRuntimeCredentials({
     competitorProfile: resolveHarnessCompetitorProfile('codex'),
     env: {
       MAKA_HARNESS_AB_CREDENTIALS_PATH: '/workspace/credentials.json',
-      MAKA_HARNESS_AB_CODEX_AUTH_JSON: '/home/codex/auth.json',
       MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG: 'codex-subscription',
     },
-    withCodexOAuthCredentials: async (
-      input: unknown,
-      run: (paths: unknown) => Promise<unknown>,
-    ) => {
+    createCodexOAuthCredentialResolver: async (input: unknown) => {
       calls.push(input);
-      return run({
-        makaAccessTokenPath: '/ephemeral/maka-token',
-        codexAuthJsonPath: '/ephemeral/codex-auth.json',
-      });
-    },
-    run: async (paths: unknown) => {
-      calls.push(paths);
-      return 'ran';
+      return resolveProviderCredential;
     },
   });
 
-  assert.equal(result, 'ran');
+  assert.equal(result.resolveProviderCredential, resolveProviderCredential);
   assert.deepEqual(calls, [
     {
       credentialsRoot: '/workspace',
       connectionSlug: 'codex-subscription',
-      codexAuthJsonPath: '/home/codex/auth.json',
-    },
-    {
-      apiKeyFile: '/ephemeral/maka-token',
-      codexAuthJsonPath: '/ephemeral/codex-auth.json',
     },
   ]);
 });

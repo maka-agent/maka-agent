@@ -55,6 +55,49 @@ test('provider auth proxy keeps the provider key host-side', async () => {
   }
 });
 
+test('provider auth proxy resolves rotating upstream credentials for every request', async () => {
+  const authorizations: string[] = [];
+  const accountIds: string[] = [];
+  const upstream = createServer((request, response) => {
+    authorizations.push(request.headers.authorization ?? '');
+    accountIds.push(String(request.headers['chatgpt-account-id'] ?? ''));
+    response.writeHead(200).end('ok');
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  let credentialVersion = 0;
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
+    advertisedHost: '127.0.0.1',
+    resolveUpstreamCredential: async () => {
+      credentialVersion += 1;
+      return {
+        value: `oauth-${credentialVersion}`,
+        headers: { 'ChatGPT-Account-Id': `account-${credentialVersion}` },
+      };
+    },
+  });
+
+  try {
+    for (let request = 0; request < 2; request += 1) {
+      const response = await fetch(`${proxy.baseUrl}/responses`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${proxy.token}` },
+        body: '{}',
+      });
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(authorizations, ['Bearer oauth-1', 'Bearer oauth-2']);
+    assert.deepEqual(accountIds, ['account-1', 'account-2']);
+  } finally {
+    await proxy.close();
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
 test('provider auth proxy supports Anthropic x-api-key without replacing the client user agent', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-anthropic-'));
   const providerKey = 'anthropic-provider-secret';

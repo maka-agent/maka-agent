@@ -562,39 +562,118 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  test('uses native Codex auth without starting an API-key proxy', async () => {
-    await withRun(async ({ jobsDir, repo, keyFile }) => {
+  test('keeps rotating Codex OAuth authority behind the host proxy', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
       const captured: { config?: Record<string, unknown> } = {};
       let harborEnv: Record<string, string> | undefined;
-      const codexAuthJsonPath = '/secure/codex/auth.json';
-      const runner = createHarborTaskRunner({
-        makaRepoPath: repo,
-        jobsDir,
-        agent: 'codex',
-        codexToolchainPath: '/toolchain',
-        codexAuthJsonPath,
-        agentVersion: '0.144.6',
-        model: 'openai-codex/gpt-5.6-sol',
-        provider: 'openai-codex',
-        reasoningEffort: 'max',
-        apiKeyFile: keyFile,
-        runHarbor: async (request: HarborRunRequest) => {
-          harborEnv = request.env;
-          return fakeRunner({ reward: '1\n', captured })(request);
-        },
-      } as unknown as Parameters<typeof createHarborTaskRunner>[0]);
+      let upstreamAuthorization = '';
+      let upstreamAccountId = '';
+      const upstream = createServer((request, response) => {
+        upstreamAuthorization = request.headers.authorization ?? '';
+        upstreamAccountId = String(request.headers['chatgpt-account-id'] ?? '');
+        response.writeHead(200).end('ok');
+      });
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const address = upstream.address();
+      assert.ok(address && typeof address !== 'string');
+      try {
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          agent: 'codex',
+          codexToolchainPath: '/toolchain',
+          agentVersion: '0.144.6',
+          model: 'openai-codex/gpt-5.6-sol',
+          provider: 'openai-codex',
+          reasoningEffort: 'max',
+          agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}` },
+          resolveProviderCredential: async () => ({
+            value: 'current-oauth-token',
+            headers: { 'ChatGPT-Account-Id': 'account-shared' },
+          }),
+          runHarbor: async (request: HarborRunRequest) => {
+            harborEnv = request.env;
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL?.replace(
+              'host.docker.internal',
+              '127.0.0.1',
+            );
+            assert.ok(proxyUrl);
+            const response = await fetch(`${proxyUrl}/responses`, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${request.env?.MAKA_PROVIDER_PROXY_TOKEN}` },
+              body: '{}',
+            });
+            assert.equal(response.status, 200);
+            return fakeRunner({ reward: '1\n', captured })(request);
+          },
+        });
 
-      await runner(runInput());
+        await runner(runInput());
 
-      assert.equal(harborEnv?.MAKA_PROVIDER_PROXY_URL, undefined);
-      assert.equal(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN, undefined);
-      assert.ok(captured.config);
-      const agent = (captured.config.agents as Array<Record<string, unknown>>)[0]!;
-      assert.equal(
-        (agent.env as Record<string, string>).MAKA_CODEX_AUTH_JSON_PATH,
-        codexAuthJsonPath,
-      );
-      assert.doesNotMatch(JSON.stringify(captured.config), /deepseek-key|sk-secret/);
+        assert.match(
+          harborEnv?.MAKA_PROVIDER_PROXY_URL ?? '',
+          /^http:\/\/host\.docker\.internal:\d+$/,
+        );
+        assert.match(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
+        assert.equal(upstreamAuthorization, 'Bearer current-oauth-token');
+        assert.equal(upstreamAccountId, 'account-shared');
+        assert.ok(captured.config);
+        assert.doesNotMatch(JSON.stringify(captured.config), /AUTH_JSON|current-oauth-token/);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    });
+  });
+
+  test('routes the Maka arm through the same rotating OAuth proxy boundary', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let upstreamAuthorization = '';
+      const upstream = createServer((request, response) => {
+        upstreamAuthorization = request.headers.authorization ?? '';
+        response.writeHead(200).end('ok');
+      });
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const address = upstream.address();
+      assert.ok(address && typeof address !== 'string');
+      try {
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          agent: 'maka',
+          model: 'openai-codex/gpt-5.6-sol',
+          provider: 'openai-codex',
+          reasoningEffort: 'max',
+          agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}` },
+          resolveProviderCredential: async () => ({ value: 'current-oauth-token' }),
+          runHarbor: async (request: HarborRunRequest) => {
+            const proxyUrl = request.env?.MAKA_HOST_BASE_URL?.replace(
+              'host.docker.internal',
+              '127.0.0.1',
+            );
+            assert.ok(proxyUrl);
+            const response = await fetch(`${proxyUrl}/responses`, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${request.env?.MAKA_HOST_API_KEY}` },
+              body: '{}',
+            });
+            assert.equal(response.status, 200);
+            return fakeRunner({ reward: '1\n', captured })(request);
+          },
+        });
+
+        await runner(runInput());
+
+        assert.equal(upstreamAuthorization, 'Bearer current-oauth-token');
+        assert.ok(captured.config);
+        assert.doesNotMatch(JSON.stringify(captured.config), /current-oauth-token/);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
     });
   });
 

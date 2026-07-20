@@ -574,6 +574,7 @@ export type {
 } from './subscription-credentials.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';
 export type { SubscriptionModelFetchInput } from './subscription-model-fetch.js';
+export { extractCodexAccountId, openAiCodexHeaders } from './subscription-auth.js';
 export {
   compactionDecisionDiagnosticPatch,
   compactionDecisionToDiagnostic,
