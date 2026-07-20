@@ -303,8 +303,48 @@ describe('e2e-fixture mode', () => {
     assert.equal(liveTurns?.['e2e-fixture-permission']?.steps[0]?.tools[0]?.status, 'waiting_permission');
     const permission = state?.permissionBySession?.['e2e-fixture-permission'];
     assert.ok(permission);
-    assert.equal((permission.args as { command?: unknown }).command, 'rm -rf ./dist');
-    assert.equal(Object.hasOwn(permission.args as object, 'cmd'), false, 'fixture must match the current Bash input schema');
+    if (permission.kind !== 'tool_permission' || permission.review.kind !== 'command') {
+      assert.fail('fixture must expose a closed Bash command review');
+    }
+    assert.deepEqual(permission.review, {
+      kind: 'command',
+      command: 'rm -rf ./dist',
+      cwd: '/workspace/maka',
+    });
+    assert.deepEqual(liveTurns?.['e2e-fixture-permission']?.steps[0]?.tools[0]?.args, {
+      command: 'rm -rf ./dist',
+      cwd: '/workspace/maka',
+    });
+  });
+
+  it('persists public tool reviews without hosted raw args', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-tool-review-'));
+    try {
+      const fixture = resolveE2eFixture('all', false);
+      assert.ok(fixture);
+      await seedE2eFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      for (const sessionId of [
+        'e2e-fixture-turn',
+        'e2e-fixture-permission',
+        'e2e-fixture-artifact',
+      ]) {
+        const toolCalls = (await readSessionMessages(workspaceRoot, sessionId)).filter(
+          (message): message is { type: 'tool_call'; args?: unknown; review?: unknown } =>
+            (message as { type?: unknown }).type === 'tool_call',
+        );
+        assert.ok(toolCalls.length > 0, `${sessionId} must seed a tool call`);
+        assert.equal(toolCalls.every((message) => message.review !== undefined), true);
+        assert.equal(toolCalls.every((message) => !Object.hasOwn(message, 'args')), true);
+      }
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it('task-ledger fixture seeds the hierarchical desktop read model', async () => {

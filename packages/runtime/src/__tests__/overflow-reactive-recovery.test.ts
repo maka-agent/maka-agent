@@ -11,6 +11,7 @@ import { AiSdkBackend } from '../ai-sdk-backend.js';
 import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 
 const RAW_SPAN_ONE = 'RAW_SPAN_ONE_'.repeat(24);
@@ -323,6 +324,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     : {};
 
   const backend = new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async () => {

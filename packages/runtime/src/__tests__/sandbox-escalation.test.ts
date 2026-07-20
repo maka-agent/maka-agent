@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { PermissionEngine } from '../permission-engine.js';
+import { TestPermissionEngine } from '../test-helpers.js';
 import {
   DEFAULT_SANDBOX_ESCALATION_GRANT_TTL_MS,
   SandboxEscalationError,
@@ -74,7 +74,7 @@ describe('sandbox escalation planning and one-shot grants', () => {
   test('binds a grant to the exact command, cwd, intent, and one consumption', () => {
     let now = 100;
     let id = 0;
-    const engine = new PermissionEngine({ newId: () => `id-${++id}`, now: () => now });
+    const engine = new TestPermissionEngine({ newId: () => `id-${++id}`, now: () => now }, cwd);
     const plan = planDeclaredBashSandboxEscalation({
       declaration,
       command,
@@ -85,6 +85,7 @@ describe('sandbox escalation planning and one-shot grants', () => {
     assert.equal(plan.kind, 'request');
     if (plan.kind !== 'request') return;
     const verdict = engine.evaluate({
+      stage: 'sandbox_escalation',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -92,18 +93,19 @@ describe('sandbox escalation planning and one-shot grants', () => {
       args,
       mode: 'execute',
       cwd,
-      sandboxEscalationProposal: plan.proposal,
+      proposal: plan.proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
     assert.equal(verdict.event.kind, 'sandbox_escalation');
-    assert.equal(verdict.event.rememberForTurnAllowed, false);
+    if (verdict.event.kind !== 'sandbox_escalation') return;
+    assert.deepEqual(verdict.event.review, { kind: 'command', command, cwd });
+    assert.equal(verdict.event.alsoApprovesToolExecution, false);
     engine.recordResponse('turn-1', {
       requestId: verdict.event.requestId,
       decision: 'allow',
       reviewer: 'auto_review',
       riskLevel: 'high',
-      rationale: 'Exact action is authorized.',
     });
 
     assert.throws(
@@ -153,7 +155,7 @@ describe('sandbox escalation planning and one-shot grants', () => {
   test('expires an approved grant before execution', () => {
     let now = 100;
     let id = 0;
-    const engine = new PermissionEngine({ newId: () => `id-${++id}`, now: () => now });
+    const engine = new TestPermissionEngine({ newId: () => `id-${++id}`, now: () => now }, cwd);
     const plan = planDeclaredBashSandboxEscalation({
       declaration,
       command,
@@ -164,6 +166,7 @@ describe('sandbox escalation planning and one-shot grants', () => {
     assert.equal(plan.kind, 'request');
     if (plan.kind !== 'request') return;
     const verdict = engine.evaluate({
+      stage: 'sandbox_escalation',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -171,7 +174,7 @@ describe('sandbox escalation planning and one-shot grants', () => {
       args,
       mode: 'ask',
       cwd,
-      sandboxEscalationProposal: plan.proposal,
+      proposal: plan.proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;

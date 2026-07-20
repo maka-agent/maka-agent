@@ -20,7 +20,7 @@ function assistantMsg(turnId: string, ts: number, text: string, modelId = 'm', i
 }
 
 function toolCallMsg(turnId: string, ts: number, id: string, toolName = 'Bash'): StoredMessage {
-  return { type: 'tool_call', id, turnId, ts, toolName, args: {} };
+  return { type: 'tool_call', id, turnId, ts, toolName };
 }
 
 function toolResultMsg(turnId: string, ts: number, toolUseId: string, isError = false): StoredMessage {
@@ -406,7 +406,7 @@ describe('materializeTurns', () => {
 });
 
 function toolCallStep(turnId: string, ts: number, id: string, stepId: string, toolName = 'Read'): StoredMessage {
-  return { type: 'tool_call', id, turnId, ts, toolName, args: {}, stepId };
+  return { type: 'tool_call', id, turnId, ts, toolName, stepId };
 }
 
 function pipeOutput(stdout = '', stderr = '') {

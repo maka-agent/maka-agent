@@ -161,6 +161,28 @@ describe('local MEMORY.md contract', () => {
     assert.match(body, /api_key=\[redacted\]/);
   });
 
+  it('preserves later local memory content after partially proven secret spans', () => {
+    const body = buildLocalMemoryPromptBody(
+      [
+        '# Maka Memory',
+        '',
+        '## Imported notes',
+        '<!-- maka-memory: id=partial-secret origin=imported status=active -->',
+        'token=alpha/opaque-tail',
+        'Keep the first visible preference.',
+        'password=beta*opaque-tail',
+        'Keep the final visible preference.',
+      ].join('\n'),
+    );
+
+    assert.ok(body);
+    assert.match(body, /token=\[redacted\]/);
+    assert.doesNotMatch(body, /opaque-tail/);
+    assert.match(body, /Keep the first visible preference\./);
+    assert.match(body, /password=\[redacted\]/);
+    assert.match(body, /Keep the final visible preference\./);
+  });
+
   it('does not apply UI preview truncation to the prompt body', () => {
     const longPreference = `${'a'.repeat(520)}tail-marker`;
     const body = buildLocalMemoryPromptBody(

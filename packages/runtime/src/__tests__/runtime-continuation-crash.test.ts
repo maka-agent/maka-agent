@@ -13,6 +13,7 @@ import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from
 import { type RuntimeContinuationFailpoint } from '../agent-run.js';
 import { BackendRegistry, SessionManager } from '../session-manager.js';
 import { FakeBackend } from '../fake-backend.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 
 const CRASH_CHILD_ENV = 'MAKA_RUNTIME_CONTINUATION_CRASH_CHILD';
 const FAILPOINTS: readonly RuntimeContinuationFailpoint[] = [
@@ -93,6 +94,7 @@ async function runCrashChild(): Promise<void> {
     'fake',
     (ctx) =>
       new FakeBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: ctx.sessionId,
         header: ctx.header,
         store: ctx.store,
@@ -101,6 +103,7 @@ async function runCrashChild(): Promise<void> {
   );
   let id = 0;
   const manager = new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store,
     runStore,
     runtimeEventStore,
@@ -153,6 +156,7 @@ function createManager(workspaceRoot: string): SessionManager {
     'fake',
     (ctx) =>
       new FakeBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: ctx.sessionId,
         header: ctx.header,
         store: ctx.store,
@@ -161,6 +165,7 @@ function createManager(workspaceRoot: string): SessionManager {
   );
   let id = 100;
   return new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store,
     runStore,
     runtimeEventStore,

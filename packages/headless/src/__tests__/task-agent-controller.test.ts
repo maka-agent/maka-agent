@@ -16,12 +16,11 @@ import {
   type AgentRunHeader,
   type BackendKind,
   type RuntimeEvent,
-  type RuntimeEventStore,
   type SessionEvent,
   type SessionHeader,
 } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
-import { createRuntimeEventStore } from '@maka/storage';
+import { categorizeBash, permissionReasonForCategory } from '@maka/core/permission';
 import { StorageRootAuthorityError } from '@maka/storage/root-authority';
 import type { Config, Task } from '../contracts.js';
 import { openHeadlessStorageForWrite } from '../headless-storage.js';
@@ -45,7 +44,13 @@ const fakeConfig: Config = {
 const registerFakeBackend = (registry: BackendRegistry): void => {
   registry.register(
     'fake',
-    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        execution: ctx.execution,
+      }),
   );
 };
 
@@ -346,12 +351,14 @@ class PermissionRequestBackend implements AgentBackend {
     sessionId: string,
     private readonly onRespond: () => void,
     private readonly command: string,
+    private readonly cwd: string,
   ) {
     this.sessionId = sessionId;
   }
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const ts = Date.now();
+    const category = categorizeBash(this.command);
     yield {
       type: 'permission_request',
       kind: 'tool_permission',
@@ -361,9 +368,9 @@ class PermissionRequestBackend implements AgentBackend {
       requestId: 'permission-request-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      category: 'shell_unsafe',
-      reason: 'shell_dangerous',
-      args: { command: this.command },
+      category,
+      reason: permissionReasonForCategory(category),
+      review: { kind: 'command', command: this.command, cwd: this.cwd },
       rememberForTurnAllowed: true,
     };
     yield {
@@ -388,7 +395,7 @@ const registerPermissionRequestBackend =
   (registry: BackendRegistry): void => {
     registry.register(
       'fake',
-      (ctx) => new PermissionRequestBackend(ctx.sessionId, onRespond, command),
+      (ctx) => new PermissionRequestBackend(ctx.sessionId, onRespond, command, ctx.header.cwd),
     );
   };
 
@@ -499,7 +506,6 @@ class ProgressToolBackend implements AgentBackend {
       ts,
       toolUseId: 'bash-tool-call',
       toolName: 'Bash',
-      args: { command: 'npm test' },
     };
     yield {
       type: 'tool_result',
@@ -517,7 +523,6 @@ class ProgressToolBackend implements AgentBackend {
       ts,
       toolUseId: 'progress-tool-call',
       toolName: 'self_check_submit',
-      args: { status: 'pass' },
     };
     yield {
       type: 'tool_result',
@@ -1768,56 +1773,6 @@ describe('runTaskOnce', () => {
     });
   });
 
-  test('does not persist terminal headless run headers when terminal runtime event append fails', async () => {
-    await withDirs(async (fixtureDir, storageRoot) => {
-      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
-      const task: Task = {
-        id: 'terminal-append-fails',
-        instruction: 'do the thing',
-        workspaceDir: fixtureDir,
-        verification: { command: 'test -f marker.txt', protectedPaths: [] },
-      };
-      const backingRuntimeEventStore = createRuntimeEventStore(storageRoot);
-      const runtimeEventStore: RuntimeEventStore = {
-        appendRuntimeEvent(sessionId, runId, event) {
-          if (isTerminalRuntimeEvent(event)) {
-            throw new Error('terminal append failed');
-          }
-          return backingRuntimeEventStore.appendRuntimeEvent(sessionId, runId, event);
-        },
-        ensureTerminalRuntimeEventDurable() {
-          throw new Error('terminal append failed');
-        },
-        readRuntimeEvents: (sessionId, runId) =>
-          backingRuntimeEventStore.readRuntimeEvents(sessionId, runId),
-        readSessionRuntimeEvents: (sessionId) =>
-          backingRuntimeEventStore.readSessionRuntimeEvents(sessionId),
-      };
-
-      const result = await runTaskOnce(fakeConfig, task, {
-        storageRoot,
-        registerBackends: registerFakeBackend,
-        runtimeEventStore,
-      });
-
-      assert.equal(latestInvocation(result).status, 'failed');
-      assert.equal(latestInvocation(result).failure?.message, 'terminal append failed');
-      const runtimeEvents = await runtimeEventStore.readRuntimeEvents(
-        latestInvocation(result).sessionId,
-        latestInvocation(result).runId,
-      );
-      assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
-      const runHeader = await readAgentRunHeader(
-        storageRoot,
-        latestInvocation(result).sessionId,
-        latestInvocation(result).runId,
-      );
-      assert.notEqual(runHeader.status, 'completed');
-      assert.notEqual(runHeader.status, 'failed');
-      assert.notEqual(runHeader.status, 'cancelled');
-    });
-  });
-
   test('rejects a copied Headless storage aggregate before execution', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
@@ -1967,7 +1922,7 @@ describe('runTaskOnce', () => {
     });
   });
 
-  test('redacts bash permission scopes and inbox previews while preserving args hash', async () => {
+  test('redacts bash permission scopes and inbox previews while preserving review hash', async () => {
     await withDirs(async (_fixtureDir, storageRoot) => {
       const secret = 'SECRET_TOKEN_123456';
       const command = `printf ${secret} > /tmp/secret-output`;

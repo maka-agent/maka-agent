@@ -45,6 +45,14 @@ export class TurnScopedAwaitRegistry<TValue, TMetadata> {
     return request.metadata;
   }
 
+  rejectAll(turnId: string, error: Error): void {
+    const requests = this.turns.get(turnId);
+    if (!requests || requests.size === 0) return;
+    const parked = [...requests.values()];
+    requests.clear();
+    for (const request of parked) request.reject(error);
+  }
+
   endTurn(turnId: string, errorFor: (requestId: string, metadata: TMetadata) => Error): void {
     const requests = this.turns.get(turnId);
     if (!requests) return;

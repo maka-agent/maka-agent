@@ -1016,7 +1016,7 @@ function functionCallDigest(event: unknown): TrajectoryToolCallDigest | undefine
   if (content.kind !== 'function_call' || typeof content.name !== 'string') return undefined;
   return {
     name: content.name,
-    argsPreview: argsPreview(content.args),
+    argsPreview: argsPreview(content.review),
   };
 }
 
@@ -1064,7 +1064,7 @@ function modelVisibleStrings(event: unknown): readonly string[] {
   const content = event.content;
   if (content.kind === 'text' && typeof content.text === 'string') return [content.text];
   if (content.kind === 'thinking' && typeof content.text === 'string') return [content.text];
-  if (content.kind === 'function_call') return stringValues(content.args);
+  if (content.kind === 'function_call') return stringValues(content.review);
   if (content.kind === 'function_response') return stringValues(content.result);
   if (content.kind === 'error') return stringValues([content.message, content.details]);
   return [];
@@ -1080,6 +1080,7 @@ function stringValues(value: unknown): string[] {
 function argsPreview(args: unknown): string {
   if (!isRecord(args)) return typeof args;
   return Object.keys(args)
+    .filter((key) => !['kind', 'cwd', 'operation', 'root', 'action', 'targetKind'].includes(key))
     .map((key) => promptSafeToken(key, 'arg'))
     .sort((a, b) => a.localeCompare(b))
     .join(',');

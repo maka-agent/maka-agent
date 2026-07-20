@@ -40,12 +40,11 @@ export class RuntimePolicyDocumentOwner {
     if (value === undefined) {
       return { schemaVersion: SCHEMA_VERSION, revision: 0, policy: createDefaultRuntimePolicy() };
     }
-    const document = record(
-      value,
-      FILE,
-      'invalid_document',
-      ['schemaVersion', 'revision', 'policy'],
-    );
+    const document = record(value, FILE, 'invalid_document', [
+      'schemaVersion',
+      'revision',
+      'policy',
+    ]);
     if (document.schemaVersion !== SCHEMA_VERSION) {
       throw codecError('invalid_document', `${FILE} has an unsupported schema version`);
     }
@@ -56,7 +55,10 @@ export class RuntimePolicyDocumentOwner {
     };
   }
 
-  async mutate(root: string, rawInput: MutateRuntimePolicyInput): Promise<MutateRuntimePolicyResult> {
+  async mutate(
+    root: string,
+    rawInput: MutateRuntimePolicyInput,
+  ): Promise<MutateRuntimePolicyResult> {
     const input = parseMutationInput(rawInput);
     const current = await this.read(root);
     if (current.revision !== input.expectedRevision) {
@@ -81,18 +83,14 @@ export function policySnapshot(document: RuntimePolicyDocument): RuntimePolicySn
 }
 
 function parseMutationInput(value: unknown): MutateRuntimePolicyInput {
-  const input = record(
-    value,
-    'runtime policy mutation',
-    'invalid_policy_input',
-    ['expectedRevision', 'operation'],
-  );
-  const operation = record(
-    input.operation,
-    'runtime policy operation',
-    'invalid_policy_input',
-    ['kind', 'value'],
-  );
+  const input = record(value, 'runtime policy mutation', 'invalid_policy_input', [
+    'expectedRevision',
+    'operation',
+  ]);
+  const operation = record(input.operation, 'runtime policy operation', 'invalid_policy_input', [
+    'kind',
+    'value',
+  ]);
   const kind = operation.kind;
   const context = `runtime policy operation '${String(kind)}'`;
   let parsed: RuntimePolicyMutation;
@@ -101,13 +99,19 @@ function parseMutationInput(value: unknown): MutateRuntimePolicyInput {
       parsed = { kind, value: parseNetworkProxy(operation.value, context, 'invalid_policy_input') };
       break;
     case 'set_personalization':
-      parsed = { kind, value: parsePersonalization(operation.value, context, 'invalid_policy_input') };
+      parsed = {
+        kind,
+        value: parsePersonalization(operation.value, context, 'invalid_policy_input'),
+      };
       break;
     case 'set_memory':
       parsed = { kind, value: parseMemory(operation.value, context, 'invalid_policy_input') };
       break;
     case 'set_workspace_instructions':
-      parsed = { kind, value: parseWorkspaceInstructions(operation.value, context, 'invalid_policy_input') };
+      parsed = {
+        kind,
+        value: parseWorkspaceInstructions(operation.value, context, 'invalid_policy_input'),
+      };
       break;
     case 'set_privacy':
       parsed = { kind, value: parsePrivacy(operation.value, context, 'invalid_policy_input') };
@@ -122,20 +126,31 @@ function parseMutationInput(value: unknown): MutateRuntimePolicyInput {
       throw new RuntimePolicyStoreError('invalid_policy_input', `${context} is unknown`);
   }
   return {
-    expectedRevision: revision(input.expectedRevision, 'runtime policy expected revision', 'invalid_policy_input'),
+    expectedRevision: revision(
+      input.expectedRevision,
+      'runtime policy expected revision',
+      'invalid_policy_input',
+    ),
     operation: parsed,
   };
 }
 
 function applyMutation(policy: RuntimePolicy, operation: RuntimePolicyMutation): RuntimePolicy {
   switch (operation.kind) {
-    case 'set_network_proxy': return { ...policy, networkProxy: operation.value };
-    case 'set_personalization': return { ...policy, personalization: operation.value };
-    case 'set_memory': return { ...policy, memory: operation.value };
-    case 'set_workspace_instructions': return { ...policy, workspaceInstructions: operation.value };
-    case 'set_privacy': return { ...policy, privacy: operation.value };
-    case 'set_chat_defaults': return { ...policy, chatDefaults: operation.value };
-    case 'set_web_search': return { ...policy, webSearch: operation.value };
+    case 'set_network_proxy':
+      return { ...policy, networkProxy: operation.value };
+    case 'set_personalization':
+      return { ...policy, personalization: operation.value };
+    case 'set_memory':
+      return { ...policy, memory: operation.value };
+    case 'set_workspace_instructions':
+      return { ...policy, workspaceInstructions: operation.value };
+    case 'set_privacy':
+      return { ...policy, privacy: operation.value };
+    case 'set_chat_defaults':
+      return { ...policy, chatDefaults: operation.value };
+    case 'set_web_search':
+      return { ...policy, webSearch: operation.value };
   }
 }
 
@@ -151,7 +166,11 @@ function parseRuntimePolicy(value: unknown, context: string, source: CodecSource
   ]);
   return {
     networkProxy: parseNetworkProxy(policy.networkProxy, `${context}.networkProxy`, source),
-    personalization: parsePersonalization(policy.personalization, `${context}.personalization`, source),
+    personalization: parsePersonalization(
+      policy.personalization,
+      `${context}.personalization`,
+      source,
+    ),
     memory: parseMemory(policy.memory, `${context}.memory`, source),
     workspaceInstructions: parseWorkspaceInstructions(
       policy.workspaceInstructions,
@@ -164,7 +183,11 @@ function parseRuntimePolicy(value: unknown, context: string, source: CodecSource
   };
 }
 
-function parseNetworkProxy(value: unknown, context: string, source: CodecSource): RuntimePolicy['networkProxy'] {
+function parseNetworkProxy(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): RuntimePolicy['networkProxy'] {
   const item = record(value, context, source, [
     'enabled',
     'protocol',
@@ -178,11 +201,17 @@ function parseNetworkProxy(value: unknown, context: string, source: CodecSource)
   const enabled = boolean(item.enabled, `${context}.enabled`, source);
   const rawHost = string(item.host, `${context}.host`, 255, source);
   if (/[\u0000-\u001f\u007f-\u009f]/.test(rawHost)) {
-    throw new RuntimePolicyStoreError(source, `${context}.host must not contain control characters`);
+    throw new RuntimePolicyStoreError(
+      source,
+      `${context}.host must not contain control characters`,
+    );
   }
   const host = rawHost.trim();
   if (source === 'invalid_document' && host !== rawHost) {
-    throw new RuntimePolicyStoreError(source, `${context}.host must not contain surrounding whitespace`);
+    throw new RuntimePolicyStoreError(
+      source,
+      `${context}.host must not contain surrounding whitespace`,
+    );
   }
   if (enabled && host.length === 0) {
     throw new RuntimePolicyStoreError(source, `${context}.host must not be empty when enabled`);
@@ -198,11 +227,20 @@ function parseNetworkProxy(value: unknown, context: string, source: CodecSource)
     authEnabled: boolean(item.authEnabled, `${context}.authEnabled`, source),
     username: string(item.username, `${context}.username`, 256, source),
     bypassList: stringArray(item.bypassList, `${context}.bypassList`, 256, source),
-    autoBypassDomains: stringArray(item.autoBypassDomains, `${context}.autoBypassDomains`, 256, source),
+    autoBypassDomains: stringArray(
+      item.autoBypassDomains,
+      `${context}.autoBypassDomains`,
+      256,
+      source,
+    ),
   };
 }
 
-function parsePersonalization(value: unknown, context: string, source: CodecSource): RuntimePolicy['personalization'] {
+function parsePersonalization(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): RuntimePolicy['personalization'] {
   const item = record(value, context, source, ['displayName', 'assistantTone']);
   return {
     displayName: string(item.displayName, `${context}.displayName`, 256, source),
@@ -210,7 +248,11 @@ function parsePersonalization(value: unknown, context: string, source: CodecSour
   };
 }
 
-function parseMemory(value: unknown, context: string, source: CodecSource): RuntimePolicy['memory'] {
+function parseMemory(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): RuntimePolicy['memory'] {
   const item = record(value, context, source, ['enabled', 'agentReadEnabled']);
   return {
     enabled: boolean(item.enabled, `${context}.enabled`, source),
@@ -227,12 +269,20 @@ function parseWorkspaceInstructions(
   return { enabled: boolean(item.enabled, `${context}.enabled`, source) };
 }
 
-function parsePrivacy(value: unknown, context: string, source: CodecSource): RuntimePolicy['privacy'] {
+function parsePrivacy(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): RuntimePolicy['privacy'] {
   const item = record(value, context, source, ['incognitoActive']);
   return { incognitoActive: boolean(item.incognitoActive, `${context}.incognitoActive`, source) };
 }
 
-function parseChatDefaults(value: unknown, context: string, source: CodecSource): RuntimePolicy['chatDefaults'] {
+function parseChatDefaults(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): RuntimePolicy['chatDefaults'] {
   const item = record(value, context, source, ['permissionMode']);
   if (!(CHAT_DEFAULT_PERMISSION_MODES as readonly unknown[]).includes(item.permissionMode)) {
     throw new RuntimePolicyStoreError(source, `${context}.permissionMode is invalid`);
@@ -240,7 +290,11 @@ function parseChatDefaults(value: unknown, context: string, source: CodecSource)
   return { permissionMode: item.permissionMode as RuntimePolicy['chatDefaults']['permissionMode'] };
 }
 
-function parseWebSearch(value: unknown, context: string, source: CodecSource): RuntimePolicy['webSearch'] {
+function parseWebSearch(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): RuntimePolicy['webSearch'] {
   const item = record(value, context, source, ['enabled', 'defaultProvider']);
   if (!(WEB_SEARCH_PROVIDERS as readonly unknown[]).includes(item.defaultProvider)) {
     throw new RuntimePolicyStoreError(source, `${context}.defaultProvider is invalid`);

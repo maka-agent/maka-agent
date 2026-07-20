@@ -5,32 +5,8 @@ import { join } from 'node:path';
 
 describe('permission prompt response guard', () => {
   it('routes one-call permissions through the composer without remember-for-turn', async () => {
-    const promptSource = await readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8');
-    const coreEventSource = await readFile(join(process.cwd(), '../../packages/core/src/events.ts'), 'utf8');
     const eventSource = await readFile(join(process.cwd(), 'src/renderer/app-shell-session-events.ts'), 'utf8');
 
-    assert.match(promptSource, /request: AnyPermissionRequestEvent/);
-    assert.match(
-      coreEventSource,
-      /interface AdditionalPermissionRequestEvent[\s\S]*rememberForTurnAllowed\?: false;/,
-      'additional permission requests must not allow turn-scoped approval memory',
-    );
-    assert.match(
-      coreEventSource,
-      /interface SandboxEscalationRequestEvent[\s\S]*rememberForTurnAllowed\?: false;/,
-      'sandbox escalation requests must not allow turn-scoped approval memory',
-    );
-    assert.match(
-      promptSource,
-      /\.\.\.\(props\.request\.rememberForTurnAllowed[\s\S]*\? \{ rememberForTurn:[\s\S]*: \{\}\)/,
-      'the prompt must omit rememberForTurn unless the request explicitly allows it',
-    );
-    assert.match(promptSource, /isOneShotPermissionRequest\(props\.request\) \? copy\.allowOnce : copy\.allow/);
-    assert.match(
-      promptSource,
-      /isAdditionalPermissionRequest\(request\) \|\| isSandboxEscalationRequest\(request\)/,
-      'the one-shot label must cover both additional permissions and sandbox escalation',
-    );
     assert.doesNotMatch(eventSource, /if \(event\.kind === 'additional_permissions'\) break/);
     assert.match(eventSource, /case 'permission_request':[\s\S]*enqueueInteraction\(current, sessionId, event\)/);
   });

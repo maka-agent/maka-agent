@@ -14,10 +14,11 @@ import {
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import {
-  formatWriteStdinPermissionInspection,
+  isPublicToolIntentReview,
   mergeShellRunStateWithDiagnostics,
-  projectToolActivityArgs,
-  projectWriteStdinPermissionSummary,
+  projectWriteStdinInput,
+  type PublicToolIntentReview,
+  type PublicToolStdinReview,
   type ShellRunUpdate,
 } from '@maka/core';
 import { homedir } from 'node:os';
@@ -28,7 +29,6 @@ import { ansi } from './tui-ansi.js';
 import {
   fitLine,
   formatToolResultContent,
-  formatUnknown,
   limitText,
   markdownTheme,
   renderIndented,
@@ -423,7 +423,7 @@ export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolea
 
 export function togglePendingPermissionDetails(state: MakaPiTranscriptState): boolean {
   const request = activePermissionRequest(state);
-  if (request?.toolName !== 'WriteStdin') return false;
+  if (request?.kind !== 'tool_permission' || request.review.kind !== 'stdin') return false;
   state.expandedPermissionRequestId =
     state.expandedPermissionRequestId === request.requestId ? undefined : request.requestId;
   return true;
@@ -494,12 +494,12 @@ export function applyMakaSessionEventToTranscript(
       // parent card already carries the run's shell_run result — otherwise it
       // renders normally and the tool_result fold below still applies.
       if (event.toolName === 'Read' || event.toolName === 'StopBackgroundTask') {
-        const ref = readArgsRef(event.args);
+        const ref = event.review?.kind === 'runtime_resource' ? event.review.ref : undefined;
         if (ref && findShellRunParent(state, ref, event.toolUseId)) {
           state.pendingShellRunPolls.set(event.toolUseId, {
             toolName: event.toolName,
             ...(event.displayName ? { title: event.displayName } : {}),
-            input: projectToolActivityArgs(event.toolName, event.args),
+            input: projectToolReviewForTranscript(event.review),
           });
           break;
         }
@@ -509,7 +509,7 @@ export function applyMakaSessionEventToTranscript(
         toolUseId: event.toolUseId,
         toolName: event.toolName,
         ...(event.displayName ? { title: event.displayName } : {}),
-        input: projectToolActivityArgs(event.toolName, event.args),
+        input: projectToolReviewForTranscript(event.review),
         resultVersion: 0,
         progress: createProgressBuffer(),
         outputDeltas: createOutputBuffer(),
@@ -776,7 +776,9 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     toolUseId: item.toolUseId,
     toolName: item.toolName,
     ...(item.displayName ? { title: item.displayName } : {}),
-    input: item.args,
+    input: isPublicToolIntentReview(item.args)
+      ? projectToolReviewForTranscript(item.args)
+      : undefined,
     progress: createProgressBuffer(),
     outputDeltas: createOutputBuffer(),
     ...(item.result ? { result: item.result } : {}),
@@ -1477,11 +1479,105 @@ function findShellRunParent(
     );
 }
 
-/** The runtime-resource ref a tool call is aimed at, when the args carry one. */
-function readArgsRef(args: unknown): string | undefined {
-  const ref =
-    args !== null && typeof args === 'object' ? (args as { ref?: unknown }).ref : undefined;
-  return typeof ref === 'string' && ref.length > 0 ? ref : undefined;
+function projectToolReviewForTranscript(review: PublicToolIntentReview | undefined): unknown {
+  if (!review) return undefined;
+  switch (review.kind) {
+    case 'command':
+      return { command: review.command };
+    case 'path':
+      return { path: review.path };
+    case 'search':
+      switch (review.operation) {
+        case 'glob':
+          return { pattern: review.pattern, cwd: review.root };
+        case 'grep':
+          return {
+            pattern: review.pattern,
+            path: review.root,
+            ...(review.glob ? { glob: review.glob } : {}),
+          };
+        default: {
+          const exhaustive: never = review;
+          return exhaustive;
+        }
+      }
+    case 'stdin':
+      return {
+        ref: review.ref,
+        ...(review.input
+          ? {
+              inputPreview: {
+                ...projectWriteStdinInput(review.input.text),
+                bytes: review.input.bytes,
+              },
+            }
+          : {}),
+        ...(review.size ? { size: review.size } : {}),
+      };
+    case 'web':
+      return review.targetKind === 'query' ? { query: review.target } : { url: review.target };
+    case 'browser':
+      switch (review.action) {
+        case 'navigate':
+          return `Navigate to ${review.url}`;
+        case 'snapshot':
+          return 'Capture browser snapshot';
+        case 'click':
+          return `Click ${review.ref}`;
+        case 'type':
+          return `Type in ${review.ref}${review.submit ? ' and submit' : ''}`;
+        case 'wait':
+          return review.condition === 'duration'
+            ? `Wait ${review.seconds}s`
+            : `Wait for ${review.condition}: ${review.value}`;
+        case 'extract':
+          return review.selector
+            ? `Extract ${review.selector} from result ${review.start}`
+            : `Extract from result ${review.start}`;
+        default: {
+          const exhaustive: never = review;
+          return exhaustive;
+        }
+      }
+    case 'patch':
+      return { path: review.path };
+    case 'agent':
+      switch (review.operation) {
+        case 'spawn':
+          return review.profile;
+        case 'dispatch':
+          return review.member;
+        case 'swarm':
+          return [
+            `${review.itemCount} task${review.itemCount === 1 ? '' : 's'}`,
+            `concurrency ${review.concurrency}`,
+            ...(review.resumeCount > 0 ? [`resumed ${review.resumeCount}`] : []),
+            ...(review.profiles.length > 0 ? [`profiles ${review.profiles.join(', ')}`] : []),
+            ...(review.writeBack.length > 0
+              ? [`write-back ${review.writeBack.join(', ')}`]
+              : []),
+            ...(review.isolation.length > 0
+              ? [`isolation ${review.isolation.join(', ')}`]
+              : []),
+          ].join(' · ');
+        default: {
+          const exhaustive: never = review;
+          return exhaustive;
+        }
+      }
+    case 'runtime_resource':
+      return { ref: review.ref };
+    case 'skill':
+      return { name: review.name };
+    case 'question':
+      return `${review.questionCount} question${review.questionCount === 1 ? '' : 's'}`;
+    case 'computer_use':
+      return `Computer use: ${review.action.replaceAll('_', ' ')}`;
+    default: {
+      const exhaustive: never = review;
+      return exhaustive;
+    }
+  }
 }
 
 /**
@@ -1623,84 +1719,163 @@ function renderPermissionPrompt(
 ): string[] {
   const lines = [
     fitLine(
-      `${ansi.yellow(
-        request.kind === 'additional_permissions'
-          ? 'Additional permission required'
-          : request.kind === 'sandbox_escalation'
-            ? 'Unsandboxed execution approval required'
-            : 'Permission required',
-      )} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`,
+      `${ansi.yellow(permissionRequestTitle(request))} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`,
       width,
     ),
   ];
   const summary = permissionRequestSummary(request);
   if (summary) lines.push(...renderIndented(summary, width, 2));
-  if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
-  if (detailsExpanded && request.toolName === 'WriteStdin') {
-    const details = formatWriteStdinPermissionInspection(request.args);
-    if (details) {
-      lines.push(fitLine(ansi.dim('Full parameters'), width));
-      lines.push(...renderIndented(details, width, 2));
-    }
+  const stdinReview = permissionRequestStdinReview(request);
+  if (detailsExpanded && stdinReview) {
+    const details = [
+      `ref: ${stdinReview.ref}`,
+      ...(stdinReview.input ? [`input: ${stdinReview.input.text}`] : []),
+      ...(stdinReview.size ? [`size: ${stdinReview.size.cols}x${stdinReview.size.rows}`] : []),
+    ].join('\n');
+    lines.push(fitLine(ansi.dim('Full parameters'), width));
+    lines.push(...renderIndented(details, width, 2));
   }
-  const actions = request.rememberForTurnAllowed
+  const actions = permissionRequestAllowsTurnMemory(request)
     ? `${ansi.bold('y')}${ansi.dim('/Enter allow once')}  ${ansi.bold('a')}${ansi.dim(' allow for turn')}  ${ansi.bold('n')}${ansi.dim('/Esc deny')}`
     : `${ansi.bold('y')}${ansi.dim('/Enter allow once')}  ${ansi.bold('n')}${ansi.dim('/Esc deny')}`;
-  const detailsAction =
-    request.toolName === 'WriteStdin'
-      ? `  ${ansi.dim('Ctrl+O ' + (detailsExpanded ? 'hide' : 'show') + ' full parameters')}`
-      : '';
+  const detailsAction = stdinReview
+    ? `  ${ansi.dim('Ctrl+O ' + (detailsExpanded ? 'hide' : 'show') + ' full parameters')}`
+    : '';
   lines.push(fitLine(`${actions}${detailsAction}`, width));
   return lines;
 }
 
+function permissionRequestTitle(request: AnyPermissionRequestEvent): string {
+  switch (request.kind) {
+    case 'tool_permission':
+      return 'Permission required';
+    case 'additional_permissions':
+      return 'Additional permission required';
+    case 'sandbox_escalation':
+      return 'Unsandboxed execution approval required';
+    default: {
+      const exhaustive: never = request;
+      return exhaustive;
+    }
+  }
+}
+
+function permissionRequestAllowsTurnMemory(request: AnyPermissionRequestEvent): boolean {
+  switch (request.kind) {
+    case 'tool_permission':
+      return request.rememberForTurnAllowed;
+    case 'additional_permissions':
+    case 'sandbox_escalation':
+      return false;
+    default: {
+      const exhaustive: never = request;
+      return exhaustive;
+    }
+  }
+}
+
 function permissionRequestSummary(request: AnyPermissionRequestEvent): string {
-  if (request.kind === 'additional_permissions') {
-    const lines = [request.justification, `cwd: ${request.cwd}`];
-    for (const entry of request.additionalPermissions.fileSystem?.entries ?? []) {
-      lines.push(`${entry.access} ${entry.scope} ${entry.path}`);
+  switch (request.kind) {
+    case 'tool_permission':
+      return permissionToolReviewSummary(request.review);
+    case 'additional_permissions': {
+      const lines = [`cwd: ${request.review.cwd}`];
+      for (const entry of request.review.paths) {
+        lines.push(`${entry.access} ${entry.scope} ${entry.path}`);
+      }
+      if (request.review.networkEnabled) lines.push('network enabled for this call only');
+      if (request.risk.outsideWorkspace) lines.push('risk: outside workspace');
+      if (request.risk.protectedMetadata) lines.push('risk: protected metadata');
+      return limitText(lines.join('\n'), 1200);
     }
-    if (request.risk.networkEnabled) lines.push('network enabled for this call only');
-    if (request.risk.outsideWorkspace) lines.push('risk: outside workspace');
-    if (request.risk.protectedMetadata) lines.push('risk: protected metadata');
-    return limitText(lines.join('\n'), 1200);
-  }
-  if (request.kind === 'sandbox_escalation') {
-    return limitText(
-      [
-        request.justification,
-        `cwd: ${request.cwd}`,
-        `$ ${request.command}`,
-        'risk: unrestricted filesystem, network, and protected metadata access for this call',
-      ].join('\n'),
-      1200,
-    );
-  }
-  const args = request.args;
-  if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
-    const command = (args as { command?: unknown }).command;
-    if (typeof command === 'string' && command.trim()) return `$ ${command}`;
-  }
-  if (request.toolName === 'WriteStdin') {
-    const summary = projectWriteStdinPermissionSummary(args);
-    const lines: string[] = [];
-    if (summary.ref) {
-      lines.push(`ref: ${summary.ref.text}${summary.ref.truncated ? '…' : ''}`);
+    case 'sandbox_escalation':
+      return limitText(
+        [
+          `cwd: ${request.review.cwd}`,
+          `$ ${request.review.command}`,
+          'risk: unrestricted filesystem, network, and protected metadata access for this call',
+        ].join('\n'),
+        1200,
+      );
+    default: {
+      const exhaustive: never = request;
+      return exhaustive;
     }
-    if (summary.input) {
-      const suffix = summary.input.truncated ? `… · ${summary.input.bytes} bytes total` : '';
-      lines.push(`input: ${summary.input.text}${suffix}`);
+  }
+}
+
+function permissionToolReviewSummary(review: PublicToolIntentReview): string {
+  switch (review.kind) {
+    case 'command':
+      return limitText(`$ ${review.command}\ncwd: ${review.cwd}`, 1200);
+    case 'path':
+      return limitText(`${review.operation} ${review.path}\ncwd: ${review.cwd}`, 1200);
+    case 'search':
+      return limitText(
+        `${review.operation}: ${review.pattern}\nroot: ${review.root}\ncwd: ${review.cwd}`,
+        1200,
+      );
+    case 'stdin': {
+      const ref = projectWriteStdinInput(review.ref);
+      const input = review.input ? projectWriteStdinInput(review.input.text) : undefined;
+      const lines = [`ref: ${ref.text}${ref.truncated ? '…' : ''}`];
+      if (input && review.input) {
+        const suffix = input.truncated ? `… · ${review.input.bytes} bytes total` : '';
+        lines.push(`input: ${input.text}${suffix}`);
+      }
+      if (review.size) lines.push(`size: ${review.size.cols}x${review.size.rows}`);
+      return lines.join('\n');
     }
-    if (summary.size) lines.push(`size: ${summary.size.cols}x${summary.size.rows}`);
-    return lines.join('\n');
+    case 'web':
+      return `${review.targetKind}: ${review.target}`;
+    case 'browser':
+      return limitText(`browser ${review.action}`, 600);
+    case 'patch':
+      return limitText(`${review.operation} ${review.path}\ncwd: ${review.cwd}`, 1200);
+    case 'agent': {
+      switch (review.operation) {
+        case 'spawn':
+          return `spawn ${review.profile} · ${review.isolation} · ${review.writeBack}`;
+        case 'dispatch':
+          return `dispatch ${review.member}`;
+        case 'swarm':
+          return [
+            `swarm ${review.itemCount} task${review.itemCount === 1 ? '' : 's'}`,
+            `concurrency ${review.concurrency}`,
+            ...(review.resumeCount > 0 ? [`resumed ${review.resumeCount}`] : []),
+            ...(review.profiles.length > 0 ? [`profiles ${review.profiles.join(', ')}`] : []),
+            ...(review.writeBack.length > 0
+              ? [`write-back ${review.writeBack.join(', ')}`]
+              : []),
+            ...(review.isolation.length > 0
+              ? [`isolation ${review.isolation.join(', ')}`]
+              : []),
+          ].join(' · ');
+        default: {
+          const exhaustive: never = review;
+          return exhaustive;
+        }
+      }
+    }
+    case 'runtime_resource':
+      return `${review.operation} ${review.ref}`;
+    case 'skill':
+      return `skill: ${review.name}`;
+    case 'question':
+      return `${review.questionCount} question${review.questionCount === 1 ? '' : 's'}`;
+    case 'computer_use':
+      return `computer use: ${review.action}`;
+    default: {
+      const exhaustive: never = review;
+      return exhaustive;
+    }
   }
-  if (
-    (request.toolName === 'Write' || request.toolName === 'Edit') &&
-    args !== null &&
-    typeof args === 'object'
-  ) {
-    const path = (args as { path?: unknown }).path;
-    if (typeof path === 'string' && path.trim()) return path;
-  }
-  return limitText(formatUnknown(request.args), 600);
+}
+
+function permissionRequestStdinReview(
+  request: AnyPermissionRequestEvent,
+): PublicToolStdinReview | undefined {
+  return request.kind === 'tool_permission' && request.review.kind === 'stdin'
+    ? request.review
+    : undefined;
 }

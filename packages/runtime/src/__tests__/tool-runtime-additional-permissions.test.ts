@@ -37,6 +37,7 @@ function createHarness(cwd = '/tmp'): Harness {
   });
   permissionEngine.beginTurn('turn-1');
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: testHeader(cwd),
     connection: testConnection(),
@@ -149,7 +150,13 @@ describe('ToolRuntime additional permission orchestration', () => {
       abortSignal: new AbortController().signal,
     });
 
+    const baseRequest = await waitForToolPermissionRequest(harness.events);
+    harness.permissionEngine.recordResponse('turn-1', {
+      requestId: baseRequest.requestId,
+      decision: 'allow',
+    });
     const request = await waitForAdditionalRequest(harness.events);
+    assert.equal(request.alsoApprovesToolExecution, false);
     harness.permissionEngine.recordResponse('turn-1', {
       requestId: request.requestId,
       decision: 'deny',
@@ -168,6 +175,7 @@ describe('ToolRuntime additional permission orchestration', () => {
       name: 'Bash',
       description: 'test',
       parameters: {},
+      permissionRequired: false,
       planAdditionalPermissions: () => ({ kind: 'request', proposal }),
       impl: () => {
         implementationCalled = true;
@@ -262,6 +270,7 @@ describe('ToolRuntime additional permission orchestration', () => {
         name: 'Write',
         description: 'test',
         parameters: {},
+        permissionRequired: false,
         planAdditionalPermissions: () => ({ kind: 'request', proposal }),
         impl: () => {
           implementationCalled = true;
@@ -303,6 +312,22 @@ async function waitForAdditionalRequest(
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
   throw new Error('Timed out waiting for an additional permission request.');
+}
+
+async function waitForToolPermissionRequest(
+  events: readonly SessionEvent[],
+): Promise<Extract<SessionEvent, { type: 'permission_request'; kind: 'tool_permission' }>> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const request = events.find(
+      (
+        event,
+      ): event is Extract<SessionEvent, { type: 'permission_request'; kind: 'tool_permission' }> =>
+        event.type === 'permission_request' && event.kind === 'tool_permission',
+    );
+    if (request) return request;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error('Timed out waiting for a tool permission request.');
 }
 
 function testHeader(cwd: string): SessionHeader {

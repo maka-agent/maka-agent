@@ -63,7 +63,7 @@ describe('SettingsStore.usageStats request logs', () => {
           ts: 11,
           toolName: 'Bash',
           displayName: '终端',
-          args: { cmd: 'pwd' },
+          review: { kind: 'command', command: 'pwd', cwd: '/tmp/maka-workspace' },
         },
         {
           type: 'tool_result',

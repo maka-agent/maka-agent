@@ -373,7 +373,7 @@ describe('storage root authority', () => {
     });
   });
 
-  test('keeps the owner lock until an admitted lease operation drains', async () => {
+  test('fences new owner operations before draining and releasing the owner lock', async () => {
     await withRoots(async ({ root }) => {
       const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
       const owner = await tryAcquireInteractiveRootOwner(capability);
@@ -394,7 +394,8 @@ describe('storage root authority', () => {
       });
       await admitted;
 
-      const closing = owner.close();
+      owner.beginClose();
+      owner.beginClose();
       assert.equal(owner.closed, true);
       assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
       await assert.rejects(
@@ -403,8 +404,14 @@ describe('storage root authority', () => {
           error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
 
+      const closing = owner.close();
+      assert.equal(owner.close(), closing);
+      assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
+
       releaseOperation();
       await Promise.all([operation, closing]);
+      assert.equal(owner.close(), closing);
+      owner.beginClose();
       const successor = await tryAcquireInteractiveRootOwner(capability);
       assert.ok(successor);
       await successor?.close();

@@ -23,6 +23,8 @@ import type {
   PrefixChangeReason,
   PromptSegmentEstimate,
 } from './usage-stats/types.js';
+import { INTERACTION_ID_MAX_BYTES } from './interaction.js';
+import { isPublicToolIntentReview, type PublicToolIntentReview } from './tool-intent.js';
 import {
   defineObjectShape,
   hasExactShape,
@@ -38,6 +40,8 @@ import {
   isUserQuestionRequest,
 } from './interaction-record-schema.js';
 import { isTokenUsageFields } from './usage-record-schema.js';
+
+const RUNTIME_EVENT_UTF8_ENCODER = new TextEncoder();
 
 // ============================================================================
 // Role / Author / Status
@@ -150,7 +154,10 @@ export interface RuntimeEventFunctionCallContent {
   /** Matches the tool-call id the provider issued and the matching response. */
   id: string;
   name: string;
-  args: unknown;
+  /** Embedded-only provider input snapshot. Hosted ledgers must omit it. */
+  args?: unknown;
+  /** Closed public projection available in every execution mode. */
+  review?: PublicToolIntentReview;
 }
 
 export interface RuntimeEventFunctionResponseContent {
@@ -299,6 +306,8 @@ export interface RuntimeEventRefs {
   storedMessageId?: string;
   traceEventId?: string;
   toolCallId?: string;
+  /** Host-owned Interaction Store identity for permission/question requests. */
+  interactionId?: string;
   providerEventId?: string;
   /** Trace-group id linking aggregate usage to physical provider attempts. */
   providerRequestTraceId?: string;
@@ -385,8 +394,8 @@ const THINKING_CONTENT_SHAPE = defineObjectShape<RuntimeEventThinkingContent>()(
   ['signature'],
 );
 const FUNCTION_CALL_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionCallContent>()(
-  ['kind', 'id', 'name', 'args'],
-  [],
+  ['kind', 'id', 'name'],
+  ['args', 'review'],
 );
 const FUNCTION_RESPONSE_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionResponseContent>()(
   ['kind', 'id', 'name', 'result'],
@@ -456,6 +465,7 @@ const RUNTIME_REFS_SHAPE = defineObjectShape<RuntimeEventRefs>()(
     'storedMessageId',
     'traceEventId',
     'toolCallId',
+    'interactionId',
     'providerEventId',
     'providerRequestTraceId',
     'artifactId',
@@ -515,7 +525,7 @@ function isRuntimeEventContent(value: unknown): value is RuntimeEventContent {
         hasExactShape(value, FUNCTION_CALL_CONTENT_SHAPE) &&
         typeof value.id === 'string' &&
         typeof value.name === 'string' &&
-        Object.hasOwn(value, 'args')
+        (value.review === undefined || isPublicToolIntentReview(value.review))
       );
     case 'function_response':
       return (
@@ -598,6 +608,7 @@ function isRuntimeEventRefs(value: unknown): value is RuntimeEventRefs {
       value.storedMessageId,
       value.traceEventId,
       value.toolCallId,
+      value.interactionId,
       value.providerEventId,
       value.providerRequestTraceId,
       value.artifactId,
@@ -607,6 +618,11 @@ function isRuntimeEventRefs(value: unknown): value is RuntimeEventRefs {
       value.sourceRunId,
       value.sourceTurnId,
     ].every(isOptionalString) &&
+    (value.interactionId === undefined ||
+      (typeof value.interactionId === 'string' &&
+        value.interactionId.length > 0 &&
+        RUNTIME_EVENT_UTF8_ENCODER.encode(value.interactionId).byteLength <=
+          INTERACTION_ID_MAX_BYTES)) &&
     (value.sourceRuntimeEventHighWater === undefined ||
       (typeof value.sourceRuntimeEventHighWater === 'number' &&
         Number.isSafeInteger(value.sourceRuntimeEventHighWater) &&

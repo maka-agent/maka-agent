@@ -111,9 +111,7 @@ export function authenticateHeadlessStorageReader(
   return storage;
 }
 
-export function isStorageRootAuthorityError(
-  error: unknown,
-): error is StorageRootAuthorityError {
+export function isStorageRootAuthorityError(error: unknown): error is StorageRootAuthorityError {
   return error instanceof StorageRootAuthorityError;
 }
 

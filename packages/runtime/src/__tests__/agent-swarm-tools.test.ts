@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { LlmConnection, SessionEvent, SessionHeader, ToolInvocationRecord } from '@maka/core';
+import type { LlmConnection, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
 import {
   AGENT_SWARM_DEFAULT_CONCURRENCY,
   AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS,
@@ -25,6 +25,7 @@ import { buildChildAgentTools, AGENT_TOOL_NAMES } from '../subagent-tools.js';
 import type { SpawnChildAgentResult } from '../session-manager.js';
 import { PermissionEngine } from '../permission-engine.js';
 import type { RunTraceLike } from '../run-trace.js';
+import type { RuntimeHostedRunControl } from '../run-execution.js';
 import {
   MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
   ToolRuntime,
@@ -63,6 +64,32 @@ describe('AgentSwarm adapter', () => {
             item_id: 'auth',
             profile: LOCAL_READ_AGENT_PROFILE,
             task: 'Inspect auth.',
+          },
+        ],
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.deepEqual(
+      tool.prepareIntentArgs?.(
+        {
+          items: [
+            {
+              item_id: 'auth',
+              profile: LOCAL_READ_AGENT_PROFILE,
+              task: 'Inspect auth.',
+            },
+          ],
+        },
+        { sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-swarm' },
+      ),
+      {
+        items: [
+          {
+            item_id: 'auth',
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Inspect auth.',
+            write_back: AGENT_WRITE_BACK_SUMMARY,
+            isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
           },
         ],
         max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
@@ -240,7 +267,8 @@ describe('AgentSwarm adapter', () => {
   });
 
   test('accepts resume-only input and enforces the shared total item bound', () => {
-    const schema = buildAgentSwarmTool().parameters as {
+    const tool = buildAgentSwarmTool();
+    const schema = tool.parameters as {
       safeParse(input: unknown): { success: boolean; data?: AgentSwarmToolInput };
     };
     expectSchemaSuccess(
@@ -255,6 +283,39 @@ describe('AgentSwarm adapter', () => {
           'run-a': 'Continue the runtime review.',
           'run-b': 'Continue the UI review.',
         },
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.deepEqual(
+      tool.prepareIntentArgs?.(
+        {
+          resume_run_ids: {
+            'run-a': 'Continue the runtime review.',
+            'run-b': 'Continue the UI review.',
+          },
+        },
+        { sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-swarm' },
+      ),
+      {
+        items: [],
+        resume_run_ids: {
+          'run-a': 'Continue the runtime review.',
+          'run-b': 'Continue the UI review.',
+        },
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.deepEqual(
+      tool.prepareIntentArgs?.(
+        {
+          items: [swarmItem(0)],
+          resume_run_ids: { 'run-a': 'Continue the runtime review.' },
+        },
+        { sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-swarm' },
+      ),
+      {
+        items: [swarmItem(0)],
+        resume_run_ids: { 'run-a': 'Continue the runtime review.' },
         max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
       },
     );
@@ -806,7 +867,8 @@ describe('AgentSwarm adapter', () => {
     assert.ok(
       traceEvents.some(
         (event) =>
-          event.data?.boundary === 'subagent_tool_admission' &&
+          event.type === 'tool_failed' &&
+          event.message === 'Tool execution rejected by runtime limit' &&
           event.data?.errorClass === 'RuntimeLimit',
       ),
     );
@@ -814,18 +876,12 @@ describe('AgentSwarm adapter', () => {
     await Promise.all(pending.slice(0, -1));
   });
 
-  test('persists partial as settled and cancellation as interrupted', async () => {
+  test('persists the complete partial result and cancellation as interrupted', async () => {
     const events: SessionEvent[] = [];
-    const telemetry: ToolInvocationRecord[] = [];
-    const runtime = buildRuntime(
-      async (input) => {
-        const index = Number(input.prompt.slice('task-'.length));
-        return childResult(index, index === 1 ? 'failed' : 'completed');
-      },
-      {
-        recordToolInvocation: (record) => telemetry.push(record),
-      },
-    );
+    const runtime = buildRuntime(async (input) => {
+      const index = Number(input.prompt.slice('task-'.length));
+      return childResult(index, index === 1 ? 'failed' : 'completed');
+    });
     const swarmTool = {
       ...buildAgentSwarmTool(),
       permissionRequired: false,
@@ -853,35 +909,44 @@ describe('AgentSwarm adapter', () => {
       'tool-cancelled',
     );
 
-    assert.equal(
-      events.find(
-        (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
-          event.type === 'tool_result' && event.toolUseId === 'tool-partial',
-      )?.isError,
-      false,
+    const partial = events.find(
+      (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
+        event.type === 'tool_result' && event.toolUseId === 'tool-partial',
     );
-    assert.equal(
-      events.find(
-        (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
-          event.type === 'tool_result' && event.toolUseId === 'tool-cancelled',
-      )?.isError,
-      true,
+    const cancelled = events.find(
+      (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
+        event.type === 'tool_result' && event.toolUseId === 'tool-cancelled',
     );
+    assert.equal(partial?.isError, false);
+    assert.equal(partial?.content.kind, 'agent_swarm');
     assert.deepEqual(
-      telemetry.find((record) => record.toolCallId === 'tool-partial')?.resultSummary,
-      {
-        kind: 'agent_swarm',
-        status: 'partial',
-        itemCount: 2,
-        startedItemCount: 2,
-        completedItemCount: 1,
-        failedItemCount: 1,
-        cancelledItemCount: 0,
-        artifactCount: 2,
-      },
+      partial?.content.kind === 'agent_swarm'
+        ? partial.content.items.map((item) => ({
+            itemId: item.itemId,
+            status: item.status,
+            summary: item.summary,
+            artifactIds: item.artifactIds,
+          }))
+        : [],
+      [
+        {
+          itemId: 'item-0',
+          status: 'completed',
+          summary: 'summary-0',
+          artifactIds: ['artifact-0'],
+        },
+        {
+          itemId: 'item-1',
+          status: 'failed',
+          summary: 'summary-1',
+          artifactIds: ['artifact-1'],
+        },
+      ],
     );
+    assert.equal(cancelled?.isError, true);
+    assert.equal(cancelled?.content.kind, 'agent_swarm');
     assert.equal(
-      telemetry.find((record) => record.toolCallId === 'tool-cancelled')?.resultSummary?.status,
+      cancelled?.content.kind === 'agent_swarm' && cancelled.content.status,
       'cancelled',
     );
   });
@@ -915,6 +980,17 @@ describe('AgentSwarm adapter', () => {
         event.type === 'permission_request',
     );
     assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.kind, 'tool_permission');
+    if (requests[0]?.kind === 'tool_permission') {
+      const review = JSON.stringify(requests[0].review);
+      assert.match(review, /"itemCount":2/);
+      assert.match(review, /"concurrency":3/);
+      assert.match(review, /local_read/);
+      assert.match(review, /summary/);
+      assert.match(review, /same_workspace/);
+      assert.doesNotMatch(review, /task-0|task-1|item-0|item-1/);
+      assert.equal(requests[0].rememberForTurnAllowed, false);
+    }
     permissionEngine.recordResponse('turn-1', {
       requestId: requests[0]!.requestId,
       decision: 'deny',
@@ -922,6 +998,60 @@ describe('AgentSwarm adapter', () => {
 
     assert.deepEqual(await pending, { error: '用户已拒绝权限请求' });
     assert.equal(starts, 0);
+  });
+
+  test('hosted ledgers expose only the swarm review while execution keeps full results', async () => {
+    const messages: StoredMessage[] = [];
+    const events: SessionEvent[] = [];
+    const control: RuntimeHostedRunControl = {
+      runId: 'parent-run',
+      turnId: 'turn-1',
+      interactions: {} as never,
+      hasStopClaim: () => false,
+      claimFailure: () => {},
+      fail: () => {},
+      runSuccessorEffect: (_kind, operation) => operation(),
+    };
+    const runtime = buildRuntime(async (input) => childResultForPrompt(input.prompt), {
+      execution: { kind: 'hosted', requireRunControl: () => control },
+      messages,
+    });
+    const result = await executeTool(
+      runtime,
+      { ...buildAgentSwarmTool(), permissionRequired: false },
+      {
+        items: [
+          { item_id: 'private-a', profile: LOCAL_READ_AGENT_PROFILE, task: 'private task alpha' },
+          { item_id: 'private-b', profile: LOCAL_READ_AGENT_PROFILE, task: 'private task beta' },
+        ],
+      },
+      new AbortController(),
+      events,
+      'tool-hosted-swarm',
+    );
+
+    assert.equal((result as AgentSwarmToolResult).kind, 'agent_swarm');
+    assert.equal((result as AgentSwarmToolResult).items.length, 2);
+    const call = messages.find((message) => message.type === 'tool_call');
+    const start = events.find((event) => event.type === 'tool_start');
+    const toolResult = events.find(
+      (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
+        event.type === 'tool_result',
+    );
+    assert.ok(call?.type === 'tool_call');
+    assert.ok(start?.type === 'tool_start');
+    assert.equal(Object.hasOwn(call, 'args'), false);
+    assert.equal(Object.hasOwn(start, 'args'), false);
+    assert.deepEqual(start.review, call.review);
+    assert.doesNotMatch(
+      JSON.stringify({ call, start }),
+      /private task alpha|private task beta|private-a|private-b/,
+    );
+    assert.equal(toolResult?.content.kind, 'agent_swarm');
+    assert.equal(
+      toolResult?.content.kind === 'agent_swarm' ? toolResult.content.items.length : 0,
+      2,
+    );
   });
 
   test('child tool construction excludes agent_swarm', () => {
@@ -977,7 +1107,7 @@ function childResult(
 
 function childResultForPrompt(prompt: string): SpawnChildAgentResult {
   const index = prompt === 'single' ? 99 : Number(prompt.slice('task-'.length));
-  return childResult(index);
+  return childResult(Number.isFinite(index) ? index : 0);
 }
 
 function preparedResume(sourceRunId: string) {
@@ -1044,7 +1174,8 @@ function buildRuntime(
     permissionEngine?: PermissionEngine;
     permissionMode?: SessionHeader['permissionMode'];
     traceEvents?: TestTraceEvent[];
-    recordToolInvocation?: ConstructorParameters<typeof ToolRuntime>[0]['recordToolInvocation'];
+    execution?: ConstructorParameters<typeof ToolRuntime>[0]['execution'];
+    messages?: StoredMessage[];
   } = {},
 ): ToolRuntime {
   const permissionEngine =
@@ -1055,19 +1186,20 @@ function buildRuntime(
     });
   permissionEngine.beginTurn('turn-1');
   return new ToolRuntime({
+    execution: options.execution ?? { kind: 'embedded', getCurrentRunId: () => 'parent-run' },
     sessionId: 'session-1',
     header: testHeader(options.permissionMode),
     connection: testConnection(),
     modelId: 'mock-model',
-    appendMessage: async () => {},
+    appendMessage: async (message) => {
+      options.messages?.push(message);
+    },
     permissionEngine,
     newId: nextId(),
     now: () => 1,
     getPermissionPauseTarget: () => null,
-    getCurrentRunId: () => 'parent-run',
     spawnChildAgent,
     ...(options.traceEvents ? { getRunTrace: () => testTrace(options.traceEvents!) } : {}),
-    ...(options.recordToolInvocation ? { recordToolInvocation: options.recordToolInvocation } : {}),
   });
 }
 

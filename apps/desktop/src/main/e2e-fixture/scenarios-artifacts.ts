@@ -31,8 +31,12 @@ export function artifactMessages(now: number): StoredMessage[] {
       ts: now - 7 * 60_000 + 1_000,
       toolName: 'Write',
       displayName: '写入生成文件',
-      intent: '生成 report.html / patch.diff / notes.md 三个生成文件',
-      args: { path: 'artifacts/e2e-fixture' },
+      review: {
+        kind: 'path',
+        operation: 'write',
+        path: 'artifacts/e2e-fixture',
+        cwd: '/workspace/maka',
+      },
     },
     {
       type: 'assistant',

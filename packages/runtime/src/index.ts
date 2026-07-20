@@ -37,6 +37,57 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 export { renderSwarmModePrompt } from './swarm-mode.js';
+export {
+  RuntimeInteractionAdmissionRejectedError,
+  RuntimeInteractionClosedError,
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+} from './interaction-authority.js';
+export {
+  COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED,
+  EMBEDDED_RUNTIME_EXECUTION,
+  RUNTIME_BIND_HOSTED_RUN,
+  RUNTIME_EXECUTION_SETTLED,
+} from './run-execution.js';
+export {
+  classifyRuntimeLifecycleError,
+  isRuntimeLifecycleAdmission,
+  isRuntimeLifecycleAdmissionOrFatal,
+  isRuntimeLifecycleClosure,
+  isRuntimeLifecycleControlError,
+  isRuntimeLifecycleFatal,
+} from './runtime-lifecycle-errors.js';
+export type {
+  RuntimeCompositionSuccessorEffectsIsolated,
+  RuntimeBackendExecutionCapability,
+  RuntimeExecutionCapability,
+  RuntimeExecutionDrainHandle,
+  RuntimeHostedBackend,
+  RuntimeHostedBackendRunBinding,
+  RuntimeHostedRunControl,
+  RuntimeInteractionFailStopHandle,
+  RuntimeExecutionSettled,
+  RuntimeSuccessorEffectKind,
+  RuntimeSuccessorEffectIsolationCause,
+} from './run-execution.js';
+export type {
+  RuntimeInteractionAdmissionRejectionReason,
+  RuntimeInteractionAuthority,
+  RuntimeInteractionContinuationAuthority,
+  RuntimeInteractionClosureReason,
+  RuntimeInteractionContinuationIdentity,
+  RuntimeInteractionFatalError,
+  RuntimeInteractionRunClosureReason,
+  RuntimeInteractionRunFacet,
+  RuntimeInteractionRunIdentity,
+  RuntimeInteractionRunOwner,
+  RuntimePermissionAnswer,
+  RuntimePermissionContinuation,
+  RuntimePermissionOutcome,
+  RuntimeUserQuestionAnswer,
+  RuntimeUserQuestionContinuation,
+  RuntimeUserQuestionOutcome,
+} from './interaction-authority.js';
 
 export {
   MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
@@ -982,6 +1033,7 @@ export type {
 } from './runtime-read-model.js';
 export { RuntimeKernel } from './runtime-kernel.js';
 export type {
+  ChildTurnStartOptions,
   RuntimeKernelDeps,
   RuntimeKernelLike,
   TurnStartOptions,

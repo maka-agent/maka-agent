@@ -18,7 +18,11 @@ import { connect, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
-import { connectOrSpawnRuntimeHost, connectRuntimeHost } from '../client/index.js';
+import {
+  connectOrSpawnRuntimeHost,
+  connectRuntimeHost,
+  RuntimeHostOperationError,
+} from '../client/index.js';
 import { connectOrSpawnRuntimeHostWithDependencies } from '../client/connect-or-spawn.js';
 import {
   launchDetachedRuntimeHostCandidate,
@@ -26,7 +30,7 @@ import {
   type DetachedCandidateLaunch,
   type DetachedCandidateInput,
 } from '../client/launcher.js';
-import { readHostRegistration } from '../control/registration.js';
+import { readHostRegistration, RUNTIME_HOST_REGISTRATION_FILE } from '../control/registration.js';
 import {
   decodeHostFrame,
   RUNTIME_HOST_MAX_FRAME_BYTES,
@@ -40,16 +44,24 @@ import {
   type RuntimeHostCandidateOptions,
   type RuntimeHostCandidateResult,
 } from '../server/index.js';
+import { createExecutionRuntimeHostComposition } from '../server/execution-composition.js';
+import {
+  createUnavailableDomainOperationHandlers,
+  type OperationHandlerMap,
+} from '../server/operation-dispatcher.js';
 import { FramedTransport, RuntimeHostTransportError } from '../transport/framed-transport.js';
+import { FAKE_ASK_USER_QUESTION_PROMPT, RuntimeInteractionFailStopError } from '@maka/runtime';
 import {
   prepareStorageRootControlDirectory,
   resolveRootControlNamespace,
   resolveStorageRoot,
+  runWithStorageRootLease,
   STORAGE_ROOT_MARKER_FILE,
   StorageRootAuthorityError,
   tryAcquireInteractiveRootOwner,
   type StorageRootCapability,
 } from '@maka/storage/root-authority';
+import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 
 const CURRENT_PROTOCOL = {
   min: RUNTIME_HOST_PROTOCOL_VERSION,
@@ -512,6 +524,188 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 
+  test('does not open ready admission when ready registration publication fails', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      const recoveryEntered = deferred<void>();
+      const releaseRecovery = deferred<void>();
+      const handlers = createUnavailableDomainOperationHandlers();
+      handlers['turn.start'] = async (input) => ({
+        ok: true,
+        result: {
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          runId: 'unexpected-run',
+          status: 'running',
+        },
+      });
+      const startup = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async () => ({
+          handlers,
+          recover: async () => {
+            recoveryEntered.resolve();
+            await releaseRecovery.promise;
+          },
+          close: async () => ({ kind: 'clean' }),
+        }),
+      });
+      const startupOutcome = observeStartup(startup);
+      let transport: FramedTransport | undefined;
+      const registrationPath = join(owner.controlDirectory, RUNTIME_HOST_REGISTRATION_FILE);
+      try {
+        await recoveryEntered.promise;
+        const registration = await readHostRegistration(owner.controlDirectory);
+        assert.ok(registration);
+        assert.equal(registration.state, 'recovering');
+        transport = await openAcceptedTransport(registration.endpoint, 'ready-publication-client');
+
+        await unlink(registrationPath);
+        await mkdir(registrationPath);
+        const request = JSON.stringify({
+          requestId: 'ready-publication-turn',
+          operation: 'turn.start',
+          input: {
+            sessionId: 'session',
+            turnId: 'turn',
+            text: 'must remain fenced',
+          },
+        });
+        await writeSocket(transport.socket, request);
+        releaseRecovery.resolve();
+        await writeSocket(transport.socket, '\n');
+
+        const response = decodeHostFrame(await transport.read(2_000));
+        const outcome = await startupOutcome;
+        assert.equal(outcome.kind, 'failed');
+        assert.ok(!('kind' in response));
+        assert.equal(response.requestId, 'ready-publication-turn');
+        assert.equal(response.operation, 'turn.start');
+        assert.equal(response.ok, false);
+        if (!response.ok) assert.equal(response.error.code, 'host_not_ready');
+        assert.equal(owner.closed, true);
+      } finally {
+        releaseRecovery.resolve();
+        transport?.destroy();
+        await rm(registrationPath, { recursive: true, force: true });
+      }
+
+      const successor = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(successor);
+      await successor?.close();
+    });
+  });
+
+  test('startup abort drains an issued operation before composition close and owner release', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      const operationEntered = deferred<void>();
+      const releaseOperation = deferred<void>();
+      const operationFinished = deferred<void>();
+      const recoveryEntered = deferred<void>();
+      const failRecovery = deferred<void>();
+      const startupFailure = new Error('controlled startup recovery failure');
+      const lifecycleEvents: string[] = [];
+      const handlers = createUnavailableDomainOperationHandlers();
+      // Hold one real pre-ready kernel token across the controlled recovery failure.
+      Object.assign(handlers, {
+        'host.status': (async (_input, context) => {
+          lifecycleEvents.push('operation_entered');
+          operationEntered.resolve();
+          await releaseOperation.promise;
+          lifecycleEvents.push('operation_finished');
+          operationFinished.resolve();
+          return {
+            ok: true,
+            result: {
+              hostEpoch: context.hostEpoch,
+              state: 'recovering',
+              connections: 1,
+              activeOperations: 1,
+              activeResidencies: 0,
+            },
+          };
+        }) satisfies OperationHandlerMap['host.status'],
+      });
+      const startup = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async () => ({
+          handlers,
+          beginDrain: () => {
+            lifecycleEvents.push('composition_draining');
+          },
+          recover: async () => {
+            recoveryEntered.resolve();
+            await failRecovery.promise;
+            throw startupFailure;
+          },
+          close: async () => {
+            lifecycleEvents.push('composition_closed');
+            assert.equal(owner.closed, false);
+            return { kind: 'clean' };
+          },
+        }),
+      });
+      const startupOutcome = observeStartup(startup);
+      let transport: FramedTransport | undefined;
+      try {
+        await recoveryEntered.promise;
+        const registration = await readHostRegistration(owner.controlDirectory);
+        assert.ok(registration);
+        assert.equal(registration.state, 'recovering');
+        transport = await openAcceptedTransport(registration.endpoint, 'startup-abort-client');
+        await transport.write({
+          requestId: 'held-startup-status',
+          operation: 'host.status',
+          input: {},
+        });
+        await operationEntered.promise;
+
+        failRecovery.resolve();
+        await withTimeout(
+          transport.closed,
+          2_000,
+          'startup abort did not unwind the accepted transport',
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        releaseOperation.resolve();
+        await operationFinished.promise;
+
+        const outcome = await startupOutcome;
+        assert.deepEqual(outcome, { kind: 'failed', error: startupFailure });
+        assert.deepEqual(lifecycleEvents, [
+          'operation_entered',
+          'composition_draining',
+          'operation_finished',
+          'composition_closed',
+        ]);
+        assert.equal(owner.closed, true);
+      } finally {
+        failRecovery.resolve();
+        releaseOperation.resolve();
+        transport?.destroy();
+      }
+
+      const successor = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(successor);
+      await successor?.close();
+    });
+  });
+
   test('bounded election does not launch a Candidate after handshake exhausts the deadline', {
     skip: process.platform === 'win32',
   }, async () => {
@@ -585,6 +779,105 @@ describe('non-serving Runtime Host kernel', () => {
       transport.destroy();
       await transport.closed;
       await closing;
+    });
+  });
+
+  test('fences composition admission before an active command permits final shutdown', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      let requestDrain!: () => void;
+      let enterCommand!: () => void;
+      const commandEntered = new Promise<void>((resolve) => {
+        enterCommand = resolve;
+      });
+      let releaseCommand!: () => void;
+      const commandRelease = new Promise<void>((resolve) => {
+        releaseCommand = resolve;
+      });
+      let commandState: 'active' | 'completed' = 'active';
+      let compositionState: 'accepting' | 'draining' | 'closed' = 'accepting';
+      const handlers = createUnavailableDomainOperationHandlers();
+      handlers['turn.start'] = async (input) => {
+        if (input.turnId === 'must-not-enter-composition') {
+          throw new Error('Draining command entered the composition handler');
+        }
+        enterCommand();
+        await commandRelease;
+        commandState = 'completed';
+        return {
+          ok: true,
+          result: {
+            sessionId: input.sessionId,
+            turnId: input.turnId,
+            runId: 'run',
+            status: 'running',
+          },
+        };
+      };
+      const host = paths.resources.trackCloseable(
+        await RuntimeHostKernel.start({
+          owner,
+          idleGraceMs: 10_000,
+          compositionFactory: async (context) => {
+            requestDrain = context.requestDrain;
+            return {
+              handlers,
+              beginDrain: () => {
+                compositionState = 'draining';
+              },
+              recover: async () => undefined,
+              close: async () => {
+                assert.equal(commandState, 'completed');
+                assert.equal(owner.closed, false);
+                compositionState = 'closed';
+                return { kind: 'clean' };
+              },
+            };
+          },
+        }),
+      );
+      const connected = await connectRuntimeHost({
+        rootPath: paths.root,
+        surface: 'tui',
+        protocol: CURRENT_PROTOCOL,
+      });
+      assert.equal(connected.kind, 'connected');
+      if (connected.kind !== 'connected') return;
+
+      const command = connected.connection.startTurn({
+        sessionId: 'session',
+        turnId: 'turn',
+        text: 'hold shutdown',
+      });
+      await commandEntered;
+      try {
+        requestDrain();
+        assert.equal(compositionState, 'draining');
+        assert.equal(host.state, 'ready');
+        await assert.rejects(
+          () =>
+            connected.connection.startTurn({
+              sessionId: 'session',
+              turnId: 'must-not-enter-composition',
+              text: 'must be rejected by Host admission',
+            }),
+          (error: unknown) =>
+            error instanceof RuntimeHostOperationError &&
+            error.operation === 'turn.start' &&
+            error.code === 'host_draining',
+        );
+      } finally {
+        releaseCommand();
+      }
+      await command;
+      await host.closed;
+      assert.equal(compositionState, 'closed');
+      assert.equal(owner.closed, true);
     });
   });
 
@@ -710,6 +1003,330 @@ describe('non-serving Runtime Host kernel', () => {
       const owner = await retryOwner(capability, paths);
       assert.ok(owner);
       await owner?.close();
+    });
+  });
+
+  test('post-commit canonical refresh failure fail-stops the Host and isolates its Store lease', {
+    timeout: 30_000,
+  }, async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+      if (!owner) return;
+
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      const session = await stores.sessionStore.create({
+        cwd: paths.root,
+        backend: 'fake',
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'ask',
+      });
+      const host = paths.resources.trackCloseable(
+        await RuntimeHostKernel.start({
+          owner,
+          idleGraceMs: 10_000,
+          compositionFactory: createExecutionRuntimeHostComposition,
+        }),
+      );
+      const connected = await connectRuntimeHost({
+        rootPath: paths.root,
+        surface: 'tui',
+        protocol: CURRENT_PROTOCOL,
+      });
+      assert.equal(connected.kind, 'connected');
+      if (connected.kind !== 'connected') return;
+      const invalidInteractionArtifact = join(
+        paths.root,
+        'interactions',
+        'post-commit-refresh.invalid',
+      );
+      const answer = {
+        kind: 'question' as const,
+        answers: ['邀请制', '本周', '是'],
+      };
+      let interactionId: string | undefined;
+      try {
+        const turnId = 'post-commit-refresh-turn';
+        const started = await connected.connection.startTurn({
+          sessionId: session.id,
+          turnId,
+          text: FAKE_ASK_USER_QUESTION_PROMPT,
+        });
+        const pendingDeadline = Date.now() + 5_000;
+        let pending;
+        while (!pending) {
+          [pending] = await stores.interactionStore.listPending({ sessionId: session.id });
+          if (!pending && Date.now() >= pendingDeadline) {
+            throw new Error('FakeBackend did not persist a pending Interaction');
+          }
+        }
+        assert.equal(pending.runId, started.runId);
+        interactionId = pending.requestId;
+        const admitted = await connected.connection.request('interaction.query', {
+          sessionId: session.id,
+          interactionId,
+        });
+        assert.equal(admitted.status, 'pending');
+
+        await writeFile(invalidInteractionArtifact, 'invalid canonical artifact', 'utf8');
+        const closedOutcome = host.closed.then(
+          () => ({ status: 'fulfilled' as const }),
+          (error: unknown) => ({ status: 'rejected' as const, error }),
+        );
+        const answerOutcome = connected.connection
+          .request('interaction.answer', {
+            interactionId,
+            answer,
+          })
+          .then(
+            () => ({ status: 'fulfilled' as const }),
+            (error: unknown) => ({ status: 'rejected' as const, error }),
+          );
+        const [attempt, closed] = await Promise.all([
+          withTimeout(
+            answerOutcome,
+            5_000,
+            'wire Interaction answer did not settle after Host fail-stop',
+          ),
+          withTimeout(
+            closedOutcome,
+            5_000,
+            'post-commit canonical refresh failure did not fail-stop the Host',
+          ),
+        ]);
+        assert.equal(attempt.status, 'rejected');
+        assert.equal(closed.status, 'rejected');
+        if (closed.status !== 'rejected') return;
+        assert.ok(closed.error instanceof RuntimeInteractionFailStopError);
+        assert.ok(closed.error.authorityFailure instanceof Error);
+        assert.equal(
+          'code' in closed.error.authorityFailure ? closed.error.authorityFailure.code : undefined,
+          'invalid_record',
+        );
+        assert.equal(owner.closed, true);
+        await assertPathMissing(host.endpoint);
+        assert.equal(await readHostRegistration(owner.controlDirectory), undefined);
+        await assert.rejects(
+          () =>
+            stores.interactionStore.establishRequest({
+              sessionId: 'late-post-commit-session',
+              turnId: 'late-post-commit-turn',
+              runId: 'late-post-commit-run',
+              requestId: 'late-post-commit-request',
+              createdAt: 1,
+              request: {
+                kind: 'question',
+                toolUseId: 'late-post-commit-tool',
+                questions: [
+                  {
+                    question: 'Can a post-commit failed Host still write?',
+                    options: [{ label: 'No' }, { label: 'Never' }],
+                  },
+                ],
+              },
+            }),
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+        );
+      } finally {
+        await connected.connection.close().catch(() => undefined);
+        await rm(invalidInteractionArtifact, { force: true });
+      }
+
+      assert.ok(interactionId);
+      const successor = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(successor);
+      if (!successor) return;
+      const successorStores = await openInteractiveExecutionStoresForWrite(successor.lease);
+      const durable = await successorStores.interactionStore.readInteraction(interactionId);
+      assert.ok(durable?.outcome);
+      assert.equal(durable.outcome.outcome.kind, 'question_answer');
+      if (durable.outcome.outcome.kind === 'question_answer') {
+        assert.deepEqual(durable.outcome.outcome.answers, answer.answers);
+      }
+      await successor.close();
+    });
+  });
+
+  test('fail-stop aggregates beginDrain failure without waiting for ordinary composition close', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+      if (!owner) return;
+
+      let requestFailStop!: Parameters<
+        NonNullable<Parameters<typeof RuntimeHostKernel.start>[0]['compositionFactory']>
+      >[0]['requestFailStop'];
+      const compositionCloseEntered = deferred<void>();
+      const releaseCompositionClose = deferred<{ readonly kind: 'clean' }>();
+      const reclaim = { state: 'retained' as 'retained' | 'reclaimed' };
+      const drainFailure = new Error('controlled composition beginDrain failure');
+      let interactionStore!: Awaited<
+        ReturnType<typeof openInteractiveExecutionStoresForWrite>
+      >['interactionStore'];
+      const host = await RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async (context) => {
+          requestFailStop = context.requestFailStop;
+          interactionStore = (await openInteractiveExecutionStoresForWrite(context.owner.lease))
+            .interactionStore;
+          return {
+            handlers: createUnavailableDomainOperationHandlers(),
+            beginDrain: () => {
+              throw drainFailure;
+            },
+            recover: async () => undefined,
+            close: () => {
+              compositionCloseEntered.resolve();
+              return releaseCompositionClose.promise;
+            },
+          };
+        },
+      });
+      const failure = new Error('permanent Interaction Store uncertainty');
+      const endpoint = host.endpoint;
+      try {
+        requestFailStop(
+          Object.freeze({
+            kind: 'fail_stop',
+            cause: failure,
+            reclaimAfterOwnerIsolation: () => {
+              reclaim.state = 'reclaimed';
+            },
+          }),
+        );
+        await withTimeout(
+          compositionCloseEntered.promise,
+          2_000,
+          'fail-stop did not begin ordinary composition close',
+        );
+        await assert.rejects(
+          () =>
+            withTimeout(
+              host.closed,
+              2_000,
+              'fail-stop waited for ordinary composition close before releasing ownership',
+            ),
+          (error: unknown) =>
+            error instanceof AggregateError &&
+            error.errors.includes(failure) &&
+            error.errors.includes(drainFailure),
+        );
+        assert.equal(owner.closed, true);
+        assert.equal(reclaim.state, 'reclaimed');
+        await assertPathMissing(endpoint);
+        assert.equal(await readHostRegistration(owner.controlDirectory), undefined);
+        await assert.rejects(
+          () =>
+            interactionStore.establishRequest({
+              sessionId: 'late-session',
+              turnId: 'late-turn',
+              runId: 'late-run',
+              requestId: 'late-request',
+              createdAt: 1,
+              request: {
+                kind: 'question',
+                toolUseId: 'late-tool',
+                questions: [
+                  {
+                    question: 'Can an isolated execution write?',
+                    options: [{ label: 'No' }, { label: 'Never' }],
+                  },
+                ],
+              },
+            }),
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+        );
+        const successor = await retryOwner(capability, paths);
+        assert.ok(successor);
+        await successor?.close();
+      } finally {
+        releaseCompositionClose.resolve({ kind: 'clean' });
+      }
+    });
+  });
+
+  test('fail-stop bounds root owner close and never reclaims before owner isolation', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+      if (!owner) return;
+
+      let requestFailStop!: Parameters<
+        NonNullable<Parameters<typeof RuntimeHostKernel.start>[0]['compositionFactory']>
+      >[0]['requestFailStop'];
+      const reclaim = { state: 'retained' as 'retained' | 'reclaimed' };
+      const host = await RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async (context) => {
+          requestFailStop = context.requestFailStop;
+          return {
+            handlers: createUnavailableDomainOperationHandlers(),
+            recover: async () => undefined,
+            close: async () => ({ kind: 'clean' }),
+          };
+        },
+      });
+      const operationEntered = deferred<void>();
+      const releaseOperation = deferred<void>();
+      const ownerOperation = runWithStorageRootLease(
+        owner.lease,
+        'interactive',
+        'write',
+        async () => {
+          operationEntered.resolve();
+          await releaseOperation.promise;
+        },
+      );
+      await operationEntered.promise;
+      const failure = new Error('controlled fail-stop with pending owner operation');
+      try {
+        requestFailStop(
+          Object.freeze({
+            kind: 'fail_stop',
+            cause: failure,
+            reclaimAfterOwnerIsolation: () => {
+              reclaim.state = 'reclaimed';
+            },
+          }),
+        );
+        await assert.rejects(
+          () =>
+            withTimeout(host.closed, 2_500, 'fail-stop did not bound a pending root owner close'),
+          (error: unknown) =>
+            error instanceof AggregateError &&
+            error.errors.includes(failure) &&
+            error.errors.some(
+              (item) => item instanceof Error && item.message.includes('root owner close exceeded'),
+            ),
+        );
+        assert.equal(owner.closed, true);
+        assert.equal(reclaim.state, 'retained');
+        assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
+      } finally {
+        releaseOperation.resolve();
+      }
+      await ownerOperation;
+      await owner.close();
+      assert.equal(reclaim.state, 'retained');
+      const successor = await retryOwner(capability, paths);
+      assert.ok(successor);
+      await successor?.close();
     });
   });
 
@@ -1270,6 +1887,50 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
     }),
   ]).finally(() => {
     if (timer) clearTimeout(timer);
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function observeStartup(promise: Promise<RuntimeHostKernel>) {
+  return promise.then(
+    (host) => ({ kind: 'started' as const, host }),
+    (error: unknown) => ({ kind: 'failed' as const, error }),
+  );
+}
+
+async function openAcceptedTransport(
+  path: string,
+  clientInstanceId: string,
+): Promise<FramedTransport> {
+  const transport = new FramedTransport(await openSocket(path));
+  await transport.write({
+    kind: 'hello',
+    clientInstanceId,
+    surface: 'tui',
+    protocolMin: CURRENT_PROTOCOL.min,
+    protocolMax: CURRENT_PROTOCOL.max,
+  });
+  const handshake = decodeHostFrame(await transport.read(2_000));
+  assert.ok('kind' in handshake && handshake.kind === 'accepted');
+  assert.equal(handshake.state, 'recovering');
+  return transport;
+}
+
+function writeSocket(socket: Socket, value: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.write(value, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
   });
 }
 

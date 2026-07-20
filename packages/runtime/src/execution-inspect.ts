@@ -1,8 +1,4 @@
-import type {
-  AgentRunHeader,
-  RuntimeEvent,
-  SessionHeader,
-} from '@maka/core';
+import type { AgentRunHeader, RuntimeEvent, SessionHeader } from '@maka/core';
 import type { ExecutionLogCoverage } from '@maka/core/execution-evidence';
 import {
   inspectAgentRunReadModel,

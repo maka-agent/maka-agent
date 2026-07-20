@@ -35,12 +35,14 @@ export type OperationHandlerMap = {
 export type DomainOperationKey = Exclude<OperationKey, 'host.status'>;
 export type TurnOperationKey = Extract<OperationKey, `turn.${string}`>;
 export type SessionContinuityOperationKey = Extract<OperationKey, `subscription.${string}`>;
+export type InteractionOperationKey = Extract<OperationKey, `interaction.${string}`>;
 export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
 export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
 export type SessionContinuityOperationHandlerMap = Pick<
   OperationHandlerMap,
   SessionContinuityOperationKey
 >;
+export type InteractionOperationHandlerMap = Pick<OperationHandlerMap, InteractionOperationKey>;
 
 export function combineDomainOperationHandlers(
   ...domains: readonly Partial<AllDomainOperationHandlerMap>[]

@@ -48,22 +48,26 @@ describe('runtime policy stores', () => {
     await withInteractiveOwner(async ({ root, stores }) => {
       const policy = await stores.runtimePolicy.mutate(personalizationMutation(0));
       assert.equal(policy.kind, 'committed');
-      assert.deepEqual(await stores.runtimePolicy.mutate({
-        expectedRevision: 0,
-        operation: {
-          kind: 'set_memory',
-          value: { enabled: false, agentReadEnabled: false },
+      assert.deepEqual(
+        await stores.runtimePolicy.mutate({
+          expectedRevision: 0,
+          operation: {
+            kind: 'set_memory',
+            value: { enabled: false, agentReadEnabled: false },
+          },
+        }),
+        {
+          kind: 'revision_conflict',
+          expectedRevision: 0,
+          actualRevision: 1,
         },
-      }), {
-        kind: 'revision_conflict',
-        expectedRevision: 0,
-        actualRevision: 1,
-      });
+      );
       await assert.rejects(
-        () => stores.runtimePolicy.mutate({
-          expectedRevision: 1,
-          operation: { kind: 'replace_everything', value: {} },
-        } as unknown as MutateRuntimePolicyInput),
+        () =>
+          stores.runtimePolicy.mutate({
+            expectedRevision: 1,
+            operation: { kind: 'replace_everything', value: {} },
+          } as unknown as MutateRuntimePolicyInput),
         isStoreError('invalid_policy_input'),
       );
       for (const host of ['   ', 'proxy\u0000.internal']) {
@@ -72,13 +76,16 @@ describe('runtime policy stores', () => {
           isStoreError('invalid_policy_input'),
         );
       }
-      const proxy = await stores.runtimePolicy.mutate(networkProxyMutation(1, {
-        host: ' proxy.internal ',
-        authEnabled: false,
-        username: '',
-      }));
+      const proxy = await stores.runtimePolicy.mutate(
+        networkProxyMutation(1, {
+          host: ' proxy.internal ',
+          authEnabled: false,
+          username: '',
+        }),
+      );
       assert.equal(proxy.kind, 'committed');
-      if (proxy.kind === 'committed') assert.equal(proxy.snapshot.policy.networkProxy.host, 'proxy.internal');
+      if (proxy.kind === 'committed')
+        assert.equal(proxy.snapshot.policy.networkProxy.host, 'proxy.internal');
 
       const connection = await createConnection(stores, 0, {
         ...connectionDraft('openai-main', 'openai', 'OpenAI'),
@@ -86,17 +93,25 @@ describe('runtime policy stores', () => {
       });
       assert.match(connection.connectionId, UUID_PATTERN);
       assert.equal(connection.baseUrl, undefined);
-      assert.equal((await stores.connectionCatalog.getSnapshot()).connections[0]?.baseUrl, undefined);
+      assert.equal(
+        (await stores.connectionCatalog.getSnapshot()).connections[0]?.baseUrl,
+        undefined,
+      );
       assert.deepEqual(connectionBasis(connection), {
         connectionId: connection.connectionId,
         revision: 1,
       });
 
       const target = { connectionId: connection.connectionId, modelId: 'gpt-5' };
-      assert.equal((await stores.connectionCatalog.setDefaultTarget({
-        expectedCatalogRevision: 1,
-        target,
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.connectionCatalog.setDefaultTarget({
+            expectedCatalogRevision: 1,
+            target,
+          })
+        ).kind,
+        'committed',
+      );
 
       const changes = {
         name: 'Renamed',
@@ -105,10 +120,11 @@ describe('runtime policy stores', () => {
         enabledModelIds: ['gpt-5'],
       };
       await assert.rejects(
-        () => stores.connectionCatalog.update({
-          expected: connectionBasis(connection),
-          changes: { ...changes, slug: 'replacement', providerType: 'anthropic' },
-        } as never),
+        () =>
+          stores.connectionCatalog.update({
+            expected: connectionBasis(connection),
+            changes: { ...changes, slug: 'replacement', providerType: 'anthropic' },
+          } as never),
         isStoreError('invalid_connection_input'),
       );
       const updated = await stores.connectionCatalog.update({
@@ -126,7 +142,9 @@ describe('runtime policy stores', () => {
       assert.equal(current.baseUrl, 'https://gateway.example/v1');
       assert.deepEqual(updated.snapshot.defaultTarget, target);
 
-      const persisted = JSON.parse(await readFile(join(root, 'connection-catalog.json'), 'utf8')) as {
+      const persisted = JSON.parse(
+        await readFile(join(root, 'connection-catalog.json'), 'utf8'),
+      ) as {
         connections: Array<Record<string, unknown>>;
       };
       assert.equal(persisted.connections[0]?.baseUrl, 'https://gateway.example/v1');
@@ -137,10 +155,22 @@ describe('runtime policy stores', () => {
     await withInteractiveOwner(async ({ root, stores }) => {
       const rejected: ConnectionCatalogEntryDraft[] = [
         { ...connectionDraft('ftp', 'openai', 'FTP'), baseUrl: 'ftp://example.com/v1' },
-        { ...connectionDraft('userinfo', 'openai', 'Userinfo'), baseUrl: 'https://user:pass@example.com/v1' },
-        { ...connectionDraft('query', 'openai', 'Query'), baseUrl: 'https://example.com/v1?tenant=a' },
-        { ...connectionDraft('fragment', 'openai', 'Fragment'), baseUrl: 'https://example.com/v1#models' },
-        { ...connectionDraft('oauth', 'github-copilot', 'OAuth'), baseUrl: 'https://example.com/copilot' },
+        {
+          ...connectionDraft('userinfo', 'openai', 'Userinfo'),
+          baseUrl: 'https://user:pass@example.com/v1',
+        },
+        {
+          ...connectionDraft('query', 'openai', 'Query'),
+          baseUrl: 'https://example.com/v1?tenant=a',
+        },
+        {
+          ...connectionDraft('fragment', 'openai', 'Fragment'),
+          baseUrl: 'https://example.com/v1#models',
+        },
+        {
+          ...connectionDraft('oauth', 'github-copilot', 'OAuth'),
+          baseUrl: 'https://example.com/copilot',
+        },
       ];
       for (const connection of rejected) {
         await assert.rejects(
@@ -196,11 +226,7 @@ describe('runtime policy stores', () => {
         4,
         connectionDraft('optional', 'localai', 'Optional key'),
       );
-      const none = await createConnection(
-        stores,
-        5,
-        connectionDraft('none', 'ollama', 'No auth'),
-      );
+      const none = await createConnection(stores, 5, connectionDraft('none', 'ollama', 'No auth'));
 
       assert.deepEqual(await stores.operations.beginModelFetch(disabled.connectionId), {
         kind: 'connection_disabled',
@@ -226,11 +252,14 @@ describe('runtime policy stores', () => {
       assert.equal(noneReady.kind, 'ready');
       if (noneReady.kind === 'ready') assert.deepEqual(noneReady.secretMaterial, {});
 
-      assert.deepEqual(await stores.credentialVault.getStatus({
-        scope: 'connection',
-        connectionId: '00000000-0000-4000-8000-000000000001',
-        kind: 'api_key',
-      }), { kind: 'connection_not_found' });
+      assert.deepEqual(
+        await stores.credentialVault.getStatus({
+          scope: 'connection',
+          connectionId: '00000000-0000-4000-8000-000000000001',
+          kind: 'api_key',
+        }),
+        { kind: 'connection_not_found' },
+      );
       await assert.rejects(
         () => stores.credentialVault.getStatus(connectionCredential(required, 'oauth_token')),
         isStoreError('invalid_credential_input'),
@@ -244,9 +273,16 @@ describe('runtime policy stores', () => {
         secret: apiSecret,
       });
       assert.equal(apiSet.kind, 'committed');
-      assert.equal((await stores.runtimePolicy.mutate(networkProxyMutation(0, {
-        host: ' proxy.capture.internal ',
-      }))).kind, 'committed');
+      assert.equal(
+        (
+          await stores.runtimePolicy.mutate(
+            networkProxyMutation(0, {
+              host: ' proxy.capture.internal ',
+            }),
+          )
+        ).kind,
+        'committed',
+      );
 
       const missingProxy = await stores.operations.beginConnectionTest(required.connectionId);
       assert.equal(missingProxy.kind, 'credential_not_configured');
@@ -300,16 +336,22 @@ describe('runtime policy stores', () => {
       const latestFetch = await beginReadyModelFetch(stores, connection.connectionId);
       const latestTest = await beginReadyConnectionTest(stores, connection.connectionId);
 
-      assert.deepEqual(await stores.operations.completeModelFetch(oldFetch.ticket, {
-        models: [{ id: 'old-fetch-must-not-write' }],
-        source: 'fetched',
-        fetchedAt: 1,
-      }), { kind: 'superseded' });
-      assert.deepEqual(await stores.operations.completeConnectionTest(oldTest.ticket, {
-        status: 'error',
-        checkedAt: '2026-07-18T00:00:00.000Z',
-        errorClass: 'unknown',
-      }), { kind: 'superseded' });
+      assert.deepEqual(
+        await stores.operations.completeModelFetch(oldFetch.ticket, {
+          models: [{ id: 'old-fetch-must-not-write' }],
+          source: 'fetched',
+          fetchedAt: 1,
+        }),
+        { kind: 'superseded' },
+      );
+      assert.deepEqual(
+        await stores.operations.completeConnectionTest(oldTest.ticket, {
+          status: 'error',
+          checkedAt: '2026-07-18T00:00:00.000Z',
+          errorClass: 'unknown',
+        }),
+        { kind: 'superseded' },
+      );
 
       const testResult = { status: 'verified' as const, checkedAt: '2026-07-18T01:00:00.000Z' };
       const tested = await stores.operations.completeConnectionTest(latestTest.ticket, testResult);
@@ -328,11 +370,12 @@ describe('runtime policy stores', () => {
       };
       const completion = stores.operations.completeModelFetch(latestFetch.ticket, fetchResult);
       const replay = assert.rejects(
-        () => stores.operations.completeModelFetch(latestFetch.ticket, {
-          models: [{ id: 'replay-must-not-write' }],
-          source: 'fallback',
-          fetchedAt: 43,
-        }),
+        () =>
+          stores.operations.completeModelFetch(latestFetch.ticket, {
+            models: [{ id: 'replay-must-not-write' }],
+            source: 'fallback',
+            fetchedAt: 43,
+          }),
         isStoreError('invalid_connection_input'),
       );
       const [fetched] = await Promise.all([completion, replay]);
@@ -356,19 +399,36 @@ describe('runtime policy stores', () => {
         connectionDraft('semantic', 'openai', 'Semantic basis'),
       );
       const connectionLocator = connectionCredential(connection, 'api_key');
-      assert.equal((await stores.credentialVault.set({
-        locator: connectionLocator,
-        expected: null,
-        secret: 'connection-v1',
-      })).kind, 'committed');
-      assert.equal((await stores.runtimePolicy.mutate(networkProxyMutation(0, {
-        host: 'proxy-one.internal',
-      }))).kind, 'committed');
-      assert.equal((await stores.credentialVault.set({
-        locator: proxyCredential(),
-        expected: null,
-        secret: 'proxy-v1',
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: connectionLocator,
+            expected: null,
+            secret: 'connection-v1',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.runtimePolicy.mutate(
+            networkProxyMutation(0, {
+              host: 'proxy-one.internal',
+            }),
+          )
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: proxyCredential(),
+            expected: null,
+            secret: 'proxy-v1',
+          })
+        ).kind,
+        'committed',
+      );
 
       const fetch = await beginReadyModelFetch(stores, connection.connectionId);
       const orthogonalTest = await beginReadyConnectionTest(stores, connection.connectionId);
@@ -385,7 +445,10 @@ describe('runtime policy stores', () => {
         },
       });
       assert.equal(projectionUpdate.kind, 'committed');
-      assert.equal((await stores.runtimePolicy.mutate(personalizationMutation(1))).kind, 'committed');
+      assert.equal(
+        (await stores.runtimePolicy.mutate(personalizationMutation(1))).kind,
+        'committed',
+      );
 
       const fetched = await stores.operations.completeModelFetch(fetch.ticket, {
         models: [{ id: 'orthogonal-model' }],
@@ -436,51 +499,82 @@ describe('runtime policy stores', () => {
 
       const proxyConfigurationTicket = await beginReadyModelFetch(stores, current.connectionId);
       assert.equal(proxyConfigurationTicket.networkProxy.host, 'proxy-one.internal');
-      assert.equal((await stores.runtimePolicy.mutate(networkProxyMutation(2, {
-        host: 'proxy-two.internal',
-      }))).kind, 'committed');
-      assert.deepEqual(await stores.operations.completeModelFetch(proxyConfigurationTicket.ticket, {
-        models: [{ id: 'must-not-cross-proxy-configuration' }],
-        source: 'fetched',
-        fetchedAt: 51,
-      }), { kind: 'stale', changed: ['runtime_policy'] });
+      assert.equal(
+        (
+          await stores.runtimePolicy.mutate(
+            networkProxyMutation(2, {
+              host: 'proxy-two.internal',
+            }),
+          )
+        ).kind,
+        'committed',
+      );
+      assert.deepEqual(
+        await stores.operations.completeModelFetch(proxyConfigurationTicket.ticket, {
+          models: [{ id: 'must-not-cross-proxy-configuration' }],
+          source: 'fetched',
+          fetchedAt: 51,
+        }),
+        { kind: 'stale', changed: ['runtime_policy'] },
+      );
 
       const proxyCredentialTicket = await beginReadyConnectionTest(stores, current.connectionId);
       assert.equal(proxyCredentialTicket.networkProxy.host, 'proxy-two.internal');
       assert.equal(proxyCredentialTicket.secretMaterial.networkProxy?.secret, 'proxy-v1');
       const proxyStatus = await getCredentialStatus(stores.credentialVault, proxyCredential());
-      assert.equal((await stores.credentialVault.set({
-        locator: proxyCredential(),
-        expected: credentialExpectation(proxyStatus),
-        secret: 'proxy-v2',
-      })).kind, 'committed');
-      assert.deepEqual(await stores.operations.completeConnectionTest(proxyCredentialTicket.ticket, {
-        status: 'verified',
-        checkedAt: '2026-07-18T01:45:00.000Z',
-      }), { kind: 'stale', changed: ['credential'] });
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: proxyCredential(),
+            expected: credentialExpectation(proxyStatus),
+            secret: 'proxy-v2',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.deepEqual(
+        await stores.operations.completeConnectionTest(proxyCredentialTicket.ticket, {
+          status: 'verified',
+          checkedAt: '2026-07-18T01:45:00.000Z',
+        }),
+        { kind: 'stale', changed: ['credential'] },
+      );
 
       const semanticTicket = await beginReadyConnectionTest(stores, current.connectionId);
       assert.equal(semanticTicket.secretMaterial.networkProxy?.secret, 'proxy-v2');
 
       const connectionStatus = await getCredentialStatus(stores.credentialVault, connectionLocator);
-      assert.equal((await stores.connectionCatalog.update({
-        expected: connectionBasis(current),
-        changes: {
-          name: current.name,
-          baseUrl: 'https://gateway.changed.example/v1',
-          enabled: current.enabled,
-          enabledModelIds: current.enabledModelIds,
-        },
-      })).kind, 'committed');
-      assert.equal((await stores.credentialVault.set({
-        locator: connectionLocator,
-        expected: credentialExpectation(connectionStatus),
-        secret: 'connection-v2',
-      })).kind, 'committed');
-      assert.deepEqual(await stores.operations.completeConnectionTest(semanticTicket.ticket, {
-        status: 'verified',
-        checkedAt: '2026-07-18T02:00:00.000Z',
-      }), { kind: 'stale', changed: ['connection', 'credential'] });
+      assert.equal(
+        (
+          await stores.connectionCatalog.update({
+            expected: connectionBasis(current),
+            changes: {
+              name: current.name,
+              baseUrl: 'https://gateway.changed.example/v1',
+              enabled: current.enabled,
+              enabledModelIds: current.enabledModelIds,
+            },
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: connectionLocator,
+            expected: credentialExpectation(connectionStatus),
+            secret: 'connection-v2',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.deepEqual(
+        await stores.operations.completeConnectionTest(semanticTicket.ticket, {
+          status: 'verified',
+          checkedAt: '2026-07-18T02:00:00.000Z',
+        }),
+        { kind: 'stale', changed: ['connection', 'credential'] },
+      );
     });
   });
 
@@ -492,34 +586,61 @@ describe('runtime policy stores', () => {
         connectionDraft('copilot', 'github-copilot', 'Copilot'),
       );
       const oauthLocator = connectionCredential(connection, 'oauth_token');
-      assert.equal((await stores.credentialVault.set({
-        locator: oauthLocator,
-        expected: null,
-        secret: 'oauth-v1',
-      })).kind, 'committed');
-      assert.equal((await stores.runtimePolicy.mutate(networkProxyMutation(0, {
-        host: 'oauth-proxy-one.internal',
-      }))).kind, 'committed');
-      assert.equal((await stores.credentialVault.set({
-        locator: proxyCredential(),
-        expected: null,
-        secret: 'oauth-proxy-v1',
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: oauthLocator,
+            expected: null,
+            secret: 'oauth-v1',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.runtimePolicy.mutate(
+            networkProxyMutation(0, {
+              host: 'oauth-proxy-one.internal',
+            }),
+          )
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: proxyCredential(),
+            expected: null,
+            secret: 'oauth-proxy-v1',
+          })
+        ).kind,
+        'committed',
+      );
 
       const refresh = await beginReadyOAuthRefresh(stores, connection.connectionId);
       assert.equal(refresh.secretMaterial.connection.secret, 'oauth-v1');
       assert.equal(refresh.secretMaterial.networkProxy?.secret, 'oauth-proxy-v1');
       const model = await beginReadyModelFetch(stores, connection.connectionId);
       const connectionTest = await beginReadyConnectionTest(stores, connection.connectionId);
-      assert.equal((await stores.operations.completeModelFetch(model.ticket, {
-        models: [{ id: 'copilot-model' }],
-        source: 'fetched',
-        fetchedAt: 60,
-      })).kind, 'committed');
-      assert.equal((await stores.operations.completeConnectionTest(connectionTest.ticket, {
-        status: 'verified',
-        checkedAt: '2026-07-18T03:00:00.000Z',
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.operations.completeModelFetch(model.ticket, {
+            models: [{ id: 'copilot-model' }],
+            source: 'fetched',
+            fetchedAt: 60,
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.operations.completeConnectionTest(connectionTest.ticket, {
+            status: 'verified',
+            checkedAt: '2026-07-18T03:00:00.000Z',
+          })
+        ).kind,
+        'committed',
+      );
 
       const current = (await stores.connectionCatalog.getSnapshot()).connections[0];
       assert.ok(current);
@@ -536,19 +657,39 @@ describe('runtime policy stores', () => {
       const disabled = projection.snapshot.connections[0];
       assert.ok(disabled);
       const proxyStatus = await getCredentialStatus(stores.credentialVault, proxyCredential());
-      assert.equal((await stores.runtimePolicy.mutate(networkProxyMutation(1, {
-        host: 'oauth-proxy-two.internal',
-      }))).kind, 'committed');
-      assert.equal((await stores.runtimePolicy.mutate(personalizationMutation(2))).kind, 'committed');
-      assert.equal((await stores.credentialVault.set({
-        locator: proxyCredential(),
-        expected: credentialExpectation(proxyStatus),
-        secret: 'oauth-proxy-v2',
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.runtimePolicy.mutate(
+            networkProxyMutation(1, {
+              host: 'oauth-proxy-two.internal',
+            }),
+          )
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (await stores.runtimePolicy.mutate(personalizationMutation(2))).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: proxyCredential(),
+            expected: credentialExpectation(proxyStatus),
+            secret: 'oauth-proxy-v2',
+          })
+        ).kind,
+        'committed',
+      );
 
-      assert.equal((await stores.operations.completeStoredOAuthRefresh(refresh.ticket, {
-        secret: 'oauth-v2',
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.operations.completeStoredOAuthRefresh(refresh.ticket, {
+            secret: 'oauth-v2',
+          })
+        ).kind,
+        'committed',
+      );
       const reenabled = await stores.connectionCatalog.update({
         expected: connectionBasis(disabled),
         changes: {
@@ -564,17 +705,30 @@ describe('runtime policy stores', () => {
       assert.equal(late.secretMaterial.networkProxy?.secret, 'oauth-proxy-v2');
       assert.equal(late.networkProxy.host, 'oauth-proxy-two.internal');
       const refreshedCredentialId = late.secretMaterial.connection.credentialId;
-      assert.equal((await stores.credentialVault.delete({
-        expected: materialBasis(late.secretMaterial.connection),
-      })).kind, 'committed');
-      assert.equal((await stores.credentialVault.set({
-        locator: oauthLocator,
-        expected: null,
-        secret: 'oauth-replacement',
-      })).kind, 'committed');
-      assert.deepEqual(await stores.operations.completeStoredOAuthRefresh(late.ticket, {
-        secret: 'late-refresh-must-not-win',
-      }), { kind: 'stale', changed: ['credential'] });
+      assert.equal(
+        (
+          await stores.credentialVault.delete({
+            expected: materialBasis(late.secretMaterial.connection),
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: oauthLocator,
+            expected: null,
+            secret: 'oauth-replacement',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.deepEqual(
+        await stores.operations.completeStoredOAuthRefresh(late.ticket, {
+          secret: 'late-refresh-must-not-win',
+        }),
+        { kind: 'stale', changed: ['credential'] },
+      );
 
       const replacement = await beginReadyOAuthRefresh(stores, connection.connectionId);
       assert.equal(replacement.secretMaterial.connection.secret, 'oauth-replacement');
@@ -591,15 +745,25 @@ describe('runtime policy stores', () => {
         connectionDraft('removable', 'openai', 'Removable'),
       );
       const locator = connectionCredential(original, 'api_key');
-      assert.equal((await stores.credentialVault.set({
-        locator,
-        expected: null,
-        secret: 'must-survive-stale-remove',
-      })).kind, 'committed');
-      assert.equal((await stores.connectionCatalog.setDefaultTarget({
-        expectedCatalogRevision: 1,
-        target: { connectionId: original.connectionId, modelId: 'gpt-5' },
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator,
+            expected: null,
+            secret: 'must-survive-stale-remove',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.connectionCatalog.setDefaultTarget({
+            expectedCatalogRevision: 1,
+            target: { connectionId: original.connectionId, modelId: 'gpt-5' },
+          })
+        ).kind,
+        'committed',
+      );
       const updatedResult = await stores.connectionCatalog.update({
         expected: connectionBasis(original),
         changes: {
@@ -629,19 +793,28 @@ describe('runtime policy stores', () => {
       assert.deepEqual(removed.snapshot.connections, []);
       assert.equal(removed.snapshot.defaultTarget, null);
       assert.deepEqual((await stores.credentialVault.getSnapshot()).entries, []);
-      assert.deepEqual(await stores.credentialVault.getStatus(locator), { kind: 'connection_not_found' });
-      assert.deepEqual(await stores.operations.completeModelFetch(admitted.ticket, {
-        models: [{ id: 'late-model-must-not-write' }],
-        source: 'fetched',
-        fetchedAt: 80,
-      }), { kind: 'superseded' });
-      assert.deepEqual(await stores.operations.completeConnectionTest(pendingTest.ticket, {
-        status: 'verified',
-        checkedAt: '2026-07-18T04:00:00.000Z',
-      }), { kind: 'superseded' });
+      assert.deepEqual(await stores.credentialVault.getStatus(locator), {
+        kind: 'connection_not_found',
+      });
+      assert.deepEqual(
+        await stores.operations.completeModelFetch(admitted.ticket, {
+          models: [{ id: 'late-model-must-not-write' }],
+          source: 'fetched',
+          fetchedAt: 80,
+        }),
+        { kind: 'superseded' },
+      );
+      assert.deepEqual(
+        await stores.operations.completeConnectionTest(pendingTest.ticket, {
+          status: 'verified',
+          checkedAt: '2026-07-18T04:00:00.000Z',
+        }),
+        { kind: 'superseded' },
+      );
       const retry = await stores.connectionCatalog.remove({ expected: connectionBasis(updated) });
       assert.equal(retry.kind, 'committed');
-      if (retry.kind === 'committed') assert.equal(retry.snapshot.revision, removed.snapshot.revision);
+      if (retry.kind === 'committed')
+        assert.equal(retry.snapshot.revision, removed.snapshot.revision);
 
       const recreated = await createConnection(
         stores,
@@ -650,16 +823,28 @@ describe('runtime policy stores', () => {
       );
       assert.notEqual(recreated.connectionId, original.connectionId);
       const recreatedLocator = connectionCredential(recreated, 'api_key');
-      assert.equal((await stores.credentialVault.set({
-        locator: recreatedLocator,
-        expected: null,
-        secret: 'partial-state-secret',
-      })).kind, 'committed');
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: recreatedLocator,
+            expected: null,
+            secret: 'partial-state-secret',
+          })
+        ).kind,
+        'committed',
+      );
       const recreatedStatus = await getCredentialStatus(stores.credentialVault, recreatedLocator);
-      assert.equal((await stores.credentialVault.delete({
-        expected: credentialBasis(recreatedStatus),
-      })).kind, 'committed');
-      const converged = await stores.connectionCatalog.remove({ expected: connectionBasis(recreated) });
+      assert.equal(
+        (
+          await stores.credentialVault.delete({
+            expected: credentialBasis(recreatedStatus),
+          })
+        ).kind,
+        'committed',
+      );
+      const converged = await stores.connectionCatalog.remove({
+        expected: connectionBasis(recreated),
+      });
       assert.equal(converged.kind, 'committed');
       if (converged.kind === 'committed') assert.deepEqual(converged.snapshot.connections, []);
       assert.deepEqual((await stores.credentialVault.getSnapshot()).entries, []);
@@ -692,11 +877,10 @@ describe('runtime policy stores', () => {
       assert.equal(owner.closed, true);
 
       const results = await Promise.all([first, second, third, closing]);
-      assert.deepEqual(results.slice(0, 3).map((result) => result?.kind), [
-        'committed',
-        'committed',
-        'committed',
-      ]);
+      assert.deepEqual(
+        results.slice(0, 3).map((result) => result?.kind),
+        ['committed', 'committed', 'committed'],
+      );
 
       const readerHandle = await tryAcquireInteractiveRootReader(capability);
       assert.ok(readerHandle);
@@ -756,7 +940,9 @@ describe('runtime policy stores', () => {
   });
 
   test('retries the same model fetch ticket after a real pre-publication I/O failure', {
-    skip: process.platform === 'win32' || (typeof process.geteuid === 'function' && process.geteuid() === 0),
+    skip:
+      process.platform === 'win32' ||
+      (typeof process.geteuid === 'function' && process.geteuid() === 0),
   }, async () => {
     await withInteractiveOwner(async ({ root, stores }) => {
       const connection = await createConnection(
@@ -814,7 +1000,10 @@ describe('runtime policy stores', () => {
         ]);
         assert.equal(first, sameLeaseOpen);
         const remaining = new Set(await readdir(root));
-        assert.deepEqual(temporaryNames.filter((name) => remaining.has(name)), []);
+        assert.deepEqual(
+          temporaryNames.filter((name) => remaining.has(name)),
+          [],
+        );
 
         connection = await createConnection(
           first,
@@ -822,11 +1011,16 @@ describe('runtime policy stores', () => {
           connectionDraft('reopen', 'openai', 'Reopen'),
         );
         const locator = connectionCredential(connection, 'api_key');
-        assert.equal((await first.credentialVault.set({
-          locator,
-          expected: null,
-          secret,
-        })).kind, 'committed');
+        assert.equal(
+          (
+            await first.credentialVault.set({
+              locator,
+              expected: null,
+              secret,
+            })
+          ).kind,
+          'committed',
+        );
         firstStatus = await getCredentialStatus(first.credentialVault, locator);
         assert.equal(JSON.stringify(firstStatus).includes(secret), false);
       } finally {
@@ -872,9 +1066,13 @@ describe('runtime policy stores', () => {
       const headless = await resolveStorageRoot({ path: headlessRoot, kind: 'headless' });
       const before = await snapshotRoot(headlessRoot);
       await assert.rejects(
-        () => openInteractiveRuntimePolicyStoresForWrite(
-          createHeadlessRootLease(headless, 'write') as unknown as StorageRootLease<'interactive', 'write'>,
-        ),
+        () =>
+          openInteractiveRuntimePolicyStoresForWrite(
+            createHeadlessRootLease(headless, 'write') as unknown as StorageRootLease<
+              'interactive',
+              'write'
+            >,
+          ),
         isInvalidLease,
       );
       assert.deepEqual(await snapshotRoot(headlessRoot), before);
@@ -968,7 +1166,10 @@ function credentialBasis(status: CredentialStatus): CredentialVersionBasis {
   };
 }
 
-function credentialExpectation(status: CredentialStatus): { credentialId: string; revision: number } {
+function credentialExpectation(status: CredentialStatus): {
+  credentialId: string;
+  revision: number;
+} {
   const basis = credentialBasis(status);
   return { credentialId: basis.credentialId, revision: basis.revision };
 }
@@ -1094,16 +1295,18 @@ async function withTempDir(run: (base: string) => Promise<void>): Promise<void> 
 
 async function snapshotRoot(root: string): Promise<readonly RootSnapshotEntry[]> {
   const names = (await readdir(root)).sort();
-  return Promise.all(names.map(async (name) => {
-    const path = join(root, name);
-    const metadata = await stat(path);
-    return {
-      name,
-      size: metadata.size,
-      mtimeMs: metadata.mtimeMs,
-      contents: metadata.isFile() ? await readFile(path, 'utf8') : null,
-    };
-  }));
+  return Promise.all(
+    names.map(async (name) => {
+      const path = join(root, name);
+      const metadata = await stat(path);
+      return {
+        name,
+        size: metadata.size,
+        mtimeMs: metadata.mtimeMs,
+        contents: metadata.isFile() ? await readFile(path, 'utf8') : null,
+      };
+    }),
+  );
 }
 
 interface RootSnapshotEntry {

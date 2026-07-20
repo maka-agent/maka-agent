@@ -72,6 +72,7 @@ function makeHarness(): Harness {
   const engine = new PermissionEngine({ newId: () => 'perm', now: () => 1 });
   let n = 0;
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: header(),
     connection: { providerType: 'openai', slug: 'c' } as never,
@@ -219,7 +220,7 @@ function makeComputerFailureTool(impl: string[], failureClass?: 'ambiguous_targe
     parameters: z.object({}).passthrough(),
     permissionRequired: false,
     categoryHint: 'computer_use',
-    permissionArgs: (args) => {
+    prepareIntentArgs: (args) => {
       const record = args as Record<string, unknown>;
       return record.action === 'observe'
         ? record

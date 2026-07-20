@@ -32,7 +32,11 @@ const permissionRequest = {
   toolName: 'RawShellTool',
   category: 'shell_unsafe',
   reason: 'shell_dangerous',
-  args: { command: 'echo RAW_COMMAND_中文' },
+  review: {
+    kind: 'command',
+    command: 'echo RAW_COMMAND_中文',
+    cwd: '/workspace',
+  },
   rememberForTurnAllowed: true,
 } satisfies AnyPermissionRequestEvent;
 

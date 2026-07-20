@@ -12,6 +12,7 @@ import type {
 } from '@maka/core/backend-types';
 import {
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   PermissionEngine,
   PiAgentBackend,
   type AgentBackend,
@@ -69,6 +70,7 @@ function registerTestPiAgentBackend(
     'pi-agent',
     (ctx) =>
       new PiAgentBackend({
+        execution: ctx.execution,
         sessionId: ctx.sessionId,
         header: ctx.header,
         appendMessage:
@@ -516,7 +518,6 @@ class UnmeteredStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
       ts,
       toolUseId: 'call-1',
       toolName: 'Read',
-      args: { path: 'README.md' },
       stepId: 'step-1',
     };
     yield {
@@ -4811,6 +4812,7 @@ function sha256(text: string): string {
 
 function backendContext(workspaceDir: string): BackendFactoryContext {
   return {
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     workspaceRoot: workspaceDir,
     header: {

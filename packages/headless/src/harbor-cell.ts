@@ -6,6 +6,7 @@ import { isThinkingLevel, resolveModelVisionSupport } from '@maka/core';
 import {
   AiSdkBackend,
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   PermissionEngine,
   PiAgentBackend,
   SessionManager,
@@ -323,6 +324,7 @@ export async function runHarborCellWithStorage(
 
   let invocation: InvocationResult | undefined;
   const manager = new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store: sessionStore,
     runStore: agentRunStore,
     runtimeEventStore,
@@ -601,6 +603,7 @@ export async function runHarborCellFromEnv(
           'pi-agent',
           (ctx) =>
             new PiAgentBackend({
+              execution: ctx.execution,
               sessionId: ctx.sessionId,
               header: ctx.header,
               appendMessage:
@@ -840,6 +843,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         snapshotImage: createReadImageSnapshotter(artifactStore),
       });
       return new AiSdkBackend({
+        execution: ctx.execution,
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
         appendMessage:

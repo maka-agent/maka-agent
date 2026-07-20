@@ -959,7 +959,7 @@ describe('FileSessionStore CRUD', () => {
           turnId: 't1',
           ts: 2,
           toolName: 'Read',
-          args: { file: 'secret.ts' },
+          review: { kind: 'path', operation: 'read', path: 'secret.ts', cwd: '/tmp/cwd' },
         },
         {
           type: 'assistant',

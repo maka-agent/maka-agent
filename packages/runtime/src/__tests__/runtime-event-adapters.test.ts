@@ -84,13 +84,25 @@ const note = (id: string, kind: SystemNoteMessage['kind']): SystemNoteMessage =>
   kind,
 });
 
-const toolCall = (id: string, name: string, args: unknown = {}): ToolCallMessage => ({
+const toolCall = (id: string, name: string): ToolCallMessage => ({
   type: 'tool_call',
   id,
   turnId,
   ts: ts + 4,
   toolName: name,
-  args,
+});
+
+const readReview = (path: string) => ({
+  kind: 'path' as const,
+  operation: 'read' as const,
+  path,
+  cwd: '/workspace',
+});
+
+const commandReview = (command: string) => ({
+  kind: 'command' as const,
+  command,
+  cwd: '/workspace',
 });
 
 const toolResult = (toolUseId: string, isError: boolean, text: string): ToolResultMessage => ({
@@ -422,7 +434,7 @@ describe('runtimeEventToStoredMessageDraft', () => {
     const event = ev({
       role: 'model',
       author: 'agent',
-      content: { kind: 'function_call', id: 'fc1', name: 'Read', args: {} },
+      content: { kind: 'function_call', id: 'fc1', name: 'Read' },
     });
     expect(runtimeEventToStoredMessageDraft(event)).toBeNull();
   });
@@ -527,7 +539,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           kind: 'function_call',
           id: 'fc1',
           name: 'Read',
-          args: { path: '/x' },
+          review: readReview('/x'),
         },
       }),
       ev({
@@ -579,7 +591,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       ev({
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'fc1', name: 'Read', args: {} },
+        content: { kind: 'function_call', id: 'fc1', name: 'Read' },
       }),
       ev({
         role: 'tool',
@@ -748,7 +760,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           kind: 'function_call',
           id: 'fc1',
           name: 'Read',
-          args: { path: '/a' },
+          review: readReview('/a'),
         },
       }),
       ev({
@@ -814,7 +826,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       ev({
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'fc1', name: 'Read', args: {} },
+        content: { kind: 'function_call', id: 'fc1', name: 'Read' },
       }),
       ev({
         role: 'tool',
@@ -882,17 +894,17 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     expect(steeringMessagesMissingFromBase([injected], plan.textMessages)).toEqual([]);
   });
 
-  test('runtime replay plan preserves structured tool calls and results', () => {
+  test('runtime replay plan keeps text but never treats public Write/CUA reviews as native input', () => {
     const events: RuntimeEvent[] = [
-      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'read package' } }),
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'update the editor' } }),
       ev({
         role: 'model',
         author: 'agent',
         content: {
           kind: 'function_call',
           id: 'tool-1',
-          name: 'Read',
-          args: { path: 'package.json' },
+          name: 'Write',
+          review: { kind: 'path', operation: 'write', path: 'notes.txt', cwd: '/workspace' },
         },
       }),
       ev({
@@ -901,8 +913,79 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
         content: {
           kind: 'function_response',
           id: 'tool-1',
+          name: 'Write',
+          result: 'written',
+          isError: false,
+        },
+      }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'tool-2',
+          name: 'maka_computer',
+          review: { kind: 'computer_use', action: 'type', app: 'Editor', windowId: 7 },
+        },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-2',
+          name: 'maka_computer',
+          result: 'typed',
+          isError: false,
+        },
+      }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'editor updated' } }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.hasProviderNativeSemantics).toBe(false);
+    expect(plan.semanticKinds).toEqual(['text']);
+    expect(plan.items).toEqual([
+      {
+        kind: 'text',
+        role: 'user',
+        content: 'update the editor',
+        eventId: events[0]?.id,
+        ts: events[0]?.ts,
+      },
+      {
+        kind: 'text',
+        role: 'assistant',
+        content: 'editor updated',
+        eventId: events[5]?.id,
+        ts: events[5]?.ts,
+      },
+    ]);
+  });
+
+  test('runtime replay plan emits only a complete private-args pair and preserves its step id', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'tool-private',
           name: 'Read',
-          result: { ok: true, text: 'contents' },
+          args: { path: 'private.txt', offset: 7 },
+          review: readReview('public-projection.txt'),
+        },
+        refs: { toolCallId: 'tool-private', stepId: 'step-private' },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-private',
+          name: 'Read',
+          result: { kind: 'text', text: 'file contents' },
           isError: false,
         },
       }),
@@ -910,37 +993,30 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
 
     const plan = buildRuntimeEventModelReplayPlan(events);
 
-    expect(plan.hasProviderNativeSemantics).toBe(true);
-    expect(plan.semanticKinds).toEqual(['text', 'tool_call', 'tool_result']);
     expect(plan.items).toEqual([
       {
-        kind: 'text',
-        role: 'user',
-        content: 'read package',
+        kind: 'tool_call',
+        toolCallId: 'tool-private',
+        toolName: 'Read',
+        input: { path: 'private.txt', offset: 7 },
+        stepId: 'step-private',
         eventId: events[0]?.id,
         ts: events[0]?.ts,
       },
       {
-        kind: 'tool_call',
-        toolCallId: 'tool-1',
+        kind: 'tool_result',
+        toolCallId: 'tool-private',
         toolName: 'Read',
-        input: { path: 'package.json' },
+        output: 'file contents',
+        isError: false,
         eventId: events[1]?.id,
         ts: events[1]?.ts,
       },
-      {
-        kind: 'tool_result',
-        toolCallId: 'tool-1',
-        toolName: 'Read',
-        output: { ok: true, text: 'contents' },
-        isError: false,
-        eventId: events[2]?.id,
-        ts: events[2]?.ts,
-      },
     ]);
+    expect(plan.hasProviderNativeSemantics).toBe(true);
   });
 
-  test('runtime replay plan normalizes an exact legacy terminal result', () => {
+  test('runtime replay plan accepts an exact legacy terminal result without replaying its public-review pair', () => {
     const events: RuntimeEvent[] = [
       ev({
         role: 'model',
@@ -949,7 +1025,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           kind: 'function_call',
           id: 'tool-1',
           name: 'Bash',
-          args: { command: 'printf ok' },
+          review: commandReview('printf ok'),
         },
       }),
       ev({
@@ -975,24 +1051,12 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       }),
     ];
 
-    const result = buildRuntimeEventModelReplayPlan(events).items.find(
-      (item) => item.kind === 'tool_result',
+    const plan = buildRuntimeEventModelReplayPlan(events);
+    expect(plan.items).toEqual([]);
+    expect(plan.hasProviderNativeSemantics).toBe(false);
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      'unsupported_content',
     );
-    expect(result?.kind === 'tool_result' ? result.output : undefined).toEqual({
-      kind: 'terminal',
-      cwd: '/tmp/work',
-      cmd: 'printf ok',
-      status: 'completed',
-      exitCode: 0,
-      output: {
-        mode: 'pipes',
-        stdout: 'ok',
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
-        redacted: false,
-      },
-    });
   });
 
   test('runtime replay plan rejects a mixed legacy/current shell result', () => {
@@ -1005,6 +1069,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           id: 'tool-1',
           name: 'Bash',
           args: { command: 'printf bad' },
+          review: commandReview('printf bad'),
         },
       }),
       ev({
@@ -1086,7 +1151,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     expect(plan.textMessages).toEqual([{ role: 'assistant', content: 'answer' }]);
   });
 
-  test('unsigned thinking does not downgrade native tool replay for the rest of the history', () => {
+  test('unsigned thinking and public-review tool pairs both stay out of provider replay', () => {
     const events: RuntimeEvent[] = [
       ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'do it' } }),
       // Non-Anthropic reasoning: thinking persisted with no signature.
@@ -1102,7 +1167,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           kind: 'function_call',
           id: 'tool-1',
           name: 'Read',
-          args: { path: 'package.json' },
+          review: readReview('package.json'),
         },
       }),
       ev({
@@ -1120,9 +1185,8 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
 
     const plan = buildRuntimeEventModelReplayPlan(events);
 
-    // The tool call/result remain native; the unsigned thinking is simply omitted.
-    expect(plan.hasProviderNativeSemantics).toBe(true);
-    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result']);
+    expect(plan.hasProviderNativeSemantics).toBe(false);
+    expect(plan.items.map((item) => item.kind)).toEqual(['text']);
     expect(plan.semanticKinds).not.toContain('thinking');
     // No blocking diagnostic classes present (only the non-blocking skip note).
     const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
@@ -1155,7 +1219,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     expect(pureCodes).not.toContain('signed_thinking_in_tool_turn_skipped');
   });
 
-  test('signed thinking in a tool-calling turn is skipped from replay, tool calls stay native', () => {
+  test('signed thinking and public-review tools in a tool turn stay out of provider replay', () => {
     // Anthropic tool turn as the backend emits it: the turn's reasoning is a
     // single end-of-turn thinking_complete pushed AFTER the tool events, so the
     // signed thinking lands last in ledger order. Materialization can only
@@ -1173,7 +1237,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           kind: 'function_call',
           id: 'tool-1',
           name: 'Read',
-          args: { path: 'package.json' },
+          review: readReview('package.json'),
         },
       }),
       ev({
@@ -1201,17 +1265,12 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
 
     const plan = buildRuntimeEventModelReplayPlan(events);
 
-    expect(plan.items.map((item) => item.kind)).toEqual([
-      'text',
-      'tool_call',
-      'tool_result',
-      'text',
-    ]);
+    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'text']);
     expect(plan.semanticKinds).not.toContain('thinking');
-    expect(plan.hasProviderNativeSemantics).toBe(true);
+    expect(plan.hasProviderNativeSemantics).toBe(false);
     const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
     expect(codes).toContain('signed_thinking_in_tool_turn_skipped');
-    // Non-blocking: the tool call/result still replay provider-native.
+    // The surrounding text remains usable without manufacturing native input.
     expect(codes).not.toContain('unsupported_role');
     expect(codes).not.toContain('unsupported_content');
     expect(codes).not.toContain('unmatched_tool_result');
@@ -1224,7 +1283,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       ev({
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} },
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read' },
       }),
       ev({
         role: 'tool',
@@ -1298,7 +1357,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       ev({
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'ls' } },
+        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', review: commandReview('ls') },
       }),
       ev({
         role: 'tool',
@@ -1337,8 +1396,8 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
     expect(codes).not.toContain('unsupported_content');
     expect(codes.filter((code) => code === 'error_content_diagnostic_only')).toHaveLength(2);
-    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result']);
-    expect(plan.hasProviderNativeSemantics).toBe(true);
+    expect(plan.items.map((item) => item.kind)).toEqual(['text']);
+    expect(plan.hasProviderNativeSemantics).toBe(false);
   });
 
   test('drops a tool call whose result never landed in the ledger', () => {
@@ -1357,6 +1416,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
           id: 'tool-1',
           name: 'Bash',
           args: { command: 'sleep 999' },
+          review: commandReview('sleep 999'),
         },
       }),
       ev({
@@ -1412,7 +1472,7 @@ describe('adapter → projection integration', () => {
   test('ModelHistoryEntry type carries the discriminated content union', () => {
     const entry: ModelHistoryEntry = {
       role: 'model',
-      content: { kind: 'function_call', id: 'fc1', name: 'Read', args: {} },
+      content: { kind: 'function_call', id: 'fc1', name: 'Read' },
       ts: 1,
       eventId: 'e1',
     };

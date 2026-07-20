@@ -131,7 +131,7 @@ export function runtimeEventSearchText(event: RuntimeEvent): string {
     case 'thinking':
       return content.text;
     case 'function_call':
-      return `${content.name} ${stableStringify(content.args)}`;
+      return `${content.name} ${stableStringify(content.review ?? {})}`;
     case 'function_response':
       if (isArchivedToolResultPlaceholder(content.result)) {
         return [

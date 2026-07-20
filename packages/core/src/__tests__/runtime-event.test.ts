@@ -1,6 +1,7 @@
-import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
 import { expect } from '../test-helpers.js';
+import { INTERACTION_ID_MAX_BYTES } from '../interaction.js';
 import {
   RUNTIME_EVENT_AUTHORS,
   RUNTIME_EVENT_CONTENT_KINDS,
@@ -128,7 +129,13 @@ describe('RuntimeEvent content variants', () => {
       kind: 'function_call',
       id: 'tc-1',
       name: 'Read',
-      args: { path: '/x' },
+      args: { path: '/x', offset: 4 },
+      review: {
+        kind: 'path',
+        operation: 'read',
+        path: '/x',
+        cwd: '/workspace',
+      },
     };
     const response: RuntimeEventContent = {
       kind: 'function_response',
@@ -141,6 +148,7 @@ describe('RuntimeEvent content variants', () => {
       throw new Error('unreachable');
     }
     expect(call.id).toBe(response.id);
+    expect(call.args).toEqual({ path: '/x', offset: 4 });
     expect(response.isError).toBe(false);
   });
 
@@ -174,13 +182,39 @@ describe('RuntimeEvent actions', () => {
         toolName: 'Bash',
         category: 'shell_unsafe',
         reason: 'shell_dangerous',
-        args: { command: 'rm foo' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
         rememberForTurnAllowed: true,
       },
       permissionDecision: { requestId: 'pr-1', decision: 'deny' },
     };
     expect(actions.permissionRequest?.category).toBe('shell_unsafe');
     expect(actions.permissionDecision?.decision).toBe('deny');
+  });
+
+  test('decode rejects raw and non-canonical tool permission fields', () => {
+    const permissionRequest = {
+      kind: 'tool_permission',
+      requestId: 'pr-1',
+      toolUseId: 'tc-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
+      rememberForTurnAllowed: true,
+    } as const;
+
+    for (const invalidRequest of [
+      { ...permissionRequest, args: { command: 'npm test' } },
+      { ...permissionRequest, cwd: '/workspace' },
+      { ...permissionRequest, rationale: 'private reviewer rationale' },
+      { ...permissionRequest, review: { ...permissionRequest.review, command: 'npm test\u00A0' } },
+    ]) {
+      assert.throws(
+        () =>
+          decodeRuntimeEvent({ ...baseEvent(), actions: { permissionRequest: invalidRequest } }),
+        /Invalid RuntimeEvent schema/,
+      );
+    }
   });
 
   test('state/artifact deltas accept primitive values', () => {
@@ -247,7 +281,7 @@ describe('runtimeEventHasModelVisibleContent', () => {
     ).toBe(true);
     expect(
       runtimeEventHasModelVisibleContent(
-        baseEvent({ content: { kind: 'function_call', id: '1', name: 'Read', args: {} } }),
+        baseEvent({ content: { kind: 'function_call', id: '1', name: 'Read' } }),
       ),
     ).toBe(true);
     expect(
@@ -257,6 +291,22 @@ describe('runtimeEventHasModelVisibleContent', () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  test('function_call decoder accepts optional embedded private arguments', () => {
+    const decoded = decodeRuntimeEvent({
+      ...baseEvent(),
+      content: {
+        kind: 'function_call',
+        id: '1',
+        name: 'Read',
+        args: { path: 'private.txt' },
+      },
+    });
+
+    assert.deepEqual(decoded.content?.kind === 'function_call' ? decoded.content.args : undefined, {
+      path: 'private.txt',
+    });
   });
 
   test('a tool error returned to the model (function_response isError) is still visible', () => {
@@ -292,6 +342,33 @@ describe('runtimeEventHasModelVisibleContent', () => {
     expect(runtimeEventHasModelVisibleContent(baseEvent({ refs: { toolCallId: 'tc-1' } }))).toBe(
       false,
     );
+  });
+});
+
+describe('RuntimeEvent Interaction refs', () => {
+  test('accepts a non-empty interaction identity at the UTF-8 byte boundary', () => {
+    const interactionId = 'é'.repeat(INTERACTION_ID_MAX_BYTES / 2);
+    const decoded = decodeRuntimeEvent(baseEvent({ refs: { interactionId } }));
+
+    assert.equal(new TextEncoder().encode(interactionId).byteLength, INTERACTION_ID_MAX_BYTES);
+    assert.equal(decoded.refs?.interactionId, interactionId);
+  });
+
+  test('rejects empty and oversized interaction identities only', () => {
+    for (const interactionId of ['', '\u00E9'.repeat(INTERACTION_ID_MAX_BYTES / 2 + 1)]) {
+      assert.throws(
+        () => decodeRuntimeEvent(baseEvent({ refs: { interactionId } })),
+        /Invalid RuntimeEvent schema/,
+      );
+    }
+
+    const existingRef = 'x'.repeat(INTERACTION_ID_MAX_BYTES + 1);
+    assert.equal(
+      decodeRuntimeEvent(baseEvent({ refs: { storedMessageId: existingRef } })).refs
+        ?.storedMessageId,
+      existingRef,
+    );
+    assert.equal(decodeRuntimeEvent(baseEvent({ refs: { toolCallId: '' } })).refs?.toolCallId, '');
   });
 });
 

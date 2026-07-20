@@ -142,14 +142,14 @@ export function backfillRuntimeEventsFromStoredMessages(
             kind: 'function_call',
             id: message.id,
             name: message.toolName,
-            args: message.args,
+            ...(Object.hasOwn(message, 'args') ? { args: structuredClone(message.args) } : {}),
+            ...(message.review === undefined ? {} : { review: structuredClone(message.review) }),
           },
           actions: {
             stateDelta: {
               ...recoveryState(now, message),
               ...(message.activityKind !== undefined ? { activityKind: message.activityKind } : {}),
               ...(message.displayName !== undefined ? { displayName: message.displayName } : {}),
-              ...(message.intent !== undefined ? { intent: message.intent } : {}),
             },
           },
           // Carry the persisted step id into refs.stepId so post-restart model

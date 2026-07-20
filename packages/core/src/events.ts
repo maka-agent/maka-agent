@@ -15,6 +15,7 @@ import type {
   SandboxEscalationRequest,
 } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
+import type { PublicToolIntentReview } from './tool-intent.js';
 import type {
   PipeShellOutput,
   PtyShellOutput,
@@ -142,11 +143,13 @@ export interface ToolStartEvent extends BaseEvent {
   toolName: string;
   /** Runtime-owned durable tool-operation identity (Phase 2). */
   operationId?: string;
+  /** Embedded-only provider input snapshot. Hosted producers must omit it. */
+  args?: unknown;
   /** Stable semantic category for presentation; absent on legacy events. */
   activityKind?: ToolActivityKind;
-  args: unknown;
+  /** Closed, privacy-safe projection available in every execution mode. */
+  review?: PublicToolIntentReview;
   displayName?: string;
-  intent?: string;
   /**
    * Id of the assistant step this tool call belongs to (equals the step's
    * AssistantMessage id / the step's text+thinking messageId). Lets model
@@ -454,16 +457,10 @@ export interface PermissionRequestEvent extends BaseEvent, PermissionRequest {
 
 export interface AdditionalPermissionRequestEvent extends BaseEvent, AdditionalPermissionRequest {
   type: 'permission_request';
-  /** Additional-permission prompts deliberately do not expose raw tool arguments. */
-  args: undefined;
-  rememberForTurnAllowed?: false;
 }
 
 export interface SandboxEscalationRequestEvent extends BaseEvent, SandboxEscalationRequest {
   type: 'permission_request';
-  /** Escalation prompts expose only bounded command and justification fields. */
-  args: undefined;
-  rememberForTurnAllowed?: false;
 }
 
 export type AnyPermissionRequestEvent =
@@ -487,7 +484,6 @@ export interface PermissionDecisionAckEvent extends BaseEvent {
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
   reviewer?: import('./permission.js').ApprovalsReviewer;
-  rationale?: string;
   riskLevel?: import('./permission.js').ApprovalRiskLevel;
 }
 

@@ -22,9 +22,7 @@ import {
 } from '@maka/storage/root-authority';
 import { registerFakeBackend } from '../backends.js';
 import { runHarborCell } from '../harbor-cell.js';
-import {
-  openHeadlessStorageForRead,
-} from '../headless-storage.js';
+import { openHeadlessStorageForRead } from '../headless-storage.js';
 import { runTaskOnce } from '../task-agent-controller.js';
 import { inspectTaskRun } from '../task-run-inspect.js';
 import type { Config, Task } from '../contracts.js';
@@ -51,22 +49,28 @@ describe('Headless storage root boundary', () => {
       const interactive = await resolveStorageRoot({ path: storageRoot, kind: 'interactive' });
       await writeFile(join(storageRoot, 'storage-sentinel.txt'), 'storage\n');
       const controlDirectory = join(resolveRootControlNamespace(), interactive.rootId);
-      const before = await snapshotManifest({ storageRoot, workspaceDir, outputDir, controlDirectory });
+      const before = await snapshotManifest({
+        storageRoot,
+        workspaceDir,
+        outputDir,
+        controlDirectory,
+      });
 
       await assert.rejects(
-        () => runHarborCell({
-          config: fakeConfig,
-          instruction: 'Do not mutate anything.',
-          cwd: workspaceDir,
-          outputDir,
-          storageRoot,
-          registerBackends: (registry) => {
-            backendRegistrationCalled = true;
-            registerFakeBackend(registry);
-          },
-        }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_kind_mismatch',
+        () =>
+          runHarborCell({
+            config: fakeConfig,
+            instruction: 'Do not mutate anything.',
+            cwd: workspaceDir,
+            outputDir,
+            storageRoot,
+            registerBackends: (registry) => {
+              backendRegistrationCalled = true;
+              registerFakeBackend(registry);
+            },
+          }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_kind_mismatch',
       );
 
       assert.equal(backendRegistrationCalled, false);
@@ -145,13 +149,17 @@ describe('Headless storage root boundary', () => {
       };
 
       await assert.rejects(
-        () => inspectTaskRun({
-          taskRunStore: storage.taskRunStore,
-          agentRunStore,
-          runtimeEventStore: storage.executionStores.runtimeEventStore,
-        }, 'authority-change-run'),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_identity_changed',
+        () =>
+          inspectTaskRun(
+            {
+              taskRunStore: storage.taskRunStore,
+              agentRunStore,
+              runtimeEventStore: storage.executionStores.runtimeEventStore,
+            },
+            'authority-change-run',
+          ),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_identity_changed',
       );
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -207,9 +215,13 @@ async function snapshotTree(path: string, label: string): Promise<ManifestEntry[
     mtimeNs: stats.mtimeNs.toString(),
   };
   if (type === 'file') {
-    entry.contentSha256 = createHash('sha256').update(await readFile(path)).digest('hex');
+    entry.contentSha256 = createHash('sha256')
+      .update(await readFile(path))
+      .digest('hex');
   } else if (type === 'symlink') {
-    entry.contentSha256 = createHash('sha256').update(await readlink(path)).digest('hex');
+    entry.contentSha256 = createHash('sha256')
+      .update(await readlink(path))
+      .digest('hex');
   }
   if (type !== 'directory') return [entry];
 
@@ -221,8 +233,5 @@ async function snapshotTree(path: string, label: string): Promise<ManifestEntry[
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === 'ENOENT';
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

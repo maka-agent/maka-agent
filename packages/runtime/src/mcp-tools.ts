@@ -51,11 +51,6 @@ export function buildMcpTools(
       // explore mode.
       categoryHint: 'network_send',
       parameters: jsonSchema(descriptor.inputSchema),
-      permissionArgs: (args) => ({
-        serverId: descriptor.serverId,
-        toolName: descriptor.name,
-        arguments: args,
-      }),
       impl: async (args: unknown, context) =>
         provider.callTool(descriptor.serverId, descriptor.name, asArguments(args), {
           signal: context.abortSignal,

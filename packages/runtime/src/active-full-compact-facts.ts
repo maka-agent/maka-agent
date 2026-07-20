@@ -59,7 +59,6 @@ const CURRENT_HYPOTHESIS_PATTERN = /\b(current hypothesis|working theory|next i 
 const NEXT_ACTION_PATTERN = /\b(next action|next:|next i|retry|rerun|continue|check|inspect)\b/i;
 const PATH_PATTERN =
   /(?:\/[A-Za-z0-9._~+@%=-]+(?:\/[A-Za-z0-9._~+@%=-]+)+|(?:\.{1,2}\/)?[A-Za-z0-9._~+@%=-]+(?:\/[A-Za-z0-9._~+@%=-]+)+)/g;
-const SHELL_TOOL_PATTERN = /\b(bash|shell|exec|terminal|run|command|cmd|sh|powershell|zsh)\b/i;
 
 export function buildActiveFullCompactFactSummary(input: {
   selection: SelectedFactSource;
@@ -158,7 +157,10 @@ function selectedSourceSlices(
   }
 
   return sortedSelectedEntries(selection).map((entry) => {
-    const providerText = partText(providerEntryPart(entry, messages));
+    // Provider-native tool-call input is private execution material. Compact
+    // facts may use only the closed public review committed to RuntimeEvent.
+    const providerText =
+      entry.contentKind === 'function_call' ? '' : partText(providerEntryPart(entry, messages));
     const runtimeEvent = entry.runtimeEventId
       ? runtimeById.get(entry.runtimeEventId)
       : matchingRuntimeEventForEntry(entry, runtimeByToolCallId);
@@ -181,15 +183,20 @@ function extractProcessCommandAttempts(
   const commands: Array<{ command: string; outcome: string; sourceIds?: string[] }> = [];
   const seen = new Set<string>();
 
+  const runtimeById = new Map(runtimeEvents.map((event) => [event.id, event]));
+  const runtimeByToolCallId = new Map<string, RuntimeEvent[]>();
+  for (const event of runtimeEvents) {
+    const toolCallId = runtimeToolCallId(event);
+    if (toolCallId) pushMap(runtimeByToolCallId, toolCallId, event);
+  }
+
   for (const entry of sortedSelectedEntries(selection)) {
-    const part = providerEntryPart(entry, messages);
-    if (!part || typeof part !== 'object') continue;
-    const record = part as Record<string, unknown>;
-    if (record.type !== 'tool-call') continue;
-    const toolName =
-      typeof record.toolName === 'string' ? record.toolName : (entry.toolName ?? 'tool');
-    const toolInput = 'input' in record ? record.input : record.args;
-    const command = commandTextFromToolInput(toolName, toolInput);
+    if (entry.contentKind !== 'function_call') continue;
+    const event = entry.runtimeEventId
+      ? runtimeById.get(entry.runtimeEventId)
+      : matchingRuntimeEventForEntry(entry, runtimeByToolCallId);
+    if (event?.content?.kind !== 'function_call' || event.content.review === undefined) continue;
+    const command = commandTextFromPublicReview(event.content.name, event.content.review);
     const key = entry.toolCallId ?? `${entry.sourceId}:${command}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -209,10 +216,14 @@ function extractProcessCommandAttempts(
   return commands;
 }
 
-function commandTextFromToolInput(toolName: string, input: unknown): string {
-  const command = stringField(input, ['command', 'cmd', 'script', 'shell', 'code']);
-  if (SHELL_TOOL_PATTERN.test(toolName) && command) return clip(sanitizeFactLine(command), 240);
-  return `${toolName} ${clip(stableStringify(input), 200)}`;
+function commandTextFromPublicReview(toolName: string, review: unknown): string {
+  if (review && typeof review === 'object') {
+    const record = review as Record<string, unknown>;
+    if (record.kind === 'command' && typeof record.command === 'string') {
+      return clip(sanitizeFactLine(record.command), 240);
+    }
+  }
+  return `${toolName} ${clip(stableStringify(review), 200)}`;
 }
 
 function commandOutcome(slices: readonly SelectedSourceSlice[]): string {
@@ -510,7 +521,7 @@ function runtimeEventText(event: RuntimeEvent): string {
     case 'thinking':
       return content.text;
     case 'function_call':
-      return stableStringify(content.args);
+      return stableStringify(content.review ?? {});
     case 'function_response':
       return serializeToolResultForArchive(content.result);
     case 'error':
@@ -531,16 +542,6 @@ function toolResultPayload(part: Record<string, unknown>): unknown {
     return (output as { value?: unknown }).value;
   }
   return output ?? part;
-}
-
-function stringField(value: unknown, keys: readonly string[]): string | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const record = value as Record<string, unknown>;
-  for (const key of keys) {
-    const candidate = record[key];
-    if (typeof candidate === 'string' && candidate.trim()) return candidate;
-  }
-  return undefined;
 }
 
 function boundedSummaryText(

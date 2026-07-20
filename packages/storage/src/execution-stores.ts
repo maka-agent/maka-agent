@@ -26,6 +26,12 @@ import {
   type StorageRootKind,
   type StorageRootLease,
 } from './root-authority.js';
+import {
+  openInteractiveInteractionStoreForRead,
+  openInteractiveInteractionStoreForWrite,
+  type InteractiveInteractionStoreReaderFacade,
+  type InteractiveInteractionStoreWriterFacade,
+} from './interaction-store.js';
 
 const executionStoresWriterBrand: unique symbol = Symbol('ExecutionStoresWriter');
 const executionStoresReaderBrand: unique symbol = Symbol('ExecutionStoresReader');
@@ -41,13 +47,18 @@ export type ExecutionSessionWriter = SessionStore;
 export type ExecutionAgentRunWriter = DurableAgentRunStore;
 export type ExecutionRuntimeEventWriter = DurableRuntimeEventStore;
 
-export interface ExecutionStoresWriter<K extends StorageRootKind> {
+interface ExecutionStoresWriterBase<K extends StorageRootKind> {
   readonly kind: K;
   readonly [executionStoresWriterBrand]: K;
   readonly sessionStore: Readonly<ExecutionSessionWriter>;
   readonly agentRunStore: Readonly<ExecutionAgentRunWriter>;
   readonly runtimeEventStore: Readonly<ExecutionRuntimeEventWriter>;
 }
+
+export type ExecutionStoresWriter<K extends StorageRootKind> = ExecutionStoresWriterBase<K> &
+  (K extends 'interactive'
+    ? { readonly interactionStore: InteractiveInteractionStoreWriterFacade }
+    : object);
 
 export interface ExecutionSessionReader {
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
@@ -73,13 +84,18 @@ export interface ExecutionRuntimeEventReader {
   readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]>;
 }
 
-export interface ExecutionStoresReader<K extends StorageRootKind> {
+interface ExecutionStoresReaderBase<K extends StorageRootKind> {
   readonly kind: K;
   readonly [executionStoresReaderBrand]: K;
   readonly sessionStore: Readonly<ExecutionSessionReader>;
   readonly agentRunStore: Readonly<ExecutionAgentRunReader>;
   readonly runtimeEventStore: Readonly<ExecutionRuntimeEventReader>;
 }
+
+export type ExecutionStoresReader<K extends StorageRootKind> = ExecutionStoresReaderBase<K> &
+  (K extends 'interactive'
+    ? { readonly interactionStore: InteractiveInteractionStoreReaderFacade }
+    : object);
 
 export function authenticateExecutionStoresWriter<K extends StorageRootKind>(
   stores: ExecutionStoresWriter<K>,
@@ -104,7 +120,8 @@ export function authenticateExecutionStoresReader<K extends StorageRootKind>(
 export async function openInteractiveExecutionStoresForWrite(
   lease: StorageRootLease<'interactive', 'write'>,
 ): Promise<ExecutionStoresWriter<'interactive'>> {
-  return openExecutionStoresForWrite(lease, 'interactive');
+  const interactionStore = await openInteractiveInteractionStoreForWrite(lease);
+  return openExecutionStoresForWrite(lease, 'interactive', interactionStore);
 }
 
 export async function openHeadlessExecutionStoresForWrite(
@@ -116,7 +133,9 @@ export async function openHeadlessExecutionStoresForWrite(
 async function openExecutionStoresForWrite<K extends StorageRootKind>(
   lease: StorageRootLease<K, 'write'>,
   kind: K,
+  interactionStore?: InteractiveInteractionStoreWriterFacade,
 ): Promise<ExecutionStoresWriter<K>> {
+  assertInteractionStoreComposition(kind, interactionStore);
   await assertStorageRootLease(lease, kind, 'write');
   const sessionStore = createSessionStore(lease.canonicalPath);
   const agentRunStore = createAgentRunStore(lease.canonicalPath);
@@ -124,9 +143,10 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
   const run = <T>(operation: () => Promise<T>) =>
     runWithStorageRootLease(lease, kind, 'write', operation);
 
-  const stores: ExecutionStoresWriter<K> = {
+  const stores = {
     kind,
     [executionStoresWriterBrand]: kind,
+    ...(interactionStore === undefined ? {} : { interactionStore }),
     sessionStore: {
       create: (input) => run(() => sessionStore.create(input)),
       list: (filter) => run(() => sessionStore.list(filter)),
@@ -191,7 +211,7 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
       readSessionRuntimeEvents: (sessionId) =>
         run(() => runtimeEventStore.readSessionRuntimeEvents(sessionId)),
     },
-  };
+  } as ExecutionStoresWriter<K>;
   freezeExecutionStoresFacade(stores);
   executionStoresWriterKinds.set(stores, kind);
   return stores;
@@ -200,7 +220,8 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
 export async function openInteractiveExecutionStoresForRead(
   lease: StorageRootLease<'interactive', 'read'>,
 ): Promise<ExecutionStoresReader<'interactive'>> {
-  return openExecutionStoresForRead(lease, 'interactive');
+  const interactionStore = await openInteractiveInteractionStoreForRead(lease);
+  return openExecutionStoresForRead(lease, 'interactive', interactionStore);
 }
 
 export async function openHeadlessExecutionStoresForRead(
@@ -212,7 +233,9 @@ export async function openHeadlessExecutionStoresForRead(
 async function openExecutionStoresForRead<K extends StorageRootKind>(
   lease: StorageRootLease<K, 'read'>,
   kind: K,
+  interactionStore?: InteractiveInteractionStoreReaderFacade,
 ): Promise<ExecutionStoresReader<K>> {
+  assertInteractionStoreComposition(kind, interactionStore);
   await assertStorageRootLease(lease, kind, 'read');
   const sessionStore = createSessionStore(lease.canonicalPath);
   const agentRunStore = createAgentRunStore(lease.canonicalPath);
@@ -220,9 +243,10 @@ async function openExecutionStoresForRead<K extends StorageRootKind>(
   const run = <T>(operation: () => Promise<T>) =>
     runWithStorageRootLease(lease, kind, 'read', operation);
 
-  const stores: ExecutionStoresReader<K> = {
+  const stores = {
     kind,
     [executionStoresReaderBrand]: kind,
+    ...(interactionStore === undefined ? {} : { interactionStore }),
     sessionStore: {
       list: (filter) => run(() => sessionStore.list(filter)),
       readHeader: (sessionId) => run(() => sessionStore.readHeaderSnapshot(sessionId)),
@@ -246,7 +270,7 @@ async function openExecutionStoresForRead<K extends StorageRootKind>(
       readSessionRuntimeEvents: (sessionId) =>
         run(() => runtimeEventStore.readSessionRuntimeEvents(sessionId)),
     },
-  };
+  } as ExecutionStoresReader<K>;
   freezeExecutionStoresFacade(stores);
   executionStoresReaderKinds.set(stores, kind);
   return stores;
@@ -256,10 +280,12 @@ function freezeExecutionStoresFacade(stores: {
   readonly sessionStore: object;
   readonly agentRunStore: object;
   readonly runtimeEventStore: object;
+  readonly interactionStore?: object;
 }): void {
   Object.freeze(stores.sessionStore);
   Object.freeze(stores.agentRunStore);
   Object.freeze(stores.runtimeEventStore);
+  if (stores.interactionStore) Object.freeze(stores.interactionStore);
   Object.freeze(stores);
 }
 
@@ -271,4 +297,18 @@ function invalidExecutionStores(
     'invalid_lease',
     `Expected authentic ${kind} ${access} execution stores`,
   );
+}
+
+function assertInteractionStoreComposition(
+  kind: StorageRootKind,
+  interactionStore?:
+    | InteractiveInteractionStoreReaderFacade
+    | InteractiveInteractionStoreWriterFacade,
+): void {
+  if ((kind === 'interactive') !== (interactionStore !== undefined)) {
+    throw new StorageRootAuthorityError(
+      'invalid_lease',
+      'Interactive execution stores require their lease-bound Interaction Store',
+    );
+  }
 }

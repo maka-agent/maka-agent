@@ -1,12 +1,12 @@
 import {
   deriveTurnRecords,
   mergeShellRunStateWithDiagnostics,
-  projectToolActivityArgs,
   STEP_LIMIT_NOTICE_TEXT,
   toolResultActivityStatus,
 } from '@maka/core';
 import type { AttachmentRef, QuoteRef, ShellRunUpdate, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 import type { LiveTurnProjection } from './live-turn-projection.js';
+import { projectToolReviewPresentation } from './tool-review-presentation.js';
 
 export { isCancelledToolResultContent, toolResultActivityStatus } from '@maka/core';
 
@@ -54,6 +54,7 @@ export interface ToolActivityItem {
    */
   stepId?: string;
   status: 'pending' | 'waiting_permission' | 'running' | 'completed' | 'errored' | 'interrupted';
+  /** Presentation-only invocation data projected from Core's closed public review. */
   args: unknown;
   result?: ToolResultContent;
   durationMs?: number;
@@ -140,10 +141,9 @@ export function materializeTools(messages: StoredMessage[]): ToolActivityItem[] 
         toolName: call.toolName,
         activityKind: call.activityKind,
         displayName: call.displayName,
-        intent: call.intent,
         ...(call.stepId !== undefined ? { stepId: call.stepId } : {}),
         status: result ? materializeToolResultStatus(result) : 'interrupted',
-        args: projectToolActivityArgs(call.toolName, call.args),
+        args: projectToolReviewPresentation(call.review),
         result: result?.content,
         durationMs: result?.durationMs,
       };

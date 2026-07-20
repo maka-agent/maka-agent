@@ -10,7 +10,7 @@
  *
  * Adapter contract (see AiSdkBackend tool execute wrapper):
  *
- *   const decision = await engine.evaluate({ sessionId, turnId, toolUseId, toolName, args, mode });
+ *   const decision = await engine.evaluate({ sessionId, turnId, toolUseId, toolName, args, mode, cwd });
  *   if (decision.kind === 'allow') { ...proceed with tool... }
  *   else if (decision.kind === 'block') { ...synthesize tool_result(isError) with decision.reason... }
  *   else if (decision.kind === 'prompt') {
@@ -20,19 +20,28 @@
  *   }
  */
 
+import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import {
-  classifyToolUse,
+  canonicalToolExecutionArgs,
+  projectPublicToolApprovalReview,
+  type CanonicalToolIntent,
+  type PublicToolCommandReview,
+} from '@maka/core';
+import {
   matchToolPermissionRules,
   preToolUse,
+  projectAdditionalPermissionReview,
+  TurnPermissionMemory,
   type PermissionMode,
+  type PermissionRememberScope,
   type PermissionRequest,
   type PermissionResponse,
   type PreToolUseResult,
   type ToolCategory,
-  type ToolExecutionFacts,
   type ToolPermissionRule,
 } from '@maka/core/permission';
+import { InteractionPermissionProjectionError } from '@maka/core/interaction';
 import type { AnyPermissionRequestEvent, PermissionDecisionAckEvent } from '@maka/core/events';
 import {
   DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
@@ -53,6 +62,10 @@ import {
   type SandboxEscalationProposal,
 } from './sandbox-escalation.js';
 import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
+import {
+  RuntimeInteractionAdmissionRejectedError,
+  type RuntimeInteractionClosureReason,
+} from './interaction-authority.js';
 
 // ============================================================================
 // Per-turn state
@@ -60,25 +73,36 @@ import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 
 interface TurnState {
   turnId: string;
-  /** Tool-intent scopes granted with `rememberForTurn: true` in this turn. */
-  remembered: Set<string>;
+  turnMemory: TurnPermissionMemory;
+  rememberScopeIds: Map<PermissionRememberScope, string>;
   /** Approved one-shot grants keyed by their bound tool invocation. */
   additionalGrants: Map<string, PendingAdditionalPermissionGrant>;
   /** Approved exact unsandboxed-command grants keyed by tool invocation. */
   sandboxEscalationGrants: Map<string, PendingSandboxEscalationGrant>;
 }
 
-interface ParkedPermission {
+interface ParkedPermissionBase {
   sessionId: string;
   turnId: string;
   toolUseId: string;
   toolName: string;
   category: ToolCategory;
-  scopeKey: string;
-  rememberForTurnAllowed: boolean;
-  additionalProposal?: AdditionalPermissionProposal;
-  sandboxEscalationProposal?: SandboxEscalationProposal;
 }
+
+type ParkedPermission =
+  | (ParkedPermissionBase & {
+      stage: 'base';
+      rememberScope?: PermissionRememberScope;
+      rememberForTurnAllowed: boolean;
+    })
+  | (ParkedPermissionBase & {
+      stage: 'additional_permissions';
+      proposal: AdditionalPermissionProposal;
+    })
+  | (ParkedPermissionBase & {
+      stage: 'sandbox_escalation';
+      proposal: SandboxEscalationProposal;
+    });
 
 interface PendingAdditionalPermissionGrant {
   grant: AdditionalPermissionGrant;
@@ -107,41 +131,45 @@ export type EvaluateResult =
       kind: 'prompt';
       category: ToolCategory;
       event: AnyPermissionRequestEvent;
+      /** Stable non-secret identity used only for durable remember siblings. */
+      rememberScopeId?: string;
       /** Resolves when the user responds via respondToPermission(). */
       parked: Promise<PermissionResponse>;
     };
 
-export interface EvaluateInput {
+interface EvaluateInputBase {
   /** The session this evaluation runs in. */
   sessionId: string;
   /** Current agent turn id (groups permission state). */
   turnId: string;
   /** The SDK's id for the tool invocation. */
   toolUseId: string;
-  toolName: string;
-  args: unknown;
-  categoryHint?: ToolCategory;
+  /** Sole authenticated private fact for classification, review, and execution. */
+  intent: CanonicalToolIntent;
   /** Session's current permission mode. */
   mode: PermissionMode;
-  /** Optional hint shown to user in the dialog. */
-  hint?: string;
-  /** Runtime-normalized one-shot permission proposal for this exact tool intent. */
-  additionalPermissionProposal?: AdditionalPermissionProposal;
-  /** Runtime-normalized request to execute this exact Bash command without a platform sandbox. */
-  sandboxEscalationProposal?: SandboxEscalationProposal;
-  /** Canonical cwd displayed with an additional permission request. */
-  cwd?: string;
-  /** Optional trusted facts about the executor that would run this tool. */
-  executionFacts?: ToolExecutionFacts;
-  /** Whether the tool participates in the base mode policy when no explicit rule matches. */
-  permissionRequired?: boolean;
-  /** Invocation-local rules. Explicit deny wins over allow, then base mode applies. */
-  permissionRules?: readonly ToolPermissionRule[];
-  /** Optional trusted platform sandbox availability for sandbox-aware policy. */
-  sandbox?: {
-    platformSandboxAvailable: boolean;
-  };
 }
+
+export type EvaluateInput =
+  | (EvaluateInputBase & {
+      stage: 'base';
+      /** Whether the tool participates in the base mode policy when no explicit rule matches. */
+      permissionRequired?: boolean;
+      /** Invocation-local rules. Explicit deny wins over allow, then base mode applies. */
+      permissionRules?: readonly ToolPermissionRule[];
+      /** Optional trusted platform sandbox availability for sandbox-aware policy. */
+      sandbox?: {
+        platformSandboxAvailable: boolean;
+      };
+    })
+  | (EvaluateInputBase & {
+      stage: 'additional_permissions';
+      proposal: AdditionalPermissionProposal;
+    })
+  | (EvaluateInputBase & {
+      stage: 'sandbox_escalation';
+      proposal: SandboxEscalationProposal;
+    });
 
 // ============================================================================
 // Engine
@@ -165,7 +193,8 @@ export class PermissionEngine {
     if (!this.turns.has(turnId)) {
       this.turns.set(turnId, {
         turnId,
-        remembered: new Set(),
+        turnMemory: new TurnPermissionMemory(),
+        rememberScopeIds: new Map(),
         additionalGrants: new Map(),
         sandboxEscalationGrants: new Map(),
       });
@@ -179,21 +208,23 @@ export class PermissionEngine {
     if (!state) return;
     this.parked.endTurn(turnId, (requestId, parked) => {
       const message = `Turn ${turnId} ${reason} before permission request ${requestId} was answered`;
-      return parked.additionalProposal
-        ? new AdditionalPermissionError({
-            stage: 'approval',
-            reason: 'additional_permission_aborted',
-            message,
-            recoverable: true,
-          })
-        : parked.sandboxEscalationProposal
-          ? new SandboxEscalationError({
-              stage: 'approval',
-              reason: 'sandbox_escalation_aborted',
-              message,
-              recoverable: true,
-            })
-          : new Error(message);
+      if (parked.stage === 'additional_permissions') {
+        return new AdditionalPermissionError({
+          stage: 'approval',
+          reason: 'additional_permission_aborted',
+          message,
+          recoverable: true,
+        });
+      }
+      if (parked.stage === 'sandbox_escalation') {
+        return new SandboxEscalationError({
+          stage: 'approval',
+          reason: 'sandbox_escalation_aborted',
+          message,
+          recoverable: true,
+        });
+      }
+      return new Error(message);
     });
     this.turns.delete(turnId);
   }
@@ -205,29 +236,25 @@ export class PermissionEngine {
    */
   evaluate(input: EvaluateInput): EvaluateResult {
     const state = this.requireTurn(input.turnId);
-    const args = snapshotPermissionArgs(input.args);
-
-    const category = classifyToolUse({
-      toolName: input.toolName,
-      args,
-      ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
-    });
+    if (input.stage === 'additional_permissions') {
+      return this.evaluateAdditionalPermissions(input);
+    }
+    if (input.stage === 'sandbox_escalation') {
+      return this.evaluateSandboxEscalation(input);
+    }
+    const { intent } = input;
+    const category = intent.category;
     const ruleDecision = matchToolPermissionRules({
-      toolName: input.toolName,
-      args,
-      category,
+      intent,
       rules: input.permissionRules ?? [],
     });
-    const hasAdditionalProposal = input.additionalPermissionProposal !== undefined;
-    const hasSandboxEscalationProposal = input.sandboxEscalationProposal !== undefined;
-    const hasOneShotProposal = hasAdditionalProposal || hasSandboxEscalationProposal;
-    if (ruleDecision === 'allow' && !hasOneShotProposal) return { kind: 'allow', category };
+    if (ruleDecision === 'allow') return { kind: 'allow', category };
     if (ruleDecision === 'deny') {
       const requestId = this.deps.newId();
       return {
         kind: 'block',
         category,
-        reason: `Tool ${input.toolName} was denied by an invocation permission rule`,
+        reason: `Tool ${intent.toolName} was denied by an invocation permission rule`,
         decisionEvent: {
           type: 'permission_decision_ack',
           id: this.deps.newId(),
@@ -239,205 +266,218 @@ export class PermissionEngine {
         },
       };
     }
-    if (ruleDecision === undefined && input.permissionRequired === false && !hasOneShotProposal) {
+    if (ruleDecision === undefined && input.permissionRequired === false) {
       return { kind: 'allow', category };
     }
 
-    const pre: PreToolUseResult = preToolUse({
-      toolName: input.toolName,
-      args,
-      ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
-      ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
-      ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
-      mode: input.mode,
-      turnRemembered: state.remembered,
-    });
-
-    let additional = input.additionalPermissionProposal;
-    let sandboxEscalation = input.sandboxEscalationProposal;
-    if (additional && sandboxEscalation) {
-      return {
-        kind: 'block',
-        category: pre.category,
-        reason: 'Additional permissions and sandbox escalation cannot be requested together.',
-      };
-    }
-    if (additional) {
-      try {
-        assertAdditionalPermissionProposal({
-          proposal: additional,
-          toolName: input.toolName,
-          args,
-        });
-        additional = freezeAdditionalPermissionProposal(additional);
-      } catch (error) {
-        return {
-          kind: 'block',
-          category: pre.category,
-          reason:
-            error instanceof AdditionalPermissionError
-              ? error.message
-              : 'Additional permission proposal validation failed.',
-        };
-      }
-      if (input.mode === 'explore') {
-        return {
-          kind: 'block',
-          category: pre.category,
-          reason: 'Additional permissions are blocked in explore mode.',
-        };
-      }
-      if (input.mode === 'bypass') return { kind: 'allow', category: pre.category };
-      if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
-        return {
-          kind: 'block',
-          category: pre.category,
-          reason: 'Additional permission requests require a canonical cwd.',
-        };
-      }
+    let pre: PreToolUseResult;
+    try {
+      pre = preToolUse({
+        intent,
+        mode: input.mode,
+        turnMemory: state.turnMemory,
+        ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
+      });
+    } catch (error) {
+      throw permissionAdmissionError(input.toolUseId, error);
     }
 
-    if (sandboxEscalation) {
-      try {
-        assertSandboxEscalationProposal({
-          proposal: sandboxEscalation,
-          toolName: input.toolName,
-          args,
-          cwd: input.cwd ?? '',
-        });
-        sandboxEscalation = freezeSandboxEscalationProposal(sandboxEscalation);
-      } catch (error) {
-        return {
-          kind: 'block',
-          category: pre.category,
-          reason:
-            error instanceof SandboxEscalationError
-              ? error.message
-              : 'Sandbox escalation proposal validation failed.',
-        };
-      }
-      if (input.mode === 'explore') {
-        return {
-          kind: 'block',
-          category: pre.category,
-          reason: 'Sandbox escalation is blocked in explore mode.',
-        };
-      }
-      if (input.mode === 'bypass') return { kind: 'allow', category: pre.category };
-      if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
-        return {
-          kind: 'block',
-          category: pre.category,
-          reason: 'Sandbox escalation requests require a canonical cwd.',
-        };
-      }
+    if (pre.kind === 'block') {
+      return { kind: 'block', category: pre.category, reason: pre.reason };
     }
-
-    const baseExplicitlyAllowed =
-      ruleDecision === 'allow' ||
-      (ruleDecision === undefined && input.permissionRequired === false);
-    const baseAllowed = baseExplicitlyAllowed || pre.proceed;
-
-    if (!baseExplicitlyAllowed && pre.blockReason !== undefined) {
-      return { kind: 'block', category: pre.category, reason: pre.blockReason };
-    }
-    if (baseAllowed && !additional && !sandboxEscalation) {
+    if (pre.kind === 'allow') {
       return { kind: 'allow', category: pre.category };
     }
-    if (!additional && !sandboxEscalation && !pre.partialRequest) {
-      // Defensive: pre.proceed=false && !blockReason && !partialRequest is
-      // unreachable per the type contract, but TS doesn't know that. Treat
-      // as block to fail safe.
+    if (!isAbsolute(intent.cwd)) {
       return {
         kind: 'block',
         category: pre.category,
-        reason: 'PermissionEngine: invariant violated — no partialRequest in prompt branch',
+        reason: 'Tool permission requests require a canonical cwd.',
       };
     }
 
     const requestId = this.deps.newId();
-    const event: AnyPermissionRequestEvent = additional
-      ? {
-          type: 'permission_request',
-          kind: 'additional_permissions',
-          id: this.deps.newId(),
-          turnId: input.turnId,
-          ts: this.deps.now(),
-          requestId,
-          toolUseId: input.toolUseId,
-          toolName: input.toolName,
-          category: pre.category,
-          reason: 'additional_permissions',
-          args: undefined,
-          additionalPermissions: additional.profile,
-          cwd: input.cwd!,
-          justification: additional.justification,
-          intentHash: additional.intentHash,
-          permissionsHash: additional.permissionsHash,
-          risk: additional.risk,
-          alsoApprovesToolExecution: !baseAllowed,
-          availableDecisions: ['allow_once', 'deny'],
-          rememberForTurnAllowed: false,
-          ...(input.hint !== undefined ? { hint: input.hint } : {}),
-        }
-      : sandboxEscalation
-        ? {
-            type: 'permission_request',
-            kind: 'sandbox_escalation',
-            id: this.deps.newId(),
-            turnId: input.turnId,
-            ts: this.deps.now(),
-            requestId,
-            toolUseId: input.toolUseId,
-            toolName: 'Bash',
-            category: pre.category,
-            reason: 'sandbox_escalation',
-            args: undefined,
-            command: sandboxEscalation.command,
-            cwd: sandboxEscalation.cwd,
-            justification: sandboxEscalation.justification,
-            intentHash: sandboxEscalation.intentHash,
-            commandHash: sandboxEscalation.commandHash,
-            trigger: sandboxEscalation.trigger,
-            risk: sandboxEscalation.risk,
-            alsoApprovesToolExecution: !baseAllowed,
-            availableDecisions: ['allow_once', 'deny'],
-            rememberForTurnAllowed: false,
-            ...(input.hint !== undefined ? { hint: input.hint } : {}),
-          }
-        : {
-            type: 'permission_request',
-            kind: 'tool_permission',
-            id: this.deps.newId(),
-            turnId: input.turnId,
-            ts: this.deps.now(),
-            requestId,
-            toolUseId: input.toolUseId,
-            toolName: pre.partialRequest!.toolName,
-            category: pre.partialRequest!.category,
-            reason: pre.partialRequest!.reason,
-            args: pre.partialRequest!.args,
-            rememberForTurnAllowed: pre.partialRequest!.rememberForTurnAllowed,
-            ...(input.hint !== undefined ? { hint: input.hint } : {}),
-          };
+    let event: AnyPermissionRequestEvent;
+    try {
+      event = {
+        type: 'permission_request',
+        id: this.deps.newId(),
+        turnId: input.turnId,
+        ts: this.deps.now(),
+        requestId,
+        toolUseId: input.toolUseId,
+        ...pre.prompt,
+      };
+    } catch (error) {
+      throw permissionAdmissionError(input.toolUseId, error);
+    }
+
+    const rememberScope = pre.rememberScope;
 
     const parked = this.parked.park(input.turnId, requestId, {
       sessionId: input.sessionId,
       turnId: input.turnId,
       toolUseId: input.toolUseId,
-      toolName: input.toolName,
+      toolName: intent.toolName,
       category: pre.category,
-      scopeKey: pre.scopeKey,
-      rememberForTurnAllowed: additional
-        ? false
-        : sandboxEscalation
-          ? false
-          : pre.partialRequest!.rememberForTurnAllowed,
-      ...(additional ? { additionalProposal: additional } : {}),
-      ...(sandboxEscalation ? { sandboxEscalationProposal: sandboxEscalation } : {}),
+      stage: 'base',
+      ...(rememberScope === undefined ? {} : { rememberScope }),
+      rememberForTurnAllowed: event.rememberForTurnAllowed,
     });
 
-    return { kind: 'prompt', category: pre.category, event, parked };
+    return {
+      kind: 'prompt',
+      category: pre.category,
+      event,
+      ...(rememberScope !== undefined
+        ? { rememberScopeId: this.rememberScopeId(state, rememberScope, requestId) }
+        : {}),
+      parked,
+    };
+  }
+
+  private evaluateAdditionalPermissions(
+    input: Extract<EvaluateInput, { stage: 'additional_permissions' }>,
+  ): EvaluateResult {
+    const { intent } = input;
+    const category = intent.category;
+    let proposal: AdditionalPermissionProposal;
+    try {
+      assertAdditionalPermissionProposal({
+        proposal: input.proposal,
+        toolName: intent.toolName,
+        args: canonicalToolExecutionArgs(intent),
+      });
+      proposal = freezeAdditionalPermissionProposal(input.proposal);
+    } catch (error) {
+      return {
+        kind: 'block',
+        category,
+        reason:
+          error instanceof AdditionalPermissionError
+            ? error.message
+            : 'Additional permission proposal validation failed.',
+      };
+    }
+    if (input.mode === 'explore') {
+      return {
+        kind: 'block',
+        category,
+        reason: 'Additional permissions are blocked in explore mode.',
+      };
+    }
+    if (input.mode === 'bypass') return { kind: 'allow', category };
+    if (!isAbsolute(intent.cwd)) {
+      return {
+        kind: 'block',
+        category,
+        reason: 'Additional permission requests require a canonical cwd.',
+      };
+    }
+
+    const requestId = this.deps.newId();
+    let event: AnyPermissionRequestEvent;
+    try {
+      event = {
+        type: 'permission_request',
+        kind: 'additional_permissions',
+        id: this.deps.newId(),
+        turnId: input.turnId,
+        ts: this.deps.now(),
+        requestId,
+        toolUseId: input.toolUseId,
+        toolName: intent.toolName,
+        category,
+        reason: 'additional_permissions',
+        review: projectAdditionalPermissionReview({ cwd: intent.cwd, profile: proposal.profile }),
+        risk: proposal.risk,
+        alsoApprovesToolExecution: false,
+        availableDecisions: ['allow_once', 'deny'],
+      };
+    } catch (error) {
+      throw permissionAdmissionError(input.toolUseId, error);
+    }
+    const parked = this.parked.park(input.turnId, requestId, {
+      stage: 'additional_permissions',
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      toolUseId: input.toolUseId,
+      toolName: intent.toolName,
+      category,
+      proposal,
+    });
+    return { kind: 'prompt', category, event, parked };
+  }
+
+  private evaluateSandboxEscalation(
+    input: Extract<EvaluateInput, { stage: 'sandbox_escalation' }>,
+  ): EvaluateResult {
+    const { intent } = input;
+    const category = intent.category;
+    let proposal: SandboxEscalationProposal;
+    try {
+      assertSandboxEscalationProposal({
+        proposal: input.proposal,
+        toolName: intent.toolName,
+        args: canonicalToolExecutionArgs(intent),
+        cwd: intent.cwd,
+      });
+      proposal = freezeSandboxEscalationProposal(input.proposal);
+    } catch (error) {
+      return {
+        kind: 'block',
+        category,
+        reason:
+          error instanceof SandboxEscalationError
+            ? error.message
+            : 'Sandbox escalation proposal validation failed.',
+      };
+    }
+    if (input.mode === 'explore') {
+      return { kind: 'block', category, reason: 'Sandbox escalation is blocked in explore mode.' };
+    }
+    if (input.mode === 'bypass') return { kind: 'allow', category };
+    if (!isAbsolute(intent.cwd)) {
+      return {
+        kind: 'block',
+        category,
+        reason: 'Sandbox escalation requests require a canonical cwd.',
+      };
+    }
+
+    const requestId = this.deps.newId();
+    let event: AnyPermissionRequestEvent;
+    try {
+      event = {
+        type: 'permission_request',
+        kind: 'sandbox_escalation',
+        id: this.deps.newId(),
+        turnId: input.turnId,
+        ts: this.deps.now(),
+        requestId,
+        toolUseId: input.toolUseId,
+        toolName: 'Bash',
+        category,
+        reason: 'sandbox_escalation',
+        review: commandReview(intent),
+        trigger: proposal.trigger,
+        risk: proposal.risk,
+        alsoApprovesToolExecution: false,
+        availableDecisions: ['allow_once', 'deny'],
+      };
+    } catch (error) {
+      throw permissionAdmissionError(input.toolUseId, error);
+    }
+    const parked = this.parked.park(input.turnId, requestId, {
+      stage: 'sandbox_escalation',
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      toolUseId: input.toolUseId,
+      toolName: intent.toolName,
+      category,
+      proposal,
+    });
+    return { kind: 'prompt', category, event, parked };
   }
 
   /**
@@ -451,6 +491,7 @@ export class PermissionEngine {
   recordResponse(
     turnId: string,
     response: PermissionResponse,
+    options: { resolveRememberedSiblings?: boolean } = {},
   ): { category: ToolCategory; toolUseId: string } | null {
     if (
       !response ||
@@ -460,7 +501,6 @@ export class PermissionEngine {
       (response.reviewer !== undefined &&
         response.reviewer !== 'user' &&
         response.reviewer !== 'auto_review') ||
-      (response.rationale !== undefined && typeof response.rationale !== 'string') ||
       (response.riskLevel !== undefined &&
         !['low', 'medium', 'high', 'critical'].includes(response.riskLevel))
     ) {
@@ -473,14 +513,12 @@ export class PermissionEngine {
       .find(([requestId]) => requestId === response.requestId)?.[1];
     if (!parked) return null;
 
-    if (
-      (parked.additionalProposal || parked.sandboxEscalationProposal) &&
-      response.rememberForTurn !== undefined
-    ) {
+    if (parked.stage !== 'base' && response.rememberForTurn !== undefined) {
       throw new Error('One-shot permission responses cannot use rememberForTurn');
     }
 
     if (
+      parked.stage === 'base' &&
       response.decision === 'allow' &&
       response.rememberForTurn &&
       !parked.rememberForTurnAllowed
@@ -489,33 +527,40 @@ export class PermissionEngine {
     }
 
     if (
+      parked.stage === 'base' &&
       response.decision === 'allow' &&
       response.rememberForTurn &&
       parked.rememberForTurnAllowed
     ) {
-      state.remembered.add(parked.scopeKey);
+      if (parked.rememberScope === undefined) {
+        throw new Error('Rememberable permission request has no turn scope');
+      }
+      state.turnMemory.remember(parked.rememberScope);
       // The user allowed this scope for the whole turn, so other requests
       // already parked under the same scope (e.g. the rest of a parallel
       // browser_* batch) must not each re-prompt. Resolve them now — each
       // tool's own coroutine then emits its own permission_decision_ack, so the
       // UI queue drains without a second click. The current request was already
       // selected explicitly, so the snapshot must not auto-resolve it.
-      for (const [otherId, other] of this.parked.entries(turnId)) {
-        if (
-          otherId !== response.requestId &&
-          other.rememberForTurnAllowed &&
-          other.scopeKey === parked.scopeKey
-        ) {
-          this.parked.resolve(turnId, otherId, {
-            requestId: otherId,
-            decision: 'allow',
-            rememberForTurn: true,
-          });
+      if (options.resolveRememberedSiblings !== false) {
+        for (const [otherId, other] of this.parked.entries(turnId)) {
+          if (
+            otherId !== response.requestId &&
+            other.stage === 'base' &&
+            other.rememberForTurnAllowed &&
+            other.rememberScope === parked.rememberScope
+          ) {
+            this.parked.resolve(turnId, otherId, {
+              requestId: otherId,
+              decision: 'allow',
+              rememberForTurn: true,
+            });
+          }
         }
       }
     }
 
-    if (response.decision === 'allow' && parked.additionalProposal) {
+    if (response.decision === 'allow' && parked.stage === 'additional_permissions') {
       if (state.additionalGrants.has(parked.toolUseId)) {
         throw new Error(`Additional permission grant already exists for tool ${parked.toolUseId}`);
       }
@@ -528,23 +573,23 @@ export class PermissionEngine {
           turnId: parked.turnId,
           toolUseId: parked.toolUseId,
           toolName: parked.toolName,
-          intentHash: parked.additionalProposal.intentHash,
-          permissionsHash: parked.additionalProposal.permissionsHash,
-          profile: parked.additionalProposal.profile,
-          normalizedPaths: parked.additionalProposal.normalizedPaths,
-          risk: parked.additionalProposal.risk,
+          intentHash: parked.proposal.intentHash,
+          permissionsHash: parked.proposal.permissionsHash,
+          profile: parked.proposal.profile,
+          normalizedPaths: parked.proposal.normalizedPaths,
+          risk: parked.proposal.risk,
           issuedAt,
           expiresAt: issuedAt + DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
         }),
       });
     }
 
-    if (response.decision === 'allow' && parked.sandboxEscalationProposal) {
+    if (response.decision === 'allow' && parked.stage === 'sandbox_escalation') {
       if (state.sandboxEscalationGrants.has(parked.toolUseId)) {
         throw new Error(`Sandbox escalation grant already exists for tool ${parked.toolUseId}`);
       }
       const issuedAt = this.deps.now();
-      const proposal = parked.sandboxEscalationProposal;
+      const proposal = parked.proposal;
       state.sandboxEscalationGrants.set(parked.toolUseId, {
         consumed: false,
         grant: freezeSandboxEscalationGrant({
@@ -565,12 +610,11 @@ export class PermissionEngine {
     }
 
     const resolvedResponse: PermissionResponse =
-      parked.additionalProposal || parked.sandboxEscalationProposal
+      parked.stage !== 'base'
         ? {
             requestId: response.requestId,
             decision: response.decision,
             ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
-            ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
             ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
           }
         : parked.rememberForTurnAllowed
@@ -590,26 +634,35 @@ export class PermissionEngine {
     requestId: string,
     reason: string,
   ): { category: ToolCategory; toolUseId: string } | null {
+    return this.closeRequest(turnId, requestId, 'timed_out', reason);
+  }
+
+  closeRequest(
+    turnId: string,
+    requestId: string,
+    closure: RuntimeInteractionClosureReason,
+    message?: string,
+  ): { category: ToolCategory; toolUseId: string } | null {
     const metadata = this.parked.entries(turnId).find(([id]) => id === requestId)?.[1];
     if (!metadata) return null;
-    const error = metadata.additionalProposal
-      ? new AdditionalPermissionError({
-          stage: 'approval',
-          reason: 'additional_permission_timeout',
-          message: reason,
-          recoverable: true,
-        })
-      : metadata.sandboxEscalationProposal
-        ? new SandboxEscalationError({
-            stage: 'approval',
-            reason: 'sandbox_escalation_timeout',
-            message: reason,
-            recoverable: true,
-          })
-        : new Error(reason);
+    const error = permissionClosureError(metadata, closure, message);
     const parked = this.parked.reject(turnId, requestId, error);
     if (!parked) return null;
     return { category: parked.category, toolUseId: parked.toolUseId };
+  }
+
+  rejectRequest(
+    turnId: string,
+    requestId: string,
+    error: Error,
+  ): { category: ToolCategory; toolUseId: string } | null {
+    const parked = this.parked.reject(turnId, requestId, error);
+    if (!parked) return null;
+    return { category: parked.category, toolUseId: parked.toolUseId };
+  }
+
+  rejectPending(turnId: string, error: Error): void {
+    this.parked.rejectAll(turnId, error);
   }
 
   /** Test/debug accessor. */
@@ -713,13 +766,26 @@ export class PermissionEngine {
     return grant;
   }
 
+  private rememberScopeId(
+    state: TurnState,
+    scope: PermissionRememberScope,
+    requestId: string,
+  ): string {
+    const existing = state.rememberScopeIds.get(scope);
+    if (existing !== undefined) return existing;
+    const id = createHash('sha256').update(requestId, 'utf8').digest('hex');
+    state.rememberScopeIds.set(scope, id);
+    return id;
+  }
+
   private requireTurn(turnId: string): TurnState {
     let state = this.turns.get(turnId);
     if (!state) {
       // Auto-begin: callers may forget. This is a soft guarantee.
       state = {
         turnId,
-        remembered: new Set(),
+        turnMemory: new TurnPermissionMemory(),
+        rememberScopeIds: new Map(),
         additionalGrants: new Map(),
         sandboxEscalationGrants: new Map(),
       };
@@ -730,26 +796,43 @@ export class PermissionEngine {
   }
 }
 
-function snapshotPermissionArgs(value: unknown): unknown {
-  return snapshotPermissionValue(value, new WeakSet<object>());
+function commandReview(intent: CanonicalToolIntent): PublicToolCommandReview {
+  const review = projectPublicToolApprovalReview(intent);
+  if (review.kind !== 'command') throw new InteractionPermissionProjectionError();
+  return review;
 }
 
-function snapshotPermissionValue(value: unknown, seen: WeakSet<object>): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) throw new Error('Permission arguments must not contain cycles');
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return Object.freeze(value.map((entry) => snapshotPermissionValue(entry, seen)));
+function permissionAdmissionError(requestId: string, error: unknown): Error {
+  if (error instanceof RuntimeInteractionAdmissionRejectedError) return error;
+  if (error instanceof InteractionPermissionProjectionError) {
+    return new RuntimeInteractionAdmissionRejectedError(requestId, 'invalid_request');
   }
-  const output: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !('value' in descriptor)) {
-      throw new Error(`Permission argument ${key} must be a plain data property`);
-    }
-    output[key] = snapshotPermissionValue(descriptor.value, seen);
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function permissionClosureError(
+  metadata: ParkedPermission,
+  closure: RuntimeInteractionClosureReason,
+  message = `Permission request closed: ${closure}`,
+): Error {
+  const timedOut = closure === 'timed_out';
+  if (metadata.stage === 'additional_permissions') {
+    return new AdditionalPermissionError({
+      stage: 'approval',
+      reason: timedOut ? 'additional_permission_timeout' : 'additional_permission_aborted',
+      message,
+      recoverable: true,
+    });
   }
-  return Object.freeze(output);
+  if (metadata.stage === 'sandbox_escalation') {
+    return new SandboxEscalationError({
+      stage: 'approval',
+      reason: timedOut ? 'sandbox_escalation_timeout' : 'sandbox_escalation_aborted',
+      message,
+      recoverable: true,
+    });
+  }
+  return new Error(message);
 }
 
 // ============================================================================

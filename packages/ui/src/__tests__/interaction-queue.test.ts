@@ -20,11 +20,17 @@ function permission(requestId: string): PermissionRequestEvent {
   return {
     type: 'permission_request',
     id: `evt_${requestId}`,
+    turnId: 'turn_1',
     ts: 0,
     requestId,
     toolUseId: `call_${requestId}`,
     toolName: 'browser_snapshot',
-  } as PermissionRequestEvent;
+    kind: 'tool_permission',
+    category: 'browser',
+    reason: 'browser',
+    review: { kind: 'browser', action: 'snapshot' },
+    rememberForTurnAllowed: true,
+  };
 }
 
 function question(requestId: string): UserQuestionRequestEvent {
@@ -51,18 +57,15 @@ function additionalPermission(requestId: string): AdditionalPermissionRequestEve
     toolName: 'Write',
     category: 'file_write',
     reason: 'additional_permissions',
-    args: undefined,
-    cwd: '/workspace',
-    justification: 'Write requires access to the requested path.',
-    intentHash: `sha256:${'1'.repeat(64)}`,
-    permissionsHash: `sha256:${'2'.repeat(64)}`,
-    additionalPermissions: {
-      fileSystem: { entries: [{ path: '/outside/file', access: 'write', scope: 'exact' }] },
+    review: {
+      kind: 'additional_permissions',
+      cwd: '/workspace',
+      paths: [{ path: '/outside/file', access: 'write', scope: 'exact' }],
+      networkEnabled: false,
     },
     risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
-    alsoApprovesToolExecution: true,
+    alsoApprovesToolExecution: false,
     availableDecisions: ['allow_once', 'deny'],
-    rememberForTurnAllowed: false,
   };
 }
 
@@ -78,12 +81,11 @@ function sandboxEscalation(requestId: string): SandboxEscalationRequestEvent {
     toolName: 'Bash',
     category: 'shell_unsafe',
     reason: 'sandbox_escalation',
-    args: undefined,
-    command: 'printf retry-ok > /tmp/retry.txt',
-    cwd: '/workspace',
-    justification: 'The exact command must write outside the workspace.',
-    intentHash: `sha256:${'3'.repeat(64)}`,
-    commandHash: `sha256:${'4'.repeat(64)}`,
+    review: {
+      kind: 'command',
+      command: 'printf retry-ok > /tmp/retry.txt',
+      cwd: '/workspace',
+    },
     trigger: 'sandbox_denial',
     risk: {
       unsandboxedExecution: true,
@@ -93,7 +95,6 @@ function sandboxEscalation(requestId: string): SandboxEscalationRequestEvent {
     },
     alsoApprovesToolExecution: true,
     availableDecisions: ['allow_once', 'deny'],
-    rememberForTurnAllowed: false,
   };
 }
 
@@ -114,7 +115,7 @@ describe('composer interaction queue', () => {
     assert.equal(active?.type, 'permission_request');
     if (active?.type === 'permission_request') {
       assert.equal(active.kind, 'additional_permissions');
-      assert.equal(active.rememberForTurnAllowed, false);
+      assert.deepEqual(active.availableDecisions, ['allow_once', 'deny']);
     }
   });
 
@@ -124,7 +125,7 @@ describe('composer interaction queue', () => {
     assert.equal(active?.type, 'permission_request');
     if (active?.type === 'permission_request') {
       assert.equal(active.kind, 'sandbox_escalation');
-      assert.equal(active.rememberForTurnAllowed, false);
+      assert.equal(active.review.command, 'printf retry-ok > /tmp/retry.txt');
     }
   });
 

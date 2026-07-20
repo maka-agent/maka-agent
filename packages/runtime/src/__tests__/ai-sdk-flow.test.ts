@@ -5,7 +5,11 @@ import type { BackendKind } from '@maka/core/session';
 import type { SessionEvent } from '@maka/core/events';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import { isTerminalRuntimeEvent, isPartialRuntimeEvent } from '@maka/core/runtime-event';
+import {
+  decodeRuntimeEvent,
+  isTerminalRuntimeEvent,
+  isPartialRuntimeEvent,
+} from '@maka/core/runtime-event';
 
 import {
   AiSdkFlow,
@@ -259,6 +263,23 @@ describe('AiSdkFlow seam', () => {
     });
   });
 
+  test('forwards safe-boundary continuation metadata unchanged', async () => {
+    const continuation = {
+      sourceInvocationId: 'source-invocation',
+      sourceRunId: 'source-run',
+      sourceTurnId: 'source-turn',
+      sourceRuntimeEventHighWater: 17,
+    };
+    const backend = new ScriptedBackend({
+      events: [ev({ type: 'complete', stopReason: 'end_turn' })],
+    });
+    const flow = new AiSdkFlow({ backend });
+
+    await collect(flow.run(ctx, { text: '', context: [], continuation }));
+
+    assert.deepEqual(backend.sendInputs[0]?.continuation, continuation);
+  });
+
   test('maps thinking deltas/signature onto model thinking content', async () => {
     const backend = new ScriptedBackend({
       events: [
@@ -279,7 +300,13 @@ describe('AiSdkFlow seam', () => {
   test('preserves toolName linkage between tool_start and tool_result', async () => {
     const backend = new ScriptedBackend({
       events: [
-        ev({ type: 'tool_start', toolUseId: 'tu-1', toolName: 'read', args: { path: '/a' } }),
+        ev({
+          type: 'tool_start',
+          toolUseId: 'tu-1',
+          toolName: 'read',
+          args: { path: '/private/a', offset: 4 },
+          review: { kind: 'path', operation: 'read', path: '/a', cwd: '/workspace/project' },
+        }),
         ev({
           type: 'tool_result',
           toolUseId: 'tu-1',
@@ -298,9 +325,21 @@ describe('AiSdkFlow seam', () => {
     assert.equal(call.role, 'model');
     assert.equal(call.author, 'agent');
     assert.equal(call.content?.kind, 'function_call');
-    const fnCall = call.content as { id: string; name: string; args: unknown };
+    const fnCall = call.content as {
+      id: string;
+      name: string;
+      args?: unknown;
+      review?: unknown;
+    };
     assert.equal(fnCall.name, 'read');
     assert.equal(fnCall.id, 'tu-1');
+    assert.deepEqual(fnCall.args, { path: '/private/a', offset: 4 });
+    assert.deepEqual(fnCall.review, {
+      kind: 'path',
+      operation: 'read',
+      path: '/a',
+      cwd: '/workspace/project',
+    });
     assert.equal(call.refs?.toolCallId, 'tu-1');
 
     // tool_result -> function_response with the remembered name
@@ -320,6 +359,30 @@ describe('AiSdkFlow seam', () => {
     assert.deepEqual(result.actions?.stateDelta, { durationMs: 42 });
   });
 
+  test('host-owned tool mapping keeps the public review and typed refs but strips private args', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'tool_start',
+        toolUseId: 'tu-hosted',
+        toolName: 'Write',
+        args: { path: 'notes.md', content: 'private provider input' },
+        review: { kind: 'path', operation: 'write', path: 'notes.md', cwd: '/workspace/project' },
+        stepId: 'step-hosted',
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+      'host-owned',
+    );
+
+    assert.deepEqual(mapped.content, {
+      kind: 'function_call',
+      id: 'tu-hosted',
+      name: 'Write',
+      review: { kind: 'path', operation: 'write', path: 'notes.md', cwd: '/workspace/project' },
+    });
+    assert.deepEqual(mapped.refs, { toolCallId: 'tu-hosted', stepId: 'step-hosted' });
+  });
+
   test('maps permission request/decision as first-class runtime actions', async () => {
     const backend = new ScriptedBackend({
       events: [
@@ -328,12 +391,11 @@ describe('AiSdkFlow seam', () => {
           kind: 'tool_permission',
           requestId: 'req-1',
           toolUseId: 'tu-2',
-          toolName: 'bash',
-          category: 'shell_unsafe',
-          reason: 'shell_dangerous',
-          args: { cmd: 'rm -rf /' },
+          toolName: 'Bash',
+          category: 'fs_destructive',
+          reason: 'fs_destructive',
+          review: { kind: 'command', command: 'rm -rf /', cwd: '/workspace/project' },
           rememberForTurnAllowed: true,
-          hint: 'destructive',
         }),
         ev({
           type: 'permission_decision_ack',
@@ -351,8 +413,7 @@ describe('AiSdkFlow seam', () => {
     const req = out[0];
     assert.equal(req.author, 'system');
     assert.equal(req.actions?.permissionRequest?.requestId, 'req-1');
-    assert.equal(req.actions?.permissionRequest?.toolName, 'bash');
-    assert.equal(req.actions?.permissionRequest?.hint, 'destructive');
+    assert.equal(req.actions?.permissionRequest?.toolName, 'Bash');
     assert.equal(req.actions?.permissionRequest?.kind, 'tool_permission');
     if (req.actions?.permissionRequest?.kind !== 'tool_permission') {
       assert.fail('expected a tool permission request');
@@ -371,6 +432,37 @@ describe('AiSdkFlow seam', () => {
     assert.equal(out[2].status, 'completed');
   });
 
+  test('host-owned permission ack maps to a decodable identity projection', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({
+          type: 'permission_decision_ack',
+          requestId: 'permission-hosted-1',
+          toolUseId: 'tool-hosted-1',
+          decision: 'allow',
+          reviewer: 'auto_review',
+          riskLevel: 'high',
+        }),
+        ev({ type: 'complete', stopReason: 'permission_handoff' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend, interactionProjection: 'host-owned' });
+
+    const out = await collect(flow.run(ctx, { text: 'do it', context: [] }));
+
+    assert.equal(out[0]?.role, 'system');
+    assert.equal(out[0]?.author, 'system');
+    assert.deepEqual(out[0]?.refs, {
+      toolCallId: 'tool-hosted-1',
+      interactionId: 'permission-hosted-1',
+    });
+    assert.equal(out[0]?.actions, undefined);
+
+    const decoded = (JSON.parse(JSON.stringify(out)) as unknown[]).map(decodeRuntimeEvent);
+    assert.equal(decoded[0]?.refs?.interactionId, 'permission-hosted-1');
+    assert.equal(decoded[1]?.status, 'completed');
+  });
+
   test('maps additional permission requests without exposing raw tool args', () => {
     const mapped = mapSessionEventToRuntimeEvent(
       ev({
@@ -381,22 +473,18 @@ describe('AiSdkFlow seam', () => {
         toolName: 'Write',
         category: 'file_write',
         reason: 'additional_permissions',
-        args: undefined,
-        additionalPermissions: {
-          fileSystem: {
-            entries: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
-          },
+        review: {
+          kind: 'additional_permissions',
+          cwd: '/workspace',
+          paths: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
+          networkEnabled: false,
         },
-        cwd: '/workspace',
-        justification: 'Write the requested export outside the workspace.',
-        intentHash: 'intent-hash',
-        permissionsHash: 'permissions-hash',
         risk: {
           outsideWorkspace: true,
           protectedMetadata: false,
           networkEnabled: false,
         },
-        alsoApprovesToolExecution: true,
+        alsoApprovesToolExecution: false,
         availableDecisions: ['allow_once', 'deny'],
       }),
       ctx,
@@ -408,14 +496,14 @@ describe('AiSdkFlow seam', () => {
     if (request?.kind !== 'additional_permissions') {
       assert.fail('expected an additional permission request');
     }
-    assert.deepEqual(request.additionalPermissions, {
-      fileSystem: {
-        entries: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
-      },
+    assert.deepEqual(request.review, {
+      kind: 'additional_permissions',
+      cwd: '/workspace',
+      paths: [{ path: '/tmp/export.txt', access: 'write', scope: 'exact' }],
+      networkEnabled: false,
     });
     assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
-    assert.equal(request.alsoApprovesToolExecution, true);
-    assert.equal('args' in request, false);
+    assert.equal(request.alsoApprovesToolExecution, false);
   });
 
   test('maps sandbox escalation as a bounded one-shot permission action', () => {
@@ -428,12 +516,11 @@ describe('AiSdkFlow seam', () => {
         toolName: 'Bash',
         category: 'shell_unsafe',
         reason: 'sandbox_escalation',
-        args: undefined,
-        command: 'printf ok > /outside/result.txt',
-        cwd: '/workspace',
-        justification: 'Write the exact requested output.',
-        intentHash: 'intent-hash',
-        commandHash: 'command-hash',
+        review: {
+          kind: 'command',
+          command: 'printf ok > /outside/result.txt',
+          cwd: '/workspace',
+        },
         trigger: 'sandbox_denial',
         risk: {
           unsandboxedExecution: true,
@@ -441,9 +528,8 @@ describe('AiSdkFlow seam', () => {
           unrestrictedNetwork: true,
           protectedMetadataExposed: true,
         },
-        alsoApprovesToolExecution: false,
+        alsoApprovesToolExecution: true,
         availableDecisions: ['allow_once', 'deny'],
-        rememberForTurnAllowed: false,
       }),
       ctx,
       createSessionEventMapMemory(),
@@ -452,8 +538,13 @@ describe('AiSdkFlow seam', () => {
     const request = mapped.actions?.permissionRequest;
     assert.equal(request?.kind, 'sandbox_escalation');
     if (request?.kind !== 'sandbox_escalation') assert.fail('expected sandbox escalation');
-    assert.equal(request.command, 'printf ok > /outside/result.txt');
+    assert.deepEqual(request.review, {
+      kind: 'command',
+      command: 'printf ok > /outside/result.txt',
+      cwd: '/workspace',
+    });
     assert.equal(request.trigger, 'sandbox_denial');
+    assert.equal(request.alsoApprovesToolExecution, true);
     assert.deepEqual(request.availableDecisions, ['allow_once', 'deny']);
     assert.equal('args' in request, false);
   });
@@ -467,7 +558,12 @@ describe('AiSdkFlow seam', () => {
       toolName: 'Write',
       category: 'file_write',
       reason: 'file_write',
-      args: { path: '/tmp/example' },
+      review: {
+        kind: 'path',
+        operation: 'write',
+        path: '/tmp/example',
+        cwd: '/workspace/project',
+      },
       rememberForTurnAllowed: true,
     });
 
@@ -475,7 +571,7 @@ describe('AiSdkFlow seam', () => {
       const malformed = { ...valid, kind } as unknown as SessionEvent;
       assert.throws(
         () => mapSessionEventToRuntimeEvent(malformed, ctx, createSessionEventMapMemory()),
-        /invalid or missing kind/,
+        /Invalid Interaction permission prompt kind/,
       );
     }
   });
@@ -825,52 +921,67 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.equal(event.actions?.stateDelta?.activityKind, 'command');
   });
 
-  test('owns independent args across SessionEvent to RuntimeEvent mappings', () => {
+  test('owns independent public reviews across SessionEvent to RuntimeEvent mappings', () => {
     const cases = [
       {
-        event: (args: unknown) =>
+        event: (review: {
+          kind: 'stdin';
+          ref: string;
+          input: { text: string; bytes: number };
+          size: { cols: number; rows: number };
+        }) =>
           ev({
             type: 'tool_start',
             toolUseId: 'tu-owned',
-            toolName: 'Write',
-            args,
+            toolName: 'WriteStdin',
+            review,
           }),
-        mappedArgs: (event: RuntimeEvent) =>
-          event.content?.kind === 'function_call' ? event.content.args : undefined,
+        mappedReview: (event: RuntimeEvent) =>
+          event.content?.kind === 'function_call' ? event.content.review : undefined,
       },
       {
-        event: (args: unknown) =>
+        event: (review: {
+          kind: 'stdin';
+          ref: string;
+          input: { text: string; bytes: number };
+          size: { cols: number; rows: number };
+        }) =>
           ev({
             type: 'permission_request',
             kind: 'tool_permission',
             requestId: 'permission-owned',
             toolUseId: 'tu-owned',
-            toolName: 'Write',
-            category: 'file_write',
-            reason: 'file_write',
-            args,
-            rememberForTurnAllowed: true,
+            toolName: 'WriteStdin',
+            category: 'shell_unsafe',
+            reason: 'shell_dangerous',
+            review,
+            rememberForTurnAllowed: false,
           }),
-        mappedArgs: (event: RuntimeEvent) => {
+        mappedReview: (event: RuntimeEvent) => {
           const request = event.actions?.permissionRequest;
-          return request?.kind === 'tool_permission' ? request.args : undefined;
+          return request?.kind === 'tool_permission' ? request.review : undefined;
         },
       },
     ];
 
     for (const scenario of cases) {
-      const sourceArgs = { content: 'approved', layout: { cols: 120 } };
-      const sourceEvent = scenario.event(sourceArgs);
-      const mappedArgs = scenario.mappedArgs(
+      const sourceReview = {
+        kind: 'stdin' as const,
+        ref: 'maka://runtime/background-tasks/pty-1',
+        input: { text: 'approved', bytes: 8 },
+        size: { cols: 120, rows: 30 },
+      };
+      const sourceEvent = scenario.event(sourceReview);
+      const mappedReview = scenario.mappedReview(
         mapSessionEventToRuntimeEvent(sourceEvent, ctx, createSessionEventMapMemory()),
-      ) as typeof sourceArgs;
+      ) as typeof sourceReview;
 
-      assert.notStrictEqual(mappedArgs, sourceArgs);
-      assert.notStrictEqual(mappedArgs.layout, sourceArgs.layout);
-      sourceArgs.layout.cols = 80;
-      assert.equal(mappedArgs.layout.cols, 120);
-      mappedArgs.content = 'runtime';
-      assert.equal(sourceArgs.content, 'approved');
+      assert.notStrictEqual(mappedReview, sourceReview);
+      assert.notStrictEqual(mappedReview.input, sourceReview.input);
+      sourceReview.size.cols = 80;
+      assert.equal(mappedReview.size.cols, 120);
+      sourceReview.input.text = 'source';
+      assert.equal(mappedReview.input.text, 'approved');
     }
   });
 
@@ -918,6 +1029,32 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
         },
       ],
     });
+  });
+
+  test('host-owned user questions map to Interaction identity only', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'user_question_request',
+        requestId: 'question-hosted-1',
+        toolUseId: 'tool-hosted-question',
+        questions: [
+          {
+            question: 'Private question text?',
+            options: [{ label: 'Private answer' }],
+          },
+        ],
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+      'host-owned',
+    );
+
+    assert.equal(mapped.actions, undefined);
+    assert.deepEqual(mapped.refs, {
+      toolCallId: 'tool-hosted-question',
+      interactionId: 'question-hosted-1',
+    });
+    assert.doesNotMatch(JSON.stringify(mapped), /Private question text|Private answer/);
   });
 
   test('tool_result without a prior tool_start still maps (name falls back to empty)', () => {

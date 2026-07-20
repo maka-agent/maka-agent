@@ -25,14 +25,18 @@ const allowedHostExternalImports = new Set([
 const allowedServerExternalImports = new Set([
   ...allowedHostExternalImports,
   '@maka/core/agent-run',
+  '@maka/core/events',
+  '@maka/core/interaction',
   '@maka/core/runtime-event',
   '@maka/core/session',
   '@maka/runtime',
+  '@maka/storage',
   '@maka/storage/execution-stores',
+  'node:async_hooks',
 ]);
 const allowedExternalImports = {
   client: allowedHostExternalImports,
-  protocol: new Set(['node:util']),
+  protocol: new Set(['@maka/core/interaction', 'node:util']),
 } as const;
 
 async function dependencyScannerFixture(target: string): Promise<void> {
@@ -80,7 +84,11 @@ test('protocol and client stay within their subpaths and the root-authority boun
           if (!isInside(sourceRoot, target)) violations.push(`${path}: ${specifier}`);
           continue;
         }
-        if (!allowedExternalImports[area].has(specifier)) violations.push(`${path}: ${specifier}`);
+        const allowedImports =
+          topLevelArea === 'protocol'
+            ? allowedExternalImports.protocol
+            : allowedExternalImports[area];
+        if (!allowedImports.has(specifier)) violations.push(`${path}: ${specifier}`);
       }
     }
   }
@@ -96,7 +104,9 @@ test('only the server subgraph can reach the M2 Runtime composition', async () =
     const allowedImports =
       topLevelArea === 'server' || localPath === 'candidate-main.ts'
         ? allowedServerExternalImports
-        : allowedHostExternalImports;
+        : topLevelArea === 'protocol'
+          ? allowedExternalImports.protocol
+          : allowedHostExternalImports;
     for (const specifier of moduleSpecifiers(path)) {
       if (isRelativeSpecifier(specifier)) {
         const target = sourcePathForSpecifier(path, specifier);

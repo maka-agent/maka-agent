@@ -19,7 +19,7 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import type { SessionSummary, StoredMessage } from '@maka/core';
+import type { PublicToolIntentReview, SessionSummary, StoredMessage } from '@maka/core';
 import {
   MAX_SESSIONS_SCANNED,
   SNIPPET_MAX_CODE_POINTS,
@@ -720,11 +720,15 @@ describe('G9 — tool_result content scan cap', () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// ToolCallMessage: index `intent` ONLY (xuan `2f1aba55` fixup)
+// ToolCallMessage: index the closed public review only
 // ---------------------------------------------------------------------------
 
-describe('ToolCallMessage indexes intent only (not toolName / displayName)', () => {
-  function toolCall(overrides: { toolName: string; displayName?: string; intent?: string }): StoredMessage {
+describe('ToolCallMessage indexes review only (not toolName / displayName)', () => {
+  function toolCall(overrides: {
+    toolName: string;
+    displayName?: string;
+    review?: PublicToolIntentReview;
+  }): StoredMessage {
     return {
       type: 'tool_call',
       id: 'tc1',
@@ -732,41 +736,41 @@ describe('ToolCallMessage indexes intent only (not toolName / displayName)', () 
       ts: 1_700_000_000_000,
       toolName: overrides.toolName,
       displayName: overrides.displayName,
-      intent: overrides.intent,
-      args: {},
+      review: overrides.review,
     };
   }
 
-  it('collectSearchableText returns intent when present', () => {
-    const text = collectSearchableText(toolCall({ toolName: 'Bash', intent: 'list files in current dir' }));
-    assert.equal(text, 'list files in current dir');
+  it('projects only user-visible review values, without structural keys', () => {
+    const review = { kind: 'command', command: 'list files in current dir', cwd: '/repo' } as const;
+    const text = collectSearchableText(toolCall({ toolName: 'Bash', review }));
+    assert.equal(text, 'list files in current dir\n/repo');
+    assert.doesNotMatch(text ?? '', /\b(?:kind|command|cwd)\b/);
   });
 
-  it('collectSearchableText returns undefined when intent is missing', () => {
+  it('collectSearchableText returns undefined when review is missing', () => {
     const text = collectSearchableText(toolCall({ toolName: 'Bash' }));
     assert.equal(text, undefined);
   });
 
-  it('collectSearchableText returns undefined when intent is empty string', () => {
-    const text = collectSearchableText(toolCall({ toolName: 'Bash', intent: '' }));
-    assert.equal(text, undefined);
-  });
-
-  it('does NOT index toolName — searching for "Bash" with no intent match returns 0', async () => {
+  it('does NOT index toolName — searching for "Bash" with no review match returns 0', async () => {
     // Plan-locked behavior: tool names are internal labels, not
-    // user-visible content. A bash invocation with no intent
-    // description must NOT appear when the user searches for `Bash`.
+    // user-visible content. A review that does not mention `Bash`
+    // must not appear when the user searches for that tool name.
     const result = await runThreadSearch(
       { source: 'thread', query: 'Bash', limit: 5 },
       makeDeps({
         s1: {
           session: session({ id: 's1' }),
-          messages: [toolCall({ toolName: 'Bash', displayName: 'Bash', intent: 'check disk usage' })],
+          messages: [toolCall({
+            toolName: 'Bash',
+            displayName: 'Bash',
+            review: { kind: 'command', command: 'check disk usage', cwd: '/repo' },
+          })],
         },
       }),
     );
     if (!Array.isArray(result)) assert.fail('expected results');
-    // Intent says "check disk usage" — `Bash` shouldn't match it.
+    // The review says "check disk usage" — `Bash` should not match it.
     assert.equal(result.length, 0);
   });
 
@@ -776,7 +780,11 @@ describe('ToolCallMessage indexes intent only (not toolName / displayName)', () 
       makeDeps({
         s1: {
           session: session({ id: 's1' }),
-          messages: [toolCall({ toolName: 'Bash', displayName: 'CustomDisplayName', intent: 'tail logs' })],
+          messages: [toolCall({
+            toolName: 'Bash',
+            displayName: 'CustomDisplayName',
+            review: { kind: 'command', command: 'tail logs', cwd: '/repo' },
+          })],
         },
       }),
     );
@@ -784,18 +792,43 @@ describe('ToolCallMessage indexes intent only (not toolName / displayName)', () 
     assert.equal(result.length, 0);
   });
 
-  it('DOES index intent — searching for intent-only string matches', async () => {
+  it('DOES index public review content', async () => {
     const result = await runThreadSearch(
       { source: 'thread', query: 'disk usage', limit: 5 },
       makeDeps({
         s1: {
           session: session({ id: 's1' }),
-          messages: [toolCall({ toolName: 'Bash', intent: 'check disk usage on /var' })],
+          messages: [toolCall({
+            toolName: 'Bash',
+            review: { kind: 'command', command: 'check disk usage on /var', cwd: '/repo' },
+          })],
         },
       }),
     );
     if (!Array.isArray(result)) assert.fail('expected results');
     assert.equal(result.length, 1);
+  });
+
+  it('indexes only the public swarm aggregates', () => {
+    const text = collectSearchableText(toolCall({
+      toolName: 'agent_swarm',
+      review: {
+        kind: 'agent',
+        operation: 'swarm',
+        itemCount: 3,
+        resumeCount: 0,
+        concurrency: 2,
+        profiles: ['local_read', 'web_research'],
+        writeBack: ['summary'],
+        isolation: ['same_workspace', 'worktree'],
+      },
+    }));
+
+    assert.equal(
+      text,
+      'local_read\nweb_research\nsummary\nsame_workspace\nworktree',
+    );
+    assert.doesNotMatch(text ?? '', /agent_swarm|itemCount|concurrency/);
   });
 });
 
@@ -998,7 +1031,7 @@ describe('SearchResult.target carries thread navigation (PR-SEARCH-1.5)', () => 
 });
 
 describe('formatSearchResultSummary', () => {
-  function toolCall(overrides: { toolName: string; displayName?: string; intent?: string }): StoredMessage {
+  function toolCall(overrides: { toolName: string; displayName?: string }): StoredMessage {
     return {
       type: 'tool_call',
       id: 'tc-summary',
@@ -1006,8 +1039,6 @@ describe('formatSearchResultSummary', () => {
       ts: 1_700_000_000_000,
       toolName: overrides.toolName,
       displayName: overrides.displayName,
-      intent: overrides.intent,
-      args: {},
     };
   }
 

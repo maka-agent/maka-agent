@@ -9,6 +9,15 @@ import { redactSecrets } from '@maka/core/redaction';
 import { z } from 'zod';
 
 import type { EvaluateResult, PermissionEngine } from './permission-engine.js';
+import {
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionContinuationAuthority,
+  type RuntimePermissionAnswer,
+  type RuntimePermissionContinuation,
+  type RuntimePermissionOutcome,
+} from './interaction-authority.js';
+import { isRuntimeLifecycleAdmissionOrFatal } from './runtime-lifecycle-errors.js';
 
 export const DEFAULT_AUTO_APPROVAL_REVIEW_TIMEOUT_MS = 90_000;
 export const MAX_AUTO_APPROVAL_RATIONALE_CHARS = 1_000;
@@ -57,6 +66,14 @@ export interface ApprovalCoordinatorObserver {
   onAutoReviewFailed?(request: AnyPermissionRequestEvent, error: unknown): void;
 }
 
+type ApprovalInteractionExecution =
+  | { readonly kind: 'embedded' }
+  | {
+      readonly kind: 'hosted';
+      readonly interactions: RuntimeInteractionContinuationAuthority;
+      readonly continuation: RuntimePermissionContinuation;
+    };
+
 export class ApprovalCoordinator {
   constructor(
     private readonly input: {
@@ -69,24 +86,29 @@ export class ApprovalCoordinator {
     mode: PermissionMode;
     verdict: Extract<EvaluateResult, { kind: 'prompt' }>;
     permissionEngine: PermissionEngine;
+    execution: ApprovalInteractionExecution;
     context: AutoApprovalReviewContext;
     emitUserRequest: (event: AnyPermissionRequestEvent) => void;
     abortSignal?: AbortSignal;
   }): Promise<PermissionResponse> {
     const routing = approvalRoutingPolicyForMode(input.mode);
     if (!routing) {
-      return this.resolveAutoDecision(input, {
-        outcome: 'deny',
-        riskLevel: 'critical',
-        rationale: `Permission mode ${input.mode} does not allow approval routing.`,
-      });
+      return (
+        await this.resolveAutoDecision(input, {
+          outcome: 'deny',
+          riskLevel: 'critical',
+          rationale: `Permission mode ${input.mode} does not allow approval routing.`,
+        })
+      ).response;
     }
     if (input.verdict.event.kind === 'sandbox_escalation' && !routing.sandboxEscalationAllowed) {
-      return this.resolveAutoDecision(input, {
-        outcome: 'deny',
-        riskLevel: 'critical',
-        rationale: `Permission mode ${input.mode} does not allow sandbox escalation.`,
-      });
+      return (
+        await this.resolveAutoDecision(input, {
+          outcome: 'deny',
+          riskLevel: 'critical',
+          rationale: `Permission mode ${input.mode} does not allow sandbox escalation.`,
+        })
+      ).response;
     }
     if (routing.reviewer === 'user') {
       input.emitUserRequest(input.verdict.event);
@@ -96,51 +118,120 @@ export class ApprovalCoordinator {
 
     const reviewer = this.input.autoReviewer;
     if (!reviewer) {
-      return this.resolveAutoDecision(input, {
-        outcome: 'deny',
-        riskLevel: 'critical',
-        rationale: 'Automatic approval reviewer is unavailable; execution was denied.',
-      });
+      return (
+        await this.resolveAutoDecision(input, {
+          outcome: 'deny',
+          riskLevel: 'critical',
+          rationale: 'Automatic approval reviewer is unavailable; execution was denied.',
+        })
+      ).response;
     }
 
     this.input.observer?.onAutoReviewStarted?.(input.verdict.event);
+    let decision: AutoApprovalReviewDecision;
+    let reviewSucceeded = false;
     try {
-      const decision = normalizeAutoReviewDecision(
+      decision = normalizeAutoReviewDecision(
         await reviewer.review({
           request: input.verdict.event,
           context: input.context,
           ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
         }),
       );
-      this.input.observer?.onAutoReviewDecided?.(input.verdict.event, decision);
-      return this.resolveAutoDecision(input, decision);
+      reviewSucceeded = true;
     } catch (error) {
       this.input.observer?.onAutoReviewFailed?.(input.verdict.event, error);
-      return this.resolveAutoDecision(input, {
+      decision = {
         outcome: 'deny',
         riskLevel: 'critical',
         rationale: 'Automatic approval review failed closed.',
-      });
+      };
     }
+    const resolution = await this.resolveAutoDecision(input, decision);
+    if (reviewSucceeded && resolution.candidateWon) {
+      this.input.observer?.onAutoReviewDecided?.(input.verdict.event, decision);
+    }
+    return resolution.response;
   }
 
   private async resolveAutoDecision(
     input: {
       verdict: Extract<EvaluateResult, { kind: 'prompt' }>;
       permissionEngine: PermissionEngine;
+      execution: ApprovalInteractionExecution;
       context: AutoApprovalReviewContext;
     },
     decision: AutoApprovalReviewDecision,
-  ): Promise<PermissionResponse> {
-    input.permissionEngine.recordResponse(input.context.turnId, {
+  ): Promise<{ response: PermissionResponse; candidateWon: boolean }> {
+    const response: PermissionResponse = {
       requestId: input.verdict.event.requestId,
       decision: decision.outcome,
       reviewer: 'auto_review',
-      rationale: decision.rationale,
       riskLevel: decision.riskLevel,
-    });
-    return await input.verdict.parked;
+    };
+    if (input.execution.kind === 'hosted') {
+      const answer = runtimePermissionAnswer(response);
+      let outcome: RuntimePermissionOutcome;
+      try {
+        outcome = await input.execution.interactions.commitPermissionAnswer({
+          continuation: input.execution.continuation,
+          answer,
+        });
+      } catch (error) {
+        if (isRuntimeLifecycleAdmissionOrFatal(error)) {
+          throw error;
+        }
+        throw new RuntimeInteractionFailStopError(
+          `Could not confirm the canonical outcome for permission ${response.requestId}`,
+          error,
+        );
+      }
+      const settled = await input.verdict.parked;
+      if (outcome.kind === 'closure') {
+        throw new RuntimeInteractionInvariantError(
+          `Permission closure ${outcome.reason} resolved continuation ${response.requestId}`,
+        );
+      }
+      return {
+        response: settled,
+        candidateWon:
+          runtimePermissionExecutionEqual(outcome.answer, answer) &&
+          runtimePermissionExecutionEqual(runtimePermissionAnswer(settled), answer),
+      };
+    }
+    const applied = input.permissionEngine.recordResponse(input.context.turnId, response);
+    const settled = await input.verdict.parked;
+    return {
+      response: settled,
+      candidateWon:
+        applied !== null &&
+        runtimePermissionExecutionEqual(
+          runtimePermissionAnswer(settled),
+          runtimePermissionAnswer(response),
+        ),
+    };
   }
+}
+
+function runtimePermissionAnswer(response: PermissionResponse): RuntimePermissionAnswer {
+  return {
+    decision: response.decision,
+    ...(response.rememberForTurn !== undefined
+      ? { rememberForTurn: response.rememberForTurn }
+      : {}),
+    ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
+    ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
+  };
+}
+
+function runtimePermissionExecutionEqual(
+  left: RuntimePermissionAnswer,
+  right: RuntimePermissionAnswer,
+): boolean {
+  return (
+    left.decision === right.decision &&
+    (left.rememberForTurn ?? false) === (right.rememberForTurn ?? false)
+  );
 }
 
 export interface AiSdkAutoApprovalReviewerInput {
@@ -268,7 +359,7 @@ function buildReviewPrompt(input: {
           toolName: request.toolName,
           category: request.category,
           reason: request.reason,
-          args: request.args,
+          review: request.review,
         }
       : request.kind === 'additional_permissions'
         ? {
@@ -276,17 +367,15 @@ function buildReviewPrompt(input: {
             toolName: request.toolName,
             category: request.category,
             reason: request.reason,
-            justification: request.justification,
+            review: request.review,
             risk: request.risk,
-            additionalPermissions: request.additionalPermissions,
           }
         : {
             kind: request.kind,
             toolName: request.toolName,
             category: request.category,
             reason: request.reason,
-            command: request.command,
-            justification: request.justification,
+            review: request.review,
             trigger: request.trigger,
             risk: request.risk,
           };

@@ -10,6 +10,7 @@
     ".": "./dist/index.js",
     "./runtime-event": "./dist/runtime-event.js",
     "./runtime-policy": "./dist/runtime-policy.js",
+    "./interaction": "./dist/interaction.js",
     "./execution-evidence": "./dist/execution-evidence.js",
     "./events": "./dist/events.js",
     "./session": "./dist/session.js",

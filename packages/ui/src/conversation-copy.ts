@@ -157,6 +157,34 @@ export interface ConversationCopy {
     editLineCount: (removed: number, added: number) => string;
     officeField: { operation: string; target: string; element: string; position: string };
     hiddenProperties: (count: number) => string;
+    review: {
+      search: {
+        glob: (pattern: string) => string;
+        grep: (pattern: string) => string;
+        scope: (root: string, glob?: string) => string;
+      };
+      patchOperation: Record<'create_file' | 'update_file' | 'delete_file', string>;
+      agent: {
+        spawn: (profile: string, isolation: string, writeBack: string) => string;
+        dispatch: (member: string) => string;
+        swarm: (
+          itemCount: number,
+          resumeCount: number,
+          concurrency: number,
+          profiles: string,
+          writeBack: string,
+          isolation: string,
+        ) => string;
+      };
+      resource: { read: (ref: string) => string; stop: (ref: string) => string };
+      skill: (name: string) => string;
+      questions: (count: number) => string;
+      computerUse: (action: string) => string;
+      inputBytes: (bytes: number) => string;
+      browserWaitDuration: (seconds: number) => string;
+      browserWaitFor: (condition: 'text' | 'selector', value: string) => string;
+      submitAfterTyping: string;
+    };
   };
   questions: {
     other: string;
@@ -364,6 +392,14 @@ const CONVERSATION_COPY = {
       disclosure: { changes: '查看变更', content: '查看内容', input: '查看输入', fullArguments: '完整参数', details: '查看详情' }, unsupportedValue: '不支持的属性值',
       browser: { navigate: (url) => `即将在浏览器中打开 ${url}`, click: (ref) => `即将在当前页面点击元素 ${ref}`.trim(), type: (ref) => `即将在当前页面输入文本${ref ? ` 到元素 ${ref}` : ''}`, snapshot: '即将读取当前页面的可交互元素列表', extract: (selector) => `即将读取当前页面内容${selector ? `（${selector}）` : ''}`, wait: '即将等待当前页面满足某个条件', generic: '即将操作当前浏览器页面', urlFallback: '一个网址' },
       workingDirectory: '工作目录', readWrite: '读写', readOnly: '只读', exactPath: '仅此路径', directoryTree: '目录及子目录', temporaryNetwork: '本次调用将临时允许网络访问。', outsideWorkspace: '包含工作区外路径。', protectedMetadata: '包含受保护的 Git/Agent 元数据。', outsideSandbox: '本次命令将不经过平台 sandbox，可访问工作区外文件、网络和受保护元数据。', target: '目标', currentApp: '当前应用', inDirectory: (cwd) => `在 ${cwd}`, terminalInteraction: '即将与后台终端交互', fullInputBytes: (bytes) => `完整输入共 ${bytes} 字节`, targetSize: (cols, rows) => `目标尺寸 ${cols}x${rows}`, byteLineCount: (bytes, lines) => `${bytes} 字节 · ${lines} 行`, editLineCount: (removed, added) => `删除 ${removed} 行 · 写入 ${added} 行`, officeField: { operation: '操作', target: '目标', element: '元素', position: '位置' }, hiddenProperties: (count) => `另有 ${count} 个属性`,
+      review: {
+        search: { glob: (pattern) => `查找 ${pattern}`, grep: (pattern) => `搜索 ${pattern}`, scope: (root, glob) => `范围 ${root}${glob ? ` · 文件 ${glob}` : ''}` },
+        patchOperation: { create_file: '创建文件', update_file: '更新文件', delete_file: '删除文件' },
+        agent: { spawn: (profile, isolation, writeBack) => `启动子代理 ${profile} · ${isolation} · ${writeBack}`, dispatch: (member) => `交给 ${member}`, swarm: (itemCount, resumeCount, concurrency, profiles, writeBack, isolation) => [`启动 ${itemCount} 个子代理任务`, `并发 ${concurrency}`, ...(resumeCount > 0 ? [`续跑 ${resumeCount} 个`] : []), ...(profiles ? [profiles] : []), ...(writeBack ? [writeBack] : []), ...(isolation ? [isolation] : [])].join(' · ') },
+        resource: { read: (ref) => `读取后台任务 ${ref}`, stop: (ref) => `停止后台任务 ${ref}` },
+        skill: (name) => `加载技能 ${name}`, questions: (count) => `向你提出 ${count} 个问题`, computerUse: (action) => `Computer Use：${action}`, inputBytes: (bytes) => `输入共 ${bytes} 字节`,
+        browserWaitDuration: (seconds) => `即将等待 ${seconds} 秒`, browserWaitFor: (condition, value) => `即将等待页面${condition === 'text' ? '出现文本' : '匹配选择器'} ${value}`, submitAfterTyping: '并提交',
+      },
     },
     questions: { other: '其他', otherDescription: '输入一个不同的答案。', otherAriaLabel: '其他答案', otherPlaceholder: '输入你的答案', stop: '停止', stopping: '停止中…', previous: '上一题', submitting: '正在提交…', submit: '提交答案', next: '下一题' },
     mentions: { noFiles: '未找到文件', noSkills: '暂无技能', filesAriaLabel: '工作区文件', skillsAriaLabel: '技能', loading: '加载中…' },
@@ -499,6 +535,14 @@ const CONVERSATION_COPY = {
       disclosure: { changes: 'View changes', content: 'View content', input: 'View input', fullArguments: 'Full arguments', details: 'View details' }, unsupportedValue: 'Unsupported property value',
       browser: { navigate: (url) => `About to open ${url} in the browser`, click: (ref) => `About to click element ${ref} on the current page`.trim(), type: (ref) => `About to type text${ref ? ` into element ${ref}` : ''} on the current page`, snapshot: 'About to read the interactive elements on the current page', extract: (selector) => `About to read the current page${selector ? ` (${selector})` : ''}`, wait: 'About to wait for a condition on the current page', generic: 'About to control the current browser page', urlFallback: 'a URL' },
       workingDirectory: 'Working directory', readWrite: 'Read and write', readOnly: 'Read only', exactPath: 'This path only', directoryTree: 'Directory and descendants', temporaryNetwork: 'This call will temporarily allow network access.', outsideWorkspace: 'Includes paths outside the workspace.', protectedMetadata: 'Includes protected Git/agent metadata.', outsideSandbox: 'This command will run outside the platform sandbox and can access files outside the workspace, the network, and protected metadata.', target: 'Target', currentApp: 'Current app', inDirectory: (cwd) => `In ${cwd}`, terminalInteraction: 'About to interact with a background terminal', fullInputBytes: (bytes) => `Full input is ${bytes} bytes`, targetSize: (cols, rows) => `Target size ${cols}x${rows}`, byteLineCount: (bytes, lines) => `${bytes} bytes · ${lines} ${lines === 1 ? 'line' : 'lines'}`, editLineCount: (removed, added) => `Remove ${removed} ${removed === 1 ? 'line' : 'lines'} · Write ${added} ${added === 1 ? 'line' : 'lines'}`, officeField: { operation: 'Operation', target: 'Target', element: 'Element', position: 'Position' }, hiddenProperties: (count) => `${count} more ${count === 1 ? 'property' : 'properties'}`,
+      review: {
+        search: { glob: (pattern) => `Find ${pattern}`, grep: (pattern) => `Search for ${pattern}`, scope: (root, glob) => `Scope ${root}${glob ? ` · Files ${glob}` : ''}` },
+        patchOperation: { create_file: 'Create file', update_file: 'Update file', delete_file: 'Delete file' },
+        agent: { spawn: (profile, isolation, writeBack) => `Start subagent ${profile} · ${isolation} · ${writeBack}`, dispatch: (member) => `Dispatch to ${member}`, swarm: (itemCount, resumeCount, concurrency, profiles, writeBack, isolation) => [`Start ${itemCount} subagent ${itemCount === 1 ? 'task' : 'tasks'}`, `concurrency ${concurrency}`, ...(resumeCount > 0 ? [`${resumeCount} resumed`] : []), ...(profiles ? [profiles] : []), ...(writeBack ? [writeBack] : []), ...(isolation ? [isolation] : [])].join(' · ') },
+        resource: { read: (ref) => `Read background task ${ref}`, stop: (ref) => `Stop background task ${ref}` },
+        skill: (name) => `Load skill ${name}`, questions: (count) => `Ask ${count} ${count === 1 ? 'question' : 'questions'}`, computerUse: (action) => `Computer Use: ${action}`, inputBytes: (bytes) => `Input is ${bytes} bytes`,
+        browserWaitDuration: (seconds) => `About to wait ${seconds} seconds`, browserWaitFor: (condition, value) => `About to wait for ${condition === 'text' ? 'text' : 'selector'} ${value}`, submitAfterTyping: 'and submit',
+      },
     },
     questions: { other: 'Other', otherDescription: 'Enter a different answer.', otherAriaLabel: 'Other answer', otherPlaceholder: 'Enter your answer', stop: 'Stop', stopping: 'Stopping…', previous: 'Previous', submitting: 'Submitting…', submit: 'Submit answers', next: 'Next' },
     mentions: { noFiles: 'No files found', noSkills: 'No skills available', filesAriaLabel: 'Workspace files', skillsAriaLabel: 'Skills', loading: 'Loading…' },

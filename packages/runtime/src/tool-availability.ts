@@ -57,7 +57,14 @@ export interface StepLike {
 
 /** The minimal shape this module reads from a durable `RuntimeEvent`. */
 export interface RuntimeEventLike {
-  content?: { kind?: string; name?: string; args?: unknown } | undefined;
+  content?:
+    | {
+        kind?: string;
+        name?: string;
+        review?: unknown;
+        result?: unknown;
+      }
+    | undefined;
 }
 
 /**
@@ -207,13 +214,16 @@ export class ToolAvailabilityRuntime {
       const content = event?.content;
       if (
         !content ||
-        content.kind !== 'function_call' ||
+        content.kind !== 'function_response' ||
         !SEED_CONNECTOR_NAMES.has(content.name ?? '')
-      )
+      ) {
         continue;
-      // Ledger seeding reads the group id from any historical arg key.
-      const id = extractGroupId(content.args);
-      if (id && this.groupIds.has(id)) out.add(id);
+      }
+      for (const toolName of extractLoadedToolNames(content.result)) {
+        for (const group of this.groups) {
+          if (group.toolNames.includes(toolName)) out.add(group.id);
+        }
+      }
     }
     return out;
   }
@@ -313,6 +323,13 @@ function extractGroupId(
     }
   }
   return undefined;
+}
+
+function extractLoadedToolNames(value: unknown): string[] {
+  if (typeof value !== 'object' || value === null) return [];
+  const descriptor = Object.getOwnPropertyDescriptor(value, 'loaded');
+  if (!descriptor || !('value' in descriptor) || !Array.isArray(descriptor.value)) return [];
+  return descriptor.value.filter((item): item is string => typeof item === 'string');
 }
 
 function renderCatalog(groups: readonly CatalogGroup[]): string {

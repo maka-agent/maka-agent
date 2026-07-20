@@ -125,12 +125,7 @@ function bindingInput() {
       runtimeEvent('runtime-call', {
         role: 'model',
         author: 'agent',
-        content: {
-          kind: 'function_call',
-          id: 'self-check-call',
-          name: 'self_check_submit',
-          args: {},
-        },
+        content: { kind: 'function_call', id: 'self-check-call', name: 'self_check_submit' },
         refs: { toolCallId: 'self-check-call' },
       }),
       runtimeEvent('runtime-result', {

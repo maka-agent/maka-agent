@@ -962,7 +962,10 @@ function historyCompactEventExcerpt(event: RuntimeEvent): string | undefined {
     case 'thinking':
       return normalizeWhitespace(content.text).slice(0, 220);
     case 'function_call':
-      return normalizeWhitespace(`${content.name} ${stableStringify(content.args)}`).slice(0, 220);
+      return normalizeWhitespace(`${content.name} ${stableStringify(content.review ?? {})}`).slice(
+        0,
+        220,
+      );
     case 'function_response':
       return normalizeWhitespace(`${content.name} ${stableStringify(content.result)}`).slice(
         0,

@@ -3,11 +3,18 @@ import { test } from 'node:test';
 import type { SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
 import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '../fake-backend.js';
 import type { SessionStore } from '../session-manager.js';
+import type { RuntimeInteractionRunFacet } from '../interaction-authority.js';
+import {
+  EMBEDDED_RUNTIME_EXECUTION,
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeHostedRunControl,
+} from '../run-execution.js';
 
 test('text deltas preserve the exact completed response, including Markdown line breaks', async () => {
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
@@ -30,8 +37,9 @@ test('text deltas preserve the exact completed response, including Markdown line
 test('AskUserQuestion scenario parks the same turn until one response continues it', async () => {
   const appended: StoredMessage[] = [];
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async (message) => {
       appended.push(message);
@@ -70,8 +78,9 @@ test('AskUserQuestion scenario parks the same turn until one response continues 
 
 test('pullSteering drains queued messages at step boundaries as steering events', async () => {
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
@@ -107,8 +116,9 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
   // consumer pulled past it), B did not. Batch settlement would nack both,
   // redelivering the already-delivered A.
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
@@ -152,8 +162,9 @@ test('a lease is acked only after its event is consumed, and nacked when the con
   // echoed event; acking at pull time marked messages delivered that a
   // detaching consumer never saw, silently dropping them.
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
@@ -185,3 +196,58 @@ test('a lease is acked only after its event is consumed, and nacked when the con
   assert.deepEqual(acked, []);
   assert.deepEqual(nacked, ['lease-1']);
 });
+
+function fakeHeader(): SessionHeader {
+  return {
+    id: 'session-1',
+    workspaceRoot: '/tmp',
+    cwd: '/tmp',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Fake backend test',
+    titleIsManual: false,
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'fake',
+    llmConnectionSlug: 'fake',
+    connectionLocked: true,
+    model: 'fake-model',
+    permissionMode: 'ask',
+    schemaVersion: 1,
+  };
+}
+
+function bindHostedBackend(backend: FakeBackend, interactions: RuntimeInteractionRunFacet): void {
+  const control: RuntimeHostedRunControl = {
+    runId: 'run-1',
+    turnId: 'turn-1',
+    interactions,
+    hasStopClaim: () => false,
+    claimFailure: () => {},
+    fail: () => {},
+    runSuccessorEffect: (_kind, operation) => operation(),
+  };
+  backend[RUNTIME_BIND_HOSTED_RUN](control);
+}
+
+function testInteractionAuthority(
+  overrides: Partial<RuntimeInteractionRunFacet>,
+): RuntimeInteractionRunFacet {
+  const unexpected = async (): Promise<never> => {
+    throw new Error('Unexpected RuntimeInteractionAuthority call');
+  };
+  return {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    runId: 'run-1',
+    acceptPermissionRequest: unexpected,
+    commitPermissionAnswer: unexpected,
+    commitPermissionTimeout: unexpected,
+    acceptUserQuestionRequest: unexpected,
+    ...overrides,
+  };
+}

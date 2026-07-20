@@ -15,11 +15,7 @@ import {
   type SetDefaultConnectionTargetInput,
   type UpdateCatalogConnectionInput,
 } from '@maka/core/runtime-policy';
-import {
-  PROVIDER_DEFAULTS,
-  validateSlug,
-  type ProviderType,
-} from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core/llm-connections';
 import {
   boolean,
   deepFreeze,
@@ -60,12 +56,12 @@ export class ConnectionCatalogDocumentOwner {
     if (value === undefined) {
       return { schemaVersion: SCHEMA_VERSION, revision: 0, defaultTarget: null, connections: [] };
     }
-    const raw = record(
-      value,
-      FILE,
-      'invalid_document',
-      ['schemaVersion', 'revision', 'defaultTarget', 'connections'],
-    );
+    const raw = record(value, FILE, 'invalid_document', [
+      'schemaVersion',
+      'revision',
+      'defaultTarget',
+      'connections',
+    ]);
     if (raw.schemaVersion !== SCHEMA_VERSION) {
       throw codecError('invalid_document', `${FILE} has an unsupported schema version`);
     }
@@ -73,12 +69,22 @@ export class ConnectionCatalogDocumentOwner {
       throw codecError('invalid_document', `${FILE}.connections must be a bounded array`);
     }
     const connections = raw.connections.map((item, index) =>
-      parseEntry(item, `${FILE}.connections[${index}]`, 'invalid_document'));
-    unique(connections.map((item) => item.slug), `${FILE} connection slugs`, 'invalid_document');
-    unique(connections.map((item) => item.connectionId), `${FILE} connection ids`, 'invalid_document');
-    const defaultTarget = raw.defaultTarget === null
-      ? null
-      : parseTarget(raw.defaultTarget, `${FILE}.defaultTarget`, 'invalid_document');
+      parseEntry(item, `${FILE}.connections[${index}]`, 'invalid_document'),
+    );
+    unique(
+      connections.map((item) => item.slug),
+      `${FILE} connection slugs`,
+      'invalid_document',
+    );
+    unique(
+      connections.map((item) => item.connectionId),
+      `${FILE} connection ids`,
+      'invalid_document',
+    );
+    const defaultTarget =
+      raw.defaultTarget === null
+        ? null
+        : parseTarget(raw.defaultTarget, `${FILE}.defaultTarget`, 'invalid_document');
     if (defaultTarget && !isValidTarget(defaultTarget, connections)) {
       throw codecError('invalid_document', `${FILE} contains an invalid default target`);
     }
@@ -90,7 +96,10 @@ export class ConnectionCatalogDocumentOwner {
     };
   }
 
-  async create(root: string, rawInput: CreateCatalogConnectionInput): Promise<ConnectionCatalogMutationResult> {
+  async create(
+    root: string,
+    rawInput: CreateCatalogConnectionInput,
+  ): Promise<ConnectionCatalogMutationResult> {
     const input = parseCreateInput(rawInput);
     const current = await this.read(root);
     if (current.revision !== input.expectedCatalogRevision) {
@@ -100,7 +109,10 @@ export class ConnectionCatalogDocumentOwner {
       return deepFreeze({ kind: 'connection_exists', slug: input.connection.slug });
     }
     if (current.connections.length >= MAX_CONNECTIONS) {
-      throw codecError('invalid_connection_input', `Connection catalog cannot exceed ${MAX_CONNECTIONS} entries`);
+      throw codecError(
+        'invalid_connection_input',
+        `Connection catalog cannot exceed ${MAX_CONNECTIONS} entries`,
+      );
     }
     const next: ConnectionCatalogDocument = {
       ...current,
@@ -119,7 +131,10 @@ export class ConnectionCatalogDocumentOwner {
     return committed(next);
   }
 
-  async update(root: string, rawInput: UpdateCatalogConnectionInput): Promise<ConnectionCatalogMutationResult> {
+  async update(
+    root: string,
+    rawInput: UpdateCatalogConnectionInput,
+  ): Promise<ConnectionCatalogMutationResult> {
     const input = parseUpdateInput(rawInput);
     const current = await this.read(root);
     const index = findConnectionIndex(current, input.expected);
@@ -140,11 +155,15 @@ export class ConnectionCatalogDocumentOwner {
       enabled: changes.enabled,
       enabledModelIds: changes.enabledModelIds,
       models: endpointChanged ? [] : previous.models,
-      ...(endpointChanged || previous.modelSource === undefined ? {} : { modelSource: previous.modelSource }),
+      ...(endpointChanged || previous.modelSource === undefined
+        ? {}
+        : { modelSource: previous.modelSource }),
       ...(endpointChanged || previous.modelsFetchedAt === undefined
         ? {}
         : { modelsFetchedAt: previous.modelsFetchedAt }),
-      ...(endpointChanged || previous.lastTest === undefined ? {} : { lastTest: previous.lastTest }),
+      ...(endpointChanged || previous.lastTest === undefined
+        ? {}
+        : { lastTest: previous.lastTest }),
     };
     if (current.defaultTarget && !isValidTarget(current.defaultTarget, connections)) {
       return deepFreeze({ kind: 'invalid_default_target', target: current.defaultTarget });
@@ -154,7 +173,10 @@ export class ConnectionCatalogDocumentOwner {
     return committed(next);
   }
 
-  async remove(root: string, rawInput: RemoveCatalogConnectionInput): Promise<ConnectionCatalogMutationResult> {
+  async remove(
+    root: string,
+    rawInput: RemoveCatalogConnectionInput,
+  ): Promise<ConnectionCatalogMutationResult> {
     const input = parseRemoveInput(rawInput);
     const current = await this.read(root);
     const index = findConnectionIndex(current, input.expected);
@@ -165,10 +187,10 @@ export class ConnectionCatalogDocumentOwner {
     const next: ConnectionCatalogDocument = {
       ...current,
       revision: nextRevision(current.revision),
-      defaultTarget: current.defaultTarget
-        && sameConnectionIdentity(current.defaultTarget, previous)
-        ? null
-        : current.defaultTarget,
+      defaultTarget:
+        current.defaultTarget && sameConnectionIdentity(current.defaultTarget, previous)
+          ? null
+          : current.defaultTarget,
       connections: current.connections.filter((_item, candidate) => candidate !== index),
     };
     await this.write(root, next);
@@ -278,10 +300,15 @@ export function findConnection(
   return document.connections.find((item) => sameConnectionIdentity(item, identity));
 }
 
-export function sameConnectionBasis(actual: ConnectionCatalogEntry | undefined, expected: ConnectionVersionBasis): boolean {
-  return actual !== undefined
-    && sameConnectionIdentity(actual, expected)
-    && actual.revision === expected.revision;
+export function sameConnectionBasis(
+  actual: ConnectionCatalogEntry | undefined,
+  expected: ConnectionVersionBasis,
+): boolean {
+  return (
+    actual !== undefined &&
+    sameConnectionIdentity(actual, expected) &&
+    actual.revision === expected.revision
+  );
 }
 
 function findConnectionIndex(
@@ -298,18 +325,19 @@ function sameConnectionIdentity(
   return left.connectionId === right.connectionId;
 }
 
-function isValidTarget(target: ConnectionTarget, connections: readonly ConnectionCatalogEntry[]): boolean {
+function isValidTarget(
+  target: ConnectionTarget,
+  connections: readonly ConnectionCatalogEntry[],
+): boolean {
   const connection = connections.find((item) => sameConnectionIdentity(item, target));
   return Boolean(connection?.enabled && connection.enabledModelIds.includes(target.modelId));
 }
 
 function parseCreateInput(value: unknown): CreateCatalogConnectionInput {
-  const input = record(
-    value,
-    'create connection input',
-    'invalid_connection_input',
-    ['expectedCatalogRevision', 'connection'],
-  );
+  const input = record(value, 'create connection input', 'invalid_connection_input', [
+    'expectedCatalogRevision',
+    'connection',
+  ]);
   return {
     expectedCatalogRevision: revision(
       input.expectedCatalogRevision,
@@ -321,46 +349,46 @@ function parseCreateInput(value: unknown): CreateCatalogConnectionInput {
 }
 
 function parseUpdateInput(value: unknown): UpdateCatalogConnectionInput {
-  const input = record(
-    value,
-    'update connection input',
-    'invalid_connection_input',
-    ['expected', 'changes'],
-  );
+  const input = record(value, 'update connection input', 'invalid_connection_input', [
+    'expected',
+    'changes',
+  ]);
   return {
-    expected: parseConnectionBasis(input.expected, 'update connection expected basis', 'invalid_connection_input'),
+    expected: parseConnectionBasis(
+      input.expected,
+      'update connection expected basis',
+      'invalid_connection_input',
+    ),
     changes: parseUpdate(input.changes, 'update connection changes', 'invalid_connection_input'),
   };
 }
 
 function parseRemoveInput(value: unknown): RemoveCatalogConnectionInput {
-  const input = record(
-    value,
-    'remove connection input',
-    'invalid_connection_input',
-    ['expected'],
-  );
+  const input = record(value, 'remove connection input', 'invalid_connection_input', ['expected']);
   return {
-    expected: parseConnectionBasis(input.expected, 'remove connection expected basis', 'invalid_connection_input'),
+    expected: parseConnectionBasis(
+      input.expected,
+      'remove connection expected basis',
+      'invalid_connection_input',
+    ),
   };
 }
 
 function parseSetDefaultInput(value: unknown): SetDefaultConnectionTargetInput {
-  const input = record(
-    value,
-    'set default target input',
-    'invalid_connection_input',
-    ['expectedCatalogRevision', 'target'],
-  );
+  const input = record(value, 'set default target input', 'invalid_connection_input', [
+    'expectedCatalogRevision',
+    'target',
+  ]);
   return {
     expectedCatalogRevision: revision(
       input.expectedCatalogRevision,
       'set default target expected catalog revision',
       'invalid_connection_input',
     ),
-    target: input.target === null
-      ? null
-      : parseTarget(input.target, 'default target', 'invalid_connection_input'),
+    target:
+      input.target === null
+        ? null
+        : parseTarget(input.target, 'default target', 'invalid_connection_input'),
   };
 }
 
@@ -375,7 +403,11 @@ export function parseConnectionIdentity(
   };
 }
 
-export function parseConnectionBasis(value: unknown, context: string, source: CodecSource): ConnectionVersionBasis {
+export function parseConnectionBasis(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): ConnectionVersionBasis {
   const item = record(value, context, source, ['connectionId', 'revision']);
   return {
     connectionId: entityId(item.connectionId, `${context}.connectionId`, source),
@@ -383,7 +415,11 @@ export function parseConnectionBasis(value: unknown, context: string, source: Co
   };
 }
 
-function parseDraft(value: unknown, context: string, source: CodecSource): ConnectionCatalogEntryDraft {
+function parseDraft(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): ConnectionCatalogEntryDraft {
   const item = record(
     value,
     context,
@@ -412,7 +448,11 @@ function configurationFromRecord(
   };
 }
 
-function parseUpdate(value: unknown, context: string, source: CodecSource): ConnectionCatalogEntryUpdate {
+function parseUpdate(
+  value: unknown,
+  context: string,
+  source: CodecSource,
+): ConnectionCatalogEntryUpdate {
   const item = record(
     value,
     context,
@@ -482,9 +522,19 @@ function parseEntry(value: unknown, context: string, source: CodecSource): Conne
   if (!Array.isArray(item.models) || item.models.length > 2_048) {
     throw codecError(source, `${context}.models must be a bounded array`);
   }
-  const models = item.models.map((model, index) => parseModel(model, `${context}.models[${index}]`, source));
-  unique(models.map((model) => model.id), `${context}.models ids`, source);
-  if (item.modelSource !== undefined && item.modelSource !== 'fetched' && item.modelSource !== 'fallback') {
+  const models = item.models.map((model, index) =>
+    parseModel(model, `${context}.models[${index}]`, source),
+  );
+  unique(
+    models.map((model) => model.id),
+    `${context}.models ids`,
+    source,
+  );
+  if (
+    item.modelSource !== undefined &&
+    item.modelSource !== 'fetched' &&
+    item.modelSource !== 'fallback'
+  ) {
     throw codecError(source, `${context}.modelSource is invalid`);
   }
   if ((item.modelSource === undefined) !== (item.modelsFetchedAt === undefined)) {
@@ -501,8 +551,18 @@ function parseEntry(value: unknown, context: string, source: CodecSource): Conne
     ...(item.modelSource === undefined ? {} : { modelSource: item.modelSource }),
     ...(item.modelsFetchedAt === undefined
       ? {}
-      : { modelsFetchedAt: integer(item.modelsFetchedAt, `${context}.modelsFetchedAt`, 0, Number.MAX_SAFE_INTEGER, source) }),
-    ...(item.lastTest === undefined ? {} : { lastTest: parseLastTest(item.lastTest, `${context}.lastTest`, source) }),
+      : {
+          modelsFetchedAt: integer(
+            item.modelsFetchedAt,
+            `${context}.modelsFetchedAt`,
+            0,
+            Number.MAX_SAFE_INTEGER,
+            source,
+          ),
+        }),
+    ...(item.lastTest === undefined
+      ? {}
+      : { lastTest: parseLastTest(item.lastTest, `${context}.lastTest`, source) }),
   };
 }
 
@@ -523,7 +583,10 @@ function parseBaseUrlOverride(
   const trimmed = raw?.trim();
   if (!trimmed) {
     if (source === 'invalid_document' && raw !== undefined) {
-      throw codecError(source, `${context} must be omitted when no endpoint override is configured`);
+      throw codecError(
+        source,
+        `${context} must be omitted when no endpoint override is configured`,
+      );
     }
     return undefined;
   }
@@ -593,10 +656,10 @@ function parseModel(value: unknown, context: string, source: CodecSource): Conne
     ['id'],
   );
   if (
-    item.apiProtocol !== undefined
-    && item.apiProtocol !== 'openai-chat'
-    && item.apiProtocol !== 'openai-responses'
-    && item.apiProtocol !== 'anthropic-messages'
+    item.apiProtocol !== undefined &&
+    item.apiProtocol !== 'openai-chat' &&
+    item.apiProtocol !== 'openai-responses' &&
+    item.apiProtocol !== 'anthropic-messages'
   ) {
     throw codecError(source, `${context}.apiProtocol is invalid`);
   }
@@ -611,19 +674,41 @@ function parseModel(value: unknown, context: string, source: CodecSource): Conne
     );
     capabilities = {};
     for (const key of Object.keys(raw)) {
-      (capabilities as Record<string, boolean>)[key] = boolean(raw[key], `${context}.capabilities.${key}`, source);
+      (capabilities as Record<string, boolean>)[key] = boolean(
+        raw[key],
+        `${context}.capabilities.${key}`,
+        source,
+      );
     }
   }
   return {
     id: nonEmptyString(item.id, `${context}.id`, 512, source),
-    ...(item.displayName === undefined ? {} : { displayName: string(item.displayName, `${context}.displayName`, 512, source) }),
+    ...(item.displayName === undefined
+      ? {}
+      : { displayName: string(item.displayName, `${context}.displayName`, 512, source) }),
     ...(item.apiProtocol === undefined ? {} : { apiProtocol: item.apiProtocol }),
     ...(item.contextWindow === undefined
       ? {}
-      : { contextWindow: integer(item.contextWindow, `${context}.contextWindow`, 1, Number.MAX_SAFE_INTEGER, source) }),
+      : {
+          contextWindow: integer(
+            item.contextWindow,
+            `${context}.contextWindow`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+            source,
+          ),
+        }),
     ...(item.maxOutputTokens === undefined
       ? {}
-      : { maxOutputTokens: integer(item.maxOutputTokens, `${context}.maxOutputTokens`, 1, Number.MAX_SAFE_INTEGER, source) }),
+      : {
+          maxOutputTokens: integer(
+            item.maxOutputTokens,
+            `${context}.maxOutputTokens`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+            source,
+          ),
+        }),
     ...(capabilities === undefined ? {} : { capabilities }),
   };
 }
@@ -633,17 +718,23 @@ function parseLastTest(
   context: string,
   source: CodecSource,
 ): ConnectionTestSummary {
-  const item = record(value, context, source, ['status', 'checkedAt', 'errorClass'], ['status', 'checkedAt']);
+  const item = record(
+    value,
+    context,
+    source,
+    ['status', 'checkedAt', 'errorClass'],
+    ['status', 'checkedAt'],
+  );
   if (item.status !== 'verified' && item.status !== 'needs_reauth' && item.status !== 'error') {
     throw codecError(source, `${context}.status is invalid`);
   }
   if (
-    item.errorClass !== undefined
-    && item.errorClass !== 'auth'
-    && item.errorClass !== 'timeout'
-    && item.errorClass !== 'provider_unavailable'
-    && item.errorClass !== 'network'
-    && item.errorClass !== 'unknown'
+    item.errorClass !== undefined &&
+    item.errorClass !== 'auth' &&
+    item.errorClass !== 'timeout' &&
+    item.errorClass !== 'provider_unavailable' &&
+    item.errorClass !== 'network' &&
+    item.errorClass !== 'unknown'
   ) {
     throw codecError(source, `${context}.errorClass is invalid`);
   }
@@ -655,25 +746,38 @@ function parseLastTest(
 }
 
 export function parseModelFetchResult(value: unknown): ConnectionModelDiscoveryResult {
-  const item = record(
-    value,
-    'model fetch result',
-    'invalid_connection_input',
-    ['models', 'source', 'fetchedAt'],
-  );
+  const item = record(value, 'model fetch result', 'invalid_connection_input', [
+    'models',
+    'source',
+    'fetchedAt',
+  ]);
   if (!Array.isArray(item.models) || item.models.length > 2_048) {
-    throw codecError('invalid_connection_input', 'model fetch result models must be a bounded array');
+    throw codecError(
+      'invalid_connection_input',
+      'model fetch result models must be a bounded array',
+    );
   }
   const models = item.models.map((model, index) =>
-    parseModel(model, `model fetch result models[${index}]`, 'invalid_connection_input'));
-  unique(models.map((model) => model.id), 'model fetch result model ids', 'invalid_connection_input');
+    parseModel(model, `model fetch result models[${index}]`, 'invalid_connection_input'),
+  );
+  unique(
+    models.map((model) => model.id),
+    'model fetch result model ids',
+    'invalid_connection_input',
+  );
   if (item.source !== 'fetched' && item.source !== 'fallback') {
     throw codecError('invalid_connection_input', 'model fetch result source is invalid');
   }
   return {
     models,
     source: item.source,
-    fetchedAt: integer(item.fetchedAt, 'model fetch result fetchedAt', 0, Number.MAX_SAFE_INTEGER, 'invalid_connection_input'),
+    fetchedAt: integer(
+      item.fetchedAt,
+      'model fetch result fetchedAt',
+      0,
+      Number.MAX_SAFE_INTEGER,
+      'invalid_connection_input',
+    ),
   };
 }
 

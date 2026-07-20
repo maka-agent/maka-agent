@@ -60,7 +60,10 @@ export type RuntimePolicyMutation =
   | { readonly kind: 'set_network_proxy'; readonly value: RuntimePolicy['networkProxy'] }
   | { readonly kind: 'set_personalization'; readonly value: RuntimePolicy['personalization'] }
   | { readonly kind: 'set_memory'; readonly value: RuntimePolicy['memory'] }
-  | { readonly kind: 'set_workspace_instructions'; readonly value: RuntimePolicy['workspaceInstructions'] }
+  | {
+      readonly kind: 'set_workspace_instructions';
+      readonly value: RuntimePolicy['workspaceInstructions'];
+    }
   | { readonly kind: 'set_privacy'; readonly value: RuntimePolicy['privacy'] }
   | { readonly kind: 'set_chat_defaults'; readonly value: RuntimePolicy['chatDefaults'] }
   | { readonly kind: 'set_web_search'; readonly value: RuntimePolicy['webSearch'] };
@@ -97,10 +100,11 @@ export function createDefaultRuntimePolicy(): RuntimePolicy {
 
 export type ConnectionModel = Readonly<ModelInfo>;
 
-export type ConnectionModelDiscoveryResult =
-  Readonly<Pick<ModelDiscoveryResult, 'source' | 'fetchedAt'>> & {
-    readonly models: readonly ConnectionModel[];
-  };
+export type ConnectionModelDiscoveryResult = Readonly<
+  Pick<ModelDiscoveryResult, 'source' | 'fetchedAt'>
+> & {
+  readonly models: readonly ConnectionModel[];
+};
 
 export interface ConnectionTestSummary {
   readonly status: ConnectionLastTestStatus;
@@ -225,7 +229,7 @@ export interface CredentialVaultSnapshot {
 
 export interface SetCredentialInput {
   readonly locator: CredentialLocator;
-  readonly expected: CredentialIdentity & { readonly revision: Revision } | null;
+  readonly expected: (CredentialIdentity & { readonly revision: Revision }) | null;
   readonly secret: string;
 }
 

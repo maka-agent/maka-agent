@@ -11,6 +11,7 @@ import {
 } from '../computer-use-tools.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { PermissionEngine } from '../permission-engine.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
 
@@ -104,6 +105,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         provider.expectedWireOutputLimit,
       );
       const runtime = new AiSdkBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: `session-${provider.providerType}`,
         header: header(provider.providerType, provider.modelId),
         appendMessage: async () => {},
@@ -212,6 +214,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       });
       const events: SessionEvent[] = [];
       const runtime = new AiSdkBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: `session-${provider.providerType}-failure`,
         header: header(provider.providerType, provider.modelId),
         appendMessage: async () => {},

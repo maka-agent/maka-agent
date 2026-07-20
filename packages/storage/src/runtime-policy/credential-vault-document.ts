@@ -56,9 +56,18 @@ export class CredentialVaultDocumentOwner {
       throw codecError('invalid_document', `${FILE}.entries must be a bounded array`);
     }
     const entries = raw.entries.map((item, index) =>
-      parseEntry(item, `${FILE}.entries[${index}]`, 'invalid_document'));
-    unique(entries.map((entry) => locatorKey(entry.locator)), `${FILE} locators`, 'invalid_document');
-    unique(entries.map((entry) => entry.credentialId), `${FILE} credential ids`, 'invalid_document');
+      parseEntry(item, `${FILE}.entries[${index}]`, 'invalid_document'),
+    );
+    unique(
+      entries.map((entry) => locatorKey(entry.locator)),
+      `${FILE} locators`,
+      'invalid_document',
+    );
+    unique(
+      entries.map((entry) => entry.credentialId),
+      `${FILE} credential ids`,
+      'invalid_document',
+    );
     return {
       schemaVersion: SCHEMA_VERSION,
       revision: revision(raw.revision, `${FILE}.revision`, 'invalid_document'),
@@ -97,7 +106,11 @@ export class CredentialVaultDocumentOwner {
     const entries = [...current.entries];
     if (index < 0) entries.push(entry);
     else entries[index] = entry;
-    const next = { schemaVersion: SCHEMA_VERSION, revision: nextRevision(current.revision), entries };
+    const next = {
+      schemaVersion: SCHEMA_VERSION,
+      revision: nextRevision(current.revision),
+      entries,
+    };
     await this.write(root, next);
     return committed(next);
   }
@@ -124,8 +137,10 @@ export class CredentialVaultDocumentOwner {
     current: CredentialVaultDocument,
     connectionId: string,
   ): Promise<CredentialVaultSnapshot> {
-    const entries = current.entries.filter((entry) =>
-      entry.locator.scope !== 'connection' || entry.locator.connectionId !== connectionId);
+    const entries = current.entries.filter(
+      (entry) =>
+        entry.locator.scope !== 'connection' || entry.locator.connectionId !== connectionId,
+    );
     if (entries.length === current.entries.length) return vaultSnapshot(current);
     const next = {
       schemaVersion: SCHEMA_VERSION,
@@ -155,7 +170,11 @@ export class CredentialVaultDocumentOwner {
       secret,
       updatedAt: Date.now(),
     };
-    const next = { schemaVersion: SCHEMA_VERSION, revision: nextRevision(current.revision), entries };
+    const next = {
+      schemaVersion: SCHEMA_VERSION,
+      revision: nextRevision(current.revision),
+      entries,
+    };
     await this.write(root, next);
     return vaultSnapshot(next);
   }
@@ -172,17 +191,22 @@ export function vaultSnapshot(document: CredentialVaultDocument): CredentialVaul
   });
 }
 
-export function credentialStatus(document: CredentialVaultDocument, locator: CredentialLocator): CredentialStatus {
+export function credentialStatus(
+  document: CredentialVaultDocument,
+  locator: CredentialLocator,
+): CredentialStatus {
   const entry = findCredential(document, locator);
-  return deepFreeze(entry
-    ? credentialStatusFromEntry(entry)
-    : {
-        locator: structuredClone(locator),
-        configured: false,
-        credentialId: null,
-        revision: null,
-        updatedAt: null,
-      });
+  return deepFreeze(
+    entry
+      ? credentialStatusFromEntry(entry)
+      : {
+          locator: structuredClone(locator),
+          configured: false,
+          credentialId: null,
+          revision: null,
+          updatedAt: null,
+        },
+  );
 }
 
 export function credentialMaterial(entry: CredentialVaultEntry): RuntimePolicyCredentialMaterial {
@@ -208,17 +232,24 @@ export function sameCredentialBasis(
   actual: CredentialVaultEntry | undefined,
   expected: CredentialVersionBasis,
 ): boolean {
-  return actual !== undefined
-    && sameLocator(actual.locator, expected.locator)
-    && actual.credentialId === expected.credentialId
-    && actual.revision === expected.revision;
+  return (
+    actual !== undefined &&
+    sameLocator(actual.locator, expected.locator) &&
+    actual.credentialId === expected.credentialId &&
+    actual.revision === expected.revision
+  );
 }
 
-export function sameCredentialStatus(actual: CredentialStatus, expected: CredentialStatus): boolean {
-  return sameLocator(actual.locator, expected.locator)
-    && actual.configured === expected.configured
-    && actual.credentialId === expected.credentialId
-    && actual.revision === expected.revision;
+export function sameCredentialStatus(
+  actual: CredentialStatus,
+  expected: CredentialStatus,
+): boolean {
+  return (
+    sameLocator(actual.locator, expected.locator) &&
+    actual.configured === expected.configured &&
+    actual.credentialId === expected.credentialId &&
+    actual.revision === expected.revision
+  );
 }
 
 export function parseCredentialLocator(
@@ -246,7 +277,10 @@ export function parseCredentialLocator(
   }
   if (base.scope === 'web_search') {
     const item = record(value, context, source, ['scope', 'provider', 'kind']);
-    if (item.kind !== 'api_key' || !(WEB_SEARCH_PROVIDERS as readonly unknown[]).includes(item.provider)) {
+    if (
+      item.kind !== 'api_key' ||
+      !(WEB_SEARCH_PROVIDERS as readonly unknown[]).includes(item.provider)
+    ) {
       throw codecError(source, `${context} is not a valid web search credential locator`);
     }
     return {
@@ -265,7 +299,8 @@ export function parseCredentialLocator(
 
 export function parseSecret(value: unknown, context: string): string {
   const parsed = string(value, context, MAX_SECRET_LENGTH, 'invalid_credential_input');
-  if (parsed.length === 0) throw codecError('invalid_credential_input', `${context} must not be empty`);
+  if (parsed.length === 0)
+    throw codecError('invalid_credential_input', `${context} must not be empty`);
   return parsed;
 }
 
@@ -283,12 +318,11 @@ export function parseCredentialBasis(
 }
 
 function parseSetInput(value: unknown): SetCredentialInput {
-  const input = record(
-    value,
-    'set credential input',
-    'invalid_credential_input',
-    ['locator', 'expected', 'secret'],
-  );
+  const input = record(value, 'set credential input', 'invalid_credential_input', [
+    'locator',
+    'expected',
+    'secret',
+  ]);
   const locator = parseCredentialLocator(input.locator, 'set credential locator');
   let expected: SetCredentialInput['expected'];
   if (input.expected === null) {
@@ -301,8 +335,16 @@ function parseSetInput(value: unknown): SetCredentialInput {
       ['credentialId', 'revision'],
     );
     expected = {
-      credentialId: entityId(item.credentialId, 'set credential expected credentialId', 'invalid_credential_input'),
-      revision: positiveRevision(item.revision, 'set credential expected revision', 'invalid_credential_input'),
+      credentialId: entityId(
+        item.credentialId,
+        'set credential expected credentialId',
+        'invalid_credential_input',
+      ),
+      revision: positiveRevision(
+        item.revision,
+        'set credential expected revision',
+        'invalid_credential_input',
+      ),
     };
   }
   return { locator, expected, secret: parseSecret(input.secret, 'set credential secret') };
@@ -314,12 +356,13 @@ function parseDeleteInput(value: unknown): DeleteCredentialInput {
 }
 
 function parseEntry(value: unknown, context: string, source: CodecSource): CredentialVaultEntry {
-  const item = record(
-    value,
-    context,
-    source,
-    ['locator', 'credentialId', 'revision', 'secret', 'updatedAt'],
-  );
+  const item = record(value, context, source, [
+    'locator',
+    'credentialId',
+    'revision',
+    'secret',
+    'updatedAt',
+  ]);
   const secret = string(item.secret, `${context}.secret`, MAX_SECRET_LENGTH, source);
   if (secret.length === 0) throw codecError(source, `${context}.secret must not be empty`);
   return {
@@ -341,7 +384,10 @@ function credentialStatusFromEntry(entry: CredentialVaultEntry): CredentialStatu
   };
 }
 
-function findCredentialIndex(document: CredentialVaultDocument, locator: CredentialLocator): number {
+function findCredentialIndex(
+  document: CredentialVaultDocument,
+  locator: CredentialLocator,
+): number {
   return document.entries.findIndex((entry) => sameLocator(entry.locator, locator));
 }
 
@@ -372,9 +418,11 @@ function matchesExpectation(
   expected: SetCredentialInput['expected'],
 ): boolean {
   if (expected === null) return actual === undefined;
-  return actual !== undefined
-    && actual.credentialId === expected.credentialId
-    && actual.revision === expected.revision;
+  return (
+    actual !== undefined &&
+    actual.credentialId === expected.credentialId &&
+    actual.revision === expected.revision
+  );
 }
 
 function credentialStale(

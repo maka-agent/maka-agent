@@ -390,7 +390,7 @@ async function functionCallsById(
       continue;
     calls.set(content.id, {
       name: promptSafeToken(content.name, 'unknown_tool'),
-      argsPreview: argsPreview(content.args, limits.maxArgsKeys),
+      argsPreview: argsPreview(content.review, limits.maxArgsKeys),
     });
   }
   return { ok: true, value: calls };
@@ -508,6 +508,7 @@ function argsPreview(args: unknown, maxKeys: number): string {
   if (!isRecord(args)) return typeof args;
   if (maxKeys === 0) return '';
   return Object.keys(args)
+    .filter((key) => !['kind', 'cwd', 'operation', 'root', 'action', 'targetKind'].includes(key))
     .map((key) => promptSafeToken(key, 'arg'))
     .sort(compareStrings)
     .slice(0, maxKeys)

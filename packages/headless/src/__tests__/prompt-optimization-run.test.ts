@@ -746,7 +746,7 @@ function fakeRunHarborRunner(
           kind: 'function_call',
           id: 'call-1',
           name: 'Bash',
-          args: { command: 'echo done' },
+          review: { kind: 'command', command: 'echo done', cwd: '/app' },
         },
       })}\n`,
       'utf8',

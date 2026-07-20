@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   isTerminalRuntimeEvent,
+  type PermissionRequestPayload,
   type RuntimeEvent,
   type RuntimeEventStore,
   type SessionBlockedReason,
@@ -12,6 +13,7 @@ import {
   AgentRun,
   AiSdkFlow,
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   RuntimeRunner,
   type AgentRunActiveSession,
   type InvocationResult,
@@ -1069,42 +1071,40 @@ async function handlePermissionIntervention(
 }
 
 function permissionRequestFromRuntime(input: {
-  rawRequest: {
-    requestId?: string;
-    toolUseId?: string;
-    toolName?: string;
-    reason?: string;
-    category?: string;
-    args?: unknown;
-  };
+  rawRequest: PermissionRequestPayload;
   taskRunId: string;
   attemptId: string;
   requestedAt: number;
   expiresAt: number;
 }): TaskPermissionRequest {
-  const args = input.rawRequest.args;
-  const toolName = input.rawRequest.toolName ?? 'unknown_tool';
-  const toolCallId =
-    input.rawRequest.toolUseId ?? input.rawRequest.requestId ?? 'unknown_tool_call';
+  const review = input.rawRequest.review;
+  // Headless command cwd is an attempt-local throwaway path. Grants do not authorize
+  // execution here, so persist a stable command identity for post-hoc diagnostics.
+  const reviewInput = review.kind === 'command' ? { command: review.command } : review;
+  const toolName = input.rawRequest.toolName;
+  const toolCallId = input.rawRequest.toolUseId;
   return {
     schemaVersion: 1,
-    requestId: input.rawRequest.requestId ?? `${input.taskRunId}:${input.attemptId}:${toolCallId}`,
+    requestId: input.rawRequest.requestId,
     taskRunId: input.taskRunId,
     attemptId: input.attemptId,
     toolCallId,
     toolName,
-    normalizedArgsHash: hashNormalizedArgs(args),
-    resourceScope: permissionScope(toolName, args),
-    reason: input.rawRequest.reason ?? input.rawRequest.category ?? 'permission required',
-    preview: permissionPreview(args),
+    normalizedArgsHash: hashNormalizedArgs(reviewInput),
+    resourceScope: permissionScope(toolName, review),
+    reason: input.rawRequest.reason,
+    preview: permissionPreview(reviewInput),
     requestedAt: input.requestedAt,
     expiresAt: input.expiresAt,
   };
 }
 
-function permissionScope(toolName: string, args: unknown): PermissionResourceScope {
-  if (toolName.toLowerCase() === 'bash' && isRecord(args) && typeof args.command === 'string') {
-    return commandResourceScope(args.command);
+function permissionScope(
+  toolName: string,
+  review: PermissionRequestPayload['review'],
+): PermissionResourceScope {
+  if (toolName.toLowerCase() === 'bash' && review.kind === 'command') {
+    return commandResourceScope(review.command);
   }
   return { kind: 'tool', value: toolName, mode: 'execute' };
 }
@@ -1173,6 +1173,15 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
     backend: begin.backend,
     drainAfterTerminal: true,
     onSessionEvent: async (sessionEvent, runtimeEvent) => {
+      if (sessionEvent.type === 'error') {
+        input.run.claimFailureTerminal(
+          Object.assign(new Error(sessionEvent.message), {
+            name: sessionEvent.reason ?? sessionEvent.code ?? 'RuntimeSessionError',
+          }),
+        );
+      } else if (isTerminalRuntimeEvent(runtimeEvent)) {
+        input.run.claimTerminalEvent(runtimeEvent);
+      }
       await input.run.acceptMappedEvent(sessionEvent, runtimeEvent, {
         requireTerminalWrite: input.requireTerminalRuntimeEventWrite,
       });
@@ -1286,6 +1295,7 @@ function createSingleRunActiveSession(
           return active;
         }
         const backend = await backends.build(header.backend, {
+          execution: EMBEDDED_RUNTIME_EXECUTION,
           sessionId,
           workspaceRoot: header.workspaceRoot,
           header,

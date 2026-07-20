@@ -14,6 +14,7 @@ import {
   type Terminal,
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
+import type { AnyPermissionRequestEvent } from '@maka/core/events';
 import {
   isThinkingLevel,
   thinkingVariantsForModel,
@@ -110,6 +111,20 @@ import {
   thinkingLevelPickerItems,
   type MakaSlashCommand,
 } from './pi-tui-pickers.js';
+
+function permissionRequestAllowsTurnMemory(request: AnyPermissionRequestEvent): boolean {
+  switch (request.kind) {
+    case 'tool_permission':
+      return request.rememberForTurnAllowed;
+    case 'additional_permissions':
+    case 'sandbox_escalation':
+      return false;
+    default: {
+      const exhaustive: never = request;
+      return exhaustive;
+    }
+  }
+}
 
 export interface MakaPiTuiGoalLifecycle extends MakaPiTuiTurnLifecycle {
   bindHost: (host: CliGoalTurnHost) => () => void;
@@ -672,7 +687,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       .respondToPermission({
         requestId: request.requestId,
         decision,
-        ...(decision === 'allow' && request.rememberForTurnAllowed ? { rememberForTurn } : {}),
+        ...(decision === 'allow' && permissionRequestAllowsTurnMemory(request)
+          ? { rememberForTurn }
+          : {}),
       })
       .catch((error) => {
         if (permissionResponseInFlightRequestId === request.requestId) {
@@ -2484,7 +2501,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         respondToPendingPermission('allow', false);
         return { consume: true };
       }
-      if (matchesKey(data, 'a') && pendingPermission.rememberForTurnAllowed) {
+      if (matchesKey(data, 'a') && permissionRequestAllowsTurnMemory(pendingPermission)) {
         respondToPendingPermission('allow', true);
         return { consume: true };
       }

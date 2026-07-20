@@ -30,6 +30,7 @@ import type { WorkspacePrivacyContext } from '@maka/core/incognito';
 import { ok } from '@maka/core/settings/result';
 import {
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   FakeBackend,
   PermissionEngine,
   SessionManager,
@@ -712,7 +713,13 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
 }));
 
 backends.register('fake', (ctx) =>
-  new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+  new FakeBackend({
+    sessionId: ctx.sessionId,
+    header: ctx.header,
+    store: ctx.store,
+    appendMessage: ctx.appendMessage,
+    execution: ctx.execution,
+  }),
 );
 
 // E2E: also route 'ai-sdk' (requested by sessions:create and quickChat:start)
@@ -722,7 +729,13 @@ backends.register('fake', (ctx) =>
 // Production builds never set MAKA_E2E.
 if (isE2e) {
   backends.register('ai-sdk', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+    new FakeBackend({
+      sessionId: ctx.sessionId,
+      header: ctx.header,
+      store: ctx.store,
+      appendMessage: ctx.appendMessage,
+      execution: ctx.execution,
+    }),
   );
 }
 
@@ -737,6 +750,7 @@ const runtime = new SessionManager({
   shellRuns,
   backends,
   childTools: childAgentTools,
+  execution: EMBEDDED_RUNTIME_EXECUTION,
   safeBoundaryResumeEnabled: process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME === '1',
   onContinuationLifecycleEvent: (event) => {
     console.info('[runtime-resume]', JSON.stringify(event));

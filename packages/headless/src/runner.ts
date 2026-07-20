@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BackendKind, OrchestrationMode, TurnOrchestration } from '@maka/core';
 import {
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   SessionManager,
   buildChildAgentTools,
   type InvocationResult,
@@ -146,6 +147,7 @@ export async function runExperimentWithStorage(
 
     let invocation: InvocationResult | undefined;
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store: storage.executionStores.sessionStore,
       runStore: storage.executionStores.agentRunStore,
       runtimeEventStore: storage.executionStores.runtimeEventStore,

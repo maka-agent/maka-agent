@@ -50,7 +50,7 @@ describe('tool activity presentation', () => {
       ts: 1,
       toolName: 'CustomPatch',
       activityKind: 'edit',
-      args: {},
+      review: { kind: 'patch', operation: 'update_file', path: 'README.md', cwd: '/repo' },
     }];
 
     assert.equal(materializeTools(messages)[0]?.activityKind, 'edit');

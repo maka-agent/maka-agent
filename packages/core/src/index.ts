@@ -13,6 +13,33 @@ export * from './orchestration.js';
 export * from './swarm-command.js';
 export * from './plan.js';
 export * from './runtime-policy.js';
+export * from './interaction.js';
+export type {
+  CanonicalToolIntent,
+  CanonicalToolValue,
+  PublicToolAgentReview,
+  PublicToolBrowserReview,
+  PublicToolCommandReview,
+  PublicToolIntentReview,
+  PublicToolPatchReview,
+  PublicToolPathReview,
+  PublicToolQuestionReview,
+  PublicToolRuntimeResourceReview,
+  PublicToolSearchReview,
+  PublicToolSkillReview,
+  PublicToolStdinInputReview,
+  PublicToolStdinReview,
+  PublicToolStdinSize,
+  PublicToolWebReview,
+} from './tool-intent.js';
+export {
+  canonicalToolExecutionArgs,
+  decodePublicToolIntentReview,
+  isPublicToolIntentReview,
+  projectPublicToolApprovalReview,
+  projectPublicToolIntentReview,
+  requireCanonicalToolIntent,
+} from './tool-intent.js';
 
 // events.ts
 export type {
@@ -330,6 +357,11 @@ export type {
   ToolExecutionWriteBack,
   PreToolUseInput,
   PreToolUseResult,
+  CreateCanonicalToolIntentInput,
+  PermissionRememberScope,
+  ToolPermissionPrompt,
+  AdditionalPermissionPathReview,
+  AdditionalPermissionReview,
   AdditionalPermissionRequest,
   SandboxEscalationRequest,
   SandboxEscalationRiskSummary,
@@ -352,18 +384,23 @@ export {
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
   classifyToolUse,
+  createCanonicalToolIntent,
   approvalRoutingPolicyForMode,
   isPermissionMode,
   isToolCategory,
   matchToolPermissionRules,
   preToolUse,
+  projectAdditionalPermissionReview,
+  TurnPermissionMemory,
 } from './permission.js';
 
 // computer-use.ts
 export type {
   ComputerUseActionOutcome,
+  ComputerUseApprovalAction,
   ComputerUseApprovalClass,
-  ComputerUseApprovalSummary,
+  ComputerUseIntentValidationReason,
+  ComputerUsePublicApprovalReview,
   ComputerUseDispatchEvidence,
   ComputerUseDispatchTier,
   ComputerUseDisplayIdentity,
@@ -385,6 +422,7 @@ export type {
 } from './computer-use.js';
 export {
   COMPUTER_USE_ACTION_TYPES,
+  COMPUTER_USE_APPROVAL_ACTIONS,
   COMPUTER_USE_APPROVAL_CLASSES,
   COMPUTER_USE_DISPATCH_TIERS,
   COMPUTER_USE_EFFECTS,
@@ -392,9 +430,11 @@ export {
   COMPUTER_USE_FRAME_SOURCE_KINDS,
   CU_ACTION_TYPES,
   CU_SCROLL_DIRECTIONS,
-  computerUseApprovalScopeKey,
-  computerUseApprovalSummary,
+  computerUsePublicReviewApprovalClass,
+  computerUsePublicReviewRememberAllowed,
+  decodeComputerUsePublicApprovalReview,
   isComputerUseErrorCode,
+  ComputerUseIntentValidationError,
 } from './computer-use.js';
 
 // permission-profile.ts

@@ -15,7 +15,8 @@ export const CATALOG_DOCUMENT_MAX_BYTES = 4 * 1024 * 1024;
 export const VAULT_DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 
 const READ_CHUNK_BYTES = 64 * 1024;
-const RUNTIME_POLICY_TEMP_PATTERN = /^(?:runtime-policy|connection-catalog|credential-vault)\.json\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
+const RUNTIME_POLICY_TEMP_PATTERN =
+  /^(?:runtime-policy|connection-catalog|credential-vault)\.json\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 
 export async function cleanupRuntimePolicyDocumentTemps(root: string): Promise<void> {
   let failure: unknown;
@@ -42,15 +43,19 @@ export async function cleanupRuntimePolicyDocumentTemps(root: string): Promise<v
       }
     }
   } catch (error) {
-    failure = error instanceof RuntimePolicyStoreError
-      ? error
-      : ioFailed('Runtime policy temporary artifacts could not be listed', error);
+    failure =
+      error instanceof RuntimePolicyStoreError
+        ? error
+        : ioFailed('Runtime policy temporary artifacts could not be listed', error);
   }
 
   try {
     await syncDirectory(root);
   } catch (error) {
-    failure ??= ioFailed('Runtime policy temporary artifact cleanup could not be synchronized', error);
+    failure ??= ioFailed(
+      'Runtime policy temporary artifact cleanup could not be synchronized',
+      error,
+    );
   }
   if (failure !== undefined) throw failure;
 }
@@ -61,9 +66,10 @@ export async function readBoundedJsonDocument(
   maxBytes: number,
 ): Promise<unknown | undefined> {
   const path = join(root, file);
-  const flags = process.platform === 'win32'
-    ? constants.O_RDONLY
-    : constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+  const flags =
+    process.platform === 'win32'
+      ? constants.O_RDONLY
+      : constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
   let handle;
   try {
     handle = await open(path, flags);
@@ -80,7 +86,8 @@ export async function readBoundedJsonDocument(
   try {
     const metadata = await handle.stat();
     if (!metadata.isFile()) throw invalidDocument(`${file} must be a regular file`);
-    if (metadata.size > maxBytes) throw invalidDocument(`${file} exceeds its ${maxBytes} byte limit`);
+    if (metadata.size > maxBytes)
+      throw invalidDocument(`${file} exceeds its ${maxBytes} byte limit`);
 
     const chunks: Buffer[] = [];
     let total = 0;

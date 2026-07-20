@@ -54,6 +54,17 @@ describe('subagent tools', () => {
     const spawnTool = buildSubagentSpawnTool();
     expect(spawnTool.permissionRequired).toBe(true);
     expect(spawnTool.categoryHint).toBe('subagent');
+    expect(
+      spawnTool.prepareIntentArgs?.(
+        { profile: LOCAL_READ_AGENT_PROFILE, task: 'Inspect auth.' },
+        { sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1' },
+      ),
+    ).toEqual({
+      profile: LOCAL_READ_AGENT_PROFILE,
+      task: 'Inspect auth.',
+      write_back: AGENT_WRITE_BACK_SUMMARY,
+      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+    });
     expect(buildSubagentListTool().permissionRequired).toBe(false);
     expect(buildSubagentOutputTool().permissionRequired).toBe(false);
     expect(buildParentAgentTools().map((tool) => tool.name)).toEqual([
@@ -674,6 +685,7 @@ describe('subagent tools', () => {
     header.permissionMode = 'ask';
     let spawned = false;
     const runtime = new ToolRuntime({
+      execution: { kind: 'embedded', getCurrentRunId: () => 'parent-run' },
       sessionId: 'session-1',
       header,
       connection: testConnection(),
@@ -683,7 +695,6 @@ describe('subagent tools', () => {
       newId: nextId(),
       now: () => 1,
       getPermissionPauseTarget: () => null,
-      getCurrentRunId: () => 'parent-run',
       spawnChildAgent: async () => {
         spawned = true;
         return {};
@@ -711,6 +722,18 @@ describe('subagent tools', () => {
         event.type === 'permission_request',
     );
     expect(request).toBeDefined();
+    expect(request?.kind).toBe('tool_permission');
+    if (request?.kind === 'tool_permission') {
+      expect(request.review).toEqual({
+        kind: 'agent',
+        operation: 'spawn',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        writeBack: AGENT_WRITE_BACK_SUMMARY,
+        isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+        taskId: task.key,
+      });
+      expect(JSON.stringify(request)).not.toContain('Inspect the runtime tests.');
+    }
     expect(calls).toEqual([]);
     expect(spawned).toBe(false);
 
@@ -1074,6 +1097,7 @@ function makeChildToolRuntime(cwd: string): ToolRuntime {
   const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
   permissionEngine.beginTurn('child-turn');
   return new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: childHeader(cwd),
     connection: testConnection(),

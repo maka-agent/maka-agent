@@ -66,6 +66,7 @@ export interface InteractiveRootOwner {
   readonly controlDirectory: string;
   readonly lockPath: string;
   readonly closed: boolean;
+  beginClose(): void;
   close(): Promise<void>;
 }
 
@@ -491,9 +492,12 @@ async function acquireInteractiveRootLock(
     activeOperations === 0
       ? Promise.resolve()
       : new Promise<void>((resolve) => operationDrainWaiters.add(resolve));
-  const close = () => {
-    if (closePromise) return closePromise;
+  const beginClose = () => {
     active = false;
+  };
+  const close = () => {
+    beginClose();
+    if (closePromise) return closePromise;
     closePromise = withAuthorityFailure(
       'lock_failed',
       'Unable to close the interactive storage root lock',
@@ -513,6 +517,7 @@ async function acquireInteractiveRootLock(
     lockPath,
     () => active,
     beginOperation,
+    beginClose,
     close,
   );
 }
@@ -525,18 +530,33 @@ function createInteractiveRootLock(
   lockPath: string,
   isActive: () => boolean,
   beginOperation: () => () => void,
+  beginClose: () => void,
   close: () => Promise<void>,
 ): InteractiveRootOwner | InteractiveRootReader {
-  const lock = Object.freeze({
-    capability,
-    lease: createLease(capabilityRecord, access, isActive, beginOperation),
-    controlDirectory,
-    lockPath,
-    get closed() {
-      return !isActive();
-    },
-    close,
-  }) as InteractiveRootOwner | InteractiveRootReader;
+  const lease = createLease(capabilityRecord, access, isActive, beginOperation);
+  const lock =
+    access === 'write'
+      ? (Object.freeze({
+          capability,
+          lease,
+          controlDirectory,
+          lockPath,
+          get closed() {
+            return !isActive();
+          },
+          beginClose,
+          close,
+        }) as InteractiveRootOwner)
+      : (Object.freeze({
+          capability,
+          lease,
+          controlDirectory,
+          lockPath,
+          get closed() {
+            return !isActive();
+          },
+          close,
+        }) as InteractiveRootReader);
   interactiveRootLocks.set(lock, { access });
   return lock;
 }

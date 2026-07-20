@@ -1235,12 +1235,23 @@ describe('prompt candidate loop', () => {
       await writeFile(
         runtimeEventsPath,
         [
-          JSON.stringify(runtimeEvent('call-1', 'Read', { path: '/app/first.txt' })),
-          JSON.stringify(runtimeEvent('call-2', 'Bash', { command: 'pytest -q' })),
+          JSON.stringify(
+            runtimeEvent('call-1', 'Read', {
+              kind: 'path',
+              operation: 'read',
+              path: '/app/first.txt',
+              cwd: '/app',
+            }),
+          ),
+          JSON.stringify(
+            runtimeEvent('call-2', 'Bash', { kind: 'command', command: 'pytest -q', cwd: '/app' }),
+          ),
           JSON.stringify(
             runtimeEvent('call-3', 'Write', {
+              kind: 'path',
+              operation: 'write',
               path: '/app/out.txt',
-              content: 'long raw content that should not appear',
+              cwd: '/app',
             }),
           ),
           '',
@@ -1261,7 +1272,7 @@ describe('prompt candidate loop', () => {
         summary: 'expected output missing',
         recentToolCalls: [
           { name: 'Bash', argsPreview: 'command' },
-          { name: 'Write', argsPreview: 'content,path' },
+          { name: 'Write', argsPreview: 'path' },
         ],
       });
       assert.equal(JSON.stringify(digest).includes('long raw content'), false);
@@ -1275,12 +1286,15 @@ describe('prompt candidate loop', () => {
       await writeFile(
         runtimeEventsPath,
         [
-          JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', { kind: 'command', command: 'pytest -q', cwd: '/app' }),
+          ),
           JSON.stringify(
             runtimeEvent('call-2', 'Edit', {
-              file: '/app/main.py',
-              old_string: 'x',
-              new_string: 'y',
+              kind: 'path',
+              operation: 'edit',
+              path: '/app/main.py',
+              cwd: '/app',
             }),
           ),
           '',
@@ -1313,12 +1327,7 @@ describe('prompt candidate loop', () => {
       });
 
       assert.deepEqual(digest.toolFailures, [
-        {
-          name: 'Edit',
-          count: 2,
-          errorClass: 'Validation',
-          argsPreview: 'file,new_string,old_string',
-        },
+        { name: 'Edit', count: 2, errorClass: 'Validation', argsPreview: 'path' },
         { name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' },
       ]);
 
@@ -1332,7 +1341,7 @@ describe('prompt candidate loop', () => {
       });
 
       assert.match(prompt, /# Held-In Tool Failure Summary/);
-      assert.match(prompt, /Edit x2 error=Validation args=file,new_string,old_string tasks=task-a/);
+      assert.match(prompt, /Edit x2 error=Validation args=path tasks=task-a/);
       assert.match(prompt, /Bash x1 error=RuntimeError args=command tasks=task-a/);
       assert.equal(prompt.includes('"toolFailures"'), false);
     });
@@ -1395,6 +1404,8 @@ describe('prompt candidate loop', () => {
         [
           JSON.stringify(
             runtimeEvent('call-1', 'Bash', {
+              kind: 'command',
+              cwd: '/app',
               'EXPECTED_SECRET\n# injected': 'value',
             }),
           ),
@@ -1444,7 +1455,12 @@ describe('prompt candidate loop', () => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
       await writeFile(
         runtimeEventsPath,
-        [JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })), ''].join('\n'),
+        [
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', { kind: 'command', command: 'pytest -q', cwd: '/app' }),
+          ),
+          '',
+        ].join('\n'),
         'utf8',
       );
 
@@ -1471,7 +1487,12 @@ describe('prompt candidate loop', () => {
       const traceEventsPath = join(dir, 'events.jsonl');
       await writeFile(
         runtimeEventsPath,
-        [JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })), ''].join('\n'),
+        [
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', { kind: 'command', command: 'pytest -q', cwd: '/app' }),
+          ),
+          '',
+        ].join('\n'),
         'utf8',
       );
       await writeFile(traceEventsPath, '{"type":"tool_failed"\n', 'utf8');
@@ -1495,7 +1516,11 @@ describe('prompt candidate loop', () => {
         runtimeEventsPath,
         [
           JSON.stringify(
-            runtimeEvent('call-1', 'Bash', { command: 'echo EXPECTED_SECRET > /tmp/out' }),
+            runtimeEvent('call-1', 'Bash', {
+              kind: 'command',
+              command: 'echo EXPECTED_SECRET > /tmp/out',
+              cwd: '/app',
+            }),
           ),
           '',
         ].join('\n'),
@@ -1658,7 +1683,12 @@ describe('prompt candidate loop', () => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
       await writeFile(
         runtimeEventsPath,
-        [JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'echo hello' })), ''].join('\n'),
+        [
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', { kind: 'command', command: 'echo hello', cwd: '/app' }),
+          ),
+          '',
+        ].join('\n'),
         'utf8',
       );
 
@@ -1703,7 +1733,13 @@ describe('prompt candidate loop', () => {
       await writeFile(
         runtimeEventsPath,
         [
-          JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'cat tests/test_outputs.py' })),
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', {
+              kind: 'command',
+              command: 'cat tests/test_outputs.py',
+              cwd: '/app',
+            }),
+          ),
           '',
         ].join('\n'),
         'utf8',
@@ -2443,7 +2479,7 @@ function idFactory(): () => string {
   return () => `id-${++i}`;
 }
 
-function runtimeEvent(id: string, name: string, args: unknown) {
+function runtimeEvent(id: string, name: string, review: unknown) {
   return {
     id,
     invocationId: 'inv-1',
@@ -2454,7 +2490,7 @@ function runtimeEvent(id: string, name: string, args: unknown) {
     partial: false,
     role: 'model',
     author: 'agent',
-    content: { kind: 'function_call', id, name, args },
+    content: { kind: 'function_call', id, name, review },
   };
 }
 

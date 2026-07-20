@@ -6,10 +6,7 @@ import { describe, test } from 'node:test';
 import type { AgentRunHeader } from '@maka/core';
 import { createInMemoryTaskRunStore } from '@maka/headless';
 import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
-import {
-  inspectResolvedTarget,
-  resolveInspectTarget,
-} from '../inspect-command.js';
+import { inspectResolvedTarget, resolveInspectTarget } from '../inspect-command.js';
 
 describe('unified inspect target resolution', () => {
   test('does not guess when one id names multiple entity kinds and AgentRuns', async () => {
@@ -118,9 +115,7 @@ function runHeader(sessionId: string, runId: string): AgentRunHeader {
   };
 }
 
-async function withStores(
-  run: (stores: InspectCommandTestStores) => Promise<void>,
-): Promise<void> {
+async function withStores(run: (stores: InspectCommandTestStores) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'maka-unified-inspect-'));
   try {
     await run({

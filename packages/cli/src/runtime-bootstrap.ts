@@ -7,6 +7,7 @@ import {
   AutomationManager,
   AutomationScheduler,
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   GoalManager,
   PermissionEngine,
   RuntimeReadModel,
@@ -589,6 +590,7 @@ export async function createMakaCliRuntimeContext(
       cwd: header.cwd,
     });
     return new AiSdkBackend({
+      execution: ctx.execution,
       sessionId: ctx.sessionId,
       header: { ...header, model: ready.model },
       appendMessage:
@@ -684,6 +686,7 @@ export async function createMakaCliRuntimeContext(
   });
 
   runtime = new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store,
     runStore,
     runtimeEventStore,

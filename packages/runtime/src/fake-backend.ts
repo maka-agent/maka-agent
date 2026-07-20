@@ -1,15 +1,43 @@
 import { randomUUID } from 'node:crypto';
-import type { BackendKind, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
+import type {
+  BackendKind,
+  SessionEvent,
+  SessionHeader,
+  StoredMessage,
+  UserQuestionRequestEvent,
+} from '@maka/core';
+import { projectPublicToolIntentReview } from '@maka/core';
 import type { AgentBackend, BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
+import { createCanonicalToolIntent } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { SessionStore } from './session-manager.js';
+import {
+  RuntimeInteractionClosedError,
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionClosureReason,
+  type RuntimeInteractionFatalError,
+  type RuntimeUserQuestionAnswer,
+  type RuntimeUserQuestionContinuation,
+} from './interaction-authority.js';
+import {
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeBackendExecutionCapability,
+  type RuntimeHostedBackendRunBinding,
+  type RuntimeHostedRunControl,
+} from './run-execution.js';
+import {
+  isRuntimeLifecycleAdmission,
+  isRuntimeLifecycleAdmissionOrFatal,
+  isRuntimeLifecycleFatal,
+} from './runtime-lifecycle-errors.js';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const FAKE_ASK_USER_QUESTION_PROMPT = '__e2e_ask_user_question__';
 
 type PendingQuestion = {
   requestId: string;
   resolve(response: UserQuestionResponse | null): void;
+  reject(error: unknown): void;
 };
 
 export class FakeBackend implements AgentBackend {
@@ -17,6 +45,15 @@ export class FakeBackend implements AgentBackend {
   readonly sessionId: string;
   private stopped = false;
   private pendingQuestion: PendingQuestion | undefined;
+  private currentTurnId: string | null = null;
+  private currentRunId: string | null = null;
+  private turnStreamActive = false;
+  private interactionFailure: RuntimeInteractionFatalError | null = null;
+  private hostedRun: RuntimeHostedRunControl | null = null;
+  private readonly pendingDelays = new Set<{
+    timer: ReturnType<typeof setTimeout>;
+    reject(error: RuntimeInteractionFatalError): void;
+  }>();
 
   constructor(
     private readonly ctx: {
@@ -24,13 +61,102 @@ export class FakeBackend implements AgentBackend {
       header: SessionHeader;
       store: SessionStore;
       appendMessage?: (message: StoredMessage) => Promise<void>;
+      execution: RuntimeBackendExecutionCapability;
     },
   ) {
     this.sessionId = ctx.sessionId;
   }
 
+  [RUNTIME_BIND_HOSTED_RUN](control: RuntimeHostedRunControl): RuntimeHostedBackendRunBinding {
+    if (this.ctx.execution.kind !== 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Cannot bind hosted control to embedded Fake backend',
+      );
+    }
+    if (this.hostedRun) {
+      throw new RuntimeInteractionInvariantError(
+        `Fake backend already owns hosted run ${this.hostedRun.runId}`,
+      );
+    }
+    this.hostedRun = control;
+    let revoked = false;
+    return {
+      isolateRegisteredSuccessorEffects: (cause) =>
+        cause.kind === 'fail_stop'
+          ? this.installInteractionFailStop(cause.error)
+          : Promise.resolve(),
+      revoke: () => {
+        if (revoked) return;
+        revoked = true;
+        if (this.hostedRun === control) this.hostedRun = null;
+      },
+    };
+  }
+
+  private installInteractionFailStop(error: RuntimeInteractionFailStopError): Promise<void> {
+    this.interactionFailure = error;
+    let cancellationFailure: { error: unknown } | undefined;
+    const pending = this.pendingQuestion;
+    if (pending) {
+      this.pendingQuestion = undefined;
+      try {
+        pending.reject(error);
+      } catch (error) {
+        cancellationFailure = { error };
+      }
+    }
+    try {
+      this.rejectPendingDelays(error);
+    } catch (delayError) {
+      cancellationFailure ??= { error: delayError };
+    }
+    return cancellationFailure ? Promise.reject(cancellationFailure.error) : Promise.resolve();
+  }
+
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const hostedRun =
+      this.ctx.execution.kind === 'hosted' ? this.requireHostedRunControl() : undefined;
+    if (hostedRun && !input.runId) {
+      throw new RuntimeInteractionInvariantError(
+        'Runtime Interaction authority requires an active Fake run',
+      );
+    }
+    if (hostedRun && (this.currentTurnId !== null || this.currentRunId !== null)) {
+      throw new RuntimeInteractionInvariantError(
+        `Fake backend still owns Interaction state for run ${this.currentRunId ?? 'unknown'}`,
+      );
+    }
+    if (hostedRun && (hostedRun.runId !== input.runId || hostedRun.turnId !== input.turnId)) {
+      throw new RuntimeInteractionInvariantError(
+        `Fake hosted control ${hostedRun.runId}/${hostedRun.turnId} does not match send ${input.runId}/${input.turnId}`,
+      );
+    }
     this.stopped = false;
+    this.interactionFailure = null;
+    this.currentTurnId = input.turnId;
+    this.currentRunId = input.runId ?? null;
+    this.turnStreamActive = true;
+    try {
+      yield* this.sendActiveTurn(input);
+    } catch (error) {
+      if (this.interactionFailure) throw this.interactionFailure;
+      if (isRuntimeLifecycleFatal(error)) {
+        this.interactionFailure ??= error;
+      } else {
+        this.claimRunFailure(input.turnId, error);
+      }
+      throw error;
+    } finally {
+      try {
+        if (this.interactionFailure) throw this.interactionFailure;
+        this.finishTurn(input.turnId);
+      } finally {
+        this.turnStreamActive = false;
+      }
+    }
+  }
+
+  private async *sendActiveTurn(input: BackendSendInput): AsyncIterable<SessionEvent> {
     if (input.text === FAKE_ASK_USER_QUESTION_PROMPT) {
       yield* this.sendQuestionScenario(input);
       return;
@@ -97,7 +223,7 @@ export class FakeBackend implements AgentBackend {
           };
           return;
         }
-        await sleep(45);
+        await this.waitForDelay(45);
         for (const { leaseId, event } of drainSteering()) {
           yield event;
           settleOutstanding(leaseId);
@@ -132,10 +258,7 @@ export class FakeBackend implements AgentBackend {
       }
 
       const ts = Date.now();
-      const appendMessage =
-        this.ctx.appendMessage ??
-        ((message: StoredMessage) => this.ctx.store.appendMessage(this.sessionId, message));
-      await appendMessage({
+      await this.appendMessage({
         type: 'assistant',
         id: messageId,
         turnId,
@@ -151,28 +274,51 @@ export class FakeBackend implements AgentBackend {
   }
 
   async stop(): Promise<void> {
+    if (this.interactionFailure) throw this.interactionFailure;
     this.stopped = true;
-    this.pendingQuestion?.resolve(null);
-    this.pendingQuestion = undefined;
+    const turnId = this.currentTurnId;
+    if (turnId !== null && !this.turnStreamActive && this.currentTurnId === turnId)
+      this.finishTurn(turnId);
+    if (this.ctx.execution.kind === 'embedded') {
+      this.pendingQuestion?.resolve(null);
+      this.pendingQuestion = undefined;
+    }
   }
 
-  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {
+    if (this.ctx.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted permission answers must use the captured continuation',
+      );
+    }
+  }
 
   async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    if (this.ctx.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted question answers must use the captured continuation',
+      );
+    }
     if (this.pendingQuestion?.requestId !== response.requestId) return;
     const pending = this.pendingQuestion;
     this.pendingQuestion = undefined;
     pending.resolve(response);
   }
 
-  async dispose(): Promise<void> {}
+  async dispose(): Promise<void> {
+    if (this.interactionFailure) throw this.interactionFailure;
+    if (this.currentTurnId !== null) await this.stop();
+  }
 
   private async *sendQuestionScenario(input: BackendSendInput): AsyncIterable<SessionEvent> {
     // A real model needs time to produce its first tool call. Mirror that
     // boundary so a newly-created Desktop session can mount its event
     // subscription before this deterministic fake emits the request.
-    await sleep(100);
+    await this.waitForDelay(100);
     const turnId = input.turnId;
+    const hostedRun =
+      this.ctx.execution.kind === 'hosted' ? this.requireHostedRunControl() : undefined;
+    const hostedRunId = hostedRun?.runId;
     if (this.stopped) {
       yield { type: 'abort', id: randomUUID(), turnId, ts: Date.now(), reason: 'user_stop' };
       yield { type: 'complete', id: randomUUID(), turnId, ts: Date.now(), stopReason: 'user_stop' };
@@ -198,20 +344,23 @@ export class FakeBackend implements AgentBackend {
         options: [{ label: '是' }, { label: '否' }],
       },
     ];
-    const appendMessage =
-      this.ctx.appendMessage ??
-      ((message: StoredMessage) => this.ctx.store.appendMessage(this.sessionId, message));
     const startedAt = Date.now();
-    await appendMessage({
+    const intent = createCanonicalToolIntent({
+      toolName: 'AskUserQuestion',
+      args: { questions },
+      cwd: this.ctx.header.cwd,
+    });
+    const review = projectPublicToolIntentReview(intent);
+    await this.appendMessage({
       type: 'tool_call',
       id: toolUseId,
       turnId,
       stepId,
       ts: startedAt,
       toolName: 'AskUserQuestion',
-      args: { questions },
+      ...(review === undefined ? {} : { review }),
     });
-    yield {
+    const toolStart: SessionEvent = {
       type: 'tool_start',
       id: randomUUID(),
       turnId,
@@ -219,15 +368,18 @@ export class FakeBackend implements AgentBackend {
       ts: startedAt,
       toolUseId,
       toolName: 'AskUserQuestion',
-      args: { questions },
+      ...(review === undefined ? {} : { review }),
     };
 
     let resolveResponse!: (response: UserQuestionResponse | null) => void;
-    const responsePromise = new Promise<UserQuestionResponse | null>((resolve) => {
+    let rejectResponse!: (error: unknown) => void;
+    const responsePromise = new Promise<UserQuestionResponse | null>((resolve, reject) => {
       resolveResponse = resolve;
+      rejectResponse = reject;
     });
-    this.pendingQuestion = { requestId, resolve: resolveResponse };
-    yield {
+    if (hostedRun) void responsePromise.catch(() => undefined);
+    this.pendingQuestion = { requestId, resolve: resolveResponse, reject: rejectResponse };
+    const request: UserQuestionRequestEvent = {
       type: 'user_question_request',
       id: randomUUID(),
       turnId,
@@ -236,6 +388,36 @@ export class FakeBackend implements AgentBackend {
       toolUseId,
       questions,
     };
+    try {
+      if (hostedRun) {
+        await hostedRun.interactions.acceptUserQuestionRequest({
+          request,
+          continuation: this.createUserQuestionContinuation(hostedRunId!, turnId, requestId),
+        });
+      }
+    } catch (error) {
+      try {
+        const pending = this.pendingQuestion;
+        if (pending?.requestId === requestId) {
+          this.pendingQuestion = undefined;
+          pending.reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      } catch {
+        // Admission authority is the primary failure; local cleanup is best-effort.
+      }
+      if (isRuntimeLifecycleAdmissionOrFatal(error)) {
+        if (isRuntimeLifecycleAdmission(error)) {
+          this.claimRunFailure(turnId, error);
+        }
+        throw error;
+      }
+      throw new RuntimeInteractionFailStopError(
+        `Could not confirm admission for Fake question ${requestId}`,
+        error,
+      );
+    }
+    yield toolStart;
+    yield request;
 
     const response = await responsePromise;
     if (this.pendingQuestion?.requestId === requestId) this.pendingQuestion = undefined;
@@ -253,7 +435,7 @@ export class FakeBackend implements AgentBackend {
     };
     const resultContent = { kind: 'json' as const, value: result };
     const resultTs = Date.now();
-    await appendMessage({
+    await this.appendMessage({
       type: 'tool_result',
       id: randomUUID(),
       turnId,
@@ -285,7 +467,7 @@ export class FakeBackend implements AgentBackend {
       };
     }
     const completedAt = Date.now();
-    await appendMessage({
+    await this.appendMessage({
       type: 'assistant',
       id: messageId,
       turnId,
@@ -295,5 +477,115 @@ export class FakeBackend implements AgentBackend {
     });
     yield { type: 'text_complete', id: randomUUID(), turnId, ts: completedAt, messageId, text };
     yield { type: 'complete', id: randomUUID(), turnId, ts: Date.now(), stopReason: 'end_turn' };
+  }
+
+  private requireHostedRunControl(): RuntimeHostedRunControl {
+    if (!this.hostedRun) {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted Fake backend has no bound RunExecution control',
+      );
+    }
+    return this.hostedRun;
+  }
+
+  private createUserQuestionContinuation(
+    runId: string,
+    turnId: string,
+    requestId: string,
+  ): RuntimeUserQuestionContinuation {
+    return Object.freeze({
+      runId,
+      turnId,
+      requestId,
+      applyAnswer: (answer: RuntimeUserQuestionAnswer): void => {
+        if (Object.hasOwn(answer, 'requestId')) {
+          throw new RuntimeInteractionInvariantError(
+            `Question continuation ${requestId} received a routed answer`,
+          );
+        }
+        this.takePendingQuestion(requestId).resolve({
+          requestId,
+          answers: [...answer.answers],
+        });
+      },
+      applyClosure: (reason: RuntimeInteractionClosureReason): void => {
+        this.takePendingQuestion(requestId).reject(
+          new RuntimeInteractionClosedError(requestId, reason),
+        );
+      },
+    });
+  }
+
+  private takePendingQuestion(requestId: string): PendingQuestion {
+    const pending = this.pendingQuestion;
+    if (!pending || pending.requestId !== requestId) {
+      throw new RuntimeInteractionInvariantError(`Question continuation did not take ${requestId}`);
+    }
+    this.pendingQuestion = undefined;
+    return pending;
+  }
+
+  private finishTurn(turnId: string): void {
+    if (this.currentTurnId !== turnId) return;
+    if (this.ctx.execution.kind === 'embedded') {
+      this.pendingQuestion?.resolve(null);
+      this.pendingQuestion = undefined;
+    }
+    this.currentTurnId = null;
+    this.currentRunId = null;
+    this.interactionFailure = null;
+    this.stopped = false;
+  }
+
+  private async waitForDelay(ms: number): Promise<void> {
+    this.throwIfInteractionFailed();
+    await new Promise<void>((resolve, reject) => {
+      let pending!: {
+        timer: ReturnType<typeof setTimeout>;
+        reject(error: RuntimeInteractionFatalError): void;
+      };
+      const timer = setTimeout(() => {
+        this.pendingDelays.delete(pending);
+        resolve();
+      }, ms);
+      pending = {
+        timer,
+        reject: (error) => {
+          clearTimeout(timer);
+          this.pendingDelays.delete(pending);
+          reject(error);
+        },
+      };
+      this.pendingDelays.add(pending);
+    });
+    this.throwIfInteractionFailed();
+  }
+
+  private rejectPendingDelays(error: RuntimeInteractionFatalError): void {
+    for (const pending of [...this.pendingDelays]) pending.reject(error);
+  }
+
+  private async appendMessage(message: StoredMessage): Promise<void> {
+    this.throwIfInteractionFailed();
+    const append =
+      this.ctx.appendMessage ??
+      ((next: StoredMessage) => this.ctx.store.appendMessage(this.sessionId, next));
+    await append(message);
+    this.throwIfInteractionFailed();
+  }
+
+  private throwIfInteractionFailed(): void {
+    if (this.interactionFailure) throw this.interactionFailure;
+  }
+
+  private claimRunFailure(turnId: string, error: unknown): void {
+    if (this.ctx.execution.kind === 'embedded') return;
+    const control = this.requireHostedRunControl();
+    if (control.turnId !== turnId) {
+      throw new RuntimeInteractionInvariantError(
+        `Fake failure turn ${turnId} does not match hosted run ${control.runId}/${control.turnId}`,
+      );
+    }
+    control.claimFailure(error);
   }
 }

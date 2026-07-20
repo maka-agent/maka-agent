@@ -4,21 +4,21 @@ import type {
   AdditionalPermissionRequestEvent,
   AnyPermissionRequestEvent,
   PermissionRequestEvent,
+  PublicToolIntentReview,
   SandboxEscalationRequestEvent,
   PermissionResponse,
 } from '@maka/core';
 import {
   derivePermissionRequestHealth,
   formatPermissionRequestWait,
-  formatWriteStdinPermissionInspection,
-  projectWriteStdinPermissionSummary,
+  projectWriteStdinInput,
 } from '@maka/core';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Button as UiButton, Checkbox } from './ui.js';
 import { redactSecrets } from './redact.js';
-import { formatRedactedJson } from './tool-format.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy, type ConversationCopy } from './conversation-copy.js';
+import { assertNever } from './tool-review-presentation.js';
 
 // Per-reason presentation hints. The headline states the decision while tone
 // handles the minimum visual distinction needed for higher-risk requests.
@@ -90,7 +90,7 @@ export function PermissionPrompt(props: {
       await props.onRespond({
         requestId,
         decision,
-        ...(props.request.rememberForTurnAllowed
+        ...(isToolPermissionRequest(props.request) && props.request.rememberForTurnAllowed
           ? { rememberForTurn: decision === 'allow' ? rememberForTurn : false }
           : {}),
       });
@@ -102,21 +102,18 @@ export function PermissionPrompt(props: {
     }
   }
 
-  const fullArgsOpen = expandedRequestId === props.request.requestId;
+  const detailsOpen = expandedRequestId === props.request.requestId;
   const reason = props.request.reason in REASON_TONE ? props.request.reason as ReasonKind : 'custom';
   const preset: ReasonPreset = { prompt: copy.reason[reason], tone: REASON_TONE[reason] };
   const summary = renderPermissionSummary(props.request, copy);
-  const details = renderPermissionDetails(props.request, fullArgsOpen, copy);
-  const additionalArgs = permissionAdditionalArgs(props.request);
-  const showDisclosure = props.request.toolName === 'WriteStdin'
-    || details !== undefined
-    || additionalArgs !== undefined;
-  const disclosureLabel = permissionDisclosureLabel(props.request, additionalArgs, copy);
+  const details = renderPermissionDetails(props.request);
+  const showDisclosure = details !== undefined;
+  const disclosureLabel = permissionDisclosureLabel(props.request, copy);
   const prompt = permissionPrompt(props.request, preset, copy);
   const isDestructive = preset.tone === 'destructive';
-  const context = props.request.hint ?? (isDestructive
+  const context = isDestructive
     ? copy.destructiveContext
-    : undefined);
+    : undefined;
   const health = derivePermissionRequestHealth({ requestedAt: props.request.ts, now });
   const waitLabel = formatPermissionRequestWait(health.ageMs, locale);
   const decisionsDisabled = props.stopPending || responsePending;
@@ -157,19 +154,18 @@ export function PermissionPrompt(props: {
         </div>
         <Collapsible
           className="maka-permission-raw"
-          open={fullArgsOpen}
+          open={detailsOpen}
           onOpenChange={(open) => setExpandedRequestId(open ? props.request.requestId : null)}
         >
           {showDisclosure && (
             <CollapsiblePanel>
               {details && <div className="maka-permission-details">{details}</div>}
-              {additionalArgs && <pre className="maka-code">{formatRedactedJson(additionalArgs)}</pre>}
             </CollapsiblePanel>
           )}
           <footer className="permissionActions">
             <div className="maka-permission-utility-actions">
               {showDisclosure && <CollapsibleTrigger>{disclosureLabel}</CollapsibleTrigger>}
-              {props.request.rememberForTurnAllowed && (
+              {isToolPermissionRequest(props.request) && props.request.rememberForTurnAllowed && (
                 <label className="permissionRemember">
                   <Checkbox
                     checked={rememberForTurn}
@@ -218,53 +214,24 @@ export function PermissionPrompt(props: {
   );
 }
 
-/**
- * One-line summary for a browser_* action. Names the concrete action (open /
- * read / click / type) so the prompt reads as a real browser step, not an opaque
- * tool call — reinforcing that a browser grant spans reads AND acts. The typed
- * text and full args stay in the raw Collapsible block below.
- */
-function renderBrowserSummary(toolName: string, args: Record<string, unknown>, copy: ConversationCopy['permissionPrompt']): ReactNode {
-  const ref = typeof args.ref === 'string' ? args.ref : '';
-  const url = typeof args.url === 'string' ? args.url : '';
-  const selector = typeof args.selector === 'string' ? args.selector : '';
-  const line =
-    toolName === 'browser_navigate'
-      ? copy.browser.navigate(url || copy.browser.urlFallback)
-      : toolName === 'browser_click'
-        ? copy.browser.click(ref)
-        : toolName === 'browser_type'
-          ? copy.browser.type(ref)
-          : toolName === 'browser_snapshot'
-            ? copy.browser.snapshot
-            : toolName === 'browser_extract'
-              ? copy.browser.extract(selector)
-              : toolName === 'browser_wait'
-                ? copy.browser.wait
-                : copy.browser.generic;
-  return <p className="maka-permission-line">{line}</p>;
-}
-
-/**
- * Per-tool human-readable summary of what the request will do, used at the
- * top of the permission prompt body. Falls back to undefined if we can't
- * recognize the tool — the raw args Collapsible block is always available.
- */
-function renderPermissionSummary(request: AnyPermissionRequestEvent, copy: ConversationCopy['permissionPrompt']): ReactNode | undefined {
+function renderPermissionSummary(
+  request: AnyPermissionRequestEvent,
+  copy: ConversationCopy['permissionPrompt'],
+): ReactNode | undefined {
   if (isAdditionalPermissionRequest(request)) {
-    const entries = request.additionalPermissions.fileSystem?.entries ?? [];
     return (
       <>
-        <p className="maka-permission-line">{request.justification}</p>
-        <p className="maka-permission-meta">{copy.workingDirectory} <code>{redactSecrets(request.cwd)}</code></p>
-        {entries.map((entry) => (
+        <p className="maka-permission-meta">
+          {copy.workingDirectory} <code>{redactSecrets(request.review.cwd)}</code>
+        </p>
+        {request.review.paths.map((entry) => (
           <p className="maka-permission-path" key={`${entry.access}:${entry.scope}:${entry.path}`}>
             <code>{redactSecrets(entry.path)}</code>
             {' · '}{entry.access === 'write' ? copy.readWrite : copy.readOnly}
             {' · '}{entry.scope === 'exact' ? copy.exactPath : copy.directoryTree}
           </p>
         ))}
-        {request.risk.networkEnabled && (
+        {request.review.networkEnabled && (
           <p className="maka-permission-meta">{copy.temporaryNetwork}</p>
         )}
         {request.risk.outsideWorkspace && (
@@ -279,255 +246,264 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent, copy: Conve
   if (isSandboxEscalationRequest(request)) {
     return (
       <>
-        <p className="maka-permission-line">{request.justification}</p>
-        <p className="maka-permission-meta">{copy.workingDirectory} <code>{redactSecrets(request.cwd)}</code></p>
-        <pre className="maka-code maka-permission-command">{redactSecrets(request.command)}</pre>
+        <p className="maka-permission-meta">
+          {copy.workingDirectory} <code>{redactSecrets(request.review.cwd)}</code>
+        </p>
+        <pre className="maka-code maka-permission-command">
+          {redactSecrets(request.review.command)}
+        </pre>
         <p className="maka-permission-context" data-tone="destructive">
           {copy.outsideSandbox}
         </p>
       </>
     );
   }
-  const args = (request.args ?? {}) as Record<string, unknown>;
-  switch (request.toolName) {
-    case 'maka_computer': {
-      const action = typeof args.action === 'string' ? args.action : 'unknown';
-      const approvalClass = typeof args.approvalClass === 'string' ? args.approvalClass : 'unknown';
-      const app = typeof args.app === 'string' ? args.app : undefined;
-      const windowId = typeof args.windowId === 'number' ? args.windowId : undefined;
+  return renderToolReviewSummary(request.review, copy);
+}
+
+function renderToolReviewSummary(
+  review: PublicToolIntentReview,
+  copy: ConversationCopy['permissionPrompt'],
+): ReactNode {
+  switch (review.kind) {
+    case 'command':
+      return (
+        <>
+          <p className="maka-permission-meta">
+            {copy.workingDirectory} <code>{redactSecrets(review.cwd)}</code>
+          </p>
+          <pre className="maka-code maka-permission-command">{redactSecrets(review.command)}</pre>
+        </>
+      );
+    case 'path':
+      return (
+        <>
+          <p className="maka-permission-path"><code>{redactSecrets(review.path)}</code></p>
+          <p className="maka-permission-meta">
+            {copy.workingDirectory} <code>{redactSecrets(review.cwd)}</code>
+          </p>
+        </>
+      );
+    case 'search':
       return (
         <>
           <p className="maka-permission-line">
-            Computer Use：<code>{action}</code>（{approvalClass}）
+            {review.operation === 'glob'
+              ? copy.review.search.glob(redactSecrets(review.pattern))
+              : copy.review.search.grep(redactSecrets(review.pattern))}
           </p>
-          {(app || windowId !== undefined) && (
-            <p className="maka-permission-meta">
-              {copy.target} {app ?? copy.currentApp}{windowId !== undefined ? ` · window ${windowId}` : ''}
-            </p>
-          )}
+          <p className="maka-permission-meta">
+            {copy.review.search.scope(
+              redactSecrets(review.root),
+              review.operation === 'grep' && review.glob
+                ? redactSecrets(review.glob)
+                : undefined,
+            )}
+          </p>
         </>
       );
-    }
-    case 'browser_navigate':
-    case 'browser_snapshot':
-    case 'browser_click':
-    case 'browser_type':
-    case 'browser_wait':
-    case 'browser_extract':
-      return renderBrowserSummary(request.toolName, args, copy);
-    case 'Bash': {
-      const command = typeof args.command === 'string' ? args.command : undefined;
-      const cwd = typeof args.cwd === 'string' ? args.cwd : undefined;
-      if (!command) return undefined;
-      const commandSummary = cwd
-        ? `${copy.inDirectory(redactSecrets(cwd))}\n${redactSecrets(command)}`
-        : redactSecrets(command);
-      return <pre className="maka-code maka-permission-command">{commandSummary}</pre>;
-    }
-    case 'WriteStdin': {
-      const writeStdin = projectWriteStdinPermissionSummary(args);
-      if (!writeStdin.ref && !writeStdin.input && !writeStdin.size) return undefined;
+    case 'stdin': {
+      const input = review.input ? projectWriteStdinInput(review.input.text) : undefined;
       return (
         <>
           <p className="maka-permission-line">{copy.terminalInteraction}</p>
-          {writeStdin.ref && (
-            <p className="maka-permission-path">
-              <code>{writeStdin.ref.text}{writeStdin.ref.truncated ? '…' : ''}</code>
-            </p>
-          )}
-          {writeStdin.input && (
+          <p className="maka-permission-path"><code>{redactSecrets(review.ref)}</code></p>
+          {review.input && input && (
             <>
               <pre className="maka-code maka-permission-preview">
-                {writeStdin.input.text}{writeStdin.input.truncated ? '…' : ''}
+                {redactSecrets(input.text)}{input.truncated ? '…' : ''}
               </pre>
-              {writeStdin.input.truncated && (
-                <p className="maka-permission-meta">
-                  {copy.fullInputBytes(writeStdin.input.bytes)}
-                </p>
-              )}
+              <p className="maka-permission-meta">
+                {input.truncated
+                  ? copy.fullInputBytes(review.input.bytes)
+                  : copy.review.inputBytes(review.input.bytes)}
+              </p>
             </>
           )}
-          {writeStdin.size && (
+          {review.size && (
             <p className="maka-permission-meta">
-              {copy.targetSize(writeStdin.size.cols, writeStdin.size.rows)}
+              {copy.targetSize(review.size.cols, review.size.rows)}
             </p>
           )}
         </>
       );
     }
-    case 'Write': {
-      const path = typeof args.path === 'string' ? args.path : undefined;
-      const content = typeof args.content === 'string' ? args.content : '';
-      if (!path) return undefined;
-      const bytes = new TextEncoder().encode(content).length;
-      const lines = countTextLines(content);
+    case 'web':
+      return (
+        <p className="maka-permission-path">
+          <code>{redactSecrets(review.target)}</code>
+        </p>
+      );
+    case 'browser':
+      return renderBrowserReviewSummary(review, copy);
+    case 'patch':
       return (
         <>
-          <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
+          <p className="maka-permission-path"><code>{redactSecrets(review.path)}</code></p>
           <p className="maka-permission-meta">
-            {copy.byteLineCount(bytes, lines)}
+            {copy.review.patchOperation[review.operation]}
           </p>
         </>
       );
+    case 'agent': {
+      let summary: string;
+      switch (review.operation) {
+        case 'spawn':
+          summary = copy.review.agent.spawn(
+            redactSecrets(review.profile),
+            review.isolation,
+            review.writeBack,
+          );
+          break;
+        case 'dispatch':
+          summary = copy.review.agent.dispatch(redactSecrets(review.member));
+          break;
+        case 'swarm':
+          summary = copy.review.agent.swarm(
+            review.itemCount,
+            review.resumeCount,
+            review.concurrency,
+            review.profiles.map(redactSecrets).join(', '),
+            review.writeBack.join(', '),
+            review.isolation.join(', '),
+          );
+          break;
+        default:
+          return assertNever(review, 'agent review operation');
+      }
+      return <p className="maka-permission-line">{summary}</p>;
     }
-    case 'Edit': {
-      const path = typeof args.path === 'string' ? args.path : undefined;
-      if (!path) return undefined;
-      const oldString = typeof args.old_string === 'string' ? args.old_string : '';
-      const newString = typeof args.new_string === 'string' ? args.new_string : '';
-      const oldLines = countTextLines(oldString);
-      const newLines = countTextLines(newString);
+    case 'runtime_resource':
+      return (
+        <p className="maka-permission-line">
+          {review.operation === 'stop'
+            ? copy.review.resource.stop(redactSecrets(review.ref))
+            : copy.review.resource.read(redactSecrets(review.ref))}
+        </p>
+      );
+    case 'skill':
+      return (
+        <p className="maka-permission-line">
+          {copy.review.skill(redactSecrets(review.name))}
+        </p>
+      );
+    case 'question':
+      return (
+        <p className="maka-permission-line">
+          {copy.review.questions(review.questionCount)}
+        </p>
+      );
+    case 'computer_use':
       return (
         <>
-          <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
-          <p className="maka-permission-meta">
-            {copy.editLineCount(oldLines, newLines)}
+          <p className="maka-permission-line">
+            {copy.review.computerUse(review.action)}
           </p>
+          {('app' in review || 'windowId' in review) && (
+            <p className="maka-permission-meta">
+              {copy.target} {'app' in review
+                ? redactSecrets(review.app ?? copy.currentApp)
+                : copy.currentApp}
+              {'windowId' in review && review.windowId !== undefined
+                ? ` · window ${review.windowId}`
+                : ''}
+            </p>
+          )}
         </>
       );
-    }
-    case 'OfficeDocumentEdit': {
-      const path = typeof args.path === 'string' ? args.path : undefined;
-      if (!path) return undefined;
-      return <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>;
-    }
-    case 'WebFetch': {
-      const url = typeof args.url === 'string' ? args.url : undefined;
-      if (!url) return undefined;
-      return <p className="maka-permission-path"><code>{redactSecrets(url)}</code></p>;
-    }
-    default:
-      return request.toolName
-        ? <p className="maka-permission-line">{request.toolName}</p>
-        : undefined;
   }
+  return assertNever(review, 'permission tool review');
+}
+
+function renderBrowserReviewSummary(
+  review: Extract<PublicToolIntentReview, { kind: 'browser' }>,
+  copy: ConversationCopy['permissionPrompt'],
+): ReactNode {
+  switch (review.action) {
+    case 'navigate':
+      return (
+        <p className="maka-permission-line">
+          {copy.browser.navigate(redactSecrets(review.url))}
+        </p>
+      );
+    case 'snapshot':
+      return <p className="maka-permission-line">{copy.browser.snapshot}</p>;
+    case 'click':
+      return (
+        <p className="maka-permission-line">
+          {copy.browser.click(redactSecrets(review.ref))}
+        </p>
+      );
+    case 'type':
+      return (
+        <>
+          <p className="maka-permission-line">
+            {copy.browser.type(redactSecrets(review.ref))}
+            {review.submit ? ` ${copy.review.submitAfterTyping}` : ''}
+          </p>
+          <pre className="maka-code maka-permission-preview">
+            {redactSecrets(review.text)}
+          </pre>
+        </>
+      );
+    case 'wait':
+      return (
+        <p className="maka-permission-line">
+          {review.condition === 'duration'
+            ? copy.review.browserWaitDuration(review.seconds)
+            : copy.review.browserWaitFor(review.condition, redactSecrets(review.value))}
+        </p>
+      );
+    case 'extract':
+      return (
+        <p className="maka-permission-line">
+          {copy.browser.extract(review.selector ? redactSecrets(review.selector) : '')}
+        </p>
+      );
+  }
+  return assertNever(review, 'permission browser review action');
 }
 
 function renderPermissionDetails(
   request: AnyPermissionRequestEvent,
-  writeStdinExpanded: boolean,
-  copy: ConversationCopy['permissionPrompt'],
 ): ReactNode | undefined {
-  if (isAdditionalPermissionRequest(request)) return undefined;
-  const args = (request.args ?? {}) as Record<string, unknown>;
-  switch (request.toolName) {
-    case 'WriteStdin': {
-      if (!writeStdinExpanded) return undefined;
-      const inspection = formatWriteStdinPermissionInspection(args);
-      if (!inspection) return undefined;
-      return (
-        <pre className="maka-code maka-permission-preview">
-          {inspection}
-        </pre>
-      );
-    }
-    case 'Write': {
-      const content = typeof args.content === 'string' ? args.content : '';
-      if (!content) return undefined;
-      return <pre className="maka-code maka-permission-preview">{permissionTextPreview(content, 600)}</pre>;
-    }
-    case 'Edit': {
-      const oldString = typeof args.old_string === 'string' ? args.old_string : '';
-      const newString = typeof args.new_string === 'string' ? args.new_string : '';
-      return (
-        <div className="maka-permission-diff">
-          <pre className="maka-permission-diff-lines" data-side="old">
-            {prefixPermissionDiff(permissionTextPreview(oldString, 400), '-')}
-          </pre>
-          <pre className="maka-permission-diff-lines" data-side="new">
-            {prefixPermissionDiff(permissionTextPreview(newString, 400), '+')}
-          </pre>
-        </div>
-      );
-    }
-    case 'OfficeDocumentEdit': {
-      const operation = typeof args.operation === 'string' ? args.operation : undefined;
-      const target = typeof args.target === 'string' ? args.target : undefined;
-      const elementType = typeof args.elementType === 'string' ? args.elementType : undefined;
-      const index = typeof args.index === 'number' ? args.index : undefined;
-      const propsArg = args.props && typeof args.props === 'object' && !Array.isArray(args.props)
-        ? args.props as Record<string, unknown>
-        : {};
-      const propEntries = Object.entries(propsArg).slice(0, 6);
-      const hiddenProps = Math.max(0, Object.keys(propsArg).length - propEntries.length);
-      const lines = [
-        operation && `${copy.officeField.operation}=${redactSecrets(operation)}`,
-        target && `${copy.officeField.target}=${redactSecrets(target)}`,
-        elementType && `${copy.officeField.element}=${redactSecrets(elementType)}`,
-        index !== undefined && `${copy.officeField.position}=${index}`,
-        ...propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value, copy)}`),
-      ].filter((line): line is string => Boolean(line));
-      if (lines.length === 0) return undefined;
-      return (
-        <pre className="maka-code maka-permission-preview">
-          {lines.join('\n')}
-          {hiddenProps > 0 && `\n… ${copy.hiddenProperties(hiddenProps)}`}
-        </pre>
-      );
-    }
-    default:
-      return undefined;
-  }
+  if (!isToolPermissionRequest(request) || request.review.kind !== 'stdin') return undefined;
+  const lines = [
+    `ref: ${request.review.ref}`,
+    request.review.input
+      ? `input: ${request.review.input.text}\nbytes: ${request.review.input.bytes}`
+      : undefined,
+    request.review.size
+      ? `size: ${request.review.size.cols}x${request.review.size.rows}`
+      : undefined,
+  ].filter((line): line is string => line !== undefined);
+  return (
+    <pre className="maka-code maka-permission-preview">
+      {redactSecrets(lines.join('\n'))}
+    </pre>
+  );
 }
 
-function permissionAdditionalArgs(request: AnyPermissionRequestEvent): Record<string, unknown> | undefined {
-  if (isAdditionalPermissionRequest(request)) return undefined;
-  const args = (request.args ?? {}) as Record<string, unknown>;
-  switch (request.toolName) {
-    case 'Bash': {
-      const { command: _command, cwd: _cwd, ...additional } = args;
-      return Object.keys(additional).length > 0 ? additional : undefined;
-    }
-    case 'Write':
-    case 'Edit':
-    case 'OfficeDocumentEdit':
-    case 'WriteStdin':
-      return undefined;
-    default:
-      return Object.keys(args).length > 0 ? args : undefined;
-  }
-}
-
-function permissionTextPreview(value: string, maxChars: number): string {
-  const safe = redactSecrets(value);
-  return safe.length > maxChars ? `${safe.slice(0, maxChars)}…` : safe;
-}
-
-function countTextLines(value: string): number {
-  if (!value) return 0;
-  const lines = value.split(/\r?\n/);
-  return lines.at(-1) === '' ? lines.length - 1 : lines.length;
-}
-
-function prefixPermissionDiff(value: string, prefix: '-' | '+'): string {
-  return value.split('\n').map((line) => `${prefix} ${line}`).join('\n');
-}
-
-function permissionPrompt(request: AnyPermissionRequestEvent, preset: ReasonPreset, copy: ConversationCopy['permissionPrompt']): string {
+function permissionPrompt(
+  request: AnyPermissionRequestEvent,
+  preset: ReasonPreset,
+  copy: ConversationCopy['permissionPrompt'],
+): string {
   if (isAdditionalPermissionRequest(request)) return copy.additionalPermission;
   if (isSandboxEscalationRequest(request)) return copy.sandboxEscalation;
-  if (request.toolName === 'Edit') return copy.editFile;
-  if (request.toolName === 'OfficeDocumentEdit') return copy.editOffice;
+  if (request.review.kind === 'path' && request.review.operation === 'edit') {
+    return request.toolName === 'OfficeDocumentEdit' ? copy.editOffice : copy.editFile;
+  }
   return preset.prompt;
 }
 
 function permissionDisclosureLabel(
   request: AnyPermissionRequestEvent,
-  additionalArgs: Record<string, unknown> | undefined,
   copy: ConversationCopy['permissionPrompt'],
 ): string {
-  switch (request.toolName) {
-    case 'Edit':
-      return copy.disclosure.changes;
-    case 'Write':
-      return copy.disclosure.content;
-    case 'WriteStdin':
-      return copy.disclosure.input;
-    case 'OfficeDocumentEdit':
-      return copy.disclosure.changes;
-    default:
-      return additionalArgs ? copy.disclosure.fullArguments : copy.disclosure.details;
-  }
+  return isToolPermissionRequest(request) && request.review.kind === 'stdin'
+    ? copy.disclosure.input
+    : copy.disclosure.details;
 }
 
 function isAdditionalPermissionRequest(
@@ -542,16 +518,12 @@ function isSandboxEscalationRequest(
   return request.kind === 'sandbox_escalation';
 }
 
-function isOneShotPermissionRequest(request: AnyPermissionRequestEvent): boolean {
-  return isAdditionalPermissionRequest(request) || isSandboxEscalationRequest(request);
+function isToolPermissionRequest(
+  request: AnyPermissionRequestEvent,
+): request is PermissionRequestEvent {
+  return request.kind === 'tool_permission';
 }
 
-function permissionValuePreview(value: unknown, copy: ConversationCopy['permissionPrompt']): string {
-  if (typeof value === 'string') {
-    const safe = redactSecrets(value);
-    return safe.length > 160 ? `${safe.slice(0, 160)}…` : safe;
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  return copy.unsupportedValue;
+function isOneShotPermissionRequest(request: AnyPermissionRequestEvent): boolean {
+  return isAdditionalPermissionRequest(request) || isSandboxEscalationRequest(request);
 }

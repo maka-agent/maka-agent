@@ -12,6 +12,7 @@ import {
 } from '@maka/storage';
 import {
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
@@ -144,6 +145,7 @@ describe('Maka CLI runtime bootstrap', () => {
           workspaceRoot,
           header,
           store: runtimeDeps.store,
+          execution: EMBEDDED_RUNTIME_EXECUTION,
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
@@ -192,6 +194,7 @@ describe('Maka CLI runtime bootstrap', () => {
           workspaceRoot,
           header,
           store: runtimeDeps.store,
+          execution: EMBEDDED_RUNTIME_EXECUTION,
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
@@ -321,6 +324,7 @@ describe('Maka CLI runtime bootstrap', () => {
           workspaceRoot,
           header,
           store: runtimeDeps.store,
+          execution: EMBEDDED_RUNTIME_EXECUTION,
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
@@ -654,6 +658,7 @@ describe('Maka CLI runtime bootstrap', () => {
           workspaceRoot,
           header,
           store: runtimeDeps.store,
+          execution: EMBEDDED_RUNTIME_EXECUTION,
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
@@ -706,6 +711,7 @@ describe('Maka CLI runtime bootstrap', () => {
             workspaceRoot,
             header,
             store: runtimeDeps.store,
+            execution: EMBEDDED_RUNTIME_EXECUTION,
           });
           const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
@@ -753,6 +759,7 @@ describe('Maka CLI runtime bootstrap', () => {
           workspaceRoot,
           header,
           store: runtimeDeps.store,
+          execution: EMBEDDED_RUNTIME_EXECUTION,
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 

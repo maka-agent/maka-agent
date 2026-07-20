@@ -151,32 +151,34 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
 });
 
 describe('ToolAvailabilityRuntime — durable ledger seed', () => {
-  function event(name: string, args: unknown): RuntimeEventLike {
-    return { content: { kind: 'function_call', name, args } };
+  function event(name: string, loaded: string[]): RuntimeEventLike {
+    return { content: { kind: 'function_response', name, result: { loaded } } };
   }
 
-  test('a prior-turn load_tools call re-activates the group at step 0', () => {
-    const plan = runtime(true).prepare([event(LOAD_TOOLS_NAME, { group: 'rive' })]);
+  test('a prior-turn load_tools result re-activates the group at step 0', () => {
+    const plan = runtime(true).prepare([event(LOAD_TOOLS_NAME, ['rive_run'])]);
     assert.ok(plan.activeTools.includes('rive_run'), 'seeded group active from turn start');
     assert.ok(!plan.activeTools.includes('office_edit'), 'unseeded group still hidden');
   });
 
   test('historical load_tool (PR#30) and connect_tool_source (PR#34) calls also seed', () => {
-    const fromDeferred = runtime(true).prepare([event('load_tool', { namespace: 'office' })]);
+    const fromDeferred = runtime(true).prepare([
+      event('load_tool', ['office_edit', 'office_read']),
+    ]);
     assert.ok(
       fromDeferred.activeTools.includes('office_edit'),
       'load_tool namespace seeds the group',
     );
 
-    const fromEconomy = runtime(true).prepare([event('connect_tool_source', { source: 'rive' })]);
+    const fromEconomy = runtime(true).prepare([event('connect_tool_source', ['rive_run'])]);
     assert.ok(
       fromEconomy.activeTools.includes('rive_run'),
       'connect_tool_source source seeds the group',
     );
   });
 
-  test('an unknown seeded group id is ignored (forward compatible)', () => {
-    const plan = runtime(true).prepare([event(LOAD_TOOLS_NAME, { group: 'ghost' })]);
+  test('an unknown loaded tool is ignored', () => {
+    const plan = runtime(true).prepare([event(LOAD_TOOLS_NAME, ['ghost_tool'])]);
     assert.ok(!plan.activeTools.includes('rive_run'));
     assert.ok(!plan.activeTools.includes('office_edit'));
   });
@@ -280,10 +282,10 @@ describe('ToolAvailabilityRuntime — activation robustness', () => {
     assert.ok(ok.activeTools.includes('rive_run'));
   });
 
-  test('a non-function_call ledger event does not seed a group', () => {
+  test('a function call without its committed result does not seed a group', () => {
     const plan = runtime(true).prepare([
-      { content: { kind: 'function_response', name: LOAD_TOOLS_NAME, args: { group: 'rive' } } },
+      { content: { kind: 'function_call', name: LOAD_TOOLS_NAME } },
     ]);
-    assert.ok(!plan.activeTools.includes('rive_run'), 'only committed function_call events seed');
+    assert.ok(!plan.activeTools.includes('rive_run'), 'only committed connector results seed');
   });
 });

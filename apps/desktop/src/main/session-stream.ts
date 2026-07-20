@@ -237,6 +237,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       apiKey: apiKey ?? '',
       modelId: model,
       permissionEngine,
+      execution: ctx.execution,
       modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
       tools: selectedTools,
       sandboxDiagnosticsSnapshot,

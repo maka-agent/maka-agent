@@ -48,6 +48,14 @@ describe('AiSdkCompaction extraction contract', () => {
       /canReplayProviderNative:\s*\(plan\)\s*=>\s*this\.canReplayProviderNative\(plan\)/,
     );
     assert.match(backend, /appendTurnTailPrompt:\s*\(content, turnTailPrompt\)\s*=>/);
+    assert.match(
+      backend,
+      /runSuccessorEffect:\s*\(kind, operation\)\s*=>\s*this\.runSuccessorEffect\(kind, operation\)/,
+    );
+    assert.match(
+      backend,
+      /throwIfInteractionFailed:\s*\(\)\s*=>\s*this\.throwIfInteractionFailed\(\)/,
+    );
 
     // The moved orchestration must no longer live on AiSdkBackend.
     assert.doesNotMatch(backend, /private async prepareContextBudgetPolicy/);
@@ -95,6 +103,9 @@ describe('AiSdkCompaction extraction contract', () => {
     assert.match(compaction, /appendTurnTailPrompt:/);
     assert.match(compaction, /modelAdapter: ModelAdapter;/);
     assert.match(compaction, /computeCostUsd:/);
+    assert.match(compaction, /runSuccessorEffect:/);
+    assert.match(compaction, /throwIfInteractionFailed:/);
+    assert.match(compaction, /this\.runSuccessorEffect\('artifact_persistence'/);
 
     // The orchestrator owns the moved families.
     assert.match(compaction, /public async compactHistory/);

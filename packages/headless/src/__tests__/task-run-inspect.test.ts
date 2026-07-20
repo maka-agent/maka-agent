@@ -27,12 +27,7 @@ describe('TaskRun inspection', () => {
         runtimeEvent('runtime-call', {
           role: 'model',
           author: 'agent',
-          content: {
-            kind: 'function_call',
-            id: 'tool-1',
-            name: 'Bash',
-            args: { command: 'npm test' },
-          },
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash' },
         }),
         runtimeEvent('runtime-response', {
           role: 'tool',
@@ -182,12 +177,7 @@ describe('TaskRun inspection', () => {
         runtimeEvent('runtime-call', {
           role: 'model',
           author: 'agent',
-          content: {
-            kind: 'function_call',
-            id: 'tool-pending',
-            name: 'Write',
-            args: { path: 'secret.txt', content: 'secret' },
-          },
+          content: { kind: 'function_call', id: 'tool-pending', name: 'Write' },
         }),
         runtimeEvent('runtime-complete', {
           role: 'system',

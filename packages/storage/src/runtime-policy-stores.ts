@@ -75,7 +75,9 @@ export interface ConnectionCatalogWriter extends ConnectionCatalogReader {
   create(input: CreateCatalogConnectionInput): Promise<ConnectionCatalogMutationResult>;
   update(input: UpdateCatalogConnectionInput): Promise<ConnectionCatalogMutationResult>;
   remove(input: RemoveCatalogConnectionInput): Promise<ConnectionCatalogMutationResult>;
-  setDefaultTarget(input: SetDefaultConnectionTargetInput): Promise<ConnectionCatalogMutationResult>;
+  setDefaultTarget(
+    input: SetDefaultConnectionTargetInput,
+  ): Promise<ConnectionCatalogMutationResult>;
 }
 
 export interface CredentialVaultReader {
@@ -126,7 +128,8 @@ export async function openInteractiveRuntimePolicyStoresForRead(
 ): Promise<RuntimePolicyStoresReader> {
   await assertStorageRootLease(lease, 'interactive', 'read');
   const coordinator = new RuntimePolicyCoordinator(<T>(operation: (root: string) => Promise<T>) =>
-    runWithStorageRootLease(lease, 'interactive', 'read', operation));
+    runWithStorageRootLease(lease, 'interactive', 'read', operation),
+  );
   const stores: RuntimePolicyStoresReader = {
     kind: 'interactive',
     access: 'read',
@@ -153,7 +156,8 @@ export async function openInteractiveRuntimePolicyStoresForWrite(
   if (opening) return opening;
 
   const coordinator = new RuntimePolicyCoordinator(<T>(operation: (root: string) => Promise<T>) =>
-    runWithStorageRootLease(lease, 'interactive', 'write', operation));
+    runWithStorageRootLease(lease, 'interactive', 'write', operation),
+  );
   const pending = Promise.resolve().then(async () => {
     await coordinator.recoverForWrite();
     await assertStorageRootLease(lease, 'interactive', 'write');
@@ -198,9 +202,11 @@ function createWriterFacade(coordinator: RuntimePolicyCoordinator): RuntimePolic
       beginModelFetch: (connectionId) => coordinator.beginModelFetch(connectionId),
       completeModelFetch: (ticket, result) => coordinator.completeModelFetch(ticket, result),
       beginConnectionTest: (connectionId) => coordinator.beginConnectionTest(connectionId),
-      completeConnectionTest: (ticket, result) => coordinator.completeConnectionTest(ticket, result),
+      completeConnectionTest: (ticket, result) =>
+        coordinator.completeConnectionTest(ticket, result),
       beginStoredOAuthRefresh: (connectionId) => coordinator.beginStoredOAuthRefresh(connectionId),
-      completeStoredOAuthRefresh: (ticket, result) => coordinator.completeStoredOAuthRefresh(ticket, result),
+      completeStoredOAuthRefresh: (ticket, result) =>
+        coordinator.completeStoredOAuthRefresh(ticket, result),
     },
   };
   freezeFacade(stores);

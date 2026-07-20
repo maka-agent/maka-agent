@@ -3,10 +3,7 @@ import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import {
-  resolveStorageRoot,
-  StorageRootAuthorityError,
-} from '@maka/storage/root-authority';
+import { resolveStorageRoot, StorageRootAuthorityError } from '@maka/storage/root-authority';
 import { readMatrixPriorRecords } from '../matrix-resume.js';
 
 describe('readMatrixPriorRecords', () => {
@@ -27,8 +24,8 @@ describe('readMatrixPriorRecords', () => {
       await mkdir(join(unmarkedOutput, 'runs'), { recursive: true });
       await assert.rejects(
         () => readMatrixPriorRecords(unmarkedOutput),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_unmarked',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_unmarked',
       );
 
       const interactiveOutput = join(base, 'interactive-output');
@@ -36,8 +33,8 @@ describe('readMatrixPriorRecords', () => {
       await resolveStorageRoot({ path: join(interactiveOutput, 'runs'), kind: 'interactive' });
       await assert.rejects(
         () => readMatrixPriorRecords(interactiveOutput),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_kind_mismatch',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_kind_mismatch',
       );
     } finally {
       await rm(base, { recursive: true, force: true });

@@ -1714,6 +1714,44 @@ describe('context-budget search and rewrite diagnostics', () => {
     assert.equal(result.diagnosticPatch.historyAroundRetrievedEvents, 3);
   });
 
+  test('searches public tool reviews without indexing private provider args', () => {
+    const call = baseEvent({
+      id: 'tool-call',
+      turnId: 'turn-tool',
+      role: 'model',
+      author: 'agent',
+      content: {
+        kind: 'function_call',
+        id: 'call-1',
+        name: 'Read',
+        args: { path: 'PRIVATE_PROVIDER_PATH' },
+        review: {
+          kind: 'path',
+          operation: 'read',
+          path: 'PUBLIC_REVIEW_PATH',
+          cwd: '/workspace',
+        },
+      },
+    });
+    const policy = { enabled: true, maxResults: 1, around: 0, maxEstimatedTokens: 1000 };
+
+    const privateResult = retrieveRuntimeEventHistoryAround(
+      [call],
+      'PRIVATE_PROVIDER_PATH',
+      policy,
+      { charsPerToken: 1 },
+    );
+    const publicResult = retrieveRuntimeEventHistoryAround([call], 'PUBLIC_REVIEW_PATH', policy, {
+      charsPerToken: 1,
+    });
+
+    assert.equal(privateResult.events.length, 0);
+    assert.deepEqual(
+      publicResult.events.map((event) => event.id),
+      ['tool-call'],
+    );
+  });
+
   test('records named history rewrite gate version and reset reason', () => {
     const budgeted = applyRuntimeEventContextBudget([textEvent('event-1', 'turn-1', 'hello')], {
       historyRewrite: {
@@ -1762,7 +1800,12 @@ function toolCall(id: string, turnId: string, toolCallId: string): RuntimeEvent 
       kind: 'function_call',
       id: toolCallId,
       name: 'Read',
-      args: { path: `${toolCallId}.txt` },
+      review: {
+        kind: 'path',
+        operation: 'read',
+        path: `${toolCallId}.txt`,
+        cwd: '/workspace',
+      },
     },
   });
 }

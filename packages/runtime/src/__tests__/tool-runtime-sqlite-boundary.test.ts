@@ -19,6 +19,7 @@ describe('ToolRuntime with real SQLite boundary', () => {
       permissionEngine.beginTurn('turn-1');
       let implementationCalls = 0;
       const runtime = new ToolRuntime({
+        execution: { kind: 'embedded', getCurrentRunId: () => 'run-1' },
         sessionId: 'session-1',
         header: header(),
         connection: connection(),
@@ -28,7 +29,6 @@ describe('ToolRuntime with real SQLite boundary', () => {
         newId: nextId(),
         now: nextNow(),
         getPermissionPauseTarget: () => null,
-        getCurrentRunId: () => 'run-1',
         getCurrentInvocationId: () => 'invocation-1',
         runtimeCommitSink: store,
       });
@@ -99,6 +99,7 @@ describe('ToolRuntime with real SQLite boundary', () => {
       const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
       permissionEngine.beginTurn('turn-1');
       const runtime = new ToolRuntime({
+        execution: { kind: 'embedded', getCurrentRunId: () => 'run-1' },
         sessionId: 'session-1',
         header: header(),
         connection: connection(),
@@ -108,7 +109,6 @@ describe('ToolRuntime with real SQLite boundary', () => {
         newId: nextId(),
         now: nextNow(),
         getPermissionPauseTarget: () => null,
-        getCurrentRunId: () => 'run-1',
         getCurrentInvocationId: () => 'invocation-1',
         runtimeCommitSink: store,
       });

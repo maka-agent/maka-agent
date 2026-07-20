@@ -12,15 +12,8 @@ import type {
   SetDefaultConnectionTargetInput,
   UpdateCatalogConnectionInput,
 } from '@maka/core/runtime-policy';
-import {
-  deriveProviderAuthContract,
-  type ProviderAuthAction,
-} from '@maka/core/provider-auth';
-import {
-  effectiveBaseUrl,
-  PROVIDER_DEFAULTS,
-  type ProviderType,
-} from '@maka/core/llm-connections';
+import { deriveProviderAuthContract, type ProviderAuthAction } from '@maka/core/provider-auth';
+import { effectiveBaseUrl, PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
 import { deepFreeze, entityId, record } from './codec.js';
 import {
   catalogSnapshot,
@@ -42,11 +35,7 @@ import {
   vaultSnapshot,
 } from './credential-vault-document.js';
 import { cleanupRuntimePolicyDocumentTemps } from './document-io.js';
-import {
-  codecError,
-  RuntimePolicyStoreError,
-  type CodecSource,
-} from './errors.js';
+import { codecError, RuntimePolicyStoreError, type CodecSource } from './errors.js';
 import {
   connectionCredentialLocator,
   type BeginConnectionTestResult,
@@ -163,7 +152,7 @@ export class RuntimePolicyCoordinator {
   getCredentialStatus(rawLocator: CredentialLocator): Promise<CredentialStatusQueryResult> {
     return this.execute(async (root) => {
       const locator = parseCredentialLocator(rawLocator, 'credential status locator');
-      if (!await this.validateConnectionCredentialLocator(root, locator)) {
+      if (!(await this.validateConnectionCredentialLocator(root, locator))) {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
       const status = credentialStatus(await this.vault.read(root), locator);
@@ -185,12 +174,9 @@ export class RuntimePolicyCoordinator {
 
   removeConnection(rawInput: RemoveCatalogConnectionInput) {
     return this.inLane(async (root) => {
-      const input = record(
-        rawInput,
-        'remove connection input',
-        'invalid_connection_input',
-        ['expected'],
-      );
+      const input = record(rawInput, 'remove connection input', 'invalid_connection_input', [
+        'expected',
+      ]);
       const expected = parseConnectionBasis(
         input.expected,
         'remove connection expected basis',
@@ -226,14 +212,13 @@ export class RuntimePolicyCoordinator {
 
   setCredential(rawInput: SetCredentialInput) {
     return this.inLane(async (root) => {
-      const input = record(
-        rawInput,
-        'set credential input',
-        'invalid_credential_input',
-        ['locator', 'expected', 'secret'],
-      );
+      const input = record(rawInput, 'set credential input', 'invalid_credential_input', [
+        'locator',
+        'expected',
+        'secret',
+      ]);
       const locator = parseCredentialLocator(input.locator, 'set credential locator');
-      if (!await this.validateConnectionCredentialLocator(root, locator)) {
+      if (!(await this.validateConnectionCredentialLocator(root, locator))) {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
       return this.vault.set(root, rawInput);
@@ -242,14 +227,11 @@ export class RuntimePolicyCoordinator {
 
   deleteCredential(rawInput: DeleteCredentialInput) {
     return this.inLane(async (root) => {
-      const input = record(
-        rawInput,
-        'delete credential input',
-        'invalid_credential_input',
-        ['expected'],
-      );
+      const input = record(rawInput, 'delete credential input', 'invalid_credential_input', [
+        'expected',
+      ]);
       const expected = parseCredentialBasis(input.expected, 'delete credential expected basis');
-      if (!await this.validateConnectionCredentialLocator(root, expected.locator)) {
+      if (!(await this.validateConnectionCredentialLocator(root, expected.locator))) {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
       return this.vault.delete(root, { expected });
@@ -287,10 +269,8 @@ export class RuntimePolicyCoordinator {
     result: ModelFetchResult,
   ): Promise<ModelFetchCompletionResult> {
     const claimed = this.claimTicket(ticket, 'model_fetch', 'invalid_connection_input');
-    return this.completeLatestIssuedTicket(
-      claimed,
-      this.latestModelFetchIssuance,
-      () => this.inLane(async (root) => {
+    return this.completeLatestIssuedTicket(claimed, this.latestModelFetchIssuance, () =>
+      this.inLane(async (root) => {
         if (this.latestModelFetchIssuance.get(claimed.basis.connectionId) !== claimed.issuance) {
           return deepFreeze({ kind: 'superseded' as const });
         }
@@ -317,7 +297,11 @@ export class RuntimePolicyCoordinator {
         'connection test connectionId',
         'invalid_connection_input',
       );
-      const prepared = await this.prepareConnectionOperation(root, connectionId, 'test_credentials');
+      const prepared = await this.prepareConnectionOperation(
+        root,
+        connectionId,
+        'test_credentials',
+      );
       if (prepared.kind !== 'ready') return prepared;
       const issuance = createIssuanceIdentity();
       const ticket = this.issueConnectionTicket(
@@ -341,11 +325,11 @@ export class RuntimePolicyCoordinator {
     result: ConnectionTestResult,
   ): Promise<ConnectionTestCompletionResult> {
     const claimed = this.claimTicket(ticket, 'connection_test', 'invalid_connection_input');
-    return this.completeLatestIssuedTicket(
-      claimed,
-      this.latestConnectionTestIssuance,
-      () => this.inLane(async (root) => {
-        if (this.latestConnectionTestIssuance.get(claimed.basis.connectionId) !== claimed.issuance) {
+    return this.completeLatestIssuedTicket(claimed, this.latestConnectionTestIssuance, () =>
+      this.inLane(async (root) => {
+        if (
+          this.latestConnectionTestIssuance.get(claimed.basis.connectionId) !== claimed.issuance
+        ) {
           return deepFreeze({ kind: 'superseded' as const });
         }
         const catalog = await this.catalog.read(root);
@@ -376,7 +360,10 @@ export class RuntimePolicyCoordinator {
       const material = prepared.secretMaterial.connection;
       const status = prepared.connectionCredentialStatus;
       if (!material || !status?.configured || material.locator.kind !== 'oauth_token') {
-        throw codecError('invalid_document', 'OAuth refresh admission produced no OAuth credential');
+        throw codecError(
+          'invalid_document',
+          'OAuth refresh admission produced no OAuth credential',
+        );
       }
       const ticket = this.issueOAuthTicket(
         connectionId,
@@ -400,40 +387,44 @@ export class RuntimePolicyCoordinator {
     result: StoredOAuthRefreshResult,
   ): Promise<StoredOAuthRefreshCompletionResult> {
     const claimed = this.claimTicket(ticket, 'stored_oauth_refresh', 'invalid_credential_input');
-    return this.completeClaimedTicket(claimed, () => this.inLane(async (root) => {
-      const secretInput = record(
-        result,
-        'stored OAuth refresh result',
-        'invalid_credential_input',
-        ['secret'],
-      );
-      const secret = parseSecret(secretInput.secret, 'stored OAuth refresh secret');
-      const catalog = await this.catalog.read(root);
-      const connection = findConnection(catalog, { connectionId: claimed.connectionId });
-      const changed: CompletionChangedDomain[] = [];
-      if (
-        !connection
-        || connection.providerType !== claimed.providerType
-        || !isOAuthCredentialForConnection(claimed.credentialBasis, connection)
-      ) {
-        changed.push('connection');
-      }
-      const vault = await this.vault.read(root);
-      if (!sameCredentialBasis(
-        findCredential(vault, claimed.credentialBasis.locator),
-        claimed.credentialBasis,
-      )) {
-        changed.push('credential');
-      }
-      if (changed.length > 0) return deepFreeze({ kind: 'stale' as const, changed });
-      const snapshot = await this.vault.writeRefresh(
-        root,
-        vault,
-        claimed.credentialBasis,
-        secret,
-      );
-      return deepFreeze({ kind: 'committed' as const, snapshot });
-    }));
+    return this.completeClaimedTicket(claimed, () =>
+      this.inLane(async (root) => {
+        const secretInput = record(
+          result,
+          'stored OAuth refresh result',
+          'invalid_credential_input',
+          ['secret'],
+        );
+        const secret = parseSecret(secretInput.secret, 'stored OAuth refresh secret');
+        const catalog = await this.catalog.read(root);
+        const connection = findConnection(catalog, { connectionId: claimed.connectionId });
+        const changed: CompletionChangedDomain[] = [];
+        if (
+          !connection ||
+          connection.providerType !== claimed.providerType ||
+          !isOAuthCredentialForConnection(claimed.credentialBasis, connection)
+        ) {
+          changed.push('connection');
+        }
+        const vault = await this.vault.read(root);
+        if (
+          !sameCredentialBasis(
+            findCredential(vault, claimed.credentialBasis.locator),
+            claimed.credentialBasis,
+          )
+        ) {
+          changed.push('credential');
+        }
+        if (changed.length > 0) return deepFreeze({ kind: 'stale' as const, changed });
+        const snapshot = await this.vault.writeRefresh(
+          root,
+          vault,
+          claimed.credentialBasis,
+          secret,
+        );
+        return deepFreeze({ kind: 'committed' as const, snapshot });
+      }),
+    );
   }
 
   private async prepareConnectionOperation(
@@ -543,16 +534,18 @@ export class RuntimePolicyCoordinator {
     const changed: CompletionChangedDomain[] = [];
     const policy = await this.policy.read(root);
     if (
-      !connection
-      || connection.providerType !== basis.providerType
-      || canonicalEffectiveEndpoint(connection) !== basis.effectiveEndpoint
+      !connection ||
+      connection.providerType !== basis.providerType ||
+      canonicalEffectiveEndpoint(connection) !== basis.effectiveEndpoint
     ) {
       changed.push('connection');
     }
-    if (!sameEffectiveProxyConfiguration(
-      effectiveProxyConfigurationBasis(policy.policy.networkProxy),
-      basis.effectiveProxy,
-    )) {
+    if (
+      !sameEffectiveProxyConfiguration(
+        effectiveProxyConfigurationBasis(policy.policy.networkProxy),
+        basis.effectiveProxy,
+      )
+    ) {
       changed.push('runtime_policy');
     }
     const expectedConnectionCredential = basis.credential;
@@ -560,19 +553,19 @@ export class RuntimePolicyCoordinator {
     if ((connection && expectedConnectionCredential) || expectedProxyCredential) {
       const vault = await this.vault.read(root);
       const connectionCredentialChanged = Boolean(
-        connection
-        && expectedConnectionCredential
-        && !sameCredentialStatus(
-          credentialStatus(vault, expectedConnectionCredential.locator),
-          expectedConnectionCredential,
-        ),
+        connection &&
+          expectedConnectionCredential &&
+          !sameCredentialStatus(
+            credentialStatus(vault, expectedConnectionCredential.locator),
+            expectedConnectionCredential,
+          ),
       );
       const proxyCredentialChanged = Boolean(
-        expectedProxyCredential
-        && !sameCredentialStatus(
-          credentialStatus(vault, expectedProxyCredential.locator),
-          expectedProxyCredential,
-        ),
+        expectedProxyCredential &&
+          !sameCredentialStatus(
+            credentialStatus(vault, expectedProxyCredential.locator),
+            expectedProxyCredential,
+          ),
       );
       if (connectionCredentialChanged || proxyCredentialChanged) {
         changed.push('credential');
@@ -616,9 +609,13 @@ export class RuntimePolicyCoordinator {
     expectedKind: K,
     source: CodecSource,
   ): Extract<TicketRecord, { kind: K }> {
-    const ticketRecord = ticket && typeof ticket === 'object' ? this.tickets.get(ticket) : undefined;
+    const ticketRecord =
+      ticket && typeof ticket === 'object' ? this.tickets.get(ticket) : undefined;
     if (!ticketRecord || ticketRecord.kind !== expectedKind || ticketRecord.state !== 'available') {
-      throw codecError(source, `Expected an authentic available ${ticketLabel(expectedKind)} ticket`);
+      throw codecError(
+        source,
+        `Expected an authentic available ${ticketLabel(expectedKind)} ticket`,
+      );
     }
     ticketRecord.state = 'in_flight';
     return ticketRecord as Extract<TicketRecord, { kind: K }>;
@@ -633,9 +630,10 @@ export class RuntimePolicyCoordinator {
       ticket.state = 'consumed';
       return result;
     } catch (error) {
-      ticket.state = error instanceof RuntimePolicyStoreError && error.code === 'io_failed'
-        ? 'available'
-        : 'consumed';
+      ticket.state =
+        error instanceof RuntimePolicyStoreError && error.code === 'io_failed'
+          ? 'available'
+          : 'consumed';
       throw error;
     }
   }
@@ -649,8 +647,8 @@ export class RuntimePolicyCoordinator {
       return await this.completeClaimedTicket(ticket, operation);
     } finally {
       if (
-        ticket.state === 'consumed'
-        && latestIssuance.get(ticket.basis.connectionId) === ticket.issuance
+        ticket.state === 'consumed' &&
+        latestIssuance.get(ticket.basis.connectionId) === ticket.issuance
       ) {
         latestIssuance.delete(ticket.basis.connectionId);
       }
@@ -756,12 +754,14 @@ function sameEffectiveProxyConfiguration(
 ): boolean {
   if (actual.kind !== expected.kind) return false;
   if (actual.kind === 'direct' || expected.kind === 'direct') return true;
-  return actual.protocol === expected.protocol
-    && actual.host === expected.host
-    && actual.port === expected.port
-    && sameProxyAuthentication(actual.authentication, expected.authentication)
-    && sameStringArray(actual.bypassList, expected.bypassList)
-    && sameStringArray(actual.autoBypassDomains, expected.autoBypassDomains);
+  return (
+    actual.protocol === expected.protocol &&
+    actual.host === expected.host &&
+    actual.port === expected.port &&
+    sameProxyAuthentication(actual.authentication, expected.authentication) &&
+    sameStringArray(actual.bypassList, expected.bypassList) &&
+    sameStringArray(actual.autoBypassDomains, expected.autoBypassDomains)
+  );
 }
 
 function sameProxyAuthentication(
@@ -769,21 +769,26 @@ function sameProxyAuthentication(
   expected: Extract<EffectiveProxyConfigurationBasis, { kind: 'proxy' }>['authentication'],
 ): boolean {
   if (actual.kind !== expected.kind) return false;
-  return actual.kind === 'none'
-    || (expected.kind === 'credentials' && actual.username === expected.username);
+  return (
+    actual.kind === 'none' ||
+    (expected.kind === 'credentials' && actual.username === expected.username)
+  );
 }
 
 function normalizeProxyPatterns(patterns: readonly string[]): readonly string[] {
-  return [...new Set(
-    patterns
-      .map((pattern) => pattern.trim().toLowerCase())
-      .filter((pattern) => pattern.length > 0),
-  )].sort();
+  return [
+    ...new Set(
+      patterns
+        .map((pattern) => pattern.trim().toLowerCase())
+        .filter((pattern) => pattern.length > 0),
+    ),
+  ].sort();
 }
 
 function sameStringArray(actual: readonly string[], expected: readonly string[]): boolean {
-  return actual.length === expected.length
-    && actual.every((value, index) => value === expected[index]);
+  return (
+    actual.length === expected.length && actual.every((value, index) => value === expected[index])
+  );
 }
 
 function credentialVersionBasis(material: RuntimePolicyCredentialMaterial): CredentialVersionBasis {
@@ -802,10 +807,12 @@ function isOAuthCredentialForConnection(
     connection.connectionId,
     PROVIDER_DEFAULTS[connection.providerType].authKind,
   );
-  return locator?.kind === 'oauth_token'
-    && basis.locator.scope === 'connection'
-    && basis.locator.connectionId === connection.connectionId
-    && basis.locator.kind === locator.kind;
+  return (
+    locator?.kind === 'oauth_token' &&
+    basis.locator.scope === 'connection' &&
+    basis.locator.connectionId === connection.connectionId &&
+    basis.locator.kind === locator.kind
+  );
 }
 
 function createIssuanceIdentity(): object {
@@ -814,9 +821,12 @@ function createIssuanceIdentity(): object {
 
 function ticketLabel(kind: TicketKind): string {
   switch (kind) {
-    case 'model_fetch': return 'model fetch';
-    case 'connection_test': return 'connection test';
-    case 'stored_oauth_refresh': return 'stored OAuth refresh';
+    case 'model_fetch':
+      return 'model fetch';
+    case 'connection_test':
+      return 'connection test';
+    case 'stored_oauth_refresh':
+      return 'stored OAuth refresh';
   }
 }
 

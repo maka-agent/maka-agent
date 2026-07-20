@@ -50,6 +50,7 @@ export class PiCliJsonTransport implements PiAgentTransport {
   private readonly input: Required<Pick<PiCliJsonTransportInput, 'command' | 'spawn'>> &
     Omit<PiCliJsonTransportInput, 'command' | 'spawn'>;
   private child: PiCliJsonChild | null = null;
+  private successorSideEffectIsolation: Promise<void> = Promise.resolve();
 
   constructor(input: PiCliJsonTransportInput = {}) {
     this.input = {
@@ -69,6 +70,8 @@ export class PiCliJsonTransport implements PiAgentTransport {
     });
     this.child = child;
     const close = childClose(child);
+    this.successorSideEffectIsolation = close.then(() => undefined);
+    void this.successorSideEffectIsolation.catch(() => undefined);
     const stderr = collectStderr(child.stderr);
     let stdinError: Error | undefined;
     let rejectStdin: (error: Error) => void = () => {};
@@ -135,6 +138,10 @@ export class PiCliJsonTransport implements PiAgentTransport {
 
   async stop(): Promise<void> {
     this.child?.kill('SIGTERM');
+  }
+
+  isolateRegisteredSuccessorSideEffects(): Promise<void> {
+    return this.successorSideEffectIsolation;
   }
 
   private args(): string[] {

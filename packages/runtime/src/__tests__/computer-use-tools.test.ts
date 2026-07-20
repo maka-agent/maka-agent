@@ -187,7 +187,7 @@ describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction'
     const [tool] = buildComputerUseTools({ backend: fakeBackend() });
     assert.throws(
       () =>
-        tool.permissionArgs?.({ action: 'observe' } as never, {
+        tool.prepareIntentArgs?.({ action: 'observe' } as never, {
           sessionId: 's1',
           turnId: 't1',
           toolCallId: 'observe',
@@ -737,7 +737,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     });
   });
 
-  test('permission args bind mutations to the Runtime-owned observation target', async () => {
+  test('intent args bind mutations to the Runtime-owned observation target', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
     };
@@ -749,7 +749,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     )) as { text: string };
     const observationId = JSON.parse(observed.text).observation_id as string;
     assert.deepEqual(
-      tool.permissionArgs?.(
+      tool.prepareIntentArgs?.(
         {
           action: 'left_click',
           observation_id: observationId,
@@ -770,7 +770,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       },
     );
     assert.deepEqual(
-      tool.permissionArgs?.(
+      tool.prepareIntentArgs?.(
         {
           action: 'left_click',
           observation_id: 'wrong-frame',

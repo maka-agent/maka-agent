@@ -17,6 +17,7 @@ import {
   projectRuntimeEventsToStoredMessagesWithArchiveStatuses,
 } from '../runtime-event-read-model.js';
 import { materializeSession } from '../materializer.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 import { BackendRegistry, SessionManager, type SessionStore } from '../session-manager.js';
 
 const ts = 1_800_000_000_000;
@@ -77,9 +78,10 @@ function baseEvents(): RuntimeEvent[] {
         kind: 'function_call',
         id: 'tool-1',
         name: 'Read',
-        args: { path: '/tmp/a.txt' },
+        args: { path: 'PRIVATE_PROVIDER_PATH' },
+        review: { kind: 'path', operation: 'read', path: '/tmp/a.txt', cwd: '/tmp/work' },
       },
-      actions: { stateDelta: { displayName: 'Read file', intent: 'inspect' } },
+      actions: { stateDelta: { displayName: 'Read file' } },
       refs: { toolCallId: 'tool-1' },
     }),
     ev({
@@ -95,9 +97,8 @@ function baseEvents(): RuntimeEvent[] {
           toolName: 'Read',
           category: 'read',
           reason: 'custom',
-          args: { path: '/tmp/a.txt' },
+          review: { kind: 'path', operation: 'read', path: '/tmp/a.txt', cwd: '/tmp/work' },
           rememberForTurnAllowed: true,
-          hint: 'needs read access',
         },
       },
       refs: { toolCallId: 'tool-1' },
@@ -112,6 +113,8 @@ function baseEvents(): RuntimeEvent[] {
           requestId: 'req-1',
           decision: 'allow',
           rememberForTurn: true,
+          reviewer: 'auto_review',
+          riskLevel: 'low',
         },
       },
       refs: { toolCallId: 'tool-1' },
@@ -181,8 +184,7 @@ function equivalentLegacyMessages(): StoredMessage[] {
       ts: ts + 2,
       toolName: 'Read',
       displayName: 'Read file',
-      intent: 'inspect',
-      args: { path: '/tmp/a.txt' },
+      review: { kind: 'path', operation: 'read', path: '/tmp/a.txt', cwd: '/tmp/work' },
     },
     {
       type: 'permission_decision',
@@ -193,7 +195,8 @@ function equivalentLegacyMessages(): StoredMessage[] {
       toolName: 'Read',
       decision: 'allow',
       rememberForTurn: true,
-      hint: 'needs read access',
+      reviewer: 'auto_review',
+      riskLevel: 'low',
     },
     {
       type: 'tool_result',
@@ -293,15 +296,18 @@ describe('projectRuntimeEventsToStoredMessages', () => {
       id: 'tool-1',
       toolName: 'Read',
       displayName: 'Read file',
-      intent: 'inspect',
+      review: { kind: 'path', operation: 'read', path: '/tmp/a.txt', cwd: '/tmp/work' },
     });
+    expect(out.messages[1] && 'args' in out.messages[1]).toBe(false);
+    expect(JSON.stringify(out.messages).includes('PRIVATE_PROVIDER_PATH')).toBe(false);
     expect(out.messages[2]).toMatchObject({
       type: 'permission_decision',
       id: 'req-1',
       toolUseId: 'tool-1',
       toolName: 'Read',
       decision: 'allow',
-      hint: 'needs read access',
+      reviewer: 'auto_review',
+      riskLevel: 'low',
     });
     expect(out.messages[3]).toMatchObject({
       type: 'tool_result',
@@ -335,7 +341,7 @@ describe('projectRuntimeEventsToStoredMessages', () => {
             kind: 'function_call',
             id: 'question-tool-1',
             name: 'AskUserQuestion',
-            args: { questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }] },
+            review: { kind: 'question', questionCount: 1 },
           },
           refs: { toolCallId: 'question-tool-1' },
         }),
@@ -603,7 +609,7 @@ describe('projectRuntimeEventsToStoredMessages', () => {
           ts: ts + 1,
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} },
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read' },
           refs: { toolCallId: 'tool-1', stepId: 'message-1' },
         }),
         ev({
@@ -1072,7 +1078,12 @@ describe('projectRuntimeEventsToStoredMessages', () => {
           kind: 'function_call' as const,
           id,
           name: 'Read',
-          args: { path: '/tmp/a.txt' },
+          review: {
+            kind: 'path' as const,
+            operation: 'read' as const,
+            path: '/tmp/a.txt',
+            cwd: '/tmp/work',
+          },
         },
         refs: { toolCallId: id, ...(stepId ? { stepId } : {}) },
       });
@@ -1107,7 +1118,6 @@ describe('projectRuntimeEventsToStoredMessages', () => {
             kind: 'function_call',
             id: 'tool-kind',
             name: 'CustomCommand',
-            args: {},
           },
           actions: { stateDelta: { activityKind: 'command' } },
           refs: { toolCallId: 'tool-kind' },
@@ -1147,8 +1157,13 @@ describe('compareRuntimeReadModelMessages', () => {
           content: {
             kind: 'function_call',
             id: 'tool-json',
-            name: 'JsonTool',
-            args: { beta: 2, alpha: { z: 3, a: 1 } },
+            name: 'WriteStdin',
+            review: {
+              kind: 'stdin',
+              ref: 'maka://runtime/background-tasks/pty-1',
+              size: { rows: 30, cols: 120 },
+              input: { bytes: 8, text: 'approved' },
+            },
           },
         }),
         ev({
@@ -1171,8 +1186,13 @@ describe('compareRuntimeReadModelMessages', () => {
         id: 'tool-json',
         turnId,
         ts,
-        toolName: 'JsonTool',
-        args: { alpha: { a: 1, z: 3 }, beta: 2 },
+        toolName: 'WriteStdin',
+        review: {
+          kind: 'stdin',
+          input: { text: 'approved', bytes: 8 },
+          size: { cols: 120, rows: 30 },
+          ref: 'maka://runtime/background-tasks/pty-1',
+        },
       },
       {
         type: 'tool_result',
@@ -1200,7 +1220,6 @@ describe('compareRuntimeReadModelMessages', () => {
         ts,
         toolName: 'CustomTool',
         activityKind: 'read',
-        args: {},
       },
     ];
     const legacy: StoredMessage[] = [
@@ -1233,6 +1252,7 @@ describe('SessionManager read behavior', () => {
     const messages: StoredMessage[] = equivalentLegacyMessages();
     const store = new ReadOnlyStore(messages);
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends: new BackendRegistry(),
       newId: () => 'id',

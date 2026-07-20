@@ -7,7 +7,27 @@
  * requestId at the call site.
  */
 
-import { computerUseApprovalScopeKey, computerUseApprovalSummary } from './computer-use.js';
+import { splitBashCommandSegments } from './bash-command-boundaries.js';
+import {
+  validateAdditionalPermissionProfile,
+  type AdditionalPermissionProfile,
+} from './additional-permissions.js';
+import {
+  canonicalToolExecutionArgs,
+  canonicalToolRememberScopeMaterial,
+  createCanonicalToolIntentWithCategory,
+  InteractionPermissionProjectionError,
+  knownToolBaseCategory,
+  knownToolCategoryEntries,
+  knownToolUsesBashCategorizer,
+  projectPublicToolApprovalReview,
+  projectPublicToolPathReview,
+  publicToolReviewRememberAllowed,
+  requireCanonicalToolIntent,
+  type CanonicalToolIntent,
+  type PublicToolCommandReview,
+  type PublicToolIntentReview,
+} from './tool-intent.js';
 
 // ============================================================================
 // Mode + Tool categories
@@ -53,7 +73,6 @@ export type ToolCategory =
   | 'web_read' //          WebFetch, WebSearch (GET-class)
   | 'file_write' //        Write, Edit, patch (create / append / overwrite)
   | 'fs_destructive' //    rm, rmdir, dd, truncate, shred, mkfs, find -delete, ...
-  | 'shell_safe' //        reserved: categorizeBash no longer produces it (no shell is auto-safe); fail-closed in policy
   | 'shell_unsafe' //      default Bash bucket
   | 'git_destructive' //   git reset --hard, push --force, branch -D, ...
   | 'network_send' //      POST / PUT / DELETE
@@ -68,7 +87,6 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
   'web_read',
   'file_write',
   'fs_destructive',
-  'shell_safe',
   'shell_unsafe',
   'git_destructive',
   'network_send',
@@ -101,9 +119,7 @@ export type ToolPermissionRule =
     };
 
 export interface ToolPermissionRuleMatchInput {
-  toolName: string;
-  args: unknown;
-  category: ToolCategory;
+  intent: CanonicalToolIntent;
   rules: readonly ToolPermissionRule[];
 }
 
@@ -111,6 +127,7 @@ export interface ToolPermissionRuleMatchInput {
 export function matchToolPermissionRules(
   input: ToolPermissionRuleMatchInput,
 ): 'allow' | 'deny' | undefined {
+  requireCanonicalToolIntent(input.intent);
   if (
     input.rules.some((rule) => rule.effect === 'deny' && toolPermissionRuleMatches(rule, input))
   ) {
@@ -128,10 +145,13 @@ function toolPermissionRuleMatches(
   rule: ToolPermissionRule,
   input: Omit<ToolPermissionRuleMatchInput, 'rules'>,
 ): boolean {
-  if (rule.kind === 'category') return rule.category === input.category;
-  if (rule.kind === 'tool') return rule.toolName === input.toolName;
-  const command = (input.args as { command?: unknown } | null)?.command;
-  return input.toolName === 'Bash' && typeof command === 'string' && command === rule.command;
+  if (rule.kind === 'category') return rule.category === input.intent.category;
+  if (rule.kind === 'tool') return rule.toolName === input.intent.toolName;
+  const args = canonicalToolExecutionArgs(input.intent);
+  const command = (args as { command?: unknown } | null)?.command;
+  return (
+    input.intent.toolName === 'Bash' && typeof command === 'string' && command === rule.command
+  );
 }
 
 // ============================================================================
@@ -165,10 +185,6 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // requests are out-of-process side effects the user must confirm,
     // even in the otherwise read-only `explore` mode.
     web_read: 'prompt',
-    // shell_safe is fail-closed like shell_unsafe: categorizeBash no longer
-    // produces it (no shell command is provably safe from its string), so this
-    // is defence-in-depth — there is no auto-allow path for shell in explore.
-    shell_safe: 'block',
     file_write: 'block',
     fs_destructive: 'block',
     shell_unsafe: 'block',
@@ -185,7 +201,6 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
   ask: {
     read: 'allow',
     web_read: 'prompt',
-    shell_safe: 'prompt',
     file_write: 'prompt',
     fs_destructive: 'prompt',
     shell_unsafe: 'prompt',
@@ -207,7 +222,6 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // Shell stays prompt in the static table. policyDecisionForInput upgrades
     // shell_unsafe to allow only when runtime proves the active profile can be
     // enforced by a platform sandbox; otherwise this fail-closed default wins.
-    shell_safe: 'prompt',
     shell_unsafe: 'prompt',
     // Irreversible ops ALWAYS prompt, even in execute mode.
     fs_destructive: 'prompt',
@@ -225,7 +239,6 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
   bypass: {
     read: 'allow',
     web_read: 'allow',
-    shell_safe: 'allow',
     file_write: 'allow',
     fs_destructive: 'allow',
     shell_unsafe: 'allow',
@@ -243,23 +256,9 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
 // Tool name → category mapping (Claude SDK canonical names)
 // ============================================================================
 
-export const BUILTIN_TOOL_CATEGORY: Record<string, ToolCategory> = {
-  // read
-  Read: 'read',
-  search_files: 'read',
-  Grep: 'read',
-  Glob: 'read',
-  // web read
-  WebFetch: 'web_read',
-  WebSearch: 'web_read',
-  // file write
-  Write: 'file_write',
-  Edit: 'file_write',
-  patch: 'file_write',
-  // shell — default unsafe; categorizeBash() may downgrade or upgrade
-  Bash: 'shell_unsafe',
-  WriteStdin: 'shell_unsafe',
-};
+export const BUILTIN_TOOL_CATEGORY: Readonly<Record<string, ToolCategory>> = Object.freeze(
+  Object.fromEntries(knownToolCategoryEntries()) as Record<string, ToolCategory>,
+);
 
 // ============================================================================
 // Shell command categorization
@@ -272,8 +271,8 @@ export const BUILTIN_TOOL_CATEGORY: Record<string, ToolCategory> = {
 // like `git status` can trigger fsmonitor helpers. Eight review rounds of
 // enumerating dangerous shapes proved the futility of the inverse (deciding a
 // Turing-complete shell's runtime effect from a static string is undecidable).
-// So categorizeBash never returns shell_safe; read-only needs go through typed
-// tools (Read/Glob/Grep — fixed argv, no shell), and every shell command is at
+// So categorizeBash never returns an auto-safe category; read-only needs go
+// through typed tools (Read/Glob/Grep — fixed argv, no shell), and every shell command is at
 // least shell_unsafe → prompt. The categories below only make the confirmation
 // REASON accurate (delete vs elevate vs generic); they are no longer the safety
 // boundary, so a missed pattern is a wording nit, not a bypass.
@@ -372,8 +371,7 @@ export const DESTRUCTIVE_GIT_PATTERNS: readonly RegExp[] = [
  * boundaries add scan candidates; they do not hide them.
  */
 function commandSegments(cmd: string): string[] {
-  return cmd
-    .split(/[|;&\n(){}`]+/)
+  return splitBashCommandSegments(cmd)
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -406,7 +404,7 @@ const NESTED_SHELL_HEADS: ReadonlyArray<{ head: RegExp; flag: RegExp }> = [
  * wrapper commands plus their option-ish arguments (`nohup`, `timeout 30`,
  * `env FOO=bar`). Only the UPGRADE checks (privileged/fs/git) see this
  * normalization — the safe-prefix check keeps the raw command, so a local
- * script named `./ls` can never be upgraded to shell_safe.
+ * script named `./ls` can never be upgraded to a read category.
  */
 function normalizeSegmentHead(segment: string): string {
   let rest = segment;
@@ -471,7 +469,7 @@ function isPrivilegedSegment(segment: string): boolean {
 }
 
 /**
- * Categorize a shell command into a permission bucket. There is NO shell_safe
+ * Categorize a shell command into a permission bucket. There is no auto-safe
  * outcome: no shell command is auto-allowed (see the note above the privileged
  * prefixes). This function's job is only to pick the most accurate confirmation
  * REASON — privileged > fs_destructive > git_destructive > shell_unsafe — by
@@ -504,18 +502,9 @@ export function categorizeBash(cmd: string): ToolCategory {
 // ============================================================================
 
 export interface PreToolUseInput {
-  toolName: string;
-  args: unknown;
+  intent: CanonicalToolIntent;
   mode: PermissionMode;
-  turnRemembered: ReadonlySet<string>;
-  /** Optional trusted runtime hint for custom tools that map to a canonical category. */
-  categoryHint?: ToolCategory;
-  /**
-   * Trusted runtime facts about where the tool would execute. The current
-   * policy accepts this for forward compatibility; sandbox-aware decisions are
-   * intentionally introduced in a later policy change.
-   */
-  executionFacts?: ToolExecutionFacts;
+  turnMemory: TurnPermissionMemory;
   /**
    * Platform sandbox availability for sandbox-aware policy decisions. Unsafe
    * shell in execute mode is only auto-allowed when the runtime can actually
@@ -526,73 +515,108 @@ export interface PreToolUseInput {
   };
 }
 
-export interface PreToolUseResult {
-  proceed: boolean;
-  needsPrompt: boolean;
-  category: ToolCategory;
-  scopeKey: string;
-  /** Request shape WITHOUT requestId — runtime PermissionEngine fills it. */
-  partialRequest?: Omit<PermissionRequest, 'requestId' | 'toolUseId'>;
-  blockReason?: string;
+export interface CreateCanonicalToolIntentInput {
+  readonly toolName: string;
+  readonly args: unknown;
+  readonly cwd: string;
+  readonly categoryHint?: ToolCategory;
 }
+
+export type PreToolUseResult =
+  | {
+      readonly kind: 'allow';
+      readonly category: ToolCategory;
+      readonly source: 'policy' | 'remembered';
+    }
+  | {
+      readonly kind: 'block';
+      readonly category: ToolCategory;
+      readonly reason: string;
+    }
+  | {
+      readonly kind: 'prompt';
+      readonly category: ToolCategory;
+      readonly prompt: ToolPermissionPrompt;
+      readonly rememberScope?: PermissionRememberScope;
+    };
 
 export function classifyToolUse(input: {
   toolName: string;
   args: unknown;
   categoryHint?: ToolCategory;
 }): ToolCategory {
-  let category: ToolCategory =
-    input.categoryHint ?? BUILTIN_TOOL_CATEGORY[input.toolName] ?? 'custom_tool';
-  if (category === 'shell_unsafe') {
-    const cmd = (input.args as { command?: unknown } | null)?.command;
+  const builtinCategory = knownToolBaseCategory(input.toolName);
+  let category: ToolCategory = builtinCategory ?? input.categoryHint ?? 'custom_tool';
+  if (knownToolUsesBashCategorizer(input.toolName)) {
+    const cmd = stringDataProperty(input.args, 'command');
     if (typeof cmd === 'string') category = categorizeBash(cmd);
   }
   return category;
 }
 
-export function preToolUse(input: PreToolUseInput): PreToolUseResult {
-  // (1) Classify
-  const category = classifyToolUse(input);
+export function createCanonicalToolIntent(
+  input: CreateCanonicalToolIntentInput,
+): CanonicalToolIntent {
+  if (input.categoryHint !== undefined && !isToolCategory(input.categoryHint)) {
+    throw new TypeError('Invalid canonical tool category hint');
+  }
+  return createCanonicalToolIntentWithCategory({
+    toolName: input.toolName,
+    args: input.args,
+    cwd: input.cwd,
+    category: classifyToolUse(input),
+  });
+}
 
-  // (2) Policy lookup + turn-remembered check
+export function preToolUse(input: PreToolUseInput): PreToolUseResult {
+  const { intent } = input;
+  requireCanonicalToolIntent(intent);
+  const category = intent.category;
   const decision = policyDecisionForInput(input, category);
-  const scopeKey = permissionScopeKey(input.toolName, input.args, category);
-  const rememberForTurnAllowed = permissionRememberForTurnAllowed(
-    input.toolName,
-    input.args,
-    category,
-  );
   if (decision === 'allow') {
-    return { proceed: true, needsPrompt: false, category, scopeKey };
+    return { kind: 'allow', category, source: 'policy' };
   }
   if (decision === 'block') {
     return {
-      proceed: false,
-      needsPrompt: false,
+      kind: 'block',
       category,
-      scopeKey,
-      blockReason: `Tool category "${category}" is blocked in mode "${input.mode}"`,
+      reason: `Tool category "${category}" is blocked in mode "${input.mode}"`,
     };
   }
-  if (rememberForTurnAllowed && input.turnRemembered.has(scopeKey)) {
-    return { proceed: true, needsPrompt: false, category, scopeKey };
+
+  const review = projectPublicToolApprovalReview(intent);
+  const rememberScope = publicToolReviewRememberAllowed({
+    toolName: intent.toolName,
+    category,
+    review,
+  })
+    ? input.turnMemory.scopeFor(intent)
+    : undefined;
+  if (rememberScope !== undefined && input.turnMemory.isRemembered(rememberScope)) {
+    return { kind: 'allow', category, source: 'remembered' };
   }
 
-  // (3) Prompt — runtime adds requestId + toolUseId at adapter site
   return {
-    proceed: false,
-    needsPrompt: true,
+    kind: 'prompt',
     category,
-    scopeKey,
-    partialRequest: {
+    ...(rememberScope === undefined ? {} : { rememberScope }),
+    prompt: {
       kind: 'tool_permission',
-      toolName: input.toolName,
+      toolName: intent.toolName,
       category,
-      reason: categoryToReason(category),
-      args: permissionRequestArgs(input.args, category),
-      rememberForTurnAllowed,
+      reason: permissionReasonForCategory(category),
+      review,
+      rememberForTurnAllowed: rememberScope !== undefined,
     },
   };
+}
+
+function stringDataProperty(value: unknown, key: string): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor !== undefined && 'value' in descriptor && typeof descriptor.value === 'string'
+    ? descriptor.value
+    : undefined;
 }
 
 function policyDecisionForInput(input: PreToolUseInput, category: ToolCategory): PolicyDecision {
@@ -603,66 +627,47 @@ function policyDecisionForInput(input: PreToolUseInput, category: ToolCategory):
   return decision;
 }
 
-export function permissionScopeKey(
-  toolName: string,
-  args: unknown,
-  category: ToolCategory,
-): string {
-  // Browser actions share ONE turn-scope across every browser_* tool and its
-  // args: "allow for this turn" on the first prompt then carries the whole
-  // observe→act loop (snapshot → click → type → navigate …), as the policy
-  // comment promises. The visible-conversation lease — not per-call prompts —
-  // is the safety net for which page is driven. Other categories stay scoped
-  // to the specific tool + args below.
-  if (category === 'browser') return 'browser';
-  if (category === 'computer_use') return computerUseApprovalScopeKey(args);
-  switch (toolName) {
-    case 'Write':
-    case 'Edit':
-    case 'Read':
-      return `${category}:${toolName}:${stringArg(args, 'path')}`;
-    case 'Glob':
-      return `${category}:${toolName}:${stringArg(args, 'cwd')}:${stringArg(args, 'pattern')}`;
-    case 'Grep':
-      return `${category}:${toolName}:${stringArg(args, 'path')}:${stringArg(args, 'glob')}:${stringArg(args, 'pattern')}`;
-    case 'Bash':
-      return `${category}:${toolName}:${normalizeScopeText(stringArg(args, 'command'))}`;
-    case 'WebSearch':
-      return `${category}:${toolName}:${stringArg(args, 'query')}`;
-    default:
-      return `${category}:${toolName}:${stableScopeJson(args)}`;
+declare const PERMISSION_REMEMBER_SCOPE: unique symbol;
+
+export interface PermissionRememberScope {
+  readonly [PERMISSION_REMEMBER_SCOPE]: true;
+}
+
+export class TurnPermissionMemory {
+  readonly #scopesByMaterial = new Map<string, PermissionRememberScope>();
+  readonly #ownedScopes = new Set<PermissionRememberScope>();
+  readonly #rememberedScopes = new Set<PermissionRememberScope>();
+
+  scopeFor(intent: CanonicalToolIntent): PermissionRememberScope | undefined {
+    const material = canonicalToolRememberScopeMaterial(intent);
+    if (material === undefined) return undefined;
+    const key = JSON.stringify(material);
+    if (key === undefined) throw new TypeError('Permission scope material is not canonical');
+    const existing = this.#scopesByMaterial.get(key);
+    if (existing !== undefined) return existing;
+    const scope = Object.freeze({}) as PermissionRememberScope;
+    this.#scopesByMaterial.set(key, scope);
+    this.#ownedScopes.add(scope);
+    return scope;
+  }
+
+  remember(scope: PermissionRememberScope): void {
+    if (!this.#ownedScopes.has(scope)) {
+      throw new TypeError('Permission remember scope belongs to another turn');
+    }
+    this.#rememberedScopes.add(scope);
+  }
+
+  isRemembered(scope: PermissionRememberScope): boolean {
+    if (!this.#ownedScopes.has(scope)) {
+      throw new TypeError('Permission remember scope belongs to another turn');
+    }
+    return this.#rememberedScopes.has(scope);
   }
 }
 
-function stringArg(args: unknown, key: string): string {
-  if (!args || typeof args !== 'object') return '';
-  const value = (args as Record<string, unknown>)[key];
-  return typeof value === 'string' ? normalizeScopeText(value) : '';
-}
-
-function normalizeScopeText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim().slice(0, 512);
-}
-
-function stableScopeJson(value: unknown): string {
-  const json = JSON.stringify(normalizeForScope(value, new WeakSet<object>()));
-  return (json ?? String(value)).slice(0, 1024);
-}
-
-function normalizeForScope(value: unknown, seen: WeakSet<object>): unknown {
-  if (!value || typeof value !== 'object') return value;
-  if (seen.has(value)) return '[Circular]';
-  seen.add(value);
-  if (Array.isArray(value)) return value.map((nested) => normalizeForScope(nested, seen));
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, nested]) => [key, normalizeForScope(nested, seen)]),
-  );
-}
-
-function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
-  switch (c) {
+export function permissionReasonForCategory(category: ToolCategory): PermissionRequest['reason'] {
+  switch (category) {
     case 'shell_unsafe':
       return 'shell_dangerous';
     case 'file_write':
@@ -688,10 +693,8 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
 // Request / Response shapes
 // ============================================================================
 
-export interface PermissionRequest {
+export interface ToolPermissionPrompt {
   kind: 'tool_permission';
-  requestId: string;
-  toolUseId: string;
   toolName: string;
   category: ToolCategory;
   reason:
@@ -704,9 +707,57 @@ export interface PermissionRequest {
     | 'browser'
     | 'computer_use'
     | 'custom';
-  args: unknown;
-  hint?: string;
+  review: PublicToolIntentReview;
   rememberForTurnAllowed: boolean;
+}
+
+export interface PermissionRequest extends ToolPermissionPrompt {
+  requestId: string;
+  toolUseId: string;
+}
+
+export interface AdditionalPermissionPathReview {
+  readonly path: string;
+  readonly access: import('./additional-permissions.js').AdditionalPermissionAccess;
+  readonly scope: import('./additional-permissions.js').AdditionalPermissionScope;
+}
+
+export interface AdditionalPermissionReview {
+  readonly kind: 'additional_permissions';
+  readonly cwd: string;
+  readonly paths: readonly AdditionalPermissionPathReview[];
+  readonly networkEnabled: boolean;
+}
+
+export function projectAdditionalPermissionReview(input: {
+  readonly cwd: string;
+  readonly profile: AdditionalPermissionProfile;
+}): AdditionalPermissionReview {
+  const validated = validateAdditionalPermissionProfile(input.profile);
+  if (!validated.ok) throw new InteractionPermissionProjectionError();
+  const cwdReview = projectPublicToolPathReview({
+    operation: 'read',
+    path: input.cwd,
+    cwd: input.cwd,
+  });
+  const paths = (validated.profile.fileSystem?.entries ?? []).map((entry) => {
+    const pathReview = projectPublicToolPathReview({
+      operation: entry.access,
+      path: entry.path,
+      cwd: input.cwd,
+    });
+    return Object.freeze({
+      path: pathReview.path,
+      access: entry.access,
+      scope: entry.scope,
+    });
+  });
+  return Object.freeze({
+    kind: 'additional_permissions',
+    cwd: cwdReview.cwd,
+    paths: Object.freeze(paths),
+    networkEnabled: validated.profile.network?.enabled === true,
+  });
 }
 
 export interface AdditionalPermissionRequest {
@@ -716,15 +767,10 @@ export interface AdditionalPermissionRequest {
   toolName: string;
   category: ToolCategory;
   reason: 'additional_permissions';
-  additionalPermissions: import('./additional-permissions.js').AdditionalPermissionProfile;
-  cwd: string;
-  justification: string;
-  intentHash: string;
-  permissionsHash: string;
+  review: AdditionalPermissionReview;
   risk: import('./additional-permissions.js').AdditionalPermissionRiskSummary;
-  alsoApprovesToolExecution: boolean;
+  alsoApprovesToolExecution: false;
   availableDecisions: readonly ['allow_once', 'deny'];
-  hint?: string;
 }
 
 export interface SandboxEscalationRiskSummary {
@@ -741,16 +787,11 @@ export interface SandboxEscalationRequest {
   toolName: 'Bash';
   category: ToolCategory;
   reason: 'sandbox_escalation';
-  command: string;
-  cwd: string;
-  justification: string;
-  intentHash: string;
-  commandHash: string;
+  review: PublicToolCommandReview;
   trigger: 'proactive' | 'sandbox_denial';
   risk: SandboxEscalationRiskSummary;
   alsoApprovesToolExecution: boolean;
   availableDecisions: readonly ['allow_once', 'deny'];
-  hint?: string;
 }
 
 /** Permission prompt payloads that may be carried by canonical runtime events. */
@@ -759,24 +800,10 @@ export type PermissionRequestPayload =
   | AdditionalPermissionRequest
   | SandboxEscalationRequest;
 
-function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
-  return category === 'computer_use' ? computerUseApprovalSummary(args) : args;
-}
-
-function permissionRememberForTurnAllowed(
-  toolName: string,
-  args: unknown,
-  category: ToolCategory,
-): boolean {
-  if (toolName === 'WriteStdin') return false;
-  return category !== 'computer_use' || computerUseApprovalSummary(args).rememberForTurnAllowed;
-}
-
 export interface PermissionResponse {
   requestId: string;
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
   reviewer?: ApprovalsReviewer;
-  rationale?: string;
   riskLevel?: ApprovalRiskLevel;
 }

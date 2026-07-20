@@ -1635,7 +1635,7 @@ function runtimeEventBodySha256(event: RuntimeEvent, charsPerToken: number): str
     case 'thinking':
       return sha256(content.text);
     case 'function_call':
-      return sha256(stableStringify(content.args));
+      return sha256(stableStringify(content.review ?? {}));
     case 'function_response':
       return sha256(serializeToolResultForArchive(content.result));
     case 'error':

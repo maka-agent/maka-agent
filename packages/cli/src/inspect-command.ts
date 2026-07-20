@@ -269,7 +269,10 @@ async function findSessionCandidates(
   return [{ kind: 'session', id, header: await store.readHeaderSnapshot(id) }];
 }
 
-async function findTaskRunCandidates(store: TaskRunReader, id: string): Promise<TaskRunCandidate[]> {
+async function findTaskRunCandidates(
+  store: TaskRunReader,
+  id: string,
+): Promise<TaskRunCandidate[]> {
   const records = await store.readEventRecords(id);
   return records.length > 0 ? [{ kind: 'task-run', id }] : [];
 }

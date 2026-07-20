@@ -15,11 +15,12 @@ import {
 } from './session-continuity.js';
 
 export { RuntimeHostProtocolError } from './errors.js';
+export * from './interaction.js';
 export * from './operations.js';
 export * from './session-continuity.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
-export const RUNTIME_HOST_PROTOCOL_VERSION = 3 as const;
+export const RUNTIME_HOST_PROTOCOL_VERSION = 4 as const;
 export const RUNTIME_HOST_MAX_FRAME_BYTES = 64 * 1024;
 
 export type ClientSurface = 'desktop' | 'tui' | 'run' | 'bot' | 'open_gateway' | 'inspect';

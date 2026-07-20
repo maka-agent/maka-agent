@@ -1,56 +1,28 @@
 import assert from 'node:assert/strict';
-import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import {
-  appendFile,
-  chmod,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from 'node:fs/promises';
-import { connect, type Socket } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { appendFile, chmod, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import type { AgentRunHeader } from '@maka/core/agent-run';
-import type { StoredMessage } from '@maka/core/session';
-import { isTerminalRuntimeEvent } from '@maka/core/runtime-event';
-import type { RuntimeEvent } from '@maka/core/runtime-event';
-import { classifyTerminalRuntimeLedger, FAKE_ASK_USER_QUESTION_PROMPT } from '@maka/runtime';
+import { FAKE_ASK_USER_QUESTION_PROMPT } from '@maka/runtime';
 import {
-  openInteractiveExecutionStoresForRead,
-  openInteractiveExecutionStoresForWrite,
-} from '@maka/storage/execution-stores';
-import {
-  resolveRootControlNamespace,
-  resolveStorageRoot,
-  tryAcquireInteractiveRootOwner,
-  tryAcquireInteractiveRootReader,
-  type StorageRootCapability,
-} from '@maka/storage/root-authority';
-import {
-  connectRuntimeHost,
   RuntimeHostOperationError,
   RuntimeHostSubscriptionError,
-  type RuntimeHostConnection,
+  type RuntimeHostSessionSubscription,
 } from '../client/index.js';
 import {
-  decodeHostFrame,
-  RUNTIME_HOST_PROTOCOL_VERSION,
+  type InteractionAnswer,
+  type InteractionPendingSnapshot,
   type SessionProjectionFrame,
   type TurnSnapshot,
 } from '../protocol/index.js';
-import { FramedTransport } from '../transport/framed-transport.js';
-
-const CURRENT_PROTOCOL = {
-  min: RUNTIME_HOST_PROTOCOL_VERSION,
-  max: RUNTIME_HOST_PROTOCOL_VERSION,
-} as const;
-const PROCESS_TIMEOUT_MS = 10_000;
+import {
+  connectClient,
+  PROCESS_TIMEOUT_MS,
+  sendRequestWithoutReadingResponse,
+  waitForTerminalTurn,
+  waitForTurn,
+  withExecutionRoot,
+  withTimeout,
+} from './support/execution-root-fixture.js';
 
 test('subscription.open is observational for the durable Session header', async () => {
   await withExecutionRoot(async (fixture) => {
@@ -868,7 +840,7 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const host = await fixture.startHost();
     const turnId = randomUUID();
     const text = 'response loss must not duplicate this Turn';
-    const dropped = await sendStartWithoutReadingResponse(host.endpoint, {
+    const dropped = await sendRequestWithoutReadingResponse(host.endpoint, 'turn.start', {
       sessionId: fixture.sessionId,
       turnId,
       text,
@@ -904,499 +876,270 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
   });
 });
 
-interface ExecutionHostHandle {
-  child: ChildProcess;
-  hostEpoch: string;
-  endpoint: string;
-}
-
-interface TurnLedger {
-  runs: AgentRunHeader[];
-  userMessages: StoredMessage[];
-  terminalEvents: RuntimeEvent[];
-  classification: ReturnType<typeof classifyTerminalRuntimeLedger>;
-}
-
-class ExecutionFixture {
-  readonly #children = new Set<ChildProcess>();
-
-  constructor(
-    readonly base: string,
-    readonly root: string,
-    readonly capability: StorageRootCapability<'interactive'>,
-    readonly sessionId: string,
-  ) {}
-
-  sessionPath(): string {
-    return join(this.root, 'sessions', this.sessionId, 'session.jsonl');
-  }
-
-  runtimeEventsPath(runId: string): string {
-    return join(this.root, 'sessions', this.sessionId, 'runs', runId, 'runtime-events.jsonl');
-  }
-
-  eventsPath(runId: string): string {
-    return join(this.root, 'sessions', this.sessionId, 'runs', runId, 'events.jsonl');
-  }
-
-  admissionStagingPath(turnId: string): string {
-    return join(
-      this.root,
-      'sessions',
-      this.sessionId,
-      'turn-admissions',
-      `${turnId}.json.${process.pid}.${randomUUID()}.tmp`,
-    );
-  }
-
-  admissionPath(turnId: string): string {
-    return join(this.root, 'sessions', this.sessionId, 'turn-admissions', `${turnId}.json`);
-  }
-
-  async seedUnlockedUserMessage(): Promise<void> {
-    const owner = await tryAcquireInteractiveRootOwner(this.capability);
-    assert.ok(owner);
-    if (!owner) {
-      throw new Error('Unable to acquire execution root for Session setup');
-    }
-    try {
-      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
-      await stores.sessionStore.appendMessage(this.sessionId, {
-        type: 'user',
-        id: randomUUID(),
-        turnId: randomUUID(),
-        ts: Date.now(),
-        text: 'observational projection read',
-      });
-    } finally {
-      await owner.close();
-    }
-  }
-
-  seedAdmission(turnId: string, text: string): Promise<{ runId: string; userMessageId: string }> {
-    return this.seedTurnState(turnId, text, false);
-  }
-
-  async archiveSession(): Promise<void> {
-    const owner = await tryAcquireInteractiveRootOwner(this.capability);
-    assert.ok(owner);
-    if (!owner) throw new Error('Unable to acquire execution root for archive');
-    try {
-      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
-      await stores.sessionStore.archive(this.sessionId);
-    } finally {
-      await owner.close();
-    }
-  }
-
-  seedRunWithoutUserMessage(
-    turnId: string,
-    text: string,
-  ): Promise<{ runId: string; userMessageId: string }> {
-    return this.seedTurnState(turnId, text, true);
-  }
-
-  private async seedTurnState(
-    turnId: string,
-    text: string,
-    createRun: boolean,
-  ): Promise<{ runId: string; userMessageId: string }> {
-    const owner = await tryAcquireInteractiveRootOwner(this.capability);
-    assert.ok(owner);
-    if (!owner) throw new Error('Unable to acquire execution root for admission setup');
-    try {
-      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
-      const admittedAt = Date.now();
-      const result = await stores.agentRunStore.admitRootTurn({
-        sessionId: this.sessionId,
-        turnId,
-        proposedRunId: randomUUID(),
-        proposedUserMessageId: randomUUID(),
-        previousRootTurnId: null,
-        normalizedInput: { text },
-        admittedAt,
-      });
-      assert.equal(result.kind, 'admitted');
-      if (createRun) {
-        await stores.agentRunStore.createRun({
-          runId: result.admission.runId,
-          invocationId: result.admission.runId,
-          sessionId: this.sessionId,
-          turnId,
-          status: 'created',
-          backendKind: 'fake',
-          llmConnectionSlug: 'fake',
-          modelId: 'fake-model',
-          cwd: this.root,
-          permissionMode: 'ask',
-          createdAt: admittedAt,
-          updatedAt: admittedAt,
-        });
-      }
-      return {
-        runId: result.admission.runId,
-        userMessageId: result.admission.userMessageId,
-      };
-    } finally {
-      await owner.close();
-    }
-  }
-
-  async startHost(options: { frozenNow?: number } = {}): Promise<ExecutionHostHandle> {
-    let execArgv: string[] | undefined;
-    if (options.frozenNow !== undefined) {
-      const preloadPath = join(this.base, `freeze-date-${randomUUID()}.cjs`);
-      await writeFile(
-        preloadPath,
-        `Date.now = () => ${JSON.stringify(options.frozenNow)};\n`,
-        'utf8',
-      );
-      execArgv = [...process.execArgv, '--require', preloadPath];
-    }
-    const child = this.spawnHost('inherit', execArgv);
-    const ready = await waitForHostReady(child);
-    return { child, ...ready };
-  }
-
-  async expectHostStartupFailure(): Promise<void> {
-    const child = this.spawnHost('ignore');
-    await assert.rejects(() => waitForHostReady(child), /execution Host exited before readiness/);
-    await withTimeout(waitForExit(child), PROCESS_TIMEOUT_MS, 'failed execution Host did not exit');
-    this.#children.delete(child);
-  }
-
-  async assertOwnerAvailable(): Promise<void> {
-    const owner = await tryAcquireInteractiveRootOwner(this.capability);
-    assert.ok(owner);
-    await owner?.close();
-  }
-
-  async stopHost(host: ExecutionHostHandle): Promise<void> {
-    if (host.child.exitCode === null && host.child.signalCode === null) {
-      host.child.kill('SIGTERM');
-    }
-    await withTimeout(waitForExit(host.child), PROCESS_TIMEOUT_MS, 'execution Host did not stop');
-    this.#children.delete(host.child);
-  }
-
-  async killHost(host: ExecutionHostHandle): Promise<void> {
-    host.child.kill('SIGKILL');
-    await withTimeout(
-      waitForExit(host.child),
-      PROCESS_TIMEOUT_MS,
-      'execution Host survived SIGKILL',
-    );
-    this.#children.delete(host.child);
-  }
-
-  async waitForHostExit(host: ExecutionHostHandle): Promise<void> {
-    await withTimeout(
-      waitForExit(host.child),
-      PROCESS_TIMEOUT_MS,
-      'draining execution Host did not exit',
-    );
-    this.#children.delete(host.child);
-  }
-
-  async readTurn(turnId: string): Promise<TurnLedger> {
-    const reader = await acquireReader(this.capability);
-    try {
-      const stores = await openInteractiveExecutionStoresForRead(reader.lease);
-      const admission = await stores.agentRunStore.readRootTurnAdmission(this.sessionId, turnId);
-      assert.ok(admission);
-      const runs = (await stores.agentRunStore.listSessionRuns(this.sessionId)).filter(
-        (candidate) => candidate.turnId === turnId,
-      );
-      const run = await stores.agentRunStore.readRun(this.sessionId, admission.runId);
-      const messages = await stores.sessionStore.readMessages(this.sessionId);
-      const runtimeEvents = await stores.runtimeEventStore.readImmutableRuntimeEvents(
-        this.sessionId,
-        admission.runId,
-      );
-      return {
-        runs,
-        userMessages: messages.filter(
-          (message) => message.type === 'user' && message.turnId === turnId,
-        ),
-        terminalEvents: runtimeEvents.filter(isTerminalRuntimeEvent),
-        classification: classifyTerminalRuntimeLedger(run, runtimeEvents),
-      };
-    } finally {
-      await reader.close();
-    }
-  }
-
-  async readTurnFootprint(turnId: string): Promise<{
-    admitted: boolean;
-    runCount: number;
-    userMessageCount: number;
-  }> {
-    const reader = await acquireReader(this.capability);
-    try {
-      const stores = await openInteractiveExecutionStoresForRead(reader.lease);
-      const [admission, runs, messages] = await Promise.all([
-        stores.agentRunStore.readRootTurnAdmission(this.sessionId, turnId),
-        stores.agentRunStore.listSessionRuns(this.sessionId),
-        stores.sessionStore.readMessages(this.sessionId),
-      ]);
-      return {
-        admitted: admission !== undefined,
-        runCount: runs.filter((run) => run.turnId === turnId).length,
-        userMessageCount: messages.filter(
-          (message) => message.type === 'user' && message.turnId === turnId,
-        ).length,
-      };
-    } finally {
-      await reader.close();
-    }
-  }
-
-  async close(): Promise<void> {
-    for (const child of this.#children) {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      await withTimeout(waitForExit(child), 1_000, 'cleanup Host did not exit').catch(
-        () => undefined,
-      );
-    }
-    await rm(join(resolveRootControlNamespace(), this.capability.rootId), {
-      recursive: true,
-      force: true,
+test('two Clients arbitrate one per-Run Interaction winner', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const subscription = await first.openSessionSubscription({
+      sessionId: fixture.sessionId,
     });
-    await removePosixEndpointDirectories(this.capability.rootId);
-    await rm(this.base, { recursive: true, force: true });
-  }
-
-  private spawnHost(stderr: 'inherit' | 'ignore', execArgv?: readonly string[]): ChildProcess {
-    const child = fork(
-      new URL('./fixtures/execution-host.js', import.meta.url),
-      [this.root, this.capability.rootId, '60000'],
-      {
-        stdio: ['ignore', 'ignore', stderr, 'ipc'],
-        ...(execArgv ? { execArgv: [...execArgv] } : {}),
-      },
-    );
-    this.#children.add(child);
-    return child;
-  }
-}
-
-async function withExecutionRoot(run: (fixture: ExecutionFixture) => Promise<void>): Promise<void> {
-  const base = await mkdtemp(join(tmpdir(), 'maka-runtime-host-execution-'));
-  const root = join(base, 'root');
-  const capability = await resolveStorageRoot({
-    path: root,
-    kind: 'interactive',
-  });
-  const owner = await tryAcquireInteractiveRootOwner(capability);
-  assert.ok(owner);
-  let sessionId: string;
-  try {
-    const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
-    const session = await stores.sessionStore.create({
-      cwd: root,
-      backend: 'fake',
-      llmConnectionSlug: 'fake',
-      model: 'fake-model',
-      permissionMode: 'ask',
+    const turnId = randomUUID();
+    const started = await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
     });
-    sessionId = session.id;
-  } finally {
-    await owner.close();
-  }
-  const fixture = new ExecutionFixture(base, root, capability, sessionId);
-  try {
-    await run(fixture);
-  } finally {
-    await fixture.close();
-  }
-}
+    const pending = await waitForPendingInteraction(subscription, turnId);
+    assert.equal(pending.runId, started.runId);
 
-async function connectClient(
-  rootPath: string,
-  surface: 'desktop' | 'tui' | 'run',
-): Promise<RuntimeHostConnection> {
-  const result = await connectRuntimeHost({
-    rootPath,
-    surface,
-    protocol: CURRENT_PROTOCOL,
-  });
-  assert.equal(result.kind, 'connected');
-  return result.connection;
-}
+    const firstAnswer = questionAnswer('邀请制', '本周', '是');
+    const secondAnswer = questionAnswer('公开测试', '下周', '否');
+    const attempts = await Promise.allSettled([
+      first.request('interaction.answer', {
+        interactionId: pending.interactionId,
+        answer: firstAnswer,
+      }),
+      second.request('interaction.answer', {
+        interactionId: pending.interactionId,
+        answer: secondAnswer,
+      }),
+    ]);
+    const winner = attempts.find(
+      (
+        attempt,
+      ): attempt is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof first.request<'interaction.answer'>>>
+      > => attempt.status === 'fulfilled',
+    );
+    const loser = attempts.find(
+      (attempt): attempt is PromiseRejectedResult => attempt.status === 'rejected',
+    );
+    assert.ok(winner);
+    assert.ok(loser);
+    assert.equal(attempts.filter((attempt) => attempt.status === 'fulfilled').length, 1);
+    assert.ok(
+      loser.reason instanceof RuntimeHostOperationError && loser.reason.code === 'already_resolved',
+    );
 
-async function sendStartWithoutReadingResponse(
-  endpoint: string,
-  input: { sessionId: string; turnId: string; text: string },
-): Promise<FramedTransport> {
-  const transport = new FramedTransport(await openSocket(endpoint));
-  await transport.write({
-    kind: 'hello',
-    clientInstanceId: randomUUID(),
-    surface: 'desktop',
-    protocolMin: CURRENT_PROTOCOL.min,
-    protocolMax: CURRENT_PROTOCOL.max,
+    const canonical = await second.request('interaction.query', {
+      sessionId: fixture.sessionId,
+      interactionId: pending.interactionId,
+    });
+    assert.deepEqual(canonical, winner.value);
+    assert.equal((await waitForTerminalTurn(first, fixture.sessionId, turnId)).status, 'completed');
+    await subscription.close();
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
   });
-  const handshake = decodeHostFrame(await transport.read(2_000));
-  assert.ok('kind' in handshake);
-  assert.equal(handshake.kind, 'accepted');
-  await transport.write({
-    requestId: randomUUID(),
-    operation: 'turn.start',
-    input,
-  });
-  return transport;
-}
+});
 
-function openSocket(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = connect(path);
-    const onError = (error: Error) => {
-      socket.off('connect', onConnect);
-      reject(error);
-    };
-    const onConnect = () => {
-      socket.off('error', onError);
-      resolve(socket);
-    };
-    socket.once('error', onError);
-    socket.once('connect', onConnect);
-  });
-}
+test('a Store-first retry returns the durable answer after response loss', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const observer = await connectClient(fixture.root, 'tui');
+    const subscription = await observer.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const turnId = randomUUID();
+    await observer.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
+    });
+    const pending = await waitForPendingInteraction(subscription, turnId);
+    const answer = questionAnswer('邀请制', '下周', '是');
+    const dropped = await sendRequestWithoutReadingResponse(host.endpoint, 'interaction.answer', {
+      interactionId: pending.interactionId,
+      answer,
+    });
+    await waitForInteractionRemoval(subscription, pending.interactionId);
+    dropped.destroy();
 
-async function waitForTurn(
-  connection: RuntimeHostConnection,
-  sessionId: string,
-  turnId: string,
-): Promise<TurnSnapshot> {
-  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
-  while (true) {
-    try {
-      return await connection.queryTurn({ sessionId, turnId });
-    } catch (error) {
-      if (!(error instanceof RuntimeHostOperationError) || error.code !== 'not_found') throw error;
-      if (Date.now() >= deadline) throw new Error('Turn admission was not observed');
-      await sleep(20);
+    const canonical = await observer.request('interaction.query', {
+      sessionId: fixture.sessionId,
+      interactionId: pending.interactionId,
+    });
+    assert.equal(canonical.status, 'answered');
+    const retried = await observer.request('interaction.answer', {
+      interactionId: pending.interactionId,
+      answer,
+    });
+    assert.deepEqual(retried, canonical);
+    assert.equal(
+      (await waitForTerminalTurn(observer, fixture.sessionId, turnId)).status,
+      'completed',
+    );
+    await subscription.close();
+    await observer.close();
+    await fixture.stopHost(host);
+  });
+});
+
+test('SIGTERM gracefully closes an active Interaction', {
+  skip: process.platform === 'win32' ? 'POSIX signal gate' : false,
+}, async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const client = await connectClient(fixture.root, 'desktop');
+    const subscription = await client.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const turnId = randomUUID();
+    await client.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
+    });
+    await waitForPendingInteraction(subscription, turnId);
+
+    await fixture.stopHost(host);
+    assert.equal(host.child.exitCode, 0);
+    assert.equal(host.child.signalCode, null);
+    await client.closed;
+    await fixture.assertOwnerAvailable();
+  });
+});
+
+test('SIGKILL successor closes a pending Interaction as host_restarted', {
+  skip: process.platform === 'win32' ? 'POSIX process death gate' : false,
+}, async () => {
+  await withExecutionRoot(async (fixture) => {
+    const firstHost = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const subscription = await first.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const turnId = randomUUID();
+    await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
+    });
+    const pending = await waitForPendingInteraction(subscription, turnId);
+
+    await fixture.killHost(firstHost);
+    await first.closed;
+    const successor = await fixture.startHost();
+    const observer = await connectClient(fixture.root, 'tui');
+    const recovered = await observer.request('interaction.query', {
+      sessionId: fixture.sessionId,
+      interactionId: pending.interactionId,
+    });
+    assert.equal(recovered.status, 'closed');
+    if (recovered.status === 'closed') {
+      assert.equal(recovered.outcome.reason, 'host_restarted');
     }
-  }
-}
+    const turn = await observer.queryTurn({ sessionId: fixture.sessionId, turnId });
+    assert.equal(turn.status, 'failed');
+    if (turn.status === 'failed') assert.equal(turn.failureClass, 'app_restarted');
+    await observer.close();
+    await fixture.stopHost(successor);
+  });
+});
 
-async function waitForTerminalTurn(
-  connection: RuntimeHostConnection,
-  sessionId: string,
-  turnId: string,
-): Promise<TurnSnapshot> {
-  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
-  while (true) {
-    const snapshot = await connection.queryTurn({ sessionId, turnId });
-    if (
-      snapshot.status === 'completed' ||
-      snapshot.status === 'failed' ||
-      snapshot.status === 'cancelled'
-    ) {
-      return snapshot;
-    }
-    if (Date.now() >= deadline) throw new Error('Turn did not reach a terminal fact');
-    await sleep(20);
-  }
-}
+test('root prepare failure leaves an inherited Interaction pending', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const request = await fixture.seedPendingQuestion({
+      turnId: randomUUID(),
+      runId: randomUUID(),
+    });
+    await appendFile(fixture.sessionPath(), '{"type":"corrupt"\n', 'utf8');
+
+    await fixture.expectHostStartupFailure();
+    const canonical = await fixture.readInteraction(request.requestId);
+    assert.deepEqual(canonical, { request });
+    await fixture.assertOwnerAvailable();
+  });
+});
+
+test('startup commits Interaction closure before strict Run recovery', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const turnId = randomUUID();
+    const { runId } = await fixture.seedRunWithoutUserMessage(
+      turnId,
+      'recover only after closing inherited interactions',
+    );
+    const request = await fixture.seedPendingQuestion({ turnId, runId });
+    const host = await fixture.startHost({ steppingNow: 1_900_000_000_000 });
+    const client = await connectClient(fixture.root, 'tui');
+    const interaction = await client.request('interaction.query', {
+      sessionId: fixture.sessionId,
+      interactionId: request.requestId,
+    });
+    assert.equal(interaction.status, 'closed');
+    if (interaction.status !== 'closed') return;
+    assert.equal(interaction.outcome.reason, 'host_restarted');
+    const turn = await client.queryTurn({ sessionId: fixture.sessionId, turnId });
+    assert.equal(turn.status, 'failed');
+    await client.close();
+    await fixture.stopHost(host);
+
+    const ledger = await fixture.readTurn(turnId);
+    assert.equal(ledger.terminalEvents.length, 1);
+    assert.ok(interaction.outcome.committedAt < ledger.terminalEvents[0]!.ts);
+  });
+});
 
 function operationError(code: RuntimeHostOperationError['code']) {
   return (error: unknown): boolean =>
     error instanceof RuntimeHostOperationError && error.code === code;
 }
 
+function questionAnswer(first: string, second: string, third: string): InteractionAnswer {
+  return { kind: 'question', answers: [first, second, third] };
+}
+
+async function waitForPendingInteraction(
+  subscription: RuntimeHostSessionSubscription,
+  turnId: string,
+): Promise<InteractionPendingSnapshot> {
+  const initial = subscription.snapshot.interactions.pending.find(
+    (interaction) => interaction.turnId === turnId,
+  );
+  if (initial) return initial;
+  const iterator = subscription[Symbol.asyncIterator]();
+  while (true) {
+    const next = await withTimeout(
+      iterator.next(),
+      PROCESS_TIMEOUT_MS,
+      'pending Interaction was not projected',
+    );
+    if (next.done) throw new Error('Session subscription closed before Interaction admission');
+    if (next.value.kind !== 'subscription.session_projection') continue;
+    const pending = next.value.snapshot.interactions.pending.find(
+      (interaction) => interaction.turnId === turnId,
+    );
+    if (pending) return pending;
+  }
+}
+
+async function waitForInteractionRemoval(
+  subscription: RuntimeHostSessionSubscription,
+  interactionId: string,
+): Promise<void> {
+  const iterator = subscription[Symbol.asyncIterator]();
+  while (true) {
+    const next = await withTimeout(
+      iterator.next(),
+      PROCESS_TIMEOUT_MS,
+      'resolved Interaction remained in the Session projection',
+    );
+    if (next.done) throw new Error('Session subscription closed before Interaction resolution');
+    if (
+      next.value.kind === 'subscription.session_projection' &&
+      !next.value.snapshot.interactions.pending.some(
+        (interaction) => interaction.interactionId === interactionId,
+      )
+    ) {
+      return;
+    }
+  }
+}
+
 function assertJsonLines(bytes: string): void {
   for (const line of bytes.split('\n').filter(Boolean)) {
     assert.doesNotThrow(() => JSON.parse(line));
   }
-}
-
-function waitForHostReady(child: ChildProcess): Promise<{ hostEpoch: string; endpoint: string }> {
-  return withTimeout(
-    new Promise((resolve, reject) => {
-      const cleanup = () => {
-        child.off('error', onError);
-        child.off('exit', onExit);
-        child.off('message', onMessage);
-      };
-      const onError = (error: Error) => {
-        cleanup();
-        reject(error);
-      };
-      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-        cleanup();
-        reject(new Error(`execution Host exited before readiness: ${code ?? signal}`));
-      };
-      const onMessage = (message: unknown) => {
-        if (!isHostReadyMessage(message)) return;
-        cleanup();
-        resolve({ hostEpoch: message.hostEpoch, endpoint: message.endpoint });
-      };
-      child.once('error', onError);
-      child.once('exit', onExit);
-      child.on('message', onMessage);
-    }),
-    PROCESS_TIMEOUT_MS,
-    'execution Host did not become ready',
-  );
-}
-
-function isHostReadyMessage(
-  value: unknown,
-): value is { type: 'ready'; hostEpoch: string; endpoint: string } {
-  if (!value || typeof value !== 'object') return false;
-  const message = value as Record<string, unknown>;
-  return (
-    message.type === 'ready' &&
-    typeof message.hostEpoch === 'string' &&
-    typeof message.endpoint === 'string'
-  );
-}
-
-function waitForExit(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', () => resolve());
-  });
-}
-
-async function acquireReader(capability: StorageRootCapability<'interactive'>) {
-  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
-  while (true) {
-    const reader = await tryAcquireInteractiveRootReader(capability);
-    if (reader) return reader;
-    if (Date.now() >= deadline)
-      throw new Error('Interactive root reader could not acquire the released root');
-    await sleep(20);
-  }
-}
-
-async function removePosixEndpointDirectories(rootId: string): Promise<void> {
-  if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
-  const prefix = `m-${process.getuid()}-${Buffer.from(rootId, 'hex').toString('base64url')}-`;
-  const entries = await readdir('/tmp', { withFileTypes: true });
-  await Promise.all(
-    entries.map(async (entry) => {
-      if (entry.isDirectory() && entry.name.startsWith(prefix)) {
-        await rm(join('/tmp', entry.name), { recursive: true, force: true });
-      }
-    }),
-  );
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

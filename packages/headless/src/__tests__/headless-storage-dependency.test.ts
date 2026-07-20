@@ -66,7 +66,7 @@ function loadCompilerProject() {
 test('only the Headless storage composition imports production writer factories', async () => {
   const violations: string[] = [];
   const productionModules = [
-    ...await listProductionTypeScriptFiles(sourceRoot),
+    ...(await listProductionTypeScriptFiles(sourceRoot)),
     ...productionJavaScriptModules,
   ];
   for (const path of productionModules) {
@@ -90,9 +90,15 @@ test('dependency scanning fails closed on computed loads and loader capabilities
     scan.nonStaticLoads.map((load) => load.slice(load.lastIndexOf(': ') + 2)).sort(),
     ['import(...)', 'require(...)'],
   );
-  assert.ok(scan.forbiddenLoaderCapabilities.some((capability) => /getBuiltinModule/.test(capability)));
-  assert.ok(scan.forbiddenLoaderCapabilities.some((capability) => /createRequire/.test(capability)));
-  assert.ok(scan.forbiddenLoaderCapabilities.some((capability) => /require alias/.test(capability)));
+  assert.ok(
+    scan.forbiddenLoaderCapabilities.some((capability) => /getBuiltinModule/.test(capability)),
+  );
+  assert.ok(
+    scan.forbiddenLoaderCapabilities.some((capability) => /createRequire/.test(capability)),
+  );
+  assert.ok(
+    scan.forbiddenLoaderCapabilities.some((capability) => /require alias/.test(capability)),
+  );
   assert.throws(
     () => moduleReferences(fixturePath),
     /Dependency boundary requires explicit module declarations/,
@@ -126,10 +132,7 @@ interface ModuleReference {
   importedNames: string[] | null;
 }
 
-function forbiddenWriterSymbols(
-  importer: string,
-  reference: ModuleReference,
-): string[] {
+function forbiddenWriterSymbols(importer: string, reference: ModuleReference): string[] {
   const { importedNames, specifier } = reference;
   if (specifier === '@maka/storage') {
     if (importedNames === null) return [...rawStorageWriterFactories];
@@ -140,17 +143,19 @@ function forbiddenWriterSymbols(
     return importedNames.filter(isExecutionStoresWriterOpener);
   }
   if (
-    isRelativeSpecifier(specifier)
-    && sourcePathForSpecifier(importer, specifier) === taskRunStoreModule
-    && importsSymbol(importedNames, 'openHeadlessTaskRunWriter')
+    isRelativeSpecifier(specifier) &&
+    sourcePathForSpecifier(importer, specifier) === taskRunStoreModule &&
+    importsSymbol(importedNames, 'openHeadlessTaskRunWriter')
   ) {
     return ['openHeadlessTaskRunWriter'];
   }
   return [];
 }
 
-function isRawStorageWriterFactory(symbol: string): symbol is typeof rawStorageWriterFactories[number] {
-  return rawStorageWriterFactories.includes(symbol as typeof rawStorageWriterFactories[number]);
+function isRawStorageWriterFactory(
+  symbol: string,
+): symbol is (typeof rawStorageWriterFactories)[number] {
+  return rawStorageWriterFactories.includes(symbol as (typeof rawStorageWriterFactories)[number]);
 }
 
 function importsSymbol(importedNames: readonly string[] | null, symbol: string): boolean {
@@ -166,7 +171,7 @@ async function listProductionTypeScriptFiles(root: string): Promise<string[]> {
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (entry.isDirectory() && entry.name === '__tests__') continue;
     const path = join(root, entry.name);
-    if (entry.isDirectory()) files.push(...await listProductionTypeScriptFiles(path));
+    if (entry.isDirectory()) files.push(...(await listProductionTypeScriptFiles(path)));
     else if (entry.name.endsWith('.ts')) files.push(path);
   }
   return files;
@@ -186,7 +191,9 @@ function moduleReferences(path: string): ModuleReference[] {
   const scan = scanModuleReferences(path);
   const violations = [...scan.nonStaticLoads, ...scan.forbiddenLoaderCapabilities];
   if (violations.length > 0) {
-    throw new Error(`Dependency boundary requires explicit module declarations:\n${violations.join('\n')}`);
+    throw new Error(
+      `Dependency boundary requires explicit module declarations:\n${violations.join('\n')}`,
+    );
   }
   return scan.references;
 }
@@ -196,8 +203,9 @@ function scanModuleReferences(path: string): {
   nonStaticLoads: string[];
   forbiddenLoaderCapabilities: string[];
 } {
-  const source = compilerProject.program.getSourceFile(path)
-    ?? compilerSnapshot.getDefaultProjectForFile(path)?.program.getSourceFile(path);
+  const source =
+    compilerProject.program.getSourceFile(path) ??
+    compilerSnapshot.getDefaultProjectForFile(path)?.program.getSourceFile(path);
   if (!source) throw new Error(`TypeScript did not load ${path}`);
   const references: ModuleReference[] = [];
   const nonStaticLoads: string[] = [];
@@ -213,9 +221,9 @@ function scanModuleReferences(path: string): {
       });
     }
     if (
-      ts.isExportDeclaration(node)
-      && node.moduleSpecifier
-      && ts.isStringLiteral(node.moduleSpecifier)
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
     ) {
       references.push({
         specifier: node.moduleSpecifier.text,
@@ -237,9 +245,9 @@ function scanModuleReferences(path: string): {
       }
     }
     if (
-      ts.isImportTypeNode(node)
-      && ts.isLiteralTypeNode(node.argument)
-      && ts.isStringLiteral(node.argument.literal)
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
     ) {
       references.push({ specifier: node.argument.literal.text, importedNames: [] });
     }
@@ -277,8 +285,10 @@ function exportDeclarationNames(node: ts.ExportDeclaration): string[] | null {
 }
 
 function isModuleLoadCall(node: ts.CallExpression): boolean {
-  return node.expression.kind === ts.SyntaxKind.ImportKeyword
-    || (ts.isIdentifier(node.expression) && node.expression.text === 'require');
+  return (
+    node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+    (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+  );
 }
 
 function moduleLoadName(node: ts.CallExpression): 'import' | 'require' {

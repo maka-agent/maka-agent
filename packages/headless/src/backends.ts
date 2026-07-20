@@ -17,6 +17,7 @@ export function registerFakeBackend(registry: BackendRegistry): void {
         header: ctx.header,
         store: ctx.store,
         appendMessage: ctx.appendMessage,
+        execution: ctx.execution,
       }),
   );
 }

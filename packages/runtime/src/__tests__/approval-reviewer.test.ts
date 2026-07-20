@@ -8,8 +8,9 @@ import {
   ApprovalCoordinator,
   type AutoApprovalReviewer,
 } from '../approval-reviewer.js';
-import { PermissionEngine } from '../permission-engine.js';
 import { planDeclaredBashSandboxEscalation } from '../sandbox-escalation.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
+import { TestPermissionEngine } from '../test-helpers.js';
 
 const command = 'printf ok > /outside/result.txt';
 const cwd = '/workspace';
@@ -24,6 +25,7 @@ describe('ApprovalCoordinator', () => {
     const { engine, verdict } = escalationVerdict('ask');
     const emitted: AnyPermissionRequestEvent[] = [];
     const pending = new ApprovalCoordinator({}).resolve({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       mode: 'ask',
       verdict,
       permissionEngine: engine,
@@ -50,6 +52,7 @@ describe('ApprovalCoordinator', () => {
       }),
     };
     const response = await new ApprovalCoordinator({ autoReviewer: reviewer }).resolve({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       mode: 'execute',
       verdict,
       permissionEngine: engine,
@@ -81,6 +84,7 @@ describe('ApprovalCoordinator', () => {
     ]) {
       const { engine, verdict } = escalationVerdict('execute');
       const response = await coordinator.resolve({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         mode: 'execute',
         verdict,
         permissionEngine: engine,
@@ -176,11 +180,12 @@ describe('AiSdkAutoApprovalReviewer', () => {
 
 function escalationVerdict(mode: 'ask' | 'execute') {
   let id = 0;
-  const engine = new PermissionEngine({ newId: () => `id-${++id}`, now: () => 100 });
+  const engine = new TestPermissionEngine({ newId: () => `id-${++id}`, now: () => 100 }, cwd);
   const plan = planDeclaredBashSandboxEscalation({ declaration, command, cwd, mode, args });
   assert.equal(plan.kind, 'request');
   if (plan.kind !== 'request') throw new Error('Expected escalation request');
   const verdict = engine.evaluate({
+    stage: 'sandbox_escalation',
     sessionId: 'session-1',
     turnId: 'turn-1',
     toolUseId: 'tool-1',
@@ -188,7 +193,7 @@ function escalationVerdict(mode: 'ask' | 'execute') {
     args,
     mode,
     cwd,
-    sandboxEscalationProposal: plan.proposal,
+    proposal: plan.proposal,
   });
   assert.equal(verdict.kind, 'prompt');
   if (verdict.kind !== 'prompt') throw new Error('Expected permission prompt');
@@ -207,12 +212,7 @@ function requestEvent(): AnyPermissionRequestEvent {
     toolName: 'Bash',
     category: 'shell_unsafe',
     reason: 'sandbox_escalation',
-    args: undefined,
-    command,
-    cwd,
-    justification: declaration.justification,
-    intentHash: 'intent',
-    commandHash: 'command',
+    review: { kind: 'command', command, cwd },
     trigger: 'proactive',
     risk: {
       unsandboxedExecution: true,
@@ -222,6 +222,5 @@ function requestEvent(): AnyPermissionRequestEvent {
     },
     alsoApprovesToolExecution: false,
     availableDecisions: ['allow_once', 'deny'],
-    rememberForTurnAllowed: false,
   };
 }

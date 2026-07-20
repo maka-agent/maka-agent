@@ -20,7 +20,8 @@ export function record(
   const candidate = value as Record<string, unknown>;
   const allowedSet = new Set(allowed);
   for (const key of Object.keys(candidate)) {
-    if (!allowedSet.has(key)) throw codecError(source, `${context} contains unknown field '${key}'`);
+    if (!allowedSet.has(key))
+      throw codecError(source, `${context} contains unknown field '${key}'`);
   }
   for (const key of required) {
     if (!Object.hasOwn(candidate, key)) throw codecError(source, `${context} is missing '${key}'`);
@@ -95,7 +96,9 @@ export function stringArray(
   if (!Array.isArray(value) || value.length > maxEntries) {
     throw codecError(source, `${context} must be a bounded string array`);
   }
-  const parsed = value.map((item, index) => nonEmptyString(item, `${context}[${index}]`, 512, source));
+  const parsed = value.map((item, index) =>
+    nonEmptyString(item, `${context}[${index}]`, 512, source),
+  );
   unique(parsed, context, source);
   return parsed;
 }

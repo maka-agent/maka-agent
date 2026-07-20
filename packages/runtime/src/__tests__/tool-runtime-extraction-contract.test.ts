@@ -48,7 +48,12 @@ describe('ToolRuntime extraction contract', () => {
     );
     assert.match(
       backend,
-      /cleanupAfterTurn\(turnId: string\): void \{[\s\S]*?this\.toolRuntime\.endTurn\(turnId,[\s\S]*?\);[\s\S]*?\}/,
+      /cleanupAfterTurn\(turnId: string\): Promise<void> \{[\s\S]*?this\.finishTurn\(turnId\);[\s\S]*?\}/,
+      'turn cleanup must settle through the canonical finalizer',
+    );
+    assert.match(
+      backend,
+      /finishTurn\(turnId: string\): void \{[\s\S]*?this\.toolRuntime\.endTurn\(turnId,[\s\S]*?\);[\s\S]*?\}/,
       'turn cleanup must settle and reset ToolRuntime-owned per-turn state',
     );
 

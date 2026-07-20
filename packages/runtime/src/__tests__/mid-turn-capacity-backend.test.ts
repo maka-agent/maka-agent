@@ -22,6 +22,7 @@ import { evaluateHistoryCompactCheckpointReplay } from '../history-compact.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import { HistoryCompactSummarizerError } from '../history-compact-error.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 
 const RAW_SPAN_ONE = 'RAW_SPAN_ONE_'.repeat(24);
 const RAW_SPAN_TWO = 'RAW_SPAN_TWO_'.repeat(160);
@@ -243,6 +244,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
   };
 
   const backend = new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async (message) => {

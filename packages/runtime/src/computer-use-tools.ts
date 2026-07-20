@@ -1235,7 +1235,7 @@ export function buildComputerUseTools(deps: {
       'Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerWireParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
-    permissionArgs: (args, context) => {
+    prepareIntentArgs: (args, context) => {
       const input = snapshotComputerParams(computerParams.parse(args));
       if (input.action === 'list_apps' || input.action === 'wait') return input;
       if (input.action === 'observe') return input;

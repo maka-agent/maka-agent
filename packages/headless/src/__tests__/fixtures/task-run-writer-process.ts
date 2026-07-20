@@ -1,8 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import {
-  createHeadlessRootLease,
-  resolveStorageRoot,
-} from '@maka/storage/root-authority';
+import { createHeadlessRootLease, resolveStorageRoot } from '@maka/storage/root-authority';
 import type { TaskEvent } from '../../task-contracts.js';
 import { openHeadlessTaskRunWriter } from '../../task-run-store.js';
 
@@ -34,7 +31,7 @@ process.once('message', async (message) => {
 });
 
 function isAppendRequest(value: unknown): value is { type: 'append' } {
-  return typeof value === 'object'
-    && value !== null
-    && (value as { type?: unknown }).type === 'append';
+  return (
+    typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'append'
+  );
 }

@@ -7,6 +7,7 @@ import {
   negotiateProtocol,
   ProtocolFrameDecoder,
   RUNTIME_HOST_MAX_FRAME_BYTES,
+  SESSION_CONTINUITY_SCHEMA_VERSION,
   SESSION_LIVE_DELTA_MAX_BYTES,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
@@ -84,6 +85,26 @@ describe('Runtime Host bootstrap protocol', () => {
     );
   });
 
+  test('routes Interaction answers only by stable Interaction identity', () => {
+    const frame = {
+      requestId: 'interaction-answer-1',
+      operation: 'interaction.answer' as const,
+      input: {
+        interactionId: 'interaction-1',
+        answer: { kind: 'question' as const, answers: ['yes'] },
+      },
+    };
+    assert.deepEqual(decodeClientFrame(frame), frame);
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          ...frame,
+          input: { ...frame.input, sessionId: 'session-1' },
+        }),
+      isInvalidFrame,
+    );
+  });
+
   test('rejects terminal snapshots with fields from another terminal variant', () => {
     assert.throws(
       () =>
@@ -115,30 +136,34 @@ describe('Runtime Host bootstrap protocol', () => {
 
   test('keeps Session continuity snapshots closed to canonical identity and root Turn', () => {
     const frame = sessionProjectionFrame();
+    assert.doesNotThrow(() => decodeHostFrame(frame));
     assert.throws(
-      () => decodeHostFrame({
-        ...frame,
-        snapshot: {
-          ...frame.snapshot,
-          transcript: [{ role: 'assistant', text: 'private' }],
-        },
-      }),
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            transcript: [{ role: 'assistant', text: 'private' }],
+          },
+        }),
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeHostFrame({
-        ...frame,
-        snapshot: {
-          ...frame.snapshot,
-          interaction: { kind: 'permission', args: { path: '/private' } },
-        },
-      }),
+      () =>
+        decodeHostFrame({
+          ...frame,
+          snapshot: {
+            ...frame.snapshot,
+            interaction: { kind: 'permission', args: { path: '/private' } },
+          },
+        }),
       isInvalidFrame,
     );
   });
 
   test('rejects Session continuity root Turns from another Session', () => {
     const projection = sessionProjectionFrame();
+    assert.doesNotThrow(() => decodeHostFrame(projection));
     const snapshot = {
       ...projection.snapshot,
       rootTurn: {
@@ -147,54 +172,50 @@ describe('Runtime Host bootstrap protocol', () => {
       },
     };
     assert.throws(
-      () => decodeHostFrame({
-        requestId: 'subscription-open-2',
-        operation: 'subscription.open',
-        ok: true,
-        result: {
-          hostEpoch: 'epoch-1',
-          subscriptionId: 'subscription-1',
-          nextSequence: 1,
-          snapshot,
-        },
-      }),
+      () =>
+        decodeHostFrame({
+          requestId: 'subscription-open-2',
+          operation: 'subscription.open',
+          ok: true,
+          result: {
+            hostEpoch: 'epoch-1',
+            subscriptionId: 'subscription-1',
+            nextSequence: 1,
+            snapshot,
+          },
+        }),
       isInvalidFrame,
     );
-    assert.throws(
-      () => decodeHostFrame({ ...projection, snapshot }),
-      isInvalidFrame,
-    );
+    assert.throws(() => decodeHostFrame({ ...projection, snapshot }), isInvalidFrame);
   });
 
   test('rejects private delta fields and enforces the text limit in UTF-8 bytes', () => {
     const frame = sessionDeltaFrame('visible');
     assert.throws(
-      () => decodeHostFrame({
-        ...frame,
-        delta: { ...frame.delta, signature: 'private-signature' },
-      }),
+      () =>
+        decodeHostFrame({
+          ...frame,
+          delta: { ...frame.delta, signature: 'private-signature' },
+        }),
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeHostFrame({
-        ...frame,
-        delta: { ...frame.delta, toolArgs: { path: '/private' } },
-      }),
+      () =>
+        decodeHostFrame({
+          ...frame,
+          delta: { ...frame.delta, toolArgs: { path: '/private' } },
+        }),
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeHostFrame(
-        sessionDeltaFrame('界'.repeat(Math.floor(SESSION_LIVE_DELTA_MAX_BYTES / 3) + 1)),
-      ),
+      () =>
+        decodeHostFrame(
+          sessionDeltaFrame('界'.repeat(Math.floor(SESSION_LIVE_DELTA_MAX_BYTES / 3) + 1)),
+        ),
       isInvalidFrame,
     );
-    const decoded = decodeHostFrame(
-      sessionDeltaFrame('a'.repeat(SESSION_LIVE_DELTA_MAX_BYTES)),
-    );
-    assert.equal(
-      'kind' in decoded && decoded.kind,
-      'subscription.session_delta',
-    );
+    const decoded = decodeHostFrame(sessionDeltaFrame('a'.repeat(SESSION_LIVE_DELTA_MAX_BYTES)));
+    assert.equal('kind' in decoded && decoded.kind, 'subscription.session_delta');
   });
 });
 
@@ -205,7 +226,7 @@ function sessionProjectionFrame() {
     subscriptionId: 'subscription-1',
     sequence: 1,
     snapshot: {
-      schemaVersion: 1 as const,
+      schemaVersion: SESSION_CONTINUITY_SCHEMA_VERSION,
       session: {
         sessionId: 'session-1',
         status: 'running' as const,
@@ -220,6 +241,7 @@ function sessionProjectionFrame() {
         runId: 'run-1',
         status: 'running' as const,
       },
+      interactions: { pending: [] },
     },
   };
 }

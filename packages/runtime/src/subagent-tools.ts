@@ -128,6 +128,14 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
       }),
     permissionRequired: true,
     categoryHint: 'subagent',
+    prepareIntentArgs: (input) => {
+      const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
+      return {
+        ...input,
+        write_back: input.write_back ?? definition.contract.defaultWriteBack,
+        isolation: input.isolation ?? definition.contract.workspace,
+      };
+    },
     impl: async (input, ctx) => {
       const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
       const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;
