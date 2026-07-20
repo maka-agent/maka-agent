@@ -783,7 +783,7 @@ describe('ModelCatalogEntry', () => {
     assert.equal(entry?.maxOutputTokens, 128_000);
   });
 
-  it('keeps Claude subscription limits unknown instead of reusing Anthropic API context', () => {
+  it('keeps Claude subscription access-path limits unknown while reusing model capabilities', () => {
     const [[apiEntry], [subscriptionEntry]] = (
       [
         ['anthropic', 'claude-sonnet-4-6'],
@@ -802,7 +802,11 @@ describe('ModelCatalogEntry', () => {
     assert.equal(apiEntry?.maxOutputTokens, 128_000);
     assert.equal(subscriptionEntry?.contextWindow, undefined);
     assert.equal(subscriptionEntry?.maxOutputTokens, undefined);
-    assert.deepEqual(subscriptionEntry?.capabilities, {});
+    assert.deepEqual(subscriptionEntry?.capabilities, {
+      vision: true,
+      reasoning: true,
+      functionCalling: true,
+    });
   });
 
   it('keeps static model facts on missing default entries without making them sendable', () => {

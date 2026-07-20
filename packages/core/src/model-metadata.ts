@@ -372,6 +372,7 @@ function displayMetadataOnly(
         displayName: metadata.displayName,
         lifecycle: metadata.lifecycle,
         docsUrl: metadata.docsUrl,
+        capabilities: metadata.capabilities,
         thinkingOptions: overrides[id]?.thinkingOptions,
       },
     ]),

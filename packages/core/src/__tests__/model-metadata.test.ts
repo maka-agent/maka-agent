@@ -125,6 +125,14 @@ describe('resolveModelVisionSupport', () => {
       true,
     );
     assert.equal(
+      resolveModelVisionSupport(
+        'claude-subscription',
+        [{ id: 'claude-sonnet-4-6' }],
+        'claude-sonnet-4-6',
+      ),
+      true,
+    );
+    assert.equal(
       resolveModelVisionSupport('deepseek', [{ id: 'deepseek-chat' }], 'deepseek-chat'),
       false,
     );
