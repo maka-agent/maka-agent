@@ -4267,6 +4267,65 @@ describe('createHarborHttpToolExecutor', () => {
     }
   });
 
+  test('rejects conflicting bridge exit-code aliases', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ exitCode: 0, returnCode: 9, stdout: '', stderr: '' }));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects a bridge timeout paired with a successful exit code', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ exitCode: 0, stdout: '', stderr: '', timedOut: true }));
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('rejects an unsafe bridge exit code', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(
+          JSON.stringify({ exitCode: Number.MAX_SAFE_INTEGER + 1, stdout: '', stderr: '' }),
+        );
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      await assert.rejects(
+        executor.exec({ command: 'printf unreachable', cwd: '/workspace' }),
+        /Harbor tool executor returned an invalid response/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test('preserves a typed bridge timeout instead of command stderr', async () => {
     const previousFetch = globalThis.fetch;
     try {

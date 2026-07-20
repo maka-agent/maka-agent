@@ -7,7 +7,7 @@ import { exec as nodeExec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/runtime';
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
-import type { IsolatedToolExecutor } from './isolation.js';
+import type { IsolatedCommandResult, IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
 import { buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
 
@@ -59,27 +59,37 @@ export function createHarborHttpToolExecutor(
       } catch {
         throw new Error('Harbor tool executor returned an invalid response');
       }
-      if (!isRecord(parsed)) {
-        throw new Error('Harbor tool executor returned an invalid response');
-      }
-      const exitCode = parsed.exitCode ?? parsed.returnCode;
-      if (
-        typeof exitCode !== 'number' ||
-        !Number.isInteger(exitCode) ||
-        typeof parsed.stdout !== 'string' ||
-        typeof parsed.stderr !== 'string' ||
-        (parsed.timedOut !== undefined && typeof parsed.timedOut !== 'boolean')
-      ) {
-        throw new Error('Harbor tool executor returned an invalid response');
-      }
-      return {
-        exitCode,
-        stdout: parsed.stdout,
-        stderr: parsed.stderr,
-        ...(parsed.timedOut !== undefined ? { timedOut: parsed.timedOut } : {}),
-      };
+      return decodeHarborCommandResult(parsed);
     },
   };
+}
+
+function decodeHarborCommandResult(parsed: unknown): IsolatedCommandResult {
+  if (!isRecord(parsed)) throw invalidHarborResponse();
+  const { exitCode, returnCode } = parsed;
+  if (
+    (exitCode !== undefined && (typeof exitCode !== 'number' || !Number.isSafeInteger(exitCode))) ||
+    (returnCode !== undefined &&
+      (typeof returnCode !== 'number' || !Number.isSafeInteger(returnCode))) ||
+    (exitCode === undefined && returnCode === undefined) ||
+    (exitCode !== undefined && returnCode !== undefined && exitCode !== returnCode) ||
+    typeof parsed.stdout !== 'string' ||
+    typeof parsed.stderr !== 'string' ||
+    (parsed.timedOut !== undefined && typeof parsed.timedOut !== 'boolean') ||
+    (parsed.timedOut === true && (exitCode ?? returnCode) !== 124)
+  ) {
+    throw invalidHarborResponse();
+  }
+  return {
+    exitCode: (exitCode ?? returnCode) as number,
+    stdout: parsed.stdout,
+    stderr: parsed.stderr,
+    ...(parsed.timedOut !== undefined ? { timedOut: parsed.timedOut } : {}),
+  };
+}
+
+function invalidHarborResponse(): Error {
+  return new Error('Harbor tool executor returned an invalid response');
 }
 
 export function createHarborCellLocalToolExecutor(
