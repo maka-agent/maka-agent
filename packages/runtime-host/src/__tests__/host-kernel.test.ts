@@ -66,13 +66,10 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(winner.kind, 'winner');
       if (winner.kind !== 'winner') return;
-      assert.deepEqual(
-        await startTestRuntimeHostCandidate(paths, {
-          rootPath: paths.root,
-        }),
-        { kind: 'loser' },
-      );
 
+      // Connect before the loser assertion: a resident connection cancels the
+      // winner's idle timer, so the loser candidate's storage work cannot drain
+      // the Host before this one-shot connect lands.
       const connected = await connectRuntimeHost({
         ...paths,
         rootPath: paths.root,
@@ -81,6 +78,13 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
+
+      assert.deepEqual(
+        await startTestRuntimeHostCandidate(paths, {
+          rootPath: paths.root,
+        }),
+        { kind: 'loser' },
+      );
       const statuses = await Promise.all([
         connected.connection.status(),
         connected.connection.status(),
