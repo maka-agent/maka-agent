@@ -5,11 +5,11 @@ import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import type { createMainWindowController } from './main-window.js';
 import type { ProjectRootController } from './project-root-controller.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { getE2EFixtureState, type resolveE2EFixture } from './e2e-fixture.js';
+import { getE2eFixtureState, type resolveE2eFixture } from './e2e-fixture.js';
 import type { resolveBuildInfo } from './build-info.js';
 
 type MainWindowController = ReturnType<typeof createMainWindowController>;
-type E2EFixture = ReturnType<typeof resolveE2EFixture>;
+type E2eFixture = ReturnType<typeof resolveE2eFixture>;
 type BuildInfo = ReturnType<typeof resolveBuildInfo>;
 
 export interface AppIpcDeps {
@@ -19,7 +19,7 @@ export interface AppIpcDeps {
   getProjectRoot(sessionId: unknown): Promise<string>;
   workspaceRoot: string;
   buildInfo: BuildInfo;
-  e2eFixture: E2EFixture;
+  e2eFixture: E2eFixture;
 }
 
 export function registerAppIpc(deps: AppIpcDeps): void {
@@ -140,5 +140,5 @@ export function registerAppIpc(deps: AppIpcDeps): void {
       return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
     },
   );
-  ipcMain.handle('e2eFixture:getState', () => getE2EFixtureState(e2eFixture));
+  ipcMain.handle('e2eFixture:getState', () => getE2eFixtureState(e2eFixture));
 }

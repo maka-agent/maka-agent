@@ -44,7 +44,7 @@ import type {
   UpdateAppSettingsResult,
   UsageRange,
   UsageStats,
-  E2EFixtureState,
+  E2eFixtureState,
   ArtifactBinaryReadResult,
   ArtifactChangedEvent,
   ArtifactRecord,
@@ -998,7 +998,7 @@ const makaBridge = {
     },
   },
   e2eFixture: {
-    getState(): Promise<E2EFixtureState | null> {
+    getState(): Promise<E2eFixtureState | null> {
       return ipcRenderer.invoke('e2eFixture:getState');
     },
   },

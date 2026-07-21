@@ -37,7 +37,7 @@ import {
   normalizeStopSessionInput,
   normalizeUserQuestionResponse,
 } from './permission-response-guard.js';
-import { getE2EFixtureState, type resolveE2EFixture } from './e2e-fixture.js';
+import { getE2eFixtureState, type resolveE2eFixture } from './e2e-fixture.js';
 import type { requireReadyConnection } from './chat-readiness.js';
 import type { MainTaskLedgerWiring } from './task-ledger-wiring.js';
 import type { MainGoalWiring } from './goal-wiring.js';
@@ -49,7 +49,7 @@ import { handleBranchFromTurn } from './session-branch.js';
 type SessionStore = ReturnType<typeof createSessionStore>;
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
 type MainWindowController = ReturnType<typeof createMainWindowController>;
-type E2EFixture = ReturnType<typeof resolveE2EFixture>;
+type E2eFixture = ReturnType<typeof resolveE2eFixture>;
 
 /** The per-session cleanup subset of the cursor-overlay controller. */
 interface SessionOverlayCleanup {
@@ -73,7 +73,7 @@ export interface SessionsIpcDeps {
   settingsStore: SettingsStore;
   connectionStore: ConnectionStore;
   mainWindowController: MainWindowController;
-  e2eFixture: E2EFixture;
+  e2eFixture: E2eFixture;
   emitSessionsChanged: (
     reason: SessionChangedReason,
     sessionId?: string,
@@ -175,7 +175,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       includeTerminal: true,
       includeArchived: false,
       classifyResumeTrust: true,
-      ...(e2eFixture ? { now: getE2EFixtureState(e2eFixture)?.now ?? Date.now() } : {}),
+      ...(e2eFixture ? { now: getE2eFixtureState(e2eFixture)?.now ?? Date.now() } : {}),
     });
     return tasks.map(sanitizeTaskLedgerTask);
   });

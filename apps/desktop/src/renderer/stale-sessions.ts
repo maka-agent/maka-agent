@@ -9,8 +9,8 @@
  *
  * Two signals classify a session as stale:
  *
- *   1. `backend === 'fake'` — FakeBackend session, either from a visual
- *      smoke fixture or a legacy install that pre-dates the chat-readiness
+ *   1. `backend === 'fake'` — FakeBackend session, either from an e2e-fixture
+ *      or a legacy install that pre-dates the chat-readiness
  *      gate. With @xuan's send-path silent rebind these will swap to the
  *      default connection on send.
  *

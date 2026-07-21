@@ -32,7 +32,7 @@ import type {
   UpdateAppSettingsResult,
   UsageRange,
   UsageStats,
-  E2EFixtureState,
+  E2eFixtureState,
   ArtifactBinaryReadResult,
   ArtifactChangedEvent,
   ArtifactRecord,
@@ -635,7 +635,7 @@ export interface MakaBridge {
     >;
   };
   e2eFixture: {
-    getState(): Promise<E2EFixtureState | null>;
+    getState(): Promise<E2eFixtureState | null>;
   };
   artifacts: {
     list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;

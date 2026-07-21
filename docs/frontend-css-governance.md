@@ -38,7 +38,7 @@ The guard lives in `apps/desktop/src/main/__tests__/renderer-style-layer-cascade
 
 ## 4. `!important`
 
-- `!important` is allowed by default only for accessibility helpers such as `.maka-visually-hidden`, and for reduced-motion or visual-smoke overrides.
+- `!important` is allowed by default only for accessibility helpers such as `.maka-visually-hidden`, and for reduced-motion or e2e-fixture overrides.
 - Every other use requires an adjacent `Justified:` comment and an entry in `renderer-important-audit-contract.test.ts`.
 - Prefer a JSX utility-class reset when the primitive can express the behavior directly.
 

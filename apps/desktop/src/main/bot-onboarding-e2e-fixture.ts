@@ -21,7 +21,7 @@ const WAITING_HOLD_TTL_SECONDS = 60 * 60;
  * scenarios keep the scanned → confirmed happy-path adapters the E2E
  * onboarding specs rely on.
  */
-export function createE2EFixtureBotOnboardingAdapters(): AdapterMap {
+export function createE2eFixtureBotOnboardingAdapters(): AdapterMap {
   if (process.env.MAKA_E2E_FIXTURE === 'settings-bots-onboarding') {
     return createWaitingHoldBotOnboardingAdapters();
   }

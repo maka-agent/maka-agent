@@ -1,9 +1,9 @@
 /**
  * Locks the observable signals for the
  * turn-control-history fixture, at the helper layer (no DOM /
- * Electron). The deterministic fixture verifies the same matrix against
- * rendered screenshots; this test exists so a regression in the
- * helpers gets caught before the E2E specs run.
+ * Electron). The deterministic fixture renders the same matrix; this
+ * test exists so a regression in the helpers gets caught early at the
+ * pure-helper layer, before any DOM/Electron run.
  *
  *  S1 Failed banner copy comes from `describeTurnErrorClass` — Chinese
  *     generalized phrasing, never the raw enum.

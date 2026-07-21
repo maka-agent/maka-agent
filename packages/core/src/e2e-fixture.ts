@@ -3,7 +3,7 @@ import type { PermissionRequestEvent, ToolResultContent } from './events.js';
 import type { SettingsSection } from './settings.js';
 import type { UiLocale } from './ui-locale.js';
 
-export type E2EFixtureScenario =
+export type E2eFixtureScenario =
   | 'all'
   | 'first-run'
   | 'provider-workspace'
@@ -24,7 +24,7 @@ export type E2EFixtureScenario =
   // PR-STREAM-TURN-CENTER: streaming-sidebar only shows the SIDEBAR dot (its
   // active session is a committed one). This seeds an ACTIVE session whose
   // main panel renders the live answer bubble below a committed turn, so
-  // E2E + the alignment audit can lock streaming-vs-committed horizontal
+  // the alignment audit can lock streaming-vs-committed horizontal
   // alignment — the gap
   // that let the "streaming markdown sits ~110px too far left" bug ship.
   | 'streaming-answer'
@@ -108,13 +108,13 @@ export type E2EFixtureScenario =
   // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2 +
   // WAWQAQ msg `4259bf8c`): seed the same 60-session sidebar as
   // sidebar-long-sessions, then auto-open the Search modal at
-  // mount so E2E/audit can reach the modal shell
+  // mount so the alignment audit can reach the modal shell
   // without requiring an interaction. The opener uses
-  // `E2EFixtureState.searchModalOpen=true`; real users never
+  // `E2eFixtureState.searchModalOpen=true`; real users never
   // receive an e2e-fixture state.
   | 'sidebar-search-modal-open'
   // PR-shared primitive-COMMAND-INPUT-0: reuse the long sidebar seed and
-  // auto-open the command palette so E2E/audit can exercise the
+  // auto-open the command palette so the alignment audit can exercise the
   // shared primitive InputGroup command input shell without requiring a key
   // chord.
   | 'command-palette-open'
@@ -130,7 +130,7 @@ export type E2EFixtureScenario =
   // tall, opened as the active session on boot. Off-screen turns mount as
   // 250px content-visibility placeholders, so this seed exercises the
   // warm-up + pinned-bottom geometry invariants (E2E scroll-geometry spec)
-  // and gives E2E/audit a long-transcript surface.
+  // and gives the alignment audit a long-transcript surface.
   | 'long-transcript'
   // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
   // with the active turn session so `BrowserPanel` mounts (app-shell gates
@@ -144,7 +144,7 @@ export type E2EFixtureScenario =
   // they add no layout value over this empty-state fixture.
   | 'browser-empty';
 
-export interface E2EFixtureLiveTool {
+export interface E2eFixtureLiveTool {
   toolUseId: string;
   toolName: string;
   stepId?: string;
@@ -156,21 +156,21 @@ export interface E2EFixtureLiveTool {
   durationMs?: number;
 }
 
-export interface E2EFixtureLiveTurnStep {
+export interface E2eFixtureLiveTurnStep {
   stepId: string;
   thinking?: { text: string; truncated: boolean; complete: boolean };
   text?: { text: string; truncated: boolean; complete: boolean };
-  tools: E2EFixtureLiveTool[];
+  tools: E2eFixtureLiveTool[];
 }
 
-export interface E2EFixtureLiveTurnProjection {
+export interface E2eFixtureLiveTurnProjection {
   turnId: string;
   phase: 'waiting' | 'streamed';
   terminal?: true;
-  steps: E2EFixtureLiveTurnStep[];
+  steps: E2eFixtureLiveTurnStep[];
 }
 
-export interface E2EFixtureState {
+export interface E2eFixtureState {
   enabled: true;
   /**
    * Deterministic wall-clock timestamp for fixture rendering. The
@@ -185,7 +185,7 @@ export interface E2EFixtureState {
    * renderer's `liveBrowserSessionIds` state (app-shell gates `BrowserPanel`
    * mounting on `activeId && liveBrowserSessionIds.includes(activeId)`).
    * Seeded only by the `browser-empty` scenario so the renderer chrome is
-   * reachable by E2E/audit. Real users never receive an e2e-fixture state, so
+   * reachable by the alignment audit. Real users never receive an e2e-fixture state, so
    * this never drives production `browser:live` wiring.
    */
   liveBrowserSessionIds?: string[];
@@ -193,11 +193,11 @@ export interface E2EFixtureState {
   /**
    * When set, open Settings → 模型 with this connection's detail sheet
    * expanded (rather than just the section). Seeded by `oauth-relogin` so the
-   * detail sheet's re-login affordance is what E2E/audit see; takes
+   * detail sheet's re-login affordance is what the alignment audit sees; takes
    * precedence over `openSettingsSection`.
    */
   openConnectionDetailSlug?: string;
-  liveTurnBySession?: Record<string, E2EFixtureLiveTurnProjection>;
+  liveTurnBySession?: Record<string, E2eFixtureLiveTurnProjection>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
   /**
    * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
@@ -210,7 +210,7 @@ export interface E2EFixtureState {
   reducedMotion?: boolean;
   /**
    * PR-IR-01b: theme override driven by `MAKA_E2E_FIXTURE_THEME=light|dark|auto`.
-   * Lets E2E and the alignment audit exercise each scenario in both light
+   * Lets the alignment audit exercise each scenario in both light
    * and dark themes without requiring per-fixture seed updates. The
    * renderer applies this BEFORE the user's persisted theme so the
    * first paint already has the right palette.
@@ -247,7 +247,7 @@ export interface E2EFixtureState {
   /**
    * PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
    * `true`, the renderer auto-opens the sidebar Search modal at
-   * mount so E2E/audit can reach the modal shell
+   * mount so the alignment audit can reach the modal shell
    * deterministically (the modal is not the default state of any
    * scenario; opening it requires either user input or this hint).
    *
@@ -258,7 +258,7 @@ export interface E2EFixtureState {
   searchModalOpen?: boolean;
   /**
    * PR-shared primitive-COMMAND-INPUT-0: when `true`, the renderer auto-opens
-   * the command palette at mount so E2E/audit can
+   * the command palette at mount so the alignment audit can
    * reach the command input shell deterministically. Currently set
    * only by `command-palette-open`.
    */
@@ -272,7 +272,7 @@ export interface E2EFixtureState {
    * then shows the actions cluster — without this hint, default
    * fixture renders never have any focused row, so the overlap fix
    * (`.maka-list-row:focus-within .maka-list-row-meta {
-   * visibility: hidden }`) can't be verified by E2E/audit.
+   * visibility: hidden }`) can't be verified by the alignment audit.
    *
    * Currently set only by the `sidebar-row-actions-visible`
    * scenario.
@@ -300,7 +300,7 @@ export interface E2EFixtureState {
    * #1233 deferral — bot QR-onboarding modal fixture. When set, the Settings
    * 远程接入 page (bot-chat-settings-page) opens the given provider's detail
    * view and auto-opens its scan-login modal at mount, so the deterministic
-   * waiting-state QR fixture is what E2E/audit see. Only the
+   * waiting-state QR fixture is what the alignment audit sees. Only the
    * `settings-bots-onboarding` scenario sets this; real users never receive an
    * e2e-fixture state so production onboarding is untouched.
    */

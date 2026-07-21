@@ -15,8 +15,8 @@ import type { createFileCredentialStore } from './credential-store.js';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { toContractNetworkSettings } from './network-settings-main.js';
 import { importLegacyOAuthTokenFiles } from './oauth/shared-credential-bridge.js';
-import { seedE2EFixture } from './e2e-fixture.js';
-import type { resolveE2EFixture } from './e2e-fixture.js';
+import { seedE2eFixture } from './e2e-fixture.js';
+import type { resolveE2eFixture } from './e2e-fixture.js';
 import type { OpenGatewayService } from './open-gateway.js';
 import type { KeepSystemAwakeController } from './keep-system-awake.js';
 import type { createPlanReminderMainService } from './plan-reminders-main.js';
@@ -33,7 +33,7 @@ type PricingLookup = ReturnType<typeof buildPricingLookup>;
 
 export interface AppLifecycleDeps {
   isIsolatedE2e: boolean;
-  e2eFixture: ReturnType<typeof resolveE2EFixture>;
+  e2eFixture: ReturnType<typeof resolveE2eFixture>;
   workspaceRoot: string;
   credentialStore: ReturnType<typeof createFileCredentialStore>;
   connectionStore: ReturnType<typeof createConnectionStore>;
@@ -210,7 +210,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     // for determinism by definition; production launches skip this await.
     if (e2eFixture) {
       console.log(`[e2e-fixture] scenario=${e2eFixture.scenario} workspace=${workspaceRoot}`);
-      await seedE2EFixture({ workspaceRoot, fixture: e2eFixture, credentialStore });
+      await seedE2eFixture({ workspaceRoot, fixture: e2eFixture, credentialStore });
     }
     await runCredentialStartup();
     app.on('second-instance', focusOrCreateMainWindow);

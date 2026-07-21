@@ -44,10 +44,6 @@ const ALLOW = new Map([
     'external-settings apply failure is a main-process diagnostic, no secrets (moved from main.ts, arch R5).',
   ],
   [
-    'apps/desktop/src/main/app-ipc-main.ts',
-    'e2e-fixture capture marker is fixture-gated and stdout-parsed by capture tooling (moved from main.ts, #1084).',
-  ],
-  [
     'apps/desktop/src/main/daily-review-main.ts',
     'scheduler failures are main-process diagnostics and do not expose secrets.',
   ],

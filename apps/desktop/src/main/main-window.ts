@@ -7,7 +7,7 @@ import { errorMessage } from './chat-readiness.js';
 import { readSavedBounds, writeSavedBounds, SAFE_MIN_HEIGHT, SAFE_MIN_WIDTH, type SavedBounds } from './window-state.js';
 import { BrowserViewController } from './browser/controller.js';
 import { BrowserViewManager } from './browser/view-manager.js';
-import type { E2EFixture } from './e2e-fixture.js';
+import type { E2eFixture } from './e2e-fixture.js';
 import { isThemePreference, toNativeThemeSource } from './theme-source.js';
 import { createWindowRevealGate } from './window-reveal.js';
 
@@ -38,7 +38,7 @@ export interface MainWindowController {
 
 interface MainWindowControllerDeps {
   workspaceRoot: string;
-  e2eFixture: E2EFixture | null;
+  e2eFixture: E2eFixture | null;
   settingsStore: SettingsReader;
   // main.ts computes this from the same isE2e gate that also guards userData
   // and the fake backend, so main-window.ts owns no env policy of its own.
@@ -110,12 +110,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
   // build ignores a stray startHidden flag. The fallback timer, the
   // renderer-ready IPC, and focus() all route their show() through this
   // predicate via the reveal gate below.
-  const keepHiddenForE2EFixture = !app.isPackaged && startHidden;
+  const keepHiddenForE2eFixture = !app.isPackaged && startHidden;
   // ChatGPT Pro review P2: focus() (second-instance / activate) used to call
   // mainWindow.show() directly, bypassing the reveal gate — re-launching or
   // clicking the dock icon during the pre-commit window would flash the
   // skeleton anyway. The gate defers those focus requests until markReady.
-  const revealGate = createWindowRevealGate(keepHiddenForE2EFixture);
+  const revealGate = createWindowRevealGate(keepHiddenForE2eFixture);
   let showFallbackTimer: NodeJS.Timeout | undefined;
   const clearShowFallbackTimer = (): void => {
     if (showFallbackTimer) {
@@ -369,7 +369,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     // If renderer-ready arrived while loadURL/loadFile was resolving, the
     // window is already visible and no timer is needed. E2e-fixture windows
     // remain hidden for their whole lifecycle.
-    if (!keepHiddenForE2EFixture && !mainWindow.isVisible()) {
+    if (!keepHiddenForE2eFixture && !mainWindow.isVisible()) {
       showFallbackTimer = setTimeout(() => {
         showFallbackTimer = undefined;
         revealGate.markReady(mainWindow);
@@ -482,7 +482,7 @@ function clampBoundsToVisibleDisplay(bounds: SavedBounds): SavedBounds {
 }
 
 function e2eFixtureWindowBounds(
-  e2eFixture: E2EFixture | null,
+  e2eFixture: E2eFixture | null,
   defaults: SavedBounds,
 ): SavedBounds {
   if (!e2eFixture) return defaults;

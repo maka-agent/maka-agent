@@ -74,7 +74,7 @@ import { useAppShellModuleData } from './use-module-data';
 import { useKeepSystemAwake } from './use-keep-system-awake';
 import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
-import { createAppShellE2EFixtureActions } from './app-shell-e2e-fixture';
+import { createAppShellE2eFixtureActions } from './app-shell-e2e-fixture';
 import { createAppShellChatActions } from './app-shell-chat-actions';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
@@ -917,7 +917,7 @@ function AppShellContent({
     toastApi,
   });
 
-  const { applyE2EFixture } = useStableActions(createAppShellE2EFixtureActions, {
+  const { applyE2eFixture } = useStableActions(createAppShellE2eFixtureActions, {
     openPalette,
     openSettingsSection,
     openConnectionDetail,
@@ -1083,7 +1083,7 @@ function AppShellContent({
   useAppShellBootstrapSubscriptions({
     uiLocale,
     activeIdRef,
-    applyE2EFixture,
+    applyE2eFixture,
     bootstrapSessions,
     clearPendingTurnActionsForSession: turnActionRegistry.clearForSession,
     clearSessionRendererState,

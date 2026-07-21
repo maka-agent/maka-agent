@@ -158,13 +158,13 @@ describe('window reveal gate defers early focus (ChatGPT Pro review P2)', () => 
     readyGate.requestMaximize(readyWin);
     assert.equal(readyWin.maximizeCount, 1);
 
-    const smokeGate = createWindowRevealGate(true);
-    const smokeWin = makeFakeFocusableWindow();
-    smokeGate.requestMaximize(smokeWin);
-    smokeGate.markReady(smokeWin);
-    smokeGate.requestMaximize(smokeWin);
-    assert.equal(smokeWin.maximizeCount, 0);
-    assert.equal(smokeWin.isVisible(), false);
+    const fixtureGate = createWindowRevealGate(true);
+    const fixtureWin = makeFakeFocusableWindow();
+    fixtureGate.requestMaximize(fixtureWin);
+    fixtureGate.markReady(fixtureWin);
+    fixtureGate.requestMaximize(fixtureWin);
+    assert.equal(fixtureWin.maximizeCount, 0);
+    assert.equal(fixtureWin.isVisible(), false);
   });
 
   it('reset() re-arms the gate for a recreated window (macOS close-all)', () => {
@@ -283,7 +283,7 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
     // must clear on close.
     assert.match(
       src,
-      /if \(!keepHiddenForE2EFixture && !mainWindow\.isVisible\(\)\) \{\s*showFallbackTimer = setTimeout/,
+      /if \(!keepHiddenForE2eFixture && !mainWindow\.isVisible\(\)\) \{\s*showFallbackTimer = setTimeout/,
     );
     assert.match(
       src,

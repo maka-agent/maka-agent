@@ -4,14 +4,14 @@ import type {
   DailyReviewArchive,
   LlmConnection,
   PlanReminder,
-  E2EFixtureScenario,
+  E2eFixtureScenario,
 } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
 import { writeJson } from './seed-helpers.js';
 
 export async function writeSettings(
   workspaceRoot: string,
-  scenario?: E2EFixtureScenario,
+  scenario?: E2eFixtureScenario,
 ): Promise<void> {
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8` + WAWQAQ
   // `1886c41b`): the fixture previously seeded a placeholder
@@ -40,7 +40,7 @@ export async function writeSettings(
   await writeJson(join(workspaceRoot, 'settings.json'), settings);
 }
 
-export async function writeConnections(workspaceRoot: string, now: number, scenario: E2EFixtureScenario): Promise<void> {
+export async function writeConnections(workspaceRoot: string, now: number, scenario: E2eFixtureScenario): Promise<void> {
   const connections: LlmConnection[] = [
     {
       slug: 'zai-live',
@@ -160,7 +160,7 @@ export async function writeConnections(workspaceRoot: string, now: number, scena
   });
 }
 
-function connectionFocusSlug(scenario: E2EFixtureScenario): string | null {
+function connectionFocusSlug(scenario: E2eFixtureScenario): string | null {
   switch (scenario) {
     case 'fallback-source':
       return 'relay-fallback';

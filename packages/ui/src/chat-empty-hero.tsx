@@ -33,8 +33,8 @@ export type { DayPeriod } from './conversation-copy.js';
 /**
  * PR-UI-LAYOUT-4 / B1-a1 review fixup (@kenji msg 1d7ba56c):
  * Compute the day-period bucket from a millisecond epoch timestamp,
- * not from `new Date()`. Visual-smoke fixtures freeze `Date.now()`
- * to a deterministic value (see `applyE2EFixture` in
+ * not from `new Date()`. E2e-fixture renders freeze `Date.now()`
+ * to a deterministic value (see `applyE2eFixture` in
  * `apps/desktop/src/renderer/main.tsx`) but do NOT freeze the
  * `Date` constructor itself; reading `new Date()` directly would
  * pick up the host clock and let the rendered fixture drift at the

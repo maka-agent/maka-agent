@@ -28,7 +28,7 @@ export const E2E_FIXTURE_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(
   (sourcePath) => `apps/desktop/src/main/${sourcePath}`,
 );
 
-export async function readE2EFixtureCombinedSource(): Promise<string> {
+export async function readE2eFixtureCombinedSource(): Promise<string> {
   const sources = await Promise.all(
     sourcePaths.map((sourcePath) => readFile(resolve(MAIN_ROOT, sourcePath), 'utf8')),
   );

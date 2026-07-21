@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { SessionHeader, StoredMessage, E2EFixtureScenario } from '@maka/core';
+import type { SessionHeader, StoredMessage, E2eFixtureScenario } from '@maka/core';
 
 // Fixed clock for the e2e-fixture. All seeded timestamps and
 // transient fixture state derive from this value unless tests explicitly
@@ -53,7 +53,7 @@ export const LONG_SIDEBAR_SESSION_COUNT = 60;
  * Kept as a Set so future scenarios reusing the same seed can be
  * registered in one place. Mirrors `TURN_CONTROL_SCENARIOS`.
  */
-export const LONG_SIDEBAR_SCENARIOS = new Set<E2EFixtureScenario>([
+export const LONG_SIDEBAR_SCENARIOS = new Set<E2eFixtureScenario>([
   'module-skills',
   'module-daily-review',
   'plan-reminders',
@@ -69,7 +69,7 @@ export const LONG_SIDEBAR_SCENARIOS = new Set<E2EFixtureScenario>([
  * they're variants of the same state family (active session differs,
  * everything else identical).
  */
-export const TURN_CONTROL_SCENARIOS = new Set<E2EFixtureScenario>([
+export const TURN_CONTROL_SCENARIOS = new Set<E2eFixtureScenario>([
   'turn-control-history',
   'turn-control-branch-visible',
   'turn-control-branch-orphan',

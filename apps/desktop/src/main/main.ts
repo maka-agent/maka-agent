@@ -78,7 +78,7 @@ import { bindOnboardingDeps, createOnboardingService } from './onboarding-servic
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
-import { resolveE2EFixture } from './e2e-fixture.js';
+import { resolveE2eFixture } from './e2e-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
@@ -115,7 +115,7 @@ import { registerSessionEntryIpc } from './session-entry-ipc-main.js';
 import { registerPermissionsIpc } from './permissions-ipc-main.js';
 import { registerSettingsIpc } from './settings-ipc-main.js';
 import type { SettingsIpcHandle } from './settings-ipc-main.js';
-import { createE2EFixtureBotOnboardingAdapters } from './bot-onboarding-e2e-fixture.js';
+import { createE2eFixtureBotOnboardingAdapters } from './bot-onboarding-e2e-fixture.js';
 import { createKeepSystemAwakeController } from './keep-system-awake.js';
 import { createSettingsRuntimeEffects } from './settings-runtime-effects.js';
 import { createAiSdkBackendFactory, createSessionStreamer } from './session-stream.js';
@@ -171,9 +171,9 @@ const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 // blocking native error dialog. In fixture mode we instead log a parseable
 // line and exit fast so the run fails in milliseconds with no dialog.
 // Outside fixture mode the throw is rethrown.
-let e2eFixture: ReturnType<typeof resolveE2EFixture>;
+let e2eFixture: ReturnType<typeof resolveE2eFixture>;
 try {
-  e2eFixture = resolveE2EFixture(
+  e2eFixture = resolveE2eFixture(
     process.env.MAKA_E2E_FIXTURE,
     app.isPackaged,
     process.env.MAKA_E2E_FIXTURE_REDUCED_MOTION,
@@ -954,7 +954,7 @@ function registerIpc(): void {
     applySettingsRuntimeEffects,
     ...(e2eFixture?.scenario === 'settings-bots'
       ? {
-          botOnboardingAdapters: createE2EFixtureBotOnboardingAdapters(),
+          botOnboardingAdapters: createE2eFixtureBotOnboardingAdapters(),
           botOnboardingApplySettingsRuntimeEffects: async () => undefined,
           // The fixture no-ops runtime effects, so no real bridge starts.
           // Report the onboarded channel as running to demonstrate the

@@ -1,5 +1,5 @@
 import { mkdir, rm } from 'node:fs/promises';
-import type { UiLocale, E2EFixtureScenario, E2EFixtureState } from '@maka/core';
+import type { UiLocale, E2eFixtureScenario, E2eFixtureState } from '@maka/core';
 import type { CredentialStore } from './credential-store.js';
 import {
   ARTIFACT_SESSION_ID,
@@ -73,7 +73,7 @@ import {
   writeDeepResearchLedger,
 } from './e2e-fixture/scenarios-deep-research.js';
 
-const E2E_FIXTURE_SCENARIOS = new Set<E2EFixtureScenario>([
+const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'all',
   'first-run',
   'provider-workspace',
@@ -91,7 +91,7 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2EFixtureScenario>([
   'artifact-errors',
   'streaming-sidebar',
   // PR-STREAM-TURN-CENTER: active session renders the live answer bubble in
-  // the main panel (below a committed turn) so E2E + the alignment audit
+  // the main panel (below a committed turn) so the alignment audit
   // can lock streaming-vs-committed horizontal alignment.
   'streaming-answer',
   // #646: a running session with an armed turn but nothing streaming yet —
@@ -101,7 +101,7 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2EFixtureScenario>([
   'stale-sessions',
   // PR108j: per-Settings-section fixtures so each Settings sub-page can
   // be exercised in light + dark + narrow + reduced-motion variants by
-  // E2E specs and the CI alignment audit. Each scenario reuses the standard
+  // the CI alignment audit. Each scenario reuses the standard
   // connection / session seed and only differs in
   // `openSettingsSection`. (Per-page state — displayName,
   // assistantTone, network proxy, etc. — already comes from the
@@ -114,7 +114,7 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2EFixtureScenario>([
   // #1233 deferral: deterministic bot QR-onboarding modal fixture. Shares the
   // settings-bots seed but auto-opens a provider detail's scan-login modal,
   // backed by a hold-in-waiting e2e-fixture onboarding adapter (fixed QR +
-  // long TTL). See `createE2EFixtureBotOnboardingAdapters`.
+  // long TTL). See `createE2eFixtureBotOnboardingAdapters`.
   'settings-bots-onboarding',
   'settings-about',
   'settings-general',
@@ -199,8 +199,8 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2EFixtureScenario>([
   'browser-empty',
 ]);
 
-export interface E2EFixture {
-  scenario: E2EFixtureScenario;
+export interface E2eFixture {
+  scenario: E2eFixtureScenario;
   workspaceName: string;
   /**
    * PR-IR-04: when `MAKA_E2E_FIXTURE_REDUCED_MOTION=1` is set alongside
@@ -240,22 +240,22 @@ export interface E2EFixture {
   timezone: string | null;
 }
 
-export function resolveE2EFixture(
+export function resolveE2eFixture(
   rawScenario: string | undefined,
   isPackaged: boolean,
   rawReducedMotion: string | undefined = undefined,
   rawTheme: string | undefined = undefined,
   rawLocale: string | undefined = undefined,
   rawTimezone: string | undefined = undefined,
-): E2EFixture | null {
+): E2eFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
     throw new Error('MAKA_E2E_FIXTURE is only available in dev/test builds.');
   }
-  if (!E2E_FIXTURE_SCENARIOS.has(rawScenario as E2EFixtureScenario)) {
+  if (!E2E_FIXTURE_SCENARIOS.has(rawScenario as E2eFixtureScenario)) {
     throw new Error(`Unknown MAKA_E2E_FIXTURE scenario: ${rawScenario}`);
   }
-  const scenario = rawScenario as E2EFixtureScenario;
+  const scenario = rawScenario as E2eFixtureScenario;
   const reducedMotion = parseReducedMotionFlag(rawReducedMotion);
   const theme = parseThemeFlag(rawTheme);
   const locale = parseLocaleFlag(rawLocale);
@@ -338,9 +338,9 @@ function parseReducedMotionFlag(raw: string | undefined): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
-export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState | null {
+export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState | null {
   if (!fixture) return null;
-  const state: E2EFixtureState = {
+  const state: E2eFixtureState = {
     enabled: true,
     now: E2E_FIXTURE_NOW,
     ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
@@ -387,7 +387,7 @@ export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState 
       // session so BrowserPanel mounts over the chat. No native
       // WebContentsView exists in e2e-fixture mode, so browser.getState
       // resolves null → BrowserPanel renders EMPTY_STATE → the empty-state
-      // chrome is what E2E/audit see (the #818 defect surface).
+      // chrome is what the alignment audit sees (the #818 defect surface).
       // Loaded / loading / nav chrome states are locked by the
       // `browser-panel-chrome` source contract; they add no layout
       // value over this empty-state fixture.
@@ -401,7 +401,7 @@ export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState 
     case 'streaming-answer':
       // Active session = the committed turn-narrative session, PLUS a live
       // answer streaming into it. The main panel then shows a settled turn
-      // and the in-flight bubble together, so E2E/audit can prove they
+      // and the in-flight bubble together, so the alignment audit can prove they
       // share the same centered column (the streaming-turn-center fix).
       return {
         ...state,
@@ -529,9 +529,9 @@ export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState 
       // shares the sidebar-long-sessions seed (60 sessions) so the
       // sidebar behind the modal is identical to the long-sessions
       // fixture; `searchModalOpen: true` is the only differentiator.
-      // The renderer reads the flag in `applyE2EFixture()` and
+      // The renderer reads the flag in `applyE2eFixture()` and
       // calls `setSearchModalOpen(true)` before the fixture settles,
-      // so the SearchModal shell is on screen for E2E/audit.
+      // so the SearchModal shell is on screen for the alignment audit.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
@@ -541,7 +541,7 @@ export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState 
     case 'command-palette-open':
       // PR-shared primitive-COMMAND-INPUT-0: same 60-session seed as the sidebar
       // fixtures; `paletteOpen: true` is the only differentiator so
-      // the command palette shell is visible for E2E/audit.
+      // the command palette shell is visible for the alignment audit.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
@@ -581,9 +581,9 @@ export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState 
   return state;
 }
 
-export async function seedE2EFixture(input: {
+export async function seedE2eFixture(input: {
   workspaceRoot: string;
-  fixture: E2EFixture;
+  fixture: E2eFixture;
   credentialStore: Pick<CredentialStore, 'setSecret'>;
   now?: number;
 }): Promise<void> {
@@ -655,7 +655,7 @@ export async function seedE2EFixture(input: {
   // Phase 2 fixup v3: `sidebar-search-modal-open` shares the same
   // 60-session seed so the sidebar behind the modal matches the
   // long-sessions fixture exactly. The modal-open state itself is a
-  // transient renderer flag (`E2EFixtureState.searchModalOpen`); no
+  // transient renderer flag (`E2eFixtureState.searchModalOpen`); no
   // additional on-disk seeding required.
   if (LONG_SIDEBAR_SCENARIOS.has(input.fixture.scenario)) {
     for (const seed of longSidebarSessions(now)) {

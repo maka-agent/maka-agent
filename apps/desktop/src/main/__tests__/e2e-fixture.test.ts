@@ -4,35 +4,35 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { tmpdir } from 'node:os';
 import {
-  getE2EFixtureState,
-  resolveE2EFixture,
-  seedE2EFixture,
+  getE2eFixtureState,
+  resolveE2eFixture,
+  seedE2eFixture,
 } from '../e2e-fixture.js';
-import { readE2EFixtureCombinedSource } from './e2e-fixture-source-helpers.js';
+import { readE2eFixtureCombinedSource } from './e2e-fixture-source-helpers.js';
 
 describe('e2e-fixture mode', () => {
   it('stays fully disabled when MAKA_E2E_FIXTURE is unset', () => {
-    const fixture = resolveE2EFixture(undefined, false);
+    const fixture = resolveE2eFixture(undefined, false);
     assert.equal(fixture, null);
-    assert.equal(getE2EFixtureState(fixture), null);
+    assert.equal(getE2eFixtureState(fixture), null);
   });
 
   it('rejects fixture mode in packaged builds', () => {
     assert.throws(
-      () => resolveE2EFixture('all', true),
+      () => resolveE2eFixture('all', true),
       /only available in dev\/test builds/,
     );
   });
 
   it('rejects unknown scenarios', () => {
     assert.throws(
-      () => resolveE2EFixture('unknown-scenario', false),
+      () => resolveE2eFixture('unknown-scenario', false),
       /Unknown MAKA_E2E_FIXTURE scenario/,
     );
   });
 
   it('resolves known scenarios into isolated workspaces', () => {
-    const fixture = resolveE2EFixture('provider-workspace', false);
+    const fixture = resolveE2eFixture('provider-workspace', false);
     assert.deepEqual(fixture, {
       scenario: 'provider-workspace',
       workspaceName: 'e2e-fixture-provider-workspace',
@@ -45,25 +45,25 @@ describe('e2e-fixture mode', () => {
 
   describe('theme override (PR-IR-01b)', () => {
     it('defaults to null when env var unset', () => {
-      const fixture = resolveE2EFixture('all', false);
+      const fixture = resolveE2eFixture('all', false);
       assert.equal(fixture?.theme, null);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.theme, undefined);
       assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     });
 
     it('accepts the closed enum light / dark / auto', () => {
       for (const raw of ['light', 'dark', 'auto', 'LIGHT', ' Dark ']) {
-        const fixture = resolveE2EFixture('all', false, undefined, raw);
+        const fixture = resolveE2eFixture('all', false, undefined, raw);
         assert.equal(typeof fixture?.theme, 'string', `raw=${JSON.stringify(raw)}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.ok(state?.theme && ['light', 'dark', 'auto'].includes(state.theme), `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('rejects unknown values (fail-closed)', () => {
       for (const raw of ['solar', '', 'oklch', 'high-contrast', 'monochrome']) {
-        const fixture = resolveE2EFixture('all', false, undefined, raw);
+        const fixture = resolveE2eFixture('all', false, undefined, raw);
         assert.equal(fixture?.theme, null, `raw=${JSON.stringify(raw)}`);
       }
     });
@@ -71,18 +71,18 @@ describe('e2e-fixture mode', () => {
 
   describe('UI locale override (PR-UI-VISUAL-SMOKE-LOCALE)', () => {
     it('defaults to null when MAKA_E2E_FIXTURE_LOCALE unset', () => {
-      const fixture = resolveE2EFixture('all', false);
+      const fixture = resolveE2eFixture('all', false);
       assert.equal(fixture?.locale, null);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.locale, undefined);
     });
 
     it('accepts the closed enum zh / en (case + whitespace tolerant)', () => {
       for (const raw of ['zh', 'en', 'ZH', ' En ', 'EN']) {
-        const fixture = resolveE2EFixture('all', false, undefined, undefined, raw);
+        const fixture = resolveE2eFixture('all', false, undefined, undefined, raw);
         assert.ok(fixture?.locale, `raw=${JSON.stringify(raw)}`);
         assert.ok(['zh', 'en'].includes(fixture!.locale!), `raw=${JSON.stringify(raw)}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.ok(state?.locale && ['zh', 'en'].includes(state.locale), `raw=${JSON.stringify(raw)}`);
       }
     });
@@ -92,26 +92,26 @@ describe('e2e-fixture mode', () => {
       // bare `zh` / `en` short codes. `zh-CN` etc. fail closed so the
       // override is unambiguous; users wanting CN locale set `zh`.
       for (const raw of ['', 'es', 'ja', 'zh-CN', 'en-US', 'auto', 'system']) {
-        const fixture = resolveE2EFixture('all', false, undefined, undefined, raw);
+        const fixture = resolveE2eFixture('all', false, undefined, undefined, raw);
         assert.equal(fixture?.locale, null, `raw=${JSON.stringify(raw)}`);
       }
     });
 
-    it('locale flag carries through into E2EFixtureState across all known scenarios', () => {
+    it('locale flag carries through into E2eFixtureState across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveE2EFixture(scenario, false, undefined, undefined, 'zh');
+        const fixture = resolveE2eFixture(scenario, false, undefined, undefined, 'zh');
         assert.equal(fixture?.locale, 'zh', `scenario=${scenario}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.locale, 'zh', `scenario=${scenario}`);
       }
     });
 
     it('locale is independent from theme / reduced-motion', () => {
-      const fixture = resolveE2EFixture('all', false, '1', 'dark', 'en');
+      const fixture = resolveE2eFixture('all', false, '1', 'dark', 'en');
       assert.equal(fixture?.locale, 'en');
       assert.equal(fixture?.theme, 'dark');
       assert.equal(fixture?.reducedMotion, true);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
       assert.equal(state?.reducedMotion, true);
@@ -120,9 +120,9 @@ describe('e2e-fixture mode', () => {
 
   describe('IANA timezone override (PR-UI-VISUAL-SMOKE-TIMEZONE, @kenji msg 45486cdf)', () => {
     it('defaults to null when MAKA_E2E_FIXTURE_TIMEZONE unset', () => {
-      const fixture = resolveE2EFixture('all', false);
+      const fixture = resolveE2eFixture('all', false);
       assert.equal(fixture?.timezone, null);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.timezone, undefined);
     });
 
@@ -140,9 +140,9 @@ describe('e2e-fixture mode', () => {
         'Pacific/Auckland',
       ];
       for (const tz of valid) {
-        const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, tz);
+        const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, tz);
         assert.equal(fixture?.timezone, tz, `tz=${tz}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.timezone, tz, `tz=${tz}`);
       }
     });
@@ -152,7 +152,7 @@ describe('e2e-fixture mode', () => {
       // (`America/New_York`, not `america/new_york`). The parser
       // trim-onlys; it does not lowercase, so the canonical form
       // survives.
-      const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, '  Asia/Shanghai  ');
+      const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, '  Asia/Shanghai  ');
       assert.equal(fixture?.timezone, 'Asia/Shanghai');
     });
 
@@ -169,14 +169,14 @@ describe('e2e-fixture mode', () => {
         'utc/zulu',
       ];
       for (const tz of invalid) {
-        const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, tz);
+        const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, tz);
         assert.equal(fixture?.timezone, null, `tz=${JSON.stringify(tz)}`);
       }
     });
 
     it('rejects oversize inputs (>128 chars) without invoking Intl.DateTimeFormat', () => {
       const oversize = 'A'.repeat(129);
-      const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, oversize);
+      const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, oversize);
       assert.equal(fixture?.timezone, null);
     });
 
@@ -186,8 +186,8 @@ describe('e2e-fixture mode', () => {
       // surfaces the IANA name. It does NOT mutate `Date.prototype`,
       // global `Intl.DateTimeFormat`, or `state.now`. `state.now`
       // is still the canonical clock-freeze for e2e-fixture.
-      const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, 'Asia/Shanghai');
-      const state = getE2EFixtureState(fixture);
+      const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, 'Asia/Shanghai');
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.timezone, 'Asia/Shanghai');
       assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
       // No global mutation: Date.now / new Date() / Intl.DateTimeFormat
@@ -199,22 +199,22 @@ describe('e2e-fixture mode', () => {
       assert.equal(typeof formatter.resolvedOptions().timeZone, 'string');
     });
 
-    it('timezone flag carries through into E2EFixtureState across all known scenarios', () => {
+    it('timezone flag carries through into E2eFixtureState across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveE2EFixture(scenario, false, undefined, undefined, undefined, 'Europe/London');
+        const fixture = resolveE2eFixture(scenario, false, undefined, undefined, undefined, 'Europe/London');
         assert.equal(fixture?.timezone, 'Europe/London', `scenario=${scenario}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.timezone, 'Europe/London', `scenario=${scenario}`);
       }
     });
 
     it('timezone is independent from theme / locale / reduced-motion', () => {
-      const fixture = resolveE2EFixture('all', false, '1', 'dark', 'en', 'Asia/Tokyo');
+      const fixture = resolveE2eFixture('all', false, '1', 'dark', 'en', 'Asia/Tokyo');
       assert.equal(fixture?.timezone, 'Asia/Tokyo');
       assert.equal(fixture?.locale, 'en');
       assert.equal(fixture?.theme, 'dark');
       assert.equal(fixture?.reducedMotion, true);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.timezone, 'Asia/Tokyo');
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
@@ -224,41 +224,41 @@ describe('e2e-fixture mode', () => {
 
   describe('reduced-motion variant (PR-IR-04)', () => {
     it('defaults to reducedMotion: false when env var unset', () => {
-      const fixture = resolveE2EFixture('all', false);
+      const fixture = resolveE2eFixture('all', false);
       assert.equal(fixture?.reducedMotion, false);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.reducedMotion, undefined);
     });
 
     it('accepts "1" / "true" / "yes" as truthy', () => {
       for (const raw of ['1', 'true', 'yes', 'TRUE', ' yes ']) {
-        const fixture = resolveE2EFixture('all', false, raw);
+        const fixture = resolveE2eFixture('all', false, raw);
         assert.equal(fixture?.reducedMotion, true, `raw=${JSON.stringify(raw)}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.reducedMotion, true, `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('treats unrecognized values as false (fail-closed)', () => {
       for (const raw of ['0', 'no', 'false', '', 'maybe']) {
-        const fixture = resolveE2EFixture('all', false, raw);
+        const fixture = resolveE2eFixture('all', false, raw);
         assert.equal(fixture?.reducedMotion, false, `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('reduced motion flag works across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveE2EFixture(scenario, false, '1');
+        const fixture = resolveE2eFixture(scenario, false, '1');
         assert.equal(fixture?.reducedMotion, true, `scenario=${scenario}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.reducedMotion, true, `scenario=${scenario}`);
       }
     });
   });
 
-  it('first-run fixture has no transient smoke-only UI state', () => {
-    const fixture = resolveE2EFixture('first-run', false);
-    const state = getE2EFixtureState(fixture);
+  it('first-run fixture has no transient fixture-only UI state', () => {
+    const fixture = resolveE2eFixture('first-run', false);
+    const state = getE2eFixtureState(fixture);
     assert.equal(state?.enabled, true);
     assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     assert.equal(state?.activeSessionId, undefined);
@@ -267,8 +267,8 @@ describe('e2e-fixture mode', () => {
   });
 
   it('all fixture exposes transient streaming and permission state without persistence', () => {
-    const fixture = resolveE2EFixture('all', false);
-    const state = getE2EFixtureState(fixture);
+    const fixture = resolveE2eFixture('all', false);
+    const state = getE2eFixtureState(fixture);
     assert.equal(state?.enabled, true);
     assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
     const liveTurns = state?.liveTurnBySession;
@@ -285,15 +285,15 @@ describe('e2e-fixture mode', () => {
   it('task-ledger fixture seeds the hierarchical desktop read model', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-task-ledger-'));
     try {
-      const fixture = resolveE2EFixture('task-ledger', false);
+      const fixture = resolveE2eFixture('task-ledger', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      assert.equal(getE2EFixtureState(fixture)?.activeSessionId, 'e2e-fixture-turn');
+      assert.equal(getE2eFixtureState(fixture)?.activeSessionId, 'e2e-fixture-turn');
       const tasks = JSON.parse(await readFile(
         join(workspaceRoot, 'sessions', 'e2e-fixture-turn', 'tasks.json'),
         'utf8',
@@ -309,15 +309,15 @@ describe('e2e-fixture mode', () => {
   it('deep-research-progress seeds a completed durable run for visual review', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-deep-research-'));
     try {
-      const fixture = resolveE2EFixture('deep-research-progress', false);
+      const fixture = resolveE2eFixture('deep-research-progress', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      assert.equal(getE2EFixtureState(fixture)?.activeSessionId, 'e2e-fixture-deep-research');
+      assert.equal(getE2eFixtureState(fixture)?.activeSessionId, 'e2e-fixture-deep-research');
       const ledger = await readFile(
         join(
           workspaceRoot,
@@ -346,16 +346,16 @@ describe('e2e-fixture mode', () => {
     // arch Round 3: the fixture split into a registry barrel + per-domain
     // seeder modules, so this hygiene scan aggregates every fixture source
     // file rather than the single monolith it used to read.
-    const src = await readE2EFixtureCombinedSource();
+    const src = await readE2eFixtureCombinedSource();
     assert.doesNotMatch(src, /占位用户消息|占位回复/, 'e2e-fixture screenshots must use product-like chat copy, not placeholder text');
   });
 
   it('first-run seed keeps the fixture workspace connection-free', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-first-run-'));
     try {
-      const fixture = resolveE2EFixture('first-run', false);
+      const fixture = resolveE2eFixture('first-run', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -380,10 +380,10 @@ describe('e2e-fixture mode', () => {
   it('scenario seed focuses the relevant provider state for connection-dialog screenshots', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-provider-'));
     try {
-      const fixture = resolveE2EFixture('fallback-source', false);
+      const fixture = resolveE2eFixture('fallback-source', false);
       assert.ok(fixture);
       const secrets: string[] = [];
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(secrets),
@@ -435,9 +435,9 @@ describe('e2e-fixture mode', () => {
 
     for (const { scenario, expectedSection } of cases) {
       it(`${scenario} opens Settings · ${expectedSection}`, () => {
-        const fixture = resolveE2EFixture(scenario, false);
+        const fixture = resolveE2eFixture(scenario, false);
         assert.ok(fixture, `${scenario} should resolve`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.openSettingsSection, expectedSection);
         // Active session is the standard turn fixture so the chat
         // surface behind the modal renders meaningful context.
@@ -449,18 +449,18 @@ describe('e2e-fixture mode', () => {
   it('stale-sessions seed reproduces the P0 workspace with active stale session', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-stale-'));
     try {
-      const fixture = resolveE2EFixture('stale-sessions', false);
+      const fixture = resolveE2eFixture('stale-sessions', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       // @kenji gate: active session intentionally one of the stale ones so
-      // E2E/audit can prove "active + stale → pill still visible".
+      // the alignment audit can prove "active + stale → pill still visible".
       assert.equal(state?.activeSessionId, 'e2e-fixture-stale-fake');
 
       // Connection list MUST NOT contain `fake` / `fake-claude` slugs —
@@ -498,16 +498,16 @@ describe('e2e-fixture mode', () => {
   it('workstation-statuses seed creates one session per SessionStatus including aborted + 4 blocked variants', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-ws-'));
     try {
-      const fixture = resolveE2EFixture('workstation-statuses', false);
+      const fixture = resolveE2eFixture('workstation-statuses', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.activeSessionId, 'e2e-fixture-ws-running');
 
       const expectedSessions = [
@@ -551,9 +551,9 @@ describe('e2e-fixture mode', () => {
   it('model-processing arms a running session with no live stream so the "正在处理…" indicator + Stop show (#646)', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-processing-'));
     try {
-      const fixture = resolveE2EFixture('model-processing', false);
+      const fixture = resolveE2eFixture('model-processing', false);
       assert.ok(fixture);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       // The turn is armed on a running session — the derivation's inputs.
       assert.equal(state?.activeSessionId, 'e2e-fixture-processing');
       assert.deepEqual(state?.liveTurnBySession?.['e2e-fixture-processing'], {
@@ -566,7 +566,7 @@ describe('e2e-fixture mode', () => {
       // wait). This scenario deliberately seeds none of them.
       assert.equal(state?.liveTurnBySession?.['e2e-fixture-processing']?.steps.length, 0);
 
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -589,16 +589,16 @@ describe('e2e-fixture mode', () => {
   it('plan-reminders opens the Automations module and seeds scheduled / paused / completed reminders', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-plan-reminders-'));
     try {
-      const fixture = resolveE2EFixture('plan-reminders', false);
+      const fixture = resolveE2eFixture('plan-reminders', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.sidebarSection, 'automations');
       assert.equal(state?.sidebarCollapsed, false);
       assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
@@ -635,30 +635,30 @@ describe('e2e-fixture mode', () => {
   });
 
   it('module fixtures open Skills, MCP and Daily Review in the app module surface', async () => {
-    const skills = resolveE2EFixture('module-skills', false);
-    const mcp = resolveE2EFixture('module-mcp', false);
-    const dailyReview = resolveE2EFixture('module-daily-review', false);
+    const skills = resolveE2eFixture('module-skills', false);
+    const mcp = resolveE2eFixture('module-mcp', false);
+    const dailyReview = resolveE2eFixture('module-daily-review', false);
 
     assert.ok(skills);
     assert.ok(mcp);
     assert.ok(dailyReview);
-    assert.equal(getE2EFixtureState(skills)?.sidebarSection, 'skills');
-    assert.equal(getE2EFixtureState(skills)?.sidebarCollapsed, false);
-    assert.equal(getE2EFixtureState(skills)?.activeSessionId, 'e2e-fixture-turn');
-    assert.equal(getE2EFixtureState(mcp)?.sidebarSection, 'mcp');
-    assert.equal(getE2EFixtureState(mcp)?.sidebarCollapsed, false);
-    assert.equal(getE2EFixtureState(mcp)?.activeSessionId, 'e2e-fixture-turn');
-    assert.equal(getE2EFixtureState(dailyReview)?.sidebarSection, 'daily-review');
-    assert.equal(getE2EFixtureState(dailyReview)?.sidebarCollapsed, false);
-    assert.equal(getE2EFixtureState(dailyReview)?.activeSessionId, 'e2e-fixture-turn');
+    assert.equal(getE2eFixtureState(skills)?.sidebarSection, 'skills');
+    assert.equal(getE2eFixtureState(skills)?.sidebarCollapsed, false);
+    assert.equal(getE2eFixtureState(skills)?.activeSessionId, 'e2e-fixture-turn');
+    assert.equal(getE2eFixtureState(mcp)?.sidebarSection, 'mcp');
+    assert.equal(getE2eFixtureState(mcp)?.sidebarCollapsed, false);
+    assert.equal(getE2eFixtureState(mcp)?.activeSessionId, 'e2e-fixture-turn');
+    assert.equal(getE2eFixtureState(dailyReview)?.sidebarSection, 'daily-review');
+    assert.equal(getE2eFixtureState(dailyReview)?.sidebarCollapsed, false);
+    assert.equal(getE2eFixtureState(dailyReview)?.activeSessionId, 'e2e-fixture-turn');
   });
 
   it('module-mcp seeds a couple of installed servers so the 已安装 list renders', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-mcp-'));
     try {
-      const fixture = resolveE2EFixture('module-mcp', false);
+      const fixture = resolveE2eFixture('module-mcp', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -685,9 +685,9 @@ describe('e2e-fixture mode', () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-skills-'));
     const previousSourcesRoot = process.env.MAKA_SKILL_SOURCES_ROOT;
     try {
-      const fixture = resolveE2EFixture('module-skills', false);
+      const fixture = resolveE2eFixture('module-skills', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -731,23 +731,23 @@ describe('e2e-fixture mode', () => {
     // kenji `b3d156e9`): the sidebar-row-actions-visible scenario
     // reuses the 60-session seed so the sidebar is identical to
     // the long-sessions baseline; differs only in
-    // `E2EFixtureState.focusActiveRow=true`, which the renderer
+    // `E2eFixtureState.focusActiveRow=true`, which the renderer
     // reads to focus the active row's button after mount. That
     // triggers `:focus-within` and reveals the
     // `.maka-list-row-menu-trigger` — the fixture then proves
     // the time meta / unread dot are correctly hidden underneath.
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-row-actions-'));
     try {
-      const fixture = resolveE2EFixture('sidebar-row-actions-visible', false);
+      const fixture = resolveE2eFixture('sidebar-row-actions-visible', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       // focusActiveRow is the contract the renderer reads.
       assert.equal(state?.focusActiveRow, true, 'focusActiveRow must be true so the renderer focuses the active row button');
       assert.equal(state?.sidebarCollapsed, false, 'sidebar row action screenshots must expand the seeded sidebar');
@@ -772,22 +772,22 @@ describe('e2e-fixture mode', () => {
     // sidebar-search-modal-open scenario reuses the 60-session seed
     // so the sidebar behind the modal matches the long-sessions
     // baseline exactly. The only differentiator from `sidebar-long-
-    // sessions` is `E2EFixtureState.searchModalOpen=true`, which
+    // sessions` is `E2eFixtureState.searchModalOpen=true`, which
     // the renderer reads to call `setSearchModalOpen(true)` before
     // the fixture settles, so the SearchModal shell is on screen
-    // for E2E/audit.
+    // for the alignment audit.
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-search-modal-'));
     try {
-      const fixture = resolveE2EFixture('sidebar-search-modal-open', false);
+      const fixture = resolveE2eFixture('sidebar-search-modal-open', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       // Modal-open hint is the contract the renderer reads.
       assert.equal(state?.searchModalOpen, true, 'searchModalOpen must be true so the renderer auto-opens the modal');
       // Same active session as the long-sessions scenario so the
@@ -811,16 +811,16 @@ describe('e2e-fixture mode', () => {
   it('command-palette-open shares the 60-session seed and sets paletteOpen for auto-open', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-command-palette-'));
     try {
-      const fixture = resolveE2EFixture('command-palette-open', false);
+      const fixture = resolveE2eFixture('command-palette-open', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.paletteOpen, true, 'paletteOpen must be true so the renderer auto-opens CommandPalette');
       assert.equal(state?.activeSessionId, 'e2e-fixture-sidebar-long-00');
 
@@ -844,16 +844,16 @@ describe('e2e-fixture mode', () => {
     // active selection, and (c) keep IDs deterministic.
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-long-'));
     try {
-      const fixture = resolveE2EFixture('sidebar-long-sessions', false);
+      const fixture = resolveE2eFixture('sidebar-long-sessions', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       // Active session is the first (newest by lastMessageAt).
       assert.equal(state?.activeSessionId, 'e2e-fixture-sidebar-long-00');
       assert.equal(state?.sidebarCollapsed, false, 'sidebar scroll screenshots must expand the seeded sidebar');
@@ -910,15 +910,15 @@ describe('e2e-fixture mode', () => {
     it('artifact-preview-image: single PNG seeded → registry will resolve image(mime_match)', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-preview-image-'));
       try {
-        const fixture = resolveE2EFixture('artifact-preview-image', false);
+        const fixture = resolveE2eFixture('artifact-preview-image', false);
         assert.ok(fixture);
-        await seedE2EFixture({
+        await seedE2eFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
           now: 1_700_000_000_000,
         });
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.activeSessionId, 'e2e-fixture-artifact');
 
         const lines = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
@@ -962,9 +962,9 @@ describe('e2e-fixture mode', () => {
     it('artifact-preview-unsupported: image/heic disallowed mime → L1 unsupported(mime_disallowed), readBinary never called', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-preview-unsupported-'));
       try {
-        const fixture = resolveE2EFixture('artifact-preview-unsupported', false);
+        const fixture = resolveE2eFixture('artifact-preview-unsupported', false);
         assert.ok(fixture);
-        await seedE2EFixture({
+        await seedE2eFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
@@ -996,9 +996,9 @@ describe('e2e-fixture mode', () => {
     it('artifact-preview-oversize: 3MB sizeBytes claim with skipFile → L1 unsupported(oversize)', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-preview-oversize-'));
       try {
-        const fixture = resolveE2EFixture('artifact-preview-oversize', false);
+        const fixture = resolveE2eFixture('artifact-preview-oversize', false);
         assert.ok(fixture);
-        await seedE2EFixture({
+        await seedE2eFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
@@ -1052,9 +1052,9 @@ describe('e2e-fixture mode', () => {
         'artifact-preview-unsupported',
         'artifact-preview-oversize',
       ] as const) {
-        const fixture = resolveE2EFixture(scenario, false);
+        const fixture = resolveE2eFixture(scenario, false);
         assert.ok(fixture, `scenario=${scenario}`);
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.activeSessionId, 'e2e-fixture-artifact', `scenario=${scenario}`);
       }
     });
@@ -1063,15 +1063,15 @@ describe('e2e-fixture mode', () => {
   it('artifact-pane seed creates file-backed artifact metadata without absolute paths', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-artifact-'));
     try {
-      const fixture = resolveE2EFixture('artifact-pane', false);
+      const fixture = resolveE2eFixture('artifact-pane', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.activeSessionId, 'e2e-fixture-artifact');
 
       const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
@@ -1093,16 +1093,16 @@ describe('e2e-fixture mode', () => {
     it('seeds primary + visible-parent branch + orphan branch sharing one on-disk state', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-turn-control-'));
       try {
-        const fixture = resolveE2EFixture('turn-control-history', false);
+        const fixture = resolveE2eFixture('turn-control-history', false);
         assert.ok(fixture);
-        await seedE2EFixture({
+        await seedE2eFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
           now: 1_700_000_000_000,
         });
 
-        const state = getE2EFixtureState(fixture);
+        const state = getE2eFixtureState(fixture);
         assert.equal(state?.activeSessionId, 'e2e-fixture-turn-control-primary');
 
         const primary = await readSessionHeader(workspaceRoot, 'e2e-fixture-turn-control-primary');
@@ -1139,9 +1139,9 @@ describe('e2e-fixture mode', () => {
     it('primary session log covers retry / regenerate / aborted / failed turns with TurnState messages', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-turn-control-turns-'));
       try {
-        const fixture = resolveE2EFixture('turn-control-history', false);
+        const fixture = resolveE2eFixture('turn-control-history', false);
         assert.ok(fixture);
-        await seedE2EFixture({
+        await seedE2eFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
@@ -1182,16 +1182,16 @@ describe('e2e-fixture mode', () => {
     });
 
     it('turn-control-branch-visible scenario flips active session to the visible-parent branch', () => {
-      const fixture = resolveE2EFixture('turn-control-branch-visible', false);
+      const fixture = resolveE2eFixture('turn-control-branch-visible', false);
       assert.ok(fixture);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.activeSessionId, 'e2e-fixture-turn-control-branch-visible');
     });
 
     it('turn-control-branch-orphan scenario flips active session to the orphan branch', () => {
-      const fixture = resolveE2EFixture('turn-control-branch-orphan', false);
+      const fixture = resolveE2eFixture('turn-control-branch-orphan', false);
       assert.ok(fixture);
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.activeSessionId, 'e2e-fixture-turn-control-branch-orphan');
     });
 
@@ -1209,9 +1209,9 @@ describe('e2e-fixture mode', () => {
       for (const scenario of ['turn-control-history', 'turn-control-branch-visible', 'turn-control-branch-orphan'] as const) {
         const workspaceRoot = await mkdtemp(join(tmpdir(), `maka-e2e-fixture-tc-${scenario}-`));
         try {
-          const fixture = resolveE2EFixture(scenario, false);
+          const fixture = resolveE2eFixture(scenario, false);
           assert.ok(fixture);
-          await seedE2EFixture({
+          await seedE2eFixture({
             workspaceRoot,
             fixture,
             credentialStore: fakeCredentialStore(),
@@ -1242,15 +1242,15 @@ describe('e2e-fixture mode', () => {
   it('artifact-errors seed covers deleted, missing, and unsupported MIME preview states', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-artifact-errors-'));
     try {
-      const fixture = resolveE2EFixture('artifact-errors', false);
+      const fixture = resolveE2eFixture('artifact-errors', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      const state = getE2EFixtureState(fixture);
+      const state = getE2eFixtureState(fixture);
       assert.equal(state?.activeSessionId, 'e2e-fixture-artifact');
 
       const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
@@ -1279,9 +1279,9 @@ describe('e2e-fixture mode', () => {
 
 describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
   it('opens 远程接入 and seeds the DingTalk provider so the scan-login modal auto-opens', () => {
-    const fixture = resolveE2EFixture('settings-bots-onboarding', false);
+    const fixture = resolveE2eFixture('settings-bots-onboarding', false);
     assert.ok(fixture, 'settings-bots-onboarding should resolve');
-    const state = getE2EFixtureState(fixture);
+    const state = getE2eFixtureState(fixture);
     assert.equal(state?.openSettingsSection, 'bot-chat');
     // botOnboardingProvider is the contract the renderer reads to jump to the
     // provider detail + auto-open the QR modal in its waiting state.
@@ -1294,9 +1294,9 @@ describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
   it('reuses the standard turn seed so no bot-specific on-disk seed is needed', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-bots-onboarding-'));
     try {
-      const fixture = resolveE2EFixture('settings-bots-onboarding', false);
+      const fixture = resolveE2eFixture('settings-bots-onboarding', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -1313,9 +1313,9 @@ describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
 
 describe('browser-empty chrome fixture (#819)', () => {
   it('seeds a live browser session id so BrowserPanel mounts over the turn chat in empty state', () => {
-    const fixture = resolveE2EFixture('browser-empty', false);
+    const fixture = resolveE2eFixture('browser-empty', false);
     assert.ok(fixture, 'browser-empty should resolve');
-    const state = getE2EFixtureState(fixture);
+    const state = getE2eFixtureState(fixture);
     // Active session is the standard turn session so the chat surface
     // behind the browser panel renders meaningful context.
     assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
@@ -1331,9 +1331,9 @@ describe('browser-empty chrome fixture (#819)', () => {
   it('reuses the always-seeded turn session so no browser-specific on-disk seed is needed', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-browser-empty-'));
     try {
-      const fixture = resolveE2EFixture('browser-empty', false);
+      const fixture = resolveE2eFixture('browser-empty', false);
       assert.ok(fixture);
-      await seedE2EFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),

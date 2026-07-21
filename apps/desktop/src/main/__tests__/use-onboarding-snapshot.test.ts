@@ -6,7 +6,7 @@
  * `createOnboardingSnapshotPoller`. We test the pure poller here —
  * stale-response defense, lifecycle gating, error handling — and
  * verify the helper predicate `isSetupRequired`. The React wiring is
- * covered by the e2e-fixture + manual UI testing in PR110d.
+ * covered by Playwright E2E + manual UI testing in PR110d.
  */
 
 import { strict as assert } from 'node:assert';

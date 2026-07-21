@@ -61,7 +61,7 @@ describe('detectDayPeriod — day-period bucket boundaries', () => {
 describe('detectDayPeriod — e2e-fixture determinism', () => {
   it('reads Date.now() by default (so the renderer freeze flows through)', () => {
     // Stub Date.now (same trick the renderer uses in
-    // `applyE2EFixture` when `state.now` is set) and verify
+    // `applyE2eFixture` when `state.now` is set) and verify
     // the function uses it without us passing an explicit arg.
     const originalNow = Date.now;
     try {

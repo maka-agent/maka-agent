@@ -516,9 +516,9 @@ export type {
 
 // e2e-fixture.ts
 export type {
-  E2EFixtureLiveTool,
-  E2EFixtureScenario,
-  E2EFixtureState,
+  E2eFixtureLiveTool,
+  E2eFixtureScenario,
+  E2eFixtureState,
 } from './e2e-fixture.js';
 
 // capabilities.ts

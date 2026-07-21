@@ -4,7 +4,7 @@ import type {
   PermissionRequestEvent,
   SessionHeader,
   StoredMessage,
-  E2EFixtureState,
+  E2eFixtureState,
 } from '@maka/core';
 import {
   ERROR_SESSION_ID,
@@ -370,7 +370,7 @@ export function errorMessages(now: number): StoredMessage[] {
   ];
 }
 
-export function streamingLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
+export function streamingLiveTurns(): NonNullable<E2eFixtureState['liveTurnBySession']> {
   return {
     [STREAMING_SESSION_ID]: {
       turnId: 'turn-streaming',
@@ -396,7 +396,7 @@ export function streamingLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySes
   };
 }
 
-export function streamingAnswerLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
+export function streamingAnswerLiveTurns(): NonNullable<E2eFixtureState['liveTurnBySession']> {
   return {
     [TURN_SESSION_ID]: {
       turnId: 'turn-fixture-2',
@@ -410,7 +410,7 @@ export function streamingAnswerLiveTurns(): NonNullable<E2EFixtureState['liveTur
   };
 }
 
-export function processingLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
+export function processingLiveTurns(): NonNullable<E2eFixtureState['liveTurnBySession']> {
   return {
     [PROCESSING_SESSION_ID]: {
       turnId: 'turn-processing-1',
@@ -420,13 +420,13 @@ export function processingLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySe
   };
 }
 
-export function permissionState(): NonNullable<E2EFixtureState['permissionBySession']> {
+export function permissionState(): NonNullable<E2eFixtureState['permissionBySession']> {
   return {
     [PERMISSION_SESSION_ID]: permissionRequest(E2E_FIXTURE_NOW),
   };
 }
 
-export function permissionLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
+export function permissionLiveTurns(): NonNullable<E2eFixtureState['liveTurnBySession']> {
   const request = permissionRequest(E2E_FIXTURE_NOW);
   return {
     [PERMISSION_SESSION_ID]: {

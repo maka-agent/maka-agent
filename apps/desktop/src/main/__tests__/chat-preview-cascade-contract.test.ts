@@ -11,9 +11,9 @@ import { REPO_ROOT, RENDERER_STYLES_DIR, TOKENS_FILE, readAllRendererCss, stripC
  * cards, and the separate `.maka-load-tool-*` card) moved onto the `@maka/ui`
  * `previewVariants` literalize table.
  *
- * The file-diff and terminal shells are proven pixel-identical by the existing
- * e2e-fixture screenshot fixture (it renders a `file_diff` and a `terminal` tool
- * result through the real chat pipeline); the remaining card surfaces are 1:1
+ * The file-diff and terminal shells are rendered by the e2e-fixture (it
+ * renders a `file_diff` and a `terminal` tool result through the real chat
+ * pipeline); the remaining card surfaces are 1:1
  * literal translations of the retired declarations. So this test does NOT
  * re-assert those literals wholesale — that would only mirror the implementation.
  * It locks what a screenshot / computed-style diff cannot cover:

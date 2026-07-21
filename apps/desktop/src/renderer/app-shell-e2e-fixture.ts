@@ -7,11 +7,11 @@ import type { SessionWorkbarTab } from './session-workbar-layout';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
-export interface AppShellE2EFixtureActions {
-  applyE2EFixture(): Promise<void>;
+export interface AppShellE2eFixtureActions {
+  applyE2eFixture(): Promise<void>;
 }
 
-export function createAppShellE2EFixtureActions(options: {
+export function createAppShellE2eFixtureActions(options: {
   openPalette: () => void;
   openSettingsSection: (section: SettingsSection) => void;
   openConnectionDetail: (slug: string) => void;
@@ -27,7 +27,7 @@ export function createAppShellE2EFixtureActions(options: {
   setWorkbarTab: Dispatch<SetStateAction<SessionWorkbarTab>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
   setUiLocaleOverride: Dispatch<SetStateAction<UiLocale | null>>;
-}): AppShellE2EFixtureActions {
+}): AppShellE2eFixtureActions {
   const {
     openPalette,
     openSettingsSection,
@@ -46,7 +46,7 @@ export function createAppShellE2EFixtureActions(options: {
     setUiLocaleOverride,
   } = options;
 
-  async function applyE2EFixture() {
+  async function applyE2eFixture() {
     const state = await window.maka.e2eFixture.getState();
     if (!state) return;
     if (state.now) {
@@ -78,7 +78,7 @@ export function createAppShellE2EFixtureActions(options: {
     }
     // PR-IR-04: apply reduced-motion attribute when the fixture asks for it.
     // The matching CSS rule in styles.css collapses all animations to
-    // ~0.01ms so E2E and the alignment audit can exercise a reduced-motion
+    // ~0.01ms so the alignment audit can exercise a reduced-motion
     // variant without depending on the host OS accessibility setting.
     // Real users never reach this code path (e2eFixture.getState returns
     // null without MAKA_E2E_FIXTURE).
@@ -134,14 +134,14 @@ export function createAppShellE2EFixtureActions(options: {
     }
     // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
     // the fixture sets `searchModalOpen`, auto-open the sidebar
-    // Search modal so E2E/audit can reach the modal
+    // Search modal so the alignment audit can reach the modal
     // shell deterministically. Real users never reach this branch
     // (e2eFixture.getState returns null without MAKA_E2E_FIXTURE).
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
     }
     // PR-shared primitive-COMMAND-INPUT-0: e2e-fixture-only opener for the command
-    // palette so E2E/audit can cover its input shell without
+    // palette so the alignment audit can cover its input shell without
     // requiring Cmd/Ctrl+K.
     if (state.paletteOpen) {
       openPalette();
@@ -178,5 +178,5 @@ export function createAppShellE2EFixtureActions(options: {
     }
   }
 
-  return { applyE2EFixture };
+  return { applyE2eFixture };
 }

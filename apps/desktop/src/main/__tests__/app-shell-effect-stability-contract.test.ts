@@ -201,7 +201,7 @@ function BootstrapSubscriptionProbe(props: {
   props.effects.useAppShellBootstrapSubscriptions({
     uiLocale: 'zh',
     activeIdRef: props.refs.activeIdRef,
-    applyE2EFixture: async () => {},
+    applyE2eFixture: async () => {},
     bootstrapSessions: async () => {},
     clearPendingTurnActionsForSession: () => {},
     clearSessionRendererState: () => {},

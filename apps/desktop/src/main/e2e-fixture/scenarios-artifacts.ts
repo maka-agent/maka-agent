@@ -1,6 +1,6 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { ArtifactRecord, SessionHeader, StoredMessage, E2EFixtureScenario } from '@maka/core';
+import type { ArtifactRecord, SessionHeader, StoredMessage, E2eFixtureScenario } from '@maka/core';
 import { ARTIFACT_SESSION_ID, header } from './seed-helpers.js';
 
 export function artifactSession(now: number): SessionHeader {
@@ -45,7 +45,7 @@ export function artifactMessages(now: number): StoredMessage[] {
   ];
 }
 
-export async function writeArtifacts(workspaceRoot: string, now: number, scenario: E2EFixtureScenario): Promise<void> {
+export async function writeArtifacts(workspaceRoot: string, now: number, scenario: E2eFixtureScenario): Promise<void> {
   const root = join(workspaceRoot, 'artifacts');
   // PR-UI-RENDER-3a-smoke: dedicated preview scenarios get their
   // own short artifact list (single artifact each) so the

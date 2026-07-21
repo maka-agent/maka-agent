@@ -51,7 +51,7 @@
 
 - 默认只允许两类场景使用 `!important`：
   - 无障碍辅助规则，例如 `.maka-visually-hidden`
-  - reduced-motion / visual-smoke 这类测试或可访问性覆盖
+  - reduced-motion / e2e-fixture 这类测试或可访问性覆盖
 - 其他任何 `!important` 都必须同时满足：
   - 就地写明 `Justified:` 注释
   - 在 `renderer-important-audit-contract.test.ts` 中登记
