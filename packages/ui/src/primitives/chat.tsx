@@ -424,8 +424,8 @@ export { toolVariants };
  *
  * Every value is a LITERAL arbitrary utility that compiles 1:1 to the
  * declaration it replaces, so the cva source string IS the computed-style proof
- * (the e2e-fixture screenshot fixture renders the `file_diff` + `terminal` cards
- * to keep those shells pixel-identical; the PR4 cascade contract pins the absence
+ * (the e2e-fixture renders the `file_diff` + `terminal` cards; the PR4
+ * cascade contract pins the absence
  * of the retired selectors + the escape literals). Literals over the semantic
  * scale for the same reason as
  * `markerVariants` / `toolVariants`: the retired CSS hardcoded

@@ -78,8 +78,8 @@ export function createAppShellE2eFixtureActions(options: {
     }
     // PR-IR-04: apply reduced-motion attribute when the fixture asks for it.
     // The matching CSS rule in styles.css collapses all animations to
-    // ~0.01ms so the alignment audit can exercise a reduced-motion
-    // variant without depending on the host OS accessibility setting.
+    // ~0.01ms so a reduced-motion variant is reachable
+    // without depending on the host OS accessibility setting.
     // Real users never reach this code path (e2eFixture.getState returns
     // null without MAKA_E2E_FIXTURE).
     if (state.reducedMotion) {
@@ -134,14 +134,14 @@ export function createAppShellE2eFixtureActions(options: {
     }
     // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
     // the fixture sets `searchModalOpen`, auto-open the sidebar
-    // Search modal so the alignment audit can reach the modal
-    // shell deterministically. Real users never reach this branch
+    // Search modal so the modal
+    // shell is on screen deterministically. Real users never reach this branch
     // (e2eFixture.getState returns null without MAKA_E2E_FIXTURE).
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
     }
     // PR-shared primitive-COMMAND-INPUT-0: e2e-fixture-only opener for the command
-    // palette so the alignment audit can cover its input shell without
+    // palette so its input shell is covered without
     // requiring Cmd/Ctrl+K.
     if (state.paletteOpen) {
       openPalette();

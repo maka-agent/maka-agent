@@ -3,7 +3,7 @@
 // "will the next send fail?" from the same facts as the send gate
 // (connection list, hasSecret probe, connectionLocked on the summary).
 //
-// The stale-sessions visual fixture seeds the exact on-disk states, and
+// The stale-sessions e2e-fixture seeds the exact on-disk states, and
 // both stale sessions carry user messages, so storage self-heals them to
 // `connectionLocked: true` on first read — the send can neither use
 // their connections nor silently rebind, even though a healthy default

@@ -103,7 +103,7 @@ describe('turn-control-history matrix', () => {
     // The inline "(已中断)" marker for an aborted turn (not session)
     // is rendered directly in components.tsx; we don't unit-test the
     // copy here to avoid duplicating the JSX literal. Visual placement
-    // is covered by the deterministic screenshot fixture.
+    // lives in that component, not this helper.
   });
 
   describe('S6 no raw enum leaks (regression-proof)', () => {

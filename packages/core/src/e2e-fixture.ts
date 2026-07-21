@@ -24,8 +24,8 @@ export type E2eFixtureScenario =
   // PR-STREAM-TURN-CENTER: streaming-sidebar only shows the SIDEBAR dot (its
   // active session is a committed one). This seeds an ACTIVE session whose
   // main panel renders the live answer bubble below a committed turn, so
-  // the alignment audit can lock streaming-vs-committed horizontal
-  // alignment — the gap
+  // streaming-vs-committed horizontal alignment is locked
+  // deterministically — the gap
   // that let the "streaming markdown sits ~110px too far left" bug ship.
   | 'streaming-answer'
   // #646 real-time status language: a running session whose turn is armed with
@@ -108,14 +108,14 @@ export type E2eFixtureScenario =
   // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2 +
   // WAWQAQ msg `4259bf8c`): seed the same 60-session sidebar as
   // sidebar-long-sessions, then auto-open the Search modal at
-  // mount so the alignment audit can reach the modal shell
+  // mount so the modal shell is on screen
   // without requiring an interaction. The opener uses
   // `E2eFixtureState.searchModalOpen=true`; real users never
   // receive an e2e-fixture state.
   | 'sidebar-search-modal-open'
   // PR-shared primitive-COMMAND-INPUT-0: reuse the long sidebar seed and
-  // auto-open the command palette so the alignment audit can exercise the
-  // shared primitive InputGroup command input shell without requiring a key
+  // auto-open the command palette so the
+  // shared primitive InputGroup command input shell is exercised without requiring a key
   // chord.
   | 'command-palette-open'
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
@@ -130,7 +130,7 @@ export type E2eFixtureScenario =
   // tall, opened as the active session on boot. Off-screen turns mount as
   // 250px content-visibility placeholders, so this seed exercises the
   // warm-up + pinned-bottom geometry invariants (E2E scroll-geometry spec)
-  // and gives the alignment audit a long-transcript surface.
+  // and gives the scroll-geometry Playwright spec a long-transcript surface.
   | 'long-transcript'
   // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
   // with the active turn session so `BrowserPanel` mounts (app-shell gates
@@ -185,7 +185,7 @@ export interface E2eFixtureState {
    * renderer's `liveBrowserSessionIds` state (app-shell gates `BrowserPanel`
    * mounting on `activeId && liveBrowserSessionIds.includes(activeId)`).
    * Seeded only by the `browser-empty` scenario so the renderer chrome is
-   * reachable by the alignment audit. Real users never receive an e2e-fixture state, so
+   * reachable for inspection. Real users never receive an e2e-fixture state, so
    * this never drives production `browser:live` wiring.
    */
   liveBrowserSessionIds?: string[];
@@ -193,7 +193,7 @@ export interface E2eFixtureState {
   /**
    * When set, open Settings → 模型 with this connection's detail sheet
    * expanded (rather than just the section). Seeded by `oauth-relogin` so the
-   * detail sheet's re-login affordance is what the alignment audit sees; takes
+   * detail sheet's re-login affordance is what gets exposed; takes
    * precedence over `openSettingsSection`.
    */
   openConnectionDetailSlug?: string;
@@ -210,7 +210,7 @@ export interface E2eFixtureState {
   reducedMotion?: boolean;
   /**
    * PR-IR-01b: theme override driven by `MAKA_E2E_FIXTURE_THEME=light|dark|auto`.
-   * Lets the alignment audit exercise each scenario in both light
+   * Lets each scenario be exercised in both light
    * and dark themes without requiring per-fixture seed updates. The
    * renderer applies this BEFORE the user's persisted theme so the
    * first paint already has the right palette.
@@ -247,7 +247,7 @@ export interface E2eFixtureState {
   /**
    * PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
    * `true`, the renderer auto-opens the sidebar Search modal at
-   * mount so the alignment audit can reach the modal shell
+   * mount so the modal shell is on screen
    * deterministically (the modal is not the default state of any
    * scenario; opening it requires either user input or this hint).
    *
@@ -258,8 +258,8 @@ export interface E2eFixtureState {
   searchModalOpen?: boolean;
   /**
    * PR-shared primitive-COMMAND-INPUT-0: when `true`, the renderer auto-opens
-   * the command palette at mount so the alignment audit can
-   * reach the command input shell deterministically. Currently set
+   * the command palette at mount so the
+   * command input shell is on screen deterministically. Currently set
    * only by `command-palette-open`.
    */
   paletteOpen?: boolean;
@@ -272,7 +272,7 @@ export interface E2eFixtureState {
    * then shows the actions cluster — without this hint, default
    * fixture renders never have any focused row, so the overlap fix
    * (`.maka-list-row:focus-within .maka-list-row-meta {
-   * visibility: hidden }`) can't be verified by the alignment audit.
+   * visibility: hidden }`) can't be verified without a focused row.
    *
    * Currently set only by the `sidebar-row-actions-visible`
    * scenario.

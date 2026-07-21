@@ -140,7 +140,7 @@ Rollback 使用 `SettingsStore.updateIf(predicate, patch)`：只有 current chan
 - Provider error 经过固定 user-facing projection，不把 response body、URL query、credential 或 raw stack 返回 renderer。
 - Settings read IPC 会 mask `token` 与 `appSecret`；E2E 断言完整 renderer response 不包含原始 secret。
 - QR modal unmount 必须 cancel current session；late async result 不能更新 React state 或持久化 credential。
-- 正式 runtime 不提供 test adapter 注入入口给 renderer。deterministic adapter 只在 dev/test visual fixture 中由 main wiring 注入。
+- 正式 runtime 不提供 test adapter 注入入口给 renderer。deterministic adapter 只在 dev/test e2e-fixture 中由 main wiring 注入。
 
 当前 at-rest boundary 是 owner-only settings file，不等同于 encrypted secret storage。迁移 Keychain 时，应保持 `SettingsStore` 的 channel projection 与 masked IPC contract 不变，只替换 secret authority。
 

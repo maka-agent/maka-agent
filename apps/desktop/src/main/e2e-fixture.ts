@@ -91,8 +91,8 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'artifact-errors',
   'streaming-sidebar',
   // PR-STREAM-TURN-CENTER: active session renders the live answer bubble in
-  // the main panel (below a committed turn) so the alignment audit
-  // can lock streaming-vs-committed horizontal alignment.
+  // the main panel (below a committed turn) so
+  // streaming-vs-committed horizontal alignment is locked deterministically.
   'streaming-answer',
   // #646: a running session with an armed turn but nothing streaming yet —
   // captures the "正在处理…" model-wait indicator + composer Stop.
@@ -100,8 +100,8 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'permission-destructive',
   'stale-sessions',
   // PR108j: per-Settings-section fixtures so each Settings sub-page can
-  // be exercised in light + dark + narrow + reduced-motion variants by
-  // the CI alignment audit. Each scenario reuses the standard
+  // be opened deterministically over the standard seed. Each scenario
+  // reuses the standard
   // connection / session seed and only differs in
   // `openSettingsSection`. (Per-page state — displayName,
   // assistantTone, network proxy, etc. — already comes from the
@@ -129,8 +129,8 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'module-skills',
   // MCP module page (SVG-governance + polish campaign): opens the 扩展 → MCP
   // surface with a seeded mcp.json so the market grid, tab row, hero banner,
-  // and the installed server list all render for the alignment auditor + E2E
-  // in light / dark.
+  // and the installed server list all render for the alignment auditor
+  // (light).
   'module-mcp',
   'module-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
@@ -205,9 +205,9 @@ export interface E2eFixture {
   /**
    * PR-IR-04: when `MAKA_E2E_FIXTURE_REDUCED_MOTION=1` is set alongside
    * the scenario var, the renderer collapses all animations to ~0.01ms
-   * via the `[data-maka-reduced-motion="true"]` CSS path. Lets E2E and
-   * the alignment audit exercise a "reduced motion" variant for every
-   * surface without depending on the host OS accessibility setting.
+   * via the `[data-maka-reduced-motion="true"]` CSS path. Lets every
+   * surface be exercised in a "reduced motion" variant without depending
+   * on the host OS accessibility setting.
    */
   reducedMotion: boolean;
   /**
@@ -387,7 +387,7 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
       // session so BrowserPanel mounts over the chat. No native
       // WebContentsView exists in e2e-fixture mode, so browser.getState
       // resolves null → BrowserPanel renders EMPTY_STATE → the empty-state
-      // chrome is what the alignment audit sees (the #818 defect surface).
+      // chrome is what the fixture exposes (the #818 defect surface).
       // Loaded / loading / nav chrome states are locked by the
       // `browser-panel-chrome` source contract; they add no layout
       // value over this empty-state fixture.
@@ -401,7 +401,7 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
     case 'streaming-answer':
       // Active session = the committed turn-narrative session, PLUS a live
       // answer streaming into it. The main panel then shows a settled turn
-      // and the in-flight bubble together, so the alignment audit can prove they
+      // and the in-flight bubble together, so they provably
       // share the same centered column (the streaming-turn-center fix).
       return {
         ...state,
@@ -521,8 +521,8 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
       // the active row; the fixture exposes the scroll affordance
       // plus the visible footer (Settings + Version info) at the
       // bottom of the sidebar. If the scroll fix regresses, the footer
-      // gets pushed off-screen and the regression surfaces in the
-      // scroll-geometry E2E spec.
+      // gets pushed off-screen and the regression is visible in the
+      // rendered fixture.
       return { ...state, activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00', sidebarCollapsed: false };
     case 'sidebar-search-modal-open':
       // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2):
@@ -531,7 +531,7 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
       // fixture; `searchModalOpen: true` is the only differentiator.
       // The renderer reads the flag in `applyE2eFixture()` and
       // calls `setSearchModalOpen(true)` before the fixture settles,
-      // so the SearchModal shell is on screen for the alignment audit.
+      // so the SearchModal shell is on screen deterministically.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
@@ -541,7 +541,7 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
     case 'command-palette-open':
       // PR-shared primitive-COMMAND-INPUT-0: same 60-session seed as the sidebar
       // fixtures; `paletteOpen: true` is the only differentiator so
-      // the command palette shell is visible for the alignment audit.
+      // the command palette shell is visible deterministically.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',

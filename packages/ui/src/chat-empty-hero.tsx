@@ -14,10 +14,10 @@
  *
  * Why this seam: the empty-chat hero is the first thing every
  * user sees on a fresh session. Its day-period boundary
- * (5/11/14/18) is screenshot-baseline-pinned by a contract test
+ * (5/11/14/18) is pinned by a contract test
  * because e2e-fixture fixtures freeze `Date.now()` but not the
  * `Date` constructor — getting this wrong silently drifts the
- * baseline. The DeepResearch variant is also where the read-only
+ * rendered greeting. The DeepResearch variant is also where the read-only
  * deep-research workflow rules live. Both deserve their own
  * surface so the boundary rules sit next to the surface they
  * govern, not buried in a 7000-line file.

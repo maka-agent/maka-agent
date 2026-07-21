@@ -21,9 +21,9 @@
  * desktop test setup has no DOM); the runtime exercise of the
  * mount/unmount cycle is covered by:
  *   - The `sidebar-search-modal-open` e2e-fixture scenario, which
- *     forces the modal open at startup and captures a screenshot
+ *     forces the modal open at startup
  *     (verifies it can MOUNT cleanly).
- *   - The `sidebar-long-sessions` scenario, which captures the
+ *   - The `sidebar-long-sessions` scenario, which renders the
  *     default state (verifies the renderer mounts cleanly WITHOUT
  *     the modal — the parent's `&&` guard skips the SearchModal
  *     subtree).

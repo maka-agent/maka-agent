@@ -2,7 +2,7 @@
 /**
  * PR-DESKTOP-SMOKE-0: real Electron window smoke runner.
  *
- * This is intentionally a human-in-the-loop gate. Visual smoke screenshots
+ * This is intentionally a human-in-the-loop gate. Automated fixtures
  * cannot verify native macOS resize hit areas, titlebar drag, or keyboard
  * traversal through a live Electron window. This script launches a clean,
  * isolated Maka window and records the reviewer-confirmed result as JSON +

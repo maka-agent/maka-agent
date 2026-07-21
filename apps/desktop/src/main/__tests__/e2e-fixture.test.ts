@@ -460,7 +460,7 @@ describe('e2e-fixture mode', () => {
 
       const state = getE2eFixtureState(fixture);
       // @kenji gate: active session intentionally one of the stale ones so
-      // the alignment audit can prove "active + stale → pill still visible".
+      // the "active + stale → pill still visible" invariant is exercised.
       assert.equal(state?.activeSessionId, 'e2e-fixture-stale-fake');
 
       // Connection list MUST NOT contain `fake` / `fake-claude` slugs —
@@ -775,7 +775,7 @@ describe('e2e-fixture mode', () => {
     // sessions` is `E2eFixtureState.searchModalOpen=true`, which
     // the renderer reads to call `setSearchModalOpen(true)` before
     // the fixture settles, so the SearchModal shell is on screen
-    // for the alignment audit.
+    // deterministically.
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-search-modal-'));
     try {
       const fixture = resolveE2eFixture('sidebar-search-modal-open', false);
@@ -892,9 +892,7 @@ describe('e2e-fixture mode', () => {
      * field intentionally contains a workspace-relative path (the
      * registry uses it to read the file), but the UI must NEVER
      * surface it. We check the *fixture* metadata here, which is
-     * the source of truth the renderer consumes. The smoke
-     * pipeline's PNG diff covers the rendered DOM separately;
-     * here we lock the input.
+     * the source of truth the renderer consumes; here we lock the input.
      */
     function assertNoAbsolutePathInMetadata(line: string) {
       assert.equal(line.includes('/Users/'), false, `metadata leak: /Users/ in ${line}`);

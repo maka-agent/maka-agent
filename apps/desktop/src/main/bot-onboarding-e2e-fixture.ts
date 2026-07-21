@@ -11,7 +11,7 @@ const NORMAL_TTL_SECONDS = 30;
 const WAITING_HOLD_TTL_SECONDS = 60 * 60;
 
 /**
- * Deterministic provider adapters for the dev-only Settings visual fixture.
+ * Deterministic provider adapters for the dev-only Settings e2e-fixture.
  * They exercise the real main-owned session, IPC, persistence, runtime-effect,
  * and renderer polling paths without contacting an external IM platform.
  *
