@@ -264,7 +264,6 @@ function requireSurface(value: unknown): ClientSurface {
 function requireHostState(value: unknown): HostLifecycleState {
   if (
     value === 'starting' ||
-    value === 'containing' ||
     value === 'recovering' ||
     value === 'ready' ||
     value === 'draining'

@@ -2,7 +2,7 @@ import { invalidProtocolFrame } from './errors.js';
 import { requireCount, requireExactRecord, requireId } from './codec.js';
 import { defineOperation } from './operation-spec.js';
 
-export type HostLifecycleState = 'starting' | 'containing' | 'recovering' | 'ready' | 'draining';
+export type HostLifecycleState = 'starting' | 'recovering' | 'ready' | 'draining';
 
 export type HostStatusInput = Record<string, never>;
 
@@ -50,7 +50,6 @@ function decodeHostStatusResult(value: unknown): HostStatusResult {
 function requireHostState(value: unknown): HostLifecycleState {
   if (
     value === 'starting' ||
-    value === 'containing' ||
     value === 'recovering' ||
     value === 'ready' ||
     value === 'draining'
