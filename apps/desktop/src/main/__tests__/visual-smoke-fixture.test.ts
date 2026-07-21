@@ -634,18 +634,24 @@ describe('visual smoke fixture mode', () => {
   it('module fixtures open Skills and MCP in Settings while Daily Review stays in app navigation', async () => {
     const skills = resolveVisualSmokeFixture('module-skills', false);
     const skillDiagnostics = resolveVisualSmokeFixture('module-skills-diagnostics', false);
+    const skillConfirmation = resolveVisualSmokeFixture('module-skills-confirmation', false);
+    const skillToggle = resolveVisualSmokeFixture('module-skills-toggle', false);
     const mcp = resolveVisualSmokeFixture('module-mcp', false);
     const dailyReview = resolveVisualSmokeFixture('module-daily-review', false);
 
     assert.ok(skills);
     assert.ok(mcp);
     assert.ok(skillDiagnostics);
+    assert.ok(skillConfirmation);
+    assert.ok(skillToggle);
     assert.ok(dailyReview);
     assert.equal(getVisualSmokeState(skills)?.openSettingsSection, 'skills');
     assert.equal(getVisualSmokeState(skills)?.sidebarSection, undefined);
     assert.equal(getVisualSmokeState(skills)?.activeSessionId, 'visual-smoke-turn');
     assert.equal(getVisualSmokeState(skills)?.extensionView, 'skills_available');
     assert.equal(getVisualSmokeState(skillDiagnostics)?.extensionView, 'skills_diagnostics');
+    assert.equal(getVisualSmokeState(skillConfirmation)?.extensionView, 'skills_activation_confirm');
+    assert.equal(getVisualSmokeState(skillToggle)?.extensionView, 'skills_toggle');
     assert.equal(getVisualSmokeState(mcp)?.openSettingsSection, 'mcp');
     assert.equal(getVisualSmokeState(mcp)?.sidebarSection, undefined);
     assert.equal(getVisualSmokeState(mcp)?.activeSessionId, 'visual-smoke-turn');

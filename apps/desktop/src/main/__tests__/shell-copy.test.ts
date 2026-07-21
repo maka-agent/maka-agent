@@ -23,7 +23,7 @@ describe('shell copy catalog', () => {
   });
 
   it('builds shell commands and session metadata in both locales', () => {
-    let selectedModule: unknown;
+    let selectedSettingsSection: unknown;
     const commands = buildCommandList({
       locale: 'en',
       activeSessionId: undefined,
@@ -32,18 +32,18 @@ describe('shell copy catalog', () => {
       defaultSlug: null,
       onNewChat() {},
       onOpenSettings() {},
-      onOpenSettingsSection() {},
+      onOpenSettingsSection(section) { selectedSettingsSection = section; },
       onOpenShortcuts() {},
       onSetTheme() {},
-      onSelectModule(selection) { selectedModule = selection; },
+      onSelectModule() {},
     });
 
     assert.equal(commands.find((command) => command.id === 'action:new-chat')?.label, 'New conversation');
     assert.equal(commands.find((command) => command.id === 'action:open-settings')?.label, 'Open Settings');
-    const mcpCommand = commands.find((command) => command.id === 'nav:mcp');
-    assert.equal(mcpCommand?.label, 'Open · MCP');
+    const mcpCommand = commands.find((command) => command.id === 'settings:mcp');
+    assert.equal(mcpCommand?.label, 'Settings · MCP');
     mcpCommand?.run();
-    assert.deepEqual(selectedModule, { section: 'mcp' });
+    assert.equal(selectedSettingsSection, 'mcp');
 
     const sessionCommands = buildSessionCommands({
       locale: 'en',

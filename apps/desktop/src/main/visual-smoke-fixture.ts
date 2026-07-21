@@ -121,6 +121,8 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-health',
   'module-skills',
   'module-skills-diagnostics',
+  'module-skills-confirmation',
+  'module-skills-toggle',
   // MCP module page (SVG-governance + polish campaign): opens the 扩展 → MCP
   // surface with a seeded mcp.json so the market grid, tab row, hero banner,
   // and the installed server list all render for the alignment auditor + CDP
@@ -498,6 +500,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_available' };
     case 'module-skills-diagnostics':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_diagnostics' };
+    case 'module-skills-confirmation':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_activation_confirm' };
+    case 'module-skills-toggle':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_toggle' };
     case 'module-mcp':
       // MCP is a peer of Skills under Settings → AI & Integrations.
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'mcp' };
@@ -683,7 +689,12 @@ export async function seedVisualSmokeFixture(input: {
   if (input.fixture.scenario === 'module-daily-review' || input.fixture.scenario === 'settings-daily-review') {
     await writeDailyReviewArchives(input.workspaceRoot, now);
   }
-  if (input.fixture.scenario === 'module-skills' || input.fixture.scenario === 'module-skills-diagnostics') {
+  if (
+    input.fixture.scenario === 'module-skills'
+    || input.fixture.scenario === 'module-skills-diagnostics'
+    || input.fixture.scenario === 'module-skills-confirmation'
+    || input.fixture.scenario === 'module-skills-toggle'
+  ) {
     await seedSkillsFixture(input.workspaceRoot);
   }
   if (input.fixture.scenario === 'module-mcp') {

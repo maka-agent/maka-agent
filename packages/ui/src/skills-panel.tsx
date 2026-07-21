@@ -51,8 +51,8 @@ function SkillLibraryPanel(props: {
   const skillCount = props.skills?.length ?? 0;
   const [activeSkillTab, setActiveSkillTab] = useState<'builtin' | 'installed'>(() => {
     const visualView = typeof document === 'undefined' ? undefined : document.documentElement.dataset.makaExtensionView;
-    if (visualView === 'skills_available') return 'builtin';
-    if (visualView === 'skills_diagnostics') return 'installed';
+    if (visualView === 'skills_available' || visualView === 'skills_activation_confirm') return 'builtin';
+    if (visualView === 'skills_diagnostics' || visualView === 'skills_toggle') return 'installed';
     const skills = props.skills ?? [];
     // Land on 已发现 when the current session has scanned Skill entries;
     // otherwise open on 内置, the always-populated shipped catalog.
@@ -75,6 +75,12 @@ function SkillLibraryPanel(props: {
   const bundledCatalog = (props.bundledSkillCatalog ?? []).filter(
     (entry) => entry.activationState === 'available',
   );
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (document.documentElement.dataset.makaExtensionView !== 'skills_activation_confirm') return;
+    const first = bundledCatalog[0];
+    if (first) setConfirmTemplateId(first.id);
+  }, [bundledCatalog[0]?.id]);
   const reviewTemplate = bundledCatalog.find((entry) => entry.id === reviewTemplateId);
   const confirmTemplate = bundledCatalog.find((entry) => entry.id === confirmTemplateId);
   const detailSkill = (props.skills ?? []).find((entry) => entry.entryKey === detailEntryKey);

@@ -101,6 +101,8 @@ const ALL_SCENARIOS = [
   'settings-health',
   'module-skills',
   'module-skills-diagnostics',
+  'module-skills-confirmation',
+  'module-skills-toggle',
   'module-daily-review',
   // MCP module surface (registered fixture, previously uncaptured).
   'module-mcp',

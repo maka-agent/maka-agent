@@ -20,7 +20,6 @@ export const STATIC_COMMAND_IDS = [
   'theme:auto',
   'nav:sessions',
   'nav:automations',
-  'nav:mcp',
   'nav:daily-review',
   'diag:open-workspace',
   'diag:open-project-folder',
@@ -55,7 +54,6 @@ const STATIC_COMMAND_KEYWORDS: Record<StaticCommandId, readonly string[]> = {
   'theme:auto': ['auto', 'system', 'theme', '跟随', '系统', '主题'],
   'nav:sessions': ['sessions', 'chats', '会话', '对话', 'left'],
   'nav:automations': ['automations', 'plan', 'reminder', 'schedule', 'cron', '定时任务', '计划', '提醒'],
-  'nav:mcp': ['mcp', 'server', 'tools', '扩展', '工具'],
   'nav:daily-review': ['daily', 'review', 'today', '每日', '回顾', '今天'],
   'diag:open-workspace': ['workspace', 'folder', 'open', 'finder', '工作区', '文件夹', '目录'],
   'diag:open-project-folder': ['project', 'folder', 'open', 'finder', '项目', '目录', '文件夹'],
@@ -423,7 +421,6 @@ const ZH_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
   'theme:auto': { label: '主题 · 跟随系统', group: '主题' },
   'nav:sessions': { label: '侧栏 · 会话', group: '导航' },
   'nav:automations': { label: '侧栏 · 定时任务', group: '导航' },
-  'nav:mcp': { label: '打开 · MCP', group: '导航' },
   'nav:daily-review': { label: '打开 · 每日回顾', group: '导航' },
   'diag:open-workspace': {
     label: '打开工作区文件夹',
@@ -518,7 +515,6 @@ const EN_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
   'theme:auto': { label: 'Theme · Follow system', group: 'Theme' },
   'nav:sessions': { label: 'Sidebar · Conversations', group: 'Navigation' },
   'nav:automations': { label: 'Sidebar · Automations', group: 'Navigation' },
-  'nav:mcp': { label: 'Open · MCP', group: 'Navigation' },
   'nav:daily-review': { label: 'Open · Daily Review', group: 'Navigation' },
   'diag:open-workspace': {
     label: 'Open workspace folder',

@@ -59,6 +59,8 @@ export type VisualSmokeScenario =
   | 'settings-health'
   | 'module-skills'
   | 'module-skills-diagnostics'
+  | 'module-skills-confirmation'
+  | 'module-skills-toggle'
   | 'module-mcp'
   | 'module-daily-review'
   | 'workstation-statuses'
@@ -190,7 +192,11 @@ export interface VisualSmokeState {
    */
   liveBrowserSessionIds?: string[];
   openSettingsSection?: SettingsSection;
-  extensionView?: 'skills_available' | 'skills_diagnostics';
+  extensionView?:
+    | 'skills_available'
+    | 'skills_diagnostics'
+    | 'skills_activation_confirm'
+    | 'skills_toggle';
   /**
    * When set, open Settings → 模型 with this connection's detail sheet
    * expanded (rather than just the section). Seeded by `oauth-relogin` so the
