@@ -4,38 +4,38 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { tmpdir } from 'node:os';
 import {
-  getVisualSmokeState,
-  resolveVisualSmokeFixture,
-  seedVisualSmokeFixture,
-} from '../visual-smoke-fixture.js';
-import { readVisualSmokeFixtureCombinedSource } from './visual-smoke-fixture-source-helpers.js';
+  getE2EFixtureState,
+  resolveE2EFixture,
+  seedE2EFixture,
+} from '../e2e-fixture.js';
+import { readE2EFixtureCombinedSource } from './e2e-fixture-source-helpers.js';
 
-describe('visual smoke fixture mode', () => {
-  it('stays fully disabled when MAKA_VISUAL_SMOKE_FIXTURE is unset', () => {
-    const fixture = resolveVisualSmokeFixture(undefined, false);
+describe('e2e-fixture mode', () => {
+  it('stays fully disabled when MAKA_E2E_FIXTURE is unset', () => {
+    const fixture = resolveE2EFixture(undefined, false);
     assert.equal(fixture, null);
-    assert.equal(getVisualSmokeState(fixture), null);
+    assert.equal(getE2EFixtureState(fixture), null);
   });
 
   it('rejects fixture mode in packaged builds', () => {
     assert.throws(
-      () => resolveVisualSmokeFixture('all', true),
+      () => resolveE2EFixture('all', true),
       /only available in dev\/test builds/,
     );
   });
 
   it('rejects unknown scenarios', () => {
     assert.throws(
-      () => resolveVisualSmokeFixture('unknown-scenario', false),
-      /Unknown MAKA_VISUAL_SMOKE_FIXTURE scenario/,
+      () => resolveE2EFixture('unknown-scenario', false),
+      /Unknown MAKA_E2E_FIXTURE scenario/,
     );
   });
 
   it('resolves known scenarios into isolated workspaces', () => {
-    const fixture = resolveVisualSmokeFixture('provider-workspace', false);
+    const fixture = resolveE2EFixture('provider-workspace', false);
     assert.deepEqual(fixture, {
       scenario: 'provider-workspace',
-      workspaceName: 'visual-smoke-provider-workspace',
+      workspaceName: 'e2e-fixture-provider-workspace',
       reducedMotion: false,
       theme: null,
       locale: null,
@@ -45,44 +45,44 @@ describe('visual smoke fixture mode', () => {
 
   describe('theme override (PR-IR-01b)', () => {
     it('defaults to null when env var unset', () => {
-      const fixture = resolveVisualSmokeFixture('all', false);
+      const fixture = resolveE2EFixture('all', false);
       assert.equal(fixture?.theme, null);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.theme, undefined);
       assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     });
 
     it('accepts the closed enum light / dark / auto', () => {
       for (const raw of ['light', 'dark', 'auto', 'LIGHT', ' Dark ']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, raw);
+        const fixture = resolveE2EFixture('all', false, undefined, raw);
         assert.equal(typeof fixture?.theme, 'string', `raw=${JSON.stringify(raw)}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.ok(state?.theme && ['light', 'dark', 'auto'].includes(state.theme), `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('rejects unknown values (fail-closed)', () => {
       for (const raw of ['solar', '', 'oklch', 'high-contrast', 'monochrome']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, raw);
+        const fixture = resolveE2EFixture('all', false, undefined, raw);
         assert.equal(fixture?.theme, null, `raw=${JSON.stringify(raw)}`);
       }
     });
   });
 
   describe('UI locale override (PR-UI-VISUAL-SMOKE-LOCALE)', () => {
-    it('defaults to null when MAKA_VISUAL_SMOKE_LOCALE unset', () => {
-      const fixture = resolveVisualSmokeFixture('all', false);
+    it('defaults to null when MAKA_E2E_FIXTURE_LOCALE unset', () => {
+      const fixture = resolveE2EFixture('all', false);
       assert.equal(fixture?.locale, null);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.locale, undefined);
     });
 
     it('accepts the closed enum zh / en (case + whitespace tolerant)', () => {
       for (const raw of ['zh', 'en', 'ZH', ' En ', 'EN']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
+        const fixture = resolveE2EFixture('all', false, undefined, undefined, raw);
         assert.ok(fixture?.locale, `raw=${JSON.stringify(raw)}`);
         assert.ok(['zh', 'en'].includes(fixture!.locale!), `raw=${JSON.stringify(raw)}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.ok(state?.locale && ['zh', 'en'].includes(state.locale), `raw=${JSON.stringify(raw)}`);
       }
     });
@@ -92,26 +92,26 @@ describe('visual smoke fixture mode', () => {
       // bare `zh` / `en` short codes. `zh-CN` etc. fail closed so the
       // override is unambiguous; users wanting CN locale set `zh`.
       for (const raw of ['', 'es', 'ja', 'zh-CN', 'en-US', 'auto', 'system']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
+        const fixture = resolveE2EFixture('all', false, undefined, undefined, raw);
         assert.equal(fixture?.locale, null, `raw=${JSON.stringify(raw)}`);
       }
     });
 
-    it('locale flag carries through into VisualSmokeState across all known scenarios', () => {
+    it('locale flag carries through into E2EFixtureState across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, 'zh');
+        const fixture = resolveE2EFixture(scenario, false, undefined, undefined, 'zh');
         assert.equal(fixture?.locale, 'zh', `scenario=${scenario}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.equal(state?.locale, 'zh', `scenario=${scenario}`);
       }
     });
 
     it('locale is independent from theme / reduced-motion', () => {
-      const fixture = resolveVisualSmokeFixture('all', false, '1', 'dark', 'en');
+      const fixture = resolveE2EFixture('all', false, '1', 'dark', 'en');
       assert.equal(fixture?.locale, 'en');
       assert.equal(fixture?.theme, 'dark');
       assert.equal(fixture?.reducedMotion, true);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
       assert.equal(state?.reducedMotion, true);
@@ -119,10 +119,10 @@ describe('visual smoke fixture mode', () => {
   });
 
   describe('IANA timezone override (PR-UI-VISUAL-SMOKE-TIMEZONE, @kenji msg 45486cdf)', () => {
-    it('defaults to null when MAKA_VISUAL_SMOKE_TIMEZONE unset', () => {
-      const fixture = resolveVisualSmokeFixture('all', false);
+    it('defaults to null when MAKA_E2E_FIXTURE_TIMEZONE unset', () => {
+      const fixture = resolveE2EFixture('all', false);
       assert.equal(fixture?.timezone, null);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.timezone, undefined);
     });
 
@@ -140,9 +140,9 @@ describe('visual smoke fixture mode', () => {
         'Pacific/Auckland',
       ];
       for (const tz of valid) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, tz);
+        const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, tz);
         assert.equal(fixture?.timezone, tz, `tz=${tz}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.equal(state?.timezone, tz, `tz=${tz}`);
       }
     });
@@ -152,7 +152,7 @@ describe('visual smoke fixture mode', () => {
       // (`America/New_York`, not `america/new_york`). The parser
       // trim-onlys; it does not lowercase, so the canonical form
       // survives.
-      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, '  Asia/Shanghai  ');
+      const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, '  Asia/Shanghai  ');
       assert.equal(fixture?.timezone, 'Asia/Shanghai');
     });
 
@@ -169,14 +169,14 @@ describe('visual smoke fixture mode', () => {
         'utc/zulu',
       ];
       for (const tz of invalid) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, tz);
+        const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, tz);
         assert.equal(fixture?.timezone, null, `tz=${JSON.stringify(tz)}`);
       }
     });
 
     it('rejects oversize inputs (>128 chars) without invoking Intl.DateTimeFormat', () => {
       const oversize = 'A'.repeat(129);
-      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, oversize);
+      const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, oversize);
       assert.equal(fixture?.timezone, null);
     });
 
@@ -185,9 +185,9 @@ describe('visual smoke fixture mode', () => {
       // approved (msg 45486cdf): the parser only validates +
       // surfaces the IANA name. It does NOT mutate `Date.prototype`,
       // global `Intl.DateTimeFormat`, or `state.now`. `state.now`
-      // is still the canonical clock-freeze for visual smoke.
-      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, 'Asia/Shanghai');
-      const state = getVisualSmokeState(fixture);
+      // is still the canonical clock-freeze for e2e-fixture.
+      const fixture = resolveE2EFixture('all', false, undefined, undefined, undefined, 'Asia/Shanghai');
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.timezone, 'Asia/Shanghai');
       assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
       // No global mutation: Date.now / new Date() / Intl.DateTimeFormat
@@ -199,22 +199,22 @@ describe('visual smoke fixture mode', () => {
       assert.equal(typeof formatter.resolvedOptions().timeZone, 'string');
     });
 
-    it('timezone flag carries through into VisualSmokeState across all known scenarios', () => {
+    it('timezone flag carries through into E2EFixtureState across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, undefined, 'Europe/London');
+        const fixture = resolveE2EFixture(scenario, false, undefined, undefined, undefined, 'Europe/London');
         assert.equal(fixture?.timezone, 'Europe/London', `scenario=${scenario}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.equal(state?.timezone, 'Europe/London', `scenario=${scenario}`);
       }
     });
 
     it('timezone is independent from theme / locale / reduced-motion', () => {
-      const fixture = resolveVisualSmokeFixture('all', false, '1', 'dark', 'en', 'Asia/Tokyo');
+      const fixture = resolveE2EFixture('all', false, '1', 'dark', 'en', 'Asia/Tokyo');
       assert.equal(fixture?.timezone, 'Asia/Tokyo');
       assert.equal(fixture?.locale, 'en');
       assert.equal(fixture?.theme, 'dark');
       assert.equal(fixture?.reducedMotion, true);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.timezone, 'Asia/Tokyo');
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
@@ -224,41 +224,41 @@ describe('visual smoke fixture mode', () => {
 
   describe('reduced-motion variant (PR-IR-04)', () => {
     it('defaults to reducedMotion: false when env var unset', () => {
-      const fixture = resolveVisualSmokeFixture('all', false);
+      const fixture = resolveE2EFixture('all', false);
       assert.equal(fixture?.reducedMotion, false);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.reducedMotion, undefined);
     });
 
     it('accepts "1" / "true" / "yes" as truthy', () => {
       for (const raw of ['1', 'true', 'yes', 'TRUE', ' yes ']) {
-        const fixture = resolveVisualSmokeFixture('all', false, raw);
+        const fixture = resolveE2EFixture('all', false, raw);
         assert.equal(fixture?.reducedMotion, true, `raw=${JSON.stringify(raw)}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.equal(state?.reducedMotion, true, `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('treats unrecognized values as false (fail-closed)', () => {
       for (const raw of ['0', 'no', 'false', '', 'maybe']) {
-        const fixture = resolveVisualSmokeFixture('all', false, raw);
+        const fixture = resolveE2EFixture('all', false, raw);
         assert.equal(fixture?.reducedMotion, false, `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('reduced motion flag works across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveVisualSmokeFixture(scenario, false, '1');
+        const fixture = resolveE2EFixture(scenario, false, '1');
         assert.equal(fixture?.reducedMotion, true, `scenario=${scenario}`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.equal(state?.reducedMotion, true, `scenario=${scenario}`);
       }
     });
   });
 
   it('first-run fixture has no transient smoke-only UI state', () => {
-    const fixture = resolveVisualSmokeFixture('first-run', false);
-    const state = getVisualSmokeState(fixture);
+    const fixture = resolveE2EFixture('first-run', false);
+    const state = getE2EFixtureState(fixture);
     assert.equal(state?.enabled, true);
     assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     assert.equal(state?.activeSessionId, undefined);
@@ -267,35 +267,35 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('all fixture exposes transient streaming and permission state without persistence', () => {
-    const fixture = resolveVisualSmokeFixture('all', false);
-    const state = getVisualSmokeState(fixture);
+    const fixture = resolveE2EFixture('all', false);
+    const state = getE2EFixtureState(fixture);
     assert.equal(state?.enabled, true);
-    assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+    assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
     const liveTurns = state?.liveTurnBySession;
-    assert.equal(liveTurns?.['visual-smoke-streaming']?.turnId, 'turn-streaming');
-    assert.equal(liveTurns?.['visual-smoke-streaming']?.steps[0]?.tools[0]?.status, 'running');
-    assert.equal(liveTurns?.['visual-smoke-permission']?.turnId, 'turn-permission');
-    assert.equal(liveTurns?.['visual-smoke-permission']?.steps[0]?.tools[0]?.status, 'waiting_permission');
-    const permission = state?.permissionBySession?.['visual-smoke-permission'];
+    assert.equal(liveTurns?.['e2e-fixture-streaming']?.turnId, 'turn-streaming');
+    assert.equal(liveTurns?.['e2e-fixture-streaming']?.steps[0]?.tools[0]?.status, 'running');
+    assert.equal(liveTurns?.['e2e-fixture-permission']?.turnId, 'turn-permission');
+    assert.equal(liveTurns?.['e2e-fixture-permission']?.steps[0]?.tools[0]?.status, 'waiting_permission');
+    const permission = state?.permissionBySession?.['e2e-fixture-permission'];
     assert.ok(permission);
     assert.equal((permission.args as { command?: unknown }).command, 'rm -rf ./dist');
     assert.equal(Object.hasOwn(permission.args as object, 'cmd'), false, 'fixture must match the current Bash input schema');
   });
 
   it('task-ledger fixture seeds the hierarchical desktop read model', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-task-ledger-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-task-ledger-'));
     try {
-      const fixture = resolveVisualSmokeFixture('task-ledger', false);
+      const fixture = resolveE2EFixture('task-ledger', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      assert.equal(getVisualSmokeState(fixture)?.activeSessionId, 'visual-smoke-turn');
+      assert.equal(getE2EFixtureState(fixture)?.activeSessionId, 'e2e-fixture-turn');
       const tasks = JSON.parse(await readFile(
-        join(workspaceRoot, 'sessions', 'visual-smoke-turn', 'tasks.json'),
+        join(workspaceRoot, 'sessions', 'e2e-fixture-turn', 'tasks.json'),
         'utf8',
       )) as Array<{ key: string; parentId?: string; status: string; owner?: { actor: string } }>;
       assert.deepEqual(tasks.map((task) => task.key), ['T1', 'T1.1', 'T1.2', 'T1.2.1', 'T2', 'T3']);
@@ -307,22 +307,22 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('deep-research-progress seeds a completed durable run for visual review', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-deep-research-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-deep-research-'));
     try {
-      const fixture = resolveVisualSmokeFixture('deep-research-progress', false);
+      const fixture = resolveE2EFixture('deep-research-progress', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      assert.equal(getVisualSmokeState(fixture)?.activeSessionId, 'visual-smoke-deep-research');
+      assert.equal(getE2EFixtureState(fixture)?.activeSessionId, 'e2e-fixture-deep-research');
       const ledger = await readFile(
         join(
           workspaceRoot,
           'sessions',
-          'visual-smoke-deep-research',
+          'e2e-fixture-deep-research',
           'deep-research',
           'events.jsonl',
         ),
@@ -346,16 +346,16 @@ describe('visual smoke fixture mode', () => {
     // arch Round 3: the fixture split into a registry barrel + per-domain
     // seeder modules, so this hygiene scan aggregates every fixture source
     // file rather than the single monolith it used to read.
-    const src = await readVisualSmokeFixtureCombinedSource();
-    assert.doesNotMatch(src, /占位用户消息|占位回复/, 'visual smoke screenshots must use product-like chat copy, not placeholder text');
+    const src = await readE2EFixtureCombinedSource();
+    assert.doesNotMatch(src, /占位用户消息|占位回复/, 'e2e-fixture screenshots must use product-like chat copy, not placeholder text');
   });
 
   it('first-run seed keeps the fixture workspace connection-free', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-first-run-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-first-run-'));
     try {
-      const fixture = resolveVisualSmokeFixture('first-run', false);
+      const fixture = resolveE2EFixture('first-run', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -378,12 +378,12 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('scenario seed focuses the relevant provider state for connection-dialog screenshots', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-provider-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-provider-'));
     try {
-      const fixture = resolveVisualSmokeFixture('fallback-source', false);
+      const fixture = resolveE2EFixture('fallback-source', false);
       assert.ok(fixture);
       const secrets: string[] = [];
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(secrets),
@@ -435,33 +435,33 @@ describe('visual smoke fixture mode', () => {
 
     for (const { scenario, expectedSection } of cases) {
       it(`${scenario} opens Settings · ${expectedSection}`, () => {
-        const fixture = resolveVisualSmokeFixture(scenario, false);
+        const fixture = resolveE2EFixture(scenario, false);
         assert.ok(fixture, `${scenario} should resolve`);
-        const state = getVisualSmokeState(fixture);
+        const state = getE2EFixtureState(fixture);
         assert.equal(state?.openSettingsSection, expectedSection);
         // Active session is the standard turn fixture so the chat
         // surface behind the modal renders meaningful context.
-        assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+        assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
       });
     }
   });
 
   it('stale-sessions seed reproduces the P0 workspace with active stale session', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-stale-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-stale-'));
     try {
-      const fixture = resolveVisualSmokeFixture('stale-sessions', false);
+      const fixture = resolveE2EFixture('stale-sessions', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       // @kenji gate: active session intentionally one of the stale ones so
-      // the screenshot proves "active + stale → pill still visible".
-      assert.equal(state?.activeSessionId, 'visual-smoke-stale-fake');
+      // E2E/audit can prove "active + stale → pill still visible".
+      assert.equal(state?.activeSessionId, 'e2e-fixture-stale-fake');
 
       // Connection list MUST NOT contain `fake` / `fake-claude` slugs —
       // those are what makes the seeded sessions stale.
@@ -475,7 +475,7 @@ describe('visual smoke fixture mode', () => {
 
       // Three session.jsonl files: one for each session.
       const sessionDirs = await Promise.all(
-        ['visual-smoke-stale-fake', 'visual-smoke-stale-legacy', 'visual-smoke-healthy'].map(async (id) => {
+        ['e2e-fixture-stale-fake', 'e2e-fixture-stale-legacy', 'e2e-fixture-healthy'].map(async (id) => {
           const file = await readFile(join(workspaceRoot, 'sessions', id, 'session.jsonl'), 'utf8');
           return JSON.parse(file.split('\n')[0]!) as {
             backend: string;
@@ -496,32 +496,32 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('workstation-statuses seed creates one session per SessionStatus including aborted + 4 blocked variants', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-ws-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-ws-'));
     try {
-      const fixture = resolveVisualSmokeFixture('workstation-statuses', false);
+      const fixture = resolveE2EFixture('workstation-statuses', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.activeSessionId, 'visual-smoke-ws-running');
+      const state = getE2EFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-ws-running');
 
       const expectedSessions = [
-        { id: 'visual-smoke-ws-running', status: 'running' },
-        { id: 'visual-smoke-ws-waiting', status: 'waiting_for_user' },
-        { id: 'visual-smoke-ws-blocked-auth', status: 'blocked', blockedReason: 'auth' },
-        { id: 'visual-smoke-ws-blocked-perm', status: 'blocked', blockedReason: 'permission_required' },
-        { id: 'visual-smoke-ws-blocked-tool', status: 'blocked', blockedReason: 'tool_failed' },
-        { id: 'visual-smoke-ws-blocked-unknown', status: 'blocked', blockedReason: 'unknown' },
-        { id: 'visual-smoke-ws-active', status: 'active' },
-        { id: 'visual-smoke-ws-review', status: 'review' },
-        { id: 'visual-smoke-ws-done', status: 'done' },
-        { id: 'visual-smoke-ws-archived', status: 'archived' },
-        { id: 'visual-smoke-ws-aborted', status: 'aborted' },
+        { id: 'e2e-fixture-ws-running', status: 'running' },
+        { id: 'e2e-fixture-ws-waiting', status: 'waiting_for_user' },
+        { id: 'e2e-fixture-ws-blocked-auth', status: 'blocked', blockedReason: 'auth' },
+        { id: 'e2e-fixture-ws-blocked-perm', status: 'blocked', blockedReason: 'permission_required' },
+        { id: 'e2e-fixture-ws-blocked-tool', status: 'blocked', blockedReason: 'tool_failed' },
+        { id: 'e2e-fixture-ws-blocked-unknown', status: 'blocked', blockedReason: 'unknown' },
+        { id: 'e2e-fixture-ws-active', status: 'active' },
+        { id: 'e2e-fixture-ws-review', status: 'review' },
+        { id: 'e2e-fixture-ws-done', status: 'done' },
+        { id: 'e2e-fixture-ws-archived', status: 'archived' },
+        { id: 'e2e-fixture-ws-aborted', status: 'aborted' },
       ];
 
       for (const expected of expectedSessions) {
@@ -549,14 +549,14 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('model-processing arms a running session with no live stream so the "正在处理…" indicator + Stop show (#646)', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-processing-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-processing-'));
     try {
-      const fixture = resolveVisualSmokeFixture('model-processing', false);
+      const fixture = resolveE2EFixture('model-processing', false);
       assert.ok(fixture);
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       // The turn is armed on a running session — the derivation's inputs.
-      assert.equal(state?.activeSessionId, 'visual-smoke-processing');
-      assert.deepEqual(state?.liveTurnBySession?.['visual-smoke-processing'], {
+      assert.equal(state?.activeSessionId, 'e2e-fixture-processing');
+      assert.deepEqual(state?.liveTurnBySession?.['e2e-fixture-processing'], {
         turnId: 'turn-processing-1',
         phase: 'waiting',
         steps: [],
@@ -564,9 +564,9 @@ describe('visual smoke fixture mode', () => {
       // Nothing may be streaming / thinking / running as a tool, or the
       // derivation would hide the indicator (it fires only in the zero-content
       // wait). This scenario deliberately seeds none of them.
-      assert.equal(state?.liveTurnBySession?.['visual-smoke-processing']?.steps.length, 0);
+      assert.equal(state?.liveTurnBySession?.['e2e-fixture-processing']?.steps.length, 0);
 
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -575,7 +575,7 @@ describe('visual smoke fixture mode', () => {
       // The on-disk status is `running` so the status gate self-heals like the
       // real backgrounded-session path; the lone user message is the tail turn
       // the indicator anchors to.
-      const file = await readFile(join(workspaceRoot, 'sessions', 'visual-smoke-processing', 'session.jsonl'), 'utf8');
+      const file = await readFile(join(workspaceRoot, 'sessions', 'e2e-fixture-processing', 'session.jsonl'), 'utf8');
       const lines = file.split('\n').filter(Boolean);
       const header = JSON.parse(lines[0]!) as { status: string };
       assert.equal(header.status, 'running');
@@ -587,21 +587,21 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('plan-reminders opens the Automations module and seeds scheduled / paused / completed reminders', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-plan-reminders-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-plan-reminders-'));
     try {
-      const fixture = resolveVisualSmokeFixture('plan-reminders', false);
+      const fixture = resolveE2EFixture('plan-reminders', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.sidebarSection, 'automations');
       assert.equal(state?.sidebarCollapsed, false);
-      assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+      assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
 
       const reminders = JSON.parse(
         await readFile(join(workspaceRoot, 'plan-reminders.json'), 'utf8'),
@@ -635,30 +635,30 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('module fixtures open Skills, MCP and Daily Review in the app module surface', async () => {
-    const skills = resolveVisualSmokeFixture('module-skills', false);
-    const mcp = resolveVisualSmokeFixture('module-mcp', false);
-    const dailyReview = resolveVisualSmokeFixture('module-daily-review', false);
+    const skills = resolveE2EFixture('module-skills', false);
+    const mcp = resolveE2EFixture('module-mcp', false);
+    const dailyReview = resolveE2EFixture('module-daily-review', false);
 
     assert.ok(skills);
     assert.ok(mcp);
     assert.ok(dailyReview);
-    assert.equal(getVisualSmokeState(skills)?.sidebarSection, 'skills');
-    assert.equal(getVisualSmokeState(skills)?.sidebarCollapsed, false);
-    assert.equal(getVisualSmokeState(skills)?.activeSessionId, 'visual-smoke-turn');
-    assert.equal(getVisualSmokeState(mcp)?.sidebarSection, 'mcp');
-    assert.equal(getVisualSmokeState(mcp)?.sidebarCollapsed, false);
-    assert.equal(getVisualSmokeState(mcp)?.activeSessionId, 'visual-smoke-turn');
-    assert.equal(getVisualSmokeState(dailyReview)?.sidebarSection, 'daily-review');
-    assert.equal(getVisualSmokeState(dailyReview)?.sidebarCollapsed, false);
-    assert.equal(getVisualSmokeState(dailyReview)?.activeSessionId, 'visual-smoke-turn');
+    assert.equal(getE2EFixtureState(skills)?.sidebarSection, 'skills');
+    assert.equal(getE2EFixtureState(skills)?.sidebarCollapsed, false);
+    assert.equal(getE2EFixtureState(skills)?.activeSessionId, 'e2e-fixture-turn');
+    assert.equal(getE2EFixtureState(mcp)?.sidebarSection, 'mcp');
+    assert.equal(getE2EFixtureState(mcp)?.sidebarCollapsed, false);
+    assert.equal(getE2EFixtureState(mcp)?.activeSessionId, 'e2e-fixture-turn');
+    assert.equal(getE2EFixtureState(dailyReview)?.sidebarSection, 'daily-review');
+    assert.equal(getE2EFixtureState(dailyReview)?.sidebarCollapsed, false);
+    assert.equal(getE2EFixtureState(dailyReview)?.activeSessionId, 'e2e-fixture-turn');
   });
 
   it('module-mcp seeds a couple of installed servers so the 已安装 list renders', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-mcp-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-mcp-'));
     try {
-      const fixture = resolveVisualSmokeFixture('module-mcp', false);
+      const fixture = resolveE2EFixture('module-mcp', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -671,7 +671,7 @@ describe('visual smoke fixture mode', () => {
       assert.equal(config.version, 1);
       const ids = Object.keys(config.mcpServers);
       assert.ok(ids.length >= 2, 'installed list needs >=2 servers to render meaningfully');
-      // enabled:false keeps visual-smoke deterministic — no real npx / HTTP
+      // enabled:false keeps e2e-fixture deterministic — no real npx / HTTP
       // connection is attempted, so the rows settle in the neutral 已停用 state.
       for (const id of ids) {
         assert.equal(config.mcpServers[id].enabled, false, `${id} stays disabled in the fixture`);
@@ -682,12 +682,12 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('module-skills seeds a managed-source market catalog (>=6 entries with categories) plus workspace skills', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-skills-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-skills-'));
     const previousSourcesRoot = process.env.MAKA_SKILL_SOURCES_ROOT;
     try {
-      const fixture = resolveVisualSmokeFixture('module-skills', false);
+      const fixture = resolveE2EFixture('module-skills', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -731,36 +731,36 @@ describe('visual smoke fixture mode', () => {
     // kenji `b3d156e9`): the sidebar-row-actions-visible scenario
     // reuses the 60-session seed so the sidebar is identical to
     // the long-sessions baseline; differs only in
-    // `VisualSmokeState.focusActiveRow=true`, which the renderer
+    // `E2EFixtureState.focusActiveRow=true`, which the renderer
     // reads to focus the active row's button after mount. That
     // triggers `:focus-within` and reveals the
-    // `.maka-list-row-menu-trigger` — the screenshot then proves
+    // `.maka-list-row-menu-trigger` — the fixture then proves
     // the time meta / unread dot are correctly hidden underneath.
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-row-actions-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-row-actions-'));
     try {
-      const fixture = resolveVisualSmokeFixture('sidebar-row-actions-visible', false);
+      const fixture = resolveE2EFixture('sidebar-row-actions-visible', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       // focusActiveRow is the contract the renderer reads.
       assert.equal(state?.focusActiveRow, true, 'focusActiveRow must be true so the renderer focuses the active row button');
       assert.equal(state?.sidebarCollapsed, false, 'sidebar row action screenshots must expand the seeded sidebar');
-      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+      assert.equal(state?.activeSessionId, 'e2e-fixture-sidebar-long-00');
 
       // Same 60-session seed actually lands on disk so the sidebar
       // is fully populated for the actions-visible capture.
       const file = await readFile(
-        join(workspaceRoot, 'sessions', 'visual-smoke-sidebar-long-00', 'session.jsonl'),
+        join(workspaceRoot, 'sessions', 'e2e-fixture-sidebar-long-00', 'session.jsonl'),
         'utf8',
       );
       const header = JSON.parse(file.split('\n')[0]!) as { id: string; status: string };
-      assert.equal(header.id, 'visual-smoke-sidebar-long-00');
+      assert.equal(header.id, 'e2e-fixture-sidebar-long-00');
       assert.equal(header.status, 'active');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -772,36 +772,36 @@ describe('visual smoke fixture mode', () => {
     // sidebar-search-modal-open scenario reuses the 60-session seed
     // so the sidebar behind the modal matches the long-sessions
     // baseline exactly. The only differentiator from `sidebar-long-
-    // sessions` is `VisualSmokeState.searchModalOpen=true`, which
+    // sessions` is `E2EFixtureState.searchModalOpen=true`, which
     // the renderer reads to call `setSearchModalOpen(true)` before
-    // auto-capture settles, so the SearchModal shell is on screen
-    // in the captured PNG.
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-search-modal-'));
+    // the fixture settles, so the SearchModal shell is on screen
+    // for E2E/audit.
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-search-modal-'));
     try {
-      const fixture = resolveVisualSmokeFixture('sidebar-search-modal-open', false);
+      const fixture = resolveE2EFixture('sidebar-search-modal-open', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       // Modal-open hint is the contract the renderer reads.
       assert.equal(state?.searchModalOpen, true, 'searchModalOpen must be true so the renderer auto-opens the modal');
       // Same active session as the long-sessions scenario so the
       // sidebar behind the modal looks identical to that baseline.
-      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+      assert.equal(state?.activeSessionId, 'e2e-fixture-sidebar-long-00');
 
       // Same 60-session seed actually lands on disk so the sidebar
       // is fully populated behind the modal.
       const file = await readFile(
-        join(workspaceRoot, 'sessions', 'visual-smoke-sidebar-long-00', 'session.jsonl'),
+        join(workspaceRoot, 'sessions', 'e2e-fixture-sidebar-long-00', 'session.jsonl'),
         'utf8',
       );
       const header = JSON.parse(file.split('\n')[0]!) as { id: string; status: string };
-      assert.equal(header.id, 'visual-smoke-sidebar-long-00');
+      assert.equal(header.id, 'e2e-fixture-sidebar-long-00');
       assert.equal(header.status, 'active');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -809,27 +809,27 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('command-palette-open shares the 60-session seed and sets paletteOpen for auto-open', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-command-palette-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-command-palette-'));
     try {
-      const fixture = resolveVisualSmokeFixture('command-palette-open', false);
+      const fixture = resolveE2EFixture('command-palette-open', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       assert.equal(state?.paletteOpen, true, 'paletteOpen must be true so the renderer auto-opens CommandPalette');
-      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+      assert.equal(state?.activeSessionId, 'e2e-fixture-sidebar-long-00');
 
       const file = await readFile(
-        join(workspaceRoot, 'sessions', 'visual-smoke-sidebar-long-00', 'session.jsonl'),
+        join(workspaceRoot, 'sessions', 'e2e-fixture-sidebar-long-00', 'session.jsonl'),
         'utf8',
       );
       const header = JSON.parse(file.split('\n')[0]!) as { id: string; status: string };
-      assert.equal(header.id, 'visual-smoke-sidebar-long-00');
+      assert.equal(header.id, 'e2e-fixture-sidebar-long-00');
       assert.equal(header.status, 'active');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -839,23 +839,23 @@ describe('visual smoke fixture mode', () => {
   it('sidebar-long-sessions seed creates 60 sessions for the scroll-fix gate (PR-SIDEBAR-IA-0 Phase 1)', async () => {
     // PR-SIDEBAR-IA-0 Phase 1 (xuan msg `dc790a54`, kenji `0f7bb872`):
     // hard gate fixture for sidebar scroll fix. The CSS contract is
-    // verified by screenshot baselines; the fixture itself only needs
+    // verified by the scroll-geometry E2E spec; the fixture itself only needs
     // to (a) actually seed 60 sessions, (b) make the newest one the
     // active selection, and (c) keep IDs deterministic.
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-long-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-long-'));
     try {
-      const fixture = resolveVisualSmokeFixture('sidebar-long-sessions', false);
+      const fixture = resolveE2EFixture('sidebar-long-sessions', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
 
-      const state = getVisualSmokeState(fixture);
+      const state = getE2EFixtureState(fixture);
       // Active session is the first (newest by lastMessageAt).
-      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+      assert.equal(state?.activeSessionId, 'e2e-fixture-sidebar-long-00');
       assert.equal(state?.sidebarCollapsed, false, 'sidebar scroll screenshots must expand the seeded sidebar');
 
       // Verify all 60 sessions exist on disk with deterministic IDs +
@@ -863,7 +863,7 @@ describe('visual smoke fixture mode', () => {
       let previousLastMessageAt = Infinity;
       for (let i = 0; i < 60; i++) {
         const idSuffix = String(i).padStart(2, '0');
-        const sessionId = 'visual-smoke-sidebar-long-' + idSuffix;
+        const sessionId = 'e2e-fixture-sidebar-long-' + idSuffix;
         const file = await readFile(join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'), 'utf8');
         const header = JSON.parse(file.split('\n')[0]!) as {
           id: string;
@@ -904,22 +904,22 @@ describe('visual smoke fixture mode', () => {
       // session-prefixed and never start with `/`.
       const record = JSON.parse(line) as { relativePath: string };
       assert.equal(record.relativePath.startsWith('/'), false);
-      assert.equal(record.relativePath.startsWith(`visual-smoke-artifact/`), true);
+      assert.equal(record.relativePath.startsWith(`e2e-fixture-artifact/`), true);
     }
 
     it('artifact-preview-image: single PNG seeded → registry will resolve image(mime_match)', async () => {
-      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-preview-image-'));
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-preview-image-'));
       try {
-        const fixture = resolveVisualSmokeFixture('artifact-preview-image', false);
+        const fixture = resolveE2EFixture('artifact-preview-image', false);
         assert.ok(fixture);
-        await seedVisualSmokeFixture({
+        await seedE2EFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
           now: 1_700_000_000_000,
         });
-        const state = getVisualSmokeState(fixture);
-        assert.equal(state?.activeSessionId, 'visual-smoke-artifact');
+        const state = getE2EFixtureState(fixture);
+        assert.equal(state?.activeSessionId, 'e2e-fixture-artifact');
 
         const lines = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
           .split('\n')
@@ -945,7 +945,7 @@ describe('visual smoke fixture mode', () => {
         const filePath = join(
           workspaceRoot,
           'artifacts',
-          'visual-smoke-artifact',
+          'e2e-fixture-artifact',
           'artifact-preview-image-screenshot.png',
         );
         const bytes = await readFile(filePath);
@@ -960,11 +960,11 @@ describe('visual smoke fixture mode', () => {
     });
 
     it('artifact-preview-unsupported: image/heic disallowed mime → L1 unsupported(mime_disallowed), readBinary never called', async () => {
-      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-preview-unsupported-'));
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-preview-unsupported-'));
       try {
-        const fixture = resolveVisualSmokeFixture('artifact-preview-unsupported', false);
+        const fixture = resolveE2EFixture('artifact-preview-unsupported', false);
         assert.ok(fixture);
-        await seedVisualSmokeFixture({
+        await seedE2EFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
@@ -994,11 +994,11 @@ describe('visual smoke fixture mode', () => {
     });
 
     it('artifact-preview-oversize: 3MB sizeBytes claim with skipFile → L1 unsupported(oversize)', async () => {
-      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-preview-oversize-'));
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-preview-oversize-'));
       try {
-        const fixture = resolveVisualSmokeFixture('artifact-preview-oversize', false);
+        const fixture = resolveE2EFixture('artifact-preview-oversize', false);
         assert.ok(fixture);
-        await seedVisualSmokeFixture({
+        await seedE2EFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
@@ -1034,7 +1034,7 @@ describe('visual smoke fixture mode', () => {
             join(
               workspaceRoot,
               'artifacts',
-              'visual-smoke-artifact',
+              'e2e-fixture-artifact',
               'artifact-preview-oversize-huge.png',
             ),
             'utf8',
@@ -1052,27 +1052,27 @@ describe('visual smoke fixture mode', () => {
         'artifact-preview-unsupported',
         'artifact-preview-oversize',
       ] as const) {
-        const fixture = resolveVisualSmokeFixture(scenario, false);
+        const fixture = resolveE2EFixture(scenario, false);
         assert.ok(fixture, `scenario=${scenario}`);
-        const state = getVisualSmokeState(fixture);
-        assert.equal(state?.activeSessionId, 'visual-smoke-artifact', `scenario=${scenario}`);
+        const state = getE2EFixtureState(fixture);
+        assert.equal(state?.activeSessionId, 'e2e-fixture-artifact', `scenario=${scenario}`);
       }
     });
   });
 
   it('artifact-pane seed creates file-backed artifact metadata without absolute paths', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-artifact-'));
     try {
-      const fixture = resolveVisualSmokeFixture('artifact-pane', false);
+      const fixture = resolveE2EFixture('artifact-pane', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.activeSessionId, 'visual-smoke-artifact');
+      const state = getE2EFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-artifact');
 
       const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
         .split('\n')
@@ -1082,7 +1082,7 @@ describe('visual smoke fixture mode', () => {
       assert.deepEqual(metadata.map((record) => record.kind), ['html', 'diff', 'file']);
       assert.equal(metadata.every((record) => !record.relativePath.startsWith('/')), true);
       assert.equal(metadata.every((record) => record.status === 'live'), true);
-      const report = await readFile(join(workspaceRoot, 'artifacts', 'visual-smoke-artifact', 'artifact-report-report.html'), 'utf8');
+      const report = await readFile(join(workspaceRoot, 'artifacts', 'e2e-fixture-artifact', 'artifact-report-report.html'), 'utf8');
       assert.match(report, /外部链接应被禁用/);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -1091,42 +1091,42 @@ describe('visual smoke fixture mode', () => {
 
   describe('turn-control-history seed', () => {
     it('seeds primary + visible-parent branch + orphan branch sharing one on-disk state', async () => {
-      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-turn-control-'));
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-turn-control-'));
       try {
-        const fixture = resolveVisualSmokeFixture('turn-control-history', false);
+        const fixture = resolveE2EFixture('turn-control-history', false);
         assert.ok(fixture);
-        await seedVisualSmokeFixture({
+        await seedE2EFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
           now: 1_700_000_000_000,
         });
 
-        const state = getVisualSmokeState(fixture);
-        assert.equal(state?.activeSessionId, 'visual-smoke-turn-control-primary');
+        const state = getE2EFixtureState(fixture);
+        assert.equal(state?.activeSessionId, 'e2e-fixture-turn-control-primary');
 
-        const primary = await readSessionHeader(workspaceRoot, 'visual-smoke-turn-control-primary');
+        const primary = await readSessionHeader(workspaceRoot, 'e2e-fixture-turn-control-primary');
         assert.equal(primary.parentSessionId, undefined, 'primary has no parent');
 
-        const visible = await readSessionHeader(workspaceRoot, 'visual-smoke-turn-control-branch-visible');
+        const visible = await readSessionHeader(workspaceRoot, 'e2e-fixture-turn-control-branch-visible');
         assert.equal(
           visible.parentSessionId,
-          'visual-smoke-turn-control-primary',
+          'e2e-fixture-turn-control-primary',
           'visible branch points to seeded primary',
         );
         assert.equal(visible.branchOfTurnId, 'turn-retry-origin');
 
-        const orphan = await readSessionHeader(workspaceRoot, 'visual-smoke-turn-control-branch-orphan');
+        const orphan = await readSessionHeader(workspaceRoot, 'e2e-fixture-turn-control-branch-orphan');
         assert.equal(
           orphan.parentSessionId,
-          'visual-smoke-turn-control-deleted-parent',
+          'e2e-fixture-turn-control-deleted-parent',
           'orphan branch points to NON-existent parent',
         );
 
         // Negative case: the orphan parent must NOT be written to disk.
         await assert.rejects(
           readFile(
-            join(workspaceRoot, 'sessions', 'visual-smoke-turn-control-deleted-parent', 'session.jsonl'),
+            join(workspaceRoot, 'sessions', 'e2e-fixture-turn-control-deleted-parent', 'session.jsonl'),
             'utf8',
           ),
           /ENOENT/,
@@ -1137,18 +1137,18 @@ describe('visual smoke fixture mode', () => {
     });
 
     it('primary session log covers retry / regenerate / aborted / failed turns with TurnState messages', async () => {
-      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-turn-control-turns-'));
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-turn-control-turns-'));
       try {
-        const fixture = resolveVisualSmokeFixture('turn-control-history', false);
+        const fixture = resolveE2EFixture('turn-control-history', false);
         assert.ok(fixture);
-        await seedVisualSmokeFixture({
+        await seedE2EFixture({
           workspaceRoot,
           fixture,
           credentialStore: fakeCredentialStore(),
           now: 1_700_000_000_000,
         });
 
-        const messages = await readSessionMessages(workspaceRoot, 'visual-smoke-turn-control-primary');
+        const messages = await readSessionMessages(workspaceRoot, 'e2e-fixture-turn-control-primary');
         const turnStates = messages.filter((m) => (m as { type?: string }).type === 'turn_state') as Array<{
           turnId: string;
           status: string;
@@ -1182,17 +1182,17 @@ describe('visual smoke fixture mode', () => {
     });
 
     it('turn-control-branch-visible scenario flips active session to the visible-parent branch', () => {
-      const fixture = resolveVisualSmokeFixture('turn-control-branch-visible', false);
+      const fixture = resolveE2EFixture('turn-control-branch-visible', false);
       assert.ok(fixture);
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.activeSessionId, 'visual-smoke-turn-control-branch-visible');
+      const state = getE2EFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-turn-control-branch-visible');
     });
 
     it('turn-control-branch-orphan scenario flips active session to the orphan branch', () => {
-      const fixture = resolveVisualSmokeFixture('turn-control-branch-orphan', false);
+      const fixture = resolveE2EFixture('turn-control-branch-orphan', false);
       assert.ok(fixture);
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.activeSessionId, 'visual-smoke-turn-control-branch-orphan');
+      const state = getE2EFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-turn-control-branch-orphan');
     });
 
     it('all three turn-control-* scenarios write the same on-disk session set', async () => {
@@ -1201,17 +1201,17 @@ describe('visual smoke fixture mode', () => {
       // future change that diverges their on-disk seed must update
       // this gate and the corresponding screenshot scenario.
       const expected = new Set([
-        'visual-smoke-turn-control-primary',
-        'visual-smoke-turn-control-branch-visible',
-        'visual-smoke-turn-control-branch-orphan',
+        'e2e-fixture-turn-control-primary',
+        'e2e-fixture-turn-control-branch-visible',
+        'e2e-fixture-turn-control-branch-orphan',
       ]);
 
       for (const scenario of ['turn-control-history', 'turn-control-branch-visible', 'turn-control-branch-orphan'] as const) {
-        const workspaceRoot = await mkdtemp(join(tmpdir(), `maka-visual-smoke-tc-${scenario}-`));
+        const workspaceRoot = await mkdtemp(join(tmpdir(), `maka-e2e-fixture-tc-${scenario}-`));
         try {
-          const fixture = resolveVisualSmokeFixture(scenario, false);
+          const fixture = resolveE2EFixture(scenario, false);
           assert.ok(fixture);
-          await seedVisualSmokeFixture({
+          await seedE2EFixture({
             workspaceRoot,
             fixture,
             credentialStore: fakeCredentialStore(),
@@ -1226,7 +1226,7 @@ describe('visual smoke fixture mode', () => {
           }
           await assert.rejects(
             readFile(
-              join(workspaceRoot, 'sessions', 'visual-smoke-turn-control-deleted-parent', 'session.jsonl'),
+              join(workspaceRoot, 'sessions', 'e2e-fixture-turn-control-deleted-parent', 'session.jsonl'),
               'utf8',
             ),
             /ENOENT/,
@@ -1240,18 +1240,18 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('artifact-errors seed covers deleted, missing, and unsupported MIME preview states', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-errors-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-artifact-errors-'));
     try {
-      const fixture = resolveVisualSmokeFixture('artifact-errors', false);
+      const fixture = resolveE2EFixture('artifact-errors', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.activeSessionId, 'visual-smoke-artifact');
+      const state = getE2EFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-artifact');
 
       const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
         .split('\n')
@@ -1268,7 +1268,7 @@ describe('visual smoke fixture mode', () => {
       assert.equal(metadata.find((record) => record.id === 'artifact-deleted')?.status, 'deleted');
       assert.equal(metadata.find((record) => record.id === 'artifact-unsupported')?.kind, 'image');
       await assert.rejects(
-        readFile(join(workspaceRoot, 'artifacts', 'visual-smoke-artifact', 'artifact-missing-missing.md'), 'utf8'),
+        readFile(join(workspaceRoot, 'artifacts', 'e2e-fixture-artifact', 'artifact-missing-missing.md'), 'utf8'),
         /ENOENT/,
       );
     } finally {
@@ -1279,32 +1279,32 @@ describe('visual smoke fixture mode', () => {
 
 describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
   it('opens 远程接入 and seeds the DingTalk provider so the scan-login modal auto-opens', () => {
-    const fixture = resolveVisualSmokeFixture('settings-bots-onboarding', false);
+    const fixture = resolveE2EFixture('settings-bots-onboarding', false);
     assert.ok(fixture, 'settings-bots-onboarding should resolve');
-    const state = getVisualSmokeState(fixture);
+    const state = getE2EFixtureState(fixture);
     assert.equal(state?.openSettingsSection, 'bot-chat');
     // botOnboardingProvider is the contract the renderer reads to jump to the
     // provider detail + auto-open the QR modal in its waiting state.
     assert.equal(state?.botOnboardingProvider, 'dingtalk');
     // Active session is the standard turn fixture so the chat surface behind
     // the Settings modal renders meaningful context.
-    assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+    assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
   });
 
   it('reuses the standard turn seed so no bot-specific on-disk seed is needed', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-bots-onboarding-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-bots-onboarding-'));
     try {
-      const fixture = resolveVisualSmokeFixture('settings-bots-onboarding', false);
+      const fixture = resolveE2EFixture('settings-bots-onboarding', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
-      const file = await readFile(join(workspaceRoot, 'sessions', 'visual-smoke-turn', 'session.jsonl'), 'utf8');
+      const file = await readFile(join(workspaceRoot, 'sessions', 'e2e-fixture-turn', 'session.jsonl'), 'utf8');
       const header = JSON.parse(file.split('\n')[0]!) as { id: string };
-      assert.equal(header.id, 'visual-smoke-turn');
+      assert.equal(header.id, 'e2e-fixture-turn');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -1313,27 +1313,27 @@ describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
 
 describe('browser-empty chrome fixture (#819)', () => {
   it('seeds a live browser session id so BrowserPanel mounts over the turn chat in empty state', () => {
-    const fixture = resolveVisualSmokeFixture('browser-empty', false);
+    const fixture = resolveE2EFixture('browser-empty', false);
     assert.ok(fixture, 'browser-empty should resolve');
-    const state = getVisualSmokeState(fixture);
+    const state = getE2EFixtureState(fixture);
     // Active session is the standard turn session so the chat surface
     // behind the browser panel renders meaningful context.
-    assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+    assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
     // liveBrowserSessionIds is the contract the renderer reads to mount
     // BrowserPanel (app-shell gates on activeId && liveBrowserSessionIds
     // .includes(activeId)). Seeding the active session makes the panel
-    // mount; with no real WebContentsView in visual-smoke mode,
+    // mount; with no real WebContentsView in e2e-fixture mode,
     // browser.getState returns null → BrowserPanel renders EMPTY_STATE →
     // the empty-state chrome (#818 defect surface) is what screenshots.
-    assert.deepEqual(state?.liveBrowserSessionIds, ['visual-smoke-turn']);
+    assert.deepEqual(state?.liveBrowserSessionIds, ['e2e-fixture-turn']);
   });
 
   it('reuses the always-seeded turn session so no browser-specific on-disk seed is needed', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-browser-empty-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-browser-empty-'));
     try {
-      const fixture = resolveVisualSmokeFixture('browser-empty', false);
+      const fixture = resolveE2EFixture('browser-empty', false);
       assert.ok(fixture);
-      await seedVisualSmokeFixture({
+      await seedE2EFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),
@@ -1342,9 +1342,9 @@ describe('browser-empty chrome fixture (#819)', () => {
       // The turn session is part of the standard seed (always written),
       // so the active browser session has a real on-disk chat behind the
       // panel without a browser-specific seed branch.
-      const file = await readFile(join(workspaceRoot, 'sessions', 'visual-smoke-turn', 'session.jsonl'), 'utf8');
+      const file = await readFile(join(workspaceRoot, 'sessions', 'e2e-fixture-turn', 'session.jsonl'), 'utf8');
       const header = JSON.parse(file.split('\n')[0]!) as { id: string };
-      assert.equal(header.id, 'visual-smoke-turn');
+      assert.equal(header.id, 'e2e-fixture-turn');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

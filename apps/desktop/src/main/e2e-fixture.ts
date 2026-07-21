@@ -1,5 +1,5 @@
 import { mkdir, rm } from 'node:fs/promises';
-import type { UiLocale, VisualSmokeScenario, VisualSmokeState } from '@maka/core';
+import type { UiLocale, E2EFixtureScenario, E2EFixtureState } from '@maka/core';
 import type { CredentialStore } from './credential-store.js';
 import {
   ARTIFACT_SESSION_ID,
@@ -15,15 +15,15 @@ import {
   TURN_CONTROL_PRIMARY_SESSION_ID,
   TURN_CONTROL_SCENARIOS,
   TURN_SESSION_ID,
-  VISUAL_SMOKE_NOW,
+  E2E_FIXTURE_NOW,
   WORKSTATION_RUNNING_SESSION_ID,
   writeSession,
-} from './visual-smoke/seed-helpers.js';
+} from './e2e-fixture/seed-helpers.js';
 import {
   artifactMessages,
   artifactSession,
   writeArtifacts,
-} from './visual-smoke/scenarios-artifacts.js';
+} from './e2e-fixture/scenarios-artifacts.js';
 import {
   errorMessages,
   errorSession,
@@ -41,11 +41,11 @@ import {
   turnMessages,
   turnSession,
   writeTaskLedgerFixture,
-} from './visual-smoke/scenarios-chat.js';
+} from './e2e-fixture/scenarios-chat.js';
 import {
   seedMcpFixture,
   seedSkillsMarketFixture,
-} from './visual-smoke/scenarios-modules.js';
+} from './e2e-fixture/scenarios-modules.js';
 import {
   healthyMessages,
   healthySession,
@@ -58,22 +58,22 @@ import {
   staleLegacySession,
   turnControlSessions,
   workstationStatusSessions,
-} from './visual-smoke/scenarios-sessions.js';
+} from './e2e-fixture/scenarios-sessions.js';
 import {
   writeConnections,
   writeDailyReviewArchives,
   writePlanReminders,
   writeSettings,
-} from './visual-smoke/scenarios-settings.js';
-import { usageStatsSessions } from './visual-smoke/scenarios-usage.js';
+} from './e2e-fixture/scenarios-settings.js';
+import { usageStatsSessions } from './e2e-fixture/scenarios-usage.js';
 import {
   DEEP_RESEARCH_SESSION_ID,
   deepResearchMessages,
   deepResearchSession,
   writeDeepResearchLedger,
-} from './visual-smoke/scenarios-deep-research.js';
+} from './e2e-fixture/scenarios-deep-research.js';
 
-const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
+const E2E_FIXTURE_SCENARIOS = new Set<E2EFixtureScenario>([
   'all',
   'first-run',
   'provider-workspace',
@@ -91,17 +91,17 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'artifact-errors',
   'streaming-sidebar',
   // PR-STREAM-TURN-CENTER: active session renders the live answer bubble in
-  // the main panel (below a committed turn) so the screenshot locks
-  // streaming-vs-committed horizontal alignment.
+  // the main panel (below a committed turn) so E2E + the alignment audit
+  // can lock streaming-vs-committed horizontal alignment.
   'streaming-answer',
   // #646: a running session with an armed turn but nothing streaming yet —
   // captures the "正在处理…" model-wait indicator + composer Stop.
   'model-processing',
   'permission-destructive',
   'stale-sessions',
-  // PR108j: per-Settings-section fixtures so the screenshot pipeline
-  // can capture each Settings sub-page in light + dark + narrow +
-  // reduced-motion variants. Each scenario reuses the standard
+  // PR108j: per-Settings-section fixtures so each Settings sub-page can
+  // be exercised in light + dark + narrow + reduced-motion variants by
+  // E2E specs and the CI alignment audit. Each scenario reuses the standard
   // connection / session seed and only differs in
   // `openSettingsSection`. (Per-page state — displayName,
   // assistantTone, network proxy, etc. — already comes from the
@@ -111,10 +111,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // daily-review split back apart per WAWQAQ msg `886f6406`.
   'settings-appearance',
   'settings-bots',
-  // #1233 deferral: deterministic bot QR-onboarding modal capture. Shares the
+  // #1233 deferral: deterministic bot QR-onboarding modal fixture. Shares the
   // settings-bots seed but auto-opens a provider detail's scan-login modal,
-  // backed by a hold-in-waiting visual-smoke onboarding adapter (fixed QR +
-  // long TTL). See `createVisualSmokeBotOnboardingAdapters`.
+  // backed by a hold-in-waiting e2e-fixture onboarding adapter (fixed QR +
+  // long TTL). See `createE2EFixtureBotOnboardingAdapters`.
   'settings-bots-onboarding',
   'settings-about',
   'settings-general',
@@ -129,16 +129,16 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'module-skills',
   // MCP module page (SVG-governance + polish campaign): opens the 扩展 → MCP
   // surface with a seeded mcp.json so the market grid, tab row, hero banner,
-  // and the installed server list all render for the alignment auditor + CDP
-  // capture in light / dark.
+  // and the installed server list all render for the alignment auditor + E2E
+  // in light / dark.
   'module-mcp',
   'module-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
   // (running / waiting_for_user / blocked × 4 reasons / active / review
-  // / done / archived) so the sidebar grouping screenshot covers every
+  // / done / archived) so the sidebar grouping covers every
   // status badge + group header in one fixture.
   'workstation-statuses',
-  // PR-PLAN-REMINDER-MVP-0: screenshot the first real Automations
+  // PR-PLAN-REMINDER-MVP-0: exercise the first real Automations
   // surface. Seeds scheduled / paused / completed local reminders and
   // opens the 计划 module so reviewers can verify this is real product
   // UI rather than a passive placeholder.
@@ -146,10 +146,9 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // PR109f (g): turn-control-history — seeds a primary session whose
   // turn list covers the four TurnStatus values plus retry + regenerate
   // lineage, alongside two branch sessions (visible-parent vs missing-
-  // parent) so deterministic screenshots cover the banner contract end-to-end.
+  // parent) so the banner contract is covered end-to-end.
   // Three variants share the same on-disk seed and only differ in
-  // active session selection, so auto-capture produces three
-  // deterministic screenshots:
+  // active session selection, exposing three deterministic states:
   //   - turn-control-history          → primary active (lineage / aborted / failed)
   //   - turn-control-branch-visible   → visible-parent branch active (banner)
   //   - turn-control-branch-orphan    → orphan branch active (NO banner)
@@ -171,14 +170,14 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2):
   // shares the sidebar-long-sessions on-disk seed (60 sessions) so
   // the sidebar behind the modal looks identical to the
-  // sidebar-long-sessions screenshot; differs only in
+  // sidebar-long-sessions fixture; differs only in
   // `searchModalOpen: true`, which auto-opens the sidebar Search
-  // modal at mount. Captures the SearchModal shell deterministically
-  // so xuan's Phase 2 modal gate has a baseline.
+  // modal at mount. Renders the SearchModal shell deterministically
+  // so xuan's Phase 2 modal gate has a stable fixture state.
   'sidebar-search-modal-open',
   // PR-shared primitive-COMMAND-INPUT-0: same 60-session seed; differs only in
   // `paletteOpen: true`, which auto-opens CommandPalette so shared primitive
-  // InputGroup changes to the command input shell have a baseline.
+  // InputGroup changes to the command input shell have a stable fixture state.
   'command-palette-open',
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
   // kenji `b3d156e9`): same 60-session seed; differs in
@@ -194,20 +193,20 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'long-transcript',
   // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
   // with the active turn session so `BrowserPanel` mounts; with no native
-  // `WebContentsView` in visual-smoke mode, `browser.getState` resolves null
+  // `WebContentsView` in e2e-fixture mode, `browser.getState` resolves null
   // → `EMPTY_STATE` → the empty-state chrome (toolbar all-nav-disabled +
   // `<Empty>` strip) the #818 narrow-layout defect regressed against.
   'browser-empty',
 ]);
 
-export interface VisualSmokeFixture {
-  scenario: VisualSmokeScenario;
+export interface E2EFixture {
+  scenario: E2EFixtureScenario;
   workspaceName: string;
   /**
-   * PR-IR-04: when `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1` is set alongside
+   * PR-IR-04: when `MAKA_E2E_FIXTURE_REDUCED_MOTION=1` is set alongside
    * the scenario var, the renderer collapses all animations to ~0.01ms
-   * via the `[data-maka-reduced-motion="true"]` CSS path. Lets the
-   * screenshot pipeline capture a "reduced motion" variant for every
+   * via the `[data-maka-reduced-motion="true"]` CSS path. Lets E2E and
+   * the alignment audit exercise a "reduced motion" variant for every
    * surface without depending on the host OS accessibility setting.
    */
   reducedMotion: boolean;
@@ -222,48 +221,48 @@ export interface VisualSmokeFixture {
    * means "use the persisted locale preference". When set,
    * the renderer passes the value to LocaleProvider, which synchronizes
    * document metadata and consumers to the locked value
-   * deterministically — same fixture, same locale, same screenshot
+   * deterministically — same fixture, same locale, same rendered state
    * across hosts. Driven by env var
-   * `MAKA_VISUAL_SMOKE_LOCALE=zh|en`. Unknown values fail closed.
+   * `MAKA_E2E_FIXTURE_LOCALE=zh|en`. Unknown values fail closed.
    */
   locale: UiLocale | null;
   /**
    * PR-UI-VISUAL-SMOKE-TIMEZONE: IANA timezone override. null means
    * "use the host system timezone" (current behavior). When set, the
-   * renderer applies `data-maka-visual-smoke-tz=<IANA>` to `<html>`
+   * renderer applies `data-maka-e2e-fixture-tz=<IANA>` to `<html>`
    * so any date/time formatting helper that opts in can read the
    * locked value deterministically — same fixture, same timezone,
-   * same screenshot across hosts. Driven by env var
-   * `MAKA_VISUAL_SMOKE_TIMEZONE=<IANA name>`. Validation via
+   * same rendered state across hosts. Driven by env var
+   * `MAKA_E2E_FIXTURE_TIMEZONE=<IANA name>`. Validation via
    * `Intl.DateTimeFormat(undefined, { timeZone })`; invalid values
    * fail closed to null.
    */
   timezone: string | null;
 }
 
-export function resolveVisualSmokeFixture(
+export function resolveE2EFixture(
   rawScenario: string | undefined,
   isPackaged: boolean,
   rawReducedMotion: string | undefined = undefined,
   rawTheme: string | undefined = undefined,
   rawLocale: string | undefined = undefined,
   rawTimezone: string | undefined = undefined,
-): VisualSmokeFixture | null {
+): E2EFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
-    throw new Error('MAKA_VISUAL_SMOKE_FIXTURE is only available in dev/test builds.');
+    throw new Error('MAKA_E2E_FIXTURE is only available in dev/test builds.');
   }
-  if (!VISUAL_SMOKE_SCENARIOS.has(rawScenario as VisualSmokeScenario)) {
-    throw new Error(`Unknown MAKA_VISUAL_SMOKE_FIXTURE scenario: ${rawScenario}`);
+  if (!E2E_FIXTURE_SCENARIOS.has(rawScenario as E2EFixtureScenario)) {
+    throw new Error(`Unknown MAKA_E2E_FIXTURE scenario: ${rawScenario}`);
   }
-  const scenario = rawScenario as VisualSmokeScenario;
+  const scenario = rawScenario as E2EFixtureScenario;
   const reducedMotion = parseReducedMotionFlag(rawReducedMotion);
   const theme = parseThemeFlag(rawTheme);
   const locale = parseLocaleFlag(rawLocale);
   const timezone = parseTimezoneFlag(rawTimezone);
   return {
     scenario,
-    workspaceName: `visual-smoke-${scenario}`,
+    workspaceName: `e2e-fixture-${scenario}`,
     reducedMotion,
     theme,
     locale,
@@ -339,11 +338,11 @@ function parseReducedMotionFlag(raw: string | undefined): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
-export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualSmokeState | null {
+export function getE2EFixtureState(fixture: E2EFixture | null): E2EFixtureState | null {
   if (!fixture) return null;
-  const state: VisualSmokeState = {
+  const state: E2EFixtureState = {
     enabled: true,
-    now: VISUAL_SMOKE_NOW,
+    now: E2E_FIXTURE_NOW,
     ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
     ...(fixture.theme ? { theme: fixture.theme } : {}),
     ...(fixture.locale ? { locale: fixture.locale } : {}),
@@ -373,7 +372,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     // PR-UI-RENDER-3a-smoke: each preview scenario shares the same
     // chat session as `artifact-pane`; only the on-disk artifact
     // varies. The ArtifactPane selects records[0] by default so the
-    // single seeded artifact is what gets screenshotted.
+    // single seeded artifact is what gets rendered.
     case 'artifact-preview-image':
     case 'artifact-preview-unsupported':
     case 'artifact-preview-oversize':
@@ -386,12 +385,12 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'browser-empty':
       // #819: the active turn session is also seeded as a live browser
       // session so BrowserPanel mounts over the chat. No native
-      // WebContentsView exists in visual-smoke mode, so browser.getState
+      // WebContentsView exists in e2e-fixture mode, so browser.getState
       // resolves null → BrowserPanel renders EMPTY_STATE → the empty-state
-      // chrome is what screenshots capture (the #818 defect surface).
+      // chrome is what E2E/audit see (the #818 defect surface).
       // Loaded / loading / nav chrome states are locked by the
-      // `browser-panel-chrome` source contract; their screenshots add no
-      // layout value over this empty-state baseline.
+      // `browser-panel-chrome` source contract; they add no layout
+      // value over this empty-state fixture.
       return { ...state, activeSessionId: TURN_SESSION_ID, liveBrowserSessionIds: [TURN_SESSION_ID], workbarCollapsed: false, workbarTab: 'browser' };
     case 'streaming-sidebar':
       return {
@@ -402,7 +401,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'streaming-answer':
       // Active session = the committed turn-narrative session, PLUS a live
       // answer streaming into it. The main panel then shows a settled turn
-      // and the in-flight bubble together, so the screenshot proves they
+      // and the in-flight bubble together, so E2E/audit can prove they
       // share the same centered column (the streaming-turn-center fix).
       return {
         ...state,
@@ -446,7 +445,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'settings-bots-onboarding':
       // #1233 deferral: open 远程接入, then let the bot page auto-open the
       // DingTalk detail's scan-login modal (via `botOnboardingProvider`). The
-      // visual-smoke onboarding adapter keeps the session in 'waiting' with a
+      // e2e-fixture onboarding adapter keeps the session in 'waiting' with a
       // fixed QR + long TTL so the modal's waiting layout is captured
       // deterministically. DingTalk carries a real brand mark (#1236).
       return {
@@ -480,31 +479,31 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'module-skills':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
     case 'module-mcp':
-      // Open the 扩展 → MCP module directly so the CDP baseline captures the
+      // Open the 扩展 → MCP module directly so the alignment audit reaches the
       // real market grid, tab row, hero banner, and installed server list.
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'mcp', sidebarCollapsed: false };
     case 'module-daily-review':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'daily-review', sidebarCollapsed: false };
     case 'workstation-statuses':
       // Active session is the running one so the chat header status
-      // badge ("进行中") is visible in the screenshot alongside the
+      // badge ("进行中") is visible alongside the
       // sidebar grouping. Each session in the seed maps to one
       // SessionStatus enum value (running / waiting_for_user / blocked
       // × 4 reasons / review / done / archived / aborted (filtered)).
       return { ...state, activeSessionId: WORKSTATION_RUNNING_SESSION_ID };
     case 'plan-reminders':
-      // Open the 计划 module directly so the visual-smoke baseline
-      // captures the real local reminder MVP: create form + persisted
+      // Open the 计划 module directly so the alignment audit reaches
+      // the real local reminder MVP: create form + persisted
       // scheduled / paused / completed reminders.
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'automations', sidebarCollapsed: false };
     case 'turn-control-history':
       // Active = primary so the chat surface shows every turn control
-      // variant in one screenshot: completed baseline, retried pair
+      // variant at once: completed baseline, retried pair
       // (forward + reverse badges), regenerated pair, aborted marker,
       // failed banner with generalized Chinese copy. The two branch
       // sessions sit in the sidebar but are not the active surface
       // here — banner positive/negative cases each get their own
-      // scenario below so auto-capture covers both deterministically.
+      // scenario below so both are covered deterministically.
       return { ...state, activeSessionId: TURN_CONTROL_PRIMARY_SESSION_ID };
     case 'turn-control-branch-visible':
       // Active = visible-parent branch session. Chat header should
@@ -519,20 +518,20 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'sidebar-long-sessions':
       // PR-SIDEBAR-IA-0 Phase 1: active = the FIRST session in the seed
       // (newest by lastMessageAt). The 60-session list scrolls below
-      // the active row; the screenshot captures the scroll affordance
+      // the active row; the fixture exposes the scroll affordance
       // plus the visible footer (Settings + Version info) at the
       // bottom of the sidebar. If the scroll fix regresses, the footer
-      // gets pushed off-screen and the regression is obvious in
-      // baseline diff.
+      // gets pushed off-screen and the regression surfaces in the
+      // scroll-geometry E2E spec.
       return { ...state, activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00', sidebarCollapsed: false };
     case 'sidebar-search-modal-open':
       // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2):
       // shares the sidebar-long-sessions seed (60 sessions) so the
       // sidebar behind the modal is identical to the long-sessions
-      // baseline; `searchModalOpen: true` is the only differentiator.
-      // The renderer reads the flag in `applyVisualSmokeFixture()` and
-      // calls `setSearchModalOpen(true)` BEFORE auto-capture settles,
-      // so the SearchModal shell is on screen for the screenshot.
+      // fixture; `searchModalOpen: true` is the only differentiator.
+      // The renderer reads the flag in `applyE2EFixture()` and
+      // calls `setSearchModalOpen(true)` before the fixture settles,
+      // so the SearchModal shell is on screen for E2E/audit.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
@@ -541,8 +540,8 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       };
     case 'command-palette-open':
       // PR-shared primitive-COMMAND-INPUT-0: same 60-session seed as the sidebar
-      // baselines; `paletteOpen: true` is the only differentiator so
-      // the command palette shell is visible for screenshot review.
+      // fixtures; `paletteOpen: true` is the only differentiator so
+      // the command palette shell is visible for E2E/audit.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
@@ -582,13 +581,13 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
   return state;
 }
 
-export async function seedVisualSmokeFixture(input: {
+export async function seedE2EFixture(input: {
   workspaceRoot: string;
-  fixture: VisualSmokeFixture;
+  fixture: E2EFixture;
   credentialStore: Pick<CredentialStore, 'setSecret'>;
   now?: number;
 }): Promise<void> {
-  const now = input.now ?? VISUAL_SMOKE_NOW;
+  const now = input.now ?? E2E_FIXTURE_NOW;
   await rm(input.workspaceRoot, { recursive: true, force: true });
   await mkdir(input.workspaceRoot, { recursive: true });
   await writeSettings(input.workspaceRoot, input.fixture.scenario);
@@ -648,15 +647,15 @@ export async function seedVisualSmokeFixture(input: {
   // PR-SIDEBAR-IA-0 Phase 1 (xuan msg `dc790a54` + kenji `0f7bb872`):
   // sidebar-long-sessions seeds 60 active sessions so the sidebar
   // scroll fix is verifiable end-to-end. Each row reuses the standard
-  // text content; only the name + timestamp differ so screenshots are
+  // text content; only the name + timestamp differ so the rendered list is
   // deterministic. The hard gate: with 60 rows in a narrow window, the
   // footer (Settings + Version info) must remain visible without
   // page-level scroll, and the inner list scroll container must work.
   //
   // Phase 2 fixup v3: `sidebar-search-modal-open` shares the same
   // 60-session seed so the sidebar behind the modal matches the
-  // long-sessions baseline exactly. The modal-open state itself is a
-  // transient renderer flag (`VisualSmokeState.searchModalOpen`); no
+  // long-sessions fixture exactly. The modal-open state itself is a
+  // transient renderer flag (`E2EFixtureState.searchModalOpen`); no
   // additional on-disk seeding required.
   if (LONG_SIDEBAR_SCENARIOS.has(input.fixture.scenario)) {
     for (const seed of longSidebarSessions(now)) {
@@ -676,7 +675,7 @@ export async function seedVisualSmokeFixture(input: {
     await seedMcpFixture(input.workspaceRoot);
   }
   // Settings → 使用统计: seed extra model + tool traffic so the request log,
-  // provider / model / tool aggregates render real content in the capture.
+  // provider / model / tool aggregates render real content in the fixture.
   // Scenario-gated so no other fixture's sidebar or usage totals shift.
   if (input.fixture.scenario === 'settings-usage') {
     for (const seed of usageStatsSessions(now)) {

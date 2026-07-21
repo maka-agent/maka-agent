@@ -81,7 +81,7 @@ jobs:
         run: command -v xvfb-run >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y xvfb; }
       - name: E2E
         run: xvfb-run -a npm --workspace @maka/desktop run e2e
-      # Design governance: the CDP alignment auditor walks the visual-smoke
+      # Design governance: the CDP alignment auditor walks the e2e-fixture
       # fixtures and fails on same-type height mismatches, mixed-type
       # centerline drift, or radius-family splits. Reuses the renderer the
       # e2e step just built; same xvfb pattern.

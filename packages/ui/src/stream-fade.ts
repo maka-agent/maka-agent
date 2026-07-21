@@ -19,7 +19,7 @@
  * so we never split an emoji / surrogate pair. The negative `animation-delay`
  * (= -age) makes the CSS animation resume mid-flight, so React re-mounting the
  * spans on each streaming re-render continues the fade instead of restarting
- * it. Under snap (reduced-motion / visual-smoke / OS reduced-motion) the hook
+ * it. Under snap (reduced-motion / e2e-fixture / OS reduced-motion) the hook
  * returns `undefined` and callers skip wrapping entirely — the snap path shows
  * the final text at full opacity with no spans.
  */

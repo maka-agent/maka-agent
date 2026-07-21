@@ -962,15 +962,15 @@ function DeepThinkingBody(props: { text: string; streamFade?: StreamFade }) {
 }
 
 /**
- * PR-UI-RENDER-1 — reduced-motion / visual-smoke probe for the
+ * PR-UI-RENDER-1 — reduced-motion / e2e-fixture probe for the
  * streaming smoother.
  *
  * Three triggers force the smoother to snap (mirroring the rule in
  * `apps/desktop/src/renderer/scroll-motion-policy.ts`):
  *
  *   1. `data-maka-reduced-motion="true"` — set by the PR-IR-04
- *      reduced variant of the visual-smoke fixture.
- *   2. `data-maka-visual-smoke="true"` — set by ANY visual-smoke
+ *      reduced variant of the e2e-fixture fixture.
+ *   2. `data-maka-e2e-fixture="true"` — set by ANY e2e-fixture
  *      capture so screenshots see the final text on the first paint.
  *   3. OS-level `prefers-reduced-motion: reduce`.
  *
@@ -1000,7 +1000,7 @@ function readStreamSnap(): boolean {
   if (typeof document === 'undefined' || typeof window === 'undefined') return true;
   const root = document.documentElement;
   if (root.dataset.makaReducedMotion === 'true') return true;
-  if (root.dataset.makaVisualSmoke === 'true') return true;
+  if (root.dataset.makaE2eFixture === 'true') return true;
   if (typeof window.matchMedia === 'function') {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }

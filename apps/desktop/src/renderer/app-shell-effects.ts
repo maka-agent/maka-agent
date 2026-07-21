@@ -174,7 +174,7 @@ export function useAppShellPersistenceEffects(options: {
 export function useAppShellBootstrapSubscriptions(options: {
   uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
-  applyVisualSmokeFixture: () => Promise<void>;
+  applyE2EFixture: () => Promise<void>;
   bootstrapSessions: () => Promise<void>;
   clearPendingTurnActionsForSession: (sessionId: string) => void;
   clearSessionRendererState: (sessionId: string) => void;
@@ -211,7 +211,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshManagedSkillSources();
     void options.refreshBundledSkillCatalog();
     void options.refreshPlanReminders();
-    void options.applyVisualSmokeFixture();
+    void options.applyE2EFixture();
   });
   const handleConnectionSubscriptionEvent = useEffectEvent((event: ConnectionEvent) => {
     options.handleConnectionEvent(event);

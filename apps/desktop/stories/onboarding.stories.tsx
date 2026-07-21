@@ -46,7 +46,7 @@ const connections: LlmConnection[] = [
 function DetailPane(props: { children: ReactNode }) {
   return (
     <div
-      data-maka-visual-smoke="true"
+      data-maka-e2e-fixture="true"
       style={{
         background: 'var(--surface-canvas)',
         height: '100%',

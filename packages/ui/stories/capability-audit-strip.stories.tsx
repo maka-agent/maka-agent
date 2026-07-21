@@ -44,7 +44,7 @@ function report(input: Partial<CapabilityAuditReport['summary']>): CapabilityAud
 function StripFrame(props: { children: React.ReactNode }) {
   return (
     <div
-      data-maka-visual-smoke="true"
+      data-maka-e2e-fixture="true"
       style={{
         background: 'var(--surface-canvas)',
         padding: 24,

@@ -18,7 +18,7 @@ type ToastApi = {
  * Owns the appearance / personalization / default-permission-mode slice
  * (issue #1043): the theme + palette + UI-locale + user-label + default
  * permission mode state, plus the `refreshShellSettings` IPC pull that
- * hydrates them from `window.maka.settings` / `visualSmoke` on mount and on
+ * hydrates them from `window.maka.settings` / `e2eFixture` on mount and on
  * close-settings re-reads.
  *
  * `closeSettings` stays in AppShell: on close it re-reads just the default
@@ -52,7 +52,7 @@ export function useShellAppearance({
     const uiLocaleHydration = uiLocaleUpdateGate.beginHydration();
     try {
       const next = await window.maka.settings.get();
-      const smoke = await window.maka.visualSmoke.getState();
+      const smoke = await window.maka.e2eFixture.getState();
       const pref = smoke?.theme ?? next.appearance?.theme ?? 'auto';
       const palette = next.appearance?.palette ?? 'default';
       const name = next.personalization?.displayName ?? '';

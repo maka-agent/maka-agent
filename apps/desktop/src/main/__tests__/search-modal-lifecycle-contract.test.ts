@@ -20,7 +20,7 @@
  * This file is a grep-style gate. It does NOT mount React (the
  * desktop test setup has no DOM); the runtime exercise of the
  * mount/unmount cycle is covered by:
- *   - The `sidebar-search-modal-open` visual-smoke scenario, which
+ *   - The `sidebar-search-modal-open` e2e-fixture scenario, which
  *     forces the modal open at startup and captures a screenshot
  *     (verifies it can MOUNT cleanly).
  *   - The `sidebar-long-sessions` scenario, which captures the
@@ -213,7 +213,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(
       chatScroll,
       /function scrollToBottom\(\) \{[\s\S]*scrollTo\(\{\s*top:\s*viewport\.scrollHeight,\s*behavior:\s*input\.behavior\s*\?\?\s*'smooth'\s*\}\);/,
-      'ChatView jump-to-latest must honor the same reduced-motion/visual-smoke scroll policy as search navigation',
+      'ChatView jump-to-latest must honor the same reduced-motion/e2e-fixture scroll policy as search navigation',
     );
     assert.match(
       chatScroll,

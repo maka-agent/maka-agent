@@ -1,13 +1,13 @@
 import { test, expect } from './fixtures';
 
-test('Chinese visual-smoke renderer uses the resolved locale', async ({ zhLocaleWindow: page }) => {
+test('Chinese e2e-fixture renderer uses the resolved locale', async ({ zhLocaleWindow: page }) => {
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh');
   await expect(page.getByRole('button', { name: '展开侧边栏' })).toBeVisible();
   const screenshot = await page.locator('.appFrame').screenshot({ animations: 'disabled' });
   expect(screenshot.byteLength).toBeGreaterThan(10_000);
 });
 
-test('English visual-smoke renderer uses the resolved locale', async ({ enLocaleWindow: page }) => {
+test('English e2e-fixture renderer uses the resolved locale', async ({ enLocaleWindow: page }) => {
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
   const screenshot = await page.locator('.appFrame').screenshot({ animations: 'disabled' });

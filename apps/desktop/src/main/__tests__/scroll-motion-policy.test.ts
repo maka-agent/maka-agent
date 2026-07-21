@@ -3,10 +3,10 @@
  *
  * @kenji + @xuan review gate: the lineage badge click + future
  * branch-banner navigation must collapse smooth scrolling to `auto`
- * inside the visual-smoke fixture so screenshots stay deterministic.
- * @xuan confirmed on main that visual-smoke ALWAYS writes
- * `data-maka-visual-smoke="true"` but `data-maka-reduced-motion="true"`
- * is only on the reduced variant — so the visual-smoke flag is the
+ * inside the e2e-fixture fixture so screenshots stay deterministic.
+ * @xuan confirmed on main that e2e-fixture ALWAYS writes
+ * `data-maka-e2e-fixture="true"` but `data-maka-reduced-motion="true"`
+ * is only on the reduced variant — so the e2e-fixture flag is the
  * primary signal, not the reduced-motion attribute.
  */
 
@@ -20,7 +20,7 @@ import {
 function inputs(partial: Partial<ScrollMotionPolicyInputs>): ScrollMotionPolicyInputs {
   return {
     reducedMotionAttr: false,
-    visualSmokeAttr: false,
+    e2eFixtureAttr: false,
     prefersReducedMotion: false,
     ...partial,
   };
@@ -38,12 +38,12 @@ describe('resolveScrollMotionBehavior', () => {
     );
   });
 
-  it('returns "auto" when visual-smoke attr is set (any PR-IR-02 capture)', () => {
-    // @xuan PR109f: visual-smoke fixture writes this attribute on every
+  it('returns "auto" when e2e-fixture attr is set (any PR-IR-02 capture)', () => {
+    // @xuan PR109f: e2e-fixture fixture writes this attribute on every
     // capture, regardless of variant. We must collapse smooth scroll
     // even if reduced-motion attr is absent.
     assert.equal(
-      resolveScrollMotionBehavior(inputs({ visualSmokeAttr: true })),
+      resolveScrollMotionBehavior(inputs({ e2eFixtureAttr: true })),
       'auto',
     );
   });
@@ -57,24 +57,24 @@ describe('resolveScrollMotionBehavior', () => {
 
   it('returns "auto" when any combination of triggers is set', () => {
     for (const combo of [
-      { reducedMotionAttr: true, visualSmokeAttr: true },
+      { reducedMotionAttr: true, e2eFixtureAttr: true },
       { reducedMotionAttr: true, prefersReducedMotion: true },
-      { visualSmokeAttr: true, prefersReducedMotion: true },
-      { reducedMotionAttr: true, visualSmokeAttr: true, prefersReducedMotion: true },
+      { e2eFixtureAttr: true, prefersReducedMotion: true },
+      { reducedMotionAttr: true, e2eFixtureAttr: true, prefersReducedMotion: true },
     ] as Array<Partial<ScrollMotionPolicyInputs>>) {
       assert.equal(resolveScrollMotionBehavior(inputs(combo)), 'auto');
     }
   });
 
-  it('@xuan PR109f: visual-smoke alone is sufficient (reduced-motion attr NOT required)', () => {
+  it('@xuan PR109f: e2e-fixture alone is sufficient (reduced-motion attr NOT required)', () => {
     // Regression: an earlier version only checked reduced-motion attr,
-    // which let smooth scrolling leak into the unmodified visual-smoke
-    // capture path. Confirm visual-smoke alone triggers `auto`.
+    // which let smooth scrolling leak into the unmodified e2e-fixture
+    // capture path. Confirm e2e-fixture alone triggers `auto`.
     assert.equal(
       resolveScrollMotionBehavior(
         inputs({
           reducedMotionAttr: false,
-          visualSmokeAttr: true,
+          e2eFixtureAttr: true,
           prefersReducedMotion: false,
         }),
       ),

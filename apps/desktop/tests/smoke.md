@@ -52,10 +52,10 @@ The product's visual baseline is Storybook, not a screenshot harness. Page-level
 npm --workspace @maka/desktop run storybook
 ```
 
-To inspect a deterministic fixture interactively without touching a real workspace (the same `MAKA_VISUAL_SMOKE_FIXTURE` mechanism the Playwright E2E suite uses):
+To inspect a deterministic fixture interactively without touching a real workspace (the same `MAKA_E2E_FIXTURE` mechanism the Playwright E2E suite uses):
 
 ```bash
-MAKA_VISUAL_SMOKE_FIXTURE=all npm --workspace @maka/desktop run dev
+MAKA_E2E_FIXTURE=all npm --workspace @maka/desktop run dev
 ```
 
 Use a scenario name from the fixture registry for a narrower launch.

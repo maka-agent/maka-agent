@@ -243,7 +243,7 @@ describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
     const offenders: string[] = [];
     for (const m of stripped.matchAll(/\b(\d+(?:\.\d+)?)ms\b/g)) {
       const value = m[1];
-      // 0ms (disable transition) + 0.01ms (prefers-reduced-motion / visual-smoke) are a11y/test hacks
+      // 0ms (disable transition) + 0.01ms (prefers-reduced-motion / e2e-fixture) are a11y/test hacks
       if (value === '0' || value === '0.01') continue;
       offenders.push(`${value}ms`);
     }

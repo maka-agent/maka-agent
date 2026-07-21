@@ -61,12 +61,12 @@ describe('syncUiLocaleDocument', () => {
       syncUiLocaleDocument('zh', 'zh');
       assert.equal(attributes.get('lang'), 'zh');
       assert.equal(attributes.get('data-maka-locale'), 'zh');
-      assert.equal(attributes.get('data-maka-visual-smoke-locale'), 'zh');
+      assert.equal(attributes.get('data-maka-e2e-fixture-locale'), 'zh');
 
       syncUiLocaleDocument('en', null);
       assert.equal(attributes.get('lang'), 'en');
       assert.equal(attributes.get('data-maka-locale'), 'en');
-      assert.equal(attributes.has('data-maka-visual-smoke-locale'), false);
+      assert.equal(attributes.has('data-maka-e2e-fixture-locale'), false);
     } finally {
       globalThis.document = previousDocument;
     }

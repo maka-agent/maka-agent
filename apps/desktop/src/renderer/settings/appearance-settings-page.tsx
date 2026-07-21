@@ -185,7 +185,7 @@ export function PersonalizationSettingsPage(props: {
           PR-LANG-PREF-0 (WAWQAQ msg `edc9cb41` + kenji `7e532892`
           acceptance criteria): 自动 / 中文 / English. User explicit
           choice wins over the temporary auto -> zh fallback;
-          visual-smoke override wins over both (deterministic baselines).
+          e2e-fixture override wins over both (deterministic baselines).
         */}
         <div className="settingsFormRow">
           <div>

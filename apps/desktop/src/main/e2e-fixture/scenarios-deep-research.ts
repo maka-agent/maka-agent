@@ -7,7 +7,7 @@ import {
 import type { DeepResearchEvent, SessionHeader, StoredMessage } from '@maka/core';
 import { header } from './seed-helpers.js';
 
-export const DEEP_RESEARCH_SESSION_ID = 'visual-smoke-deep-research';
+export const DEEP_RESEARCH_SESSION_ID = 'e2e-fixture-deep-research';
 
 export function deepResearchSession(now: number): SessionHeader {
   return {

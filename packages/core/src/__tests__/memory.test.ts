@@ -489,7 +489,7 @@ describe('Quasi-memory surfaces cannot enter MemorySource', () => {
       'workspace_instruction',
       'onboarding_milestone',
       'health_probe',
-      'visual_smoke_fixture',
+      'e2e_fixture',
     ];
     for (const name of quasiNames) {
       const result = normalizeMemorySource(name);
@@ -514,7 +514,7 @@ describe('Quasi-memory surfaces cannot enter MemorySource', () => {
       'workspace_instruction',
       'onboarding_milestone',
       'health_probe',
-      'visual_smoke_fixture',
+      'e2e_fixture',
     ];
     for (const name of quasiNames) {
       const result = validateMemoryWriteRequest(

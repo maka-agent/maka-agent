@@ -28,8 +28,8 @@ const ALLOWLIST: ImportantAllowance[] = [
   },
   {
     fileSuffix: 'apps/desktop/src/renderer/styles/base.css',
-    anchor: '[data-maka-visual-smoke="true"] *',
-    reason: 'deterministic visual smoke fixture override',
+    anchor: '[data-maka-e2e-fixture="true"] *',
+    reason: 'deterministic e2e-fixture override',
   },
   {
     fileSuffix: 'apps/desktop/src/renderer/maka-tokens.css',

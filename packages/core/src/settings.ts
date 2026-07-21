@@ -172,7 +172,7 @@ export interface AppearanceSettings {
  *
  * `'auto'` — temporarily resolve to Chinese-first UI copy.
  * `'zh'` / `'en'` — user explicit override; takes precedence over
- *   the temporary fallback but is itself overridden by the visual-smoke
+ *   the temporary fallback but is itself overridden by the e2e-fixture
  *   fixture locale (fixtures stay deterministic regardless of the
  *   persisted user preference).
  *
@@ -186,7 +186,7 @@ export interface PersonalizationSettings {
   assistantTone: string;
   /**
    * PR-LANG-PREF-0: UI locale preference (kenji `7e532892` acceptance):
-   * user explicit choice > temporary auto-to-Chinese fallback; visual-smoke override
+   * user explicit choice > temporary auto-to-Chinese fallback; e2e-fixture override
    * stays for fixture tests. Defaults to `'auto'`.
    */
   uiLocale: UiLocalePreference;

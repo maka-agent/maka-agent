@@ -194,14 +194,14 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(footerStyle, /background:\s*transparent;/);
   });
 
-  it('has a visual-smoke opener for the command palette input shell', async () => {
+  it('has an e2e-fixture opener for the command palette input shell', async () => {
     const main = await readRendererShellCombinedSource();
-    const core = await readRepo('packages/core/src/visual-smoke.ts');
-    const fixture = await readRepo('apps/desktop/src/main/visual-smoke-fixture.ts');
+    const core = await readRepo('packages/core/src/e2e-fixture.ts');
+    const fixture = await readRepo('apps/desktop/src/main/e2e-fixture.ts');
 
-    assert.match(core, /\| 'command-palette-open'/, 'VisualSmokeScenario must include command-palette-open');
-    assert.match(core, /paletteOpen\?: boolean;/, 'VisualSmokeState must expose the paletteOpen hint');
-    assert.match(fixture, /'command-palette-open'/, 'visual smoke fixture resolver must accept command-palette-open');
+    assert.match(core, /\| 'command-palette-open'/, 'E2EFixtureScenario must include command-palette-open');
+    assert.match(core, /paletteOpen\?: boolean;/, 'E2EFixtureState must expose the paletteOpen hint');
+    assert.match(fixture, /'command-palette-open'/, 'e2e-fixture resolver must accept command-palette-open');
     assert.match(fixture, /case 'command-palette-open':[\s\S]*paletteOpen: true/, 'command-palette-open must auto-open the palette');
     assert.match(main, /if \(state\.paletteOpen\) \{\s*openPalette\(\);\s*\}/, 'renderer must consume paletteOpen and open CommandPalette');
   });

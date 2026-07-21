@@ -47,7 +47,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
   initialPage?: 'connections' | 'catalog';
   /**
    * When set, auto-open the connection detail sheet for this slug once the
-   * connection list has loaded. Used by the `oauth-relogin` visual-smoke
+   * connection list has loaded. Used by the `oauth-relogin` e2e-fixture
    * fixture so the re-login affordance in the detail sheet is captured; a
    * real user reaches the same sheet by clicking the connection row.
    */

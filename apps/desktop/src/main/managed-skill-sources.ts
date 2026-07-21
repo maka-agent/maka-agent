@@ -71,13 +71,13 @@ export type ReadManagedSkillSourceResult =
   | { ok: false; reason: 'not_found' | 'blocked_path' | 'read_failed' };
 
 export function resolveManagedSkillSourcesRoot(homeDir = homedir()): string {
-  // Dev/test-only override so the visual-smoke fixture can seed a
+  // Dev/test-only override so the e2e-fixture fixture can seed a
   // deterministic managed-source catalog without touching the real
   // ~/.maka/skill-sources. Packaged builds ignore this (app.isPackaged
   // gate lives in main.ts, same as the fixture env vars); here we only
   // honor an absolute path so a relative value can never escape.
   const override = process.env.MAKA_SKILL_SOURCES_ROOT;
-  if (override && isAbsolute(override) && process.env.MAKA_VISUAL_SMOKE_FIXTURE) {
+  if (override && isAbsolute(override) && process.env.MAKA_E2E_FIXTURE) {
     return override;
   }
   return join(homeDir, '.maka', 'skill-sources');

@@ -1,6 +1,6 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { ArtifactRecord, SessionHeader, StoredMessage, VisualSmokeScenario } from '@maka/core';
+import type { ArtifactRecord, SessionHeader, StoredMessage, E2EFixtureScenario } from '@maka/core';
 import { ARTIFACT_SESSION_ID, header } from './seed-helpers.js';
 
 export function artifactSession(now: number): SessionHeader {
@@ -32,7 +32,7 @@ export function artifactMessages(now: number): StoredMessage[] {
       toolName: 'Write',
       displayName: '写入生成文件',
       intent: '生成 report.html / patch.diff / notes.md 三个生成文件',
-      args: { path: 'artifacts/visual-smoke' },
+      args: { path: 'artifacts/e2e-fixture' },
     },
     {
       type: 'assistant',
@@ -45,12 +45,12 @@ export function artifactMessages(now: number): StoredMessage[] {
   ];
 }
 
-export async function writeArtifacts(workspaceRoot: string, now: number, scenario: VisualSmokeScenario): Promise<void> {
+export async function writeArtifacts(workspaceRoot: string, now: number, scenario: E2EFixtureScenario): Promise<void> {
   const root = join(workspaceRoot, 'artifacts');
   // PR-UI-RENDER-3a-smoke: dedicated preview scenarios get their
   // own short artifact list (single artifact each) so the
   // ArtifactPane default selection deterministically picks the one
-  // the screenshot is meant to capture. The `sizeBytesOverride`
+  // the fixture is meant to render. The `sizeBytesOverride`
   // field bypasses the post-write `stat().size` overwrite so we
   // can claim 3MB in metadata without writing 3MB to disk.
   type ArtifactSpec = {

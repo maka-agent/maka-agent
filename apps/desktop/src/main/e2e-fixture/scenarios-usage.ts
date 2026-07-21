@@ -113,7 +113,7 @@ export function usageStatsSessions(
   return [
     {
       header: usageSession(now, {
-        id: 'visual-smoke-usage-glm',
+        id: 'e2e-fixture-usage-glm',
         name: '用量样本 · GLM 工作区',
         connection: 'zai-live',
         model: 'glm-5.1',
@@ -145,7 +145,7 @@ export function usageStatsSessions(
     },
     {
       header: usageSession(now, {
-        id: 'visual-smoke-usage-claude',
+        id: 'e2e-fixture-usage-claude',
         name: '用量样本 · Claude 中继',
         connection: 'relay-fallback',
         model: 'claude-sonnet-4.5',
@@ -175,7 +175,7 @@ export function usageStatsSessions(
     },
     {
       header: usageSession(now, {
-        id: 'visual-smoke-usage-gpt',
+        id: 'e2e-fixture-usage-gpt',
         name: '用量样本 · GPT 备用',
         connection: 'needs-reauth',
         model: 'gpt-5.1-mini',

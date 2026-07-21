@@ -4,7 +4,7 @@
  *
  * Background:
  *   WAWQAQ noticed `建文` showing up in his real chat surface
- *   (msg `1886c41b`). Tracing it back: the visual-smoke fixture
+ *   (msg `1886c41b`). Tracing it back: the e2e-fixture fixture
  *   seeded `personalization.displayName = '建文'` for screenshot
  *   determinism, but that placeholder name has no product
  *   meaning — a user opening a demo workspace (or anyone
@@ -29,7 +29,7 @@ import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { RENDERER_SHELL_SOURCE_REPO_PATHS } from './renderer-shell-source-helpers.js';
-import { VISUAL_SMOKE_FIXTURE_SOURCE_REPO_PATHS } from './visual-smoke-fixture-source-helpers.js';
+import { E2E_FIXTURE_SOURCE_REPO_PATHS } from './e2e-fixture-source-helpers.js';
 
 // Cwd is `apps/desktop` when the test runs (per the existing
 // sidebar-scroll-contract pattern).
@@ -54,10 +54,10 @@ const FILES_TO_SCAN = [
   join(process.cwd(), 'src', 'renderer', 'onboarding-hero-copy.ts'),
   join(process.cwd(), 'src', 'renderer', 'session-health-notice.ts'),
   join(process.cwd(), 'src', 'main', 'chat-readiness.ts'),
-  // arch Round 3: the visual-smoke fixture split into a registry barrel +
+  // arch Round 3: the e2e-fixture fixture split into a registry barrel +
   // per-domain seeder modules; scan them all so the seeded-copy hygiene
   // coverage follows the copy into its new homes.
-  ...VISUAL_SMOKE_FIXTURE_SOURCE_REPO_PATHS.map((repoPath) => resolve(process.cwd(), '..', '..', repoPath)),
+  ...E2E_FIXTURE_SOURCE_REPO_PATHS.map((repoPath) => resolve(process.cwd(), '..', '..', repoPath)),
 ];
 
 interface ForbiddenCopy {
@@ -144,10 +144,10 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
       "artifact preview fallback copy must explain the product capability boundary in user terms, not expose renderer implementation details like a preview registry or internal `artifact` naming.",
   },
   {
-    label: 'visual-smoke fixture seeded visible copy leaks implementation terms',
+    label: 'e2e-fixture fixture seeded visible copy leaks implementation terms',
     needle: /Artifact Pane|artifact pane|artifact fixture|(?:生成|已生成)\s*(?:\d+\s*个|三个)\s*artifact|Claude backend|HTML artifact|Artifact Smoke Report|Pane Smoke Report|视觉 smoke|provider capability|ModelTable|source\/fetchedAt|test gate/,
     reason:
-      "visual-smoke fixture chat messages and file contents appear in screenshots/baseline workspaces; they should use product-facing Chinese copy rather than internal fixture/backend/artifact labels.",
+      "e2e-fixture fixture chat messages and file contents appear in screenshots/baseline workspaces; they should use product-facing Chinese copy rather than internal fixture/backend/artifact labels.",
   },
   {
     label: 'English hidden-line markers in tool previews',

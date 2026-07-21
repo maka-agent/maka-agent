@@ -99,7 +99,7 @@ export interface BotOnboardingServiceDeps {
   productVersion?: string;
   /**
    * Fixture/test seam for the post-persist connection-health read (P0-3).
-   * Defaults to the live `botRegistry.getStatus`. The dev-only visual-smoke
+   * Defaults to the live `botRegistry.getStatus`. The dev-only e2e-fixture
    * fixture overrides it because it deliberately no-ops runtime effects (so no
    * real bridge starts) yet still demonstrates the successful "connected" path.
    */

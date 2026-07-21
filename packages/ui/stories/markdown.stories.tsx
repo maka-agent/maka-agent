@@ -16,7 +16,7 @@ type Story = StoryObj<typeof meta>;
 function ProseFrame(props: { children: React.ReactNode; width?: number }) {
   return (
     <div
-      data-maka-visual-smoke="true"
+      data-maka-e2e-fixture="true"
       style={{
         background: 'var(--surface-canvas)',
         padding: 24,
@@ -192,8 +192,8 @@ export const WideTable: Story = {
             '',
             '| 会话 ID | 连接 | 模型 | 状态 | 最近一条消息时间 | 输入 tokens | 输出 tokens | 费用（USD） |',
             '| --- | --- | --- | --- | --- | --- | --- | --- |',
-            '| visual-smoke-turn-control-primary | zai-live | glm-5.1 | waiting_for_user | 2026-07-07 18:42:11 | 125,032 | 32,480 | 0.4210 |',
-            '| visual-smoke-turn-control-branch-visible | zai-live | glm-5 | running | 2026-07-07 18:40:02 | 98,771 | 21,006 | 0.2988 |',
+            '| e2e-fixture-turn-control-primary | zai-live | glm-5.1 | waiting_for_user | 2026-07-07 18:42:11 | 125,032 | 32,480 | 0.4210 |',
+            '| e2e-fixture-turn-control-branch-visible | zai-live | glm-5 | running | 2026-07-07 18:40:02 | 98,771 | 21,006 | 0.2988 |',
             '',
             '表格后的正文保持正常段落间距。',
           ].join('\n')}

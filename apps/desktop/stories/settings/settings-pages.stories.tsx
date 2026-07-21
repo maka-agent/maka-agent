@@ -195,7 +195,7 @@ function SettingsStory(props: { section: SettingsSection }) {
   return (
     <ToastProvider>
       <div
-        data-maka-visual-smoke="true"
+        data-maka-e2e-fixture="true"
         style={{
           background: 'var(--surface-canvas)',
           height: '100%',

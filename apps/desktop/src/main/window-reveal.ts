@@ -19,7 +19,7 @@ export interface RevealableWindow {
 
 /**
  * Reveal `win` unless it must stay hidden. Idempotent and focus-safe:
- * - `keepHidden` true (visual-smoke capture): never reveal — capture runs on
+ * - `keepHidden` true (e2e-fixture capture): never reveal — capture runs on
  *   the hidden window via `paintWhenInitiallyHidden`.
  * - null / destroyed window: no-op (teardown raced the timer or the IPC).
  * - already visible: no-op, so a second signal (HMR reload re-fires
@@ -67,7 +67,7 @@ export interface WindowRevealGate {
  * intent and markReady applies it right before the reveal, so the window's
  * first on-screen frame is already maximized.
  *
- * `keepHidden` windows (visual-smoke capture / E2E) never show, maximize, or
+ * `keepHidden` windows (e2e-fixture capture / E2E) never show, maximize, or
  * take focus from any path — captures run while the developer works elsewhere.
  */
 export function createWindowRevealGate(keepHidden: boolean): WindowRevealGate {

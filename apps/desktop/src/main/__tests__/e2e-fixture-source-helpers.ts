@@ -7,28 +7,28 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const MAIN_ROOT = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'main');
 
-// The visual-smoke fixture was split (arch Round 3) from a single
+// The e2e-fixture fixture was split (arch Round 3) from a single
 // ~2.5K-line module into a thin registry barrel
-// (`visual-smoke-fixture.ts`) plus per-domain seeder modules under
-// `visual-smoke/`. Source-scanning contracts (placeholder-copy hygiene,
+// (`e2e-fixture.ts`) plus per-domain seeder modules under
+// `e2e-fixture/`. Source-scanning contracts (placeholder-copy hygiene,
 // visible-copy hygiene) must aggregate ALL of these so the coverage that
 // used to hit the monolith keeps hitting its new homes. Add a new module
 // here whenever the fixture grows another domain file.
 const sourcePaths = [
-  'visual-smoke-fixture.ts',
-  'visual-smoke/seed-helpers.ts',
-  'visual-smoke/scenarios-settings.ts',
-  'visual-smoke/scenarios-modules.ts',
-  'visual-smoke/scenarios-artifacts.ts',
-  'visual-smoke/scenarios-chat.ts',
-  'visual-smoke/scenarios-sessions.ts',
+  'e2e-fixture.ts',
+  'e2e-fixture/seed-helpers.ts',
+  'e2e-fixture/scenarios-settings.ts',
+  'e2e-fixture/scenarios-modules.ts',
+  'e2e-fixture/scenarios-artifacts.ts',
+  'e2e-fixture/scenarios-chat.ts',
+  'e2e-fixture/scenarios-sessions.ts',
 ] as const;
 
-export const VISUAL_SMOKE_FIXTURE_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(
+export const E2E_FIXTURE_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(
   (sourcePath) => `apps/desktop/src/main/${sourcePath}`,
 );
 
-export async function readVisualSmokeFixtureCombinedSource(): Promise<string> {
+export async function readE2EFixtureCombinedSource(): Promise<string> {
   const sources = await Promise.all(
     sourcePaths.map((sourcePath) => readFile(resolve(MAIN_ROOT, sourcePath), 'utf8')),
   );

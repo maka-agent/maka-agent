@@ -74,7 +74,7 @@ import { useAppShellModuleData } from './use-module-data';
 import { useKeepSystemAwake } from './use-keep-system-awake';
 import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
-import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
+import { createAppShellE2EFixtureActions } from './app-shell-e2e-fixture';
 import { createAppShellChatActions } from './app-shell-chat-actions';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
@@ -586,14 +586,14 @@ function AppShellContent({
   //
   // @kenji PR109e review + @xuan PR109f follow-up: scrollIntoView with
   // `behavior: 'smooth'` must respect both reduced-motion AND the
-  // visual-smoke capture entry (PR-IR-02). @xuan confirmed on main that
-  // visual-smoke always writes `data-maka-visual-smoke="true"` but
+  // e2e-fixture capture entry (PR-IR-02). @xuan confirmed on main that
+  // e2e-fixture always writes `data-maka-e2e-fixture="true"` but
   // `data-maka-reduced-motion="true"` is only set on the reduced
-  // variant — so the visual-smoke attribute is the broader signal for
+  // variant — so the e2e-fixture attribute is the broader signal for
   // "deterministic capture, no animations". Three triggers collapse to
   // `auto`:
   //   1. `data-maka-reduced-motion="true"` — PR-IR-04 reduced variant
-  //   2. `data-maka-visual-smoke="true"` — PR-IR-02 any capture
+  //   2. `data-maka-e2e-fixture="true"` — PR-IR-02 any capture
   //   3. `prefers-reduced-motion: reduce` — OS-level user preference
   function handleLineageBadgeClick(targetTurnId: string): void {
     requestAnimationFrame(() => {
@@ -917,7 +917,7 @@ function AppShellContent({
     toastApi,
   });
 
-  const { applyVisualSmokeFixture } = useStableActions(createAppShellVisualSmokeActions, {
+  const { applyE2EFixture } = useStableActions(createAppShellE2EFixtureActions, {
     openPalette,
     openSettingsSection,
     openConnectionDetail,
@@ -1083,7 +1083,7 @@ function AppShellContent({
   useAppShellBootstrapSubscriptions({
     uiLocale,
     activeIdRef,
-    applyVisualSmokeFixture,
+    applyE2EFixture,
     bootstrapSessions,
     clearPendingTurnActionsForSession: turnActionRegistry.clearForSession,
     clearSessionRendererState,

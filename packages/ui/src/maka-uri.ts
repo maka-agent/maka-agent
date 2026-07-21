@@ -195,7 +195,7 @@ export function isMakaUriCandidate(href: string): boolean {
  * `data:`, `file:`. Even though the Markdown pipeline may sanitize
  * some of these, the link chokepoint should not depend
  * on that. Explicit allowlist here makes the boundary visible
- * and inspectable in visual-smoke baselines.
+ * and inspectable in e2e-fixture baselines.
  *
  * Allowed: `http:` (HTTP via OS browser), `https:` (HTTPS via OS
  * browser), `mailto:` (default mail client). Everything else

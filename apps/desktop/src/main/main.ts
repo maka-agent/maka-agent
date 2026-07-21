@@ -78,7 +78,7 @@ import { bindOnboardingDeps, createOnboardingService } from './onboarding-servic
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
-import { resolveVisualSmokeFixture } from './visual-smoke-fixture.js';
+import { resolveE2EFixture } from './e2e-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
@@ -115,7 +115,7 @@ import { registerSessionEntryIpc } from './session-entry-ipc-main.js';
 import { registerPermissionsIpc } from './permissions-ipc-main.js';
 import { registerSettingsIpc } from './settings-ipc-main.js';
 import type { SettingsIpcHandle } from './settings-ipc-main.js';
-import { createVisualSmokeBotOnboardingAdapters } from './bot-onboarding-visual-smoke.js';
+import { createE2EFixtureBotOnboardingAdapters } from './bot-onboarding-e2e-fixture.js';
 import { createKeepSystemAwakeController } from './keep-system-awake.js';
 import { createSettingsRuntimeEffects } from './settings-runtime-effects.js';
 import { createAiSdkBackendFactory, createSessionStreamer } from './session-stream.js';
@@ -166,29 +166,29 @@ if (!app.requestSingleInstanceLock()) {
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
 // PR-VISUAL-SMOKE-HEADLESS: resolve the fixture defensively. An unknown
-// scenario (e.g. a stale build, or a typo'd MAKA_VISUAL_SMOKE_FIXTURE) throws
+// scenario (e.g. a stale build, or a typo'd MAKA_E2E_FIXTURE) throws
 // here during top-level module evaluation. Left uncaught it surfaces a
 // blocking native error dialog. In fixture mode we instead log a parseable
 // line and exit fast so the run fails in milliseconds with no dialog.
 // Outside fixture mode the throw is rethrown.
-let visualSmokeFixture: ReturnType<typeof resolveVisualSmokeFixture>;
+let e2eFixture: ReturnType<typeof resolveE2EFixture>;
 try {
-  visualSmokeFixture = resolveVisualSmokeFixture(
-    process.env.MAKA_VISUAL_SMOKE_FIXTURE,
+  e2eFixture = resolveE2EFixture(
+    process.env.MAKA_E2E_FIXTURE,
     app.isPackaged,
-    process.env.MAKA_VISUAL_SMOKE_REDUCED_MOTION,
-    process.env.MAKA_VISUAL_SMOKE_THEME,
-    process.env.MAKA_VISUAL_SMOKE_LOCALE,
-    process.env.MAKA_VISUAL_SMOKE_TIMEZONE,
+    process.env.MAKA_E2E_FIXTURE_REDUCED_MOTION,
+    process.env.MAKA_E2E_FIXTURE_THEME,
+    process.env.MAKA_E2E_FIXTURE_LOCALE,
+    process.env.MAKA_E2E_FIXTURE_TIMEZONE,
   );
 } catch (error) {
-  if (process.env.MAKA_VISUAL_SMOKE_FIXTURE) {
-    console.error(`[visual-smoke] fatal: ${error instanceof Error ? error.message : String(error)}`);
+  if (process.env.MAKA_E2E_FIXTURE) {
+    console.error(`[e2e-fixture] fatal: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
   throw error;
 }
-const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
+const workspaceRoot = join(app.getPath('userData'), 'workspaces', e2eFixture?.workspaceName ?? 'default');
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
 // machine would otherwise sleep. Injected with electron's blocker; the
@@ -483,7 +483,7 @@ const localMemory = new LocalMemoryService({
 const desktopSessionSkillHosts = new Map<string, HostCapabilities>();
 const resolveDesktopSkillHost: HostCapabilitiesResolver = ({ sessionId }) =>
   desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities;
-// Window is created hidden for E2E and visual-smoke runs so it never steals
+// Window is created hidden for E2E and e2e-fixture runs so it never steals
 // focus. Derived from the same isE2e gate as userData/fake-backend so the
 // hidden-window switch stays in lockstep with the rest of the E2E isolation.
 // MAKA_E2E_SHOW_WINDOW opts back into a visible window where there is no
@@ -491,12 +491,12 @@ const resolveDesktopSkillHost: HostCapabilitiesResolver = ({ sessionId }) =>
 // BeginFrames on Linux, which stalls content-visibility inflation and any
 // frame-paced E2E protocol (measured in the scroll-geometry climb: 38 frames
 // over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
-const startHidden = (Boolean(visualSmokeFixture) || isIsolatedE2e)
+const startHidden = (Boolean(e2eFixture) || isIsolatedE2e)
   && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
 let onMainWindowClose = (): void => {};
 const mainWindowController = createMainWindowController({
   workspaceRoot,
-  visualSmokeFixture,
+  e2eFixture,
   settingsStore,
   startHidden,
   onClose: () => onMainWindowClose(),
@@ -863,7 +863,7 @@ function registerIpc(): void {
     getProjectRoot: resolveProjectRootForContext,
     workspaceRoot,
     buildInfo,
-    visualSmokeFixture,
+    e2eFixture,
   });
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
@@ -891,7 +891,7 @@ function registerIpc(): void {
     settingsStore,
     connectionStore,
     mainWindowController,
-    visualSmokeFixture,
+    e2eFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
     invalidateSessionBindings: (sessionId) => botIncoming.invalidateSessionBindings(sessionId),
@@ -952,9 +952,9 @@ function registerIpc(): void {
     botRegistry,
     normalizeSettingsPatch,
     applySettingsRuntimeEffects,
-    ...(visualSmokeFixture?.scenario === 'settings-bots'
+    ...(e2eFixture?.scenario === 'settings-bots'
       ? {
-          botOnboardingAdapters: createVisualSmokeBotOnboardingAdapters(),
+          botOnboardingAdapters: createE2EFixtureBotOnboardingAdapters(),
           botOnboardingApplySettingsRuntimeEffects: async () => undefined,
           // The fixture no-ops runtime effects, so no real bridge starts.
           // Report the onboarded channel as running to demonstrate the
@@ -978,7 +978,7 @@ function registerIpc(): void {
 
 function canCreateFakeSessionFromRenderer(): boolean {
   return !app.isPackaged && (
-    Boolean(visualSmokeFixture) ||
+    Boolean(e2eFixture) ||
     Boolean(process.env.VITE_DEV_SERVER_URL) ||
     process.env.NODE_ENV === 'development'
   );
@@ -1151,7 +1151,7 @@ registerIpc();
 
 wireAppLifecycle({
   isIsolatedE2e,
-  visualSmokeFixture,
+  e2eFixture,
   workspaceRoot,
   credentialStore,
   connectionStore,

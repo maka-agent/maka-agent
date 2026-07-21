@@ -31,7 +31,7 @@ interface EmptyStateProps {
   secondaryCta?: { label: string; onClick: () => void; disabled?: boolean };
   /** Optional extra class on the container (e.g. `maka-plan-empty`). */
   extraClassName?: string;
-  /** Optional `data-empty-view` passthrough for visual-smoke selectors. */
+  /** Optional `data-empty-view` passthrough for e2e-fixture selectors. */
   dataEmptyView?: string;
 }
 

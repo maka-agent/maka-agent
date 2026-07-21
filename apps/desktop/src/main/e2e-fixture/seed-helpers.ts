@@ -1,42 +1,42 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { SessionHeader, StoredMessage, VisualSmokeScenario } from '@maka/core';
+import type { SessionHeader, StoredMessage, E2EFixtureScenario } from '@maka/core';
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
 // transient smoke state derive from this value unless tests explicitly
 // pass `now`, so two baseline runs produce identical visible time copy.
-export const VISUAL_SMOKE_NOW = Date.UTC(2026, 4, 22, 3, 0, 0);
+export const E2E_FIXTURE_NOW = Date.UTC(2026, 4, 22, 3, 0, 0);
 
-export const TURN_SESSION_ID = 'visual-smoke-turn';
-export const LONG_TRANSCRIPT_SESSION_ID = 'visual-smoke-long-transcript';
-export const PROCESSING_SESSION_ID = 'visual-smoke-processing';
-export const STREAMING_SESSION_ID = 'visual-smoke-streaming';
-export const PERMISSION_SESSION_ID = 'visual-smoke-permission';
-export const WORKSTATION_RUNNING_SESSION_ID = 'visual-smoke-ws-running';
-export const WORKSTATION_WAITING_SESSION_ID = 'visual-smoke-ws-waiting';
-export const WORKSTATION_BLOCKED_AUTH_SESSION_ID = 'visual-smoke-ws-blocked-auth';
-export const WORKSTATION_BLOCKED_PERM_SESSION_ID = 'visual-smoke-ws-blocked-perm';
-export const WORKSTATION_BLOCKED_TOOL_SESSION_ID = 'visual-smoke-ws-blocked-tool';
-export const WORKSTATION_BLOCKED_UNKNOWN_SESSION_ID = 'visual-smoke-ws-blocked-unknown';
-export const WORKSTATION_ACTIVE_SESSION_ID = 'visual-smoke-ws-active';
-export const WORKSTATION_REVIEW_SESSION_ID = 'visual-smoke-ws-review';
-export const WORKSTATION_DONE_SESSION_ID = 'visual-smoke-ws-done';
-export const WORKSTATION_ARCHIVED_SESSION_ID = 'visual-smoke-ws-archived';
-export const WORKSTATION_ABORTED_SESSION_ID = 'visual-smoke-ws-aborted';
-export const ERROR_SESSION_ID = 'visual-smoke-error';
-export const ARTIFACT_SESSION_ID = 'visual-smoke-artifact';
-export const STALE_FAKE_SESSION_ID = 'visual-smoke-stale-fake';
-export const STALE_LEGACY_SESSION_ID = 'visual-smoke-stale-legacy';
-export const HEALTHY_SESSION_ID = 'visual-smoke-healthy';
+export const TURN_SESSION_ID = 'e2e-fixture-turn';
+export const LONG_TRANSCRIPT_SESSION_ID = 'e2e-fixture-long-transcript';
+export const PROCESSING_SESSION_ID = 'e2e-fixture-processing';
+export const STREAMING_SESSION_ID = 'e2e-fixture-streaming';
+export const PERMISSION_SESSION_ID = 'e2e-fixture-permission';
+export const WORKSTATION_RUNNING_SESSION_ID = 'e2e-fixture-ws-running';
+export const WORKSTATION_WAITING_SESSION_ID = 'e2e-fixture-ws-waiting';
+export const WORKSTATION_BLOCKED_AUTH_SESSION_ID = 'e2e-fixture-ws-blocked-auth';
+export const WORKSTATION_BLOCKED_PERM_SESSION_ID = 'e2e-fixture-ws-blocked-perm';
+export const WORKSTATION_BLOCKED_TOOL_SESSION_ID = 'e2e-fixture-ws-blocked-tool';
+export const WORKSTATION_BLOCKED_UNKNOWN_SESSION_ID = 'e2e-fixture-ws-blocked-unknown';
+export const WORKSTATION_ACTIVE_SESSION_ID = 'e2e-fixture-ws-active';
+export const WORKSTATION_REVIEW_SESSION_ID = 'e2e-fixture-ws-review';
+export const WORKSTATION_DONE_SESSION_ID = 'e2e-fixture-ws-done';
+export const WORKSTATION_ARCHIVED_SESSION_ID = 'e2e-fixture-ws-archived';
+export const WORKSTATION_ABORTED_SESSION_ID = 'e2e-fixture-ws-aborted';
+export const ERROR_SESSION_ID = 'e2e-fixture-error';
+export const ARTIFACT_SESSION_ID = 'e2e-fixture-artifact';
+export const STALE_FAKE_SESSION_ID = 'e2e-fixture-stale-fake';
+export const STALE_LEGACY_SESSION_ID = 'e2e-fixture-stale-legacy';
+export const HEALTHY_SESSION_ID = 'e2e-fixture-healthy';
 // PR109f (g): turn-control-history primary + branch sessions. The
 // `BRANCH_ORPHAN` session's `parentSessionId` intentionally references
 // a session id that is NEVER written to disk so the renderer's
 // `deriveBranchBanner()` resolves the parent as missing and renders no
 // banner in the negative screenshot case.
-export const TURN_CONTROL_PRIMARY_SESSION_ID = 'visual-smoke-turn-control-primary';
-export const TURN_CONTROL_BRANCH_VISIBLE_SESSION_ID = 'visual-smoke-turn-control-branch-visible';
-export const TURN_CONTROL_BRANCH_ORPHAN_SESSION_ID = 'visual-smoke-turn-control-branch-orphan';
-export const TURN_CONTROL_ORPHAN_PARENT_ID = 'visual-smoke-turn-control-deleted-parent';
+export const TURN_CONTROL_PRIMARY_SESSION_ID = 'e2e-fixture-turn-control-primary';
+export const TURN_CONTROL_BRANCH_VISIBLE_SESSION_ID = 'e2e-fixture-turn-control-branch-visible';
+export const TURN_CONTROL_BRANCH_ORPHAN_SESSION_ID = 'e2e-fixture-turn-control-branch-orphan';
+export const TURN_CONTROL_ORPHAN_PARENT_ID = 'e2e-fixture-turn-control-deleted-parent';
 
 /**
  * PR-SIDEBAR-IA-0 Phase 1: sidebar-long-sessions scenario seeds many
@@ -45,7 +45,7 @@ export const TURN_CONTROL_ORPHAN_PARENT_ID = 'visual-smoke-turn-control-deleted-
  * lastMessageAt). Path is short so it stays stable in screenshot
  * baselines.
  */
-export const LONG_SIDEBAR_SESSION_PREFIX = 'visual-smoke-sidebar-long-';
+export const LONG_SIDEBAR_SESSION_PREFIX = 'e2e-fixture-sidebar-long-';
 export const LONG_SIDEBAR_SESSION_COUNT = 60;
 
 /**
@@ -53,7 +53,7 @@ export const LONG_SIDEBAR_SESSION_COUNT = 60;
  * Kept as a Set so future scenarios reusing the same seed can be
  * registered in one place. Mirrors `TURN_CONTROL_SCENARIOS`.
  */
-export const LONG_SIDEBAR_SCENARIOS = new Set<VisualSmokeScenario>([
+export const LONG_SIDEBAR_SCENARIOS = new Set<E2EFixtureScenario>([
   'module-skills',
   'module-daily-review',
   'plan-reminders',
@@ -69,7 +69,7 @@ export const LONG_SIDEBAR_SCENARIOS = new Set<VisualSmokeScenario>([
  * they're variants of the same state family (active session differs,
  * everything else identical).
  */
-export const TURN_CONTROL_SCENARIOS = new Set<VisualSmokeScenario>([
+export const TURN_CONTROL_SCENARIOS = new Set<E2EFixtureScenario>([
   'turn-control-history',
   'turn-control-branch-visible',
   'turn-control-branch-orphan',
@@ -102,7 +102,7 @@ export function header(input: {
 }): SessionHeader {
   return {
     id: input.id,
-    workspaceRoot: 'visual-smoke',
+    workspaceRoot: 'e2e-fixture',
     cwd: '/workspace/maka',
     createdAt: input.now - 3_600_000,
     lastUsedAt: input.lastMessageAt,

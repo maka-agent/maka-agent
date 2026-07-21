@@ -4,18 +4,18 @@ import type {
   DailyReviewArchive,
   LlmConnection,
   PlanReminder,
-  VisualSmokeScenario,
+  E2EFixtureScenario,
 } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
 import { writeJson } from './seed-helpers.js';
 
 export async function writeSettings(
   workspaceRoot: string,
-  scenario?: VisualSmokeScenario,
+  scenario?: E2EFixtureScenario,
 ): Promise<void> {
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8` + WAWQAQ
   // `1886c41b`): the fixture previously seeded a placeholder
-  // Chinese personal name for screenshot baselines, but a real
+  // Chinese personal name for deterministic rendering, but a real
   // user reading the chat surface can't tell who that placeholder
   // is. Worse, if a demo workspace was ever opened on top of a
   // real user's workspace, the placeholder would persist and
@@ -23,13 +23,13 @@ export async function writeSettings(
   //
   // Phase 3 fixup v2 leaves `displayName` empty so screenshots and
   // Settings match a new, unconfigured user. Settings test
-  // (`visual-smoke-fixture.test.ts`) asserts the empty-string value
+  // (`e2e-fixture.test.ts`) asserts the empty-string value
   // so a future patch that re-adds a demo name lands as an explicit
   // copy decision, not silent drift.
   const settings = createDefaultSettings();
   settings.personalization.displayName = '';
   settings.appearance.theme = 'auto';
-  // Settings → 使用统计: the seeded traffic uses the fixed visual-smoke clock,
+  // Settings → 使用统计: the seeded traffic uses the fixed e2e-fixture clock,
   // which sits outside the real-time 24h/7天/30天 windows the store derives
   // from Date.now(). Default the usage view to 全部 + details-on so the
   // capture shows the populated request log and stats tables deterministically.
@@ -40,7 +40,7 @@ export async function writeSettings(
   await writeJson(join(workspaceRoot, 'settings.json'), settings);
 }
 
-export async function writeConnections(workspaceRoot: string, now: number, scenario: VisualSmokeScenario): Promise<void> {
+export async function writeConnections(workspaceRoot: string, now: number, scenario: E2EFixtureScenario): Promise<void> {
   const connections: LlmConnection[] = [
     {
       slug: 'zai-live',
@@ -160,7 +160,7 @@ export async function writeConnections(workspaceRoot: string, now: number, scena
   });
 }
 
-function connectionFocusSlug(scenario: VisualSmokeScenario): string | null {
+function connectionFocusSlug(scenario: E2EFixtureScenario): string | null {
   switch (scenario) {
     case 'fallback-source':
       return 'relay-fallback';
@@ -300,7 +300,7 @@ export async function writeDailyReviewArchives(workspaceRoot: string, now: numbe
     sections: {
       summary: '深度分析覆盖最近一轮 Maka UI 打磨：参考布局学习、权限中心重画、Daily Review 从聚合面板走向可保存报告。',
       gaps: '第一性原理层面需要把“模块页 shell / Settings row / 状态 pill / 操作按钮”抽成真实组件，否则后续仍会在 CSS 中继续堆叠局部规则。',
-      usage: '高频动作是读取源码、运行 contract、构建 renderer、生成 visual-smoke 截图。失败成本主要来自多处页面壳层行为不统一。',
+      usage: '高频动作是读取源码、运行 contract、构建 renderer、生成 e2e-fixture 截图。失败成本主要来自多处页面壳层行为不统一。',
       code: '下一步优先建立模块页 PageShell、SettingsActionRow 和 StatusPill primitives，再迁移 Daily Review、权限中心、计划任务和技能页。',
     },
   };

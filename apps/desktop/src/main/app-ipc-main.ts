@@ -5,11 +5,11 @@ import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import type { createMainWindowController } from './main-window.js';
 import type { ProjectRootController } from './project-root-controller.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { getVisualSmokeState, type resolveVisualSmokeFixture } from './visual-smoke-fixture.js';
+import { getE2EFixtureState, type resolveE2EFixture } from './e2e-fixture.js';
 import type { resolveBuildInfo } from './build-info.js';
 
 type MainWindowController = ReturnType<typeof createMainWindowController>;
-type VisualSmokeFixture = ReturnType<typeof resolveVisualSmokeFixture>;
+type E2EFixture = ReturnType<typeof resolveE2EFixture>;
 type BuildInfo = ReturnType<typeof resolveBuildInfo>;
 
 export interface AppIpcDeps {
@@ -19,11 +19,11 @@ export interface AppIpcDeps {
   getProjectRoot(sessionId: unknown): Promise<string>;
   workspaceRoot: string;
   buildInfo: BuildInfo;
-  visualSmokeFixture: VisualSmokeFixture;
+  e2eFixture: E2EFixture;
 }
 
 export function registerAppIpc(deps: AppIpcDeps): void {
-  const { mainWindowController, projectRoot, workspaceRoot, buildInfo, visualSmokeFixture } = deps;
+  const { mainWindowController, projectRoot, workspaceRoot, buildInfo, e2eFixture } = deps;
   // Call-time read of the shared project-root authority: every handler must
   // observe the latest selection, not a snapshot taken at registration.
   const currentProjectRoot = (): Promise<string> => projectRoot.current();
@@ -33,7 +33,7 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   });
   // PR-SHOW-AFTER-FIRST-COMMIT: the renderer signals its first React commit so
   // the hidden window (main-window.ts show: false) is revealed only once real
-  // content can paint. Idempotent + visual-smoke-safe inside the controller.
+  // content can paint. Idempotent + e2e-fixture-safe inside the controller.
   ipcMain.handle('window:notifyRendererReady', (): void => {
     mainWindowController.notifyRendererReady();
   });
@@ -140,5 +140,5 @@ export function registerAppIpc(deps: AppIpcDeps): void {
       return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
     },
   );
-  ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
+  ipcMain.handle('e2eFixture:getState', () => getE2EFixtureState(e2eFixture));
 }

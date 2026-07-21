@@ -115,7 +115,7 @@ function StoryFrame(props: {
   return (
     <div
       ref={ref}
-      data-maka-visual-smoke="true"
+      data-maka-e2e-fixture="true"
       style={{
         background: 'var(--surface-canvas)',
         height,

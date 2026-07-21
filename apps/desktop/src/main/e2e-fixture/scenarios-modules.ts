@@ -6,7 +6,7 @@ import { writeJson } from './seed-helpers.js';
  * MCP module fixture: seeds an mcp.json with a couple of installed servers so
  * the 已安装 tab and the server rows render for the alignment auditor + CDP
  * capture. Both are `enabled: false` so no real `npx` / HTTP connection is
- * attempted in visual-smoke mode — the rows render deterministically in the
+ * attempted in e2e-fixture mode — the rows render deterministically in the
  * neutral 已停用 state (exception-only status: no color unless a real failure).
  * The 市场 tab is the default surface and is driven by the static MCP_CATALOG,
  * so it renders without any on-disk seed.

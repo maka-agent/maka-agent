@@ -185,7 +185,7 @@ function isStaleMakaElectronProcess(entry) {
   if (!command.includes('Electron.app/Contents/MacOS/Electron')) return false;
   if (!command.includes('--user-data-dir=')) return false;
   return (
-    /--user-data-dir=(?:\/private)?\/tmp\/maka-(?:visual-smoke|real-window-smoke|p0fix|uxp|v\d|copy|long|modal|narr|test-cap-debug)/.test(
+    /--user-data-dir=(?:\/private)?\/tmp\/maka-(?:e2e-fixture|real-window-smoke|p0fix|uxp|v\d|copy|long|modal|narr|test-cap-debug)/.test(
       command,
     ) || /--user-data-dir=(?:\/private)?\/var\/folders\/.+\/maka-real-window-smoke-/.test(command)
   );
@@ -256,9 +256,9 @@ async function launchElectron(args, diagnostics) {
   const userDataDir = join(os.tmpdir(), `maka-real-window-smoke-${args.scenario}-${process.pid}`);
   const env = {
     ...process.env,
-    MAKA_VISUAL_SMOKE_FIXTURE: args.scenario,
-    MAKA_VISUAL_SMOKE_WIDTH: String(args.width),
-    MAKA_VISUAL_SMOKE_HEIGHT: String(args.height),
+    MAKA_E2E_FIXTURE: args.scenario,
+    MAKA_E2E_FIXTURE_WIDTH: String(args.width),
+    MAKA_E2E_FIXTURE_HEIGHT: String(args.height),
     MAKA_REAL_WINDOW_SMOKE: '1',
   };
   const launchArgs = ['.', `--user-data-dir=${userDataDir}`];

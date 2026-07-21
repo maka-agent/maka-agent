@@ -4,7 +4,7 @@ import type {
   PermissionRequestEvent,
   SessionHeader,
   StoredMessage,
-  VisualSmokeState,
+  E2EFixtureState,
 } from '@maka/core';
 import {
   ERROR_SESSION_ID,
@@ -13,7 +13,7 @@ import {
   PROCESSING_SESSION_ID,
   STREAMING_SESSION_ID,
   TURN_SESSION_ID,
-  VISUAL_SMOKE_NOW,
+  E2E_FIXTURE_NOW,
 } from './seed-helpers.js';
 
 // PR-STREAM-TURN-CENTER: realistic multi-block markdown (heading + paragraph +
@@ -370,7 +370,7 @@ export function errorMessages(now: number): StoredMessage[] {
   ];
 }
 
-export function streamingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
+export function streamingLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
   return {
     [STREAMING_SESSION_ID]: {
       turnId: 'turn-streaming',
@@ -389,14 +389,14 @@ export function streamingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySe
           displayName: '运行中的诊断',
           intent: '模拟后台 stream 中的 tool activity',
           status: 'running',
-          args: { cmd: 'npm run visual-smoke:fixture' },
+          args: { cmd: 'npm run e2e-fixture:fixture' },
         }],
       }],
     },
   };
 }
 
-export function streamingAnswerLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
+export function streamingAnswerLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
   return {
     [TURN_SESSION_ID]: {
       turnId: 'turn-fixture-2',
@@ -410,7 +410,7 @@ export function streamingAnswerLiveTurns(): NonNullable<VisualSmokeState['liveTu
   };
 }
 
-export function processingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
+export function processingLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
   return {
     [PROCESSING_SESSION_ID]: {
       turnId: 'turn-processing-1',
@@ -420,14 +420,14 @@ export function processingLiveTurns(): NonNullable<VisualSmokeState['liveTurnByS
   };
 }
 
-export function permissionState(): NonNullable<VisualSmokeState['permissionBySession']> {
+export function permissionState(): NonNullable<E2EFixtureState['permissionBySession']> {
   return {
-    [PERMISSION_SESSION_ID]: permissionRequest(VISUAL_SMOKE_NOW),
+    [PERMISSION_SESSION_ID]: permissionRequest(E2E_FIXTURE_NOW),
   };
 }
 
-export function permissionLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
-  const request = permissionRequest(VISUAL_SMOKE_NOW);
+export function permissionLiveTurns(): NonNullable<E2EFixtureState['liveTurnBySession']> {
+  const request = permissionRequest(E2E_FIXTURE_NOW);
   return {
     [PERMISSION_SESSION_ID]: {
       turnId: 'turn-permission',
@@ -451,10 +451,10 @@ function permissionRequest(now: number): PermissionRequestEvent {
   return {
     type: 'permission_request',
     kind: 'tool_permission',
-    id: 'visual-smoke-permission-event',
+    id: 'e2e-fixture-permission-event',
     turnId: 'turn-permission',
     ts: now,
-    requestId: 'visual-smoke-permission-request',
+    requestId: 'e2e-fixture-permission-request',
     toolUseId: 'permission-tool',
     toolName: 'Bash',
     category: 'fs_destructive',

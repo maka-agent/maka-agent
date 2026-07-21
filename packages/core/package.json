@@ -29,7 +29,7 @@
     "./attachments": "./dist/attachments.js",
     "./artifacts": "./dist/artifacts.js",
     "./runtime-inputs": "./dist/runtime-inputs.js",
-    "./visual-smoke": "./dist/visual-smoke.js",
+    "./e2e-fixture": "./dist/e2e-fixture.js",
     "./capabilities": "./dist/capabilities.js",
     "./capability-audit": "./dist/capability-audit.js",
     "./health": "./dist/health.js",

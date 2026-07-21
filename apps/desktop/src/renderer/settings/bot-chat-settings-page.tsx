@@ -32,8 +32,8 @@ export function BotChatSettingsPage(props: {
 }) {
   const [selected, setSelected] = useState<BotProvider>('telegram');
   const [detailOpen, setDetailOpen] = useState(false);
-  // #1233 deferral: the `settings-bots-onboarding` visual-smoke fixture opens a
-  // provider's scan-login modal deterministically. `visualSmoke.getState()`
+  // #1233 deferral: the `settings-bots-onboarding` e2e-fixture fixture opens a
+  // provider's scan-login modal deterministically. `e2eFixture.getState()`
   // resolves null for real users, so this only fires under the dev fixture.
   const [autoOpenScanProvider, setAutoOpenScanProvider] = useState<BotOnboardingProvider | null>(null);
   const [pendingBotAction, setPendingBotAction] = useState<BotPendingAction | null>(null);
@@ -57,12 +57,12 @@ export function BotChatSettingsPage(props: {
     };
   }, []);
 
-  // #1233 deferral: under the settings-bots-onboarding visual-smoke fixture,
+  // #1233 deferral: under the settings-bots-onboarding e2e-fixture fixture,
   // jump straight to the seeded provider's detail view and flag the scan-login
   // modal to auto-open so the QR waiting state captures deterministically.
   useEffect(() => {
     let active = true;
-    void window.maka.visualSmoke.getState().then((smoke) => {
+    void window.maka.e2eFixture.getState().then((smoke) => {
       if (!active || !smoke?.botOnboardingProvider) return;
       setSelected(smoke.botOnboardingProvider);
       setDetailOpen(true);

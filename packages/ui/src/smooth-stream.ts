@@ -28,7 +28,7 @@
  *     `completeFlushBudgetMs` instead of snapping to the final text.
  *   - **Reduced-motion bypass**: callers pass `snap: true` (typically
  *     derived from `prefers-reduced-motion: reduce` or the
- *     visual-smoke fixture attribute) to skip all smoothing.
+ *     e2e-fixture fixture attribute) to skip all smoothing.
  *   - **Single RAF owner**: one `useEffect` schedules one RAF; its
  *     cleanup cancels any in-flight handle before the next effect
  *     re-runs. No way to have two RAFs writing state concurrently
@@ -69,7 +69,7 @@ export interface SmoothStreamOptions {
    * Force an immediate full-text display, bypassing all smoothing.
    * Callers should set this when:
    *   - `prefers-reduced-motion: reduce` matches,
-   *   - the visual-smoke fixture attribute is set,
+   *   - the e2e-fixture fixture attribute is set,
    *   - the content is being hydrated from history (the stream
    *     already finished — there is nothing to "smoothly" replay).
    */

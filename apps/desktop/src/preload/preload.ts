@@ -44,7 +44,7 @@ import type {
   UpdateAppSettingsResult,
   UsageRange,
   UsageStats,
-  VisualSmokeState,
+  E2EFixtureState,
   ArtifactBinaryReadResult,
   ArtifactChangedEvent,
   ArtifactRecord,
@@ -997,9 +997,9 @@ const makaBridge = {
       return ipcRenderer.invoke('workspace:searchFiles', { query, ...options });
     },
   },
-  visualSmoke: {
-    getState(): Promise<VisualSmokeState | null> {
-      return ipcRenderer.invoke('visualSmoke:getState');
+  e2eFixture: {
+    getState(): Promise<E2EFixtureState | null> {
+      return ipcRenderer.invoke('e2eFixture:getState');
     },
   },
   artifacts: {

@@ -3,7 +3,7 @@ import type { PermissionRequestEvent, ToolResultContent } from './events.js';
 import type { SettingsSection } from './settings.js';
 import type { UiLocale } from './ui-locale.js';
 
-export type VisualSmokeScenario =
+export type E2EFixtureScenario =
   | 'all'
   | 'first-run'
   | 'provider-workspace'
@@ -23,8 +23,9 @@ export type VisualSmokeScenario =
   | 'streaming-sidebar'
   // PR-STREAM-TURN-CENTER: streaming-sidebar only shows the SIDEBAR dot (its
   // active session is a committed one). This seeds an ACTIVE session whose
-  // main panel renders the live answer bubble below a committed turn, so the
-  // screenshot locks streaming-vs-committed horizontal alignment — the gap
+  // main panel renders the live answer bubble below a committed turn, so
+  // E2E + the alignment audit can lock streaming-vs-committed horizontal
+  // alignment — the gap
   // that let the "streaming markdown sits ~110px too far left" bug ship.
   | 'streaming-answer'
   // #646 real-time status language: a running session whose turn is armed with
@@ -45,8 +46,8 @@ export type VisualSmokeScenario =
   // had no deterministic capture because a real device-code start contacts an
   // external IM platform and the QR + TTL drift every run. This scenario opens
   // Settings → 远程接入 → a bot detail with the scan-login modal auto-opened,
-  // backed by a visual-smoke adapter that holds the 'waiting' state with a
-  // FIXED QR + long TTL, so the modal's waiting layout captures deterministically.
+  // backed by an e2e-fixture adapter that holds the 'waiting' state with a
+  // FIXED QR + long TTL, so the modal's waiting layout renders deterministically.
   | 'settings-bots-onboarding'
   | 'settings-about'
   | 'settings-general'
@@ -68,9 +69,9 @@ export type VisualSmokeScenario =
   // branch sessions (one with visible parent showing the banner, one
   // with a missing parent that must NOT render a banner). The three
   // scenarios below share the same on-disk seed; they only differ in
-  // which session is the active one so auto-capture produces three
-  // deterministic screenshots covering both positive and negative
-  // banner cases without requiring manual clicks.
+  // which session is the active one, exposing three deterministic
+  // states covering both positive and negative banner cases without
+  // requiring manual clicks.
   | 'turn-control-history'
   | 'turn-control-branch-visible'
   | 'turn-control-branch-orphan'
@@ -78,8 +79,8 @@ export type VisualSmokeScenario =
   // visual contract for the new registry-driven image path. Each
   // scenario writes a SINGLE artifact to ARTIFACT_SESSION_ID so the
   // ArtifactPane's default selection (records[0]) deterministically
-  // shows the one we want to screenshot. @kenji review @msg
-  // fc9753b9 holds visual-regression sign-off pending these three.
+  // shows the one we want to verify. @kenji review @msg
+  // fc9753b9 holds review sign-off pending these three.
   //   - artifact-preview-image: real tiny PNG → registry resolves
   //     `image(mime_match)`, <img object-fit:contain> inside bounded
   //     container.
@@ -101,19 +102,19 @@ export type VisualSmokeScenario =
   // scroll container can be verified end-to-end: the list must scroll
   // independently, and the footer (Settings + Version info)
   // must stay visible at the bottom regardless of session count.
-  // Auto-capture variant pairs (light + dark, narrow + wide) double
+  // Variant pairs (light + dark, narrow + wide) double
   // as the CI gate that scroll did not regress.
   | 'sidebar-long-sessions'
   // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2 +
   // WAWQAQ msg `4259bf8c`): seed the same 60-session sidebar as
   // sidebar-long-sessions, then auto-open the Search modal at
-  // mount so the screenshot pipeline captures the modal shell
+  // mount so E2E/audit can reach the modal shell
   // without requiring an interaction. The opener uses
-  // `VisualSmokeState.searchModalOpen=true`; real users never
-  // receive a visual smoke state.
+  // `E2EFixtureState.searchModalOpen=true`; real users never
+  // receive an e2e-fixture state.
   | 'sidebar-search-modal-open'
   // PR-shared primitive-COMMAND-INPUT-0: reuse the long sidebar seed and
-  // auto-open the command palette so screenshots can baseline the
+  // auto-open the command palette so E2E/audit can exercise the
   // shared primitive InputGroup command input shell without requiring a key
   // chord.
   | 'command-palette-open'
@@ -129,21 +130,21 @@ export type VisualSmokeScenario =
   // tall, opened as the active session on boot. Off-screen turns mount as
   // 250px content-visibility placeholders, so this seed exercises the
   // warm-up + pinned-bottom geometry invariants (E2E scroll-geometry spec)
-  // and gives screenshots a long-transcript surface.
+  // and gives E2E/audit a long-transcript surface.
   | 'long-transcript'
   // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
   // with the active turn session so `BrowserPanel` mounts (app-shell gates
   // on `activeId && liveBrowserSessionIds.includes(activeId)`). In
-  // visual-smoke mode there is no native `WebContentsView`, so
+  // e2e-fixture mode there is no native `WebContentsView`, so
   // `browser.getState` resolves null and `BrowserPanel` renders `EMPTY_STATE`
   // — the empty-state chrome (toolbar with all nav buttons disabled + the
   // `<Empty>` strip) that the #818 narrow-layout defect regressed against.
   // Loaded / loading / nav chrome states are locked by the
   // `browser-panel-chrome` source contract (their wiring IS the behavior);
-  // their screenshots add no layout value over this empty-state baseline.
+  // they add no layout value over this empty-state fixture.
   | 'browser-empty';
 
-export interface VisualSmokeLiveTool {
+export interface E2EFixtureLiveTool {
   toolUseId: string;
   toolName: string;
   stepId?: string;
@@ -155,27 +156,27 @@ export interface VisualSmokeLiveTool {
   durationMs?: number;
 }
 
-export interface VisualSmokeLiveTurnStep {
+export interface E2EFixtureLiveTurnStep {
   stepId: string;
   thinking?: { text: string; truncated: boolean; complete: boolean };
   text?: { text: string; truncated: boolean; complete: boolean };
-  tools: VisualSmokeLiveTool[];
+  tools: E2EFixtureLiveTool[];
 }
 
-export interface VisualSmokeLiveTurnProjection {
+export interface E2EFixtureLiveTurnProjection {
   turnId: string;
   phase: 'waiting' | 'streamed';
   terminal?: true;
-  steps: VisualSmokeLiveTurnStep[];
+  steps: E2EFixtureLiveTurnStep[];
 }
 
-export interface VisualSmokeState {
+export interface E2EFixtureState {
   enabled: true;
   /**
    * Deterministic wall-clock timestamp for fixture rendering. The
-   * renderer uses it to freeze `Date.now()` while visual smoke mode is
+   * renderer uses it to freeze `Date.now()` while e2e-fixture mode is
    * active so relative-time labels, fetched-at copy, and transient
-   * permission timestamps do not drift between screenshot runs.
+   * permission timestamps do not drift between runs.
    */
   now?: number;
   activeSessionId?: string;
@@ -183,8 +184,8 @@ export interface VisualSmokeState {
    * #819: session ids with a live embedded-browser view, mirrorring the
    * renderer's `liveBrowserSessionIds` state (app-shell gates `BrowserPanel`
    * mounting on `activeId && liveBrowserSessionIds.includes(activeId)`).
-   * Seeded only by the `browser-empty` scenario so the renderer chrome can
-   * be screenshot-captured. Real users never receive a visual smoke state, so
+   * Seeded only by the `browser-empty` scenario so the renderer chrome is
+   * reachable by E2E/audit. Real users never receive an e2e-fixture state, so
    * this never drives production `browser:live` wiring.
    */
   liveBrowserSessionIds?: string[];
@@ -192,15 +193,15 @@ export interface VisualSmokeState {
   /**
    * When set, open Settings → 模型 with this connection's detail sheet
    * expanded (rather than just the section). Seeded by `oauth-relogin` so the
-   * detail sheet's re-login affordance is what gets screenshot-captured; takes
+   * detail sheet's re-login affordance is what E2E/audit see; takes
    * precedence over `openSettingsSection`.
    */
   openConnectionDetailSlug?: string;
-  liveTurnBySession?: Record<string, VisualSmokeLiveTurnProjection>;
+  liveTurnBySession?: Record<string, E2EFixtureLiveTurnProjection>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
   /**
    * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
-   * of the host OS setting. Triggered by `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1`
+   * of the host OS setting. Triggered by `MAKA_E2E_FIXTURE_REDUCED_MOTION=1`
    * env var in the main process. The renderer applies
    * `data-maka-reduced-motion="true"` to `<html>` so the matching CSS
    * rule in `styles.css` collapses every animation/transition to
@@ -208,8 +209,8 @@ export interface VisualSmokeState {
    */
   reducedMotion?: boolean;
   /**
-   * PR-IR-01b: theme override driven by `MAKA_VISUAL_SMOKE_THEME=light|dark|auto`.
-   * Lets the screenshot pipeline capture each scenario in both light
+   * PR-IR-01b: theme override driven by `MAKA_E2E_FIXTURE_THEME=light|dark|auto`.
+   * Lets E2E and the alignment audit exercise each scenario in both light
    * and dark themes without requiring per-fixture seed updates. The
    * renderer applies this BEFORE the user's persisted theme so the
    * first paint already has the right palette.
@@ -217,18 +218,18 @@ export interface VisualSmokeState {
   theme?: 'light' | 'dark' | 'auto';
   /**
    * PR-UI-VISUAL-SMOKE-LOCALE: UI locale override driven by
-   * `MAKA_VISUAL_SMOKE_LOCALE=zh|en`. The reactive locale provider
+   * `MAKA_E2E_FIXTURE_LOCALE=zh|en`. The reactive locale provider
    * normally follows the persisted preference. When set, the renderer
-   * records `data-maka-visual-smoke-locale="zh|en"` on `<html>` and
+   * records `data-maka-e2e-fixture-locale="zh|en"` on `<html>` and
    * resolves that override before the persisted preference.
    * Unrecognized values fall back to undefined.
    */
   locale?: UiLocale;
   /**
    * PR-UI-VISUAL-SMOKE-TIMEZONE: IANA timezone override driven by
-   * `MAKA_VISUAL_SMOKE_TIMEZONE=<IANA name>`. Mirrors the locale
+   * `MAKA_E2E_FIXTURE_TIMEZONE=<IANA name>`. Mirrors the locale
    * override pattern: when set, the renderer applies
-   * `data-maka-visual-smoke-tz="<IANA>"` to `<html>` so any date /
+   * `data-maka-e2e-fixture-tz="<IANA>"` to `<html>` so any date /
    * time formatting helper can read it BEFORE falling back to the
    * host system timezone.
    *
@@ -239,26 +240,26 @@ export interface VisualSmokeState {
    * write only; per-call timezone consumption is up to individual
    * formatters as they're added.
    *
-   * Real users never receive a visual smoke state, so their Date
+   * Real users never receive an e2e-fixture state, so their Date
    * formatting remains untouched.
    */
   timezone?: string;
   /**
    * PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
    * `true`, the renderer auto-opens the sidebar Search modal at
-   * mount so the screenshot pipeline can capture the modal shell
+   * mount so E2E/audit can reach the modal shell
    * deterministically (the modal is not the default state of any
    * scenario; opening it requires either user input or this hint).
    *
    * Currently set only by the `sidebar-search-modal-open` scenario.
-   * Real users never receive a visual smoke state, so this never
+   * Real users never receive an e2e-fixture state, so this never
    * affects the production app.
    */
   searchModalOpen?: boolean;
   /**
    * PR-shared primitive-COMMAND-INPUT-0: when `true`, the renderer auto-opens
-   * the command palette at mount so the screenshot pipeline can
-   * capture the command input shell deterministically. Currently set
+   * the command palette at mount so E2E/audit can
+   * reach the command input shell deterministically. Currently set
    * only by `command-palette-open`.
    */
   paletteOpen?: boolean;
@@ -267,11 +268,11 @@ export interface VisualSmokeState {
    * kenji `b3d156e9`): when `true`, the renderer focuses the
    * active row's `.maka-list-row-main` button after mount so the
    * row's `:focus-within` triggers and the absolute-positioned
-   * `.maka-list-row-actions` overlay becomes visible. The capture
+   * `.maka-list-row-actions` overlay becomes visible. The fixture
    * then shows the actions cluster — without this hint, default
-   * captures never have any focused row, so the overlap fix
+   * fixture renders never have any focused row, so the overlap fix
    * (`.maka-list-row:focus-within .maka-list-row-meta {
-   * visibility: hidden }`) can't be screenshot-verified.
+   * visibility: hidden }`) can't be verified by E2E/audit.
    *
    * Currently set only by the `sidebar-row-actions-visible`
    * scenario.
@@ -279,29 +280,29 @@ export interface VisualSmokeState {
   focusActiveRow?: boolean;
   /**
    * Fixture-only sidebar module override. Used by scenarios that need
-   * to screenshot non-session sidebar content without adding a real
+   * to render non-session sidebar content without adding a real
    * router path.
    */
   sidebarSection?: 'sessions' | 'automations' | 'skills' | 'mcp' | 'daily-review';
   /**
-   * Fixture-only sidebar collapsed override. Screenshot runs use a
+   * Fixture-only sidebar collapsed override. Fixture runs use a
    * fresh userData dir, while the real app defaults to the collapsed
    * target-layout like rail when no local preference exists. Sidebar
-   * visual gates must opt into the expanded panel explicitly so their
-   * captures prove the rows, counts, groups, and footer instead of
+   * visual gates must opt into the expanded panel explicitly so the
+   * rendered fixture proves the rows, counts, groups, and footer instead of
    * only the top-left icon rail.
    */
   sidebarCollapsed?: boolean;
-  /** Fixture-only session workbar state for deterministic tab screenshots. */
+  /** Fixture-only session workbar state for deterministic tab rendering. */
   workbarCollapsed?: boolean;
   workbarTab?: 'tasks' | 'browser' | 'files';
   /**
-   * #1233 deferral — bot QR-onboarding modal capture. When set, the Settings
+   * #1233 deferral — bot QR-onboarding modal fixture. When set, the Settings
    * 远程接入 page (bot-chat-settings-page) opens the given provider's detail
    * view and auto-opens its scan-login modal at mount, so the deterministic
-   * waiting-state QR fixture is what the screenshot pipeline captures. Only the
-   * `settings-bots-onboarding` scenario sets this; real users never receive a
-   * visual smoke state so production onboarding is untouched.
+   * waiting-state QR fixture is what E2E/audit see. Only the
+   * `settings-bots-onboarding` scenario sets this; real users never receive an
+   * e2e-fixture state so production onboarding is untouched.
    */
   botOnboardingProvider?: BotOnboardingProvider;
 }

@@ -514,12 +514,12 @@ export type {
   SessionListFilter,
 } from './runtime-inputs.js';
 
-// visual-smoke.ts
+// e2e-fixture.ts
 export type {
-  VisualSmokeLiveTool,
-  VisualSmokeScenario,
-  VisualSmokeState,
-} from './visual-smoke.js';
+  E2EFixtureLiveTool,
+  E2EFixtureScenario,
+  E2EFixtureState,
+} from './e2e-fixture.js';
 
 // capabilities.ts
 export type {

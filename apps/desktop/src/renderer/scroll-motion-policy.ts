@@ -7,9 +7,9 @@
  *
  * Three triggers collapse motion:
  *   1. `data-maka-reduced-motion="true"` on the document root — set by
- *      the PR-IR-04 reduced variant of the visual-smoke fixture.
- *   2. `data-maka-visual-smoke="true"` on the document root — set by
- *      ANY visual-smoke capture (@xuan PR109f confirmed visual-smoke
+ *      the PR-IR-04 reduced variant of the e2e-fixture fixture.
+ *   2. `data-maka-e2e-fixture="true"` on the document root — set by
+ *      ANY e2e-fixture capture (@xuan PR109f confirmed e2e-fixture
  *      always writes this attribute; the reduced-motion attr is only
  *      set on the reduced variant). This is the broader signal for
  *      "deterministic capture, no animations".
@@ -24,8 +24,8 @@ export type ScrollMotionBehavior = 'auto' | 'smooth';
 export interface ScrollMotionPolicyInputs {
   /** `document.documentElement.dataset.makaReducedMotion === 'true'` */
   reducedMotionAttr: boolean;
-  /** `document.documentElement.dataset.makaVisualSmoke === 'true'` */
-  visualSmokeAttr: boolean;
+  /** `document.documentElement.dataset.makaE2eFixture === 'true'` */
+  e2eFixtureAttr: boolean;
   /** `window.matchMedia('(prefers-reduced-motion: reduce)').matches` */
   prefersReducedMotion: boolean;
 }
@@ -38,7 +38,7 @@ export interface ScrollMotionPolicyInputs {
  * flags from whatever environment they're in.
  */
 export function resolveScrollMotionBehavior(inputs: ScrollMotionPolicyInputs): ScrollMotionBehavior {
-  if (inputs.reducedMotionAttr || inputs.visualSmokeAttr || inputs.prefersReducedMotion) {
+  if (inputs.reducedMotionAttr || inputs.e2eFixtureAttr || inputs.prefersReducedMotion) {
     return 'auto';
   }
   return 'smooth';
@@ -56,7 +56,7 @@ export function readScrollMotionBehavior(): ScrollMotionBehavior {
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   return resolveScrollMotionBehavior({
     reducedMotionAttr: root.dataset.makaReducedMotion === 'true',
-    visualSmokeAttr: root.dataset.makaVisualSmoke === 'true',
+    e2eFixtureAttr: root.dataset.makaE2eFixture === 'true',
     prefersReducedMotion,
   });
 }

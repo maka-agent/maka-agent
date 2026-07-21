@@ -1,6 +1,6 @@
 // Systematic row-alignment auditor (design governance tool).
 //
-// For every visual-smoke fixture, finds horizontal clusters of interactive
+// For every e2e-fixture fixture, finds horizontal clusters of interactive
 // controls and reports:
 //   - height mismatch  (same control type sharing a row)
 //   - centerline drift (mixed control types sharing a row)
@@ -181,8 +181,8 @@ for (const fx of FIXTURES) {
     cwd: DESKTOP_DIR,
     env: {
       ...process.env,
-      MAKA_VISUAL_SMOKE_FIXTURE: fx,
-      MAKA_VISUAL_SMOKE_THEME: 'light',
+      MAKA_E2E_FIXTURE: fx,
+      MAKA_E2E_FIXTURE_THEME: 'light',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

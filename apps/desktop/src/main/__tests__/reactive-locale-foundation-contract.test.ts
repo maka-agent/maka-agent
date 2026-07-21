@@ -80,17 +80,17 @@ describe('reactive locale foundation', () => {
     assert.doesNotMatch(theme, /applyUiLocale|UiLocalePreference/);
   });
 
-  it('keeps visual-smoke locale overrides in the same provider path', () => {
-    const source = rendererSource('app-shell-visual-smoke.ts');
+  it('keeps e2e-fixture locale overrides in the same provider path', () => {
+    const source = rendererSource('app-shell-e2e-fixture.ts');
     const shellAppearance = rendererSource('use-shell-appearance.ts');
 
     assert.match(source, /setUiLocaleOverride: Dispatch<SetStateAction<UiLocale \| null>>/);
     assert.match(source, /setUiLocaleOverride\(state\.locale \?\? null\)/);
-    assert.doesNotMatch(source, /data-maka-visual-smoke-locale/);
+    assert.doesNotMatch(source, /data-maka-e2e-fixture-locale/);
     assert.ok(
       shellAppearance.indexOf('setUiLocaleOverride(smoke?.locale ?? null)')
         < shellAppearance.indexOf('uiLocaleUpdateGate.commitHydration('),
-      'visual-smoke override hydration must not be gated by persisted preference hydration',
+      'e2e-fixture override hydration must not be gated by persisted preference hydration',
     );
   });
 

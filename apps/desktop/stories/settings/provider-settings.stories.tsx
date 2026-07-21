@@ -275,7 +275,7 @@ function ProviderStoryFrame(props: {
         ref={rootRef}
         className="settingsSurface"
         data-modal="true"
-        data-maka-visual-smoke="true"
+        data-maka-e2e-fixture="true"
         style={{
           gridTemplateColumns: 'minmax(0, 1fr)',
           height: 700,

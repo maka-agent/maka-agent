@@ -6,7 +6,7 @@ type AdapterMap = Partial<Record<BotOnboardingProvider, BotOnboardingProviderAda
 const POLL_INTERVAL_MS = 1_000;
 const NORMAL_TTL_SECONDS = 30;
 // #1233 deferral (settings-bots-onboarding): a long TTL keeps the deterministic
-// waiting-state QR from flipping to '二维码已过期' during the screenshot settle
+// waiting-state QR from flipping to '二维码已过期' during the fixture settle
 // window; a poll that never leaves 'pending' holds the modal in 'waiting'.
 const WAITING_HOLD_TTL_SECONDS = 60 * 60;
 
@@ -21,8 +21,8 @@ const WAITING_HOLD_TTL_SECONDS = 60 * 60;
  * scenarios keep the scanned → confirmed happy-path adapters the E2E
  * onboarding specs rely on.
  */
-export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
-  if (process.env.MAKA_VISUAL_SMOKE_FIXTURE === 'settings-bots-onboarding') {
+export function createE2EFixtureBotOnboardingAdapters(): AdapterMap {
+  if (process.env.MAKA_E2E_FIXTURE === 'settings-bots-onboarding') {
     return createWaitingHoldBotOnboardingAdapters();
   }
   const pollCounts = new Map<string, number>();
@@ -38,7 +38,7 @@ export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
   function start(provider: BotOnboardingProvider, expiresInSeconds = NORMAL_TTL_SECONDS) {
     startSequence += 1;
     return {
-      opaqueToken: `visual-smoke-${provider}-${startSequence}`,
+      opaqueToken: `e2e-fixture-${provider}-${startSequence}`,
       qrValue: `https://example.com/maka/bot-onboarding/${provider}`,
       verificationUrl: `https://example.com/maka/bot-onboarding/${provider}`,
       pollIntervalMs: POLL_INTERVAL_MS,
@@ -62,10 +62,10 @@ export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
           status: 'confirmed',
           credential: {
             provider: 'dingtalk',
-            clientId: 'visual-smoke-dingtalk-client',
-            clientSecret: 'visual-smoke-dingtalk-secret',
+            clientId: 'e2e-fixture-dingtalk-client',
+            clientSecret: 'e2e-fixture-dingtalk-secret',
           },
-          identity: { id: 'visual-smoke-dingtalk-client', displayName: 'Maka 测试机器人' },
+          identity: { id: 'e2e-fixture-dingtalk-client', displayName: 'Maka 测试机器人' },
         };
       },
     },
@@ -79,12 +79,12 @@ export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
           status: 'confirmed',
           credential: {
             provider: 'feishu',
-            appId: `visual-smoke-${brand}-app`,
-            appSecret: `visual-smoke-${brand}-secret`,
+            appId: `e2e-fixture-${brand}-app`,
+            appSecret: `e2e-fixture-${brand}-secret`,
             brand,
             botName: 'Maka 测试机器人',
           },
-          identity: { id: `visual-smoke-${brand}-app`, displayName: 'Maka 测试机器人' },
+          identity: { id: `e2e-fixture-${brand}-app`, displayName: 'Maka 测试机器人' },
         };
       },
     },
@@ -103,12 +103,12 @@ export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
           status: 'confirmed',
           credential: {
             provider: 'wechat',
-            botToken: 'visual-smoke-wechat-token',
+            botToken: 'e2e-fixture-wechat-token',
             baseUrl: 'https://ilinkai.weixin.qq.com/',
-            botId: 'visual-smoke-wechat-bot',
-            userId: 'visual-smoke-wechat-user',
+            botId: 'e2e-fixture-wechat-bot',
+            userId: 'e2e-fixture-wechat-user',
           },
-          identity: { id: 'visual-smoke-wechat-bot', displayName: 'Maka 测试机器人' },
+          identity: { id: 'e2e-fixture-wechat-bot', displayName: 'Maka 测试机器人' },
         };
       },
     },
@@ -118,17 +118,17 @@ export function createVisualSmokeBotOnboardingAdapters(): AdapterMap {
 /**
  * #1233 deferral (settings-bots-onboarding): adapters that hold the modal in
  * its 'waiting' state. Every value is FIXED (no Date.now / random) so the
- * rendered QR image is byte-identical across capture runs, the TTL is long
- * enough to outlast the screenshot settle window, and `poll` never leaves
+ * rendered QR image is byte-identical across runs, the TTL is long
+ * enough to outlast the fixture settle window, and `poll` never leaves
  * 'pending' — so the main service keeps the session 'waiting' and the modal's
- * waiting layout stays put for a deterministic screenshot.
+ * waiting layout stays put for a deterministic fixture state.
  */
 function createWaitingHoldBotOnboardingAdapters(): AdapterMap {
   function waitingHold(provider: BotOnboardingProvider): BotOnboardingProviderAdapter {
     return {
       async start() {
         return {
-          opaqueToken: `visual-smoke-onboarding-${provider}`,
+          opaqueToken: `e2e-fixture-onboarding-${provider}`,
           qrValue: `https://example.com/maka/bot-onboarding/${provider}`,
           verificationUrl: `https://example.com/maka/bot-onboarding/${provider}`,
           pollIntervalMs: POLL_INTERVAL_MS,

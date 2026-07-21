@@ -7,11 +7,11 @@ import type { SessionWorkbarTab } from './session-workbar-layout';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
-export interface AppShellVisualSmokeActions {
-  applyVisualSmokeFixture(): Promise<void>;
+export interface AppShellE2EFixtureActions {
+  applyE2EFixture(): Promise<void>;
 }
 
-export function createAppShellVisualSmokeActions(options: {
+export function createAppShellE2EFixtureActions(options: {
   openPalette: () => void;
   openSettingsSection: (section: SettingsSection) => void;
   openConnectionDetail: (slug: string) => void;
@@ -27,7 +27,7 @@ export function createAppShellVisualSmokeActions(options: {
   setWorkbarTab: Dispatch<SetStateAction<SessionWorkbarTab>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
   setUiLocaleOverride: Dispatch<SetStateAction<UiLocale | null>>;
-}): AppShellVisualSmokeActions {
+}): AppShellE2EFixtureActions {
   const {
     openPalette,
     openSettingsSection,
@@ -46,17 +46,17 @@ export function createAppShellVisualSmokeActions(options: {
     setUiLocaleOverride,
   } = options;
 
-  async function applyVisualSmokeFixture() {
-    const state = await window.maka.visualSmoke.getState();
+  async function applyE2EFixture() {
+    const state = await window.maka.e2eFixture.getState();
     if (!state) return;
     if (state.now) {
-      // Fixture-only clock freeze: screenshot baselines should not drift
+      // Fixture-only clock freeze: the fixture must not drift
       // because relative timestamps or fetched-at labels crossed a minute
-      // boundary between two runs. Real users never receive a visual
-      // smoke state, so their Date API remains untouched.
+      // boundary between two runs. Real users never receive an
+      // e2e-fixture state, so their Date API remains untouched.
       Date.now = () => state.now!;
     }
-    document.documentElement.setAttribute('data-maka-visual-smoke', 'true');
+    document.documentElement.setAttribute('data-maka-e2e-fixture', 'true');
     if (state.liveTurnBySession) {
       setLiveTurnBySession((current) => ({ ...current, ...state.liveTurnBySession }));
     }
@@ -68,20 +68,20 @@ export function createAppShellVisualSmokeActions(options: {
       setInteractionBySession((current) => ({ ...current, ...seeded }));
     }
     // PR-IR-01b: theme override applied BEFORE the persisted user pref so
-    // the screenshot variant matches `<theme>-<viewport>-<motion>.png`
+    // the rendered fixture matches the `<theme>-<viewport>-<motion>` variant
     // exactly. `applyTheme` writes both the React state + the `.dark` class
     // on the html element. Real users never hit this branch because
-    // `state` is null without `MAKA_VISUAL_SMOKE_FIXTURE`.
+    // `state` is null without `MAKA_E2E_FIXTURE`.
     if (state.theme) {
       applyTheme(state.theme);
       setThemePref(state.theme);
     }
     // PR-IR-04: apply reduced-motion attribute when the fixture asks for it.
     // The matching CSS rule in styles.css collapses all animations to
-    // ~0.01ms so the screenshot pipeline can capture a reduced-motion
+    // ~0.01ms so E2E and the alignment audit can exercise a reduced-motion
     // variant without depending on the host OS accessibility setting.
-    // Real users never reach this code path (visualSmoke.getState returns
-    // null without MAKA_VISUAL_SMOKE_FIXTURE).
+    // Real users never reach this code path (e2eFixture.getState returns
+    // null without MAKA_E2E_FIXTURE).
     if (state.reducedMotion) {
       document.documentElement.setAttribute('data-maka-reduced-motion', 'true');
     }
@@ -95,18 +95,18 @@ export function createAppShellVisualSmokeActions(options: {
     // AppShell initial mount already ran when this effect fires,
     // but that initial mount renders no locale-aware copy yet
     // (it's a loading shell), so there's no observable host-locale
-    // leak in the captured baseline. See @kenji review
+    // leak in the rendered fixture. See @kenji review
     // @msg 7b96e182.
     setUiLocaleOverride(state.locale ?? null);
     // PR-UI-VISUAL-SMOKE-TIMEZONE (@kenji msg 45486cdf): mirror the
-    // locale attribute pattern. When `MAKA_VISUAL_SMOKE_TIMEZONE` is
+    // locale attribute pattern. When `MAKA_E2E_FIXTURE_TIMEZONE` is
     // set and validates against `Intl.DateTimeFormat`, the IANA name
     // lands on `<html>` so any date / time formatting helper can
-    // opt in by reading `document.documentElement.dataset.makaVisualSmokeTz`.
+    // opt in by reading `document.documentElement.dataset.makaE2eFixtureTz`.
     // The attribute alone is the contract; per-call timezone
     // consumption is up to individual formatters as they migrate.
     if (state.timezone) {
-      document.documentElement.setAttribute('data-maka-visual-smoke-tz', state.timezone);
+      document.documentElement.setAttribute('data-maka-e2e-fixture-tz', state.timezone);
     }
     await refreshSessions();
     if (state.activeSessionId) {
@@ -115,7 +115,7 @@ export function createAppShellVisualSmokeActions(options: {
     // #819: seed live browser session ids so BrowserPanel mounts for the
     // active session (app-shell gates on `activeId &&
     // liveBrowserSessionIds.includes(activeId)`). Only the `browser-empty`
-    // scenario sets this; real users never receive a visual smoke state.
+    // scenario sets this; real users never receive an e2e-fixture state.
     if (state.liveBrowserSessionIds) {
       setLiveBrowserSessionIds(state.liveBrowserSessionIds);
     }
@@ -127,22 +127,22 @@ export function createAppShellVisualSmokeActions(options: {
     if (state.openConnectionDetailSlug) {
       // oauth-relogin fixture: open Settings → 模型 with the seeded
       // needs_reauth connection's detail sheet expanded so the re-login
-      // affordance is captured. Takes precedence over a bare section open.
+      // affordance is exposed. Takes precedence over a bare section open.
       openConnectionDetail(state.openConnectionDetailSlug);
     } else if (state.openSettingsSection) {
       openSettingsSection(state.openSettingsSection);
     }
     // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
     // the fixture sets `searchModalOpen`, auto-open the sidebar
-    // Search modal so the screenshot pipeline captures the modal
+    // Search modal so E2E/audit can reach the modal
     // shell deterministically. Real users never reach this branch
-    // (visualSmoke.getState returns null without MAKA_VISUAL_SMOKE_FIXTURE).
+    // (e2eFixture.getState returns null without MAKA_E2E_FIXTURE).
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
     }
-    // PR-shared primitive-COMMAND-INPUT-0: visual-smoke-only opener for the command
-    // palette so screenshot baselines can cover its input shell without
-    // requiring Cmd/Ctrl+K in the capture harness.
+    // PR-shared primitive-COMMAND-INPUT-0: e2e-fixture-only opener for the command
+    // palette so E2E/audit can cover its input shell without
+    // requiring Cmd/Ctrl+K.
     if (state.paletteOpen) {
       openPalette();
     }
@@ -161,7 +161,7 @@ export function createAppShellVisualSmokeActions(options: {
     // kenji `b3d156e9`): when the fixture sets `focusActiveRow`,
     // focus the active row's button after the next paint so the
     // row's `:focus-within` triggers and the `.maka-list-row-menu-trigger`
-    // becomes visible. The auto-capture then shows the overflow
+    // becomes visible. The fixture then shows the overflow
     // trigger against the slim row, proving the time meta
     // + unread dot are hidden underneath (no overlap with the
     // action icons — the bug WAWQAQ flagged). Two RAFs let React
@@ -178,5 +178,5 @@ export function createAppShellVisualSmokeActions(options: {
     }
   }
 
-  return { applyVisualSmokeFixture };
+  return { applyE2EFixture };
 }

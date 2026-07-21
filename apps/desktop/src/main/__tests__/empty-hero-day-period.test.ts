@@ -7,7 +7,7 @@
  * the 5/11/14/18-hour boundaries if `detectDayPeriod()` read
  * `new Date()` instead. The function now accepts an explicit
  * `nowMs: number` argument that defaults to `Date.now()`, so the
- * visual-smoke clock freeze flows through automatically.
+ * e2e-fixture clock freeze flows through automatically.
  *
  * Each test passes an explicit local-time hour so the boundary
  * is testable without any clock dependency.
@@ -19,7 +19,7 @@ import { detectDayPeriod } from '@maka/ui';
 
 /**
  * Build a millisecond timestamp at the requested LOCAL hour on
- * 2026-05-22 (the canonical visual-smoke fixture day). Using local
+ * 2026-05-22 (the canonical e2e-fixture fixture day). Using local
  * time matches what `detectDayPeriod` reads (`new Date(ms).getHours()`).
  */
 function localHour(hour: number, minute = 0): number {
@@ -58,10 +58,10 @@ describe('detectDayPeriod — day-period bucket boundaries', () => {
   });
 });
 
-describe('detectDayPeriod — visual-smoke determinism', () => {
+describe('detectDayPeriod — e2e-fixture determinism', () => {
   it('reads Date.now() by default (so the renderer freeze flows through)', () => {
     // Stub Date.now (same trick the renderer uses in
-    // `applyVisualSmokeFixture` when `state.now` is set) and verify
+    // `applyE2EFixture` when `state.now` is set) and verify
     // the function uses it without us passing an explicit arg.
     const originalNow = Date.now;
     try {

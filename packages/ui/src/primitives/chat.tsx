@@ -327,7 +327,7 @@ export function TextShimmer({
  *      it stays here and IS diff-proven.
  *   2. the native `<summary>` marker reset (`::-webkit-details-marker` /
  *      `::marker`) — pseudo-elements with no leaf-utility form. Kept as residue.
- * (The reduced-motion / visual-smoke suppression both ride GLOBAL `*` rules in
+ * (The reduced-motion / e2e-fixture suppression both ride GLOBAL `*` rules in
  * maka-tokens.css / base.css, so the dot and card need no per-element motion
  * utilities; the same global rules cover them as before.)
  *
@@ -424,7 +424,7 @@ export { toolVariants };
  *
  * Every value is a LITERAL arbitrary utility that compiles 1:1 to the
  * declaration it replaces, so the cva source string IS the computed-style proof
- * (the visual-smoke screenshot fixture renders the `file_diff` + `terminal` cards
+ * (the e2e-fixture screenshot fixture renders the `file_diff` + `terminal` cards
  * to keep those shells pixel-identical; the PR4 cascade contract pins the absence
  * of the retired selectors + the escape literals). Literals over the semantic
  * scale for the same reason as

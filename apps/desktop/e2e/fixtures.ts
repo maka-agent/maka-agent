@@ -44,7 +44,7 @@ async function seedE2eLocale(userDataDir: string, locale: 'zh' | 'en'): Promise<
  * CoreFoundation / X11 / sandbox session) that an allow-list would silently
  * drop and break the launch.
  */
-function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string, locale?: 'zh' | 'en'): NodeJS.ProcessEnv {
+function buildE2eEnv(userDataDir: string, e2eFixtureScenario?: string, locale?: 'zh' | 'en'): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (
@@ -52,8 +52,8 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string, locale?:
       key === 'MAKA_E2E' ||
       key === 'MAKA_E2E_USER_DATA_DIR' ||
       key === 'MAKA_E2E_SHOW_WINDOW' ||
-      key === 'MAKA_VISUAL_SMOKE_FIXTURE' ||
-      key === 'MAKA_VISUAL_SMOKE_LOCALE' ||
+      key === 'MAKA_E2E_FIXTURE' ||
+      key === 'MAKA_E2E_FIXTURE_LOCALE' ||
       /_API_KEY$/.test(key) ||
       /_API_TOKEN$/.test(key) ||
       /_API_SECRET$/.test(key)
@@ -63,8 +63,8 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string, locale?:
   }
   env.MAKA_E2E = '1';
   env.MAKA_E2E_USER_DATA_DIR = userDataDir;
-  if (visualSmokeScenario) env.MAKA_VISUAL_SMOKE_FIXTURE = visualSmokeScenario;
-  if (locale) env.MAKA_VISUAL_SMOKE_LOCALE = locale;
+  if (e2eFixtureScenario) env.MAKA_E2E_FIXTURE = e2eFixtureScenario;
+  if (locale) env.MAKA_E2E_FIXTURE_LOCALE = locale;
   // E2E windows launch hidden so local and macOS runs never steal the
   // developer's focus. Linux CI runs under xvfb, where a hidden window's
   // compositor is throttled to ~1fps — content-visibility turns never inflate
@@ -82,10 +82,10 @@ function buildE2eEnv(userDataDir: string, visualSmokeScenario?: string, locale?:
  * Electron and a leaked `maka-e2e-*` directory.
  */
 async function withE2eWindow(
-  { seed, readinessSelector, visualSmokeScenario, locale }: {
+  { seed, readinessSelector, e2eFixtureScenario, locale }: {
     seed: boolean;
     readinessSelector: string;
-    visualSmokeScenario?: string;
+    e2eFixtureScenario?: string;
     locale?: 'zh' | 'en';
   },
   use: (page: Page) => Promise<void>,
@@ -98,11 +98,11 @@ async function withE2eWindow(
     if (seed) await seedE2eConnection(userDataDir);
     // Legacy E2E specs assert Chinese labels and should not inherit the CI
     // host locale. Visual-smoke workspaces use the explicit renderer override.
-    if (locale && !visualSmokeScenario) await seedE2eLocale(userDataDir, locale);
+    if (locale && !e2eFixtureScenario) await seedE2eLocale(userDataDir, locale);
     app = await electron.launch({
       args: ['.'],
       cwd: DESKTOP_ROOT,
-      env: buildE2eEnv(userDataDir, visualSmokeScenario, locale),
+      env: buildE2eEnv(userDataDir, e2eFixtureScenario, locale),
     });
     app.on('console', (message) => {
       mainLogs.push(message.text());
@@ -165,7 +165,7 @@ export const test = base.extend<{
   emptyWindow: async ({}, use) => {
     await withE2eWindow({ seed: false, readinessSelector: '#root', locale: 'zh' }, use);
   },
-  // Long transcript: boots the visual-smoke `long-transcript` fixture, which
+  // Long transcript: boots the e2e-fixture `long-transcript` fixture, which
   // seeds a 24-turn (~1300px each) session and opens it as the active
   // session. Fixture mode seeds its own connections, so no connection is
   // pre-staged here. Readiness = turns on screen: the session is open and
@@ -173,7 +173,7 @@ export const test = base.extend<{
   // Used by the scroll-geometry spec.
   longTranscriptWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: '.maka-turn', visualSmokeScenario: 'long-transcript', locale: 'zh' },
+      { seed: false, readinessSelector: '.maka-turn', e2eFixtureScenario: 'long-transcript', locale: 'zh' },
       use,
     );
   },
@@ -182,11 +182,11 @@ export const test = base.extend<{
   // are covered without a provider or test-only renderer state path.
   permissionWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: '.maka-permission-prompt', visualSmokeScenario: 'permission-destructive', locale: 'zh' },
+      { seed: false, readinessSelector: '.maka-permission-prompt', e2eFixtureScenario: 'permission-destructive', locale: 'zh' },
       use,
     );
   },
-  // Stale sessions: boots the visual-smoke `stale-sessions` fixture — one
+  // Stale sessions: boots the e2e-fixture `stale-sessions` fixture — one
   // healthy session (zai-live, secret seeded), one unlocked fake session
   // (opened active), and one locked legacy session whose connection is
   // gone. Exercises the #1038 health-notice authority against real IPC
@@ -194,7 +194,7 @@ export const test = base.extend<{
   // Readiness = turns on screen: the fake session is open.
   staleSessionsWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: '.maka-turn', visualSmokeScenario: 'stale-sessions', locale: 'zh' },
+      { seed: false, readinessSelector: '.maka-turn', e2eFixtureScenario: 'stale-sessions', locale: 'zh' },
       use,
     );
   },
@@ -202,30 +202,30 @@ export const test = base.extend<{
   // workspace so its shell controls and peer tabs run against real IPC data.
   sessionWorkbarWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: 'aside[aria-label="会话工作栏"]', visualSmokeScenario: 'task-ledger', locale: 'zh' },
+      { seed: false, readinessSelector: 'aside[aria-label="会话工作栏"]', e2eFixtureScenario: 'task-ledger', locale: 'zh' },
       use,
     );
   },
-  // Remote access: uses the visual-smoke workspace so Settings opens on the
+  // Remote access: uses the e2e-fixture workspace so Settings opens on the
   // channel catalog and main injects deterministic IM onboarding adapters.
   // The renderer still talks through the real preload/IPC/session authority.
   botSettingsWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: '[aria-label="设置内容"]', visualSmokeScenario: 'settings-bots', locale: 'zh' },
+      { seed: false, readinessSelector: '[aria-label="设置内容"]', e2eFixtureScenario: 'settings-bots', locale: 'zh' },
       use,
     );
   },
-  // Representative visual-smoke renderer launches in both supported locales.
+  // Representative e2e-fixture renderer launches in both supported locales.
   // These use the same production LocaleProvider override path as screenshot capture.
   zhLocaleWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: '.appFrame', visualSmokeScenario: 'all', locale: 'zh' },
+      { seed: false, readinessSelector: '.appFrame', e2eFixtureScenario: 'all', locale: 'zh' },
       use,
     );
   },
   enLocaleWindow: async ({}, use) => {
     await withE2eWindow(
-      { seed: false, readinessSelector: '.appFrame', visualSmokeScenario: 'all', locale: 'en' },
+      { seed: false, readinessSelector: '.appFrame', e2eFixtureScenario: 'all', locale: 'en' },
       use,
     );
   },

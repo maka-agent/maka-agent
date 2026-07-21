@@ -37,7 +37,7 @@ import {
   normalizeStopSessionInput,
   normalizeUserQuestionResponse,
 } from './permission-response-guard.js';
-import { getVisualSmokeState, type resolveVisualSmokeFixture } from './visual-smoke-fixture.js';
+import { getE2EFixtureState, type resolveE2EFixture } from './e2e-fixture.js';
 import type { requireReadyConnection } from './chat-readiness.js';
 import type { MainTaskLedgerWiring } from './task-ledger-wiring.js';
 import type { MainGoalWiring } from './goal-wiring.js';
@@ -49,7 +49,7 @@ import { handleBranchFromTurn } from './session-branch.js';
 type SessionStore = ReturnType<typeof createSessionStore>;
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
 type MainWindowController = ReturnType<typeof createMainWindowController>;
-type VisualSmokeFixture = ReturnType<typeof resolveVisualSmokeFixture>;
+type E2EFixture = ReturnType<typeof resolveE2EFixture>;
 
 /** The per-session cleanup subset of the cursor-overlay controller. */
 interface SessionOverlayCleanup {
@@ -73,7 +73,7 @@ export interface SessionsIpcDeps {
   settingsStore: SettingsStore;
   connectionStore: ConnectionStore;
   mainWindowController: MainWindowController;
-  visualSmokeFixture: VisualSmokeFixture;
+  e2eFixture: E2EFixture;
   emitSessionsChanged: (
     reason: SessionChangedReason,
     sessionId?: string,
@@ -155,7 +155,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     settingsStore,
     connectionStore,
     mainWindowController,
-    visualSmokeFixture,
+    e2eFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
     invalidateSessionBindings,
@@ -175,7 +175,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       includeTerminal: true,
       includeArchived: false,
       classifyResumeTrust: true,
-      ...(visualSmokeFixture ? { now: getVisualSmokeState(visualSmokeFixture)?.now ?? Date.now() } : {}),
+      ...(e2eFixture ? { now: getE2EFixtureState(e2eFixture)?.now ?? Date.now() } : {}),
     });
     return tasks.map(sanitizeTaskLedgerTask);
   });
@@ -223,7 +223,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     return session;
   });
   ipcMain.handle('sessions:readMessages', async (_event, sessionId: string) => {
-    if (visualSmokeFixture) return store.readMessages(sessionId);
+    if (e2eFixture) return store.readMessages(sessionId);
     let messages: StoredMessage[];
     try {
       messages = await runtime.getMessages(sessionId);

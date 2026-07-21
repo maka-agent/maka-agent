@@ -15,7 +15,7 @@
  * Why this seam: the empty-chat hero is the first thing every
  * user sees on a fresh session. Its day-period boundary
  * (5/11/14/18) is screenshot-baseline-pinned by a contract test
- * because visual-smoke fixtures freeze `Date.now()` but not the
+ * because e2e-fixture fixtures freeze `Date.now()` but not the
  * `Date` constructor — getting this wrong silently drifts the
  * baseline. The DeepResearch variant is also where the read-only
  * deep-research workflow rules live. Both deserve their own
@@ -34,13 +34,13 @@ export type { DayPeriod } from './conversation-copy.js';
  * PR-UI-LAYOUT-4 / B1-a1 review fixup (@kenji msg 1d7ba56c):
  * Compute the day-period bucket from a millisecond epoch timestamp,
  * not from `new Date()`. Visual-smoke fixtures freeze `Date.now()`
- * to a deterministic value (see `applyVisualSmokeFixture` in
+ * to a deterministic value (see `applyE2EFixture` in
  * `apps/desktop/src/renderer/main.tsx`) but do NOT freeze the
  * `Date` constructor itself; reading `new Date()` directly would
- * pick up the host clock and let screenshot baselines drift at the
+ * pick up the host clock and let the rendered fixture drift at the
  * 11:00 / 14:00 / 18:00 boundaries.
  *
- * Default arg is `Date.now()`, which the visual-smoke renderer
+ * Default arg is `Date.now()`, which the e2e-fixture renderer
  * replaces with `state.now`. Tests pass an explicit timestamp.
  * Exported so the day-period boundary contract is reachable from
  * `apps/desktop/src/main/__tests__/empty-hero-day-period.test.ts`.

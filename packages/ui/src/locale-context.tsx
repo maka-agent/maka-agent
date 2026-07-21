@@ -18,9 +18,9 @@ export function syncUiLocaleDocument(
   root.setAttribute('lang', locale);
   root.setAttribute('data-maka-locale', locale);
   if (override) {
-    root.setAttribute('data-maka-visual-smoke-locale', override);
+    root.setAttribute('data-maka-e2e-fixture-locale', override);
   } else {
-    root.removeAttribute('data-maka-visual-smoke-locale');
+    root.removeAttribute('data-maka-e2e-fixture-locale');
   }
 }
 

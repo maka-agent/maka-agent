@@ -136,7 +136,7 @@ export type PlanReminderUpdatePatch = {
  * PR-DAILY-REVIEW-MVP-0: bridge handed in by `main.tsx`. Keeps
  * `@maka/ui` independent of desktop preload globals — the renderer wires a
  * host-injected daily-review reader, and the UI layer stays reusable in fixtures,
- * visual smoke tests, and future surfaces
+ * e2e-fixture tests, and future surfaces
  * (e.g. a desktop notification renderer).
  */
 export interface DailyReviewBridge {

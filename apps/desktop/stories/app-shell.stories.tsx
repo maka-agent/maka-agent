@@ -141,7 +141,7 @@ const baseComposerProps: ComposerProps = {
 function ShellFrame(props: { children: ReactNode }) {
   return (
     <div
-      data-maka-visual-smoke="true"
+      data-maka-e2e-fixture="true"
       style={{ background: 'var(--surface-canvas)', height: '100%', minHeight: 640 }}
     >
       {props.children}

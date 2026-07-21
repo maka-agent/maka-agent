@@ -5,7 +5,7 @@
  * out of `components.tsx`. Locale types and
  * `getPromptSuggestions` were already public exports from
  * `@maka/ui` (consumed by the renderer's main.tsx, OnboardingHero,
- * theme.ts, visual-smoke fixture, and the
+ * theme.ts, e2e-fixture fixture, and the
  * text-file-import contract test); `PROMPT_SUGGESTIONS_BY_LOCALE`,
  * `PromptSuggestion`, and `PromptSuggestionLocale` were
  * panel-internal. byte-for-byte equivalent; behavior unchanged;

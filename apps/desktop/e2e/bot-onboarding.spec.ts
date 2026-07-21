@@ -39,9 +39,9 @@ test('IM 快捷接入完成真实 QR session、扫码状态和本机凭据落盘
   await expect(page.getByText('Maka 测试机器人')).toBeVisible();
 
   const stored = await page.evaluate(() => window.maka.settings.get());
-  expect(stored.botChat.channels.dingtalk.appId).toBe('visual-smoke-dingtalk-client');
-  expect(stored.botChat.channels.dingtalk.appSecret).not.toBe('visual-smoke-dingtalk-secret');
-  expect(JSON.stringify(stored)).not.toContain('visual-smoke-dingtalk-secret');
+  expect(stored.botChat.channels.dingtalk.appId).toBe('e2e-fixture-dingtalk-client');
+  expect(stored.botChat.channels.dingtalk.appSecret).not.toBe('e2e-fixture-dingtalk-secret');
+  expect(JSON.stringify(stored)).not.toContain('e2e-fixture-dingtalk-secret');
 
   await dialog.getByRole('button', { name: '完成' }).click();
   await expect(dialog).toBeHidden();

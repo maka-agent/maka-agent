@@ -101,7 +101,7 @@ export type PreviewResolution =
 
 /**
  * Max decoded image payload allowed into React state. 2MB is well
- * past every visual-smoke fixture and most user screenshots; a
+ * past every e2e-fixture fixture and most user screenshots; a
  * real 10MB PNG should display via Finder open / future blob-URL
  * protocol rather than as a `data:` URL inside `setState`.
  *

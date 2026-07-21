@@ -7,7 +7,7 @@ import { errorMessage } from './chat-readiness.js';
 import { readSavedBounds, writeSavedBounds, SAFE_MIN_HEIGHT, SAFE_MIN_WIDTH, type SavedBounds } from './window-state.js';
 import { BrowserViewController } from './browser/controller.js';
 import { BrowserViewManager } from './browser/view-manager.js';
-import type { VisualSmokeFixture } from './visual-smoke-fixture.js';
+import type { E2EFixture } from './e2e-fixture.js';
 import { isThemePreference, toNativeThemeSource } from './theme-source.js';
 import { createWindowRevealGate } from './window-reveal.js';
 
@@ -19,7 +19,7 @@ export interface MainWindowController {
   createWindow(): Promise<void>;
   send(channel: string, ...args: unknown[]): void;
   // PR-SHOW-AFTER-FIRST-COMMIT: reveal the hidden window after the renderer's
-  // first React commit. Idempotent + visual-smoke-safe (see notifyRendererReady).
+  // first React commit. Idempotent + e2e-fixture-safe (see notifyRendererReady).
   notifyRendererReady(): void;
   setTitlebarControlsVisible(sender: Electron.WebContents, visible: unknown): void;
   setThemeSource(sender: Electron.WebContents, themePref: unknown): void;
@@ -38,7 +38,7 @@ export interface MainWindowController {
 
 interface MainWindowControllerDeps {
   workspaceRoot: string;
-  visualSmokeFixture: VisualSmokeFixture | null;
+  e2eFixture: E2EFixture | null;
   settingsStore: SettingsReader;
   // main.ts computes this from the same isE2e gate that also guards userData
   // and the fake backend, so main-window.ts owns no env policy of its own.
@@ -101,21 +101,21 @@ const titleBarOverlayOptions = (
 });
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
-  const { workspaceRoot, visualSmokeFixture, settingsStore, startHidden } = deps;
+  const { workspaceRoot, e2eFixture, settingsStore, startHidden } = deps;
 
   // PR-SHOW-AFTER-FIRST-COMMIT: windows launched hidden (startHidden covers
-  // visual-smoke capture and E2E — see main.ts) must never be revealed;
-  // visual-smoke captures run on the hidden window and E2E drives it headless.
+  // e2e-fixture capture and E2E — see main.ts) must never be revealed;
+  // e2e-fixture captures run on the hidden window and E2E drives it headless.
   // `!app.isPackaged` mirrors the original creation-time gate so a packaged
   // build ignores a stray startHidden flag. The fallback timer, the
   // renderer-ready IPC, and focus() all route their show() through this
   // predicate via the reveal gate below.
-  const keepHiddenForVisualSmoke = !app.isPackaged && startHidden;
+  const keepHiddenForE2EFixture = !app.isPackaged && startHidden;
   // ChatGPT Pro review P2: focus() (second-instance / activate) used to call
   // mainWindow.show() directly, bypassing the reveal gate — re-launching or
   // clicking the dock icon during the pre-commit window would flash the
   // skeleton anyway. The gate defers those focus requests until markReady.
-  const revealGate = createWindowRevealGate(keepHiddenForVisualSmoke);
+  const revealGate = createWindowRevealGate(keepHiddenForE2EFixture);
   let showFallbackTimer: NodeJS.Timeout | undefined;
   const clearShowFallbackTimer = (): void => {
     if (showFallbackTimer) {
@@ -151,8 +151,8 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     // load, validate the saved x/y against the current display layout — if
     // the previous external monitor is gone, drop x/y so Electron centers
     // the window on the primary display instead of opening it off-screen.
-    const defaults = visualSmokeWindowBounds(visualSmokeFixture, { width: 1240, height: 820 });
-    const savedBounds = visualSmokeFixture
+    const defaults = e2eFixtureWindowBounds(e2eFixture, { width: 1240, height: 820 });
+    const savedBounds = e2eFixture
       ? defaults
       : await readSavedBounds(workspaceRoot, defaults);
     const bounds = clampBoundsToVisibleDisplay(savedBounds);
@@ -162,12 +162,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     // but the BrowserWindow's `backgroundColor` shows during the first frame
     // before the renderer paints. Pick the right initial bg by reading the
     // persisted theme + system preference.
-    // PR-IR-01b: visual smoke theme override wins over the persisted user
+    // PR-IR-01b: e2e-fixture theme override wins over the persisted user
     // pref. This guarantees the BrowserWindow backgroundColor matches the
     // theme variant we're about to screenshot, so the very first frame
     // doesn't capture a light-on-dark or dark-on-light flash.
     const persistedTheme = (await settingsStore.get()).appearance?.theme ?? 'auto';
-    const themePref = visualSmokeFixture?.theme ?? persistedTheme;
+    const themePref = e2eFixture?.theme ?? persistedTheme;
     const isDark =
       themePref === 'dark' ||
       (themePref === 'auto' && nativeTheme.shouldUseDarkColors);
@@ -243,9 +243,9 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // (Big Sur+). Renderer CSS gates the transparency on
       // `[data-vibrancy="active"]` so non-macOS builds (where vibrancy is
       // a no-op) keep their opaque chrome.
-      // Skip vibrancy under MAKA_VISUAL_SMOKE_FIXTURE — fixture / E2E
+      // Skip vibrancy under MAKA_E2E_FIXTURE — fixture / E2E
       // environments can't paint native window material reliably.
-      ...(process.platform === 'darwin' && !process.env.MAKA_VISUAL_SMOKE_FIXTURE
+      ...(process.platform === 'darwin' && !process.env.MAKA_E2E_FIXTURE
         ? { vibrancy: 'sidebar' as const }
         : {}),
       webPreferences: {
@@ -369,7 +369,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     // If renderer-ready arrived while loadURL/loadFile was resolving, the
     // window is already visible and no timer is needed. Visual-smoke windows
     // remain hidden for their whole lifecycle.
-    if (!keepHiddenForVisualSmoke && !mainWindow.isVisible()) {
+    if (!keepHiddenForE2EFixture && !mainWindow.isVisible()) {
       showFallbackTimer = setTimeout(() => {
         showFallbackTimer = undefined;
         revealGate.markReady(mainWindow);
@@ -389,7 +389,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // commit. Cancel the fallback timer and reveal the window through the
       // shared gate — idempotent, so an HMR reload re-firing this signal (or a
       // timer racing it) never re-shows or steals focus, and suppressed for
-      // visual-smoke windows. markReady also flushes a focus request that
+      // e2e-fixture windows. markReady also flushes a focus request that
       // arrived while the window was still hidden (second-instance/activate).
       clearShowFallbackTimer();
       revealGate.markReady(mainWindow);
@@ -481,13 +481,13 @@ function clampBoundsToVisibleDisplay(bounds: SavedBounds): SavedBounds {
   return { width: bounds.width, height: bounds.height, isMaximized: bounds.isMaximized };
 }
 
-function visualSmokeWindowBounds(
-  visualSmokeFixture: VisualSmokeFixture | null,
+function e2eFixtureWindowBounds(
+  e2eFixture: E2EFixture | null,
   defaults: SavedBounds,
 ): SavedBounds {
-  if (!visualSmokeFixture) return defaults;
-  const width = Number(process.env.MAKA_VISUAL_SMOKE_WIDTH);
-  const height = Number(process.env.MAKA_VISUAL_SMOKE_HEIGHT);
+  if (!e2eFixture) return defaults;
+  const width = Number(process.env.MAKA_E2E_FIXTURE_WIDTH);
+  const height = Number(process.env.MAKA_E2E_FIXTURE_HEIGHT);
   if (
     Number.isFinite(width) &&
     Number.isFinite(height) &&

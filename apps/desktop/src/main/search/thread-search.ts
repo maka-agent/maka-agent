@@ -13,7 +13,7 @@
  *       UserMessage / AssistantMessage / ToolCallMessage / ToolResultMessage.
  *     Excluded: SystemNoteMessage / TokenUsageMessage / TurnStateMessage /
  *     PermissionDecisionMessage.
- *   - Excludes sessions with `backend === 'fake'` (visual-smoke fixtures).
+ *   - Excludes sessions with `backend === 'fake'` (e2e-fixture fixtures).
  *   - Snippets are redacted via `@maka/core/redaction.redactSecrets()`.
  *   - `ToolResultMessage.content` is JSON-serialized for scan and capped to
  *     the first `TOOL_RESULT_SCAN_CAP_BYTES` bytes (worst-case bound).
@@ -160,7 +160,7 @@ export async function runThreadSearch(
   const maxResults = limitResult.value;
 
   const sessions = (await deps.listSessions())
-    // Exclude fake-backend sessions — visual-smoke fixtures and
+    // Exclude fake-backend sessions — e2e-fixture fixtures and
     // similar dev-only state should not surface as real chat hits.
     .filter((session) => session.backend !== 'fake')
     // Newest first by lastMessageAt; secondary by id for determinism.

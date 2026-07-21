@@ -87,7 +87,7 @@ describe('turn-control-history matrix', () => {
 
     it('the fixture seed uses `timeout` which maps to "请求超时"', () => {
       // Documents the exact seed → label binding so a reviewer reading
-      // the screenshot knows what copy to expect.
+      // the fixture knows what copy to expect.
       assert.match(describeTurnErrorClass('timeout'), /请求超时/);
     });
   });
@@ -229,14 +229,14 @@ describe('turn-control-history matrix', () => {
       // helper level: an active session with parentSessionId set, but
       // the parent is NOT in the sessions list.
       const orphanActive = {
-        id: 'visual-smoke-turn-control-branch-orphan',
+        id: 'e2e-fixture-turn-control-branch-orphan',
         name: '父会话已删除的分支',
-        parentSessionId: 'visual-smoke-turn-control-deleted-parent',
+        parentSessionId: 'e2e-fixture-turn-control-deleted-parent',
       };
       const visibleSessions = [
         orphanActive,
-        { id: 'visual-smoke-turn-control-primary', name: '回合控制示例（原会话）' },
-        { id: 'visual-smoke-turn-control-branch-visible', name: '从原会话分出的探索', parentSessionId: 'visual-smoke-turn-control-primary' },
+        { id: 'e2e-fixture-turn-control-primary', name: '回合控制示例（原会话）' },
+        { id: 'e2e-fixture-turn-control-branch-visible', name: '从原会话分出的探索', parentSessionId: 'e2e-fixture-turn-control-primary' },
       ];
       const banner = deriveBranchBanner(orphanActive, visibleSessions);
       // ChatView renders banner via `{props.branchBanner && ...}` —
@@ -245,11 +245,11 @@ describe('turn-control-history matrix', () => {
     });
 
     it('visible-parent active session with parent in list DOES return a banner (positive case)', () => {
-      const primary = { id: 'visual-smoke-turn-control-primary', name: '回合控制示例（原会话）' };
+      const primary = { id: 'e2e-fixture-turn-control-primary', name: '回合控制示例（原会话）' };
       const branch = {
-        id: 'visual-smoke-turn-control-branch-visible',
+        id: 'e2e-fixture-turn-control-branch-visible',
         name: '从原会话分出的探索',
-        parentSessionId: 'visual-smoke-turn-control-primary',
+        parentSessionId: 'e2e-fixture-turn-control-primary',
       };
       const banner = deriveBranchBanner(branch, [primary, branch]);
       assert.ok(banner, 'visible-parent branch should produce a banner');

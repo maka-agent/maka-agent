@@ -376,7 +376,7 @@ const TROW_KIND_ICON: Record<TrowActivityKind, ComponentType<LucideProps>> = {
 // `var(--duration-emphasized)` / `var(--ease-out-strong)` so it converges with
 // the motion tokens. Applied only when the group was seen running here and
 // just settled, so a replayed transcript's summary stays static. Auto-frozen
-// under reduced-motion / visual-smoke by the global rules in styles/base.css.
+// under reduced-motion / e2e-fixture by the global rules in styles/base.css.
 // The per-row seam is a light-band stop (no opacity fade) so parallel tools
 // finishing together don't stack N fades (#tool-jitter).
 const SETTLE_FADE = '[animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]';

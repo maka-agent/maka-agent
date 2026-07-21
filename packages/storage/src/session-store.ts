@@ -165,7 +165,7 @@ class FileSessionStore implements SessionStore {
     // lastMessageAt always sort in the same order - fixtures with
     // multiple sessions seeded at the same frozen timestamp would
     // otherwise drift across runs based on filesystem readdir order
-    // (PR108k-yj per @kenji visual-smoke determinism). Negligible cost
+    // (PR108k-yj per @kenji e2e-fixture determinism). Negligible cost
     // for real users; identical lastMessageAt is rare in production.
     withHeaders.sort((a, b) => {
       const aLastMessageAt = maxTimestamp(

@@ -470,7 +470,7 @@ function turnControlPrimaryMessages(now: number): StoredMessage[] {
  * Minimal message log for branch sessions. Branches start with a
  * single completed turn so the chat surface has visible content, but
  * we don't reproduce every parent turn (that would defeat the point of
- * the screenshot — banner-vs-no-banner is the contract under test).
+ * the fixture — banner-vs-no-banner is the contract under test).
  */
 function turnControlBranchMessages(now: number, kind: 'visible' | 'orphan'): StoredMessage[] {
   const turnId = `turn-${kind}-branch`;
