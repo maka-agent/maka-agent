@@ -3,11 +3,13 @@ import { readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import type { BackendKind, ProviderType } from '@maka/core';
+import type { BackendKind, ProviderType, RuntimeEvent } from '@maka/core';
 import { isThinkingLevel, PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
 import type { Config, Task } from './contracts.js';
 import {
   type HarborCellExecutionIdentity,
+  type HarborCellTokenSummary,
+  summarizeCellTokens,
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
 } from './cell-output.js';
@@ -280,11 +282,18 @@ async function writeTaskRunCellArtifacts(input: {
   if (!runtimeRefs) throw new Error('task-run result is missing runtime refs');
   const sessionId = requiredString(runtimeRefs.sessionId, 'runtimeRefs.sessionId');
   const runId = requiredString(runtimeRefs.runId, 'runtimeRefs.runId');
-  const runtimeEventsPath = join(input.options.cellArtifactDir, 'runtime-events.jsonl');
-  await copyFile(
-    join(input.options.storageRoot, 'sessions', sessionId, 'runs', runId, 'runtime-events.jsonl'),
-    runtimeEventsPath,
+  const runtimeEventsSourcePath = join(
+    input.options.storageRoot,
+    'sessions',
+    sessionId,
+    'runs',
+    runId,
+    'runtime-events.jsonl',
   );
+  const runtimeEventsJsonl = await readFile(runtimeEventsSourcePath, 'utf8');
+  const runtimeEventsPath = join(input.options.cellArtifactDir, 'runtime-events.jsonl');
+  await copyFile(runtimeEventsSourcePath, runtimeEventsPath);
+  const tokenSummary = summarizeTaskRunRuntimeEvents(runtimeEventsJsonl);
 
   const promptHash = input.resultRecord.systemPromptHash;
   if (promptHash !== input.executionIdentity.systemPromptHash) {
@@ -297,6 +306,7 @@ async function writeTaskRunCellArtifacts(input: {
     runtimeEventsPath,
     ...(promptHash ? { promptHash } : {}),
     executionIdentity: input.executionIdentity,
+    ...(tokenSummary ? { tokenSummary } : {}),
     toolSummary: details.tools,
     steps: details.steps ?? input.resultRecord.steps,
     durationMs: input.resultRecord.durationMs,
@@ -312,6 +322,16 @@ async function writeTaskRunCellArtifacts(input: {
   const outputPath = join(input.options.cellArtifactDir, 'maka-cell-output.json');
   await writeFile(outputPath, `${JSON.stringify(cell, null, 2)}\n`, 'utf8');
   return { outputPath, runtimeEventsPath };
+}
+
+export function summarizeTaskRunRuntimeEvents(
+  runtimeEventsJsonl: string,
+): HarborCellTokenSummary | undefined {
+  const events = runtimeEventsJsonl
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as RuntimeEvent);
+  return summarizeCellTokens(events);
 }
 
 async function writeTaskRunExecutionIdentity(

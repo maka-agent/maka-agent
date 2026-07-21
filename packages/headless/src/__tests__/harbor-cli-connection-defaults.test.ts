@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test, afterEach } from 'node:test';
-import { applyConnectionDefaults, resolveHarborRunOptions } from '../harbor-cli.js';
+import {
+  applyConnectionDefaults,
+  resolveHarborRunOptions,
+  summarizeTaskRunRuntimeEvents,
+} from '../harbor-cli.js';
 
 /**
  * Tests for applyConnectionDefaults — the function that reads
@@ -30,6 +34,47 @@ afterEach(() => {
     }
   }
   cleanupDirs = [];
+});
+
+describe('summarizeTaskRunRuntimeEvents', () => {
+  test('preserves authoritative runtime token usage for task-run cell evidence', () => {
+    const summary = summarizeTaskRunRuntimeEvents(
+      [
+        JSON.stringify({
+          type: 'assistant',
+          id: 'usage-1',
+          timestamp: 1,
+          actions: {
+            tokenUsage: {
+              input: 120,
+              output: 30,
+              cacheHitInput: 80,
+              cacheMissInput: 40,
+              cacheMissInputSource: 'explicit',
+              reasoning: 10,
+              total: 160,
+              costUsd: 0.25,
+            },
+          },
+        }),
+        '',
+      ].join('\n'),
+    );
+
+    assert.deepEqual(summary, {
+      input: 120,
+      output: 30,
+      cachedInput: 80,
+      cacheHitInput: 80,
+      cacheMissInput: 40,
+      cacheWriteInput: 0,
+      cacheMissInputSource: 'explicit',
+      reasoning: 10,
+      total: 160,
+      costUsd: 0.25,
+      pricingSource: 'runtime',
+    });
+  });
 });
 
 describe('applyConnectionDefaults', () => {
