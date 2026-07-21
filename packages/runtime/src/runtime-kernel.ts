@@ -74,6 +74,7 @@ import {
   type RuntimeContinuation,
   type RuntimeContinuationSafetyObservation,
 } from './runtime-resume.js';
+import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 import {
   matchingTerminalRuntimeEvents,
   terminalRunStatusFromRuntimeEvent,
@@ -166,6 +167,8 @@ export interface RuntimeKernelDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
+  /** Shared with continuation planning so recovery decisions revalidate identically. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   /** Host capability; each run still gates it by the selected backend. */
   toolBoundaryProtocol?: ToolBoundaryProtocol;
   backends: BackendRegistry;
@@ -349,7 +352,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
       continuation.sessionId,
       continuation.sourceRunId,
     );
-    assertContinuationSourceUnchanged(continuation, sourceRun, sourceEvents, header.cwd);
+    assertContinuationSourceUnchanged(
+      continuation,
+      sourceRun,
+      sourceEvents,
+      header.cwd,
+      this.deps.recoveryContracts,
+    );
     if (!this.deps.inspectContinuationSafety) {
       throw new Error('Runtime continuation requires an authoritative safety inspector');
     }
@@ -1688,6 +1697,7 @@ function assertContinuationSourceUnchanged(
   sourceRun: AgentRunHeader,
   sourceEvents: readonly RuntimeEvent[],
   currentCwd: string,
+  recoveryContracts?: ToolRecoveryContractRegistry,
 ): void {
   if (
     sourceRun.runId !== continuation.sourceRunId ||
@@ -1735,6 +1745,7 @@ function assertContinuationSourceUnchanged(
   }
   const replayPlan = buildResumePlanFromRuntimeEvents(sourceEvents, {
     expectedRuntimeEventHighWater: continuation.sourceRuntimeEventHighWater,
+    ...(recoveryContracts ? { recoveryContracts } : {}),
   });
   const sourceRuntimeContext = continuation.sourceRuntimeContext ?? continuation.runtimeContext;
   if (

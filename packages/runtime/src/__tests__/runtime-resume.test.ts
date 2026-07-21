@@ -11,6 +11,7 @@ import {
   buildResumeReplayRuntimeEvents,
   projectToolOperationsFromRuntimeEvents,
 } from '../runtime-resume.js';
+import { ToolRecoveryContractRegistry } from '../tool-recovery-contract.js';
 
 describe('runtime resume phase 0 projection', () => {
   test('publishes the stable P0-P11 crash failpoint catalog', () => {
@@ -304,6 +305,53 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
       ['tool_not_dispatched'],
     );
     assert.deepEqual(plan.rejectionReasons, ['dangling_tool_state']);
+  });
+
+  test('uses its configured recovery contracts when planning from stored events', async () => {
+    const initial = textEvent('source-user', 'user', 'write safely');
+    initial.actions = { runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' } };
+    const sourceEvents = [
+      initial,
+      callEvent('source-call', 'tool-1', 'Write', { path: 'a.txt' }),
+      toolDispatchEvent(),
+      base({ id: 'source-terminal', status: 'failed', actions: { endInvocation: true } }),
+    ];
+    const recoveryContracts = writeRecoveryContracts();
+    const planner = new RuntimeContinuationPlanner({
+      readSourceRun: async () => ({ cwd: '/workspace/repo', status: 'failed' }),
+      readRuntimeEvents: async () => sourceEvents,
+      recoveryContracts,
+      newId: () => 'unused',
+    });
+
+    const plan = await planner.plan({
+      sessionId: 'session-1',
+      sourceRunId: 'run-1',
+      currentCwd: '/workspace/repo',
+      sourceWorkspaceIdentity: 'workspace-1',
+      currentWorkspaceIdentity: 'workspace-1',
+      backgroundOperationsSettled: true,
+      availableToolNames: ['Write'],
+    });
+
+    assert.equal(plan.disposition, 'park');
+    assert.equal(plan.diagnostics[0]?.code, 'tool_recovery_required');
+  });
+
+  test('passes the recovery contract registry through safe-boundary planning', () => {
+    const initial = textEvent('user-1', 'user', 'write it');
+    initial.actions = { runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' } };
+    const dispatch = toolDispatchEvent();
+    const recoveryContracts = writeRecoveryContracts();
+
+    const plan = buildSafeBoundaryContinuationPlan(
+      [initial, callEvent('call-1', 'tool-1', 'Write', { path: 'a.txt' }), dispatch],
+      { ...safeBoundaryFacts(), recoveryContracts },
+    );
+
+    assert.equal(plan.disposition, 'park');
+    assert.equal(plan.diagnostics[0]?.code, 'tool_recovery_required');
+    assert.equal(plan.diagnostics[0]?.detail?.reasonCode, 'recovery_contract_available');
   });
 
   test('creates a new execution identity from a fully committed safe boundary', () => {
@@ -606,6 +654,36 @@ function responseEvent(
     author: 'tool',
     refs: { toolCallId },
   });
+}
+
+function toolDispatchEvent(): RuntimeEvent {
+  return base({
+    id: 'dispatch-1',
+    actions: {
+      toolDispatch: {
+        protocol: 't1_after_preflight_v1',
+        operationId: 'operation-1',
+        providerToolCallId: 'tool-1',
+        toolName: 'Write',
+        canonicalArgsHash: 'hash-1',
+        recoveryMode: 'reconcile',
+      },
+    },
+    refs: { operationId: 'operation-1', toolCallId: 'tool-1' },
+  });
+}
+
+function writeRecoveryContracts(): ToolRecoveryContractRegistry {
+  return new ToolRecoveryContractRegistry([
+    {
+      toolName: 'Write',
+      contract: {
+        id: 'maka.tool.write.reconcile',
+        version: 1,
+        mode: 'reconcile_then_decide',
+      },
+    },
+  ]);
 }
 
 function textEvent(id: string, role: 'user' | 'system', text: string): RuntimeEvent {

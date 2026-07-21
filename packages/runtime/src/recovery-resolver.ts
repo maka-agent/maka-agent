@@ -39,6 +39,7 @@ export interface RecoveryDecision {
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
   recoveryContractId?: string;
+  /** Whether recovery may take its next action without human confirmation. */
   automaticActionAllowed: boolean;
   evidenceEventIds: string[];
 }
@@ -193,6 +194,8 @@ export function resolveRuntimeRecovery(
       decision.automaticActionAllowed = false;
       continue;
     }
+    // Reserve the dispatch identity before classification so any later fact
+    // that reuses it is also deterministically classified as corruption.
     decisionsByOperationId.set(dispatch.operationId, decision);
     decision.dispatchRuntimeEventId = event.id;
     decision.evidenceEventIds.push(event.id);

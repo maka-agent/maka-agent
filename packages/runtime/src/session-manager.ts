@@ -125,6 +125,7 @@ import {
   type RuntimeContinuationSafetyObservation,
   type SafeBoundaryContinuationPlan,
 } from './runtime-resume.js';
+import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 
 export interface StopSessionInput {
   source?: 'stop_button' | 'benchmark_deadline';
@@ -354,6 +355,8 @@ export interface SessionManagerDeps {
   planStore?: PlanStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
+  /** One registry instance shared by planning and execution revalidation. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   /** Host capability; RuntimeKernel gates it by the selected backend. */
   toolBoundaryProtocol?: ToolBoundaryProtocol;
   backends: BackendRegistry;
@@ -985,6 +988,9 @@ export class SessionManager {
     input: PlanSafeBoundaryContinuationInput,
   ): Promise<SafeBoundaryContinuationPlan> {
     const planner = new RuntimeContinuationPlanner({
+      ...(this.deps.recoveryContracts
+        ? { recoveryContracts: this.deps.recoveryContracts }
+        : {}),
       readSourceRun: async (targetSessionId, runId) => {
         if (!this.deps.runStore) throw new Error('AgentRunStore is not configured');
         return this.deps.runStore.readRun(targetSessionId, runId);

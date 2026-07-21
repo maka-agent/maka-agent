@@ -237,6 +237,8 @@ export interface SafeBoundaryContinuationFacts {
   currentWorkspaceIdentity: string;
   backgroundOperationsSettled: boolean;
   availableToolNames: readonly string[];
+  /** Shared capability registry used by planning and execution revalidation. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   continuationIdentity: ContinuationIdentity;
   /** User-anchored replay prefix inherited from continuation ancestors. */
   priorRuntimeContext?: readonly RuntimeEvent[];
@@ -305,6 +307,8 @@ export interface RuntimeContinuationPlannerInput {
 }
 
 export interface RuntimeContinuationPlannerDeps {
+  /** Must be the same registry supplied to execution revalidation. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   readSourceRun(
     sessionId: string,
     runId: string,
@@ -391,6 +395,9 @@ export class RuntimeContinuationPlanner {
       currentWorkspaceIdentity: input.currentWorkspaceIdentity,
       backgroundOperationsSettled: input.backgroundOperationsSettled,
       availableToolNames: input.availableToolNames,
+      ...(this.deps.recoveryContracts
+        ? { recoveryContracts: this.deps.recoveryContracts }
+        : {}),
       continuationIdentity: {
         invocationId: this.deps.newId(),
         runId: this.deps.newId(),
@@ -583,6 +590,7 @@ export function buildSafeBoundaryContinuationPlan(
     facts.workspaceCheckpoint?.runtimeEventHighWater ?? facts.expectedRuntimeEventHighWater;
   const replayPlan = buildResumePlanFromRuntimeEvents(events, {
     ...(expectedRuntimeEventHighWater !== undefined ? { expectedRuntimeEventHighWater } : {}),
+    ...(facts.recoveryContracts ? { recoveryContracts: facts.recoveryContracts } : {}),
   });
   const phaseOneDiagnostics = collectPendingPermissionDiagnostics(events);
   const phaseOneRejectionReasons: ResumeRejectionReason[] = [];
