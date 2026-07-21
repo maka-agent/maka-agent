@@ -120,7 +120,7 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
     runtime: Object.freeze({
       provider: 'openai-codex',
       model: 'gpt-5.6-sol',
-      reasoningEffort: 'max',
+      reasoningEffort: 'xhigh',
       baseUrl: 'https://chatgpt.com/backend-api/codex',
       apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
       billingMode: 'account-plan',

@@ -303,7 +303,7 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.deepEqual(codexProfile.runtime, {
     provider: 'openai-codex',
     model: 'gpt-5.6-sol',
-    reasoningEffort: 'max',
+    reasoningEffort: 'xhigh',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
     billingMode: 'account-plan',
@@ -400,7 +400,7 @@ test('Codex comparison freezes the OpenAI model, pricing, and run identity', asy
   assert.deepEqual(manifest.metadata.model, {
     provider: 'openai-codex',
     id: 'gpt-5.6-sol',
-    reasoningEffort: 'max',
+    reasoningEffort: 'xhigh',
     credentialIdentity,
   });
   assert.deepEqual(manifest.metadata.pricing, competitorProfile.runtime.pricing);
@@ -419,7 +419,7 @@ test('Codex comparison freezes the OpenAI model, pricing, and run identity', asy
     modelSpec: 'openai-codex/gpt-5.6-sol',
     provider: 'openai-codex',
     model: 'gpt-5.6-sol',
-    reasoningEffort: 'max',
+    reasoningEffort: 'xhigh',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
     billingMode: 'account-plan',
