@@ -534,6 +534,41 @@ export async function main() {
   });
 }
 
+export async function resolveHarnessAbSubjectFingerprint({
+  manifestPath,
+  makaRepoPath,
+  explicitSubjectFingerprint,
+  resumeSubjectFingerprint,
+  buildFingerprint = buildSubjectFingerprint,
+}) {
+  if (!resumeSubjectFingerprint) {
+    return await buildFingerprint(makaRepoPath, explicitSubjectFingerprint);
+  }
+  if (explicitSubjectFingerprint) {
+    throw new Error(
+      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT cannot be combined with MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT',
+    );
+  }
+  const value = resumeSubjectFingerprint.trim();
+  if (!/^sha256:[a-f0-9]{64}$/.test(value)) {
+    throw new Error(
+      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint',
+    );
+  }
+  const existing = await readAbRunManifest(manifestPath);
+  if (!existing || typeof existing.subjectFingerprint !== 'string') {
+    throw new Error(
+      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT requires an existing harness A/B manifest',
+    );
+  }
+  if (existing.subjectFingerprint !== value) {
+    throw new Error(
+      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT must exactly match the existing manifest subject fingerprint',
+    );
+  }
+  return value;
+}
+
 async function runLocked({
   repoRoot,
   makaRepoPath,
@@ -556,10 +591,13 @@ async function runLocked({
     return;
   }
 
-  const subjectFingerprint = await buildSubjectFingerprint(
+  const manifestPath = join(runRoot, 'harness-ab-manifest.json');
+  const subjectFingerprint = await resolveHarnessAbSubjectFingerprint({
+    manifestPath,
     makaRepoPath,
-    process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
-  );
+    explicitSubjectFingerprint: process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
+    resumeSubjectFingerprint: process.env.MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT,
+  });
   const hostToolchainFingerprint = await buildToolchainFingerprint(
     process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
     undefined,
@@ -575,7 +613,6 @@ async function runLocked({
   });
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
-  const manifestPath = join(runRoot, 'harness-ab-manifest.json');
   const oracleEvidence = await resolveHarnessOracleEvidenceForRun(manifestPath, () =>
     resolveAdvisoryOracleEvidence({
       allTasks,
