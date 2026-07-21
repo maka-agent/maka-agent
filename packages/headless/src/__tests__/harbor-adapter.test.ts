@@ -2795,6 +2795,38 @@ class Codex:
                 encoding="utf-8",
             )
             return
+        if instruction == "policy-denied":
+            self.omit_context_usage = True
+            session_dir = self.logs_dir / "sessions" / "2026" / "07" / "21"
+            session_dir.mkdir(parents=True, exist_ok=True)
+            (session_dir / "rollout-policy.jsonl").write_text(
+                json.dumps({
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "total_token_usage": {
+                                "input_tokens": 80,
+                                "cached_input_tokens": 50,
+                                "output_tokens": 20,
+                                "reasoning_output_tokens": 7,
+                                "total_tokens": 100,
+                            }
+                        },
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (self.logs_dir / "codex.txt").write_text(
+                json.dumps({
+                    "type": "turn.failed",
+                    "error": {
+                        "message": "This content was flagged for possible cybersecurity risk."
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            return
         (self.logs_dir / "codex.txt").write_text(
             "\n".join([
                 json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
@@ -2805,6 +2837,8 @@ class Codex:
         )
 
     def populate_context_post_run(self, context):
+        if getattr(self, "omit_context_usage", False):
+            return
         context.n_input_tokens = 100
         context.n_cache_tokens = 40
         context.n_output_tokens = 25
@@ -2978,6 +3012,40 @@ with tempfile.TemporaryDirectory() as tmp:
     incomplete_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
     assert incomplete_cell["status"] == "failed", incomplete_cell
     assert incomplete_cell["errorClass"] == "rate_limit", incomplete_cell
+
+    policy = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_TRIAL_INPUT_USD_PER_1M": "5",
+            "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
+            "MAKA_TRIAL_OUTPUT_USD_PER_1M": "30",
+            "MAKA_TRIAL_PRICING_SOURCE": "openai-gpt-5.6-sol-2026-07-20",
+        },
+    )
+    policy_context = types.SimpleNamespace(
+        n_input_tokens=None,
+        n_cache_tokens=None,
+        n_output_tokens=None,
+        cost_usd=None,
+        metadata={},
+    )
+    asyncio.run(policy.run("policy-denied", environment, policy_context))
+    policy.populate_context_post_run(policy_context)
+    policy_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert policy_cell["status"] == "failed", policy_cell
+    assert policy_cell["errorClass"] == "policy_denied", policy_cell
+    assert policy_cell["tokenSummary"]["input"] == 80, policy_cell
+    assert policy_cell["tokenSummary"]["cachedInput"] == 50, policy_cell
+    assert policy_cell["tokenSummary"]["cacheMissInput"] == 30, policy_cell
+    assert policy_cell["tokenSummary"]["output"] == 20, policy_cell
+    assert policy_cell["tokenSummary"]["reasoning"] == 7, policy_cell
 
     class TimeoutEnvironment(Environment):
         def __init__(self):

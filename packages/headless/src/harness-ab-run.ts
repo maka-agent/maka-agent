@@ -5,6 +5,7 @@ import type { AbComparisonSummary } from './ab-types.js';
 import type { Config } from './contracts.js';
 import type { HarborBillingMode } from './harbor-task-runner.js';
 import {
+  readFixedPromptWal,
   runFixedPromptController,
   type FixedPromptTask,
   type HarborTaskRunner,
@@ -50,6 +51,16 @@ export async function runHarnessAbComparisonUnlocked(
   if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
     throw new Error('pairConcurrency must be a positive integer');
   }
+  const preexistingTerminalEventIds = new Set(
+    (await readFixedPromptWal(input.resultsJsonlPath))
+      .filter(
+        (event) =>
+          event.runId === input.runId &&
+          'resumeFingerprint' in event &&
+          event.resumeFingerprint === input.resumeFingerprint,
+      )
+      .map((event) => event.id),
+  );
   return runAbComparison({
     runId: input.runId,
     arms: input.arms.map((arm) => ({
@@ -68,6 +79,7 @@ export async function runHarnessAbComparisonUnlocked(
     reps: 1,
     maxConcurrency: pairConcurrency,
     armExecution: input.armExecution ?? 'parallel',
+    preexistingTerminalEventIds,
     runArm: async ({ roundId, arm, task }) => {
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
       if (!runtimeArm) throw new Error(`harness A/B arm ${arm.id} is not configured`);

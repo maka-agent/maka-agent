@@ -2037,6 +2037,41 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('counts a verifier-graded provider policy denial as a scored benchmark failure', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'policy_denied',
+            verifier: {
+              outcome: 'failed',
+              attempts: [{ attempt: 1, classification: 'failed', durationMs: 20, reward: 0 }],
+            },
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.eligible, true);
+      assert.equal(result.events[0]?.errorClass, 'policy_denied');
+    });
+  });
+
   test('keeps verifier-graded deadline settlements as scored benchmark outcomes', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');

@@ -196,7 +196,7 @@ class MakaCodexAgent(Codex):
         raw_output = getattr(context, "n_output_tokens", None)
         raw_cache_read = getattr(context, "n_cache_tokens", None)
         if raw_input is None and raw_output is None and raw_cache_read is None:
-            return None
+            return self._rollout_token_totals()
         input_tokens = int(raw_input or 0)
         output_tokens = int(raw_output or 0)
         cache_read = int(raw_cache_read or 0)
@@ -207,6 +207,50 @@ class MakaCodexAgent(Codex):
             "cache_write": 0,
             "cache_miss": max(0, input_tokens - cache_read),
             "reasoning": self._reasoning_tokens(),
+        }
+
+    def _rollout_token_totals(self) -> dict[str, int] | None:
+        latest: tuple[str, dict[str, Any]] | None = None
+        for path in sorted(self.logs_dir.glob("sessions/**/rollout-*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict) or event.get("type") != "event_msg":
+                    continue
+                payload = event.get("payload")
+                if not isinstance(payload, dict) or payload.get("type") != "token_count":
+                    continue
+                info = payload.get("info")
+                usage = info.get("total_token_usage") if isinstance(info, dict) else None
+                if not isinstance(usage, dict):
+                    continue
+                timestamp = event.get("timestamp")
+                if not isinstance(timestamp, str):
+                    timestamp = ""
+                if latest is None or timestamp >= latest[0]:
+                    latest = (timestamp, usage)
+        if latest is None:
+            return None
+        usage = latest[1]
+
+        def count(key: str) -> int:
+            value = usage.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return max(0, int(value))
+            return 0
+
+        input_tokens = count("input_tokens")
+        cache_read = count("cached_input_tokens")
+        output_tokens = count("output_tokens")
+        return {
+            "input": input_tokens,
+            "output": output_tokens,
+            "cache_read": cache_read,
+            "cache_write": 0,
+            "cache_miss": max(0, input_tokens - cache_read),
+            "reasoning": count("reasoning_output_tokens"),
         }
 
     def _events(self) -> list[dict[str, Any]]:
@@ -374,6 +418,14 @@ def _classify_failure(
     error: Exception, events: list[dict[str, Any]] | None = None
 ) -> str:
     text = (_structured_failure_text(events or []) or str(error)).lower()
+    if any(
+        marker in text
+        for marker in (
+            "flagged for possible cybersecurity risk",
+            "trusted access for cyber",
+        )
+    ):
+        return "policy_denied"
     if re.search(r"(?<!\d)(401|403)(?!\d)", text) or any(
         marker in text
         for marker in ("unauthorized", "authentication", "invalid api key")

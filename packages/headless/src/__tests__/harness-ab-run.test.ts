@@ -282,6 +282,60 @@ describe('runHarnessAbComparison', () => {
     }
   });
 
+  test('continues after an explicitly resumed systemic provider failure without resampling it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-resume-systemic-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      const resultsPath = join(dir, 'results.jsonl');
+      await writeFile(promptPath, '', 'utf8');
+      const calls: string[] = [];
+      let authAttempts = 0;
+      const maka = harnessArm('maka', calls);
+      const successfulMakaRunner = maka.harborRunner;
+      maka.harborRunner = async (input) => {
+        calls.push(`${input.task.id}:maka`);
+        if (input.task.id === 'b') {
+          authAttempts += 1;
+          const output = await successfulMakaRunner(input);
+          calls.pop();
+          return { ...output, cell: { ...output.cell, status: 'failed', errorClass: 'auth' } };
+        }
+        calls.pop();
+        return successfulMakaRunner(input);
+      };
+      const input = {
+        runId: 'codex-oauth-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: resultsPath,
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        pairConcurrency: 1,
+        evaluationTasks: ['a', 'b', 'c'].map((id) => ({ id, path: `/tasks/${id}` })),
+        arms: [maka, harnessArm('opencode', calls)] as const,
+      };
+
+      const stopped = await runHarnessAbComparison(input);
+      assert.equal(stopped.stopReason, 'systemic_provider_failure');
+      assert.equal(authAttempts, 1);
+      assert.ok(!calls.includes('c:maka'));
+      assert.ok(!calls.includes('c:opencode'));
+
+      const resumed = await runHarnessAbComparison(input);
+      assert.equal(resumed.stopReason, undefined);
+      assert.equal(resumed.baseline.observed, 3);
+      assert.equal(resumed.candidate.observed, 3);
+      assert.equal(authAttempts, 1);
+      assert.equal(calls.filter((call) => call === 'c:maka').length, 1);
+      assert.equal(calls.filter((call) => call === 'c:opencode').length, 1);
+      assert.equal(
+        (await readFile(`${resultsPath}.attempts.jsonl`, 'utf8')).trim().split('\n').length,
+        6,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('completes with gaps when one attempted cell has no usable output', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-missing-usage-'));
     try {

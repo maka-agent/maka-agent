@@ -866,7 +866,8 @@ function taskCompletedEvent(input: {
     deadlineSettled ||
     structuredVerifierPassed ||
     ((output.cell.errorClass === 'max_tokens' ||
-      output.cell.errorClass === 'tool_step_cap_reached') &&
+      output.cell.errorClass === 'tool_step_cap_reached' ||
+      output.cell.errorClass === 'policy_denied') &&
       output.harbor.verifier !== undefined);
   const passed = verifierGraded && output.harbor.reward > 0;
   const errorClass = passed ? undefined : (output.cell.errorClass ?? 'verification_failed');
