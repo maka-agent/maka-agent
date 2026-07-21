@@ -1599,3 +1599,6 @@ export {
   PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE,
 } from './attachments.js';
 export type { AttachmentByteReader } from './attachments.js';
+
+// automation.ts - durable Automation definitions and fire identity.
+export * from './automation.js';

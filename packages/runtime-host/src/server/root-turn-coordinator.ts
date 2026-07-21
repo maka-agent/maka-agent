@@ -3,6 +3,7 @@ import type { AgentRunHeader } from '@maka/core/agent-run';
 import {
   messageContentsEqual,
   normalizeMessageContent,
+  type MessageContent,
   type SessionEvent,
 } from '@maka/core/events';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
@@ -98,6 +99,36 @@ interface RecoverySessionPlan {
   missingMessages: readonly RecoveryUserMessage[];
 }
 
+type RootTurnOrigin = Exclude<RootTurnAdmission['origin'], undefined>;
+
+interface RootTurnExecutionInput {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly content: MessageContent;
+  readonly origin?: RootTurnOrigin;
+}
+
+export interface HostAutomationTurnInput {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly runId: string;
+  readonly userMessageId: string;
+  readonly automationId: string;
+  readonly fireId: string;
+  readonly content: MessageContent;
+}
+
+export interface HostAutomationTurnHandle {
+  readonly terminal: Promise<TurnSnapshot>;
+}
+
+export type HostAutomationTurnStartResult =
+  | { readonly kind: 'started'; readonly handle: HostAutomationTurnHandle }
+  | {
+      readonly kind: 'blocked';
+      readonly reason: 'session_not_found' | 'session_archived' | 'session_busy';
+    };
+
 export class RootTurnCoordinator {
   readonly handlers: TurnOperationHandlerMap = {
     'turn.start': (input, context) => this.startTurn(input, context),
@@ -182,7 +213,8 @@ export class RootTurnCoordinator {
           if (
             messageIdOwner !== userMessage ||
             userMessage.id !== admission.userMessageId ||
-            !messageContentsEqual(userMessage, admission.normalizedInput)
+            !messageContentsEqual(userMessage, admission.normalizedInput) ||
+            !turnOriginsEqual(userMessage.origin, admission.origin)
           ) {
             throw new Error(`Admitted Turn ${admission.turnId} does not match its UserMessage`);
           }
@@ -197,6 +229,7 @@ export class RootTurnCoordinator {
           turnId: admission.turnId,
           ts: admission.admittedAt,
           ...normalizeMessageContent(admission.normalizedInput),
+          ...(admission.origin ? { origin: admission.origin } : {}),
         } satisfies RecoveryUserMessage;
         missingMessages.push(recoveredMessage);
         indexRecoveryMessage(messageIndex, recoveredMessage);
@@ -252,6 +285,7 @@ export class RootTurnCoordinator {
         sessionId,
         turnId: admission.turnId,
         content: normalizeMessageContent(admission.normalizedInput),
+        ...(admission.origin ? { origin: admission.origin } : {}),
       };
       const disposition = await this.sessionAdmission.run(sessionId, (lease) =>
         this.prepareAdmittedTurn(input, admission, this.acquireRecoveryResidency, lease),
@@ -393,6 +427,132 @@ export class RootTurnCoordinator {
       throw new RuntimeInteractionInvariantError('Fresh message Turn did not enter execution');
     }
     return { turnId };
+  }
+
+  async startAutomationTurn(
+    input: HostAutomationTurnInput,
+    admissionLease: SessionAdmissionLease,
+  ): Promise<HostAutomationTurnStartResult> {
+    try {
+      return await this.sessionAdmission.runAdmitted(input.sessionId, admissionLease, async () => {
+        this.#throwIfPoisoned();
+        const content = normalizeMessageContent(input.content);
+        const origin = Object.freeze({
+        kind: 'automation' as const,
+        automationId: input.automationId,
+        fireId: input.fireId,
+      });
+      const executionInput: RootTurnExecutionInput = {
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        content,
+        origin,
+      };
+      let admission = await this.stores.agentRunStore.readRootTurnAdmission(
+        input.sessionId,
+        input.turnId,
+      );
+      this.#throwIfPoisoned();
+      if (!admission) {
+        let header: SessionHeader;
+        try {
+          header = await this.stores.sessionStore.readHeaderSnapshot(input.sessionId);
+          this.#throwIfPoisoned();
+        } catch (error) {
+          this.#throwIfPoisoned();
+          if (isMissingFile(error)) {
+            return { kind: 'blocked', reason: 'session_not_found' };
+          }
+          throw error;
+        }
+        if (header.status === 'archived') {
+          return { kind: 'blocked', reason: 'session_archived' };
+        }
+        if (this.#activeBySession.has(input.sessionId)) {
+          return { kind: 'blocked', reason: 'session_busy' };
+        }
+        const previousRootTurnId = this.rootAdmissionWriter.previousRootTurnIdForNextAdmission(
+          input.sessionId,
+        );
+        const admitted = await this.stores.agentRunStore.admitRootTurn({
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          proposedRunId: input.runId,
+          proposedUserMessageId: input.userMessageId,
+          previousRootTurnId,
+          normalizedInput: content,
+          sourceMessages: [],
+          origin,
+          admittedAt: Date.now(),
+        });
+        this.#throwIfPoisoned();
+        admission = admitted.admission;
+        if (admitted.kind === 'admitted') this.rootAdmissionWriter.record(admission);
+      }
+      if (
+        admission.runId !== input.runId ||
+        admission.userMessageId !== input.userMessageId ||
+        admission.sourceMessages.length !== 0 ||
+        !messageContentsEqual(admission.normalizedInput, content) ||
+        !turnOriginsEqual(admission.origin, origin)
+      ) {
+        throw new RuntimeInteractionInvariantError(
+          `Automation fire ${input.fireId} conflicts with its root Turn admission`,
+        );
+      }
+      const disposition = await this.prepareAdmittedTurn(
+        executionInput,
+        admission,
+        this.acquireRecoveryResidency,
+        admissionLease,
+      );
+      this.#throwIfPoisoned();
+      if (disposition.kind === 'complete') {
+        if (!disposition.outcome.ok) {
+          if (disposition.outcome.error.code === 'session_busy') {
+            return { kind: 'blocked', reason: 'session_busy' };
+          }
+          throw new RuntimeInteractionInvariantError(
+            `Automation fire ${input.fireId} could not resume its admitted Turn`,
+          );
+        }
+        if (!isTerminalSnapshot(disposition.outcome.result)) {
+          throw new RuntimeInteractionInvariantError(
+            `Automation fire ${input.fireId} resolved without a terminal Turn`,
+          );
+        }
+        return {
+          kind: 'started',
+          handle: {
+            terminal: Promise.resolve(disposition.outcome.result),
+          },
+        };
+      }
+      const terminal = (async () => {
+        await disposition.active.started.promise;
+        this.#assertTurnUsable(disposition.active.ownership);
+        await disposition.active.done.promise;
+        this.#throwIfPoisoned();
+        const result = await this.readCanonicalSnapshot(
+          input.sessionId,
+          input.turnId,
+          input.runId,
+        );
+        this.#throwIfPoisoned();
+        if (!isTerminalSnapshot(result)) {
+          throw new RuntimeInteractionInvariantError(
+            `Automation fire ${input.fireId} completed without a terminal Turn`,
+          );
+        }
+        return result;
+      })();
+      void terminal.catch(() => undefined);
+      return { kind: 'started', handle: { terminal } };
+      });
+    } catch (error) {
+      if (!this.#poisoned) this.requestHostDrain();
+      throw error;
+    }
   }
 
   claimStop(
@@ -624,7 +784,7 @@ export class RootTurnCoordinator {
   }
 
   private async prepareAdmittedTurn(
-    input: TurnStartInput,
+    input: RootTurnExecutionInput,
     admission: RootTurnAdmission,
     acquireResidency: () => RuntimeHostResidency,
     admissionLease: SessionAdmissionLease,
@@ -710,7 +870,7 @@ export class RootTurnCoordinator {
   }
 
   private async resolveStartDisposition(
-    input: TurnStartInput,
+    input: RootTurnExecutionInput,
     disposition: TurnStartDisposition,
   ): Promise<TurnStartOutcome> {
     if (disposition.kind === 'complete') return disposition.outcome;
@@ -738,7 +898,7 @@ export class RootTurnCoordinator {
     };
   }
 
-  private async drainTurn(input: TurnStartInput, active: ActiveRootTurn): Promise<void> {
+  private async drainTurn(input: RootTurnExecutionInput, active: ActiveRootTurn): Promise<void> {
     let terminalCutStarted = false;
     let completion:
       | { readonly kind: 'completed' }
@@ -750,7 +910,11 @@ export class RootTurnCoordinator {
       let terminalEventObserved = false;
       for await (const event of this.manager.sendMessage(
         input.sessionId,
-        { turnId: input.turnId, ...input.content },
+        {
+          turnId: input.turnId,
+          ...input.content,
+          ...(input.origin ? { origin: input.origin } : {}),
+        },
         {
           runId: active.runId,
           userMessageId: active.userMessageId,
@@ -1112,6 +1276,18 @@ export class RootTurnCoordinator {
 }
 
 type RecoveryUserMessage = Extract<StoredMessage, { type: 'user' }>;
+
+function turnOriginsEqual(
+  left: { readonly kind: 'automation'; readonly automationId: string; readonly fireId?: string } |
+    undefined,
+  right: RootTurnOrigin | undefined,
+): boolean {
+  return (
+    left?.kind === right?.kind &&
+    left?.automationId === right?.automationId &&
+    left?.fireId === right?.fireId
+  );
+}
 
 function isAssistantDeltaEvent(event: { type: string }): event is AcceptedAssistantDeltaEvent {
   return event.type === 'text_delta' || event.type === 'thinking_delta';

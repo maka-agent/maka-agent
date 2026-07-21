@@ -15,6 +15,7 @@ import {
 } from './session-continuity.js';
 
 export { RuntimeHostProtocolError } from './errors.js';
+export * from './automation.js';
 export * from './interaction.js';
 export * from './message.js';
 export * from './operations.js';

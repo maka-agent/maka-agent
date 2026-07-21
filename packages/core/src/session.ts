@@ -83,11 +83,18 @@ export function isTurnStatus(value: unknown): value is TurnStatus {
 // Header (JSONL line 1)
 // ============================================================================
 
+export type SessionOrigin = {
+  kind: 'automation';
+  automationId: string;
+  fireId: string;
+};
+
 export interface SessionHeader {
   // Identity
   id: string;
   workspaceRoot: string;
   cwd: string;
+  origin?: SessionOrigin;
   /** One-shot model context to inject after a CLI session cwd move. */
   pendingCwdReminder?: { from: string; to: string };
 
@@ -233,7 +240,7 @@ export interface UserMessage extends MessageContent {
   quotes?: QuoteRef[];
   /** Non-user trigger source (automation fire). Lets the chat mark turns the
    *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
-  origin?: { kind: 'automation'; automationId: string };
+  origin?: { kind: 'automation'; automationId: string; fireId?: string };
 }
 
 /** Prefer the human-facing view of a user message when one was stored. */
@@ -465,7 +472,10 @@ const SYSTEM_NOTE_MESSAGE_SHAPE = defineObjectShape<SystemNoteMessage>()(
 type AssistantThinking = NonNullable<AssistantMessage['thinking']>;
 const ASSISTANT_THINKING_SHAPE = defineObjectShape<AssistantThinking>()(['text'], ['signature']);
 type AutomationOrigin = NonNullable<UserMessage['origin']>;
-const AUTOMATION_ORIGIN_SHAPE = defineObjectShape<AutomationOrigin>()(['kind', 'automationId'], []);
+const AUTOMATION_ORIGIN_SHAPE = defineObjectShape<AutomationOrigin>()(
+  ['kind', 'automationId'],
+  ['fireId'],
+);
 
 const SYSTEM_NOTE_KINDS = new Set([
   'session_start',
@@ -635,7 +645,8 @@ function isAutomationOrigin(value: unknown): value is AutomationOrigin {
     isRecord(value) &&
     hasExactShape(value, AUTOMATION_ORIGIN_SHAPE) &&
     value.kind === 'automation' &&
-    typeof value.automationId === 'string'
+    typeof value.automationId === 'string' &&
+    isOptionalString(value.fireId)
   );
 }
 

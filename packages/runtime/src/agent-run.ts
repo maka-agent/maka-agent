@@ -1275,7 +1275,12 @@ export class AgentRun {
       ...(this.input.userInput.agentId ? { agentId: this.input.userInput.agentId } : {}),
       ...(this.input.userInput.agentName ? { agentName: this.input.userInput.agentName } : {}),
       ...(this.input.userInput.origin?.kind === 'automation'
-        ? { automationId: this.input.userInput.origin.automationId }
+        ? {
+            automationId: this.input.userInput.origin.automationId,
+            ...(this.input.userInput.origin.fireId
+              ? { automationFireId: this.input.userInput.origin.fireId }
+              : {}),
+          }
         : {}),
     };
     try {

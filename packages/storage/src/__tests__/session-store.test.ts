@@ -1,12 +1,208 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
 import type { CreateSessionInput, SessionHeader, StoredMessage } from '@maka/core';
-import { createSessionStore } from '../session-store.js';
+import {
+  createSessionStore,
+  type CreateAutomationSessionRequest,
+} from '../session-store.js';
 
 describe('FileSessionStore CRUD', () => {
+  test('creates a stable automation session and returns existing for a semantic retry', async () => {
+    await withStore(async (store) => {
+      const origin = { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' } as const;
+      const request = automationSessionRequest({ name: 'Automation session', labels: ['scheduled'] });
+
+      const created = await store.createAutomationSession({
+        sessionId: 'stable-session',
+        origin,
+        ...request,
+      });
+      assert.equal(created.kind, 'created');
+      assert.deepEqual(created.header.origin, origin);
+      assert.equal(
+        (await store.createAutomationSession({ sessionId: 'stable-session', origin, ...request }))
+          .kind,
+        'existing',
+      );
+
+      await store.rename('stable-session', 'User renamed session');
+      await store.setFlagged('stable-session', true);
+      await store.updateHeader('stable-session', {
+        labels: ['user-edited'],
+        status: 'review',
+      });
+      const retry = await store.createAutomationSession({
+        sessionId: 'stable-session',
+        origin,
+        execution: request.execution,
+        presentation: { name: 'Different mutable name', labels: ['different'], status: 'done' },
+      });
+
+      assert.equal(retry.kind, 'existing');
+      assert.equal(retry.header.name, 'User renamed session');
+      assert.equal(retry.header.isFlagged, true);
+      assert.deepEqual(retry.header.labels, ['user-edited']);
+      assert.equal(retry.header.status, 'review');
+      assert.deepEqual((await store.readHeaderSnapshot('stable-session')).origin, origin);
+    });
+  });
+
+  test('recovers creation after an abandoned empty final directory', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'stable-after-crash';
+      await mkdir(join(workspaceRoot, 'sessions', sessionId), { recursive: true });
+
+      const result = await store.createAutomationSession({
+        sessionId,
+        origin: { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' },
+        ...automationSessionRequest(),
+      });
+
+      assert.equal(result.kind, 'created');
+      assert.equal((await store.readHeaderSnapshot(sessionId)).id, sessionId);
+      assert.deepEqual(await readdir(join(workspaceRoot, '.session-create-tmp')), []);
+    });
+  });
+
+  test('returns conflict when a stable session id targets different creation identity', async () => {
+    await withStore(async (store) => {
+      const origin = { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' } as const;
+      const request = automationSessionRequest();
+      assert.equal(
+        (await store.createAutomationSession({ sessionId: 'stable-conflict', origin, ...request }))
+          .kind,
+        'created',
+      );
+
+      assert.equal(
+        (
+          await store.createAutomationSession({
+            sessionId: 'stable-conflict',
+            origin: { ...origin, fireId: 'fire-2' },
+            ...request,
+          })
+        ).kind,
+        'conflict',
+      );
+      assert.equal(
+        (
+          await store.createAutomationSession({
+            sessionId: 'stable-conflict',
+            origin,
+            ...request,
+            execution: { ...request.execution, cwd: '/tmp/other' },
+          })
+        ).kind,
+        'conflict',
+      );
+      const targetDrifts: Partial<typeof request.execution>[] = [
+        { backend: 'ai-sdk' },
+        { llmConnectionSlug: 'other-connection' },
+        { model: 'other-model' },
+        { thinkingLevel: 'high' },
+      ];
+      for (const drift of targetDrifts) {
+        assert.equal(
+          (
+            await store.createAutomationSession({
+              sessionId: 'stable-conflict',
+              origin,
+              ...request,
+              execution: { ...request.execution, ...drift },
+            })
+          ).kind,
+          'conflict',
+        );
+      }
+    });
+  });
+
+  test('requires safe automation and fire ids', async () => {
+    await withStore(async (store) => {
+      const invalidIds = ['', '../unsafe', 'a'.repeat(129)];
+      for (const invalidId of invalidIds) {
+        await assert.rejects(
+          store.createAutomationSession({
+            sessionId: 'stable-safe-origin',
+            origin: { kind: 'automation', automationId: invalidId, fireId: 'fire-1' },
+            ...automationSessionRequest(),
+          }),
+          /Invalid session origin/,
+        );
+        await assert.rejects(
+          store.createAutomationSession({
+            sessionId: 'stable-safe-origin',
+            origin: { kind: 'automation', automationId: 'automation-1', fireId: invalidId },
+            ...automationSessionRequest(),
+          }),
+          /Invalid session origin/,
+        );
+      }
+    });
+  });
+
+  test('serializes concurrent creation attempts for the same stable session id', async () => {
+    await withStore(async (store) => {
+      const origin = { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' } as const;
+      const results = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          store.createAutomationSession({
+            sessionId: 'stable-concurrent',
+            origin,
+            ...automationSessionRequest(),
+          }),
+        ),
+      );
+
+      assert.equal(results.filter((result) => result.kind === 'created').length, 1);
+      assert.equal(results.filter((result) => result.kind === 'existing').length, 7);
+      const sessionPath = join(
+        results[0]!.header.workspaceRoot,
+        'sessions',
+        'stable-concurrent',
+        'session.jsonl',
+      );
+      assert.equal((await readFile(sessionPath, 'utf8')).split('\n').filter(Boolean).length, 1);
+    });
+  });
+
+  test('strictly rejects malformed automation session origins', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const cases = [
+        {
+          sessionId: 'origin-missing-fire',
+          origin: { kind: 'automation', automationId: 'automation-1' },
+        },
+        {
+          sessionId: 'origin-extra-field',
+          origin: {
+            kind: 'automation',
+            automationId: 'automation-1',
+            fireId: 'fire-1',
+            unexpected: true,
+          },
+        },
+      ];
+      for (const { sessionId, origin } of cases) {
+        const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+        await mkdir(sessionDir, { recursive: true });
+        await writeFile(
+          join(sessionDir, 'session.jsonl'),
+          JSON.stringify({ ...makeRawHeader({ id: sessionId, workspaceRoot }), origin }) + '\n',
+          'utf8',
+        );
+
+        await assert.rejects(
+          store.readHeaderSnapshot(sessionId),
+          new RegExp(`Invalid session header for session ${sessionId}: malformed fields`),
+        );
+      }
+    });
+  });
+
   test('list on a missing workspace is observational and does not create session storage', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-session-list-'));
     try {
@@ -1384,6 +1580,29 @@ function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionIn
     name: 'Session',
     labels: [],
     ...overrides,
+  };
+}
+
+function automationSessionRequest(
+  presentation: {
+    name?: string;
+    labels?: readonly string[];
+    status?: CreateSessionInput['status'];
+  } = {},
+): Pick<CreateAutomationSessionRequest, 'execution' | 'presentation'> {
+  return {
+    execution: {
+      cwd: '/tmp/cwd',
+      backend: 'fake' as const,
+      llmConnectionSlug: 'fake',
+      model: 'fake-model',
+      permissionMode: 'explore' as const,
+    },
+    presentation: {
+      name: presentation.name ?? 'Automation session',
+      ...(presentation.labels ? { labels: presentation.labels } : {}),
+      ...(presentation.status ? { status: presentation.status } : {}),
+    },
   };
 }
 

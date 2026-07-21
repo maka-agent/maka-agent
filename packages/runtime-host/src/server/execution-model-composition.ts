@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AiSdkBackend,
   buildAskUserQuestionTool,
+  buildAutomationToolFromService,
   buildDefaultContextBudgetPolicy,
   buildHostCapabilitiesFromBinding,
   buildLlmHistorySummarizer,
@@ -30,6 +31,7 @@ import {
   SKILL_TOOL_NAME,
   TOKEN_REFRESH_SKEW_MS,
   type BackendFactoryContext,
+  type AutomationToolService,
   type MakaTool,
   type PermissionEngine,
   type ProxiedFetchProxy,
@@ -135,6 +137,7 @@ export function createHostExecutionModelComposition(
 
 export interface HostAiSdkBackendInput {
   readonly context: BackendFactoryContext;
+  readonly automationService: AutomationToolService;
   readonly runtimePolicy: RuntimePolicyStoresWriter;
   readonly skills: HostSkillCatalogCoordinator;
   readonly memory: HostMemoryCoordinator;
@@ -173,7 +176,13 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
     skills: input.skills,
     memory: input.memory,
     taskLedger: input.taskLedger,
-    runtimeTools: input.runtimeTools,
+    runtimeTools: [
+      ...input.runtimeTools,
+      buildAutomationToolFromService({
+        automationService: input.automationService,
+        cronEnabled: true,
+      }),
+    ],
     skillBudget: {
       contextWindow: resolveSelectedModelContextWindow(target.connection, target.model),
     },

@@ -65,7 +65,12 @@ export interface UserMessageInput extends MessageContent {
 }
 
 /** Non-user trigger source for a turn (e.g. a scheduled automation fire). */
-export type TurnOrigin = { kind: 'automation'; automationId: string };
+export type TurnOrigin = {
+  kind: 'automation';
+  automationId: string;
+  /** Present when the caller has durably admitted a specific fire. */
+  fireId?: string;
+};
 
 export interface AgentSpec {
   id: string;

@@ -12,10 +12,11 @@ import type { StoredMessage } from '@maka/core/session';
 import type { Task } from '@maka/core/task-ledger';
 import { isTerminalRuntimeEvent, type RuntimeEvent } from '@maka/core/runtime-event';
 import { classifyTerminalRuntimeLedger } from '@maka/runtime';
-import type {
-  InteractionRecord,
-  PersistedLlmCallRecord,
-  StoredInteractionRequest,
+import {
+  openInteractiveAutomationStoreForWrite,
+  type InteractionRecord,
+  type PersistedLlmCallRecord,
+  type StoredInteractionRequest,
 } from '@maka/storage';
 import {
   openInteractiveArtifactStoreForWrite,
@@ -188,6 +189,159 @@ export class ExecutionFixture {
     }
   }
 
+  async seedAutomationFire(options: { runStarted?: boolean } = {}): Promise<{
+    automationId: string;
+    fireId: string;
+    turnId: string;
+    runId: string;
+  }> {
+    const owner = await tryAcquireInteractiveRootOwner(this.capability);
+    assert.ok(owner);
+    if (!owner) throw new Error('Unable to acquire execution root for Automation setup');
+    const automationStore = await openInteractiveAutomationStoreForWrite(owner.lease);
+    try {
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      const automationId = randomUUID();
+      const fireId = randomUUID();
+      const turnId = randomUUID();
+      const runId = randomUUID();
+      const userMessageId = randomUUID();
+      const scheduledFor = Date.now();
+      const admittedAt = scheduledFor + 1;
+      const name = 'recovered heartbeat';
+      const prompt = 'Complete the recovered Automation fire.';
+      const created = await automationStore.createDefinition({
+        automationId,
+        name,
+        prompt,
+        target: { kind: 'heartbeat', sessionId: this.sessionId },
+        schedule: { kind: 'interval', intervalMs: 60_000 },
+        maxFireCount: null,
+        expiresAt: admittedAt + 10 * 60_000,
+        createdAt: scheduledFor,
+        nextFireAt: scheduledFor,
+        enabled: true,
+      });
+      assert.equal(created.status, 'committed');
+      const admitted = await automationStore.admitFire({
+        admission: {
+          fireId,
+          automationId,
+          scheduledFor,
+          admittedAt,
+          targetSessionId: this.sessionId,
+          turnId,
+          runId,
+          userMessageId,
+        },
+        expectedAutomationRevision: 1,
+        nextFireAt: admittedAt + 60_000,
+      });
+      assert.equal(admitted.status, 'committed');
+
+      if (options.runStarted) {
+        const content = { text: `[Automation: ${name}]\n\n${prompt}` };
+        const rootAdmission = await stores.agentRunStore.admitRootTurn({
+          sessionId: this.sessionId,
+          turnId,
+          proposedRunId: runId,
+          proposedUserMessageId: userMessageId,
+          previousRootTurnId: null,
+          normalizedInput: content,
+          sourceMessages: [],
+          origin: { kind: 'automation', automationId, fireId },
+          admittedAt,
+        });
+        assert.equal(rootAdmission.admission.runId, runId);
+        await stores.agentRunStore.createRun({
+          runId,
+          invocationId: runId,
+          sessionId: this.sessionId,
+          turnId,
+          status: 'running',
+          backendKind: 'fake',
+          llmConnectionSlug: 'fake',
+          modelId: 'fake-model',
+          cwd: this.root,
+          permissionMode: 'ask',
+          automationId,
+          automationFireId: fireId,
+          createdAt: admittedAt,
+          updatedAt: admittedAt,
+        });
+      }
+      return { automationId, fireId, turnId, runId };
+    } finally {
+      await automationStore.beginDrain();
+      await automationStore.close();
+      await owner.close();
+    }
+  }
+
+  async seedAutomationWithTerminalFires(fireCount: number): Promise<{
+    automationId: string;
+    revision: number;
+  }> {
+    assert.ok(Number.isSafeInteger(fireCount) && fireCount > 0);
+    const owner = await tryAcquireInteractiveRootOwner(this.capability);
+    assert.ok(owner);
+    if (!owner) throw new Error('Unable to acquire execution root for Automation setup');
+    const automationStore = await openInteractiveAutomationStoreForWrite(owner.lease);
+    try {
+      const automationId = randomUUID();
+      const intervalMs = 60_000;
+      const createdAt = Date.now();
+      let nextFireAt = createdAt + intervalMs;
+      const created = await automationStore.createDefinition({
+        automationId,
+        name: 'bounded fire count',
+        prompt: 'Complete this scheduled check.',
+        target: { kind: 'heartbeat', sessionId: this.sessionId },
+        schedule: { kind: 'interval', intervalMs },
+        maxFireCount: null,
+        expiresAt: null,
+        createdAt,
+        nextFireAt,
+        enabled: true,
+      });
+      assert.equal(created.status, 'committed');
+      if (created.status !== 'committed') assert.fail('Automation create did not commit');
+      let revision = created.definition.revision;
+      for (let index = 0; index < fireCount; index += 1) {
+        const fireId = randomUUID();
+        const admittedAt = nextFireAt + 1;
+        nextFireAt = admittedAt + intervalMs;
+        const admitted = await automationStore.admitFire({
+          admission: {
+            fireId,
+            automationId,
+            scheduledFor: admittedAt - 1,
+            admittedAt,
+            targetSessionId: this.sessionId,
+            turnId: randomUUID(),
+            runId: randomUUID(),
+            userMessageId: randomUUID(),
+          },
+          expectedAutomationRevision: revision,
+          nextFireAt,
+        });
+        assert.equal(admitted.status, 'committed');
+        if (admitted.status !== 'committed') assert.fail('Automation fire was not admitted');
+        revision = admitted.definition.revision;
+        const settled = await automationStore.settleFire({
+          fireId,
+          outcome: { kind: 'succeeded', settledAt: admittedAt + 1 },
+        });
+        assert.equal(settled.status, 'committed');
+      }
+      return { automationId, revision };
+    } finally {
+      await automationStore.beginDrain();
+      await automationStore.close();
+      await owner.close();
+    }
+  }
+
   async createArtifacts(
     inputs: readonly {
       id?: string;
@@ -298,7 +452,7 @@ export class ExecutionFixture {
   }
 
   async startHost(
-    options: { frozenNow?: number; steppingNow?: number } = {},
+    options: { frozenNow?: number; steppingNow?: number; idleGraceMs?: number } = {},
   ): Promise<ExecutionHostHandle> {
     let execArgv: string[] | undefined;
     if (options.frozenNow !== undefined || options.steppingNow !== undefined) {
@@ -310,7 +464,7 @@ export class ExecutionFixture {
       await writeFile(preloadPath, source, 'utf8');
       execArgv = [...process.execArgv, '--require', preloadPath];
     }
-    const child = this.spawnHost('inherit', execArgv);
+    const child = this.spawnHost('inherit', execArgv, options.idleGraceMs);
     const ready = await waitForHostReady(child);
     return { child, ...ready };
   }
@@ -469,10 +623,14 @@ export class ExecutionFixture {
     await rm(this.base, { recursive: true, force: true });
   }
 
-  private spawnHost(stderr: 'inherit' | 'ignore', execArgv?: readonly string[]): ChildProcess {
+  private spawnHost(
+    stderr: 'inherit' | 'ignore',
+    execArgv?: readonly string[],
+    idleGraceMs = 60_000,
+  ): ChildProcess {
     const child = fork(
       new URL('../fixtures/execution-host.js', import.meta.url),
-      [this.root, this.capability.rootId, '60000'],
+      [this.root, this.capability.rootId, String(idleGraceMs)],
       {
         stdio: ['ignore', 'ignore', stderr, 'ipc'],
         env: {

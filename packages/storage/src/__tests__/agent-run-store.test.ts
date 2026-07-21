@@ -12,6 +12,8 @@ describe('AgentRunStore', () => {
       const first = makeHeader({
         runId: 'run-1',
         invocationId: 'invocation-1',
+        automationId: 'automation-1',
+        automationFireId: 'fire-1',
         createdAt: 1,
         updatedAt: 1,
       });
@@ -29,6 +31,8 @@ describe('AgentRunStore', () => {
       assert.equal(read.status, 'completed');
       assert.equal(read.completedAt, 10);
       assert.equal(read.invocationId, 'invocation-1');
+      assert.equal(read.automationId, 'automation-1');
+      assert.equal(read.automationFireId, 'fire-1');
       assert.deepEqual(
         (await store.listSessionRuns('session-1')).map((run) => run.runId),
         ['run-1', 'run-2'],
@@ -114,7 +118,11 @@ describe('AgentRunStore', () => {
   it('rejects malformed optional run header fields', async () => {
     await withStore(async (store, root) => {
       const runPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json');
-      for (const patch of [{ automationId: 42 }, { abortSource: false }]) {
+      for (const patch of [
+        { automationId: 42 },
+        { automationFireId: 42 },
+        { abortSource: false },
+      ]) {
         await mkdir(dirname(runPath), { recursive: true });
         await writeFile(runPath, JSON.stringify({ ...makeHeader(), ...patch }) + '\n', 'utf8');
         await assert.rejects(

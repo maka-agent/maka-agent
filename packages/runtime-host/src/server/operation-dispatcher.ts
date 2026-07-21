@@ -48,6 +48,7 @@ export type SkillCatalogOperationKey = Extract<OperationKey, `skill.catalog.${st
 export type TaskLedgerOperationKey = Extract<OperationKey, 'task.ledger.query'>;
 export type ArtifactOperationKey = Extract<OperationKey, `artifact.${string}`>;
 export type MemoryOperationKey = Extract<OperationKey, `memory.${string}`>;
+export type AutomationOperationKey = Extract<OperationKey, `automation.${string}`>;
 export type RuntimeResourceOperationKey = Extract<
   OperationKey,
   `resource.${string}` | `pty.${string}`
@@ -66,6 +67,7 @@ export type SkillCatalogOperationHandlerMap = Pick<OperationHandlerMap, SkillCat
 export type TaskLedgerOperationHandlerMap = Pick<OperationHandlerMap, TaskLedgerOperationKey>;
 export type ArtifactOperationHandlerMap = Pick<OperationHandlerMap, ArtifactOperationKey>;
 export type MemoryOperationHandlerMap = Pick<OperationHandlerMap, MemoryOperationKey>;
+export type AutomationOperationHandlerMap = Pick<OperationHandlerMap, AutomationOperationKey>;
 export type RuntimeResourceOperationHandlerMap = Pick<
   OperationHandlerMap,
   RuntimeResourceOperationKey

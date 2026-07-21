@@ -9,7 +9,12 @@
 
 import { z } from 'zod';
 import type { MakaTool } from './tool-runtime.js';
-import type { AutomationManager, AutomationDefinition } from './automation-state.js';
+import type { AutomationManager } from './automation-state.js';
+import {
+  createAutomationManagerToolService,
+  type AutomationToolProjection,
+  type AutomationToolService,
+} from './automation-tool-service.js';
 
 export const AUTOMATION_TOOL_NAME = 'Automation';
 
@@ -18,6 +23,12 @@ export interface AutomationToolDeps {
   onAutomationChange?: () => void;
   /** Whether the host can run cron (fresh-session) automations. When false, the
    *  cron kind is not advertised and is rejected at creation. */
+  cronEnabled?: boolean;
+}
+
+export interface AutomationServiceToolDeps {
+  automationService: AutomationToolService;
+  /** Whether the host can run cron (fresh-session) automations. */
   cronEnabled?: boolean;
 }
 
@@ -121,6 +132,15 @@ const AUTOMATION_SCHEMA_HEARTBEAT_ONLY = makeAutomationSchema(
 type AutomationInput = z.infer<typeof AUTOMATION_SCHEMA_WITH_CRON>;
 
 export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<AutomationInput, string> {
+  return buildAutomationToolFromService({
+    automationService: createAutomationManagerToolService(deps),
+    cronEnabled: deps.cronEnabled,
+  });
+}
+
+export function buildAutomationToolFromService(
+  deps: AutomationServiceToolDeps,
+): MakaTool<AutomationInput, string> {
   const cronEnabled = deps.cronEnabled === true;
   return {
     name: AUTOMATION_TOOL_NAME,
@@ -134,121 +154,105 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
       'Automations auto-expire after 7 days unless deleted earlier.',
     parameters: cronEnabled ? AUTOMATION_SCHEMA_WITH_CRON : AUTOMATION_SCHEMA_HEARTBEAT_ONLY,
     permissionRequired: false,
-    impl: (input, ctx) => {
-      let result: string;
-      switch (input.mode) {
-        case 'create':
-          result = handleCreate(deps, input, ctx.sessionId, cronEnabled);
-          break;
-        case 'delete':
-          result = handleById(input, (id) =>
-            deps.automationManager.delete(id, ctx.sessionId)
-              ? `Automation "${id}" deleted.`
-              : `Automation "${id}" not found or not owned by this session.`,
-          );
-          break;
-        case 'list':
-          return handleList(deps, ctx.sessionId);
-        case 'pause': {
-          result = handleById(input, (id) => {
-            const r = deps.automationManager.pause(id, ctx.sessionId);
-            return r
-              ? `Automation "${r.name}" paused. Use mode "resume" to reactivate.`
-              : `Cannot pause "${id}": not found, not owned, or not active.`;
-          });
-          break;
-        }
-        case 'resume': {
-          result = handleById(input, (id) => {
-            const r = deps.automationManager.resume(id, ctx.sessionId);
-            if (r) {
-              return `Automation "${r.name}" resumed. Next fire: ${r.nextFireAt ? new Date(r.nextFireAt).toLocaleString() : 'N/A'}`;
-            }
-            // Distinguish a spent fire budget from other resume failures so the
-            // agent doesn't keep retrying a cap that can never be revived.
-            const existing = deps.automationManager.get(id);
-            if (existing && existing.status === 'paused') {
-              const spent =
-                (existing.maxFires != null && existing.fireCount >= existing.maxFires) ||
-                (existing.schedule.type === 'once' && existing.fireCount > 0);
-              if (spent) {
-                return `Cannot resume "${id}": its fire budget is exhausted (fired ${existing.fireCount}${existing.maxFires != null ? `/${existing.maxFires}` : ''} time(s)). Create a new automation instead.`;
-              }
-            }
-            return `Cannot resume "${id}": not found, not owned, or not paused.`;
-          });
-          break;
-        }
+    impl: async (input, ctx) => {
+      try {
+        return await executeAutomationTool(
+          deps.automationService,
+          input,
+          ctx.sessionId,
+          cronEnabled,
+        );
+      } catch {
+        return 'Error: Automation service request failed.';
       }
-      deps.onAutomationChange?.();
-      return result;
     },
   };
 }
 
-function handleById(input: AutomationInput, run: (id: string) => string): string {
-  if (!input.id) return 'Error: "id" is required for delete/pause/resume.';
-  return run(input.id);
-}
-
-function handleCreate(
-  deps: AutomationToolDeps,
+async function executeAutomationTool(
+  service: AutomationToolService,
   input: AutomationInput,
   sessionId: string,
   cronEnabled: boolean,
-): string {
-  if (!input.kind) return 'Error: "kind" is required for create.';
-  if (!input.name) return 'Error: "name" is required for create.';
-  if (!input.prompt) return 'Error: "prompt" is required for create.';
-  if (!input.schedule) return 'Error: "schedule" is required for create.';
-  if (input.kind === 'cron' && !cronEnabled) {
-    return 'Error: cron automations are not supported on this host. Use kind "heartbeat".';
+): Promise<string> {
+  const requester = { sessionId };
+  switch (input.mode) {
+    case 'create': {
+      if (!input.kind) return 'Error: "kind" is required for create.';
+      if (!input.name) return 'Error: "name" is required for create.';
+      if (!input.prompt) return 'Error: "prompt" is required for create.';
+      if (!input.schedule) return 'Error: "schedule" is required for create.';
+      if (input.kind === 'cron' && !cronEnabled) {
+        return 'Error: cron automations are not supported on this host. Use kind "heartbeat".';
+      }
+      const schedule =
+        input.schedule.type === 'once'
+          ? { type: 'once' as const, delaySeconds: input.schedule.delay_seconds }
+          : input.schedule;
+      const result = await service.create({
+        requester,
+        kind: input.kind as 'heartbeat' | 'cron',
+        name: input.name,
+        prompt: input.prompt,
+        schedule,
+        maxFires: input.max_fires,
+        durable: input.durable,
+      });
+      return result.outcome === 'created'
+        ? formatCreatedAutomation(result.automation)
+        : `Error: ${result.error}`;
+    }
+    case 'delete': {
+      if (!input.id) return 'Error: "id" is required for delete/pause/resume.';
+      const result = await service.delete({ requester, id: input.id });
+      return result.outcome === 'deleted'
+        ? `Automation "${input.id}" deleted.`
+        : `Automation "${input.id}" not found or not owned by this session.`;
+    }
+    case 'list': {
+      const automations = await service.list({ requester });
+      return automations.length === 0
+        ? 'No automations for this session.'
+        : automations.map(formatAutomation).join('\n---\n');
+    }
+    case 'pause': {
+      if (!input.id) return 'Error: "id" is required for delete/pause/resume.';
+      const result = await service.pause({ requester, id: input.id });
+      return result.outcome === 'paused'
+        ? `Automation "${result.automation.name}" paused. Use mode "resume" to reactivate.`
+        : `Cannot pause "${input.id}": not found, not owned, or not active.`;
+    }
+    case 'resume': {
+      if (!input.id) return 'Error: "id" is required for delete/pause/resume.';
+      const result = await service.resume({ requester, id: input.id });
+      if (result.outcome === 'resumed') {
+        return `Automation "${result.automation.name}" resumed. Next fire: ${result.automation.nextFireAt ? new Date(result.automation.nextFireAt).toLocaleString() : 'N/A'}`;
+      }
+      if (result.outcome === 'fire_budget_exhausted') {
+        const automation = result.automation;
+        return `Cannot resume "${input.id}": its fire budget is exhausted (fired ${automation.fireCount}${automation.maxFires != null ? `/${automation.maxFires}` : ''} time(s)). Create a new automation instead.`;
+      }
+      return `Cannot resume "${input.id}": not found, not owned, or not paused.`;
+    }
   }
-  const schedule =
-    input.schedule.type === 'once'
-      ? { type: 'once' as const, delaySeconds: input.schedule.delay_seconds }
-      : input.schedule;
+}
 
-  const result = deps.automationManager.create({
-    kind: input.kind as 'heartbeat' | 'cron',
-    name: input.name,
-    prompt: input.prompt,
-    sessionId,
-    schedule,
-    maxFires: input.max_fires,
-    durable: input.durable,
-  });
-
-  if ('error' in result) {
-    return `Error: ${result.error}`;
-  }
-
-  const scheduleDesc = describeSchedule(result.schedule);
+function formatCreatedAutomation(automation: AutomationToolProjection): string {
   return [
-    `Automation created: "${result.name}" (${result.kind}${result.durable ? ', durable' : ''})`,
-    `ID: ${result.id}`,
-    `Schedule: ${scheduleDesc}`,
-    `Next fire: ${result.nextFireAt ? new Date(result.nextFireAt).toLocaleString() : 'N/A'}`,
-    result.kind === 'heartbeat'
+    `Automation created: "${automation.name}" (${automation.kind}${automation.durable ? ', durable' : ''})`,
+    `ID: ${automation.id}`,
+    `Schedule: ${describeSchedule(automation.schedule)}`,
+    `Next fire: ${automation.nextFireAt ? new Date(automation.nextFireAt).toLocaleString() : 'N/A'}`,
+    automation.kind === 'heartbeat'
       ? 'Fires into this session. Stops when session ends or after 7 days.'
       : 'Creates a fresh session each run. Expires after 7 days.',
   ].join('\n');
 }
 
-function handleList(deps: AutomationToolDeps, sessionId: string): string {
-  // Includes this session's automations plus every durable (app-global) one,
-  // so persisted cron jobs stay queryable and manageable after a restart even
-  // from a fresh session.
-  const automations = deps.automationManager.listVisibleForSession(sessionId);
-  if (automations.length === 0) return 'No automations for this session.';
-
-  return automations.map((a) => formatAutomation(a)).join('\n---\n');
-}
-
-function formatAutomation(a: AutomationDefinition): string {
+function formatAutomation(a: AutomationToolProjection): string {
   // Fire attempts (fireCount) + idle-gate deferrals are model-facing
   // observability, mirroring the old CronList's fire_attempts/deferred_fires.
-  const deferred = a.deferredFireCount ?? 0;
+  const deferred = a.deferredFireCount;
   const lines = [
     `[${a.status.toUpperCase()}] ${a.name} (${a.kind}${a.durable ? ', durable' : ''})`,
     `  ID: ${a.id}`,
@@ -262,7 +266,7 @@ function formatAutomation(a: AutomationDefinition): string {
   return lines.join('\n');
 }
 
-function describeSchedule(schedule: AutomationDefinition['schedule']): string {
+function describeSchedule(schedule: AutomationToolProjection['schedule']): string {
   switch (schedule.type) {
     case 'cron':
       return `cron "${schedule.expression}"`;

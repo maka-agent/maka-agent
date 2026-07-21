@@ -23,6 +23,7 @@ import {
 } from '@maka/core';
 import {
   createAgentRunStore,
+  ROOT_TURN_ADMISSION_SCHEMA_VERSION,
   ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES,
   ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES,
 } from '../agent-run-store.js';
@@ -202,7 +203,7 @@ describe('execution stores', () => {
           admittedAt: 10,
         });
         assert.equal(first.kind, 'admitted');
-        assert.equal(first.admission.schemaVersion, 4);
+        assert.equal(first.admission.schemaVersion, ROOT_TURN_ADMISSION_SCHEMA_VERSION);
         assert.equal(Object.isFrozen(first.admission), true);
         assert.equal(Object.isFrozen(first.admission.normalizedInput), true);
         assert.equal(Object.isFrozen(first.admission.normalizedInput.attachments), true);
@@ -335,6 +336,75 @@ describe('execution stores', () => {
             'utf8',
           ),
           bytes,
+        );
+      } finally {
+        await owner.close();
+      }
+    });
+  });
+
+  test('binds an admitted root Turn to one durable Automation fire identity', async () => {
+    await withRoot(async ({ root }) => {
+      const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      if (!owner) return;
+      try {
+        const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+        const session = await stores.sessionStore.create(sessionInput(root));
+        const input = {
+          sessionId: session.id,
+          turnId: 'automation-turn',
+          proposedRunId: 'automation-run',
+          proposedUserMessageId: 'automation-message',
+          previousRootTurnId: null,
+          normalizedInput: { text: 'scheduled work' },
+          sourceMessages: [],
+          origin: {
+            kind: 'automation' as const,
+            automationId: 'automation-1',
+            fireId: 'fire-1',
+          },
+          admittedAt: 10,
+        };
+
+        const admitted = await stores.agentRunStore.admitRootTurn(input);
+        assert.equal(admitted.kind, 'admitted');
+        assert.deepEqual(admitted.admission.origin, input.origin);
+        assert.equal(Object.isFrozen(admitted.admission.origin), true);
+        assert.deepEqual(
+          (await stores.agentRunStore.readRootTurnAdmission(session.id, input.turnId))?.origin,
+          input.origin,
+        );
+
+        const retry = await stores.agentRunStore.admitRootTurn({
+          ...input,
+          proposedRunId: 'unused-retry-run',
+          proposedUserMessageId: 'unused-retry-message',
+          admittedAt: 20,
+        });
+        assert.equal(retry.kind, 'existing');
+        assert.equal(retry.admission.runId, input.proposedRunId);
+
+        const conflictingFire = await stores.agentRunStore.admitRootTurn({
+          ...input,
+          origin: { ...input.origin, fireId: 'fire-2' },
+        });
+        assert.equal(conflictingFire.kind, 'conflict');
+
+        await assert.rejects(
+          () =>
+            stores.agentRunStore.admitRootTurn({
+              ...input,
+              turnId: 'automation-turn-without-fire',
+              proposedRunId: 'automation-run-without-fire',
+              proposedUserMessageId: 'automation-message-without-fire',
+              origin: {
+                kind: 'automation',
+                automationId: 'automation-1',
+              },
+            }),
+          /Invalid root turn origin/,
         );
       } finally {
         await owner.close();

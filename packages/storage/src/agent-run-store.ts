@@ -40,12 +40,13 @@ import {
   type RuntimeEventStore,
   type ToolRecoveryMode,
 } from '@maka/core';
+import type { TurnOrigin } from '@maka/core/runtime-inputs';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
-export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 4 as const;
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 5 as const;
 export const ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES = 64;
 export const ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES = 64 * 1024;
 const ROOT_TURN_ADMISSION_MAX_AGGREGATED_ATTACHMENTS =
@@ -67,6 +68,7 @@ export interface RootTurnAdmission {
   previousRootTurnId: string | null;
   normalizedInput: MessageContent;
   sourceMessages: readonly RootTurnSourceMessage[];
+  origin?: TurnOrigin;
   admittedAt: number;
 }
 
@@ -78,6 +80,7 @@ export interface AdmitRootTurnInput {
   previousRootTurnId: string | null;
   normalizedInput: MessageContent;
   sourceMessages: readonly RootTurnSourceMessage[];
+  origin?: TurnOrigin;
   admittedAt: number;
 }
 
@@ -220,6 +223,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       input.normalizedInput,
       input.sourceMessages,
     );
+    const origin = normalizeRootTurnOrigin(input.origin);
     if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
       throw new Error('Invalid root turn admission timestamp');
     }
@@ -232,6 +236,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       previousRootTurnId: input.previousRootTurnId,
       normalizedInput,
       sourceMessages,
+      ...(origin ? { origin } : {}),
       admittedAt: input.admittedAt,
     });
     const path = this.rootTurnAdmissionPath(input.sessionId, input.turnId);
@@ -1796,6 +1801,7 @@ function normalizeRootTurnAdmission(
       'previousRootTurnId',
       'normalizedInput',
       'sourceMessages',
+      ...(record.origin === undefined ? [] : ['origin']),
       'admittedAt',
     ]);
   if (!valid) {
@@ -1805,6 +1811,7 @@ function normalizeRootTurnAdmission(
     record.normalizedInput,
     record.sourceMessages,
   );
+  const origin = normalizeRootTurnOrigin(record.origin);
   return deepFreezeRootTurnAdmission({
     schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
     sessionId,
@@ -1814,7 +1821,28 @@ function normalizeRootTurnAdmission(
     previousRootTurnId: record.previousRootTurnId as string | null,
     normalizedInput,
     sourceMessages,
+    ...(origin ? { origin } : {}),
     admittedAt: record.admittedAt as number,
+  });
+}
+
+function normalizeRootTurnOrigin(value: unknown): TurnOrigin | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !isPlainRecord(value) ||
+    value.kind !== 'automation' ||
+    typeof value.automationId !== 'string' ||
+    !isSafeId(value.automationId) ||
+    typeof value.fireId !== 'string' ||
+    !isSafeId(value.fireId) ||
+    !hasExactKeys(value, ['kind', 'automationId', 'fireId'])
+  ) {
+    throw new Error('Invalid root turn origin');
+  }
+  return Object.freeze({
+    kind: 'automation' as const,
+    automationId: value.automationId,
+    fireId: value.fireId,
   });
 }
 
@@ -2030,6 +2058,7 @@ function rootTurnAdmissionPayloadsEqual(
 ): boolean {
   return (
     messageContentsEqual(left.normalizedInput, right.normalizedInput) &&
+    rootTurnOriginsEqual(left.origin, right.origin) &&
     left.sourceMessages.length === right.sourceMessages.length &&
     left.sourceMessages.every((source, index) => {
       const other = right.sourceMessages[index];
@@ -2044,12 +2073,21 @@ function rootTurnAdmissionPayloadsEqual(
   );
 }
 
+function rootTurnOriginsEqual(left: TurnOrigin | undefined, right: TurnOrigin | undefined): boolean {
+  return (
+    left?.kind === right?.kind &&
+    left?.automationId === right?.automationId &&
+    left?.fireId === right?.fireId
+  );
+}
+
 function deepFreezeRootTurnAdmission(admission: RootTurnAdmission): RootTurnAdmission {
   deepFreezeRootTurnMessageContent(admission.normalizedInput);
   for (const sourceMessage of admission.sourceMessages) {
     deepFreezeRootTurnMessageContent(sourceMessage.content);
     Object.freeze(sourceMessage);
   }
+  if (admission.origin) Object.freeze(admission.origin);
   Object.freeze(admission.sourceMessages);
   return Object.freeze(admission);
 }

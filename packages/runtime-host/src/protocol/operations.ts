@@ -1,4 +1,5 @@
 import { ARTIFACT_OPERATION_SPECS } from './artifact.js';
+import { AUTOMATION_OPERATION_SPECS } from './automation.js';
 import { requireExactRecord, requireId, requireRecord, requireString } from './codec.js';
 import { invalidProtocolFrame } from './errors.js';
 import { HOST_STATUS_OPERATION_SPECS } from './host-status.js';
@@ -34,6 +35,22 @@ export {
   MEMORY_TITLE_MAX_BYTES,
 } from './memory.js';
 
+export type {
+  AutomationCatalogRevision,
+  AutomationCurrentFireSummary,
+  AutomationDefinitionInput,
+  AutomationExecutionTarget,
+  AutomationLastFireSummary,
+  AutomationMutateInput,
+  AutomationMutateResult,
+  AutomationMutation,
+  AutomationProjection,
+  AutomationQueryInput,
+  AutomationQueryResult,
+  AutomationRevision,
+  AutomationSchedule,
+  AutomationThinkingLevel,
+} from './automation.js';
 export type {
   MemoryBlockedReason,
   MemoryEntryStatus,
@@ -177,6 +194,25 @@ export type {
   UsageLogProjection,
 } from './usage-pricing.js';
 export {
+  AUTOMATION_CRON_EXPRESSION_MAX_BYTES,
+  AUTOMATION_CURSOR_MAX_BYTES,
+  AUTOMATION_CWD_MAX_BYTES,
+  AUTOMATION_FIRE_FAILURE_MAX_BYTES,
+  AUTOMATION_MAX_FIRES,
+  AUTOMATION_NAME_MAX_BYTES,
+  AUTOMATION_MODEL_MAX_BYTES,
+  AUTOMATION_PAGE_MAX_BYTES,
+  AUTOMATION_PAGE_MAX_ITEMS,
+  AUTOMATION_PROMPT_MAX_BYTES,
+  AUTOMATION_SCHEDULE_SECONDS_MAX,
+  decodeAutomationMutateInput,
+  decodeAutomationMutateResult,
+  decodeAutomationQueryInput,
+  decodeAutomationQueryResult,
+  encodeAutomationMutateResult,
+  encodeAutomationQueryResult,
+} from './automation.js';
+export {
   ARTIFACT_CURSOR_MAX_BYTES,
   ARTIFACT_MIME_TYPE_MAX_BYTES,
   ARTIFACT_NAME_MAX_BYTES,
@@ -302,13 +338,18 @@ const HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS = composeOperationSpecMaps(
   MEMORY_OPERATION_SPECS,
 );
 
-const HOST_MEMORY_AND_RESOURCE_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_MEMORY_AND_AUTOMATION_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS,
+  AUTOMATION_OPERATION_SPECS,
+);
+
+const HOST_AUTOMATION_AND_RESOURCE_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_MEMORY_AND_AUTOMATION_OPERATION_SPECS,
   RUNTIME_RESOURCE_OPERATION_SPECS,
 );
 
 export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
-  HOST_MEMORY_AND_RESOURCE_OPERATION_SPECS,
+  HOST_AUTOMATION_AND_RESOURCE_OPERATION_SPECS,
   USAGE_PRICING_OPERATION_SPECS,
 );
 

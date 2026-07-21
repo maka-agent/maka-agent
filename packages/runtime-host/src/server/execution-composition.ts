@@ -17,7 +17,10 @@ import {
   type RuntimeMessageRunOwner,
   SessionManager,
 } from '@maka/runtime';
-import { createReadImageSnapshotter } from '@maka/storage';
+import {
+  createReadImageSnapshotter,
+  openInteractiveAutomationStoreForWrite,
+} from '@maka/storage';
 import { openInteractiveArtifactStoreForWrite } from '@maka/storage/artifact-stores';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveMemoryStoreForWrite } from '@maka/storage/memory-store';
@@ -34,6 +37,7 @@ import type {
   RuntimeHostFailStopDisposition,
 } from './host-kernel.js';
 import { HostArtifactCoordinator } from './artifact-coordinator.js';
+import { HostAutomationCoordinator } from './automation-coordinator.js';
 import { HostInteractionAuthority } from './interaction-coordinator.js';
 import { HostMessageCoordinator, type HostMessageRootPort } from './message-coordinator.js';
 import { HostMemoryCoordinator } from './memory-coordinator.js';
@@ -56,6 +60,7 @@ export async function createExecutionRuntimeHostComposition(
   const runtimePolicyStores = await openInteractiveRuntimePolicyStoresForWrite(context.owner.lease);
   const taskLedgerStore = await openInteractiveTaskLedgerStoreForWrite(context.owner.lease);
   const artifactStore = await openInteractiveArtifactStoreForWrite(context.owner.lease);
+  const automationStore = await openInteractiveAutomationStoreForWrite(context.owner.lease);
   const memoryStore = await openInteractiveMemoryStoreForWrite(context.owner.lease);
   const usageStores = await openInteractiveUsageStoresForWrite(context.owner.lease);
   const shellRunStore = await openInteractiveShellRunStoreForWrite(context.owner.lease);
@@ -141,6 +146,7 @@ export async function createExecutionRuntimeHostComposition(
     (error) => failStopHandoff(error),
   );
   let coordinator: RootTurnCoordinator | undefined;
+  let automation: HostAutomationCoordinator | undefined;
   const rootPort: HostMessageRootPort = {
     readSessionHeader: (sessionId) =>
       requireRootCoordinator(coordinator).readSessionHeader(sessionId),
@@ -186,6 +192,7 @@ export async function createExecutionRuntimeHostComposition(
   backends.register('ai-sdk', (backendContext) =>
     createHostAiSdkBackend({
       context: backendContext,
+      automationService: requireAutomationCoordinator(automation),
       runtimePolicy: runtimePolicyStores,
       skills,
       memory,
@@ -225,6 +232,16 @@ export async function createExecutionRuntimeHostComposition(
     messageCoordinator,
   );
   coordinator = rootCoordinator;
+  automation = new HostAutomationCoordinator({
+    store: automationStore,
+    executionStores: stores,
+    root: rootCoordinator,
+    sessionAdmission,
+    acquireResidency: context.acquireResidency,
+    requestDrain: context.requestDrain,
+    newId: randomUUID,
+    now: Date.now,
+  });
   let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
   let usageDrain: Promise<void> | undefined;
   let artifactDrain: Promise<void> | undefined;
@@ -245,6 +262,7 @@ export async function createExecutionRuntimeHostComposition(
     return memoryDrain;
   };
   const beginRuntimeDrain = () => {
+    automation.beginDrain();
     beginArtifactDrain();
     beginMemoryDrain();
     beginUsageDrain();
@@ -260,6 +278,12 @@ export async function createExecutionRuntimeHostComposition(
   failStopHandoff = (error) => {
     if (failStopDisposition) return;
     const handoffFailures: unknown[] = [];
+    let reclaimAutomation = () => {};
+    try {
+      reclaimAutomation = automation.prepareFailStopReclaim();
+    } catch (handoffFailure) {
+      handoffFailures.push(handoffFailure);
+    }
     try {
       beginArtifactDrain();
       beginMemoryDrain();
@@ -312,6 +336,7 @@ export async function createExecutionRuntimeHostComposition(
         if (reclaimed) return;
         reclaimed = true;
         interaction.reclaimAfterOwnerIsolation();
+        reclaimAutomation();
         reclaimMessages();
         reclaimRoot();
       },
@@ -323,6 +348,7 @@ export async function createExecutionRuntimeHostComposition(
   return {
     handlers: combineDomainOperationHandlers(
       rootCoordinator.handlers,
+      automation.handlers,
       messageCoordinator.handlers,
       interaction.handlers,
       continuity.handlers,
@@ -337,6 +363,7 @@ export async function createExecutionRuntimeHostComposition(
     continuity,
     onConnectionSettled: (connectionId) => resources.releaseConnection(connectionId),
     beginDrain: () => {
+      automation.beginDrain();
       beginArtifactDrain();
       beginMemoryDrain();
       beginUsageDrain();
@@ -361,6 +388,8 @@ export async function createExecutionRuntimeHostComposition(
         shellRunsAlreadyRecovered: true,
       });
       await rootCoordinator.recover();
+      await automation.recover();
+      await automation.startScheduler();
     },
     close: () => {
       if (failStopDisposition) {
@@ -370,6 +399,7 @@ export async function createExecutionRuntimeHostComposition(
       const drain = beginRuntimeDrain();
       closeTask ??= closeComposition(
         rootCoordinator,
+        automation,
         messageCoordinator,
         interaction,
         continuity,
@@ -428,6 +458,7 @@ export function createHostFilesystemWorkerLaunchSpecProvider(
 
 async function closeComposition(
   coordinator: RootTurnCoordinator,
+  automation: HostAutomationCoordinator,
   messages: HostMessageCoordinator,
   interaction: HostInteractionAuthority,
   continuity: SessionContinuityCoordinator,
@@ -447,6 +478,7 @@ async function closeComposition(
 
   const normalClose = closeNormally(
     coordinator,
+    automation,
     messages,
     interaction,
     continuity,
@@ -480,6 +512,7 @@ async function closeComposition(
 
 async function closeNormally(
   coordinator: RootTurnCoordinator,
+  automation: HostAutomationCoordinator,
   messages: HostMessageCoordinator,
   interaction: HostInteractionAuthority,
   continuity: SessionContinuityCoordinator,
@@ -494,6 +527,7 @@ async function closeNormally(
   try {
     const outcomes = await Promise.allSettled([
       coordinator.close(),
+      automation.close(),
       runtimeDrain.ownerIsolationDrain,
       runtimeDrain.reclaimDrain,
       resources.close(),
@@ -533,6 +567,13 @@ function requireFailStopDisposition(
 function requireMessages(messages: HostMessageCoordinator | undefined): HostMessageCoordinator {
   if (!messages) throw new Error('Runtime Host Message coordinator is not bound');
   return messages;
+}
+
+function requireAutomationCoordinator(
+  automation: HostAutomationCoordinator | undefined,
+): HostAutomationCoordinator {
+  if (!automation) throw new Error('Runtime Host Automation coordinator is not bound');
+  return automation;
 }
 
 function requireRootCoordinator(coordinator: RootTurnCoordinator | undefined): RootTurnCoordinator {
