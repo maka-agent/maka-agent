@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
@@ -73,7 +74,8 @@ const TRIAL_REWARD = 'verifier/reward.txt';
 const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
 const TRIAL_VERIFIER_OUTCOME = 'verifier/maka-verifier-outcome.json';
 const TRIAL_RESULT = 'result.json';
-const TRIAL_TRACE_EVENTS_ROOT = 'agent/maka-storage/sessions';
+const TRIAL_TASK_RUN_TRACE_EVENTS_ROOT = 'agent/maka-task-run/runs/sessions';
+const TRIAL_LEGACY_TRACE_EVENTS_ROOT = 'agent/maka-storage/sessions';
 const PROVIDER_REQUEST_TELEMETRY = 'provider-request-telemetry.json';
 
 /** A Harbor-side failure (build/docker/timeout/missing artifact) — NOT a benchmark
@@ -573,14 +575,12 @@ function hostTraceEventsPath(
   hostEventsPath: string,
 ): string {
   if (agent !== undefined && agent !== 'maka') return hostEventsPath;
-  return join(
-    trialDir,
-    TRIAL_TRACE_EVENTS_ROOT,
-    cell.runtimeRefs.sessionId,
-    'runs',
-    cell.runtimeRefs.runId,
-    'events.jsonl',
-  );
+  const traceSuffix = [cell.runtimeRefs.sessionId, 'runs', cell.runtimeRefs.runId, 'events.jsonl'];
+  const traceCandidates = [
+    join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS_ROOT, ...traceSuffix),
+    join(trialDir, TRIAL_LEGACY_TRACE_EVENTS_ROOT, ...traceSuffix),
+  ];
+  return traceCandidates.find((path) => existsSync(path)) ?? hostEventsPath;
 }
 
 function cellArtifactRefs(

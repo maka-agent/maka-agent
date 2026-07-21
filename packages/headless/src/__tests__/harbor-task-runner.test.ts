@@ -94,6 +94,7 @@ interface FakeOptions {
   verifierOutcome?: Record<string, unknown> | null;
   trialResult?: Record<string, unknown>;
   makaTrace?: boolean;
+  taskRunTrace?: boolean;
   captured?: { config?: Record<string, unknown>; request?: HarborRunRequest };
 }
 
@@ -188,6 +189,27 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
         'utf8',
       );
     }
+    if (opts.taskRunTrace) {
+      await mkdir(
+        join(trialDir, 'agent', 'maka-task-run', 'runs', 'sessions', 'sess', 'runs', 'run'),
+        { recursive: true },
+      );
+      await writeFile(
+        join(
+          trialDir,
+          'agent',
+          'maka-task-run',
+          'runs',
+          'sessions',
+          'sess',
+          'runs',
+          'run',
+          'events.jsonl',
+        ),
+        '{"type":"task_run_tool_failed"}\n',
+        'utf8',
+      );
+    }
     return {
       exitCode: opts.exitCodeAfterArtifacts ?? 0,
       stdout: opts.exitCodeAfterArtifacts ? '' : 'ok',
@@ -248,6 +270,29 @@ describe('createHarborTaskRunner', () => {
         /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/maka-storage\/sessions\/sess\/runs\/run\/events\.jsonl$/,
       );
       assert.doesNotMatch(output.cell.traceEventsPath ?? '', /^\/logs\//);
+    });
+  });
+
+  test('uses the task-run trace when the cell stores sessions under its task-run root', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        provider: 'deepseek',
+        apiKeyFile: keyFile,
+        runHarbor: fakeRunner({ reward: '1\n', makaTrace: false, taskRunTrace: true }),
+      });
+
+      const output = await runner(runInput());
+      assert.match(
+        output.cell.traceEventsPath ?? '',
+        /agent\/maka-task-run\/runs\/sessions\/sess\/runs\/run\/events\.jsonl$/,
+      );
+      assert.equal(
+        await readFile(output.cell.traceEventsPath ?? '', 'utf8'),
+        '{"type":"task_run_tool_failed"}\n',
+      );
     });
   });
 
