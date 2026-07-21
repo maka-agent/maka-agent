@@ -26,13 +26,16 @@ export interface ProxySettings {
   bypassList: string[];
 }
 
-export interface NetworkSettings {
+export interface RuntimeNetworkSettings {
   proxy: ProxySettings;
   timeout: number;
   retryAttempts: number;
   userAgent?: string;
   preferIpv4: boolean;
 }
+
+/** @deprecated Use RuntimeNetworkSettings for the runtime network contract. */
+export type NetworkSettings = RuntimeNetworkSettings;
 
 export const PROXY_DEFAULTS: ProxySettings = {
   enabled: false,
@@ -42,7 +45,7 @@ export const PROXY_DEFAULTS: ProxySettings = {
   bypassList: ['localhost', '127.0.0.1', '::1', '*.local'],
 };
 
-export const NETWORK_DEFAULTS: NetworkSettings = {
+export const NETWORK_DEFAULTS: RuntimeNetworkSettings = {
   proxy: PROXY_DEFAULTS,
   timeout: 30_000,
   retryAttempts: 3,

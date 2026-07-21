@@ -12,6 +12,7 @@ import {
   buildChildAgentTools,
   buildProviderOptions,
   buildSubscriptionModelFetch,
+  createProviderRequestCaptureRecorder,
   getAIModel,
   getBuiltinPricing,
   loadSynthesisCacheBlocksFromArtifacts,
@@ -25,19 +26,19 @@ import {
   createArtifactStore,
   createRuntimeEventStore,
   createSessionStore,
+  persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import { registerFakeBackend } from './backends.js';
 import {
   buildHarborCellOutput,
   countRuntimeSteps,
-  hashHarborSystemPrompt,
   validateHarborCellOutput,
   type HarborCellContextBudgetPolicySnapshot,
   type HarborCellOutput,
 } from './cell-output.js';
 import type { Config, Task } from './contracts.js';
-import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-policy.js';
-import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-task-policy.js';
+import { resolveHeavyTaskMode } from './heavy-task-policy.js';
+import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
@@ -45,6 +46,7 @@ import { providerFromEnv, resolveHarborCellAiSdkEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from './tools.js';
 import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
+import { resolveHeadlessSystemPrompt } from './system-prompts.js';
 import {
   createInMemoryTaskLedgerExperimentStore,
   renderTaskLedgerExperimentReplay,
@@ -251,14 +253,15 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     workspaceDir: input.cwd,
   };
   const heavyTaskMode = resolveHeavyTaskMode(input.config, task);
-  const configAfterHeavy = configWithHeavyTaskPolicy(input.config, heavyTaskMode);
-  const economyTaskMode = resolveEconomyTaskMode(configAfterHeavy, task);
-  const config = configWithEconomyTaskPolicy(configAfterHeavy, economyTaskMode);
+  const economyTaskMode = resolveEconomyTaskMode(input.config, task);
+  const prompt = resolveHeadlessSystemPrompt(input.config, { heavyTaskMode, economyTaskMode });
+  const config = { ...input.config, systemPrompt: prompt.systemPrompt };
   const registerBackends =
     input.registerBackends ?? ((registry: BackendRegistry) => registerFakeBackend(registry));
   await registerBackends(backends, {
     config,
     task,
+    storageRoot: input.storageRoot,
     workspaceDir: input.cwd,
     ...sessionCapabilities.capabilities,
     ...(backendNeedsIsolation(input.config.backend)
@@ -274,7 +277,8 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
     ...(config.thinkingLevel ? { reasoningEffort: config.thinkingLevel } : {}),
-    systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
+    systemPromptMode: prompt.mode,
+    systemPromptHash: prompt.systemPromptHash,
     pricingProfile: input.pricingProfile ?? 'unconfigured',
   };
   await mkdir(input.outputDir, { recursive: true });
@@ -720,13 +724,13 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
-  // Back the synthesis cache with the run-scoped `@maka/storage` artifact store
-  // (blocks land under `{storageRoot}/artifacts/{sessionId}/`, run- and
-  // session-scoped, sharing the same lift as desktop). Only constructed when the
-  // policy is active so a baseline arm stays untouched.
-  const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
-    input.env,
-    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
+  const streamConnectTimeoutMs = positiveIntEnv(
+    input.env.MAKA_STREAM_CONNECT_TIMEOUT_MS,
+    'MAKA_STREAM_CONNECT_TIMEOUT_MS',
+  );
+  const streamIdleTimeoutMs = positiveIntEnv(
+    input.env.MAKA_STREAM_IDLE_TIMEOUT_MS,
+    'MAKA_STREAM_IDLE_TIMEOUT_MS',
   );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
@@ -736,6 +740,13 @@ export function buildAiSdkCellBackendRegistration(input: {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
     }
+    // FileArtifactStore owns an in-memory metadata index, so every artifact
+    // consumer under the run's authoritative storage root shares this instance.
+    const artifactStore = createArtifactStore(context.storageRoot);
+    const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
+      artifactStore,
+      contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
+    );
     registry.register('ai-sdk', (ctx) => {
       const subscriptionFetch = buildSubscriptionModelFetch({
         connection,
@@ -776,7 +787,9 @@ export function buildAiSdkCellBackendRegistration(input: {
           ? (childInput) => context.readChildAgentOutput!(ctx.sessionId, childInput)
           : undefined,
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
-        systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
+        ...(streamConnectTimeoutMs !== undefined ? { streamConnectTimeoutMs } : {}),
+        ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
+        systemPrompt: context.config.systemPrompt,
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
           ? {
               turnTailPrompt: async ({ sessionId }) =>
@@ -792,6 +805,25 @@ export function buildAiSdkCellBackendRegistration(input: {
         newId: input.newId,
         now: input.now,
         recordRunTrace: ctx.recordRunTrace,
+        ...(ctx.recordProviderRequestCapture
+          ? {
+              recordProviderRequestCapture: createProviderRequestCaptureRecorder({
+                persistArtifact: async (capture) => {
+                  const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                    sessionId: ctx.sessionId,
+                    turnId: capture.turnId,
+                    captureId: capture.captureId,
+                    step: capture.step,
+                    serializedRequest: capture.serializedRequest,
+                    now: input.now(),
+                  });
+                  return { artifactId: artifact.id };
+                },
+                recordLedger: ctx.recordProviderRequestCapture,
+              }),
+              recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
+            }
+          : {}),
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
         ...(input.recordUsageCheckpoint
@@ -838,33 +870,14 @@ async function writeHarborCellArtifact(path: string, contents: string): Promise<
 }
 
 function buildHarborCellSynthesisCacheCallbacks(
-  env: RunHarborCellEnv,
+  artifactStore: ReturnType<typeof createArtifactStore>,
   enabled: boolean,
 ): { loadSynthesisCache?: SynthesisCacheLoader; writeSynthesisCache?: SynthesisCacheWriter } {
   if (!enabled) return {};
-  const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
-  const storageRoot = env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage');
-  const artifactStore = createArtifactStore(storageRoot);
   return {
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event),
   };
-}
-
-// When the cell is given an explicit system prompt (MAKA_SYSTEM_PROMPT), it is
-// the complete prompt and is passed through byte-for-byte: the prompt-optimization
-// controller hashes exactly this string and verifies the round-trip against the
-// systemPromptHash the runtime stamps, so any wrapping here would break the check
-// (and make "the prompt being optimized" differ from "the prompt that ran").
-// The built-in preamble is only the default for prompt-less ad-hoc cell runs.
-function harborCellSystemPrompt(configPrompt: string | undefined): string {
-  if (configPrompt !== undefined) return configPrompt;
-  return [
-    'You are Maka Runtime running inside an isolated Harbor benchmark task container.',
-    'Prefer Read, Glob, and Grep for file inspection and search.',
-    'Prefer Edit and Write for file changes.',
-    'Use Bash for running programs, tests, and shell-specific debugging only.',
-  ].join('\n');
 }
 
 // Builtin pricing has no entry for newer DeepSeek models (e.g. deepseek-v4-flash),

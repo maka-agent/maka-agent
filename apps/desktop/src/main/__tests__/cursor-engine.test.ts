@@ -1,182 +1,218 @@
-// Unit tests for the ported agent-cursor engine (palette + Dubins + tick/spring).
-// Pure math — no DOM; `paint()` is exercised only by the visual demo. Faithful to
-// trycua/cua's cursor-overlay Rust source these were ported from.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { CursorEngine } from '../../renderer/computer-use-overlay/engine/cursor-engine.js';
+import {
+  CODEX_CURSOR_GLYPH,
+  CODEX_CURSOR_MOTION,
+  CursorEngine,
+} from '../../renderer/computer-use-overlay/engine/cursor-engine.js';
 import { planDirectPath, planPath } from '../../renderer/computer-use-overlay/engine/dubins.js';
 import { paletteForInstance, defaultPalette, gradientAt } from '../../renderer/computer-use-overlay/engine/palette.js';
 
-const finite = (v: number): boolean => Number.isFinite(v);
-const REST_HEADING = Math.PI / 4;
-const ARROW_TIP_LENGTH = 14;
+const finite = (value: number): boolean => Number.isFinite(value);
 
 test('Dubins path primitive remains finite for legacy callers', () => {
   const path = planPath(0, 0, 0, 400, 200, Math.PI / 4, Math.PI / 4, 80);
-  assert.ok(finite(path.length) && path.length > 0, `length ${path.length}`);
-  const s0 = path.sample(0);
-  assert.ok(Math.hypot(s0.x, s0.y) < 0.01, 'sample(0) == start');
-  const sEnd = path.sample(path.length);
-  assert.ok(Math.hypot(sEnd.x - 400, sEnd.y - 200) < 1.0, `sample(len) ≈ target (err ${Math.hypot(sEnd.x - 400, sEnd.y - 200)})`);
-  let prev = path.sample(0);
-  const N = 400;
-  let maxStep = 0;
-  for (let i = 1; i <= N; i++) {
-    const cur = path.sample((path.length * i) / N);
-    assert.ok(finite(cur.x) && finite(cur.y), 'no NaN along path');
-    maxStep = Math.max(maxStep, Math.hypot(cur.x - prev.x, cur.y - prev.y));
-    prev = cur;
-  }
-  assert.ok(maxStep < (path.length / N) * 3, `continuity: max step ${maxStep}`);
+  assert.ok(finite(path.length) && path.length > 0);
+  const start = path.sample(0);
+  const end = path.sample(path.length);
+  assert.ok(Math.hypot(start.x, start.y) < 0.01);
+  assert.ok(Math.hypot(end.x - 400, end.y - 200) < 1);
 });
 
-test('direct planner is the shortest path and ends exactly at the target', () => {
-  const path = planDirectPath(12, 34, 112, 84, REST_HEADING);
+test('legacy direct planner still ends exactly at the target', () => {
+  const path = planDirectPath(12, 34, 112, 84, Math.PI / 4);
   assert.ok(Math.abs(path.length - Math.hypot(100, 50)) < 0.001);
   const end = path.sample(path.length);
   assert.ok(Math.hypot(end.x - 112, end.y - 84) < 0.001);
 });
 
-test('speed profile peaks at 1.0 at u=0.5 (smootherstep)', () => {
-  const u = 0.5;
-  const profile = (30 * u * u * (1 - u) * (1 - u)) / 1.875;
-  assert.ok(Math.abs(profile - 1.0) < 1e-9, `profile ${profile}`);
+test('recovered Codex cursor constants keep their inspected-build values', () => {
+  assert.equal(CODEX_CURSOR_MOTION.candidateCount, 20);
+  assert.equal(CODEX_CURSOR_MOTION.straightPathDistanceThreshold, 10);
+  assert.equal(CODEX_CURSOR_MOTION.scootDistanceThreshold, 196);
+  assert.equal(CODEX_CURSOR_MOTION.scootStretchXAmount, 0.38);
+  assert.equal(CODEX_CURSOR_MOTION.scootSquashYAmount, 0.18);
+  assert.equal(CODEX_CURSOR_MOTION.terminalTangentBlendStart, 0.99);
+  assert.equal(CODEX_CURSOR_GLYPH.size, 14);
+  assert.deepEqual(CODEX_CURSOR_GLYPH.start, [0.00599, 0.15864]);
 });
 
-test('engine glides directly onto target+offset, no NaN', () => {
-  const e = new CursorEngine();
-  e.setSession('conv-test');
-  const tx = 500, ty = 300;
-  e.moveTo(tx, ty); // center is offset so the 14px arrow tip lands on (tx, ty)
-  const offX = tx + Math.cos(REST_HEADING) * ARROW_TIP_LENGTH;
-  const offY = ty + Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
+test('first appearance uses the requested center hotspot without an off-screen glide', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(400, 300);
+  assert.deepEqual(engine.pos, [400, 300]);
+  assert.equal(engine.hasMotionPath(), false);
+  assert.ok(engine.isMoving(), 'first appearance fades in at the target');
+  for (let frame = 0; frame < 12; frame++) engine.tick(1 / 60);
+  assert.ok(!engine.isMoving());
+});
+
+test('subsequent move spring-settles exactly on the center hotspot', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.moveTo(700, 360);
   let frames = 0;
-  const dt = 1 / 60;
-  while (e.isMoving() && frames < 60 * 8) {
-    e.tick(dt);
-    assert.ok(finite(e.pos[0]) && finite(e.pos[1]) && finite(e.heading), 'no NaN');
+  while (engine.isMoving() && frames < 60 * 8) {
+    engine.tick(1 / 60);
+    assert.ok(finite(engine.pos[0]) && finite(engine.pos[1]) && finite(engine.heading));
     frames++;
   }
-  assert.ok(!e.isMoving(), `settled (frames ${frames})`);
-  assert.ok(Math.hypot(e.pos[0] - offX, e.pos[1] - offY) < 1.0, 'final pos ≈ target+offset');
-  assert.ok(frames > 20 && frames < 60 * 6, `glide duration sane (${(frames / 60).toFixed(2)}s)`);
+  assert.ok(!engine.isMoving(), `settled in ${frames} frames`);
+  assert.ok(Math.hypot(engine.pos[0] - 700, engine.pos[1] - 360) < 0.01);
+  assert.ok(frames > 10 && frames < 60 * 4);
 });
 
-test('direct cursor path has no lateral detour or in-flight rotation', () => {
-  const path = planDirectPath(100, 100, 700, 250, REST_HEADING);
-  const expectedHeading = Math.atan2(150, 600);
-  for (let index = 0; index <= 100; index++) {
-    const point = path.sample((path.length * index) / 100);
-    const progress = index / 100;
-    const expectedX = 100 + 600 * progress;
-    const expectedY = 100 + 150 * progress;
-    assert.ok(Math.hypot(point.x - expectedX, point.y - expectedY) < 0.01);
-    assert.ok(Math.abs(point.heading - expectedHeading) < 0.01);
+test('presentation progress APIs track the active spring path', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.moveTo(700, 360);
+  assert.equal(engine.hasMotionPath(), true);
+  assert.equal(engine.motionProgress(), 0);
+  assert.ok(engine.motionDistanceRemaining() > 600);
+  for (let frame = 0; frame < 20; frame++) engine.tick(1 / 60);
+  assert.ok(engine.motionProgress() > 0);
+  assert.ok(engine.motionDistanceRemaining() < 654);
+});
+
+test('short move remains finite and converges without a curved overshoot', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(200, 200);
+  engine.moveTo(206, 204);
+  let frames = 0;
+  while (engine.isMoving() && frames < 300) {
+    engine.tick(1 / 60);
+    frames++;
   }
+  assert.ok(Math.hypot(engine.pos[0] - 206, engine.pos[1] - 204) < 0.01);
 });
 
-test('first move glides IN from off-screen (not a pop) and converges to target', () => {
-  const e = new CursorEngine();
-  assert.ok(e.pos[0] < -100, 'starts off-screen');
-  e.moveTo(400, 400);
-  e.tick(1 / 60);
-  // Entered on-screen but NOT already at the target — it's gliding in.
-  assert.ok(e.pos[0] > 0 && e.pos[0] < 400, `entering, still gliding (pos ${e.pos[0]})`);
-  let frames = 1;
-  while (e.isMoving() && frames < 600) { e.tick(1 / 60); frames++; }
-  const tx = 400 + Math.cos(REST_HEADING) * ARROW_TIP_LENGTH;
-  const ty = 400 + Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
-  assert.ok(Math.hypot(e.pos[0] - tx, e.pos[1] - ty) < 1.5, 'converged to target+offset');
+test('boundary path never bows outside the viewport', () => {
+  const engine = new CursorEngine();
+  engine.setViewport(800, 600);
+  engine.moveTo(5, 5);
+  engine.moveTo(5, 500);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  for (let frame = 0; engine.isMoving() && frame < 300; frame++) {
+    engine.tick(1 / 60);
+    minX = Math.min(minX, engine.pos[0]);
+    minY = Math.min(minY, engine.pos[1]);
+  }
+  assert.ok(minX >= 0, `minimum x should remain visible, got ${minX}`);
+  assert.ok(minY >= 0, `minimum y should remain visible, got ${minY}`);
+  assert.deepEqual(engine.pos, [5, 500]);
 });
 
-test('click pulse is centered on the action coordinate, not the arrow body', () => {
-  const e = new CursorEngine();
-  const targetX = 320;
-  const targetY = 240;
-  e.moveTo(targetX, targetY, undefined, true);
-  for (let frames = 0; e.isMoving() && frames < 600; frames++) e.tick(1 / 60);
-  e.triggerClick(targetX, targetY);
+test('paint uses exact three-curve AgentCursor shape centered on the hotspot', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(320, 240);
 
-  const arcs: Array<{ x: number; y: number; radius: number }> = [];
+  const moves: Point[] = [];
+  const curves: number[][] = [];
+  const transforms: string[] = [];
   const gradient = { addColorStop() {} };
+  type Point = [number, number];
   const ctx = {
-    createRadialGradient: () => gradient,
     createLinearGradient: () => gradient,
     beginPath() {},
-    arc(x: number, y: number, radius: number) { arcs.push({ x, y, radius }); },
     fill() {},
     stroke() {},
-    moveTo() {},
+    moveTo(x: number, y: number) { moves.push([x, y]); },
     lineTo() {},
+    bezierCurveTo(...args: number[]) { curves.push(args); },
     closePath() {},
+    save() { transforms.push('save'); },
+    restore() { transforms.push('restore'); },
+    translate(x: number, y: number) { transforms.push(`translate:${x},${y}`); },
+    rotate() {},
+    scale() {},
     set fillStyle(_value: unknown) {},
     set strokeStyle(_value: unknown) {},
     set lineWidth(_value: number) {},
     set lineJoin(_value: CanvasLineJoin) {},
+    set lineCap(_value: CanvasLineCap) {},
+    set shadowColor(_value: string) {},
+    set shadowBlur(_value: number) {},
+    set shadowOffsetX(_value: number) {},
+    set shadowOffsetY(_value: number) {},
+    set globalAlpha(_value: number) {},
   } as unknown as CanvasRenderingContext2D;
 
-  e.paint(ctx, 0, 0);
-  assert.ok(
-    arcs.some((arc) => Math.hypot(arc.x - targetX, arc.y - targetY) < 0.01),
-    `click pulse should include action coordinate (${targetX},${targetY}); arcs=${JSON.stringify(arcs)}`,
-  );
+  engine.paint(ctx, 0, 0);
+  assert.equal(curves.length, 3);
+  assert.deepEqual(transforms, ['save', 'translate:320,240', 'restore']);
+  const expectedStartX = -CODEX_CURSOR_GLYPH.size / 2
+    + CODEX_CURSOR_GLYPH.start[0] * CODEX_CURSOR_GLYPH.size;
+  const expectedStartY = -CODEX_CURSOR_GLYPH.size / 2
+    + CODEX_CURSOR_GLYPH.start[1] * CODEX_CURSOR_GLYPH.size;
+  assert.ok(Math.abs(moves[0][0] - expectedStartX) < 1e-9);
+  assert.ok(Math.abs(moves[0][1] - expectedStartY) < 1e-9);
 });
 
-test('completion snaps the arrow tip to the executed coordinate and cancels glide', () => {
-  const e = new CursorEngine();
-  e.pos = [100, 100];
-  e.moveTo(500, 300);
-  e.tick(1 / 60);
-  e.completeAt(320, 240, true);
-
-  const tipX = e.pos[0] - Math.cos(REST_HEADING) * ARROW_TIP_LENGTH;
-  const tipY = e.pos[1] - Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
-  assert.ok(Math.hypot(tipX - 320, tipY - 240) < 0.01);
-  assert.ok(e.isMoving(), 'pulse remains active after glide is cancelled');
+test('native completion snaps the center hotspot and cancels the planned move', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.moveTo(500, 300);
+  engine.tick(1 / 60);
+  engine.completeAt(320, 240, true);
+  assert.deepEqual(engine.pos, [320, 240]);
+  assert.equal(engine.hasMotionPath(), false);
+  assert.equal(engine.motionProgress(), 1);
+  assert.equal(engine.motionDistanceRemaining(), 0);
+  assert.equal(engine.isMoving(), true, 'press animation remains active');
 });
 
-test('cursor bloom is centered on the arrow hotspot', () => {
-  const e = new CursorEngine();
-  e.completeAt(320, 240);
-  const gradients: number[][] = [];
-  const arcs: number[][] = [];
+test('cancel clears path, pressed state, and press animation', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.moveTo(500, 300, undefined, true);
+  engine.pressed = true;
+  engine.triggerClick(500, 300);
+  engine.cancel();
+  assert.equal(engine.hasMotionPath(), false);
+  assert.equal(engine.isMoving(), false);
+  assert.equal(engine.pressed, false);
+});
+
+test('cancel during first fade restores full opacity for the next move', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.tick(1 / 60);
+  engine.cancel();
+  engine.moveTo(200, 200);
+
+  let globalAlpha = -1;
   const gradient = { addColorStop() {} };
   const ctx = {
-    createRadialGradient: (...args: number[]) => {
-      gradients.push(args);
-      return gradient;
-    },
     createLinearGradient: () => gradient,
     beginPath() {},
-    arc(...args: number[]) { arcs.push(args); },
     fill() {},
     stroke() {},
     moveTo() {},
     lineTo() {},
+    bezierCurveTo() {},
     closePath() {},
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
+    scale() {},
     set fillStyle(_value: unknown) {},
     set strokeStyle(_value: unknown) {},
     set lineWidth(_value: number) {},
     set lineJoin(_value: CanvasLineJoin) {},
+    set lineCap(_value: CanvasLineCap) {},
+    set shadowColor(_value: string) {},
+    set shadowBlur(_value: number) {},
+    set shadowOffsetX(_value: number) {},
+    set shadowOffsetY(_value: number) {},
+    set globalAlpha(value: number) { globalAlpha = value; },
   } as unknown as CanvasRenderingContext2D;
 
-  e.paint(ctx, 0, 0);
-  assert.deepEqual(gradients[0]?.slice(0, 5), [320, 240, 0, 320, 240]);
-  assert.deepEqual(arcs[0]?.slice(0, 2), [320, 240]);
-});
-
-test('cancel clears cursor path, pressed state, and click pulse', () => {
-  const e = new CursorEngine();
-  e.moveTo(500, 300, undefined, true);
-  e.pressed = true;
-  e.triggerClick(500, 300);
-  assert.equal(e.isMoving(), true);
-  e.cancel();
-  assert.equal(e.isMoving(), false);
-  assert.equal(e.hasMotionPath(), false);
-  assert.equal(e.pressed, false);
+  engine.paint(ctx, 0, 0);
+  assert.equal(globalAlpha, 1);
 });
 
 test('overlay cancel waits for the renderer frame before reporting finished', async () => {
@@ -190,37 +226,23 @@ test('overlay cancel waits for the renderer frame before reporting finished', as
   assert.doesNotMatch(cancelBlock, /reportPhase\('finished'\)/);
 });
 
-test('direct path planner never detours for short moves', () => {
-  const cases = [
-    [100, 100, 120, 120],
-    [100, 100, 150, 100],
-    [100, 100, 180, 130],
-  ] as const;
-  for (const [x0, y0, x1, y1] of cases) {
-    const direct = Math.hypot(x1 - x0, y1 - y0);
-    const path = planDirectPath(x0, y0, x1, y1, REST_HEADING);
-    assert.ok(Math.abs(path.length - direct) < 0.001);
-    const end = path.sample(path.length);
-    assert.ok(Math.hypot(end.x - x1, end.y - y1) < 0.001);
-  }
-});
-
-test('click pulse clears over ~0.25s', () => {
-  const e = new CursorEngine();
-  e.setSession('x');
-  e.triggerClick(100, 100);
+test('click press animation clears over about 0.25 seconds', () => {
+  const engine = new CursorEngine();
+  engine.moveTo(100, 100);
+  engine.triggerClick(100, 100);
   let ticks = 0;
-  while (e.isMoving() && ticks < 60) { e.tick(1 / 60); ticks++; }
-  assert.ok(ticks >= 14 && ticks <= 17, `~0.25s (${ticks} ticks)`);
+  while (engine.isMoving() && ticks < 60) {
+    engine.tick(1 / 60);
+    ticks++;
+  }
+  assert.ok(ticks >= 14 && ticks <= 18, `${ticks} ticks`);
 });
 
-test('palette: deterministic, default→default_blue, varied across ids', () => {
+test('palette selection remains deterministic', () => {
   assert.equal(paletteForInstance('run-1').name, paletteForInstance('run-1').name);
   assert.equal(paletteForInstance('default').name, 'default_blue');
   assert.equal(paletteForInstance('').name, 'default_blue');
   const names = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => paletteForInstance(`run-${n}`).name));
-  assert.ok(names.size >= 5, `varied (${names.size})`);
-  const g0 = gradientAt(defaultPalette(), 0).join();
-  const g1 = gradientAt(defaultPalette(), 1).join();
-  assert.notEqual(g0, g1, 'gradient endpoints differ');
+  assert.ok(names.size >= 5);
+  assert.notEqual(gradientAt(defaultPalette(), 0).join(), gradientAt(defaultPalette(), 1).join());
 });

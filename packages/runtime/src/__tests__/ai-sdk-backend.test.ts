@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
+import { APICallError, type LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import type {
   AgentRunHeader,
   AttachmentByteReader,
@@ -35,7 +35,11 @@ import {
 import type { MakaTool } from '../tool-runtime.js';
 import { LOAD_TOOLS_NAME } from '../tool-availability.js';
 import { PermissionEngine } from '../permission-engine.js';
-import { canonicalizeToolSet, computeRequestShapeDiagnostic } from '../request-shape.js';
+import {
+  canonicalizeToolSet,
+  computeRequestShapeDiagnostic,
+  findFirstChangedCacheableSegment,
+} from '../request-shape.js';
 import {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
@@ -58,6 +62,10 @@ import { buildRuntimeEventModelReplayPlan, buildSteeringEnvelope } from '../mode
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
 import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
+import type {
+  ProviderRequestAttemptRecord,
+  ProviderRequestCaptureRecord,
+} from '../provider-request-telemetry.js';
 
 describe('AiSdkBackend model history', () => {
   test('omits an empty system prompt from the provider request', async () => {
@@ -7920,6 +7928,313 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
 });
 
 describe('AiSdkBackend RunTrace', () => {
+  for (const protocol of ['openai-compatible', 'anthropic-compatible'] as const) {
+    test(`records ${protocol} multi-step requests and reconciles complete attempt usage`, async () => {
+      const captures: ProviderRequestCaptureRecord[] = [];
+      const attempts: ProviderRequestAttemptRecord[] = [];
+      let calls = 0;
+      const usageFor = (step: number) => {
+        if (protocol === 'openai-compatible') {
+          const input = step === 0 ? 10 : 20;
+          const cached = step === 0 ? 4 : 5;
+          const output = step === 0 ? 2 : 3;
+          return {
+            inputTokens: {
+              total: input,
+              noCache: input - cached,
+              cacheRead: cached,
+              cacheWrite: undefined,
+            },
+            outputTokens: {
+              total: output,
+              text: output - (step === 0 ? 0 : 1),
+              reasoning: step === 0 ? 0 : 1,
+            },
+            raw: {
+              prompt_tokens: input,
+              completion_tokens: output,
+              prompt_tokens_details: { cached_tokens: cached },
+              completion_tokens_details: { reasoning_tokens: step === 0 ? 0 : 1 },
+            },
+          };
+        }
+        const noCache = step === 0 ? 6 : 12;
+        const cacheRead = step === 0 ? 3 : 6;
+        const cacheWrite = step === 0 ? 1 : 2;
+        const output = step === 0 ? 2 : 3;
+        return {
+          inputTokens: {
+            total: noCache + cacheRead + cacheWrite,
+            noCache,
+            cacheRead,
+            cacheWrite,
+          },
+          outputTokens: { total: output, text: undefined, reasoning: undefined },
+          raw: {
+            input_tokens: noCache,
+            output_tokens: output,
+            cache_read_input_tokens: cacheRead,
+            cache_creation_input_tokens: cacheWrite,
+          },
+        };
+      };
+      const model = new MockLanguageModelV4({
+        doStream: async () => {
+          const step = calls++;
+          const chunks: LanguageModelV4StreamPart[] =
+            step === 0
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'read-1',
+                    toolName: 'Read',
+                    input: JSON.stringify({ path: 'notes.md' }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: usageFor(step),
+                  },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  { type: 'text-start', id: 'text-1' },
+                  { type: 'text-delta', id: 'text-1', delta: 'done' },
+                  { type: 'text-end', id: 'text-1' },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: usageFor(step),
+                  },
+                ];
+          return {
+            stream: simulateReadableStream({
+              chunks,
+              initialDelayInMs: null,
+              chunkDelayInMs: null,
+            }),
+          };
+        },
+      });
+      const backend = new AiSdkBackend({
+        sessionId: 'session-1',
+        header: header(),
+        appendMessage: async () => {},
+        connection: connection(),
+        apiKey: 'sk-test',
+        modelId: 'mock-model-id',
+        permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+        modelFactory: () => model,
+        tools: [testTool('Read', z.object({ path: z.string() }))],
+        newId: idGenerator(),
+        now: monotonicClock(),
+        recordProviderRequestCapture: async (capture) => {
+          captures.push(capture);
+          return { artifactId: `artifact-${captures.length}` };
+        },
+        recordProviderRequestAttempt: (attempt) => {
+          attempts.push(attempt);
+        },
+      });
+
+      const events: SessionEvent[] = [];
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+        events.push(event);
+      }
+
+      assert.equal(captures.length, 2);
+      assert.deepEqual(
+        attempts.map(({ step, attempt, status }) => ({ step, attempt, status })),
+        [
+          { step: 0, attempt: 1, status: 'completed' },
+          { step: 1, attempt: 1, status: 'completed' },
+        ],
+      );
+      assert.equal(findFirstChangedCacheableSegment(captures[1]!, captures[0]!)?.kind, 'message');
+      const aggregate = events.find(
+        (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+          event.type === 'token_usage',
+      );
+      assert.ok(aggregate);
+      const sum = (field: keyof ProviderRequestAttemptRecord) =>
+        attempts.reduce(
+          (total, attempt) => total + ((attempt[field] as number | undefined) ?? 0),
+          0,
+        );
+      assert.equal(sum('inputTokens'), aggregate.input);
+      assert.equal(sum('outputTokens'), aggregate.output);
+      assert.equal(sum('cacheReadInputTokens'), aggregate.cacheHitInput);
+      assert.equal(sum('cacheMissInputTokens'), aggregate.cacheMissInput);
+      assert.equal(sum('cacheWriteInputTokens'), aggregate.cacheWriteInput);
+    });
+  }
+
+  test('captures the prepared request before the provider call and records its physical attempt', async () => {
+    const captures: ProviderRequestCaptureRecord[] = [];
+    const attempts: ProviderRequestAttemptRecord[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        assert.equal(captures.length, 1, 'capture must be durable before provider dispatch');
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage: {
+                  inputTokens: { total: 4, noCache: 4, cacheRead: 0, cacheWrite: undefined },
+                  outputTokens: { total: 2, text: 2, reasoning: 0 },
+                  raw: {
+                    prompt_tokens: 4,
+                    completion_tokens: 2,
+                    prompt_tokens_details: { cached_tokens: 0 },
+                  },
+                },
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordProviderRequestCapture: async (capture) => {
+        captures.push(capture);
+        return { artifactId: `artifact-${captures.length}` };
+      },
+      recordProviderRequestAttempt: async (attempt) => {
+        attempts.push(attempt);
+      },
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(captures.length, 1);
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0]?.step, 0);
+    assert.equal(attempts[0]?.attempt, 1);
+    assert.equal(attempts[0]?.status, 'completed');
+    assert.equal(attempts[0]?.captureId, captures[0]?.captureId);
+    assert.equal(attempts[0]?.cacheMissInputSource, 'derived');
+    assert.equal(
+      events.find((event) => event.type === 'token_usage')?.providerRequestTraceId,
+      captures[0]?.traceId,
+    );
+  });
+
+  test('does not call the provider when prepared-request persistence fails', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordProviderRequestCapture: async () => {
+        throw new Error('capture unavailable');
+      },
+      recordProviderRequestAttempt: () => {},
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.equal(events.at(-1)?.type, 'complete');
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'error');
+  });
+
+  test('records each AI SDK internal retry as a physical attempt against one capture', async () => {
+    const captures: ProviderRequestCaptureRecord[] = [];
+    const attempts: ProviderRequestAttemptRecord[] = [];
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new APICallError({
+            message: 'retry me',
+            url: 'https://provider.invalid/v1/messages',
+            requestBodyValues: {},
+            statusCode: 503,
+            responseHeaders: { 'retry-after-ms': '0' },
+          });
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage: emptyUsage(),
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordProviderRequestCapture: async (capture) => {
+        captures.push(capture);
+        return { artifactId: 'artifact-1' };
+      },
+      recordProviderRequestAttempt: (attempt) => {
+        attempts.push(attempt);
+      },
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.equal(calls, 2);
+    assert.equal(captures.length, 1);
+    assert.deepEqual(
+      attempts.map(({ attempt, status }) => ({ attempt, status })),
+      [
+        { attempt: 1, status: 'failed' },
+        { attempt: 2, status: 'completed' },
+      ],
+    );
+  });
+
   test('records the continuation replay gate and blocking diagnostics on stream failure', async () => {
     const trace: RunTraceEvent[] = [];
     const model = new MockLanguageModelV4({

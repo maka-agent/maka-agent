@@ -381,28 +381,77 @@ type ComputerParams = z.infer<typeof computerParams>;
 // discriminated union above immediately at execution.
 const computerWireParams = z
   .object({
-    action: z.enum([
-      'list_apps',
-      'observe',
-      'click_element',
-      'set_value',
-      'select_text',
-      'secondary_action',
-      'press_key',
-      ...CU_ACTION_TYPES,
-    ] as [string, ...string[]]),
-    app: z.string().min(1).max(512).optional(),
-    window_id: z.number().int().positive().optional(),
-    include_screenshot: z.boolean().optional(),
-    observation_id: z.string().min(1).max(256).optional(),
-    element_id: z.string().min(1).max(256).optional(),
-    value: text.optional(),
-    coordinate: coordinate.optional(),
-    start_coordinate: coordinate.optional(),
-    text: text.optional(),
-    scroll_direction: z.enum(['up', 'down', 'left', 'right']).optional(),
-    scroll_amount: z.number().int().min(0).max(100).optional(),
-    duration: z.number().min(0).max(60).optional(),
+    action: z
+      .enum([
+        'list_apps',
+        'observe',
+        'click_element',
+        'set_value',
+        'select_text',
+        'secondary_action',
+        'press_key',
+        ...CU_ACTION_TYPES,
+      ] as [string, ...string[]])
+      .describe(
+        'Operation to perform. Required fields by action: observe/screenshot require app or window_id; click_element requires observation_id and element_id; set_value requires observation_id, element_id, and value; select_text/secondary_action require observation_id, element_id, and text; press_key requires observation_id and text; coordinate actions require observation_id plus their coordinate fields.',
+      ),
+    app: z
+      .string()
+      .min(1)
+      .max(512)
+      .optional()
+      .describe(
+        'Exact app id/name from list_apps. Required for observe unless window_id is supplied.',
+      ),
+    window_id: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe('Exact window_id from list_apps or observe.'),
+    include_screenshot: z
+      .boolean()
+      .optional()
+      .describe('For observe, include a screenshot. Defaults to true.'),
+    observation_id: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe(
+        'Required for every action that targets an observed element or coordinate. Copy it exactly from the immediately preceding observe or fresh observation result.',
+      ),
+    element_id: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe(
+        'Required for click_element, set_value, select_text, and secondary_action. Copy the exact element_id from the same observation_id.',
+      ),
+    value: text
+      .optional()
+      .describe('Required only for set_value. The complete replacement value to write.'),
+    coordinate: coordinate
+      .optional()
+      .describe(
+        'Required for coordinate pointer actions. Coordinates are in the referenced observation screenshot.',
+      ),
+    start_coordinate: coordinate.optional().describe('Required only for left_click_drag.'),
+    text: text
+      .optional()
+      .describe('Required for select_text, secondary_action, press_key, type, key, and hold_key.'),
+    scroll_direction: z
+      .enum(['up', 'down', 'left', 'right'])
+      .optional()
+      .describe('Direction for scroll.'),
+    scroll_amount: z.number().int().min(0).max(100).optional().describe('Amount for scroll.'),
+    duration: z
+      .number()
+      .min(0)
+      .max(60)
+      .optional()
+      .describe('Duration in seconds for wait or hold_key.'),
     region: z
       .tuple([
         z.number().int().nonnegative(),
@@ -410,7 +459,8 @@ const computerWireParams = z
         z.number().int().nonnegative(),
         z.number().int().nonnegative(),
       ])
-      .optional(),
+      .optional()
+      .describe('Required only for zoom: [x1, y1, x2, y2] in the referenced observation.'),
   })
   .strict();
 
@@ -533,7 +583,11 @@ function summarizeEvidence(evidence: CuDispatchEvidence | undefined): string {
   return fields.length > 0 ? `; dispatch ${fields.join(', ')}` : '';
 }
 
-function summarize(action: CuAction, result: CuRunResult): string {
+type ComputerSummaryAction = {
+  type: CuAction['type'] | CuSemanticAction['type'];
+};
+
+function summarize(action: ComputerSummaryAction, result: CuRunResult): string {
   const { outcome } = result;
   const evidence = summarizeEvidence(outcome.evidence);
   if (!outcome.ok) {
@@ -847,7 +901,7 @@ export function buildComputerUseTools(deps: {
   }
 
   function deliveredWithoutFreshObservation(
-    action: CuAction,
+    action: ComputerSummaryAction,
     result: CuRunResult,
   ): ComputerToolResult {
     const evidence = summarizeEvidence(result.outcome.evidence);
@@ -1525,14 +1579,14 @@ export function buildComputerUseTools(deps: {
                 : undefined;
             } catch {
               presentation?.finish(result);
-              return deliveredWithoutFreshObservation(summaryAction, result);
+              return deliveredWithoutFreshObservation(semanticAction, result);
             }
             if (result.outcome.ok && !freshObservation) {
               presentation?.finish(result);
-              return deliveredWithoutFreshObservation(summaryAction, result);
+              return deliveredWithoutFreshObservation(semanticAction, result);
             }
             presentation?.finish(result);
-            const text = summarize(summaryAction, result);
+            const text = summarize(semanticAction, result);
             const failureClass =
               !result.outcome.ok && /ambiguous/i.test(result.outcome.message)
                 ? ('ambiguous_target' as const)

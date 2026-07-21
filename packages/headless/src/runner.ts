@@ -22,6 +22,7 @@ import { buildIsolatedHeadlessTools } from './tools.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
 import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
 import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
+import { resolveHeadlessSystemPrompt } from './system-prompts.js';
 
 export interface RunExperimentDeps {
   /**
@@ -98,6 +99,8 @@ export async function runExperiment(
   const now = deps.now ?? Date.now;
   const newId = deps.newId ?? randomUUID;
   const startedAt = now();
+  const prompt = resolveHeadlessSystemPrompt(config);
+  const effectiveConfig = { ...config, systemPrompt: prompt.systemPrompt };
 
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
@@ -108,8 +111,9 @@ export async function runExperiment(
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
     await registerBackends(backends, {
-      config,
+      config: effectiveConfig,
       task,
+      storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
       ...sessionCapabilities.capabilities,
       ...(backendNeedsIsolation(config.backend)
@@ -205,6 +209,8 @@ export async function runExperiment(
         configId: config.id,
         sessionId: session.id,
         runId: invocation?.runId ?? turnId,
+        systemPromptMode: prompt.mode,
+        systemPromptHash: prompt.systemPromptHash,
         status,
         runnerCompleted,
         passed: finalScore.passed,

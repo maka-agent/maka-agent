@@ -21,7 +21,7 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { availableParallelism, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
+import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import {
   buildRewardHackVerifierPatterns,
@@ -256,7 +256,7 @@ async function main() {
   await readFile(keyFile, 'utf8');
   const initialSystemPrompt = initialSystemPromptFile
     ? await readFile(initialSystemPromptFile, 'utf8')
-    : `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`;
+    : DEFAULT_HEADLESS_SYSTEM_PROMPT;
 
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   console.log(`Discovered ${allTasks.length} cached tasks under ${tasksRoot}`);

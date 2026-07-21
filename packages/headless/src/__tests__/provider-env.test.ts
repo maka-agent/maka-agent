@@ -6,6 +6,14 @@ import {
   requireProviderCredentialEnv,
 } from '../provider-env.js';
 
+test('OpenAI Codex OAuth keeps account tokens separate from Platform API keys', () => {
+  assert.deepEqual(providerCredentialEnv('openai-codex'), {
+    apiKeys: ['OPENAI_CODEX_OAUTH_TOKEN'],
+    apiKeyFile: 'OPENAI_CODEX_OAUTH_TOKEN_FILE',
+    baseUrls: [],
+  });
+});
+
 test('GitHub Copilot headless credentials are GitHub account tokens, not GitHub Models PATs', () => {
   assert.deepEqual(providerCredentialEnv('github-copilot'), {
     apiKeys: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],

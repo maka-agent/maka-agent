@@ -7679,6 +7679,137 @@ describe('SessionManager permission mode updates', () => {
     expect(JSON.stringify(events).includes('sk-live-secret-token-value')).toBe(false);
   });
 
+  test('durable run ledger records provider request capture metadata and complete attempt segments', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ProviderRequestTraceBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_760),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    const events = await runStore.readEvents(session.id, run!.runId);
+    const captured = events.find((event) => event.type === 'provider_request_captured');
+    const attempt = events.find((event) => event.type === 'provider_request_attempt_recorded');
+    expect(captured?.data?.artifactId).toBe('artifact-capture');
+    expect(captured?.data?.requestHash).toBe('sha256:request');
+    expect(attempt?.data?.captureId).toBe('capture-1');
+    expect((attempt?.data?.segments as unknown[])?.length).toBe(75);
+  });
+
+  test('required capture and later attempt still write after an attempt append fails', async () => {
+    const store = new MemorySessionStore();
+    const attemptFailureRecorded = makeGate();
+    const captureOutcomes: string[] = [];
+    let failAttemptOnce = true;
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
+        if (event.type === 'provider_request_attempt_recorded' && failAttemptOnce) {
+          failAttemptOnce = false;
+          throw new Error('diagnostic attempt append failed');
+        }
+        if (event.type === 'trace_write_failed') attemptFailureRecorded.release();
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register(
+      'fake',
+      (ctx) =>
+        new ProviderCaptureAfterAttemptFailureBackend(
+          ctx,
+          attemptFailureRecorded.promise,
+          captureOutcomes,
+        ),
+    );
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_762),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    expect(captureOutcomes).toEqual(['fulfilled']);
+    const [run] = await runStore.listSessionRuns(session.id);
+    const events = await runStore.readEvents(session.id, run!.runId);
+    expect(events.some((event) => event.type === 'provider_request_captured')).toBe(true);
+    expect(events.some((event) => event.id === 'attempt-2')).toBe(true);
+  });
+
+  test('finalizes the run when a required provider capture append fails', async () => {
+    const store = new MemorySessionStore();
+    let providerDispatches = 0;
+    let failCaptureOnce = true;
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
+        if (event.type === 'provider_request_captured' && failCaptureOnce) {
+          failCaptureOnce = false;
+          throw new Error('required capture append failed');
+        }
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register(
+      'fake',
+      (ctx) => new ProviderCaptureGateBackend(ctx, () => (providerDispatches += 1)),
+    );
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_764),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })).catch(
+      () => {},
+    );
+
+    expect(providerDispatches).toBe(0);
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.completedAt).toBeDefined();
+  });
+
+  test('omits provider request telemetry hooks when no run store is configured', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    let captureHook: BackendFactoryContext['recordProviderRequestCapture'];
+    let attemptHook: BackendFactoryContext['recordProviderRequestAttempt'];
+    backends.register('fake', (ctx) => {
+      captureHook = ctx.recordProviderRequestCapture;
+      attemptHook = ctx.recordProviderRequestAttempt;
+      return new FakeBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_765),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    expect(captureHook).toBeUndefined();
+    expect(attemptHook).toBeUndefined();
+  });
+
   test('durable run ledger records full active compact blocks asynchronously', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -11614,6 +11745,189 @@ class TraceBackend implements AgentBackend {
       id: `${input.turnId}-complete`,
       turnId: input.turnId,
       ts: 4,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ProviderRequestTraceBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.ctx.recordProviderRequestCapture?.({
+      schemaVersion: 1,
+      traceId: 'provider-trace-1',
+      captureId: 'capture-1',
+      turnId: input.turnId,
+      step: 0,
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:request',
+      requestBytes: 100,
+      segments: [],
+      artifactId: 'artifact-capture',
+    });
+    await this.ctx.recordProviderRequestAttempt?.({
+      traceId: 'provider-trace-1',
+      attemptId: 'attempt-1',
+      turnId: input.turnId,
+      step: 0,
+      attempt: 1,
+      captureId: 'capture-1',
+      captureArtifactId: 'artifact-capture',
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:request',
+      requestBytes: 100,
+      segments: Array.from({ length: 75 }, (_, index) => ({
+        kind: 'message' as const,
+        index,
+        cacheable: true,
+        hash: `sha256:${index}`,
+        bytes: 1,
+      })),
+      startedAt: 1,
+      completedAt: 2,
+      status: 'completed',
+      finishReason: 'stop',
+      latencyMs: 1,
+    });
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ProviderCaptureGateBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly dispatch: () => void,
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.ctx.recordProviderRequestCapture?.({
+      schemaVersion: 1,
+      traceId: 'provider-trace-gated',
+      captureId: 'capture-gated',
+      turnId: input.turnId,
+      step: 0,
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:gated',
+      requestBytes: 100,
+      segments: [],
+      artifactId: 'artifact-gated',
+    });
+    this.dispatch();
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ProviderCaptureAfterAttemptFailureBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly attemptFailureRecorded: Promise<void>,
+    private readonly captureOutcomes: string[],
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.ctx.recordProviderRequestAttempt?.({
+      traceId: 'provider-trace-1',
+      attemptId: 'attempt-1',
+      turnId: input.turnId,
+      step: 0,
+      attempt: 1,
+      captureId: 'capture-1',
+      captureArtifactId: 'artifact-capture-1',
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:request-1',
+      requestBytes: 100,
+      segments: [],
+      startedAt: 1,
+      completedAt: 2,
+      status: 'completed',
+      latencyMs: 1,
+    });
+    await this.attemptFailureRecorded;
+    try {
+      await this.ctx.recordProviderRequestCapture?.({
+        schemaVersion: 1,
+        traceId: 'provider-trace-1',
+        captureId: 'capture-2',
+        turnId: input.turnId,
+        step: 1,
+        providerId: 'fake',
+        modelId: 'fake-model',
+        requestHash: 'sha256:request-2',
+        requestBytes: 120,
+        segments: [],
+        artifactId: 'artifact-capture-2',
+      });
+      this.captureOutcomes.push('fulfilled');
+    } catch {
+      this.captureOutcomes.push('rejected');
+    }
+    await this.ctx.recordProviderRequestAttempt?.({
+      traceId: 'provider-trace-1',
+      attemptId: 'attempt-2',
+      turnId: input.turnId,
+      step: 1,
+      attempt: 1,
+      captureId: 'capture-2',
+      captureArtifactId: 'artifact-capture-2',
+      providerId: 'fake',
+      modelId: 'fake-model',
+      requestHash: 'sha256:request-2',
+      requestBytes: 120,
+      segments: [],
+      startedAt: 2,
+      completedAt: 3,
+      status: 'completed',
+      latencyMs: 1,
+    });
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 3,
       stopReason: 'end_turn',
     };
   }

@@ -1,4 +1,5 @@
 import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import {
   RUNTIME_EVENT_AUTHORS,
@@ -7,6 +8,7 @@ import {
   RUNTIME_EVENT_STATUSES,
   TERMINAL_RUNTIME_EVENT_STATUSES,
   createRuntimeEventId,
+  decodeRuntimeEvent,
   isRuntimeEventAuthor,
   isRuntimeEventRole,
   isRuntimeEventStatus,
@@ -312,6 +314,17 @@ describe('createRuntimeEventId', () => {
 });
 
 describe('RuntimeEvent shape compile-time contract', () => {
+  test('accepts a provider-request trace reference and rejects a non-string reference', () => {
+    const event = baseEvent({ refs: { providerRequestTraceId: 'provider-trace-1' } });
+    expect(decodeRuntimeEvent(event).refs?.providerRequestTraceId).toBe('provider-trace-1');
+    assert.throws(() =>
+      decodeRuntimeEvent({
+        ...event,
+        refs: { providerRequestTraceId: 123 },
+      }),
+    );
+  });
+
   test('a full user event satisfies the type', () => {
     const event: RuntimeEvent = {
       id: 'evt-u1',

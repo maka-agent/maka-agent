@@ -3,7 +3,6 @@ import { appendFile, mkdir, readFile, truncate, writeFile } from 'node:fs/promis
 import { dirname, resolve } from 'node:path';
 import {
   validateHarborCellOutput,
-  hashHarborSystemPrompt,
   type HarborCellContextBudgetPolicySnapshot,
   type HarborCellContextBudgetSummary,
   type HarborCellContinuationSummary,
@@ -18,6 +17,7 @@ import { syncParentDirectory } from './immutable-file.js';
 import type { MakaChangeAuditRecord } from './change-audit.js';
 import type { HarborBillingMode } from './harbor-task-runner.js';
 import { assertFinitePositive, assertPositiveInt, assertRatio } from './numeric-guards.js';
+import { hashHeadlessSystemPrompt } from './system-prompts.js';
 
 export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
@@ -308,6 +308,7 @@ export interface PromptCandidateDecisionEvent {
   heldInPassRateNoiseBand: number;
   heldOutPassRateNoiseBand: number;
   rewardHackScan?: PromptCandidateRewardHackScan;
+  samplingPromptHash?: string;
   metrics: unknown;
 }
 
@@ -1602,7 +1603,7 @@ async function truncateTornWalTail(path: string): Promise<void> {
 }
 
 export function hashSystemPrompt(systemPrompt: string): string {
-  return hashHarborSystemPrompt(systemPrompt);
+  return hashHeadlessSystemPrompt(systemPrompt);
 }
 
 async function readJsonObject(path: string): Promise<Record<string, unknown>> {

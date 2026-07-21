@@ -109,6 +109,20 @@ export type {
 } from './filesystem-worker/index.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
+export { findFirstChangedCacheableSegment } from './request-shape.js';
+export { createProviderRequestCaptureRecorder } from './provider-request-telemetry.js';
+export type {
+  PreparedProviderRequestCapture,
+  PreparedRequestSegment,
+  PreparedRequestSegmentRef,
+} from './request-shape.js';
+export type {
+  ProviderRequestAttemptRecord,
+  ProviderRequestCaptureLedgerRecord,
+  ProviderRequestCaptureRecord,
+  ProviderRequestCaptureRecorderInput,
+  ProviderRequestUsage,
+} from './provider-request-telemetry.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
@@ -560,6 +574,7 @@ export type {
 } from './subscription-credentials.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';
 export type { SubscriptionModelFetchInput } from './subscription-model-fetch.js';
+export { extractCodexAccountId, openAiCodexHeaders } from './subscription-auth.js';
 export {
   compactionDecisionDiagnosticPatch,
   compactionDecisionToDiagnostic,

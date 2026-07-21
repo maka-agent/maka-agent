@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import type { FixedPromptTask } from '../fixed-prompt-controller.js';
+import { buildRunManifestFingerprint } from '../ab-manifest.js';
 import {
   buildPromptOptimizationRunManifest,
   buildPromptOptimizationSubjectFingerprint,
@@ -195,6 +196,36 @@ describe('prompt optimization run manifest', () => {
     });
   });
 
+  test('migrates an existing v1 manifest before resuming with the sampling contract', async () => {
+    await withDir(async (dir) => {
+      const runRoot = join(dir, 'run-1');
+      const manifestPath = join(runRoot, 'prompt-optimization-manifest.json');
+      const original = buildManifest('sha256:task-source', []);
+      const raised = buildManifest('sha256:task-source', [], 'pilot', 1.5);
+      const legacy = { ...original } as Record<string, unknown>;
+      delete legacy.samplingBaseline;
+      delete legacy.fingerprint;
+      delete legacy.costCeilingUsd;
+      const legacyManifest = {
+        ...legacy,
+        fingerprint: buildRunManifestFingerprint(legacy),
+      };
+      await mkdir(runRoot, { recursive: true });
+      await writeFile(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, 'utf8');
+
+      const migrated = await ensurePromptOptimizationRunManifest(manifestPath, raised, runRoot);
+
+      assert.deepEqual(migrated.samplingBaseline, raised.samplingBaseline);
+      assert.equal(migrated.fingerprint, legacyManifest.fingerprint);
+      assert.equal(migrated.costCeilingUsd, 1.5);
+      assert.deepEqual(JSON.parse(await readFile(manifestPath, 'utf8')), migrated);
+
+      const resumed = await ensurePromptOptimizationRunManifest(manifestPath, raised, runRoot);
+      assert.equal(resumed.fingerprint, legacyManifest.fingerprint);
+      assert.equal(resumed.costCeilingUsd, 1.5);
+    });
+  });
+
   test('records the prompt optimization profile in the resume fingerprint', () => {
     const pilot = buildManifest('sha256:task-source', [], 'pilot');
     const full = buildManifest('sha256:task-source', [], 'full');
@@ -211,6 +242,18 @@ describe('prompt optimization run manifest', () => {
     assert.equal('zScore' in narrow, true);
     assert.equal('zScore' in standard, true);
     assert.notEqual(standard.fingerprint, narrow.fingerprint);
+  });
+
+  test('records the immutable budget-matched sampling arm contract', () => {
+    const manifest = buildManifest('sha256:task-source', []);
+    assert.deepEqual(manifest.samplingBaseline, {
+      enabled: true,
+      armId: 'sampling-baseline',
+      taskSet: 'stable-held-in',
+      budgetBasis: 'candidate-held-in',
+      execution: 'parallel',
+      primaryMetric: 'pass@1',
+    });
   });
 
   test('does not record an always-empty dropped held-in no-pattern field', () => {

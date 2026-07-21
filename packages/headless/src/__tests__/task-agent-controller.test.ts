@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -822,6 +823,41 @@ async function readAgentRunHeader(
 }
 
 describe('runTaskOnce', () => {
+  test('injects the default headless system prompt before registering a backend', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'default-prompt-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+      let capturedPrompt: string | undefined;
+
+      const result = await runTaskOnce(fakeConfig, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          capturedPrompt = context.config.systemPrompt;
+          registerFakeBackend(registry);
+        },
+      });
+
+      assert.equal(
+        capturedPrompt,
+        [
+          'Complete the task by acting with the available tools, not by narrating.',
+          'Prefer Read, Glob, and Grep for inspection, Edit and Write for file changes, and Bash for shell commands and tests.',
+          'Verify the result when practical.',
+          'Stop when the task is complete.',
+        ].join('\n'),
+      );
+      assert.equal(result.resultRecord.systemPromptMode, 'default');
+      assert.equal(
+        result.resultRecord.systemPromptHash,
+        `sha256:${createHash('sha256').update(JSON.stringify(capturedPrompt)).digest('hex')}`,
+      );
+    });
+  });
+
   test('uses RuntimeRunner path without SessionManager.sendMessage and writes a passing ledger', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');

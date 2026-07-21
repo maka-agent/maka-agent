@@ -126,15 +126,6 @@ export function appendHeavyTaskPolicyToSystemPrompt(
     .join('\n\n');
 }
 
-export function configWithHeavyTaskPolicy(
-  config: Config,
-  selection: HeavyTaskModeSelection,
-): Config {
-  const systemPrompt = appendHeavyTaskPolicyToSystemPrompt(config.systemPrompt, selection);
-  if (systemPrompt === config.systemPrompt) return config;
-  return { ...config, systemPrompt };
-}
-
 function normalizeTaskMetadataMode(
   metadata: Record<string, unknown> | undefined,
 ): HeavyTaskModeConfig | undefined {

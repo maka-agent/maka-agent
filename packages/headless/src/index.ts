@@ -4,6 +4,11 @@
 // package-local entrypoints, not the root API. Minimal usage is
 // `runExperiment(config, task, { storageRoot })`.
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
+export { readProviderRequestTrace } from './provider-request-trace.js';
+export type {
+  ProviderRequestTraceAnalysis,
+  ProviderRequestTraceCaptureAnalysis,
+} from './provider-request-trace.js';
 export type { MakaChangeAuditRecord } from './change-audit.js';
 export type {
   PromptOptimizationRunInput,
@@ -319,11 +324,10 @@ export {
   writeTaskRunExport,
 } from './result-export.js';
 export { normalizeVerifier } from './verifier.js';
-export { BENCHMARK_BASE_SYSTEM_PROMPT } from './system-prompts.js';
+export { DEFAULT_HEADLESS_SYSTEM_PROMPT } from './system-prompts.js';
 export {
   appendHeavyTaskPolicyToSystemPrompt,
   buildHeavyTaskSystemPromptPolicy,
-  configWithHeavyTaskPolicy,
   FORBIDDEN_HEAVY_TASK_POLICY_TERMS,
   HEAVY_TASK_POLICY_VERSION,
   resolveHeavyTaskMode,
@@ -333,7 +337,6 @@ export {
 export {
   appendEconomyTaskPolicyToSystemPrompt,
   buildEconomyTaskSystemPromptPolicy,
-  configWithEconomyTaskPolicy,
   ECONOMY_TASK_POLICY_VERSION,
   resolveEconomyTaskMode,
   type EconomyTaskModeSelection,

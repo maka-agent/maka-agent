@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -568,6 +569,13 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
       });
 
       assert.equal(result.status, 'completed');
+      assert.equal(result.systemPromptMode, 'custom');
+      assert.equal(
+        result.systemPromptHash,
+        `sha256:${createHash('sha256')
+          .update(JSON.stringify(configWithPrompt.systemPrompt))
+          .digest('hex')}`,
+      );
       assert.equal(captured.length, 1);
       assert.equal(
         captured[0]?.systemPrompt,
@@ -577,18 +585,18 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
     });
   });
 
-  test('omitting systemPrompt leaves it undefined in the factory context (no default injection)', async () => {
+  test('omitting systemPrompt injects the default headless prompt in the factory context', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
       const captured: { systemPrompt?: string }[] = [];
       const task: Task = {
-        id: 'no-prompt-task',
+        id: 'default-prompt-task',
         instruction: 'do the thing',
         workspaceDir: fixtureDir,
         verification: { command: 'test -f marker.txt', protectedPaths: [] },
       };
 
-      await runExperiment(fakeConfig, task, {
+      const result = await runExperiment(fakeConfig, task, {
         storageRoot,
         registerBackends: registerCapturingBackend(captured),
       });
@@ -596,9 +604,107 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
       assert.equal(captured.length, 1);
       assert.equal(
         captured[0]?.systemPrompt,
-        undefined,
-        'no systemPrompt should be injected when Config omits it',
+        [
+          'Complete the task by acting with the available tools, not by narrating.',
+          'Prefer Read, Glob, and Grep for inspection, Edit and Write for file changes, and Bash for shell commands and tests.',
+          'Verify the result when practical.',
+          'Stop when the task is complete.',
+        ].join('\n'),
+        'the factory must receive the default headless system prompt',
       );
+      assert.equal(result.systemPromptMode, 'default');
+      assert.equal(
+        result.systemPromptHash,
+        `sha256:${createHash('sha256')
+          .update(JSON.stringify(captured[0]?.systemPrompt))
+          .digest('hex')}`,
+      );
+    });
+  });
+
+  test('rejects a blank custom systemPrompt before registering a backend', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'blank-prompt-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+      let registered = false;
+
+      await assert.rejects(
+        runExperiment({ ...fakeConfig, systemPrompt: '\n \t' }, task, {
+          storageRoot,
+          registerBackends: (registry) => {
+            registered = true;
+            registerFakeBackend(registry);
+          },
+        }),
+        /systemPrompt must contain non-whitespace text/,
+      );
+      assert.equal(registered, false);
+    });
+  });
+
+  test('does not append heavy-task policy without the required direct-runner tools', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const captured: { systemPrompt?: string }[] = [];
+      const task: Task = {
+        id: 'heavy-default-prompt-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runExperiment({ ...fakeConfig, heavyTaskMode: true }, task, {
+        storageRoot,
+        registerBackends: registerCapturingBackend(captured),
+      });
+
+      const prompt = captured[0]?.systemPrompt ?? '';
+      assert.equal(
+        prompt,
+        [
+          'Complete the task by acting with the available tools, not by narrating.',
+          'Prefer Read, Glob, and Grep for inspection, Edit and Write for file changes, and Bash for shell commands and tests.',
+          'Verify the result when practical.',
+          'Stop when the task is complete.',
+        ].join('\n'),
+      );
+      assert.doesNotMatch(prompt, /Heavy-task benchmark policy/);
+      assert.equal(
+        result.systemPromptHash,
+        `sha256:${createHash('sha256').update(JSON.stringify(prompt)).digest('hex')}`,
+      );
+    });
+  });
+
+  test('does not change direct-runner policy behavior while resolving Layer 1', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const captured: { systemPrompt?: string }[] = [];
+      const task: Task = {
+        id: 'economy-default-prompt-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      await runExperiment({ ...fakeConfig, economyTaskMode: true }, task, {
+        storageRoot,
+        registerBackends: registerCapturingBackend(captured),
+      });
+
+      const prompt = captured[0]?.systemPrompt ?? '';
+      assert.equal(
+        prompt,
+        [
+          'Complete the task by acting with the available tools, not by narrating.',
+          'Prefer Read, Glob, and Grep for inspection, Edit and Write for file changes, and Bash for shell commands and tests.',
+          'Verify the result when practical.',
+          'Stop when the task is complete.',
+        ].join('\n'),
+      );
+      assert.doesNotMatch(prompt, /Economy-task benchmark policy/);
     });
   });
 

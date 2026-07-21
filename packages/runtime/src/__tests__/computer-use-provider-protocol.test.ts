@@ -269,7 +269,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         `failed semantic result must use the provider error-tool-result protocol: ${JSON.stringify(reinjectedFailure)}`,
       );
       assert.match(JSON.stringify(reinjectedFailure), /outcome_unknown/);
-      assert.match(JSON.stringify(reinjectedFailure), /computer\.type failed/);
+      assert.match(JSON.stringify(reinjectedFailure), /computer\.set_value failed/);
     });
   }
 });

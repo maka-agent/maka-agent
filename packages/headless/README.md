@@ -185,21 +185,22 @@ node packages/headless/harbor/run-terminal-bench-smoke.mjs --profile maka-heavy 
 node packages/headless/harbor/run-terminal-bench-smoke.mjs --compare --task '*sqlite-with-gcov'
 ```
 
-## K3 harness comparison
+## Terminal-Bench 2.1 harness comparison
 
-`harbor/run-harness-ab.mjs` compares Maka with the official Kimi Code 0.26.0 CLI on Kimi K3 Max. Set `MAKA_HARNESS_AB_COMPETITOR=opencode` to select the pinned OpenCode 1.17.18 arm instead. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official Terminal-Bench 2.1 revision; a matching export with one task directory per id is accepted directly. The A/B task order is frozen independently of Oracle evidence. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
+`harbor/run-harness-ab.mjs` compares Maka with one pinned CLI under the same model, reasoning effort, task instructions, task order, account/provider route, and Harbor verifier while each agent retains its native runtime policy. The default is the official Kimi Code 0.26.0 CLI on Kimi K3 Max; set `MAKA_HARNESS_AB_COMPETITOR=opencode` for OpenCode 1.17.18 or `MAKA_HARNESS_AB_COMPETITOR=codex` for the official Codex CLI 0.144.6 on `gpt-5.6-sol` with `max` reasoning. The Codex profile uses ChatGPT/Codex OAuth for both arms and records account-plan billing rather than public API spend. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official Terminal-Bench 2.1 revision; a matching export with one task directory per id is accepted directly. The A/B task order is frozen independently of Oracle evidence. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
 
 Validate the frozen task source and preview the A/B plan without reading a key or starting Harbor:
 
 ```sh
 MAKA_HARNESS_AB_OUT_DIR=/path/to/out \
 MAKA_HARNESS_AB_TASKS_ROOT=/path/to/terminal-bench-2.1-tasks \
+MAKA_HARNESS_AB_COMPETITOR=codex \
 MAKA_HARNESS_AB_LIMIT=5 \
 MAKA_HARNESS_AB_DRY_RUN=1 \
 node packages/headless/harbor/run-harness-ab.mjs
 ```
 
-For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Both arms receive only a short-lived host proxy capability, never the provider key or key-file path. `MAKA_HARNESS_AB_LIMIT=5` runs the operational canary; rerun the same run id with `89` to continue the same WAL through the complete frozen profile. Four task pairs run concurrently, for at most eight active attempts. Only missing cells run, and the immutable manifest rejects configuration changes.
+For a Kimi-backed live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. The Codex profile instead resolves and refreshes Maka's `codex-subscription` OAuth record from the default desktop workspace before each upstream request; override that source with `MAKA_HARNESS_AB_WORKSPACE_ROOT` or `MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG`. The run manifest fingerprints the resolved account identity and rejects an account change while allowing token refreshes for the same account. The pinned Codex adapter uses the Responses HTTP transport because the host credential proxy does not relay WebSocket upgrades. Both arms receive only a per-cell host proxy capability, never an access token, refresh token, provider key, or credential-file path. The pinned competitor toolchain is downloaded once, verified against checked-in archive and file hashes, then mounted read-only into its task containers. `MAKA_HARNESS_AB_LIMIT=5` runs the operational canary; rerun the same run id with `89` to continue the same WAL through the complete frozen profile. Kimi Code and OpenCode run four task pairs concurrently, for at most eight active attempts; Codex serializes both task pairs and arms, for one active attempt against the shared OAuth profile. Only missing cells run, and the immutable manifest rejects configuration changes.
 
 Oracle evidence is advisory. To consume a CI-issued registry snapshot, set both `MAKA_HARNESS_AB_ORACLE_REGISTRY_URL` and `MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT`. The runner downloads the lightweight pinned snapshot, validates its content and per-task identities, and records `passed`, `failed`, `timed_out`, `infra_failed`, `stale`, or `missing` annotations in the manifest and report. Missing, stale, failed, unavailable, invalid, or unresolvable evidence emits warnings but never invokes Oracle, changes task selection, blocks new A/B execution, or changes statistical inclusion. A resumed run reuses the advisory snapshot frozen in its existing manifest instead of resolving current registry state again. Legacy manifests retain their historical Oracle-gated `qualification` metadata as read-only history; the current runner does not append new cells to a run created by the old qualification profile.
 

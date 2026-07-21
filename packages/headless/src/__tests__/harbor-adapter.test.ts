@@ -93,6 +93,7 @@ describe('Harbor adapter contract', () => {
     const hiddenUnicode = /[\u202A-\u202E\u2066-\u2069\u200B\u200C\u200D\uFEFF]/u;
     const files = [
       'packages/headless/harbor/maka-improved-prompt-v1.txt',
+      'packages/headless/harbor/codex_agent.py',
       'packages/headless/harbor/maka_agent.py',
       'packages/headless/harbor/maka_verifier.py',
       'packages/headless/harbor/run-cell.mjs',
@@ -535,15 +536,31 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
 
-  test('run-harness-ab.mjs consumes advisory registry evidence without invoking Oracle', async () => {
+  test('run-harness-ab.mjs uses the mandatory default prompt and advisory registry evidence', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-harness-ab.mjs');
 
+    assert.match(source, /DEFAULT_HEADLESS_SYSTEM_PROMPT/);
+    assert.match(source, /default-system-prompt\.txt/);
+    assert.doesNotMatch(source, /empty-system-prompt\.txt/);
     assert.match(source, /loadHarnessOracleRegistrySnapshot/);
     assert.match(source, /resolveHarnessOracleAnnotations/);
     assert.match(source, /taskIds: TERMINAL_BENCH_2_1_TASK_IDS/);
     assert.doesNotMatch(source, /ensureHarnessOracleQualification/);
     assert.doesNotMatch(source, /createHarborOracleQualifier/);
     assert.doesNotMatch(source, /qualification\.selectedTaskIds/);
+  });
+
+  test('prompt experiment baselines use the default headless prompt byte-for-byte', async () => {
+    for (const path of [
+      'packages/headless/harbor/run-prompt-ab.mjs',
+      'packages/headless/harbor/run-prompt-optimization.mjs',
+      'packages/headless/harbor/run-runtime-policy-ab.mjs',
+    ]) {
+      const source = await readRepoFile(path);
+
+      assert.match(source, /DEFAULT_HEADLESS_SYSTEM_PROMPT/);
+      assert.doesNotMatch(source, /`\$\{DEFAULT_HEADLESS_SYSTEM_PROMPT\}\\n`/);
+    }
   });
 
   test('run-prompt-ab.mjs rejects unsupported provider overrides', async (t: TestContext) => {
@@ -838,6 +855,19 @@ describe('Harbor adapter contract', () => {
     }
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /kimi-code adapter ok/);
+  });
+
+  test('codex_agent.py runs the pinned CLI behind the host OAuth proxy without Harbor installed', (t: TestContext) => {
+    const result = spawnSync('python3', ['-c', pythonCodexAdapterSmokeScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('python3 is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /codex adapter ok/);
   });
 
   test('trial_pricing.py validates explicit pricing env without Harbor installed', (t: TestContext) => {
@@ -1892,13 +1922,31 @@ with tempfile.TemporaryDirectory() as tmp:
     # The default model must not be the deprecated deepseek-chat alias.
     default_model_env = MakaAgent(Path(tmp), extra_env={"MAKA_HOST_API_KEY_FILE": "/host/deepseek-key"})._cell_env(Path("/logs/agent/instruction.txt"))
     assert default_model_env["MAKA_MODEL"] == "deepseek/deepseek-v4-flash", default_model_env
+    assert "MAKA_SYSTEM_PROMPT" not in default_model_env, default_model_env
+
+    custom_prompt = "Custom prompt with exact bytes.\n"
+    custom_prompt_env = MakaAgent(Path(tmp), extra_env={
+        "MAKA_HOST_API_KEY_FILE": "/host/deepseek-key",
+        "MAKA_SYSTEM_PROMPT": custom_prompt,
+    })._cell_env(Path("/logs/agent/instruction.txt"))
+    assert custom_prompt_env["MAKA_SYSTEM_PROMPT"] == custom_prompt, custom_prompt_env
+
+    empty_prompt_env = MakaAgent(Path(tmp), extra_env={
+        "MAKA_HOST_API_KEY_FILE": "/host/deepseek-key",
+        "MAKA_SYSTEM_PROMPT": "",
+    })._cell_env(Path("/logs/agent/instruction.txt"))
+    assert empty_prompt_env["MAKA_SYSTEM_PROMPT"] == "", empty_prompt_env
 
     # The in-container Bash command-timeout floor reaches the cell.
     command_timeout_env = MakaAgent(Path(tmp), extra_env={
         "MAKA_BACKEND": "fake",
         "MAKA_CELL_COMMAND_TIMEOUT_MS": "600000",
+        "MAKA_STREAM_CONNECT_TIMEOUT_MS": "456000",
+        "MAKA_STREAM_IDLE_TIMEOUT_MS": "789000",
     })._cell_env(Path("/logs/agent/instruction.txt"))
     assert command_timeout_env["MAKA_CELL_COMMAND_TIMEOUT_MS"] == "600000", command_timeout_env
+    assert command_timeout_env["MAKA_STREAM_CONNECT_TIMEOUT_MS"] == "456000", command_timeout_env
+    assert command_timeout_env["MAKA_STREAM_IDLE_TIMEOUT_MS"] == "789000", command_timeout_env
 
     economy_env_agent = MakaAgent(Path(tmp), extra_env={
         "MAKA_BACKEND": "fake",
@@ -1975,6 +2023,10 @@ with tempfile.TemporaryDirectory() as tmp:
     original_deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
     original_http_proxy = os.environ.get("HTTP_PROXY")
     original_https_proxy = os.environ.get("HTTPS_PROXY")
+    original_no_proxy = os.environ.get("NO_PROXY")
+    original_http_proxy_lower = os.environ.get("http_proxy")
+    original_https_proxy_lower = os.environ.get("https_proxy")
+    original_no_proxy_lower = os.environ.get("no_proxy")
     original_all_proxy = os.environ.get("ALL_PROXY")
     original_node_use_env_proxy = os.environ.get("NODE_USE_ENV_PROXY")
     original_context_foo = os.environ.get("MAKA_CONTEXT_FOO")
@@ -1985,6 +2037,10 @@ with tempfile.TemporaryDirectory() as tmp:
         os.environ["DEEPSEEK_API_KEY"] = "host-secret"
         os.environ["HTTP_PROXY"] = "http://user:pass@proxy.example"
         os.environ["HTTPS_PROXY"] = "http://user:pass@secure-proxy.example"
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        os.environ["http_proxy"] = "http://lower-user:pass@proxy.example"
+        os.environ["https_proxy"] = "http://lower-user:pass@secure-proxy.example"
+        os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
         os.environ["ALL_PROXY"] = "socks5://user:pass@socks-proxy.example"
         os.environ["NODE_USE_ENV_PROXY"] = "1"
         os.environ["MAKA_CONTEXT_FOO"] = "1"
@@ -2066,6 +2122,22 @@ with tempfile.TemporaryDirectory() as tmp:
             os.environ.pop("HTTPS_PROXY", None)
         else:
             os.environ["HTTPS_PROXY"] = original_https_proxy
+        if original_no_proxy is None:
+            os.environ.pop("NO_PROXY", None)
+        else:
+            os.environ["NO_PROXY"] = original_no_proxy
+        if original_http_proxy_lower is None:
+            os.environ.pop("http_proxy", None)
+        else:
+            os.environ["http_proxy"] = original_http_proxy_lower
+        if original_https_proxy_lower is None:
+            os.environ.pop("https_proxy", None)
+        else:
+            os.environ["https_proxy"] = original_https_proxy_lower
+        if original_no_proxy_lower is None:
+            os.environ.pop("no_proxy", None)
+        else:
+            os.environ["no_proxy"] = original_no_proxy_lower
         if original_all_proxy is None:
             os.environ.pop("ALL_PROXY", None)
         else:
@@ -2082,10 +2154,14 @@ with tempfile.TemporaryDirectory() as tmp:
     host_process_env = captured_host_process["kwargs"]["env"]
     assert "SHOULD_NOT_LEAK" not in host_process_env, host_process_env
     assert "DEEPSEEK_API_KEY" not in host_process_env, host_process_env
-    assert "HTTP_PROXY" not in host_process_env, host_process_env
-    assert "HTTPS_PROXY" not in host_process_env, host_process_env
+    assert host_process_env["HTTP_PROXY"] == "http://user:pass@proxy.example", host_process_env
+    assert host_process_env["HTTPS_PROXY"] == "http://user:pass@secure-proxy.example", host_process_env
+    assert host_process_env["NO_PROXY"] == "localhost,127.0.0.1", host_process_env
+    assert host_process_env["http_proxy"] == "http://lower-user:pass@proxy.example", host_process_env
+    assert host_process_env["https_proxy"] == "http://lower-user:pass@secure-proxy.example", host_process_env
+    assert host_process_env["no_proxy"] == "localhost,127.0.0.1,::1", host_process_env
     assert "ALL_PROXY" not in host_process_env, host_process_env
-    assert "NODE_USE_ENV_PROXY" not in host_process_env, host_process_env
+    assert host_process_env["NODE_USE_ENV_PROXY"] == "1", host_process_env
     assert host_process_env["MAKA_CONTEXT_FOO"] == "1", host_process_env
     assert host_process_env["MAKA_ECONOMY_TASK_MODE"] == "true", host_process_env
     assert host_process_env["MAKA_HOST_API_KEY_FILE"] == "/host/deepseek-key", host_process_env
@@ -2631,6 +2707,336 @@ with tempfile.TemporaryDirectory() as tmp:
             os.killpg(timeout_environment.process.pid, signal.SIGKILL)
             timeout_environment.process.wait()
     print("kimi-code adapter ok")
+`;
+}
+
+function pythonCodexAdapterSmokeScript(root: string): string {
+  return String.raw`
+import asyncio
+import json
+import os
+import signal
+import sys
+import tempfile
+import time
+import types
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+
+def module(name):
+    mod = types.ModuleType(name)
+    sys.modules[name] = mod
+    return mod
+
+module("harbor")
+module("harbor.agents")
+module("harbor.agents.installed")
+codex_mod = module("harbor.agents.installed.codex")
+
+class Codex:
+    _REMOTE_CODEX_HOME = Path("/tmp/codex-home")
+
+    def __init__(self, logs_dir, prompt_template_path=None, version=None, extra_env=None, model_name=None, reasoning_effort=None, **kwargs):
+        self.logs_dir = Path(logs_dir)
+        self._prompt_template_path = Path(prompt_template_path) if prompt_template_path else None
+        self._extra_env = extra_env or {}
+        self._version = version
+        self.model_name = model_name
+        self.parent_calls = []
+
+    def _get_env(self, key):
+        return self._extra_env.get(key) or os.environ.get(key)
+
+    def render_instruction(self, instruction):
+        if not self._prompt_template_path:
+            return instruction
+        return self._prompt_template_path.read_text(encoding="utf-8").replace("{{ instruction }}", instruction)
+
+    async def exec_as_agent(self, environment, command, env=None, **kwargs):
+        return await environment.exec(command, env=env or {}, **kwargs)
+
+    async def exec_as_root(self, environment, command, env=None, **kwargs):
+        return await environment.exec(command, env=env or {}, as_root=True, **kwargs)
+
+    async def run(self, instruction, environment, context):
+        rendered = self.render_instruction(instruction)
+        assert (self.logs_dir / "maka-cell-execution-identity.json").exists()
+        self.parent_calls.append({
+            "instruction": rendered,
+            "api_key": self._get_env("OPENAI_API_KEY"),
+            "base_url": self._get_env("OPENAI_BASE_URL"),
+            "auth_json_path": self._get_env("CODEX_AUTH_JSON_PATH"),
+            "path": self._get_env("PATH"),
+        })
+        if instruction == "fail":
+            raise RuntimeError("401 unauthorized")
+        if instruction == "cancel":
+            await self.exec_as_agent(environment, command="sleep 30")
+            return
+        if instruction == "transport-2500":
+            (self.logs_dir / "codex.txt").write_text(
+                json.dumps({
+                    "type": "turn.failed",
+                    "error": {
+                        "message": "stream disconnected: invalid peer certificate: UnknownIssuer"
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError("Codex failed while solving a task limited to 2500 bytes")
+        if instruction == "no-completion":
+            (self.logs_dir / "codex.txt").write_text(
+                json.dumps({"type": "turn.failed", "error": {"message": "429 rate limit"}}) + "\n",
+                encoding="utf-8",
+            )
+            return
+        (self.logs_dir / "codex.txt").write_text(
+            "\n".join([
+                json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
+                json.dumps({"type": "item.completed", "item": {"type": "command_execution", "command": "pwd"}}),
+                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 25}}),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+
+    def populate_context_post_run(self, context):
+        context.n_input_tokens = 100
+        context.n_cache_tokens = 40
+        context.n_output_tokens = 25
+        context.cost_usd = None
+
+codex_mod.Codex = Codex
+module("harbor.environments")
+env_mod = module("harbor.environments.base")
+env_mod.BaseEnvironment = object
+module("harbor.models")
+module("harbor.models.agent")
+context_mod = module("harbor.models.agent.context")
+context_mod.AgentContext = object
+
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+from codex_agent import MakaCodexAgent
+
+os.environ["CODEX_AUTH_JSON_PATH"] = "/host/codex-auth.json"
+os.environ["CODEX_FORCE_AUTH_JSON"] = "true"
+
+with tempfile.TemporaryDirectory() as tmp:
+    logs = Path(tmp)
+    template = logs / "prompt.j2"
+    template.write_text("templated: {{ instruction }}", encoding="utf-8")
+    commands = []
+
+    class Environment:
+        async def exec(self, command, env=None, **kwargs):
+            commands.append((command, env or {}))
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+
+    context = types.SimpleNamespace(
+        n_input_tokens=None,
+        n_cache_tokens=None,
+        n_output_tokens=None,
+        cost_usd=None,
+        metadata={},
+    )
+    agent = MakaCodexAgent(
+        logs,
+        prompt_template_path=template,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_CODEX_TOOLCHAIN_FINGERPRINT": "sha256:" + "a" * 64,
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_LLM_CONNECTION_SLUG": "openai",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_TRIAL_INPUT_USD_PER_1M": "5",
+            "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
+            "MAKA_TRIAL_OUTPUT_USD_PER_1M": "30",
+            "MAKA_TRIAL_PRICING_SOURCE": "openai-gpt-5.6-sol-2026-07-20",
+        },
+    )
+    environment = Environment()
+    asyncio.run(agent.install(environment))
+    assert len(commands) == 1, commands
+    install_command, install_env = commands[0]
+    assert "sha256sum --check" in install_command, install_command
+    assert "/opt/maka-codex-toolchain/bin/codex" in install_command, install_command
+    assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
+    assert "ca-certificates" not in install_command, install_command
+    assert "npm" not in install_command, install_command
+    assert "curl" not in install_command, install_command
+
+    asyncio.run(agent.run("hi", environment, context))
+    http_provider_command = next(
+        command for command, _env in commands if "supports_websockets = false" in command
+    )
+    assert 'model_provider = "maka-http"' in http_provider_command, http_provider_command
+    assert 'base_url = "http://host.docker.internal:43210"' in http_provider_command, http_provider_command
+    assert 'wire_api = "responses"' in http_provider_command, http_provider_command
+    assert "ephemeral-token" not in http_provider_command, http_provider_command
+    assert len(agent.parent_calls) == 1, agent.parent_calls
+    assert agent.parent_calls[0]["instruction"] == "templated: hi", agent.parent_calls
+    assert agent.parent_calls[0]["api_key"] == "ephemeral-token", agent.parent_calls
+    assert agent.parent_calls[0]["base_url"] is None, agent.parent_calls
+    assert agent.parent_calls[0]["path"] == "/opt/maka-codex-toolchain/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", agent.parent_calls
+    assert agent._get_env("CODEX_AUTH_JSON_PATH") is None
+    assert agent._get_env("CODEX_FORCE_AUTH_JSON") is None
+    agent.populate_context_post_run(context)
+    cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert cell["status"] == "completed", cell
+    assert cell["executionIdentity"]["model"] == "gpt-5.6-sol", cell
+    assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
+    assert cell["runtimeRefs"]["sessionId"] == "thread-1", cell
+    assert cell["tokenSummary"]["input"] == 100, cell
+    assert cell["tokenSummary"]["cachedInput"] == 40, cell
+    assert cell["tokenSummary"]["cacheMissInput"] == 60, cell
+    assert cell["tokenSummary"]["output"] == 25, cell
+    assert abs(cell["tokenSummary"]["costUsd"] - 0.00107) < 1e-12, cell
+    assert cell["toolSummary"]["actualToolCallCounts"] == {"command_execution": 1}, cell
+    assert "ephemeral-token" not in json.dumps(cell), cell
+
+    failing = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    try:
+        asyncio.run(failing.run("fail", environment, context))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected Codex failure")
+    failing.populate_context_post_run(context)
+    failed = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert failed["status"] == "failed", failed
+    assert failed["errorClass"] == "auth", failed
+
+    transport = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    try:
+        asyncio.run(transport.run("transport-2500", environment, context))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected Codex transport failure")
+    transport.populate_context_post_run(context)
+    transport_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert transport_cell["status"] == "failed", transport_cell
+    assert transport_cell["errorClass"] == "network", transport_cell
+
+    incomplete = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    incomplete_context = types.SimpleNamespace(
+        n_input_tokens=None,
+        n_cache_tokens=None,
+        n_output_tokens=None,
+        cost_usd=None,
+        metadata={},
+    )
+    asyncio.run(incomplete.run("no-completion", environment, incomplete_context))
+    incomplete.populate_context_post_run(incomplete_context)
+    incomplete_cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert incomplete_cell["status"] == "failed", incomplete_cell
+    assert incomplete_cell["errorClass"] == "rate_limit", incomplete_cell
+
+    class TimeoutEnvironment(Environment):
+        def __init__(self):
+            self.process = None
+            self.started = asyncio.Event()
+
+        async def exec(self, command, env=None, **kwargs):
+            process = await asyncio.create_subprocess_exec(
+                "bash",
+                "-lc",
+                command,
+                start_new_session=True,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if "sleep 30" in command and self.process is None:
+                self.process = process
+                self.started.set()
+            await process.wait()
+            return types.SimpleNamespace(return_code=process.returncode, stdout="", stderr="")
+
+    timeout_environment = TimeoutEnvironment()
+    timeout_agent = MakaCodexAgent(
+        logs,
+        version="0.144.6",
+        model_name="gpt-5.6-sol",
+        reasoning_effort="max",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "gpt-5.6-sol",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+
+    async def cancel_codex():
+        task = asyncio.create_task(timeout_agent.run("cancel", timeout_environment, context))
+        await asyncio.wait_for(timeout_environment.started.wait(), timeout=2)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("expected Codex cancellation")
+
+    try:
+        asyncio.run(cancel_codex())
+        deadline = time.time() + 2
+        while timeout_environment.process.returncode is None and time.time() < deadline:
+            time.sleep(0.01)
+        assert timeout_environment.process.returncode is not None, (
+            "Codex deadline left a child process alive for the verifier"
+        )
+        timeout_agent.populate_context_post_run(context)
+        timeout_cell = json.loads(
+            (logs / "maka-cell-output.json").read_text(encoding="utf-8")
+        )
+        assert timeout_cell["status"] == "failed", timeout_cell
+        assert timeout_cell["errorClass"] == "budget_exhausted", timeout_cell
+        assert timeout_cell["deadlineSettlement"] == {
+            "source": "benchmark.deadline",
+            "mode": "immediate",
+        }, timeout_cell
+    finally:
+        if timeout_environment.process is not None and timeout_environment.process.returncode is None:
+            os.killpg(timeout_environment.process.pid, signal.SIGKILL)
+    print("codex adapter ok")
 `;
 }
 

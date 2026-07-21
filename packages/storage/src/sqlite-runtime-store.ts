@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import {
   isPartialRuntimeEvent,
@@ -19,6 +20,12 @@ import {
 export { SQLITE_RUNTIME_SCHEMA_VERSION } from './sqlite-runtime-schema.js';
 
 export type { ToolRecoveryMode } from '@maka/core';
+
+const require = createRequire(import.meta.url);
+
+function loadDatabaseSync(): typeof import('node:sqlite').DatabaseSync {
+  return (require('node:sqlite') as typeof import('node:sqlite')).DatabaseSync;
+}
 
 export type ToolJournalState = 'prepared' | 'outcome_committed';
 
@@ -113,6 +120,7 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
     private readonly options: SqliteRuntimeStoreOptions = {},
   ) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+    const DatabaseSync = loadDatabaseSync();
     this.db = new DatabaseSync(path);
     configureSqliteRuntimeDatabase(this.db);
     migrateSqliteRuntimeDatabase(this.db);

@@ -19,6 +19,7 @@ import {
   buildRuntimeEventModelReplayPlan,
   buildChildAgentTools,
   createBuiltinSandboxManager,
+  createProviderRequestCaptureRecorder,
   createFilesystemWorkerLaunchSpecProvider,
   createLocalContinuationSafetyInspector,
   FilesystemWorkerClient,
@@ -63,6 +64,7 @@ import {
   createSettingsStore,
   createShellRunStore,
   type ForeignSessionStore,
+  persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
@@ -631,6 +633,25 @@ export async function createMakaCliRuntimeContext(
       turnTailPrompt: ({ cwd }) =>
         buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
+      ...(ctx.recordProviderRequestCapture
+        ? {
+            recordProviderRequestCapture: createProviderRequestCaptureRecorder({
+              persistArtifact: async (capture) => {
+                const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+                  sessionId: ctx.sessionId,
+                  turnId: capture.turnId,
+                  captureId: capture.captureId,
+                  step: capture.step,
+                  serializedRequest: capture.serializedRequest,
+                  now: Date.now(),
+                });
+                return { artifactId: artifact.id };
+              },
+              recordLedger: ctx.recordProviderRequestCapture,
+            }),
+            recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
+          }
+        : {}),
       newId: randomUUID,
       now: Date.now,
       ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),

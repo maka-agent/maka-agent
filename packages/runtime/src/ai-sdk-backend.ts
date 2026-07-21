@@ -152,6 +152,11 @@ import {
   toolSchemaCharsForDiagnostics,
   type RequestShapeDiagnostic,
 } from './request-shape.js';
+import {
+  ProviderRequestTracker,
+  type ProviderRequestAttemptRecord,
+  type ProviderRequestCaptureRecord,
+} from './provider-request-telemetry.js';
 import { ToolAvailabilityRuntime, type ToolAvailabilityConfig } from './tool-availability.js';
 import {
   applyRuntimeEventContextBudget,
@@ -495,6 +500,15 @@ export interface AiSdkBackendInput {
   }) => Promise<unknown>;
   /** Optional diagnostic trace hook for explaining a runtime turn without changing renderer events. */
   recordRunTrace?: RunTraceRecorder;
+  /**
+   * Durable prepared-request capture boundary. When configured, rejection
+   * prevents the corresponding provider request from being dispatched.
+   */
+  recordProviderRequestCapture?: (
+    capture: ProviderRequestCaptureRecord,
+  ) => Promise<{ artifactId: string }>;
+  /** Best-effort durable row for one physical provider request attempt. */
+  recordProviderRequestAttempt?: (attempt: ProviderRequestAttemptRecord) => void | Promise<void>;
   /**
    * Optional artifact recorder. Runtime derives only deterministic candidates
    * from structured tool results / explicit redirects; desktop main owns
@@ -866,6 +880,18 @@ export class AiSdkBackend implements AgentBackend {
     });
     this.currentRunTrace = trace;
     trace.turnStarted();
+    const recordProviderRequestCapture = this.input.recordProviderRequestCapture;
+    const providerRequestTraceId = recordProviderRequestCapture ? this.newId() : undefined;
+    const providerRequestTracker = providerRequestTraceId
+      ? new ProviderRequestTracker({
+          traceId: providerRequestTraceId,
+          turnId,
+          now: this.now,
+          newId: this.newId,
+          persistCapture: recordProviderRequestCapture!,
+          recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
+        })
+      : undefined;
 
     // --- Resolve model (API key already attached at construct time) ---
     let model: unknown;
@@ -1269,6 +1295,7 @@ export class AiSdkBackend implements AgentBackend {
           // boundary even when no shaping hook is configured: a transient
           // transport retry can resend it without replaying completed tools.
           attemptObservedSteps = options.steps;
+          providerRequestTracker?.setStep(attemptStepBase + options.stepNumber);
           // Step boundary: lease the caller's queued steering, echo each as a
           // user event, ack only after it is durably persisted AND in the
           // injection set (nack on any failure so the queue reclaims it).
@@ -1349,6 +1376,7 @@ export class AiSdkBackend implements AgentBackend {
             abortSignal: this.abortController!.signal,
             stopAfterStep: () => this.stopAfterStepRequested,
             prepareStep: sendScopedPrepareStep,
+            ...(providerRequestTracker ? { providerRequestTracker } : {}),
             ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
           });
 
@@ -1621,6 +1649,7 @@ export class AiSdkBackend implements AgentBackend {
               requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
               promptSegments: turnDiagnostics.promptSegments,
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
+              ...(providerRequestTraceId ? { providerRequestTraceId } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
             if (
@@ -1695,6 +1724,7 @@ export class AiSdkBackend implements AgentBackend {
               ...(contextRemainingForUsage !== undefined
                 ? { contextRemaining: contextRemainingForUsage }
                 : {}),
+              ...(providerRequestTraceId ? { providerRequestTraceId } : {}),
             } satisfies TokenUsageEvent);
           }
         } catch {

@@ -10,6 +10,7 @@ import type { PromptAcceptanceResult } from './prompt-acceptance-policy.js';
 import {
   assertCandidateMatchesStableTaskSet,
   matchesRun,
+  readPromptHashAtCommit,
   type PromptOptimizationReplayState,
 } from './prompt-optimization-replay-state.js';
 import {
@@ -20,6 +21,7 @@ import { validateRsiControllerAttribution } from './rsi-controller-attribution.j
 
 export interface ReplayedPromptDecisionRound {
   decision: PromptCandidateDecisionEvent;
+  sampling: FixedPromptControllerResult | undefined;
   executedHeldIn: FixedPromptControllerResult;
   executedHeldOut: FixedPromptControllerResult | undefined;
   heldIn: FixedPromptControllerResult;
@@ -44,6 +46,7 @@ export function assertReplayedDecisionMatchesResult(
     heldInPassRateNoiseBand: result.heldInPassRateNoiseBand,
     heldOutPassRateNoiseBand: result.heldOutPassRateNoiseBand,
     rewardHackScan: result.rewardHackScan,
+    samplingPromptHash: result.samplingPromptHash,
     metrics: result.metrics,
   };
   const persistedDecision = {
@@ -59,6 +62,7 @@ export function assertReplayedDecisionMatchesResult(
     heldInPassRateNoiseBand: decision.heldInPassRateNoiseBand,
     heldOutPassRateNoiseBand: decision.heldOutPassRateNoiseBand,
     rewardHackScan: decision.rewardHackScan,
+    samplingPromptHash: decision.samplingPromptHash,
     metrics: decision.metrics,
   };
   if (
@@ -94,7 +98,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function replayPromptDecisionRound(input: {
+export async function replayPromptDecisionRound(input: {
   events: readonly FixedPromptWalEvent[];
   state: PromptOptimizationReplayState;
   runId: string;
@@ -104,9 +108,11 @@ export function replayPromptDecisionRound(input: {
   executedHeldInTaskIds?: readonly string[];
   executedHeldOutTaskIds?: readonly string[];
   resumeFingerprint?: string;
+  promptRepoDir?: string;
+  systemPromptGitPath?: string;
   heldInResultsTsvPath: string;
   heldOutResultsTsvPath: string;
-}): ReplayedPromptDecisionRound | undefined {
+}): Promise<ReplayedPromptDecisionRound | undefined> {
   const decision = input.state.decisionByRoundId.get(input.roundId);
   if (!decision) return undefined;
   const candidate = input.state.candidateByRoundId.get(input.roundId);
@@ -124,6 +130,9 @@ export function replayPromptDecisionRound(input: {
     candidate,
     decision,
   });
+  const sampling = decision.samplingPromptHash
+    ? await awaitReplaySampling(input, decision)
+    : undefined;
   const heldIn = replayRequiredControllerSweep({
     events: input.events,
     runId: input.runId,
@@ -164,12 +173,63 @@ export function replayPromptDecisionRound(input: {
   });
   return {
     decision,
+    sampling,
     executedHeldIn,
     executedHeldOut,
     heldIn,
     heldOut,
     attribution,
   };
+}
+
+async function awaitReplaySampling(
+  input: {
+    events: readonly FixedPromptWalEvent[];
+    state: PromptOptimizationReplayState;
+    runId: string;
+    roundId: string;
+    heldInTaskIds: readonly string[];
+    executedHeldInTaskIds?: readonly string[];
+    resumeFingerprint?: string;
+    promptRepoDir?: string;
+    systemPromptGitPath?: string;
+    heldInResultsTsvPath: string;
+  },
+  decision: PromptCandidateDecisionEvent,
+): Promise<FixedPromptControllerResult> {
+  const samplingPromptHash = decision.samplingPromptHash;
+  if (!samplingPromptHash) {
+    throw new Error(`RSI WAL replay missing sampling prompt hash for ${input.roundId}`);
+  }
+  if (input.promptRepoDir && input.systemPromptGitPath) {
+    const expectedPromptHash = await readPromptHashAtCommit({
+      promptRepoDir: input.promptRepoDir,
+      commitSha: decision.previousLastKeptCommitSha,
+      systemPromptGitPath: input.systemPromptGitPath,
+    });
+    if (expectedPromptHash !== samplingPromptHash) {
+      throw new Error(`RSI WAL replay sampling prompt hash mismatch for ${input.roundId}`);
+    }
+  }
+  const candidateIndex = input.events.findIndex(
+    (event) => event === input.state.candidateByRoundId.get(input.roundId),
+  );
+  if (candidateIndex < 0) {
+    throw new Error(`RSI WAL replay missing candidate event for ${input.roundId}`);
+  }
+  return replayRequiredControllerSweep({
+    // Sampling is a pre-candidate control arm. Evidence written after the
+    // candidate commit must not be accepted merely because it precedes the
+    // decision event.
+    events: input.events.slice(0, candidateIndex),
+    runId: input.runId,
+    roundId: `sampling-${input.roundId.slice('round-'.length)}`,
+    taskIds: input.executedHeldInTaskIds ?? input.heldInTaskIds,
+    expectedPromptHash: samplingPromptHash,
+    ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+    resultsTsvPath: input.heldInResultsTsvPath,
+    missingEvidenceMessage: `RSI WAL replay missing sampling baseline evidence for ${input.roundId}`,
+  });
 }
 
 function replayDecisionAttribution(input: {

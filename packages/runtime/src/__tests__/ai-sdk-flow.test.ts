@@ -143,6 +143,7 @@ describe('AiSdkFlow seam', () => {
           output: 5,
           costUsd: 0.001,
           systemPromptHash: 'sys-hash',
+          providerRequestTraceId: 'provider-trace-1',
         }),
         ev({ type: 'complete', stopReason: 'end_turn' }),
       ],
@@ -174,6 +175,7 @@ describe('AiSdkFlow seam', () => {
       costUsd: 0.001,
       systemPromptHash: 'sys-hash',
     });
+    assert.deepEqual(out[3].refs, { providerRequestTraceId: 'provider-trace-1' });
     // Stream closes with a terminal event.
     assert.equal(isTerminalRuntimeEvent(out[out.length - 1]), true);
     assert.equal(out[out.length - 1].status, 'completed');

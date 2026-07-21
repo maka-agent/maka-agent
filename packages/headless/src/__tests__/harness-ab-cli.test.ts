@@ -50,8 +50,8 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
 test('harness A/B selects one named task only with an explicit run identity', async () => {
   const {
     buildHarnessAbManifest,
-    resolveHarnessAbRunId,
     resolveHarnessAbTaskSelection,
+    resolveHarnessAbRunId,
     resolveHarnessCompetitorProfile,
   } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
   const taskId = 'extract-moves-from-video';
@@ -222,6 +222,7 @@ test('harness A/B freezes the stored advisory evidence when resuming a run', asy
 test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', async () => {
   const {
     buildHarnessAbManifest,
+    resolveHarnessAbTaskSelection,
     resolveHarnessAbRunId,
     resolveHarnessCompetitorProfile,
     resolveHarnessCompetitorToolchainPath,
@@ -238,6 +239,43 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.equal(competitor?.metadata.config.profile, 'kimi-code');
   assert.equal(competitor?.metadata.config.permissions, 'prompt-auto');
   assert.equal(resolveHarnessCompetitorProfile('opencode').version, '1.17.18');
+  const codexProfile = resolveHarnessCompetitorProfile('codex');
+  assert.equal(codexProfile.version, '0.144.6');
+  assert.deepEqual(codexProfile.runtime, {
+    provider: 'openai-codex',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
+    billingMode: 'account-plan',
+    pricing: {
+      currency: 'USD',
+      unit: 'per_1m_tokens',
+      input: 0,
+      cachedInput: 0,
+      output: 0,
+      source: 'openai-codex-chatgpt-account-plan',
+    },
+  });
+  assert.equal(codexProfile.config.adapter, 'codex_agent:MakaCodexAgent');
+  assert.equal(codexProfile.config.permissions, 'container-full-access');
+  assert.equal(codexProfile.config.transport, 'responses-http');
+  const codexSelection = resolveHarnessAbTaskSelection(undefined, '5', undefined, codexProfile);
+  assert.equal(codexSelection.pairConcurrency, 1);
+  assert.throws(
+    () => resolveHarnessAbTaskSelection(undefined, '5', '2', codexProfile),
+    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 1/,
+  );
+  const codexManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    pairConcurrency: codexSelection.pairConcurrency,
+    competitorProfile: codexProfile,
+  });
+  assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'sequential' });
+  assert.equal(codexManifest.maxConcurrency, 1);
+  assert.equal(codexManifest.maxConcurrentAttempts, codexManifest.maxConcurrency);
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
     provider: 'kimi-coding-plan',
@@ -271,6 +309,105 @@ test('harness A/B completion log preserves the report status', async () => {
   const source = await readFile(scriptPath, 'utf8');
 
   assert.match(source, /console\.log\(\s*`\$\{report\.runStatus\}:/);
+});
+
+test('Codex comparison freezes the OpenAI model, pricing, and run identity', async () => {
+  const {
+    buildHarnessAbManifest,
+    buildHarnessExecutionProfile,
+    resolveHarnessAbRunId,
+    resolveHarnessCompetitorToolchain,
+    resolveHarnessCompetitorProfile,
+  } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const competitorProfile = resolveHarnessCompetitorProfile('codex');
+  const credentialIdentity = {
+    connectionSlug: 'codex-subscription',
+    accountIdHash: `sha256:${'a'.repeat(64)}`,
+  };
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    competitorProfile,
+    credentialIdentity,
+  });
+  const otherAccountManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    competitorProfile,
+    credentialIdentity: {
+      ...credentialIdentity,
+      accountIdHash: `sha256:${'b'.repeat(64)}`,
+    },
+  });
+  assert.notEqual(manifest.fingerprint, otherAccountManifest.fingerprint);
+
+  assert.deepEqual(manifest.metadata.model, {
+    provider: 'openai-codex',
+    id: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+    credentialIdentity,
+  });
+  assert.deepEqual(manifest.metadata.pricing, competitorProfile.runtime.pricing);
+  assert.equal(manifest.arms[1].id, 'codex');
+  assert.equal(manifest.arms[1].metadata.config.billingMode, 'account-plan');
+  assert.equal(
+    resolveHarnessAbRunId(competitorProfile),
+    'gpt-5.6-sol-maka-vs-codex-oauth-tbench-2.1-full-v1',
+  );
+  const toolchain = resolveHarnessCompetitorToolchain('/run', competitorProfile, {
+    MAKA_HARNESS_AB_CODEX_TOOLCHAIN: '/prepared/codex',
+  });
+  assert.equal(toolchain.path, '/prepared/codex');
+  assert.equal(toolchain.prepare.name, 'prepareCodexToolchain');
+  assert.deepEqual(buildHarnessExecutionProfile(competitorProfile), {
+    modelSpec: 'openai-codex/gpt-5.6-sol',
+    provider: 'openai-codex',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
+    billingMode: 'account-plan',
+    pricing: {
+      inputUsdPer1M: 0,
+      cacheReadUsdPer1M: 0,
+      outputUsdPer1M: 0,
+      source: 'openai-codex-chatgpt-account-plan',
+    },
+  });
+});
+
+test('Codex comparison resolves both arms from one OAuth account workflow', async () => {
+  const { resolveHarnessCompetitorProfile, resolveHarnessRuntimeCredentials } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const calls: unknown[] = [];
+  const resolveProviderCredential = async () => ({ value: 'current-oauth-token' });
+  const credentialIdentity = {
+    connectionSlug: 'codex-subscription',
+    accountIdHash: `sha256:${'a'.repeat(64)}`,
+  };
+  const result = await resolveHarnessRuntimeCredentials({
+    competitorProfile: resolveHarnessCompetitorProfile('codex'),
+    env: {
+      MAKA_HARNESS_AB_WORKSPACE_ROOT: '/workspace',
+      MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG: 'codex-subscription',
+    },
+    createCodexOAuthCredentialBinding: async (input: unknown) => {
+      calls.push(input);
+      return { credentialIdentity, resolveProviderCredential };
+    },
+  });
+
+  assert.equal(result.resolveProviderCredential, resolveProviderCredential);
+  assert.deepEqual(result.credentialIdentity, credentialIdentity);
+  assert.deepEqual(calls, [
+    {
+      credentialsRoot: '/workspace',
+      connectionSlug: 'codex-subscription',
+    },
+  ]);
 });
 
 test('detached named-task launcher requires a run id before creating artifacts', async () => {

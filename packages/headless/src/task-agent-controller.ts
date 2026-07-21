@@ -26,8 +26,8 @@ import {
   createHeavyTaskEvidenceRecorder,
   renderHeavyTaskEvidenceForPrompt,
 } from './heavy-task-evidence.js';
-import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-policy.js';
-import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-task-policy.js';
+import { resolveHeavyTaskMode } from './heavy-task-policy.js';
+import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import {
   createHeavyTaskProgressRecorder,
   HEAVY_TASK_PROGRESS_TOOL_NAMES,
@@ -56,6 +56,10 @@ import {
   matchPermissionGrant,
   permissionPreview,
 } from './permission-grants.js';
+import {
+  resolveHeadlessSystemPrompt,
+  type ResolvedHeadlessSystemPrompt,
+} from './system-prompts.js';
 import {
   freezeSubmittedWorkspace,
   prepareScoringWorkspace,
@@ -153,9 +157,9 @@ export async function runTaskOnce(
   const startedAt = now();
   const verifier = normalizeVerifier(task);
   const heavyTaskMode = resolveHeavyTaskMode(config, task);
-  const configAfterHeavy = configWithHeavyTaskPolicy(config, heavyTaskMode);
-  const economyTaskMode = resolveEconomyTaskMode(configAfterHeavy, task);
-  const effectiveConfig = configWithEconomyTaskPolicy(configAfterHeavy, economyTaskMode);
+  const economyTaskMode = resolveEconomyTaskMode(config, task);
+  const prompt = resolveHeadlessSystemPrompt(config, { heavyTaskMode, economyTaskMode });
+  const effectiveConfig = { ...config, systemPrompt: prompt.systemPrompt };
   const priorProjection = heavyTaskMode.enabled ? await taskRunStore.project(taskRunId) : undefined;
   const priorProgressPrompt = priorProjection
     ? renderHeavyTaskProgressForPrompt(priorProjection)
@@ -281,6 +285,7 @@ export async function runTaskOnce(
     await registerBackends(backends, {
       config: effectiveConfig,
       task,
+      storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
@@ -373,6 +378,7 @@ export async function runTaskOnce(
       sessionId: header.id,
       startedAt,
       closeTaskRun,
+      systemPrompt: prompt,
     });
     if (permissionHandling.parked) {
       return {
@@ -478,6 +484,7 @@ export async function runTaskOnce(
           sessionId: header.id,
           startedAt,
           closeTaskRun,
+          systemPrompt: prompt,
         });
         if (repairPermissionHandling.parked) {
           return {
@@ -594,6 +601,7 @@ export async function runTaskOnce(
       scoreResultId,
       startedAt,
       finishedAt,
+      systemPrompt: prompt,
     });
     const taxonomy = finalScore.taxonomy;
     const scoreResult: ScoreResult = {
@@ -871,6 +879,7 @@ interface PermissionInterventionInput {
   sessionId: string;
   startedAt: number;
   closeTaskRun: boolean;
+  systemPrompt: Pick<ResolvedHeadlessSystemPrompt, 'mode' | 'systemPromptHash'>;
 }
 
 type PermissionInterventionResult =
@@ -961,6 +970,7 @@ async function handlePermissionIntervention(
         steps: input.invocation.events.length,
         errorClass: 'needs_approval',
         error: `task run needs approval for ${request.toolName}`,
+        systemPrompt: input.systemPrompt,
       }),
     };
   }
@@ -1045,12 +1055,15 @@ function syntheticPermissionResultRecord(input: {
   steps: number;
   errorClass: string;
   error: string;
+  systemPrompt: Pick<ResolvedHeadlessSystemPrompt, 'mode' | 'systemPromptHash'>;
 }): ResultRecord {
   return {
     taskId: input.task.id,
     configId: input.config.id,
     sessionId: input.sessionId,
     runId: input.runId,
+    systemPromptMode: input.systemPrompt.mode,
+    systemPromptHash: input.systemPrompt.systemPromptHash,
     status: 'failed',
     runnerCompleted: false,
     passed: false,
@@ -1160,6 +1173,14 @@ function createSingleRunActiveSession(
           header,
           store,
           recordRunTrace: (event) => boundRun?.recordRunTrace(event),
+          recordProviderRequestCapture: (capture) => {
+            if (!boundRun) {
+              return Promise.reject(new Error('No active AgentRun for provider request capture'));
+            }
+            return boundRun.recordProviderRequestCapture(capture);
+          },
+          recordProviderRequestAttempt: (attempt) =>
+            boundRun?.recordProviderRequestAttempt(attempt),
           recordActiveFullCompactBlock: (block) => boundRun?.recordActiveFullCompactBlock(block),
           recordSemanticCompactBlock: (block) => boundRun?.recordSemanticCompactBlock(block),
         });
@@ -1259,6 +1280,7 @@ function resultRecordFromInvocation(input: {
   scoreResultId: string;
   startedAt: number;
   finishedAt: number;
+  systemPrompt: Pick<ResolvedHeadlessSystemPrompt, 'mode' | 'systemPromptHash'>;
 }): ResultRecord {
   const status = input.invocation.status;
   return {
@@ -1266,6 +1288,8 @@ function resultRecordFromInvocation(input: {
     configId: input.config.id,
     sessionId: input.sessionId,
     runId: input.invocation.runId,
+    systemPromptMode: input.systemPrompt.mode,
+    systemPromptHash: input.systemPrompt.systemPromptHash,
     status,
     runnerCompleted: status === 'completed',
     passed: input.finalScore.passed,

@@ -36,6 +36,7 @@ import {
   startProviderAuthProxy,
   type ProviderRequestTelemetry,
   type ProviderTokenUsage,
+  type ProviderUpstreamCredentialResolver,
   type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
 import {
@@ -54,6 +55,11 @@ import {
   KIMI_CODE_TOOLCHAIN_FINGERPRINT,
   KIMI_CODE_TOOLCHAIN_SPEC,
 } from './kimi-code-toolchain.js';
+import {
+  CODEX_TOOLCHAIN_CONTAINER_PATH,
+  CODEX_TOOLCHAIN_FINGERPRINT,
+  CODEX_TOOLCHAIN_SPEC,
+} from './codex-toolchain.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -98,13 +104,15 @@ export interface HarborTaskRunnerOptions {
   /** Host path to the maka repo, mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;
   /** Harbor adapter under test (default: Maka). */
-  agent?: 'maka' | 'opencode' | 'kimi-code';
+  agent?: 'maka' | 'opencode' | 'kimi-code' | 'codex';
   /** Version passed to Harbor's installed-agent adapter. */
   agentVersion?: string;
   /** Prepared OpenCode toolchain mounted read-only into task containers. */
   opencodeToolchainPath?: string;
   /** Prepared Kimi Code toolchain mounted read-only into task containers. */
   kimiCodeToolchainPath?: string;
+  /** Prepared Codex CLI toolchain mounted read-only into task containers. */
+  codexToolchainPath?: string;
   /** Explicit Docker target platform shared by comparison arms. */
   dockerPlatform?: 'linux/amd64';
   /** Base directory under which each task gets an isolated per-task job dir. */
@@ -117,6 +125,8 @@ export interface HarborTaskRunnerOptions {
   /** Host path to an API key file. The key stays in the Harbor control process;
    * the task container receives no provider key env, key-file path, or secret mount. */
   apiKeyFile?: string;
+  /** Resolves the current provider authority inside the host proxy for every request. */
+  resolveProviderCredential?: ProviderUpstreamCredentialResolver;
   /** Raw API-key env var the host-side cell uses (default derived from provider).
    * A legacy *_API_KEY_FILE name is normalized to its raw *_API_KEY companion. */
   apiKeyEnvName?: string;
@@ -221,6 +231,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
     const hasHostProviderRuntime =
       runnerOptions.apiKeyFile !== undefined ||
+      runnerOptions.resolveProviderCredential !== undefined ||
       githubCopilotAccountTokenFromEnv(runnerOptions.provider, runnerOptions.agentEnv) !==
         undefined ||
       (!usesHostProviderProxy(runnerOptions.agent) &&
@@ -560,7 +571,7 @@ function hostTraceEventsPath(
   cell: HarborCellOutput,
   hostEventsPath: string,
 ): string {
-  if (agent === 'opencode' || agent === 'kimi-code') return hostEventsPath;
+  if (agent !== undefined && agent !== 'maka') return hostEventsPath;
   return join(
     trialDir,
     TRIAL_TRACE_EVENTS_ROOT,
@@ -811,6 +822,14 @@ export function buildHarborJobConfig(
       `Kimi Code adapter version must match toolchain version ${KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version}`,
     );
   }
+  if (adapter === 'codex' && !options.codexToolchainPath) {
+    throw new Error('codexToolchainPath is required for the Codex adapter');
+  }
+  if (adapter === 'codex' && options.agentVersion !== CODEX_TOOLCHAIN_SPEC.codex.version) {
+    throw new Error(
+      `Codex adapter version must match toolchain version ${CODEX_TOOLCHAIN_SPEC.codex.version}`,
+    );
+  }
   const mounts: Array<Record<string, unknown>> = [
     { type: 'bind', source: options.makaRepoPath, target: CONTAINER_MAKA_REPO, read_only: true },
     ...(adapter === 'opencode'
@@ -831,7 +850,16 @@ export function buildHarborJobConfig(
               read_only: true,
             },
           ]
-        : []),
+        : adapter === 'codex'
+          ? [
+              {
+                type: 'bind',
+                source: options.codexToolchainPath!,
+                target: CODEX_TOOLCHAIN_CONTAINER_PATH,
+                read_only: true,
+              },
+            ]
+          : []),
   ];
 
   const agentEnv: Record<string, string> = {
@@ -851,6 +879,9 @@ export function buildHarborJobConfig(
   }
   if (adapter === 'kimi-code') {
     agentEnv.MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT = KIMI_CODE_TOOLCHAIN_FINGERPRINT;
+  }
+  if (adapter === 'codex') {
+    agentEnv.MAKA_CODEX_TOOLCHAIN_FINGERPRINT = CODEX_TOOLCHAIN_FINGERPRINT;
   }
 
   if (options.pricing) {
@@ -872,7 +903,17 @@ export function buildHarborJobConfig(
   // fall back (metadata, then the adapter's default) rather than fail the run.
   const cellTimeoutSec =
     lenientPositiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC) ?? input.task.metadata?.agentTimeoutSec;
-  if (cellTimeoutSec !== undefined) agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
+  if (cellTimeoutSec !== undefined) {
+    agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
+    const streamTimeoutMs = cellTimeoutSec * 1_000;
+    if (adapter === 'maka' && Number.isSafeInteger(streamTimeoutMs)) {
+      // Harbor already owns the task-native hard deadline. Keep the runtime's
+      // first-event and between-event watchdogs from imposing a shorter,
+      // benchmark-distorting cutoff on long reasoning turns.
+      agentEnv.MAKA_STREAM_CONNECT_TIMEOUT_MS = String(streamTimeoutMs);
+      agentEnv.MAKA_STREAM_IDLE_TIMEOUT_MS = String(streamTimeoutMs);
+    }
+  }
   const verifier = verifierPolicy(input.task);
 
   return {
@@ -908,13 +949,20 @@ export function buildHarborJobConfig(
             ? 'opencode_agent:MakaOpenCodeAgent'
             : adapter === 'kimi-code'
               ? 'kimi_code_agent:MakaKimiCodeAgent'
-              : 'maka_agent:MakaAgent',
+              : adapter === 'codex'
+                ? 'codex_agent:MakaCodexAgent'
+                : 'maka_agent:MakaAgent',
         model_name: agentModel,
         kwargs:
           adapter === 'maka'
             ? { backend: 'ai-sdk' }
             : options.agentVersion
-              ? { version: options.agentVersion }
+              ? {
+                  version: options.agentVersion,
+                  ...(adapter === 'codex' && options.reasoningEffort
+                    ? { reasoning_effort: options.reasoningEffort }
+                    : {}),
+                }
               : {},
         env: agentEnv,
         ...(cellTimeoutSec !== undefined ? { max_timeout_sec: cellTimeoutSec } : {}),
@@ -964,7 +1012,12 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
 } | null> {
   const provider = options.provider ?? 'deepseek';
   if (usesHostProviderProxy(options.agent) && provider === 'github-copilot') {
-    const adapter = options.agent === 'kimi-code' ? 'Kimi Code' : 'OpenCode';
+    const adapter =
+      options.agent === 'kimi-code'
+        ? 'Kimi Code'
+        : options.agent === 'codex'
+          ? 'Codex'
+          : 'OpenCode';
     throw new Error(
       `GitHub Copilot Harbor runs use the Maka host agent; the ${adapter} Harbor adapter does not support this provider`,
     );
@@ -975,7 +1028,13 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
         ? (await readFile(options.apiKeyFile, 'utf8')).trim()
         : githubCopilotAccountTokenFromEnv(provider, options.agentEnv)
       : undefined;
-  if (!options.apiKeyFile && !githubToken && providerRequiresSecret(provider)) return null;
+  if (
+    !options.apiKeyFile &&
+    !options.resolveProviderCredential &&
+    !githubToken &&
+    providerRequiresSecret(provider)
+  )
+    return null;
   const providerEnv = providerCredentialEnv(provider);
   const [primaryBaseUrl] = providerEnv?.baseUrls ?? [];
   const configuredBaseUrl =
@@ -991,21 +1050,34 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       )
     : undefined;
   const baseUrl = copilotCredential?.baseUrl ?? configuredBaseUrl;
-  if (usesHostProviderProxy(options.agent)) {
+  if (options.resolveProviderCredential || usesHostProviderProxy(options.agent)) {
     const apiKeyFile = options.apiKeyFile;
-    if (!apiKeyFile) return null;
+    const resolveProviderCredential = options.resolveProviderCredential;
+    if (!apiKeyFile && !resolveProviderCredential) return null;
     if (!baseUrl) throw new Error(`${options.agent} provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
-      apiKeyFile,
+      ...(options.agent === 'maka' ? { advertisedHost: '127.0.0.1' } : {}),
+      ...(resolveProviderCredential
+        ? { resolveUpstreamCredential: resolveProviderCredential }
+        : { apiKeyFile: apiKeyFile! }),
       authMode: options.agent === 'kimi-code' ? 'bearer' : providerProxyAuthMode(provider),
       usageProtocol: providerProxyUsageProtocol(options.agent, provider),
     });
     return {
-      env: {
-        MAKA_PROVIDER_PROXY_URL: proxy.baseUrl,
-        MAKA_PROVIDER_PROXY_TOKEN: proxy.token,
-      },
+      env:
+        options.agent === 'maka'
+          ? {
+              MAKA_HOST_BASE_URL: proxy.baseUrl,
+              MAKA_HOST_API_KEY: proxy.token,
+              MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(
+                options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!,
+              ),
+            }
+          : {
+              MAKA_PROVIDER_PROXY_URL: proxy.baseUrl,
+              MAKA_PROVIDER_PROXY_TOKEN: proxy.token,
+            },
       usage: proxy.usage,
       telemetry: proxy.telemetry,
       close: proxy.close,
@@ -1035,7 +1107,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
 }
 
 function usesHostProviderProxy(agent: HarborTaskRunnerOptions['agent']): boolean {
-  return agent === 'opencode' || agent === 'kimi-code';
+  return agent === 'opencode' || agent === 'kimi-code' || agent === 'codex';
 }
 
 function providerTokenSummary(

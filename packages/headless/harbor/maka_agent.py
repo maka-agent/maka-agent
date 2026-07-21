@@ -65,6 +65,16 @@ _HOST_NODE_ENV_ALLOWLIST = {
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    # Host-side model requests must retain the operator's standard Node proxy
+    # configuration. NO_PROXY keeps the localhost tool bridge direct. These
+    # values reach only the trusted host child, never the task container.
+    "NODE_USE_ENV_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
     # Windows-specific variables Node/OpenSSL need to initialize the CSPRNG
     # and resolve system paths when the host cell is launched from a subprocess.
     "SystemRoot",
@@ -390,7 +400,7 @@ class MakaAgent(BaseInstalledAgent):
         return env
 
     def _cell_env(self, instruction_path: Any) -> dict[str, str]:
-        system_prompt = self._resolved_flags.get("system_prompt", "") or self._get_env("MAKA_SYSTEM_PROMPT") or ""
+        system_prompt = self._resolved_flags.get("system_prompt") or self._get_env("MAKA_SYSTEM_PROMPT")
         model = self.model_name or self._get_env("MAKA_MODEL") or "deepseek/deepseek-v4-flash"
         backend = self._harbor_backend()
         provider = self._resolved_flags.get("provider", "") or self._get_env("MAKA_PROVIDER") or ""
@@ -403,11 +413,12 @@ class MakaAgent(BaseInstalledAgent):
             "MAKA_BACKEND": backend,
             "MAKA_MODEL": model,
             "MAKA_INSTRUCTION_FILE": instruction_path.as_posix(),
-            "MAKA_SYSTEM_PROMPT": system_prompt,
             "MAKA_OUTPUT_DIR": EnvironmentPaths.agent_dir.as_posix(),
             "MAKA_STORAGE_ROOT": (EnvironmentPaths.agent_dir / "maka-storage").as_posix(),
             "MAKA_ECONOMY_TASK_MODE": "true" if economy_task_mode else "false",
         }
+        if system_prompt is not None:
+            env["MAKA_SYSTEM_PROMPT"] = system_prompt
         if provider:
             env["MAKA_PROVIDER"] = provider
         for key in (
@@ -423,6 +434,11 @@ class MakaAgent(BaseInstalledAgent):
             # Default per-command timeout floor for the in-container Bash tool, so
             # long builds/tests do not hit a hard-coded 2-minute ceiling.
             "MAKA_CELL_COMMAND_TIMEOUT_MS",
+            # Harbor owns the benchmark hard deadline. Forward its matching model
+            # stream watchdogs so max-reasoning first events are not cut off by the
+            # runtime's shorter interactive defaults.
+            "MAKA_STREAM_CONNECT_TIMEOUT_MS",
+            "MAKA_STREAM_IDLE_TIMEOUT_MS",
             # Benchmark-safe deterministic continuation. These are consumed by
             # run-host-cell.mjs/run-cell.mjs, not by the provider backend.
             "MAKA_HARBOR_CONTINUATION",

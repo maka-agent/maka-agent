@@ -127,23 +127,41 @@ export function summarizeProviderTelemetry(
 export type ProviderAuthProxyMode = 'bearer' | 'x-api-key';
 export type ProviderUsageProtocol = 'anthropic-sse' | 'openai-chat-sse';
 
-export async function startProviderAuthProxy(input: {
+export interface ProviderUpstreamCredential {
+  value: string;
+  headers?: Readonly<Record<string, string>>;
+}
+
+export type ProviderUpstreamCredentialResolver = () => Promise<ProviderUpstreamCredential>;
+
+type ProviderAuthProxyInput = {
   upstreamBaseUrl: string;
-  apiKeyFile: string;
   advertisedHost?: string;
   authMode?: ProviderAuthProxyMode;
   usageProtocol?: ProviderUsageProtocol;
   /** Injectable monotonic clock for deterministic tests. */
   now?: () => number;
-}): Promise<ProviderAuthProxy> {
+} & (
+  | { apiKeyFile: string; resolveUpstreamCredential?: never }
+  | { apiKeyFile?: never; resolveUpstreamCredential: ProviderUpstreamCredentialResolver }
+);
+
+export async function startProviderAuthProxy(
+  input: ProviderAuthProxyInput,
+): Promise<ProviderAuthProxy> {
   const upstreamBaseUrl = new URL(input.upstreamBaseUrl);
   if (upstreamBaseUrl.protocol !== 'https:' && upstreamBaseUrl.protocol !== 'http:') {
     throw new Error(
       `provider auth proxy requires an HTTP(S) upstream: ${upstreamBaseUrl.protocol}`,
     );
   }
-  const providerKey = (await readFile(input.apiKeyFile, 'utf8')).trim();
-  if (providerKey.length === 0) throw new Error('provider API key file is empty');
+  const resolveUpstreamCredential =
+    input.resolveUpstreamCredential ??
+    (async () => {
+      const value = (await readFile(input.apiKeyFile, 'utf8')).trim();
+      if (value.length === 0) throw new Error('provider API key file is empty');
+      return { value };
+    });
   const authMode = input.authMode ?? 'bearer';
   const token = randomBytes(32).toString('hex');
   const usage = new ProviderUsageAccumulator();
@@ -165,7 +183,7 @@ export async function startProviderAuthProxy(input: {
       request,
       response,
       upstreamBaseUrl,
-      providerKey,
+      resolveUpstreamCredential,
       token,
       authMode,
       usageProtocol: input.usageProtocol,
@@ -220,7 +238,7 @@ async function forwardProviderRequest(input: {
   request: IncomingMessage;
   response: ServerResponse;
   upstreamBaseUrl: URL;
-  providerKey: string;
+  resolveUpstreamCredential: ProviderUpstreamCredentialResolver;
   token: string;
   authMode: ProviderAuthProxyMode;
   usageProtocol?: ProviderUsageProtocol;
@@ -247,6 +265,10 @@ async function forwardProviderRequest(input: {
       protocol: input.usageProtocol,
       startedAt,
     });
+    const upstreamCredential = await input.resolveUpstreamCredential();
+    if (upstreamCredential.value.length === 0) {
+      throw new Error('provider credential resolver returned an empty value');
+    }
     const upstreamUrl = new URL(input.upstreamBaseUrl);
     upstreamUrl.pathname = `${upstreamUrl.pathname.replace(/\/$/, '')}/${incomingUrl.pathname.replace(/^\//, '')}`;
     upstreamUrl.search = incomingUrl.search;
@@ -256,8 +278,11 @@ async function forwardProviderRequest(input: {
       if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
       else headers.set(name, value);
     }
-    if (input.authMode === 'x-api-key') headers.set('x-api-key', input.providerKey);
-    else headers.set('authorization', `Bearer ${input.providerKey}`);
+    if (input.authMode === 'x-api-key') headers.set('x-api-key', upstreamCredential.value);
+    else headers.set('authorization', `Bearer ${upstreamCredential.value}`);
+    for (const [name, value] of Object.entries(upstreamCredential.headers ?? {})) {
+      headers.set(name, value);
+    }
     const body =
       input.request.method === 'GET' || input.request.method === 'HEAD'
         ? undefined

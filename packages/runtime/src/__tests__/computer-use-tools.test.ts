@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { CuAction } from '@maka/core';
+import { zodSchema } from 'ai';
 import {
   adaptToCuAction,
   buildComputerUseTools,
@@ -198,6 +199,21 @@ describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction'
       /screenshot requires app or window_id/,
     );
   });
+});
+
+test('provider schema explains the required semantic action fields', async () => {
+  const [tool] = buildComputerUseTools({ backend: fakeBackend() });
+  const schema = (await zodSchema(tool.parameters as never).jsonSchema) as {
+    properties?: Record<string, { description?: string }>;
+  };
+
+  assert.match(schema.properties?.action?.description ?? '', /set_value requires/);
+  assert.match(schema.properties?.observation_id?.description ?? '', /Required for every action/);
+  assert.match(
+    schema.properties?.element_id?.description ?? '',
+    /Required for click_element, set_value/,
+  );
+  assert.match(schema.properties?.value?.description ?? '', /Required only for set_value/);
 });
 
 test('computer params are copied and frozen before asynchronous policy checks', () => {
@@ -822,6 +838,109 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       base64: 'AA==',
       mimeType: 'image/png',
     });
+  });
+
+  test('semantic set_value keeps its semantic action name in the model summary', async () => {
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () =>
+      observation({
+        elements: [
+          {
+            elementId: '5',
+            role: 'AXTextField',
+            label: 'Field',
+            value: '',
+          },
+        ],
+      });
+    backend.runSemantic = async () => ({
+      outcome: {
+        ok: true,
+        tier: 'ax',
+        verified: true,
+        evidence: { path: 'ax', effect: 'confirmed' },
+      },
+      observation: observation({
+        observationId: 'backend-obs-2',
+        elements: [
+          {
+            elementId: '5',
+            role: 'AXTextField',
+            label: 'Field',
+            value: 'updated',
+          },
+        ],
+      }),
+    });
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = (await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx())) as {
+      text: string;
+    };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const result = (await tool.impl(
+      {
+        action: 'set_value',
+        observation_id: observationId,
+        element_id: '5',
+        value: 'updated',
+      } as never,
+      ctx(),
+    )) as { text: string };
+
+    assert.match(result.text, /computer\.set_value ok via ax/);
+    assert.doesNotMatch(result.text, /computer\.type/);
+  });
+
+  test('semantic recovery keeps the action name when fresh observation is unavailable', async () => {
+    for (const captureMode of ['missing', 'throws'] as const) {
+      const backend = fakeBackend() as CuDispatchBackend & {
+        observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+        runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+        captureObservation?: NonNullable<CuDispatchBackend['captureObservation']>;
+      };
+      backend.observeApp = async () =>
+        observation({
+          elements: [
+            {
+              elementId: '5',
+              role: 'AXTextField',
+              label: 'Field',
+              value: '',
+            },
+          ],
+        });
+      backend.runSemantic = async () => ({
+        outcome: { ok: true, tier: 'ax', verified: true },
+      });
+      if (captureMode === 'throws') {
+        backend.captureObservation = async () => {
+          throw new Error('capture failed');
+        };
+      }
+      const [tool] = buildComputerUseTools({ backend });
+      const observed = (await tool.impl({ action: 'observe', app: 'Fixture' } as never, ctx())) as {
+        text: string;
+      };
+      const observationId = JSON.parse(observed.text).observation_id as string;
+
+      const result = (await tool.impl(
+        {
+          action: 'set_value',
+          observation_id: observationId,
+          element_id: '5',
+          value: 'updated',
+        } as never,
+        ctx(),
+      )) as { text: string; error?: string };
+
+      assert.equal(result.error, 'outcome_unknown');
+      assert.match(result.text, /computer\.set_value failed: outcome_unknown/);
+      assert.doesNotMatch(result.text, /computer\.type/);
+    }
   });
 
   test('coordinate action is bound to a window-local screenshot and consumes the observation', async () => {

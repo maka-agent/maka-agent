@@ -1,4 +1,4 @@
-import { BOT_PROVIDERS, isBotDeliveryProvider, type BotProvider } from './settings.js';
+import { BOT_PROVIDERS, isBotDeliveryProvider, type BotProvider } from './bot-chat-settings.js';
 
 export const PLAN_REMINDER_TITLE_MAX_CHARS = 120;
 export const PLAN_REMINDER_NOTE_MAX_CHARS = 1000;

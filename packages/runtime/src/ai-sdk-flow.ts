@@ -529,6 +529,9 @@ function mapBackendSessionEvent(
             ...(event.contextBudget !== undefined ? { contextBudget: event.contextBudget } : {}),
           },
         },
+        ...(event.providerRequestTraceId !== undefined
+          ? { refs: { providerRequestTraceId: event.providerRequestTraceId } }
+          : {}),
       };
 
     // ── Error ─────────────────────────────────────────────────────────────

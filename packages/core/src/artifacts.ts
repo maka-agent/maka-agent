@@ -6,6 +6,7 @@ export type ArtifactSource =
   | 'synthesis_cache_block'
   | 'history_compact_block'
   | 'history_compact_source'
+  | 'provider_request_capture'
   | 'user_upload'
   | 'export'
   | 'snapshot'

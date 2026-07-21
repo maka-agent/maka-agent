@@ -3,7 +3,7 @@ import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.j
 import type { AbRunManifest } from './ab-types.js';
 import type { HarnessOracleAnnotation } from './harness-oracle-registry.js';
 
-export type HarnessAbArmId = 'maka' | 'opencode' | 'kimi-code';
+export type HarnessAbArmId = 'maka' | 'opencode' | 'kimi-code' | 'codex';
 
 export const HARNESS_AB_PAIR_CONCURRENCY = 2;
 export const HARNESS_AB_MAX_CONCURRENT_ATTEMPTS = HARNESS_AB_PAIR_CONCURRENCY * 2;
@@ -167,6 +167,10 @@ export interface HarnessAbRunManifestInput {
     provider: string;
     id: string;
     reasoningEffort: 'max';
+    credentialIdentity?: {
+      connectionSlug: string;
+      accountIdHash: string;
+    };
   };
   pricing: {
     currency: 'USD';
@@ -183,6 +187,7 @@ export interface HarnessAbRunManifestInput {
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
   pairConcurrency?: number;
+  armExecution?: 'parallel' | 'sequential';
   oracleEvidence?: {
     registryUrl?: string;
     expectedSnapshotFingerprint?: string;
@@ -197,6 +202,9 @@ export type HarnessAbRunManifest = AbRunManifest & {
   metadata: {
     benchmark: HarnessAbRunManifestInput['benchmark'];
     metric: 'pass@1';
+    execution: {
+      armExecution: 'parallel' | 'sequential';
+    };
     order: {
       algorithm: 'sha256-rank-v1';
       seed: string;
@@ -231,6 +239,7 @@ export function deterministicHarnessTaskOrder(taskIds: readonly string[], seed: 
 export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): HarnessAbRunManifest {
   const evaluationTaskIds = deterministicHarnessTaskOrder(input.taskIds, input.orderSeed);
   const pairConcurrency = input.pairConcurrency ?? HARNESS_AB_PAIR_CONCURRENCY;
+  const armExecution = input.armExecution ?? 'parallel';
   if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
     throw new Error('pairConcurrency must be a positive integer');
   }
@@ -244,6 +253,7 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
   const metadata: HarnessAbRunManifest['metadata'] = {
     benchmark: { ...input.benchmark },
     metric: 'pass@1',
+    execution: { armExecution },
     order: {
       algorithm: 'sha256-rank-v1',
       seed: input.orderSeed,
@@ -280,7 +290,7 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     reps: 1,
     candidateLimit: null,
     maxConcurrency: pairConcurrency,
-    maxConcurrentAttempts: pairConcurrency * 2,
+    maxConcurrentAttempts: pairConcurrency * (armExecution === 'parallel' ? 2 : 1),
     selectionMode: 'explicit',
   });
   return manifest as HarnessAbRunManifest;

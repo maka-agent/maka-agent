@@ -587,117 +587,19 @@ describe('open gateway settings contract', () => {
     expect(patched.openGateway.token).toBe('stored-token');
   });
 
-  test('web search credential status persists independently from masked key round-trips', () => {
-    const current = mergeSettings(createDefaultSettings(), {
+  test('delegates web search patches and persisted normalization to the web-search owner', () => {
+    const patched = mergeSettings(createDefaultSettings(), {
       webSearch: {
-        providers: {
-          tavily: {
-            apiKey: 'stored-key',
-            credentialStatus: 'valid',
-            credentialCheckedAt: '2026-05-29T00:00:00.000Z',
-          },
-        },
+        enabled: true,
+        providers: { tavily: { apiKey: 'stored-key' } },
       },
     });
+    const normalized = normalizeSettings(patched);
 
-    const patched = mergeSettings(current, {
-      webSearch: {
-        providers: {
-          tavily: {
-            apiKey: '••••••',
-          },
-        },
-      },
-    });
-
-    expect(patched.webSearch.providers.tavily.apiKey).toBe('stored-key');
-    expect(patched.webSearch.providers.tavily.credentialSource).toBe('saved');
-    expect(patched.webSearch.providers.tavily.credentialVersion).toBe(1);
-    expect(patched.webSearch.providers.tavily.credentialStatus).toBe('valid');
-    expect(patched.webSearch.providers.tavily.credentialCheckedAt).toBe('2026-05-29T00:00:00.000Z');
-  });
-
-  test('web search credential status resets when the saved key changes', () => {
-    const current = mergeSettings(createDefaultSettings(), {
-      webSearch: {
-        providers: {
-          tavily: {
-            apiKey: 'old-key',
-            credentialStatus: 'valid',
-            credentialCheckedAt: '2026-05-29T00:00:00.000Z',
-          },
-        },
-      },
-    });
-
-    const patched = mergeSettings(current, {
-      webSearch: {
-        providers: {
-          tavily: {
-            apiKey: 'new-key',
-          },
-        },
-      },
-    });
-
-    expect(patched.webSearch.providers.tavily.apiKey).toBe('new-key');
-    expect(patched.webSearch.providers.tavily.credentialSource).toBe('saved');
-    expect(patched.webSearch.providers.tavily.credentialVersion).toBe(2);
-    expect(patched.webSearch.providers.tavily.credentialStatus).toBe('untested');
-    expect(patched.webSearch.providers.tavily.credentialCheckedAt).toBeUndefined();
-  });
-
-  test('web search credential test result is ignored when it targets a stale key version', () => {
-    const current = mergeSettings(createDefaultSettings(), {
-      webSearch: {
-        providers: {
-          tavily: {
-            apiKey: 'current-key',
-          },
-        },
-      },
-    });
-    const updatedKey = mergeSettings(current, {
-      webSearch: {
-        providers: {
-          tavily: {
-            apiKey: 'newer-key',
-          },
-        },
-      },
-    });
-
-    const staleResult = mergeSettings(updatedKey, {
-      webSearch: {
-        providers: {
-          tavily: {
-            credentialVersion: current.webSearch.providers.tavily.credentialVersion,
-            credentialStatus: 'invalid_credentials',
-            credentialCheckedAt: '2026-05-29T00:00:00.000Z',
-          },
-        },
-      },
-    });
-    const freshResult = mergeSettings(updatedKey, {
-      webSearch: {
-        providers: {
-          tavily: {
-            credentialVersion: updatedKey.webSearch.providers.tavily.credentialVersion,
-            credentialStatus: 'valid',
-            credentialCheckedAt: '2026-05-29T00:01:00.000Z',
-          },
-        },
-      },
-    });
-
-    expect(updatedKey.webSearch.providers.tavily.credentialVersion).toBe(2);
-    expect(staleResult.webSearch.providers.tavily.credentialSource).toBe('saved');
-    expect(staleResult.webSearch.providers.tavily.credentialStatus).toBe('untested');
-    expect(staleResult.webSearch.providers.tavily.credentialCheckedAt).toBeUndefined();
-    expect(freshResult.webSearch.providers.tavily.credentialStatus).toBe('valid');
-    expect(freshResult.webSearch.providers.tavily.credentialCheckedAt).toBe(
-      '2026-05-29T00:01:00.000Z',
-    );
+    expect(normalized.webSearch.enabled).toBe(true);
+    expect(normalized.webSearch.providers.tavily.apiKey).toBe('stored-key');
+    expect(normalized.webSearch.providers.tavily.credentialSource).toBe('saved');
+    expect(normalized.webSearch.providers.tavily.credentialVersion).toBe(1);
   });
 
   test('workspace instructions are visible settings and default to enabled', () => {

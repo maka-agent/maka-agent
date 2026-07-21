@@ -134,12 +134,13 @@ export interface Config {
   /** Provider-native reasoning depth for a fixed benchmark configuration. */
   thinkingLevel?: ThinkingLevel;
   /**
-   * Optional system prompt for the config under test. This is a benchmark
-   * variable, NOT persisted session state — the `registerBackends` factory
-   * reads it from its closure and passes it to the backend constructor
-   * directly (same pattern as the desktop interactive path). It never
-   * enters `SessionHeader` or `BackendFactoryContext.systemPrompt` (which
-   * is the child-agent instruction channel, not the main-session prompt).
+   * Complete Layer 1 system prompt for the config under test. Headless uses
+   * its non-empty default when omitted, preserves a non-empty custom string
+   * byte-for-byte, and rejects empty or whitespace-only strings before
+   * execution. Task-run and Harbor paths retain their existing enabled policy
+   * overlays; the legacy direct runner resolves Layer 1 only. This benchmark
+   * variable is passed directly to the backend constructor; it is not persisted
+   * session state or the child-agent instruction channel.
    */
   systemPrompt?: string;
   /**
@@ -168,12 +169,18 @@ export interface EconomyTaskModeConfig {
   policyVersion?: string;
 }
 
+export type HeadlessSystemPromptMode = 'default' | 'custom';
+
 /** One row of canonical truth per run: did it run, did it pass, and how much it cost. */
 export interface ResultRecord {
   taskId: string;
   configId: string;
   sessionId: string;
   runId: string;
+  /** Layer 1 source used by new headless runs; absent on legacy records. */
+  systemPromptMode?: HeadlessSystemPromptMode;
+  /** SHA-256 of the final model-visible system prompt, including policy overlays. */
+  systemPromptHash?: string;
   /** Did the agent invocation finish (vs. error out mid-run)? */
   status: 'completed' | 'failed';
   /** Explicit runner status; legacy `status` is preserved for JSONL readers. */

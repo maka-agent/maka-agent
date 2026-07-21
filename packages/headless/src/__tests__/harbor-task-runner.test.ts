@@ -528,6 +528,153 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('gives Codex an ephemeral OpenAI proxy without exposing the provider key file', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'codex',
+        codexToolchainPath: '/toolchain',
+        agentVersion: '0.144.6',
+        model: 'openai/gpt-5.6-sol',
+        provider: 'openai',
+        reasoningEffort: 'max',
+        apiKeyFile: keyFile,
+        agentEnv: { MAKA_BASE_URL: 'https://api.openai.com/v1' },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+
+      await runner(runInput());
+
+      assert.match(
+        harborEnv?.MAKA_PROVIDER_PROXY_URL ?? '',
+        /^http:\/\/host\.docker\.internal:\d+$/,
+      );
+      assert.match(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
+      assert.equal(harborEnv?.OPENAI_API_KEY, undefined);
+      assert.doesNotMatch(JSON.stringify(harborEnv), /deepseek-key|sk-secret/);
+      assert.doesNotMatch(JSON.stringify(captured.config), /OPENAI_API_KEY|deepseek-key|sk-secret/);
+    });
+  });
+
+  test('keeps rotating Codex OAuth authority behind the host proxy', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      let upstreamAuthorization = '';
+      let upstreamAccountId = '';
+      const upstream = createServer((request, response) => {
+        upstreamAuthorization = request.headers.authorization ?? '';
+        upstreamAccountId = String(request.headers['chatgpt-account-id'] ?? '');
+        response.writeHead(200).end('ok');
+      });
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const address = upstream.address();
+      assert.ok(address && typeof address !== 'string');
+      try {
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          agent: 'codex',
+          codexToolchainPath: '/toolchain',
+          agentVersion: '0.144.6',
+          model: 'openai-codex/gpt-5.6-sol',
+          provider: 'openai-codex',
+          reasoningEffort: 'max',
+          agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}` },
+          resolveProviderCredential: async () => ({
+            value: 'current-oauth-token',
+            headers: { 'ChatGPT-Account-Id': 'account-shared' },
+          }),
+          runHarbor: async (request: HarborRunRequest) => {
+            harborEnv = request.env;
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL?.replace(
+              'host.docker.internal',
+              '127.0.0.1',
+            );
+            assert.ok(proxyUrl);
+            const response = await fetch(`${proxyUrl}/responses`, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${request.env?.MAKA_PROVIDER_PROXY_TOKEN}` },
+              body: '{}',
+            });
+            assert.equal(response.status, 200);
+            return fakeRunner({ reward: '1\n', captured })(request);
+          },
+        });
+
+        await runner(runInput());
+
+        assert.match(
+          harborEnv?.MAKA_PROVIDER_PROXY_URL ?? '',
+          /^http:\/\/host\.docker\.internal:\d+$/,
+        );
+        assert.match(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
+        assert.equal(upstreamAuthorization, 'Bearer current-oauth-token');
+        assert.equal(upstreamAccountId, 'account-shared');
+        assert.ok(captured.config);
+        assert.doesNotMatch(JSON.stringify(captured.config), /AUTH_JSON|current-oauth-token/);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    });
+  });
+
+  test('routes the Maka arm through the same rotating OAuth proxy boundary', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let upstreamAuthorization = '';
+      const upstream = createServer((request, response) => {
+        upstreamAuthorization = request.headers.authorization ?? '';
+        response.writeHead(200).end('ok');
+      });
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const address = upstream.address();
+      assert.ok(address && typeof address !== 'string');
+      try {
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          agent: 'maka',
+          model: 'openai-codex/gpt-5.6-sol',
+          provider: 'openai-codex',
+          reasoningEffort: 'max',
+          agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}` },
+          resolveProviderCredential: async () => ({ value: 'current-oauth-token' }),
+          runHarbor: async (request: HarborRunRequest) => {
+            const proxyUrl = request.env?.MAKA_HOST_BASE_URL;
+            assert.ok(proxyUrl);
+            assert.match(proxyUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+            const response = await fetch(`${proxyUrl}/responses`, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${request.env?.MAKA_HOST_API_KEY}` },
+              body: '{}',
+            });
+            assert.equal(response.status, 200);
+            return fakeRunner({ reward: '1\n', captured })(request);
+          },
+        });
+
+        await runner(runInput());
+
+        assert.equal(upstreamAuthorization, 'Bearer current-oauth-token');
+        assert.ok(captured.config);
+        assert.doesNotMatch(JSON.stringify(captured.config), /current-oauth-token/);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    });
+  });
+
   test('selects Anthropic x-api-key auth for the OpenCode Kimi Coding Plan proxy', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       let upstreamApiKey = '';
@@ -1571,7 +1718,7 @@ describe('buildHarborJobConfig', () => {
       model: 'zai-coding-plan/glm-5.2',
       provider: 'zai-coding-plan',
       dockerPlatform: 'linux/amd64',
-    } as Parameters<typeof buildHarborJobConfig>[1]);
+    } as unknown as Parameters<typeof buildHarborJobConfig>[1]);
 
     assert.deepEqual(
       (config.environment as { extra_docker_compose?: string[] }).extra_docker_compose,
@@ -1611,6 +1758,40 @@ describe('buildHarborJobConfig', () => {
     );
     assert.equal(env.KIMI_API_KEY, undefined);
     assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  });
+
+  test('pins the Codex adapter and toolchain behind the host provider proxy', () => {
+    const config = buildHarborJobConfig(runInput(), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      agent: 'codex',
+      model: 'openai/gpt-5.6-sol',
+      provider: 'openai',
+      reasoningEffort: 'max',
+      agentVersion: '0.144.6',
+      codexToolchainPath: '/cache/codex-0.144.6-linux-x64',
+      dockerPlatform: 'linux/amd64',
+    } as unknown as Parameters<typeof buildHarborJobConfig>[1]);
+    const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
+    const env = agent.env as Record<string, string>;
+    const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
+
+    assert.equal(agent.name, undefined);
+    assert.equal(agent.import_path, 'codex_agent:MakaCodexAgent');
+    assert.equal(agent.model_name, 'gpt-5.6-sol');
+    assert.deepEqual(agent.kwargs, { version: '0.144.6', reasoning_effort: 'max' });
+    assert.match(env.MAKA_CODEX_TOOLCHAIN_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(
+      mounts.some(
+        (mount) =>
+          mount.source === '/cache/codex-0.144.6-linux-x64' &&
+          mount.target === '/opt/maka-codex-toolchain' &&
+          mount.read_only === true,
+      ),
+    );
+    assert.equal(env.OPENAI_API_KEY, undefined);
+    assert.equal(env.CODEX_API_KEY, undefined);
   });
 
   test('requires a prepared toolchain for OpenCode before Harbor starts', () => {
@@ -1656,6 +1837,36 @@ describe('buildHarborJobConfig', () => {
           kimiCodeToolchainPath: '/toolchain',
         }),
       /Kimi Code adapter version must match toolchain version 0\.26\.0/,
+    );
+  });
+
+  test('requires the pinned Codex toolchain before Harbor starts', () => {
+    assert.throws(
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          agent: 'codex',
+          model: 'openai/gpt-5.6-sol',
+          provider: 'openai',
+          agentVersion: '0.144.6',
+        } as unknown as Parameters<typeof buildHarborJobConfig>[1]),
+      /codexToolchainPath is required for the Codex adapter/,
+    );
+    assert.throws(
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          agent: 'codex',
+          model: 'openai/gpt-5.6-sol',
+          provider: 'openai',
+          agentVersion: '0.143.0',
+          codexToolchainPath: '/toolchain',
+        } as unknown as Parameters<typeof buildHarborJobConfig>[1]),
+      /Codex adapter version must match toolchain version 0\.144\.6/,
     );
   });
 
@@ -1765,6 +1976,16 @@ describe('buildHarborJobConfig', () => {
         withMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
       )[0]!;
       assert.equal(metadataAgent.env.MAKA_CELL_TIMEOUT_SEC, String(parsed ?? 1234), label);
+      assert.equal(
+        metadataAgent.env.MAKA_STREAM_CONNECT_TIMEOUT_MS,
+        String((parsed ?? 1234) * 1_000),
+        label,
+      );
+      assert.equal(
+        metadataAgent.env.MAKA_STREAM_IDLE_TIMEOUT_MS,
+        String((parsed ?? 1234) * 1_000),
+        label,
+      );
       assert.equal(metadataAgent.max_timeout_sec, parsed ?? 1234, label);
 
       // Without metadata, a parsed value is rewritten into the env; a parse
@@ -1808,6 +2029,8 @@ describe('buildHarborJobConfig', () => {
       config.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
     )[0]!;
     assert.equal(agent.env.MAKA_CELL_TIMEOUT_SEC, '1234');
+    assert.equal(agent.env.MAKA_STREAM_CONNECT_TIMEOUT_MS, '1234000');
+    assert.equal(agent.env.MAKA_STREAM_IDLE_TIMEOUT_MS, '1234000');
     assert.equal(agent.max_timeout_sec, 1234);
   });
 

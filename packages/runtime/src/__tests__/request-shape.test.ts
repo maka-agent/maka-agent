@@ -6,6 +6,7 @@ import {
   toolSchemaCharsForDiagnostics,
   computeRequestShapeDiagnostic,
 } from '../request-shape.js';
+import * as requestShape from '../request-shape.js';
 import type { MakaTool } from '../tool-runtime.js';
 
 function tool(name: string): MakaTool {
@@ -111,5 +112,121 @@ describe('diagnostics measure the provider-visible (active) tool subset', () => 
     const after = diag(tools, ['Read', 'Rive'], before);
     assert.notEqual(after.componentHashes.toolSchemaHash, before.componentHashes.toolSchemaHash);
     assert.equal(after.prefixChangeReason, 'tool_schema_changed');
+  });
+});
+
+describe('prepared provider request capture', () => {
+  test('records cacheable request segments in provider-prefix order', () => {
+    const capture = Reflect.get(requestShape, 'capturePreparedProviderRequest') as
+      | ((input: {
+          providerId: string;
+          modelId: string;
+          instructions: string;
+          messages: Array<{ role: string; content: string }>;
+          tools: Array<Record<string, unknown>>;
+          providerOptions: Record<string, unknown>;
+        }) => {
+          requestHash: string;
+          requestBytes: number;
+          serializedRequest: string;
+          segments: Array<{
+            kind: string;
+            index: number;
+            cacheable: boolean;
+            hash: string;
+            bytes: number;
+            role?: string;
+          }>;
+        })
+      | undefined;
+
+    assert.equal(typeof capture, 'function');
+    const result = capture!({
+      providerId: 'anthropic',
+      modelId: 'claude-test',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [{ name: 'Bash', description: 'Run a command', inputSchema: { type: 'object' } }],
+      providerOptions: { anthropic: { thinking: { type: 'enabled', budgetTokens: 1_024 } } },
+    });
+
+    assert.deepEqual(
+      result.segments.map(({ kind, index, cacheable, role }) => ({
+        kind,
+        index,
+        cacheable,
+        ...(role ? { role } : {}),
+      })),
+      [
+        { kind: 'tool_schema', index: 0, cacheable: true },
+        { kind: 'system_prompt', index: 0, cacheable: true },
+        { kind: 'message', index: 0, cacheable: true, role: 'user' },
+        { kind: 'provider_options', index: 0, cacheable: false },
+      ],
+    );
+    assert.match(result.requestHash, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(result.requestBytes, Buffer.byteLength(result.serializedRequest, 'utf8'));
+    assert.ok(result.segments.every((segment) => segment.bytes > 0));
+    assert.ok(result.segments.every((segment) => /^sha256:[a-f0-9]{64}$/.test(segment.hash)));
+  });
+
+  test('finds the first changed cacheable segment by exact content hash', () => {
+    const capture = requestShape.capturePreparedProviderRequest;
+    const findFirstChanged = Reflect.get(requestShape, 'findFirstChangedCacheableSegment') as
+      | ((
+          current: ReturnType<typeof capture>,
+          prior: ReturnType<typeof capture>,
+        ) => { kind: string; index: number; role?: string } | undefined)
+      | undefined;
+    assert.equal(typeof findFirstChanged, 'function');
+
+    const prior = capture({
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'alpha' }],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { openai: { reasoningEffort: 'low' } },
+    });
+    const changedMessage = capture({
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'bravo' }],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { openai: { reasoningEffort: 'low' } },
+    });
+    assert.deepEqual(findFirstChanged!(changedMessage, prior), {
+      kind: 'message',
+      index: 0,
+      role: 'user',
+    });
+
+    const onlyOptionsChanged = capture({
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'alpha' }],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    });
+    assert.equal(findFirstChanged!(onlyOptionsChanged, prior), undefined);
+
+    const appendedMessage = capture({
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      instructions: 'system',
+      messages: [
+        { role: 'user', content: 'alpha' },
+        { role: 'assistant', content: 'done' },
+      ],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { openai: { reasoningEffort: 'low' } },
+    });
+    assert.deepEqual(findFirstChanged!(appendedMessage, prior), {
+      kind: 'message',
+      index: 1,
+      role: 'assistant',
+    });
   });
 });

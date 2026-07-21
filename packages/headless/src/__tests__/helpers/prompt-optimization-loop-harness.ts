@@ -178,9 +178,12 @@ function fakeHarborRunner(
     // a plumbing failure — which the stability filter drops.
     const failed = shouldFail?.(roundId, task.id) ?? false;
     const verifierFailureSummary = verifierFailureSummaryFor?.(roundId, task.id);
+    const rewardRoundId = roundId.startsWith('sampling-')
+      ? (systemPrompt.match(/candidate prompt (round-\d+)/)?.[1] ?? 'baseline-0')
+      : roundId;
     return {
       harbor: {
-        reward: failed ? 0 : rewardFor(roundId, task.id),
+        reward: failed ? 0 : rewardFor(rewardRoundId, task.id),
         ...(verifierFailureSummary ? { verifierFailureSummary } : {}),
       },
       cell: {

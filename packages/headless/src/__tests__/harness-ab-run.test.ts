@@ -3,11 +3,12 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { hashHarborSystemPrompt, type HarborCellOutput } from '../cell-output.js';
+import type { HarborCellOutput } from '../cell-output.js';
 import type { HarborTaskRunner } from '../fixed-prompt-controller.js';
 import { assertHarnessAbReportCompleted, buildHarnessAbReport } from '../harness-ab-report.js';
 import { runHarnessAbComparison } from '../harness-ab-run.js';
 import { HarborInfraError } from '../harbor-task-runner.js';
+import { hashHeadlessSystemPrompt } from '../system-prompts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('runHarnessAbComparison', () => {
@@ -57,6 +58,39 @@ describe('runHarnessAbComparison', () => {
 
       assert.equal(observedFour, true);
       assert.equal(maxActive, 4);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('runs paired harness arms sequentially when requested', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-sequential-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      await writeFile(promptPath, '', 'utf8');
+      let active = 0;
+      let maxActive = 0;
+      const calls: string[] = [];
+      const beforeRun = async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+      };
+
+      await runHarnessAbComparison({
+        runId: 'codex-oauth-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
+        arms: [harnessArm('maka', calls, beforeRun), harnessArm('opencode', calls, beforeRun)],
+        armExecution: 'sequential',
+      });
+
+      assert.equal(maxActive, 1);
+      assert.deepEqual(calls, ['a:maka', 'a:opencode']);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -345,7 +379,7 @@ function harnessArm(id: 'maka' | 'opencode', calls: string[], beforeRun?: () => 
   const harborRunner: HarborTaskRunner = async ({ task, systemPrompt }) => {
     await beforeRun?.();
     calls.push(`${task.id}:${id}`);
-    const promptHash = hashHarborSystemPrompt(systemPrompt);
+    const promptHash = hashHeadlessSystemPrompt(systemPrompt);
     const cell: HarborCellOutput = {
       schemaVersion: 1,
       status: 'completed',

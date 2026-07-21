@@ -60,6 +60,7 @@ describe('harness A/B manifest', () => {
         outerTimeoutGraceSec: 900,
       },
       metric: 'pass@1',
+      execution: { armExecution: 'parallel' },
       order: { algorithm: 'sha256-rank-v1', seed: 'maka-glm-5.2-v1', pilotTaskCount: 30 },
       model: { provider: 'zai-coding-plan', id: 'glm-5.2', reasoningEffort: 'max' },
       pricing: {
@@ -72,6 +73,17 @@ describe('harness A/B manifest', () => {
       },
     });
     assert.equal(manifest.harborTimeoutMs, null);
+  });
+
+  test('records sequential arms as one concurrent attempt per pair', () => {
+    const manifest = buildHarnessAbRunManifest({
+      ...manifestInput(['a', 'b', 'c']),
+      armExecution: 'sequential',
+    });
+
+    assert.deepEqual(manifest.metadata.execution, { armExecution: 'sequential' });
+    assert.equal(manifest.maxConcurrency, 2);
+    assert.equal(manifest.maxConcurrentAttempts, 2);
   });
 
   test('changes identity when a frozen harness config changes', () => {

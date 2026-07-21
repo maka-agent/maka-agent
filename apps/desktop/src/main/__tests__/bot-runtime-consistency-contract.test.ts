@@ -23,7 +23,7 @@ async function readRepo(path: string): Promise<string> {
  *      `isImplemented(X) === true`
  *
  * Runtime-labeled platforms must ALSO be listed in
- * `BOT_DELIVERY_PROVIDERS` (`packages/core/src/settings.ts`) so plan
+ * `BOT_DELIVERY_PROVIDERS` (`packages/core/src/bot-chat-settings.ts`) so plan
  * reminders can target them. The reverse is NOT required: a platform
  * can be delivery-capable without being `'runtime'` — WeChat is a
  * delivery target via the optional local wechat-bridge, but its

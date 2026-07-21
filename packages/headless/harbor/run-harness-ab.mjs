@@ -34,6 +34,12 @@ import {
   prepareKimiCodeToolchain,
 } from '#kimi-code-toolchain';
 import {
+  CODEX_TOOLCHAIN_FINGERPRINT,
+  CODEX_TOOLCHAIN_SPEC,
+  prepareCodexToolchain,
+} from '#codex-toolchain';
+import { createCodexOAuthHarnessCredentialBinding } from '#codex-oauth-harness';
+import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbResumeFingerprint,
@@ -43,6 +49,7 @@ import {
   TERMINAL_BENCH_2_1_TASK_IDS,
 } from '#harness-ab-manifest';
 import { runHarnessAbComparisonUnlocked, withHarnessAbRunLock } from '#harness-ab-run';
+import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
@@ -58,7 +65,6 @@ export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v
 const CANARY_TASKS = 5;
 const PROVIDER = 'kimi-coding-plan';
 const MODEL = 'k3';
-const MODEL_SPEC = `${PROVIDER}/${MODEL}`;
 const REASONING_EFFORT = 'max';
 const BASE_URL = 'https://api.kimi.com/coding/v1';
 const ORDER_SEED = 'terminal-bench-2.1:k3:harness-comparison:v1';
@@ -105,6 +111,36 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
       billingMode: BILLING_MODE,
     }),
   }),
+  codex: Object.freeze({
+    id: 'codex',
+    armExecution: 'sequential',
+    maxPairConcurrency: 1,
+    version: CODEX_TOOLCHAIN_SPEC.codex.version,
+    toolchainFingerprint: CODEX_TOOLCHAIN_FINGERPRINT,
+    runtime: Object.freeze({
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'max',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
+      billingMode: 'account-plan',
+      pricing: Object.freeze({
+        currency: 'USD',
+        unit: 'per_1m_tokens',
+        input: 0,
+        cachedInput: 0,
+        output: 0,
+        source: 'openai-codex-chatgpt-account-plan',
+      }),
+    }),
+    config: Object.freeze({
+      adapter: 'codex_agent:MakaCodexAgent',
+      transport: 'responses-http',
+      permissions: 'container-full-access',
+      attemptPolicy: 'single',
+      billingMode: 'account-plan',
+    }),
+  }),
 });
 
 export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
@@ -117,15 +153,72 @@ export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
   return profile;
 }
 
+export function resolveHarnessRuntimeProfile(competitorProfile) {
+  return (
+    competitorProfile.runtime ?? {
+      provider: PROVIDER,
+      model: MODEL,
+      reasoningEffort: REASONING_EFFORT,
+      baseUrl: BASE_URL,
+      apiKeyEnvName: 'ANTHROPIC_API_KEY',
+      billingMode: BILLING_MODE,
+      pricing: PRICING,
+    }
+  );
+}
+
+export function buildHarnessExecutionProfile(competitorProfile) {
+  const runtime = resolveHarnessRuntimeProfile(competitorProfile);
+  return {
+    modelSpec: `${runtime.provider}/${runtime.model}`,
+    provider: runtime.provider,
+    model: runtime.model,
+    reasoningEffort: runtime.reasoningEffort,
+    baseUrl: runtime.baseUrl,
+    apiKeyEnvName: runtime.apiKeyEnvName,
+    billingMode: runtime.billingMode,
+    pricing: {
+      inputUsdPer1M: runtime.pricing.input,
+      cacheReadUsdPer1M: runtime.pricing.cachedInput,
+      outputUsdPer1M: runtime.pricing.output,
+      source: runtime.pricing.source,
+    },
+  };
+}
+
+export async function resolveHarnessRuntimeCredentials(input) {
+  if (input.competitorProfile.id !== 'codex') {
+    return {
+      apiKeyFile: envPathFrom(
+        input.env,
+        'MAKA_HARNESS_AB_KEY_FILE',
+        join(homedir(), '.maka/secrets/kimi-coding-plan.key'),
+      ),
+    };
+  }
+  const credentialsRoot = envPathFrom(
+    input.env,
+    'MAKA_HARNESS_AB_WORKSPACE_ROOT',
+    defaultMakaWorkspaceRoot(),
+  );
+  const createCredentialBinding =
+    input.createCodexOAuthCredentialBinding ?? createCodexOAuthHarnessCredentialBinding;
+  return createCredentialBinding({
+    credentialsRoot,
+    connectionSlug: input.env.MAKA_HARNESS_AB_OAUTH_CONNECTION_SLUG || 'codex-subscription',
+  });
+}
+
 export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
   if (isolatedTaskId?.trim() && !explicitRunId?.trim()) {
     throw new Error('MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID');
   }
+  const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   return (
     explicitRunId ||
     (competitorProfile.id === 'kimi-code'
       ? DEFAULT_HARNESS_AB_RUN_ID
-      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`)
+      : `${runtime.model}-maka-vs-${competitorProfile.id}${runtime.provider === 'openai-codex' ? '-oauth' : ''}-tbench-2.1-full-v1`)
   );
 }
 
@@ -141,10 +234,62 @@ export function resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile
   );
 }
 
+export function resolveHarnessCompetitorToolchain(runRoot, competitorProfile, env = process.env) {
+  if (competitorProfile.id === 'kimi-code') {
+    return {
+      path: env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
+        ? resolve(env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
+        : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+      prepare: prepareKimiCodeToolchain,
+    };
+  }
+  if (competitorProfile.id === 'opencode') {
+    return {
+      path: env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
+        ? resolve(env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
+        : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+      prepare: prepareOpenCodeToolchain,
+    };
+  }
+  if (competitorProfile.id === 'codex') {
+    return {
+      path: env.MAKA_HARNESS_AB_CODEX_TOOLCHAIN
+        ? resolve(env.MAKA_HARNESS_AB_CODEX_TOOLCHAIN)
+        : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+      prepare: prepareCodexToolchain,
+    };
+  }
+  throw new Error(`unsupported harness competitor: ${competitorProfile.id}`);
+}
+
 function envPath(name, fallback) {
-  const raw = process.env[name] || fallback;
+  return envPathFrom(process.env, name, fallback);
+}
+
+function envPathFrom(env, name, fallback) {
+  const raw = env[name] || fallback;
   if (!raw) throw new Error(`${name} is required`);
   return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
+}
+
+function defaultMakaWorkspaceRoot() {
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default');
+  }
+  if (process.platform === 'win32') {
+    return join(
+      process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'),
+      'Maka',
+      'workspaces',
+      'default',
+    );
+  }
+  return join(
+    process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'),
+    'Maka',
+    'workspaces',
+    'default',
+  );
 }
 
 function runLimit(raw) {
@@ -155,18 +300,24 @@ function runLimit(raw) {
   return parsed;
 }
 
-function runPairConcurrency(raw) {
-  const parsed = Number(raw ?? PAIR_CONCURRENCY);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > PAIR_CONCURRENCY) {
-    throw new Error(
-      `MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${PAIR_CONCURRENCY}`,
-    );
+function runPairConcurrency(raw, maximum = PAIR_CONCURRENCY) {
+  const parsed = Number(raw ?? maximum);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new Error(`MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${maximum}`);
   }
   return parsed;
 }
 
-export function resolveHarnessAbTaskSelection(rawTaskId, rawLimit, rawPairConcurrency) {
-  const pairConcurrency = runPairConcurrency(rawPairConcurrency);
+export function resolveHarnessAbTaskSelection(
+  rawTaskId,
+  rawLimit,
+  rawPairConcurrency,
+  competitorProfile = resolveHarnessCompetitorProfile(),
+) {
+  const pairConcurrency = runPairConcurrency(
+    rawPairConcurrency,
+    competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
+  );
   const taskId = rawTaskId?.trim();
   if (!taskId) {
     return {
@@ -206,10 +357,15 @@ export function buildHarnessAbManifest({
   taskSourceFingerprint,
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
-  pairConcurrency = Math.min(PAIR_CONCURRENCY, taskIds.length),
-  oracleEvidence,
   competitorProfile = resolveHarnessCompetitorProfile(),
+  pairConcurrency = Math.min(
+    competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
+    taskIds.length,
+  ),
+  oracleEvidence,
+  credentialIdentity,
 }) {
+  const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   return buildHarnessAbRunManifest({
     benchmark: {
       dataset: 'terminal-bench',
@@ -220,10 +376,18 @@ export function buildHarnessAbManifest({
       outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
     },
     taskIds,
-    orderSeed: ORDER_SEED,
+    orderSeed:
+      runtime.model === MODEL
+        ? ORDER_SEED
+        : `terminal-bench-2.1:${runtime.model}:harness-comparison:v1`,
     pilotTaskCount: Math.min(CANARY_TASKS, taskIds.length),
-    model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
-    pricing: PRICING,
+    model: {
+      provider: runtime.provider,
+      id: runtime.model,
+      reasoningEffort: runtime.reasoningEffort,
+      ...(credentialIdentity ? { credentialIdentity } : {}),
+    },
+    pricing: runtime.pricing,
     arms: [
       {
         id: 'maka',
@@ -231,10 +395,10 @@ export function buildHarnessAbManifest({
         config: {
           adapter: 'maka_agent:MakaAgent',
           externalSystemPrompt: 'empty',
-          reasoningEffort: REASONING_EFFORT,
+          reasoningEffort: runtime.reasoningEffort,
           continuation: false,
           attemptPolicy: 'single',
-          billingMode: BILLING_MODE,
+          billingMode: runtime.billingMode,
           contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
         },
       },
@@ -254,6 +418,7 @@ export function buildHarnessAbManifest({
     taskSourceFingerprint,
     toolchainFingerprint,
     pairConcurrency,
+    armExecution: competitorProfile.armExecution ?? 'parallel',
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
@@ -277,6 +442,7 @@ export async function main() {
     process.env.MAKA_HARNESS_AB_TASK_ID,
     process.env.MAKA_HARNESS_AB_LIMIT,
     process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
+    competitorProfile,
   );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {
@@ -358,6 +524,11 @@ async function runLocked({
   );
   for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
 
+  const credentials = await resolveHarnessRuntimeCredentials({
+    competitorProfile,
+    env: process.env,
+  });
+
   const toolchainFingerprint = `sha256:${createHash('sha256')
     .update(
       JSON.stringify({
@@ -375,6 +546,7 @@ async function runLocked({
     pairConcurrency: selection.pairConcurrency,
     oracleEvidence,
     competitorProfile,
+    credentialIdentity: credentials.credentialIdentity,
   });
   await ensureAbRunManifest(manifestPath, manifest);
   const evaluationTasks = manifest.evaluationTaskIds
@@ -383,52 +555,33 @@ async function runLocked({
   if (evaluationTasks.some((task) => !task))
     throw new Error('manifest contains a task absent from the frozen task source');
 
-  const competitorToolchain =
-    competitorProfile.id === 'kimi-code'
-      ? {
-          path: process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
-            ? resolve(process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
-            : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
-          prepare: prepareKimiCodeToolchain,
-        }
-      : {
-          path: process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
-            ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
-            : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
-          prepare: prepareOpenCodeToolchain,
-        };
+  const competitorToolchain = resolveHarnessCompetitorToolchain(runRoot, competitorProfile);
   await competitorToolchain.prepare(competitorToolchain.path);
 
-  const keyFile = envPath(
-    'MAKA_HARNESS_AB_KEY_FILE',
-    join(homedir(), '.maka/secrets/kimi-coding-plan.key'),
-  );
-  if ((await readFile(keyFile, 'utf8')).trim().length === 0)
-    throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
+  const execution = buildHarnessExecutionProfile(competitorProfile);
+  if (
+    credentials.apiKeyFile &&
+    (await readFile(credentials.apiKeyFile, 'utf8')).trim().length === 0
+  )
+    throw new Error('harness credential is empty');
   const controllerDir = join(runRoot, 'controller');
   const promptsDir = join(runRoot, 'prompts');
   const jobsDir = join(runRoot, 'jobs');
   await mkdir(controllerDir, { recursive: true });
   await mkdir(promptsDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
-  const systemPromptPath = join(promptsDir, 'empty-system-prompt.txt');
-  await writeFile(systemPromptPath, '', 'utf8');
-  const pricing = {
-    inputUsdPer1M: PRICING.input,
-    cacheReadUsdPer1M: PRICING.cachedInput,
-    outputUsdPer1M: PRICING.output,
-    source: PRICING.source,
-  };
+  const systemPromptPath = join(promptsDir, 'default-system-prompt.txt');
+  await writeFile(systemPromptPath, DEFAULT_HEADLESS_SYSTEM_PROMPT, 'utf8');
   const runnerOptions = {
     makaRepoPath,
     jobsDir,
-    model: MODEL_SPEC,
-    provider: PROVIDER,
-    reasoningEffort: REASONING_EFFORT,
-    apiKeyFile: keyFile,
-    apiKeyEnvName: 'ANTHROPIC_API_KEY',
-    pricing,
-    agentEnv: { MAKA_BASE_URL: BASE_URL },
+    model: execution.modelSpec,
+    provider: execution.provider,
+    reasoningEffort: execution.reasoningEffort,
+    ...credentials,
+    apiKeyEnvName: execution.apiKeyEnvName,
+    pricing: execution.pricing,
+    agentEnv: { MAKA_BASE_URL: execution.baseUrl },
     timeoutMultiplier: 1,
     dockerPlatform: 'linux/amd64',
   };
@@ -436,9 +589,9 @@ async function runLocked({
   const config = (id) => ({
     id: `harness-ab-${id}`,
     backend: 'ai-sdk',
-    llmConnectionSlug: PROVIDER,
-    model: MODEL,
-    thinkingLevel: REASONING_EFFORT,
+    llmConnectionSlug: execution.provider,
+    model: execution.model,
+    thinkingLevel: execution.reasoningEffort,
   });
   const summary = await runHarnessAbComparisonUnlocked({
     runId,
@@ -451,8 +604,8 @@ async function runLocked({
       {
         id: 'maka',
         config: config('maka'),
-        expectedPricingProfile: PRICING.source,
-        billingMode: BILLING_MODE,
+        expectedPricingProfile: execution.pricing.source,
+        billingMode: execution.billingMode,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: 'maka',
@@ -462,19 +615,22 @@ async function runLocked({
       {
         id: competitorProfile.id,
         config: config(competitorProfile.id),
-        expectedPricingProfile: PRICING.source,
-        billingMode: BILLING_MODE,
+        expectedPricingProfile: execution.pricing.source,
+        billingMode: execution.billingMode,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: competitorProfile.id,
           agentVersion: competitorProfile.version,
           ...(competitorProfile.id === 'kimi-code'
             ? { kimiCodeToolchainPath: competitorToolchain.path }
-            : { opencodeToolchainPath: competitorToolchain.path }),
+            : competitorProfile.id === 'opencode'
+              ? { opencodeToolchainPath: competitorToolchain.path }
+              : { codexToolchainPath: competitorToolchain.path }),
         }),
       },
     ],
     pairConcurrency: selection.pairConcurrency,
+    armExecution: manifest.metadata.execution.armExecution,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
   const report = buildHarnessAbReport(
@@ -488,7 +644,7 @@ async function runLocked({
       ),
       warnings: oracleEvidence.warnings,
     },
-    BILLING_MODE,
+    execution.billingMode,
   );
   await writeFile(
     join(runRoot, 'harness-ab-report.json'),
