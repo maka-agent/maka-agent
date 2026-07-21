@@ -56,10 +56,14 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
 
   it('preserves sticky model through branch sessions and session summaries', async () => {
     const runtime = await readFile(resolve(REPO_ROOT, 'packages/runtime/src/session-manager.ts'), 'utf8');
+    // #1084 moved branch-session creation into session-branch.ts; the sticky
+    // model is captured there, behind the branchFromTurn entry point.
+    const runtimeBranch = await readFile(resolve(REPO_ROOT, 'packages/runtime/src/session-branch.ts'), 'utf8');
     const storage = await readFile(resolve(REPO_ROOT, 'packages/storage/src/session-store.ts'), 'utf8');
     const core = await readFile(resolve(REPO_ROOT, 'packages/core/src/session.ts'), 'utf8');
 
-    assert.match(runtime, /branchFromTurn[\s\S]*model: header\.model/);
+    assert.match(runtime, /branchFromTurn[\s\S]*createBranchSession/);
+    assert.match(runtimeBranch, /createBranchSession[\s\S]*model: header\.model/);
     assert.match(runtime, /model: h\.model/);
     assert.match(storage, /model: header\.model/);
     assert.match(core, /Sticky session default model id, captured when the session is created/);

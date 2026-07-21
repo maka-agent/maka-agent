@@ -83,6 +83,11 @@ import {
   effectiveRunHeaderFromTerminalFact,
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
+import {
+  copyMessagesBeforeTurn,
+  copyMessagesThroughTurnBoundary,
+  createBranchSession,
+} from './session-branch.js';
 
 import type { AgentBackend, BackendStopMode } from '@maka/core/backend-types';
 import type { AgentTeamExecutionContext, MakaTool } from './tool-runtime.js';
@@ -96,7 +101,11 @@ import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { AgentRunLineage, RuntimeContinuationFailpoint } from './agent-run.js';
-import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
+import {
+  classifyAgentRunRecovery,
+  headerLineage,
+  type AgentRunRecoveryDecision,
+} from './agent-run-recovery.js';
 import type { InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeKernel, type RuntimeKernelLike, type TurnStartOptions } from './runtime-kernel.js';
 import { fallbackSessionTitle, sessionTitleSource } from './session-title.js';
@@ -1323,7 +1332,9 @@ export class SessionManager {
     const copied = copyMessagesThroughTurnBoundary(sourceView.messages, input.sourceTurnId);
     if (copied.length === 0)
       throw new Error(`Cannot branch from unknown turn ${input.sourceTurnId}`);
-    return this.createBranchSession(sessionId, sourceView, copied, input);
+    return headerToSummary(
+      await createBranchSession(this.deps, sessionId, sourceView, copied, input),
+    );
   }
 
   async branchBeforeTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary> {
@@ -1333,39 +1344,9 @@ export class SessionManager {
     // here (the turn is the first one) — it branches to a fresh, empty context.
     const copied = copyMessagesBeforeTurn(sourceView.messages, input.sourceTurnId);
     if (copied === null) throw new Error(`Cannot branch before unknown turn ${input.sourceTurnId}`);
-    return this.createBranchSession(sessionId, sourceView, copied, input);
-  }
-
-  private async createBranchSession(
-    sessionId: string,
-    sourceView: RuntimeReadModelSessionView,
-    copied: StoredMessage[],
-    input: BranchFromTurnInput,
-  ): Promise<SessionSummary> {
-    const header = await this.deps.store.readHeader(sessionId);
-    const next = await this.deps.store.create({
-      cwd: header.cwd,
-      backend: header.backend,
-      llmConnectionSlug: header.llmConnectionSlug,
-      model: header.model,
-      thinkingLevel: header.thinkingLevel,
-      permissionMode: header.permissionMode,
-      name: input.name ?? `${header.name} · 分支`,
-      labels: header.labels,
-      parentSessionId: sessionId,
-      branchOfTurnId: input.sourceTurnId,
-      status: 'active',
-    });
-    await this.cloneBranchRuntimeLedger(next.id, sourceView, copied);
-    if (copied.length > 0) await this.deps.store.appendMessages(next.id, copied);
-    await this.deps.store.appendMessage(next.id, {
-      type: 'system_note',
-      id: this.deps.newId(),
-      ts: this.deps.now(),
-      kind: 'session_start',
-      data: { parentSessionId: sessionId, branchOfTurnId: input.sourceTurnId },
-    });
-    return headerToSummary(await this.deps.store.readHeader(next.id));
+    return headerToSummary(
+      await createBranchSession(this.deps, sessionId, sourceView, copied, input),
+    );
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
@@ -1554,80 +1535,6 @@ export class SessionManager {
     return (
       (await this.runtimeLedgerRepair?.repairMissingTerminalFactOnce(sessionId, runId)) ?? false
     );
-  }
-
-  private async cloneBranchRuntimeLedger(
-    childSessionId: string,
-    sourceView: RuntimeReadModelSessionView,
-    copiedMessages: readonly StoredMessage[],
-  ): Promise<void> {
-    if (!this.deps.runStore || !this.deps.runtimeEventStore) return;
-    const copiedTurnIds = new Set<string>();
-    for (const message of copiedMessages) {
-      if ('turnId' in message && typeof message.turnId === 'string')
-        copiedTurnIds.add(message.turnId);
-    }
-    if (copiedTurnIds.size === 0) return;
-
-    for (const sourceRun of sourceView.runs) {
-      if (!copiedTurnIds.has(sourceRun.turnId)) continue;
-      const sourceEvents = sourceView.events.filter(
-        (event) => event.runId === sourceRun.runId && copiedTurnIds.has(event.turnId),
-      );
-      if (sourceEvents.length === 0) continue;
-
-      const runId = this.deps.newId();
-      const invocationId = this.deps.newId();
-      const clonedRun = cloneRunHeaderForBranchCreate(
-        sourceRun,
-        childSessionId,
-        runId,
-        invocationId,
-      );
-      await this.deps.runStore.createRun(clonedRun);
-
-      const sourceTerminalLedger = classifyTerminalRuntimeLedger(sourceRun, sourceEvents);
-      const clonedEventBySourceId = new Map<string, RuntimeEvent>();
-      for (const event of sourceEvents) {
-        const clonedEvent = cloneRuntimeEventForBranch(event, {
-          sessionId: childSessionId,
-          runId,
-          eventId: this.deps.newId(),
-          invocationId,
-        });
-        await this.deps.runtimeEventStore.appendRuntimeEvent(childSessionId, runId, clonedEvent);
-        clonedEventBySourceId.set(event.id, clonedEvent);
-      }
-
-      if (sourceTerminalLedger.kind === 'fact' && isTerminalRunStatus(sourceRun.status)) {
-        const terminalEvent = clonedEventBySourceId.get(sourceTerminalLedger.fact.terminalEvent.id);
-        if (!terminalEvent) continue;
-        await commitTerminalRunWithRuntimeFact({
-          runStore: this.deps.runStore,
-          runtimeEventStore: this.deps.runtimeEventStore,
-          newId: this.deps.newId,
-          sessionId: childSessionId,
-          runId,
-          turnId: sourceRun.turnId,
-          status: sourceTerminalLedger.fact.runStatus,
-          ts: terminalEvent.ts,
-          terminalEvent,
-          ...(sourceTerminalLedger.fact.failureClass
-            ? { failureClass: sourceTerminalLedger.fact.failureClass }
-            : {}),
-          ...(sourceRun.failureMessage ? { failureMessage: sourceRun.failureMessage } : {}),
-          ...(sourceTerminalLedger.fact.abortSource
-            ? { abortSource: sourceTerminalLedger.fact.abortSource }
-            : {}),
-          runEventData: {
-            recovered: true,
-            recoveryReason: 'branch_runtime_ledger_clone',
-            sourceSessionId: sourceRun.sessionId,
-            sourceRunId: sourceRun.runId,
-          },
-        });
-      }
-    }
   }
 
   private async recoverAgentRunsFromLedger(
@@ -2043,86 +1950,6 @@ function turnStateLineage(
   };
 }
 
-function cloneRuntimeEventForBranch(
-  event: RuntimeEvent,
-  ids: { sessionId: string; runId: string; eventId: string; invocationId: string },
-): RuntimeEvent {
-  return {
-    ...event,
-    id: ids.eventId,
-    invocationId: ids.invocationId,
-    sessionId: ids.sessionId,
-    runId: ids.runId,
-  };
-}
-
-function cloneRunHeaderForBranchCreate(
-  sourceRun: AgentRunHeader,
-  childSessionId: string,
-  runId: string,
-  invocationId: string,
-): AgentRunHeader {
-  const cloned = { ...sourceRun, invocationId, sessionId: childSessionId, runId };
-  if (isTerminalRunStatus(sourceRun.status)) {
-    cloned.status = 'running';
-    delete cloned.completedAt;
-    delete cloned.failureClass;
-    delete cloned.failureMessage;
-    delete cloned.abortSource;
-  }
-  return cloned;
-}
-
-function copyMessagesThroughTurnBoundary(
-  messages: readonly StoredMessage[],
-  turnId: string,
-): StoredMessage[] {
-  let lastIndex = -1;
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index]!;
-    if ((message as { turnId?: string }).turnId === turnId) {
-      lastIndex = index;
-    }
-  }
-  if (lastIndex < 0) return [];
-  // Branch v1 copies conversation context only. Turn metadata is intentionally
-  // not copied into the child session; lineage lives on the child session
-  // header (`parentSessionId` + `branchOfTurnId`) and future turns.
-  return messages.slice(0, lastIndex + 1).filter((message) => message.type !== 'turn_state');
-}
-
-// Exclusive dual of copyMessagesThroughTurnBoundary: every message belonging to
-// a turn strictly before the chosen one, dropping it and every later turn.
-// Returns null when the turn is absent (so the caller can reject an unknown
-// turn), and an empty array when the turn is the first one (a valid branch into
-// empty context). Membership, not array position, decides what to keep: the read
-// model does not guarantee a turn's messages are contiguous or that a user
-// prompt precedes its turn_state in array order, so a positional slice could
-// drop an earlier turn's prompt. turn_state is dropped for the same reason as in
-// the inclusive copy — lineage lives on the child header, not copied metadata.
-function copyMessagesBeforeTurn(
-  messages: readonly StoredMessage[],
-  turnId: string,
-): StoredMessage[] | null {
-  const turnOrder: string[] = [];
-  const seen = new Set<string>();
-  for (const message of messages) {
-    const messageTurnId = (message as { turnId?: string }).turnId;
-    if (messageTurnId && !seen.has(messageTurnId)) {
-      seen.add(messageTurnId);
-      turnOrder.push(messageTurnId);
-    }
-  }
-  const cut = turnOrder.indexOf(turnId);
-  if (cut < 0) return null;
-  const keep = new Set(turnOrder.slice(0, cut));
-  return messages.filter((message) => {
-    if (message.type === 'turn_state') return false;
-    const messageTurnId = (message as { turnId?: string }).turnId;
-    return messageTurnId !== undefined && keep.has(messageTurnId);
-  });
-}
-
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
@@ -2170,19 +1997,6 @@ function runtimeTerminalFactToRecoveryDecision(
       runtimeEventStatus: fact.terminalEvent.status,
     },
     lineage: headerLineage(header),
-  };
-}
-
-function headerLineage(header: AgentRunHeader): AgentRunRecoveryDecision['lineage'] {
-  return {
-    ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
-    ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
-    ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
-    ...(header.regeneratedFromTurnId
-      ? { regeneratedFromTurnId: header.regeneratedFromTurnId }
-      : {}),
-    ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
-    ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
   };
 }
 
