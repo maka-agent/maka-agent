@@ -830,11 +830,10 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
           return;
         }
       }
-      await appendJsonl(
-        path,
-        JSON.stringify(event, sanitizeJson) + '\n',
-        { ...options, durabilityRoot: this.durabilityRoot },
-      );
+      await appendJsonl(path, JSON.stringify(event, sanitizeJson) + '\n', {
+        ...options,
+        durabilityRoot: this.durabilityRoot,
+      });
       await this.cleanupCompletedRuntimePartial(sessionId, runId, event);
     });
   }
@@ -1173,7 +1172,9 @@ function assertFileOutcomeInput(input: FileToolOutcomeCommit): void {
     input.runtimeEvent.refs?.operationId !== input.operationId ||
     input.runtimeEvent.refs?.toolCallId !== content.id
   ) {
-    throw new Error('T2 requires operation and tool-call refs on the function_response RuntimeEvent');
+    throw new Error(
+      'T2 requires operation and tool-call refs on the function_response RuntimeEvent',
+    );
   }
 }
 

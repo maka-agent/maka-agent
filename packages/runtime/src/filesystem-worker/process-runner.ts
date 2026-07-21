@@ -1,9 +1,7 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
-import {
-  DEFAULT_PROCESS_TERMINATION_GRACE_MS,
-} from '../process-tree-terminator.js';
+import { DEFAULT_PROCESS_TERMINATION_GRACE_MS } from '../process-tree-terminator.js';
 import {
   DEFAULT_PROCESS_IO_DRAIN_TIMEOUT_MS,
   manageChildProcessLifecycle,

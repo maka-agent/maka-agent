@@ -263,12 +263,7 @@ function requireSurface(value: unknown): ClientSurface {
 }
 
 function requireHostState(value: unknown): HostLifecycleState {
-  if (
-    value === 'starting' ||
-    value === 'recovering' ||
-    value === 'ready' ||
-    value === 'draining'
-  )
+  if (value === 'starting' || value === 'recovering' || value === 'ready' || value === 'draining')
     return value;
   throw invalidFrame('Invalid Host state');
 }

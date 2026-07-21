@@ -32,11 +32,7 @@ export function shellRunUpdate(record: ShellRunRecord): ShellRunUpdate {
 }
 
 export function terminalContent(record: ShellRunRecord): TerminalToolResult {
-  if (
-    record.status === 'starting' ||
-    record.status === 'running' ||
-    record.status === 'orphaned'
-  ) {
+  if (record.status === 'starting' || record.status === 'running' || record.status === 'orphaned') {
     throw new Error(`ShellRun status ${record.status} cannot be returned as a terminal result`);
   }
   return {

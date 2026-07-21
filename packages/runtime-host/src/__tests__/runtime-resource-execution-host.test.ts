@@ -8,10 +8,7 @@ import { isShellRunResourceRef } from '@maka/runtime';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import { tryAcquireInteractiveRootOwner } from '@maka/storage/root-authority';
-import {
-  RuntimeHostOperationError,
-  type RuntimeHostConnection,
-} from '../client/index.js';
+import { RuntimeHostOperationError, type RuntimeHostConnection } from '../client/index.js';
 import type { PtyReadResult } from '../protocol/index.js';
 import {
   connectClient,
@@ -371,7 +368,9 @@ async function waitForProviderRequestCount(
 }
 
 function assertTerminal(resource: { status: string }): void {
-  assert.ok(['completed', 'failed', 'timed_out', 'cancelled', 'orphaned'].includes(resource.status));
+  assert.ok(
+    ['completed', 'failed', 'timed_out', 'cancelled', 'orphaned'].includes(resource.status),
+  );
 }
 
 function isOperationError(code: string): (error: unknown) => boolean {

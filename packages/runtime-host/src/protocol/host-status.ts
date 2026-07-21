@@ -48,12 +48,7 @@ function decodeHostStatusResult(value: unknown): HostStatusResult {
 }
 
 function requireHostState(value: unknown): HostLifecycleState {
-  if (
-    value === 'starting' ||
-    value === 'recovering' ||
-    value === 'ready' ||
-    value === 'draining'
-  ) {
+  if (value === 'starting' || value === 'recovering' || value === 'ready' || value === 'draining') {
     return value;
   }
   throw invalidProtocolFrame('Invalid Host state');

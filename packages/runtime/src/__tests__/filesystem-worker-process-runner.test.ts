@@ -10,13 +10,12 @@ import { manageChildProcessLifecycle } from '../child-process-lifecycle.js';
 import { runFilesystemWorkerProcess } from '../filesystem-worker/process-runner.js';
 
 describe('runFilesystemWorkerProcess', () => {
-  test(
-    'fails boundedly after direct root exit when an escaped descendant retains output pipes',
-    { skip: process.platform === 'win32' },
-    async () => {
-      const dir = await fs.mkdtemp(join(tmpdir(), 'filesystem-worker-drain-'));
-      const pidFile = join(dir, 'descendant.pid');
-      const script = `
+  test('fails boundedly after direct root exit when an escaped descendant retains output pipes', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'filesystem-worker-drain-'));
+    const pidFile = join(dir, 'descendant.pid');
+    const script = `
         const { spawn } = require('node:child_process');
         const { writeFileSync } = require('node:fs');
         process.stdout.write('root response\\n');
@@ -28,108 +27,101 @@ describe('runFilesystemWorkerProcess', () => {
         child.unref();
         writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
       `;
-      let descendantPid: number | undefined;
-      try {
-        const startedAt = Date.now();
-        const running = runFilesystemWorkerProcess({
-          argv: [process.execPath, '-e', script],
-          cwd: process.cwd(),
-          env: process.env,
-          stdin: '',
-          timeoutMs: 10_000,
-          ioDrainTimeoutMs: 100,
-        });
-        await assert.rejects(
-          running,
-          /Filesystem worker output did not drain before lifecycle deadline/,
-        );
-        const elapsedMs = Date.now() - startedAt;
-        descendantPid = Number((await fs.readFile(pidFile, 'utf8')).trim());
-
-        assert.ok(elapsedMs < 2_000, `worker waited ${elapsedMs}ms for inherited pipes`);
-        assert.doesNotThrow(() => process.kill(descendantPid as number, 0));
-      } finally {
-        if (descendantPid) {
-          try {
-            process.kill(descendantPid, 'SIGKILL');
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-          }
-        }
-        await fs.rm(dir, { recursive: true, force: true });
-      }
-    },
-  );
-
-  test(
-    'bounds timeout after escalating a child that ignores SIGTERM',
-    { skip: process.platform === 'win32' },
-    async () => {
+    let descendantPid: number | undefined;
+    try {
       const startedAt = Date.now();
-      const result = await runFilesystemWorkerProcess({
-        argv: [process.execPath, '-e', stubbornWorkerScript()],
+      const running = runFilesystemWorkerProcess({
+        argv: [process.execPath, '-e', script],
         cwd: process.cwd(),
         env: process.env,
         stdin: '',
-        timeoutMs: 150,
-        killGraceMs: 75,
+        timeoutMs: 10_000,
         ioDrainTimeoutMs: 100,
       });
+      await assert.rejects(
+        running,
+        /Filesystem worker output did not drain before lifecycle deadline/,
+      );
+      const elapsedMs = Date.now() - startedAt;
+      descendantPid = Number((await fs.readFile(pidFile, 'utf8')).trim());
 
-      assert.equal(result.timedOut, true);
-      assert.ok(Date.now() - startedAt < 2_000);
-    },
-  );
+      assert.ok(elapsedMs < 2_000, `worker waited ${elapsedMs}ms for inherited pipes`);
+      assert.doesNotThrow(() => process.kill(descendantPid as number, 0));
+    } finally {
+      if (descendantPid) {
+        try {
+          process.kill(descendantPid, 'SIGKILL');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+        }
+      }
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 
-  test(
-    'bounds abort after escalating a child that ignores SIGTERM',
-    { skip: process.platform === 'win32' },
-    async () => {
-      const controller = new AbortController();
-      const startedAt = Date.now();
-      const running = runFilesystemWorkerProcess({
-        argv: [process.execPath, '-e', stubbornWorkerScript()],
+  test('bounds timeout after escalating a child that ignores SIGTERM', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const startedAt = Date.now();
+    const result = await runFilesystemWorkerProcess({
+      argv: [process.execPath, '-e', stubbornWorkerScript()],
+      cwd: process.cwd(),
+      env: process.env,
+      stdin: '',
+      timeoutMs: 150,
+      killGraceMs: 75,
+      ioDrainTimeoutMs: 100,
+    });
+
+    assert.equal(result.timedOut, true);
+    assert.ok(Date.now() - startedAt < 2_000);
+  });
+
+  test('bounds abort after escalating a child that ignores SIGTERM', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const running = runFilesystemWorkerProcess({
+      argv: [process.execPath, '-e', stubbornWorkerScript()],
+      cwd: process.cwd(),
+      env: process.env,
+      stdin: '',
+      timeoutMs: 10_000,
+      abortSignal: controller.signal,
+      killGraceMs: 75,
+      ioDrainTimeoutMs: 100,
+    });
+    setTimeout(() => controller.abort(), 150);
+    const result = await running;
+
+    assert.equal(result.aborted, true);
+    assert.ok(Date.now() - startedAt < 2_000);
+  });
+
+  test('does not spawn a worker for a pre-aborted signal', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'filesystem-worker-pre-abort-'));
+    const marker = join(dir, 'spawned');
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      const result = await runFilesystemWorkerProcess({
+        argv: ['/bin/sh', '-c', `printf spawned > ${JSON.stringify(marker)}; sleep 5`],
         cwd: process.cwd(),
         env: process.env,
         stdin: '',
         timeoutMs: 10_000,
         abortSignal: controller.signal,
-        killGraceMs: 75,
-        ioDrainTimeoutMs: 100,
       });
-      setTimeout(() => controller.abort(), 150);
-      const result = await running;
 
       assert.equal(result.aborted, true);
-      assert.ok(Date.now() - startedAt < 2_000);
-    },
-  );
-
-  test(
-    'does not spawn a worker for a pre-aborted signal',
-    { skip: process.platform === 'win32' },
-    async () => {
-      const dir = await fs.mkdtemp(join(tmpdir(), 'filesystem-worker-pre-abort-'));
-      const marker = join(dir, 'spawned');
-      const controller = new AbortController();
-      controller.abort();
-      try {
-        const result = await runFilesystemWorkerProcess({
-          argv: ['/bin/sh', '-c', `printf spawned > ${JSON.stringify(marker)}; sleep 5`],
-          cwd: process.cwd(),
-          env: process.env,
-          stdin: '',
-          timeoutMs: 10_000,
-          abortSignal: controller.signal,
-        });
-
-        assert.equal(result.aborted, true);
-        assert.equal(existsSync(marker), false);
-      } finally {
-        await fs.rm(dir, { recursive: true, force: true });
-      }
-    },
-  );
+      assert.equal(existsSync(marker), false);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test('fails when forced termination is not acknowledged by the direct root', async () => {
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
@@ -214,27 +206,25 @@ describe('runFilesystemWorkerProcess', () => {
     }
   });
 
-  test(
-    'bounds response overflow after escalating a child that ignores SIGTERM',
-    { skip: process.platform === 'win32' },
-    async () => {
-      const startedAt = Date.now();
-      const result = await runFilesystemWorkerProcess({
-        argv: [process.execPath, '-e', stubbornWorkerScript("process.stdout.write('overflow');")],
-        cwd: process.cwd(),
-        env: process.env,
-        stdin: '',
-        timeoutMs: 10_000,
-        maxResponseBytes: 4,
-        killGraceMs: 75,
-        ioDrainTimeoutMs: 100,
-      });
+  test('bounds response overflow after escalating a child that ignores SIGTERM', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const startedAt = Date.now();
+    const result = await runFilesystemWorkerProcess({
+      argv: [process.execPath, '-e', stubbornWorkerScript("process.stdout.write('overflow');")],
+      cwd: process.cwd(),
+      env: process.env,
+      stdin: '',
+      timeoutMs: 10_000,
+      maxResponseBytes: 4,
+      killGraceMs: 75,
+      ioDrainTimeoutMs: 100,
+    });
 
-      assert.equal(result.responseOverflow, true);
-      assert.equal(result.stdout, '');
-      assert.ok(Date.now() - startedAt < 2_000);
-    },
-  );
+    assert.equal(result.responseOverflow, true);
+    assert.equal(result.stdout, '');
+    assert.ok(Date.now() - startedAt < 2_000);
+  });
 });
 
 function stubbornWorkerScript(afterInstall = ''): string {

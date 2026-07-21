@@ -88,7 +88,9 @@ test('does not hide an Electron runtime failure behind the resource fallback', a
 
 function recordingFactory(
   inputs: CreateFilesystemWorkerLaunchSpecProviderInput[],
-  resolve: (input: CreateFilesystemWorkerLaunchSpecProviderInput) => FilesystemWorkerLaunchSpecResult,
+  resolve: (
+    input: CreateFilesystemWorkerLaunchSpecProviderInput,
+  ) => FilesystemWorkerLaunchSpecResult,
 ): (input: CreateFilesystemWorkerLaunchSpecProviderInput) => FilesystemWorkerLaunchSpecProvider {
   return (input) => {
     inputs.push(input);

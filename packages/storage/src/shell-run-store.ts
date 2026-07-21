@@ -92,8 +92,7 @@ export async function openInteractiveShellRunStoreForWrite(
     createShellRun: (record) => run(() => store.createShellRun(record)),
     updateShellRun: (sessionId, shellRunId, patch) =>
       run(() => store.updateShellRun(sessionId, shellRunId, patch)),
-    readShellRun: (sessionId, shellRunId) =>
-      run(() => store.readShellRun(sessionId, shellRunId)),
+    readShellRun: (sessionId, shellRunId) => run(() => store.readShellRun(sessionId, shellRunId)),
     listSessionShellRuns: (sessionId) => run(() => store.listSessionShellRuns(sessionId)),
   };
   Object.freeze(facade);
@@ -143,8 +142,7 @@ class FileShellRunStore implements ShellRunStore {
     let next: ShellRunRecord | undefined;
     await this.withQueue(sessionId, shellRunId, async () => {
       assertShellRunPatch(patch);
-      const hasDurableIntent =
-        Object.hasOwn(patch, 'status') || Object.hasOwn(patch, 'observedAt');
+      const hasDurableIntent = Object.hasOwn(patch, 'status') || Object.hasOwn(patch, 'observedAt');
       const current = await this.readShellRunUnlocked(sessionId, shellRunId);
       if (patch.output && patch.output.mode !== current.output.mode) {
         throw new Error(`ShellRun output mode is immutable: ${current.output.mode}`);

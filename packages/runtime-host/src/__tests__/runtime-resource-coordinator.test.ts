@@ -3,10 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import {
-  isTerminalShellRunStatus,
-  type ShellRunStore,
-} from '@maka/core';
+import { isTerminalShellRunStatus, type ShellRunStore } from '@maka/core';
 import { createShellRunStore } from '@maka/storage';
 import {
   RUNTIME_RESOURCE_COMMAND_MAX_BYTES,
@@ -446,9 +443,7 @@ test('beginDrain closes admission, terminates live work, and releases residency'
 });
 
 async function createFixture(
-  options: {
-    decorateStore?: (backing: ShellRunStore) => ShellRunStore;
-  } = {},
+  options: { decorateStore?: (backing: ShellRunStore) => ShellRunStore } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'maka-runtime-resource-'));
   TEMPORARY_WORKSPACES.add(root);
@@ -492,8 +487,7 @@ function decorateStore(
     createShellRun: overrides.createShellRun ?? ((record) => backing.createShellRun(record)),
     updateShellRun:
       overrides.updateShellRun ??
-      ((sessionId, shellRunId, patch) =>
-        backing.updateShellRun(sessionId, shellRunId, patch)),
+      ((sessionId, shellRunId, patch) => backing.updateShellRun(sessionId, shellRunId, patch)),
     readShellRun: (sessionId, shellRunId) => backing.readShellRun(sessionId, shellRunId),
     listSessionShellRuns: (sessionId) => backing.listSessionShellRuns(sessionId),
   };

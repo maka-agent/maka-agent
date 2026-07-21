@@ -20,9 +20,7 @@
 import { spawn } from 'node:child_process';
 import { buildShellSpawnPlan, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { BashTailBuffer } from './bash-tail-buffer.js';
-import {
-  DEFAULT_PROCESS_TERMINATION_GRACE_MS,
-} from './process-tree-terminator.js';
+import { DEFAULT_PROCESS_TERMINATION_GRACE_MS } from './process-tree-terminator.js';
 import { OUTPUT_RECOVERY_HINT } from './tool-output.js';
 import { buildSpawnStdio, writeChildFdInputs, type ChildFdInput } from './child-fd-input.js';
 import {

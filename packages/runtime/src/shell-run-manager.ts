@@ -260,8 +260,7 @@ export class ShellRunProcessManager
     const target = parseShellRunResourceRef(input.ref);
     if (!target) throw new Error(`Unsupported runtime background task ref: ${input.ref}`);
     const live = this.liveResource(input.sessionId, target.shellRunId);
-    if (!live)
-      return this.writeStdinWithoutLive(input, target.shellRunId, terminalObservation);
+    if (!live) return this.writeStdinWithoutLive(input, target.shellRunId, terminalObservation);
     if (live.mode !== 'pty') throw new Error('WriteStdin requires a PTY background task ref');
     if (live.driverExit) {
       const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
@@ -427,12 +426,7 @@ export class ShellRunProcessManager
     if (!target) throw new Error(`Unsupported runtime background task ref: ${ref}`);
     const live = this.liveResource(sessionId, target.shellRunId);
     if (!live) {
-      return this.stopWithoutLive(
-        sessionId,
-        target.shellRunId,
-        abortSignal,
-        terminalObservation,
-      );
+      return this.stopWithoutLive(sessionId, target.shellRunId, abortSignal, terminalObservation);
     }
     if (live.driverExit) {
       const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
@@ -651,13 +645,7 @@ export class ShellRunProcessManager
         onFailure: (error) => dispatch((target) => this.handleIntegrityFailure(target, error)),
       });
       live = {
-        ...this.createLiveBase(
-          input,
-          startingRecord,
-          'pipes',
-          timeoutMs,
-          slotReservation,
-        ),
+        ...this.createLiveBase(input, startingRecord, 'pipes', timeoutMs, slotReservation),
         mode: 'pipes',
         driver,
         collector,
@@ -983,18 +971,10 @@ export class ShellRunProcessManager
           updatedAt: this.input.now(),
         };
         try {
-          updated = await this.input.store.updateShellRun(
-            live.sessionId,
-            live.shellRunId,
-            update,
-          );
+          updated = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, update);
         } catch (error) {
           if (!options.bestEffort) throw error;
-          updated = await this.input.store.updateShellRun(
-            live.sessionId,
-            live.shellRunId,
-            update,
-          );
+          updated = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, update);
         }
         live.record = updated;
         if (live.visibleRef) this.notifyShellRunUpdate(updated);

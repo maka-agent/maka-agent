@@ -1291,10 +1291,7 @@ describe('AgentRunStore', () => {
           refs: { toolCallId: 'provider-call-1' },
         }),
       );
-      const partialsDir = join(
-        root,
-        'sessions/session-1/runs/run-1/runtime-partials',
-      );
+      const partialsDir = join(root, 'sessions/session-1/runs/run-1/runtime-partials');
       assert.equal((await readdir(partialsDir)).length, 1);
       await runtimeEventStore.commitToolOutcome(outcome);
       assert.deepEqual(await readdir(partialsDir), []);

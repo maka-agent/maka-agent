@@ -340,10 +340,7 @@ describe('normalizeShellToolResultContent', () => {
       }).state,
       'invalid',
     );
-    assert.equal(
-      normalizeShellToolResultContent({ ...starting, observedAt: 2 }).state,
-      'invalid',
-    );
+    assert.equal(normalizeShellToolResultContent({ ...starting, observedAt: 2 }).state, 'invalid');
   });
 
   it('accepts queued PTY input and rejects the superseded applied field', () => {

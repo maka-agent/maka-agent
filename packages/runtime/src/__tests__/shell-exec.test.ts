@@ -66,38 +66,35 @@ describe('runShellWithBoundedTail', () => {
     );
   });
 
-  test(
-    'does not spawn a process for a pre-aborted signal',
-    { skip: process.platform === 'win32' },
-    async () => {
-      const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-pre-abort-'));
-      const marker = join(dir, 'spawned');
-      const controller = new AbortController();
-      controller.abort();
-      try {
-        const result = await runProcessWithBoundedTail(
-          '/bin/sh',
-          ['-c', `printf spawned > ${JSON.stringify(marker)}; sleep 5`],
-          base({ abortSignal: controller.signal }),
-        );
+  test('does not spawn a process for a pre-aborted signal', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-pre-abort-'));
+    const marker = join(dir, 'spawned');
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      const result = await runProcessWithBoundedTail(
+        '/bin/sh',
+        ['-c', `printf spawned > ${JSON.stringify(marker)}; sleep 5`],
+        base({ abortSignal: controller.signal }),
+      );
 
-        assert.equal(result.aborted, true);
-        assert.equal(result.exitCode, 130);
-        assert.equal(existsSync(marker), false);
-      } finally {
-        await fs.rm(dir, { recursive: true, force: true });
-      }
-    },
-  );
+      assert.equal(result.aborted, true);
+      assert.equal(result.exitCode, 130);
+      assert.equal(existsSync(marker), false);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 
-  test(
-    'returns after direct root exit when an escaped descendant retains stdout and stderr',
-    { skip: process.platform === 'win32' },
-    async () => {
-      const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-drain-'));
-      const pidFile = join(dir, 'descendant.pid');
-      const parentFile = join(dir, 'parent.cjs');
-      const script = `
+  test('returns after direct root exit when an escaped descendant retains stdout and stderr', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-drain-'));
+    const pidFile = join(dir, 'descendant.pid');
+    const parentFile = join(dir, 'parent.cjs');
+    const script = `
         const { spawn } = require('node:child_process');
         const { writeFileSync } = require('node:fs');
         process.stdout.write('root stdout\\n');
@@ -109,36 +106,35 @@ describe('runShellWithBoundedTail', () => {
         child.unref();
         writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
       `;
-      await fs.writeFile(parentFile, script);
-      let descendantPid: number | undefined;
-      try {
-        const startedAt = Date.now();
-        const result = await runShellWithBoundedTail(
-          `${JSON.stringify(process.execPath)} ${JSON.stringify(parentFile)}`,
-          base({ ioDrainTimeoutMs: 100 }),
-        );
-        const elapsedMs = Date.now() - startedAt;
-        descendantPid = Number((await readWhenAvailable(pidFile)).trim());
+    await fs.writeFile(parentFile, script);
+    let descendantPid: number | undefined;
+    try {
+      const startedAt = Date.now();
+      const result = await runShellWithBoundedTail(
+        `${JSON.stringify(process.execPath)} ${JSON.stringify(parentFile)}`,
+        base({ ioDrainTimeoutMs: 100 }),
+      );
+      const elapsedMs = Date.now() - startedAt;
+      descendantPid = Number((await readWhenAvailable(pidFile)).trim());
 
-        assert.equal(result.exitCode, 0);
-        assert.match(result.stdout, /root stdout/);
-        assert.match(result.stderr, /root stderr/);
-        assert.equal(result.stdoutTruncated, true);
-        assert.equal(result.stderrTruncated, true);
-        assert.ok(elapsedMs < 2_000, `shell waited ${elapsedMs}ms for inherited pipes`);
-        assert.doesNotThrow(() => process.kill(descendantPid as number, 0));
-      } finally {
-        if (descendantPid) {
-          try {
-            process.kill(descendantPid, 'SIGKILL');
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-          }
+      assert.equal(result.exitCode, 0);
+      assert.match(result.stdout, /root stdout/);
+      assert.match(result.stderr, /root stderr/);
+      assert.equal(result.stdoutTruncated, true);
+      assert.equal(result.stderrTruncated, true);
+      assert.ok(elapsedMs < 2_000, `shell waited ${elapsedMs}ms for inherited pipes`);
+      assert.doesNotThrow(() => process.kill(descendantPid as number, 0));
+    } finally {
+      if (descendantPid) {
+        try {
+          process.kill(descendantPid, 'SIGKILL');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
         }
-        await fs.rm(dir, { recursive: true, force: true });
       }
-    },
-  );
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test('keeps only the bounded, line-aligned TAIL of large output (never killed by size)', async () => {
     const r = await runShellWithBoundedTail(

@@ -656,11 +656,7 @@ describe('ShellRunProcessManager', () => {
     assert.equal(stopped.status, 'cancelled');
     const wireRecord = await store.readShellRun('session-1', 'shell-run-1');
     assert.equal(wireRecord.observedAt, undefined);
-    const repeatedWireStop = await manager.stopRuntimeResource(
-      'session-1',
-      initial.ref,
-      NO_ABORT,
-    );
+    const repeatedWireStop = await manager.stopRuntimeResource('session-1', initial.ref, NO_ABORT);
     assertShellRun(repeatedWireStop);
     assert.equal((await store.readShellRun('session-1', 'shell-run-1')).observedAt, undefined);
 
@@ -683,7 +679,7 @@ describe('ShellRunProcessManager', () => {
     const initial = await manager.runBackgroundBash(
       shellInput({
         cwd,
-        command: nodeCommand("setTimeout(() => process.exit(0), 250)"),
+        command: nodeCommand('setTimeout(() => process.exit(0), 250)'),
         pty: true,
         timeoutMs: 5_000,
       }),
@@ -707,9 +703,7 @@ describe('ShellRunProcessManager', () => {
       input: 'x',
       abortSignal: NO_ABORT,
     });
-    assert.ok(
-      (await store.readShellRun('session-1', 'shell-run-1')).observedAt !== undefined,
-    );
+    assert.ok((await store.readShellRun('session-1', 'shell-run-1')).observedAt !== undefined);
   });
 
   test('notifies settlement once after final persistence failure and slot release', async () => {

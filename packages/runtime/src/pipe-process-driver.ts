@@ -104,10 +104,7 @@ export class PipeProcessDriver {
     this.settleAfterDrain();
   };
 
-  private readonly onRootExit = (
-    exitCode: number | null,
-    signal: NodeJS.Signals | null,
-  ): void => {
+  private readonly onRootExit = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
     if (this.disposed || this.rootExit) return;
     this.rootExit = { exitCode, signal };
     this.settleAfterDrain();
@@ -144,7 +141,7 @@ export class PipeProcessDriver {
     if (this.drainTimer) clearTimeout(this.drainTimer);
     this.drainTimer = undefined;
     this.options.onExit({ ...this.rootExit, stdoutTruncated, stderrTruncated });
-  };
+  }
 
   private readonly onError = (error: Error): void => {
     if (!this.disposed && !this.settled) this.options.onFailure(error);

@@ -591,10 +591,7 @@ export class SessionManager {
         );
         if (planRecovery) recovered.add(session.id);
       }
-      if (
-        this.deps.shellRuns &&
-        !(policy.kind === 'strict' && policy.shellRunsAlreadyRecovered)
-      ) {
+      if (this.deps.shellRuns && !(policy.kind === 'strict' && policy.shellRunsAlreadyRecovered)) {
         const recoveredShellRuns = await recoverOr(
           policy,
           () => this.deps.shellRuns!.recoverOrphanedSession(session.id),

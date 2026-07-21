@@ -161,7 +161,11 @@ test('connection settlement waits for an admitted request after disconnect and r
         assert.deepEqual(settledConnectionIds, []);
 
         releaseHandler.resolve();
-        await withTimeout(connectionSettled.promise, 1_000, 'connection settlement hook did not run');
+        await withTimeout(
+          connectionSettled.promise,
+          1_000,
+          'connection settlement hook did not run',
+        );
         assert.deepEqual(settledConnectionIds, [expectedConnectionId]);
         await new Promise<void>((resolve) => setImmediate(resolve));
         assert.equal(settledConnectionIds.length, 1);
