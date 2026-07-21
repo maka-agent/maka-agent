@@ -729,6 +729,7 @@ async function runLocked({
     ],
     pairConcurrency: manifest.maxConcurrency,
     armExecution: manifest.metadata.execution.armExecution,
+    backfillUnscoredCells: process.env.MAKA_HARNESS_AB_BACKFILL_UNSCORED === '1',
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
   const report = buildHarnessAbReport(
