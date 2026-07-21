@@ -47,6 +47,33 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
   });
 });
 
+test('harness A/B uses one safe execution default and accepts per-run overrides', async () => {
+  const { resolveHarnessAbExecutionPolicy } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(resolveHarnessAbExecutionPolicy(undefined, undefined, 30), {
+    pairConcurrency: 1,
+    armExecution: 'sequential',
+  });
+  assert.deepEqual(resolveHarnessAbExecutionPolicy('1', 'parallel', 30), {
+    pairConcurrency: 1,
+    armExecution: 'parallel',
+  });
+  assert.deepEqual(resolveHarnessAbExecutionPolicy('4', 'sequential', 2), {
+    pairConcurrency: 2,
+    armExecution: 'sequential',
+  });
+  assert.throws(
+    () => resolveHarnessAbExecutionPolicy('5', undefined, 30),
+    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 4/,
+  );
+  assert.throws(
+    () => resolveHarnessAbExecutionPolicy(undefined, 'together', 30),
+    /MAKA_HARNESS_AB_ARM_EXECUTION must be sequential or parallel/,
+  );
+});
+
 test('harness A/B selects one named task only with an explicit run identity', async () => {
   const {
     buildHarnessAbManifest,
@@ -57,7 +84,7 @@ test('harness A/B selects one named task only with an explicit run identity', as
   const taskId = 'extract-moves-from-video';
   const selection = resolveHarnessAbTaskSelection(taskId, undefined, undefined);
 
-  assert.deepEqual(selection, { taskIds: [taskId], limit: 1, pairConcurrency: 1 });
+  assert.deepEqual(selection, { taskIds: [taskId], limit: 1 });
   assert.throws(
     () => resolveHarnessAbTaskSelection('not-a-terminal-bench-task', undefined, undefined),
     /MAKA_HARNESS_AB_TASK_ID must name a Terminal-Bench 2\.1 task/,
@@ -72,12 +99,11 @@ test('harness A/B selects one named task only with an explicit run identity', as
     taskSourceFingerprint: 'tasks',
     toolchainFingerprint: 'tools',
     taskIds: selection.taskIds,
-    pairConcurrency: selection.pairConcurrency,
   });
   assert.deepEqual(manifest.evaluationTaskIds, [taskId]);
   assert.equal(manifest.metadata.order.pilotTaskCount, 1);
   assert.equal(manifest.maxConcurrency, 1);
-  assert.equal(manifest.maxConcurrentAttempts, 2);
+  assert.equal(manifest.maxConcurrentAttempts, 1);
 });
 
 test('harness A/B selects an explicit task subset in one resumable run', async () => {
@@ -85,88 +111,53 @@ test('harness A/B selects an explicit task subset in one resumable run', async (
     await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
   const taskIds = ['bn-fit-modify', 'write-compressor'];
   const competitorProfile = resolveHarnessCompetitorProfile('codex');
-  const selection = resolveHarnessAbTaskSelection(
-    undefined,
-    undefined,
-    undefined,
-    competitorProfile,
-    taskIds.join(','),
-  );
+  const selection = resolveHarnessAbTaskSelection(undefined, undefined, taskIds.join(','));
 
-  assert.deepEqual(selection, { taskIds, limit: 2, pairConcurrency: 2 });
+  assert.deepEqual(selection, { taskIds, limit: 2 });
   assert.throws(
     () => resolveHarnessAbRunId(competitorProfile, undefined, undefined, taskIds.join(',')),
     /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_IDS/,
   );
   assert.throws(
-    () =>
-      resolveHarnessAbTaskSelection(taskIds[0], undefined, undefined, undefined, taskIds.join(',')),
+    () => resolveHarnessAbTaskSelection(taskIds[0], undefined, taskIds.join(',')),
     /MAKA_HARNESS_AB_TASK_ID and MAKA_HARNESS_AB_TASK_IDS are mutually exclusive/,
   );
   assert.throws(
-    () =>
-      resolveHarnessAbTaskSelection(
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        `${taskIds[0]},${taskIds[0]}`,
-      ),
+    () => resolveHarnessAbTaskSelection(undefined, undefined, `${taskIds[0]},${taskIds[0]}`),
     /MAKA_HARNESS_AB_TASK_IDS must not contain duplicate task ids/,
   );
   assert.throws(
-    () => resolveHarnessAbTaskSelection(undefined, undefined, undefined, undefined, ' , '),
+    () => resolveHarnessAbTaskSelection(undefined, undefined, ' , '),
     /MAKA_HARNESS_AB_TASK_IDS must contain at least one task id/,
   );
   assert.throws(
-    () =>
-      resolveHarnessAbTaskSelection(
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        'not-a-terminal-bench-task',
-      ),
+    () => resolveHarnessAbTaskSelection(undefined, undefined, 'not-a-terminal-bench-task'),
     /MAKA_HARNESS_AB_TASK_IDS contains unknown Terminal-Bench 2\.1 tasks/,
   );
 });
 
-test('harness A/B caps subset pair concurrency to the selected task count', async () => {
-  const { resolveHarnessAbTaskSelection, resolveHarnessCompetitorProfile } = await import(
-    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+test('harness A/B records its configured execution policy in the manifest', async () => {
+  const { buildHarnessAbManifest, resolveHarnessAbExecutionPolicy, resolveHarnessAbTaskSelection } =
+    await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const selection = resolveHarnessAbTaskSelection(undefined, '89', undefined);
+  const executionPolicy = resolveHarnessAbExecutionPolicy(
+    '2',
+    'parallel',
+    selection.taskIds.length,
   );
-  const taskIds = ['bn-fit-modify', 'write-compressor'];
-
-  assert.deepEqual(
-    resolveHarnessAbTaskSelection(
-      undefined,
-      undefined,
-      '4',
-      resolveHarnessCompetitorProfile('kimi-code'),
-      taskIds.join(','),
-    ),
-    { taskIds, limit: 2, pairConcurrency: 2 },
-  );
-});
-
-test('harness A/B records its configured rolling pair concurrency in the manifest', async () => {
-  const { buildHarnessAbManifest, resolveHarnessAbTaskSelection } = await import(
-    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
-  );
-  const selection = resolveHarnessAbTaskSelection(undefined, '89', '2');
   const manifest = buildHarnessAbManifest({
     subjectFingerprint: 'subject',
     taskSourceFingerprint: 'tasks',
     toolchainFingerprint: 'tools',
     taskIds: selection.taskIds,
-    pairConcurrency: selection.pairConcurrency,
+    ...executionPolicy,
   });
 
   assert.equal(selection.limit, 89);
   assert.equal(manifest.maxConcurrency, 2);
   assert.equal(manifest.maxConcurrentAttempts, 4);
   assert.throws(
-    () => resolveHarnessAbTaskSelection(undefined, '89', '5'),
+    () => resolveHarnessAbExecutionPolicy('5', undefined, selection.taskIds.length),
     /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 4/,
   );
 });
@@ -291,7 +282,6 @@ test('harness A/B freezes the stored advisory evidence when resuming a run', asy
 test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', async () => {
   const {
     buildHarnessAbManifest,
-    resolveHarnessAbTaskSelection,
     resolveHarnessAbRunId,
     resolveHarnessCompetitorProfile,
     resolveHarnessCompetitorToolchainPath,
@@ -329,22 +319,17 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.equal(codexProfile.config.adapter, 'codex_agent:MakaCodexAgent');
   assert.equal(codexProfile.config.permissions, 'container-full-access');
   assert.equal(codexProfile.config.transport, 'responses-http');
-  const codexSelection = resolveHarnessAbTaskSelection(undefined, '5', undefined, codexProfile);
-  assert.equal(codexSelection.pairConcurrency, 4);
-  assert.throws(
-    () => resolveHarnessAbTaskSelection(undefined, '5', '5', codexProfile),
-    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 4/,
-  );
+  assert.equal('armExecution' in codexProfile, false);
+  assert.equal('maxPairConcurrency' in codexProfile, false);
   const codexManifest = buildHarnessAbManifest({
     subjectFingerprint: 'subject',
     taskSourceFingerprint: 'tasks',
     toolchainFingerprint: 'tools',
-    pairConcurrency: codexSelection.pairConcurrency,
     competitorProfile: codexProfile,
   });
-  assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'parallel' });
-  assert.equal(codexManifest.maxConcurrency, 4);
-  assert.equal(codexManifest.maxConcurrentAttempts, 8);
+  assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'sequential' });
+  assert.equal(codexManifest.maxConcurrency, 1);
+  assert.equal(codexManifest.maxConcurrentAttempts, 1);
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
     provider: 'kimi-coding-plan',
@@ -360,8 +345,8 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
     source: 'kimi-coding-plan-account-plan',
   });
   assert.equal(manifest.metadata.order.pilotTaskCount, 5);
-  assert.equal(manifest.maxConcurrency, 4);
-  assert.equal(manifest.maxConcurrentAttempts, 8);
+  assert.equal(manifest.maxConcurrency, 1);
+  assert.equal(manifest.maxConcurrentAttempts, 1);
   const kimiProfile = resolveHarnessCompetitorProfile('kimi-code');
   assert.equal(resolveHarnessAbRunId(kimiProfile), 'k3-maka-vs-kimi-code-tbench-2.1-full-v2');
   assert.match(

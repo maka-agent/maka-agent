@@ -68,7 +68,9 @@ const MODEL = 'k3';
 const REASONING_EFFORT = 'max';
 const BASE_URL = 'https://api.kimi.com/coding/v1';
 const ORDER_SEED = 'terminal-bench-2.1:k3:harness-comparison:v1';
-const PAIR_CONCURRENCY = 4;
+const MAX_PAIR_CONCURRENCY = 4;
+const DEFAULT_PAIR_CONCURRENCY = 1;
+const DEFAULT_ARM_EXECUTION = 'sequential';
 const BILLING_MODE = 'account-plan';
 const PRICING = {
   currency: 'USD',
@@ -113,8 +115,6 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
   }),
   codex: Object.freeze({
     id: 'codex',
-    armExecution: 'parallel',
-    maxPairConcurrency: PAIR_CONCURRENCY,
     version: CODEX_TOOLCHAIN_SPEC.codex.version,
     toolchainFingerprint: CODEX_TOOLCHAIN_FINGERPRINT,
     runtime: Object.freeze({
@@ -308,21 +308,35 @@ function runLimit(raw) {
   return parsed;
 }
 
-function runPairConcurrency(raw, maximum = PAIR_CONCURRENCY) {
-  const parsed = Number(raw ?? maximum);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
-    throw new Error(`MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${maximum}`);
+function runPairConcurrency(raw) {
+  const parsed = Number(raw ?? DEFAULT_PAIR_CONCURRENCY);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_PAIR_CONCURRENCY) {
+    throw new Error(
+      `MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${MAX_PAIR_CONCURRENCY}`,
+    );
   }
   return parsed;
 }
 
-export function resolveHarnessAbTaskSelection(
-  rawTaskId,
-  rawLimit,
-  rawPairConcurrency,
-  competitorProfile = resolveHarnessCompetitorProfile(),
-  rawTaskIds,
-) {
+function runArmExecution(raw) {
+  const parsed = raw?.trim() || DEFAULT_ARM_EXECUTION;
+  if (parsed !== 'sequential' && parsed !== 'parallel') {
+    throw new Error('MAKA_HARNESS_AB_ARM_EXECUTION must be sequential or parallel');
+  }
+  return parsed;
+}
+
+export function resolveHarnessAbExecutionPolicy(rawPairConcurrency, rawArmExecution, taskCount) {
+  if (!Number.isSafeInteger(taskCount) || taskCount < 1) {
+    throw new Error('harness A/B execution policy requires at least one task');
+  }
+  return {
+    pairConcurrency: Math.min(runPairConcurrency(rawPairConcurrency), taskCount),
+    armExecution: runArmExecution(rawArmExecution),
+  };
+}
+
+export function resolveHarnessAbTaskSelection(rawTaskId, rawLimit, rawTaskIds) {
   const taskId = rawTaskId?.trim();
   const explicitTaskIds = rawTaskIds
     ?.split(',')
@@ -350,30 +364,18 @@ export function resolveHarnessAbTaskSelection(
     return {
       taskIds: uniqueTaskIds,
       limit: uniqueTaskIds.length,
-      pairConcurrency: Math.min(
-        runPairConcurrency(
-          rawPairConcurrency,
-          competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
-        ),
-        uniqueTaskIds.length,
-      ),
     };
   }
-  const pairConcurrency = runPairConcurrency(
-    rawPairConcurrency,
-    competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
-  );
   if (!taskId) {
     return {
       taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
       limit: runLimit(rawLimit),
-      pairConcurrency,
     };
   }
   if (!TERMINAL_BENCH_2_1_TASK_IDS.includes(taskId)) {
     throw new Error('MAKA_HARNESS_AB_TASK_ID must name a Terminal-Bench 2.1 task');
   }
-  return { taskIds: [taskId], limit: 1, pairConcurrency: 1 };
+  return { taskIds: [taskId], limit: 1 };
 }
 
 export function harnessMakaContextBudgetEnv() {
@@ -402,10 +404,8 @@ export function buildHarnessAbManifest({
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
   competitorProfile = resolveHarnessCompetitorProfile(),
-  pairConcurrency = Math.min(
-    competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
-    taskIds.length,
-  ),
+  pairConcurrency = Math.min(DEFAULT_PAIR_CONCURRENCY, taskIds.length),
+  armExecution = DEFAULT_ARM_EXECUTION,
   oracleEvidence,
   credentialIdentity,
 }) {
@@ -462,7 +462,7 @@ export function buildHarnessAbManifest({
     taskSourceFingerprint,
     toolchainFingerprint,
     pairConcurrency,
-    armExecution: competitorProfile.armExecution ?? 'parallel',
+    armExecution,
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
@@ -486,9 +486,12 @@ export async function main() {
   const selection = resolveHarnessAbTaskSelection(
     process.env.MAKA_HARNESS_AB_TASK_ID,
     process.env.MAKA_HARNESS_AB_LIMIT,
-    process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
-    competitorProfile,
     process.env.MAKA_HARNESS_AB_TASK_IDS,
+  );
+  const executionPolicy = resolveHarnessAbExecutionPolicy(
+    process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
+    process.env.MAKA_HARNESS_AB_ARM_EXECUTION,
+    selection.taskIds.length,
   );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {
@@ -502,6 +505,7 @@ export async function main() {
         tasksRoot,
         runId,
         selection,
+        executionPolicy,
         runRoot,
         competitorProfile,
       });
@@ -527,6 +531,7 @@ async function runLocked({
   tasksRoot,
   runId,
   selection,
+  executionPolicy,
   runRoot,
   competitorProfile,
 }) {
@@ -589,7 +594,8 @@ async function runLocked({
     taskSourceFingerprint,
     toolchainFingerprint,
     taskIds: selection.taskIds,
-    pairConcurrency: selection.pairConcurrency,
+    pairConcurrency: executionPolicy.pairConcurrency,
+    armExecution: executionPolicy.armExecution,
     oracleEvidence,
     competitorProfile,
     credentialIdentity: credentials.credentialIdentity,
@@ -675,7 +681,7 @@ async function runLocked({
         }),
       },
     ],
-    pairConcurrency: selection.pairConcurrency,
+    pairConcurrency: manifest.maxConcurrency,
     armExecution: manifest.metadata.execution.armExecution,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
