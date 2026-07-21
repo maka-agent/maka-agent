@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { BackendKind, ProviderType } from '@maka/core';
-import { PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
+import { isThinkingLevel, PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
 import type { Config, Task } from './contracts.js';
+import { validateHarborCellOutput } from './cell-output.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
 import {
@@ -215,6 +216,11 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     includeEvents: options.includeEvents,
   });
   const latestScore = run.projection.latestScoreResult;
+  const cellArtifacts = await writeTaskRunCellArtifacts({
+    options,
+    resultRecord: run.resultRecord,
+    scoreDetails: latestScore?.details,
+  });
   const taxonomy =
     latestScore?.taxonomy ??
     run.projection.result?.taxonomy ??
@@ -235,6 +241,8 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
       authoritative: latestScore?.authority?.authoritative ?? false,
       benchmarkFailureKind: benchmarkFailure.kind,
       benchmarkFailureShouldThrow: benchmarkFailure.shouldThrow,
+      outputPath: cellArtifacts.outputPath,
+      runtimeEventsPath: cellArtifacts.runtimeEventsPath,
       exportDir,
       files: exported.files,
       result: {
@@ -246,6 +254,75 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     })}\n`,
   );
   return benchmarkFailure.shouldThrow ? 1 : 0;
+}
+
+async function writeTaskRunCellArtifacts(input: {
+  options: HarborRunOptions;
+  resultRecord: Awaited<ReturnType<typeof runTaskOnce>>['resultRecord'];
+  scoreDetails: Record<string, unknown> | undefined;
+}): Promise<{ outputPath: string; runtimeEventsPath: string }> {
+  const details = input.scoreDetails ?? {};
+  const runtimeRefs = recordValue(details.runtimeRefs);
+  if (!runtimeRefs) throw new Error('task-run result is missing runtime refs');
+  const sessionId = requiredString(runtimeRefs.sessionId, 'runtimeRefs.sessionId');
+  const runId = requiredString(runtimeRefs.runId, 'runtimeRefs.runId');
+  const runtimeEventsPath = join(input.options.outDir, 'runtime-events.jsonl');
+  await copyFile(
+    join(input.options.storageRoot, 'sessions', sessionId, 'runs', runId, 'runtime-events.jsonl'),
+    runtimeEventsPath,
+  );
+
+  const promptHash = input.resultRecord.systemPromptHash;
+  const cell = validateHarborCellOutput({
+    schemaVersion: 1,
+    status: details.invocationStatus ?? input.resultRecord.status,
+    ...(details.runtimeFailureClass ? { errorClass: details.runtimeFailureClass } : {}),
+    runtimeEventsPath,
+    ...(promptHash ? { promptHash } : {}),
+    ...(promptHash
+      ? {
+          executionIdentity: {
+            llmConnectionSlug: input.options.config.llmConnectionSlug,
+            model: input.options.config.model,
+            ...(input.options.config.thinkingLevel
+              ? { reasoningEffort: input.options.config.thinkingLevel }
+              : {}),
+            ...(input.resultRecord.systemPromptMode
+              ? { systemPromptMode: input.resultRecord.systemPromptMode }
+              : {}),
+            systemPromptHash: promptHash,
+            pricingProfile: input.options.env.MAKA_TRIAL_PRICING_SOURCE ?? 'runtime',
+          },
+        }
+      : {}),
+    toolSummary: details.tools,
+    steps: details.steps ?? input.resultRecord.steps,
+    durationMs: input.resultRecord.durationMs,
+    startedAt: input.resultRecord.startedAt,
+    finishedAt: input.resultRecord.finishedAt,
+    runtimeRefs: {
+      invocationId: runtimeRefs.invocationId,
+      sessionId,
+      runId,
+      turnId: runtimeRefs.turnId,
+    },
+  });
+  const outputPath = join(input.options.outDir, 'maka-cell-output.json');
+  await writeFile(outputPath, `${JSON.stringify(cell, null, 2)}\n`, 'utf8');
+  return { outputPath, runtimeEventsPath };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`task-run result is missing ${field}`);
+  }
+  return value;
 }
 
 export async function resolveHarborRunOptions(
@@ -419,12 +496,14 @@ function buildConfig(input: {
   heavyTask: boolean;
   economyTask: boolean;
 }): Config {
+  const thinkingLevel = reasoningEffortFromEnv(input.env.MAKA_REASONING_EFFORT);
   if (input.backend === 'fake') {
     return {
       id: input.parsed.flags['config-id'] ?? input.env.MAKA_CONFIG_ID ?? 'harbor-fake',
       backend: 'fake',
       llmConnectionSlug: input.env.MAKA_LLM_CONNECTION_SLUG ?? 'fake',
       model: input.env.MAKA_MODEL ?? input.env.HARBOR_MODEL ?? 'fake',
+      ...(thinkingLevel ? { thinkingLevel } : {}),
       ...(input.heavyTask
         ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } }
         : {}),
@@ -448,6 +527,7 @@ function buildConfig(input: {
     backend: 'ai-sdk',
     llmConnectionSlug: input.env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
     model: modelSpec.model,
+    ...(thinkingLevel ? { thinkingLevel } : {}),
     ...(input.env.MAKA_SYSTEM_PROMPT !== undefined
       ? { systemPrompt: input.env.MAKA_SYSTEM_PROMPT }
       : {}),
@@ -458,6 +538,12 @@ function buildConfig(input: {
       ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } }
       : {}),
   };
+}
+
+function reasoningEffortFromEnv(value: string | undefined): Config['thinkingLevel'] {
+  if (value === undefined || value === '') return undefined;
+  if (!isThinkingLevel(value)) throw new Error(`unsupported MAKA_REASONING_EFFORT: ${value}`);
+  return value;
 }
 
 function buildBackendRegistration(input: {

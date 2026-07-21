@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, test } from 'node:test';
+import { validateHarborCellOutput } from '../cell-output.js';
 import { mapLegacyMakaHeadlessArgs } from '../cli.js';
 import { readResults } from '../results.js';
 
@@ -254,7 +255,14 @@ describe('maka-headless CLI', () => {
           outDir,
           '--include-events',
         ],
-        { env: { MAKA_ECONOMY_TASK_MODE: 'true' } },
+        {
+          env: {
+            MAKA_ECONOMY_TASK_MODE: 'true',
+            MAKA_MODEL: 'fake-model',
+            MAKA_REASONING_EFFORT: 'xhigh',
+            MAKA_TRIAL_PRICING_SOURCE: 'test-account-plan',
+          },
+        },
       );
       assert.equal(result.code, 0, result.stderr);
       const summary = JSON.parse(result.stdout);
@@ -262,6 +270,19 @@ describe('maka-headless CLI', () => {
       assert.equal(summary.mode, 'task-run');
       assert.equal(summary.scored, false);
       assert.equal(summary.authoritative, false);
+
+      const cell = validateHarborCellOutput(
+        JSON.parse(await readFile(join(outDir, 'maka-cell-output.json'), 'utf8')),
+      );
+      assert.equal(cell.status, 'completed');
+      assert.equal(cell.promptHash, cell.executionIdentity?.systemPromptHash);
+      assert.equal(cell.executionIdentity?.llmConnectionSlug, 'fake');
+      assert.equal(cell.executionIdentity?.model, 'fake-model');
+      assert.equal(cell.executionIdentity?.reasoningEffort, 'xhigh');
+      assert.equal(cell.executionIdentity?.pricingProfile, 'test-account-plan');
+      assert.equal(cell.toolSummary.actualToolCalls, 0);
+      assert.equal(cell.runtimeEventsPath, join(outDir, 'runtime-events.jsonl'));
+      assert.match(await readFile(cell.runtimeEventsPath, 'utf8'), /"role":"system"/);
 
       const taskRunJson = JSON.parse(
         await readFile(join(outDir, 'exports', 'harbor-run-1', 'task-run.json'), 'utf8'),
