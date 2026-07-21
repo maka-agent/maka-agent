@@ -30,6 +30,7 @@ import {
   SKILL_MANAGEMENT_FILTERS,
   skillManagementFilterLabel,
   skillManagementOriginLabel,
+  skillManagementScopeLabel,
   skillManagementStatusLabel,
   type SkillManagementFilter,
   type SkillTemplateManagementEntry,
@@ -701,44 +702,22 @@ export interface SkillManagementOverlayInput {
   onCancel: () => void;
 }
 
-/** Searchable, read-only `/skills` inventory with the same four filters as Desktop. */
+/** Searchable `/skills` inventory with non-selectable source groups and Desktop-aligned filters. */
 export class SkillManagementOverlay implements Component {
   private readonly searchEditor: Editor;
   private filter: SkillManagementFilter = 'all';
   private filtered: SkillInspectionEntry[];
-  private list: SelectList;
+  private selectedIndex = 0;
+  private scrollStart = 0;
+  private readonly maxVisibleEntries = 8;
 
   constructor(
     private readonly tui: TUI,
     private readonly input: SkillManagementOverlayInput,
   ) {
     this.filtered = filterSkillManagementEntries(input.entries, this.filter, '');
-    this.list = this.buildList();
     this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
     this.searchEditor.onChange = () => this.applyFilter();
-  }
-
-  private buildList(): SelectList {
-    const list = new SelectList(
-      this.filtered.map((entry, index) => ({
-        value: String(index),
-        label: sanitizeSkillTerminalText(entry.name || entry.id),
-        description: [
-          sanitizeSkillTerminalText(entry.id),
-          skillManagementOriginLabel(entry.discoveryOrigin),
-          skillManagementStatusLabel(entry.operationalStatus),
-        ].join(' · '),
-      })),
-      8,
-      selectListTheme(),
-      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 40 },
-    );
-    list.onSelect = (item) => {
-      const entry = this.filtered[Number(item.value)];
-      if (entry) this.input.onSelect(entry);
-    };
-    list.onCancel = () => this.input.onCancel();
-    return list;
   }
 
   private applyFilter(): void {
@@ -747,7 +726,8 @@ export class SkillManagementOverlay implements Component {
       this.filter,
       this.searchEditor.getText(),
     );
-    this.list = this.buildList();
+    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filtered.length - 1));
+    this.keepSelectionVisible();
   }
 
   private cycleFilter(): void {
@@ -758,7 +738,6 @@ export class SkillManagementOverlay implements Component {
 
   invalidate(): void {
     this.searchEditor.invalidate();
-    this.list.invalidate();
   }
 
   handleInput(data: string): void {
@@ -772,11 +751,20 @@ export class SkillManagementOverlay implements Component {
       return;
     }
     if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
-      this.list.handleInput(data);
+      if (this.filtered.length > 0) {
+        const delta = matchesKey(data, Key.up) ? -1 : 1;
+        this.selectedIndex =
+          (this.selectedIndex + delta + this.filtered.length) % this.filtered.length;
+        this.keepSelectionVisible();
+        this.tui.requestRender();
+      }
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
-      if (!isKeyRepeat(data)) this.list.handleInput(data);
+      if (!isKeyRepeat(data)) {
+        const entry = this.filtered[this.selectedIndex];
+        if (entry) this.input.onSelect(entry);
+      }
       return;
     }
     this.searchEditor.handleInput(data);
@@ -798,9 +786,40 @@ export class SkillManagementOverlay implements Component {
       padLine('', safeWidth),
       ...(this.filtered.length === 0
         ? [padLine(ansi.dim('没有匹配的 Skill'), safeWidth)]
-        : this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth))),
+        : this.renderGroupedEntries(safeWidth)),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
+  }
+
+  private keepSelectionVisible(): void {
+    if (this.selectedIndex < this.scrollStart) this.scrollStart = this.selectedIndex;
+    if (this.selectedIndex >= this.scrollStart + this.maxVisibleEntries) {
+      this.scrollStart = this.selectedIndex - this.maxVisibleEntries + 1;
+    }
+    const maxStart = Math.max(0, this.filtered.length - this.maxVisibleEntries);
+    this.scrollStart = Math.min(this.scrollStart, maxStart);
+  }
+
+  private renderGroupedEntries(width: number): string[] {
+    const visible = this.filtered.slice(
+      this.scrollStart,
+      this.scrollStart + this.maxVisibleEntries,
+    );
+    const lines: string[] = [];
+    let scope: string | undefined;
+    for (const [offset, entry] of visible.entries()) {
+      const nextScope = skillManagementScopeLabel(entry.discoveryOrigin);
+      if (scope !== nextScope) {
+        scope = nextScope;
+        lines.push(padLine(ansi.dim(`  ${scope}`), width));
+      }
+      const index = this.scrollStart + offset;
+      const marker = index === this.selectedIndex ? '→ ' : '  ';
+      const row = `${marker}${sanitizeSkillTerminalText(entry.name || entry.id)}  ${sanitizeSkillTerminalText(entry.id)} · ${skillManagementOriginLabel(entry.discoveryOrigin)} · ${skillManagementStatusLabel(entry.operationalStatus)}`;
+      const padded = padLine(row, width);
+      lines.push(index === this.selectedIndex ? ansi.reverse(padded) : padded);
+    }
+    return lines;
   }
 
   private renderSearchField(width: number): string[] {
@@ -830,7 +849,7 @@ export class SkillTemplateManagementOverlay implements Component {
     private readonly tui: TUI,
     private readonly input: SkillTemplateManagementOverlayInput,
   ) {
-    this.filtered = [...input.entries];
+    this.filtered = filterSkillTemplateManagementEntries(input.entries, '');
     this.list = this.buildList();
     this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
     this.searchEditor.onChange = (query) => {
@@ -844,14 +863,7 @@ export class SkillTemplateManagementOverlay implements Component {
       this.filtered.map((entry, index) => ({
         value: String(index),
         label: sanitizeSkillTerminalText(entry.name || entry.id),
-        description: [
-          sanitizeSkillTerminalText(entry.id),
-          entry.activationState === 'available'
-            ? '可启用'
-            : entry.activationState === 'active'
-              ? '已启用'
-              : '需要处理',
-        ].join(' · '),
+        description: [sanitizeSkillTerminalText(entry.id), '可启用'].join(' · '),
       })),
       8,
       selectListTheme(),
@@ -894,7 +906,7 @@ export class SkillTemplateManagementOverlay implements Component {
     const editorLines = this.searchEditor.render(Math.max(1, safeWidth - labelWidth)).slice(1, -1);
     return [
       padLine(`Skills · 可启用 ${ansi.accent(String(this.filtered.length))}`, safeWidth),
-      padLine(ansi.dim('搜索模板 · ↑↓ 选择 · Enter 审查 · Esc 返回'), safeWidth),
+      padLine(ansi.dim('搜索模板 · ↑↓ 选择 · Enter 详情 · Esc 返回'), safeWidth),
       padLine('', safeWidth),
       ...(editorLines.length === 0
         ? [padLine(label, safeWidth)]

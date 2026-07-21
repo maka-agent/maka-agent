@@ -113,6 +113,7 @@ import {
 } from './pi-tui-pickers.js';
 import {
   buildSkillTemplateManagementEntries,
+  canToggleSkillManagementEntry,
   formatSkillDiagnostic,
   formatSkillTemplateReview,
   type SkillTemplateManagementEntry,
@@ -1980,30 +1981,99 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         const blocked = entry.issues.some(
           (issue) => issue.code === 'blocked_path' || issue.code === 'unreadable_skill',
         );
-        if (blocked || !input.skills?.openDiscoveredEntry) return;
         const target = entry.operationalStatus === 'state_error' ? 'state_file' : 'skill_file';
+        const canOpen = !blocked && input.skills?.openDiscoveredEntry != null;
+        const canToggle =
+          canToggleSkillManagementEntry(entry) && input.skills?.setDiscoveredEnabled != null;
+        const actions: SelectItem[] = [];
+        if (canOpen) {
+          actions.push({
+            value: 'open',
+            label: target === 'state_file' ? '打开 skills-state.json' : '打开 SKILL.md',
+            description: '打开前会重新校验真实路径和文件类型',
+          });
+        }
+        if (canToggle) {
+          actions.push({
+            value: 'toggle',
+            label: entry.operationalStatus === 'disabled' ? '全局启用' : '全局停用',
+            description: '按 Skill ID 影响 Maka 的所有项目',
+          });
+        }
+        actions.push({ value: 'close', label: '关闭' });
         showSelectPicker(
           'Skill 诊断',
           entry.id,
-          [
-            {
-              value: 'open',
-              label: target === 'state_file' ? '打开 skills-state.json' : '打开 SKILL.md',
-              description: '打开前会重新校验真实路径和文件类型',
-            },
-            { value: 'close', label: '关闭' },
-          ],
+          actions,
           (item) => {
-            if (item.value !== 'open') return;
-            void runControl(async () => {
-              const result = await input.skills?.openDiscoveredEntry?.(cwd, entry.entryKey, target);
-              state.entries.push({
-                kind: 'notice',
-                level: result?.ok ? 'info' : 'error',
-                text: result?.ok ? '已打开经过校验的 Skill 文件。' : '无法安全打开该 Skill 文件。',
+            if (item.value === 'open') {
+              void runControl(async () => {
+                const result = await input.skills?.openDiscoveredEntry?.(
+                  cwd,
+                  entry.entryKey,
+                  target,
+                );
+                state.entries.push({
+                  kind: 'notice',
+                  level: result?.ok ? 'info' : 'error',
+                  text: result?.ok
+                    ? '已打开经过校验的 Skill 文件。'
+                    : '无法安全打开该 Skill 文件。',
+                });
+                requestRender();
               });
-              requestRender();
-            });
+              return;
+            }
+            if (item.value !== 'toggle') return;
+            const enable = entry.operationalStatus === 'disabled';
+            showSelectPicker(
+              enable ? '全局启用 Skill？' : '全局停用 Skill？',
+              entry.id,
+              [
+                {
+                  value: 'confirm',
+                  label: enable ? '确认全局启用' : '确认全局停用',
+                  description: '影响 Maka 的所有项目；正在运行的任务不受影响',
+                },
+                { value: 'cancel', label: '取消' },
+              ],
+              (confirmation) => {
+                if (confirmation.value !== 'confirm') return;
+                void runControl(async () => {
+                  const result = await input.skills?.setDiscoveredEnabled?.(
+                    cwd,
+                    entry.entryKey,
+                    enable,
+                  );
+                  if (!result?.ok) {
+                    const reasons: Record<string, string> = {
+                      not_found: '最新扫描中未找到',
+                      not_toggleable: '当前条目不可切换',
+                      blocked_path: '路径被安全策略阻止',
+                      state_error: '全局状态文件异常',
+                      write_failed: '写入失败',
+                    };
+                    state.entries.push({
+                      kind: 'notice',
+                      level: 'error',
+                      text: `未能${enable ? '启用' : '停用'} ${entry.name}：${reasons[result?.reason ?? 'write_failed'] ?? '未知错误'}。`,
+                    });
+                    requestRender();
+                    return;
+                  }
+                  skillListCache = undefined;
+                  await listSkillsCached(true);
+                  state.entries.push({
+                    kind: 'notice',
+                    level: 'info',
+                    text: `已按 Skill ID 全局${enable ? '启用' : '停用'} ${entry.name}，影响 Maka 的所有项目。`,
+                  });
+                  requestRender();
+                  showDiscoveredSkillManagement(result.inspection.entries);
+                });
+              },
+              { minPrimaryColumnWidth: 18, maxPrimaryColumnWidth: 48 },
+            );
           },
           { minPrimaryColumnWidth: 18, maxPrimaryColumnWidth: 42 },
         );
@@ -2014,8 +2084,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const activateSkillTemplate = async (entry: SkillTemplateManagementEntry): Promise<void> => {
-    const activate = input.skills?.activateBundledTemplate;
-    if (!activate) {
+    const skillSurface = input.skills;
+    const activate = skillSurface?.activateBundledTemplate;
+    if (!skillSurface || !activate) {
       state.entries.push({
         kind: 'notice',
         level: 'error',
@@ -2041,12 +2112,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return;
     }
     skillListCache = undefined;
+    await listSkillsCached(true);
     state.entries.push({
       kind: 'notice',
       level: 'info',
       text: `已启用 ${entry.name} 到 Maka 工作区。下一次 Skill 扫描会读取该副本。`,
     });
     requestRender();
+    const snapshot = await inspectSkills(skillSurface.source(cwd), skillSurface.host);
+    const available = buildSkillTemplateManagementEntries(
+      skillSurface.bundledTemplates ?? [],
+      snapshot.entries,
+    );
+    showAvailableSkillManagement(available);
   };
 
   const reviewSkillTemplate = (entry: SkillTemplateManagementEntry): void => {
@@ -2058,10 +2136,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
     if (entry.activationState !== 'available') return;
     showSelectPicker(
-      '启用 Skill 模板',
+      '启用到 Maka？',
       entry.id,
       [
-        { value: 'activate', label: '启用到 Maka', description: '创建全局工作区副本' },
+        {
+          value: 'activate',
+          label: '确认启用',
+          description: '创建全局副本；不授权、不覆盖已有文件',
+        },
         { value: 'cancel', label: '取消' },
       ],
       (item) => {
@@ -2073,7 +2155,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showAvailableSkillManagement = (entries: readonly SkillTemplateManagementEntry[]): void => {
     if (entries.length === 0) {
-      state.entries.push({ kind: 'notice', level: 'info', text: '暂无可审查的 Skill 模板。' });
+      state.entries.push({ kind: 'notice', level: 'info', text: '暂无可启用的 Skill 模板。' });
       requestRender();
       return;
     }
@@ -2104,7 +2186,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const templates = buildSkillTemplateManagementEntries(
       input.skills.bundledTemplates ?? [],
       snapshot.entries,
-    );
+    ).filter((entry) => entry.activationState === 'available');
     showSelectPicker(
       'Skills',
       `${templates.length + snapshot.entries.length}`,

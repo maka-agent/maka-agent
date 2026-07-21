@@ -4,6 +4,8 @@ import { TUI, visibleWidth } from '@earendil-works/pi-tui';
 import type { BundledSkillTemplateSource, SkillInspectionEntry } from '@maka/runtime';
 import {
   buildSkillTemplateManagementEntries,
+  canToggleSkillManagementEntry,
+  filterSkillTemplateManagementEntries,
   filterSkillManagementEntries,
   formatSkillDiagnostic,
   formatSkillTemplateReview,
@@ -41,6 +43,23 @@ describe('TUI Skill management', () => {
         .filter((candidate) => matchesSkillManagementFilter(candidate, 'unavailable'))
         .map((candidate) => candidate.id),
       ['disabled', 'shadowed', 'host'],
+    );
+  });
+
+  test('allows toggles only for effective safe entries', () => {
+    assert.equal(canToggleSkillManagementEntry(entry('ok', 'eligible')), true);
+    assert.equal(canToggleSkillManagementEntry(entry('disabled', 'disabled')), true);
+    assert.equal(canToggleSkillManagementEntry(entry('host', 'host_incompatible')), true);
+    assert.equal(canToggleSkillManagementEntry(entry('shadowed', 'shadowed')), false);
+    assert.equal(canToggleSkillManagementEntry(entry('state', 'state_error')), false);
+    assert.equal(canToggleSkillManagementEntry(entry('invalid', 'invalid')), false);
+    assert.equal(
+      canToggleSkillManagementEntry(
+        entry('blocked', 'eligible', {
+          issues: [{ code: 'blocked_path', severity: 'error', message: 'blocked' }],
+        }),
+      ),
+      false,
     );
   });
 
@@ -95,6 +114,37 @@ describe('TUI Skill management', () => {
       attention: 'attention',
       available: 'available',
     });
+    assert.deepEqual(
+      filterSkillTemplateManagementEntries(
+        buildSkillTemplateManagementEntries(templates, discovered),
+        '',
+      ).map((candidate) => candidate.id),
+      ['available'],
+    );
+  });
+
+  test('renders non-selectable scope headings while arrows visit only entries', () => {
+    const terminal = new FakeTerminal();
+    const tui = new TUI(terminal);
+    let selected = '';
+    const overlay = new SkillManagementOverlay(tui, {
+      entries: [
+        entry('user', 'eligible', { discoveryOrigin: 'user_agents' }),
+        entry('workspace', 'eligible', { discoveryOrigin: 'workspace' }),
+        entry('project', 'eligible', { discoveryOrigin: 'project_maka' }),
+      ],
+      onSelect: (candidate) => {
+        selected = candidate.id;
+      },
+      onCancel: () => {},
+    });
+    const rendered = overlay.render(80).join('\n');
+    assert.match(rendered, /项目级 Skill/);
+    assert.match(rendered, /Maka 工作区 Skill/);
+    assert.match(rendered, /用户级 Skill/);
+    overlay.handleInput('\x1b[B');
+    overlay.handleInput('\r');
+    assert.equal(selected, 'workspace');
   });
 
   test('renders discovered and template search overlays at 80 and 120 columns', () => {
@@ -106,7 +156,10 @@ describe('TUI Skill management', () => {
       onCancel: () => {},
     });
     const templates = new SkillTemplateManagementOverlay(tui, {
-      entries: buildSkillTemplateManagementEntries([template('beta')], []),
+      entries: buildSkillTemplateManagementEntries(
+        [template('beta'), template('active')],
+        [entry('active', 'eligible', { discoveryOrigin: 'workspace' })],
+      ),
       onSelect: () => {},
       onCancel: () => {},
     });
@@ -118,8 +171,9 @@ describe('TUI Skill management', () => {
     }
     assert.match(
       formatSkillTemplateReview(buildSkillTemplateManagementEntries([template('beta')], [])[0]!),
-      /不会自动获得权限/,
+      /不会授予工具权限/,
     );
+    assert.doesNotMatch(templates.render(80).join('\n'), /active/);
   });
 });
 

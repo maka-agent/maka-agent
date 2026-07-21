@@ -47,6 +47,7 @@ import {
   resolveSkillDiscoveryPaths,
   resolveDiscoveredSkillOpenPath,
   resolveSkillRepairOpenPath,
+  setDiscoveredSkillEnabled,
   resolveSelectedModelContextWindow,
   type AutomationDefinition,
   type ActivateBundledSkillTemplateResult,
@@ -56,6 +57,7 @@ import {
   type InvocationResult,
   type ShellRunUpdate,
   type SkillSource,
+  type SetDiscoveredSkillEnabledResult,
   type ToolAvailabilityConfig,
 } from '@maka/runtime';
 import {
@@ -169,6 +171,12 @@ export interface MakaCliSkillSurface {
   bundledTemplates?: readonly BundledSkillTemplateSource[];
   /** Safe, no-overwrite activation into the global Maka workspace. */
   activateBundledTemplate?(id: string): Promise<ActivateBundledSkillTemplateResult>;
+  /** Re-scan and persist one effective Skill id in the shared v1 global state file. */
+  setDiscoveredEnabled?(
+    cwd: string,
+    entryKey: string,
+    enabled: boolean,
+  ): Promise<SetDiscoveredSkillEnabledResult>;
   /** Revalidate and open a discovered Skill file; raw inspection paths are never opened directly. */
   openDiscoveredEntry?(
     cwd: string,
@@ -869,6 +877,13 @@ export async function createMakaCliRuntimeContext(
       host,
       bundledTemplates: BUNDLED_SKILL_TEMPLATES,
       activateBundledTemplate: (id) => activateBundledSkillTemplate(input.workspaceRoot, id),
+      setDiscoveredEnabled: (cwd, entryKey, enabled) =>
+        setDiscoveredSkillEnabled({
+          source: resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+          host,
+          entryKey,
+          enabled,
+        }),
       openDiscoveredEntry: async (cwd, entryKey, target) => {
         const source = resolveSkillDiscoveryPaths(cwd, input.workspaceRoot);
         const resolved =

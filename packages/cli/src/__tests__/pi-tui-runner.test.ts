@@ -23,6 +23,7 @@ import {
   BUNDLED_SKILL_TEMPLATES,
   GoalManager,
   SessionActivityRegistry,
+  setDiscoveredSkillEnabled,
   type GoalTurnOutcome,
   type ShellRunUpdate,
 } from '@maka/runtime';
@@ -7697,7 +7698,7 @@ describe('Maka Pi TUI runner', () => {
     });
   });
 
-  test('/skills opens the read-only discovered inventory and renders diagnostics', async () => {
+  test('/skills opens the discovered inventory and renders diagnostics', async () => {
     await withSkillWorkspace(async (workspaceRoot) => {
       const terminal = new FakeTerminal();
       const driver = new SlashCommandDriver();
@@ -7778,7 +7779,7 @@ describe('Maka Pi TUI runner', () => {
       await waitFor(() => terminal.output().includes('Skills · 可启用'));
       terminal.input('summarization');
       terminal.input('\r');
-      await waitFor(() => plainTerminalOutput(terminal.output()).includes('模板审查'));
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('模板详情'));
       await waitFor(() => terminal.output().includes('启用 Skill 模板'));
       terminal.input('\r');
       await waitFor(() => plainTerminalOutput(terminal.output()).includes('已启用'));
@@ -7788,6 +7789,54 @@ describe('Maka Pi TUI runner', () => {
         await readFile(join(workspaceRoot, 'skills', 'summarization', 'SKILL.md'), 'utf8'),
         /name: 智能摘要/,
       );
+
+      exitMaka(terminal);
+      await run;
+    });
+  });
+
+  test('/skills globally toggles an effective Skill and refreshes the discovered view', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: {
+          source: () => workspaceRoot,
+          host: { toolNames: new Set<string>() },
+          setDiscoveredEnabled: (_cwd, entryKey, enabled) =>
+            setDiscoveredSkillEnabled({ source: workspaceRoot, entryKey, enabled }),
+        },
+      });
+
+      terminal.input('/skills');
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('已发现'));
+      terminal.input('\x1b[B');
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('Skills · 已发现'));
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('全局停用'));
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('全局停用 Skill？'));
+      terminal.input('\r');
+      await waitFor(() =>
+        plainTerminalOutput(terminal.output()).includes('已按 Skill ID 全局停用'),
+      );
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('已停用'));
+
+      const state = JSON.parse(
+        await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8'),
+      ) as { schemaVersion: number; skills: Record<string, { enabled: boolean }> };
+      assert.equal(state.schemaVersion, 1);
+      assert.equal(state.skills.alpha?.enabled, false);
+      assert.equal(driver.prompts.length, 0, 'management never sends a chat prompt');
 
       exitMaka(terminal);
       await run;

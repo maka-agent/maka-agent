@@ -77,6 +77,22 @@ export function skillManagementOriginLabel(origin: SkillDiscoveryOrigin): string
   return ORIGIN_LABELS[origin];
 }
 
+export function skillManagementScopeLabel(origin: SkillDiscoveryOrigin): string {
+  if (origin === 'project_maka' || origin === 'project_agents') return '项目级 Skill';
+  if (origin === 'workspace') return 'Maka 工作区 Skill';
+  return '用户级 Skill';
+}
+
+export function canToggleSkillManagementEntry(entry: SkillInspectionEntry): boolean {
+  if (!entry.effective || entry.metadataStatus === 'invalid') return false;
+  if (entry.operationalStatus === 'state_error' || entry.operationalStatus === 'shadowed') {
+    return false;
+  }
+  return !entry.issues.some(
+    (issue) => issue.code === 'blocked_path' || issue.code === 'unreadable_skill',
+  );
+}
+
 export function matchesSkillManagementFilter(
   entry: SkillInspectionEntry,
   filter: SkillManagementFilter,
@@ -202,8 +218,9 @@ export function filterSkillTemplateManagementEntries(
   rawQuery: string,
 ): SkillTemplateManagementEntry[] {
   const query = sanitizeSkillTerminalText(rawQuery).toLowerCase();
-  if (!query) return [...entries];
-  return entries.filter((entry) =>
+  const available = entries.filter((entry) => entry.activationState === 'available');
+  if (!query) return available;
+  return available.filter((entry) =>
     [entry.id, entry.name, entry.description].some((value) =>
       sanitizeSkillTerminalText(value).toLowerCase().includes(query),
     ),
@@ -214,14 +231,14 @@ export function formatSkillTemplateReview(entry: SkillTemplateManagementEntry): 
   const values = (items: readonly string[]) =>
     items.length > 0 ? items.map(sanitizeSkillTerminalText).join(', ') : '无';
   return [
-    `模板审查 · ${sanitizeSkillTerminalText(entry.name)} (${sanitizeSkillTerminalText(entry.id)})`,
-    `状态：${entry.activationState === 'available' ? '可启用' : entry.activationState === 'active' ? '已启用' : '需要处理'}`,
+    `模板详情 · ${sanitizeSkillTerminalText(entry.name)} (${sanitizeSkillTerminalText(entry.id)})`,
     `目标位置：skills/${sanitizeSkillTerminalText(entry.id)}`,
     `声明工具：${values(entry.declaredTools)}`,
     `必需工具：${values(entry.requiredTools)}`,
     `必需能力：${values(entry.requiredCapabilities)}`,
     '',
     '启用后会创建 Maka 全局工作区副本，对所有项目生效；项目级同 id Skill 仍可覆盖它。',
-    '声明或必需工具不会自动获得权限，仍受当前会话权限策略约束。',
+    '此操作不会授予工具权限，仍受当前会话权限策略约束。',
+    '如果目标文件已经存在，Maka 会停止操作，不会覆盖已有文件。',
   ].join('\n');
 }
