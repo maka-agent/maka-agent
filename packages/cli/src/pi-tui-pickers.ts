@@ -698,6 +698,7 @@ export class ModelSearchOverlay implements Component {
 
 export interface SkillManagementOverlayInput {
   entries: readonly SkillInspectionEntry[];
+  feedback?: string;
   onSelect: (entry: SkillInspectionEntry) => void;
   onCancel: () => void;
 }
@@ -781,6 +782,9 @@ export class SkillManagementOverlay implements Component {
         ),
         safeWidth,
       ),
+      ...(this.input.feedback
+        ? [padLine(ansi.green(sanitizeSkillTerminalText(this.input.feedback)), safeWidth)]
+        : []),
       padLine('', safeWidth),
       ...this.renderSearchField(safeWidth),
       padLine('', safeWidth),
@@ -835,6 +839,7 @@ export class SkillManagementOverlay implements Component {
 
 export interface SkillTemplateManagementOverlayInput {
   entries: readonly SkillTemplateManagementEntry[];
+  feedback?: string;
   onSelect: (entry: SkillTemplateManagementEntry) => void;
   onCancel: () => void;
 }
@@ -907,6 +912,9 @@ export class SkillTemplateManagementOverlay implements Component {
     return [
       padLine(`Skills · 可启用 ${ansi.accent(String(this.filtered.length))}`, safeWidth),
       padLine(ansi.dim('搜索模板 · ↑↓ 选择 · Enter 详情 · Esc 返回'), safeWidth),
+      ...(this.input.feedback
+        ? [padLine(ansi.green(sanitizeSkillTerminalText(this.input.feedback)), safeWidth)]
+        : []),
       padLine('', safeWidth),
       ...(editorLines.length === 0
         ? [padLine(label, safeWidth)]

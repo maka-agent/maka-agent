@@ -1966,10 +1966,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showDiscoveredSkillManagement = (
     entries: Awaited<ReturnType<typeof inspectSkills>>['entries'],
+    feedback?: string,
   ) => {
     let overlay: OverlayHandle | undefined;
     const picker = new SkillManagementOverlay(tui, {
       entries,
+      ...(feedback ? { feedback } : {}),
       onSelect: (entry) => {
         overlay?.hide();
         state.entries.push({
@@ -2063,13 +2065,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
                   }
                   skillListCache = undefined;
                   await listSkillsCached(true);
+                  const feedback = `已按 Skill ID 全局${enable ? '启用' : '停用'} ${entry.name}，影响 Maka 的所有项目。`;
                   state.entries.push({
                     kind: 'notice',
                     level: 'info',
-                    text: `已按 Skill ID 全局${enable ? '启用' : '停用'} ${entry.name}，影响 Maka 的所有项目。`,
+                    text: feedback,
                   });
                   requestRender();
-                  showDiscoveredSkillManagement(result.inspection.entries);
+                  showDiscoveredSkillManagement(result.inspection.entries, feedback);
                 });
               },
               { minPrimaryColumnWidth: 18, maxPrimaryColumnWidth: 48 },
@@ -2124,7 +2127,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       skillSurface.bundledTemplates ?? [],
       snapshot.entries,
     );
-    showAvailableSkillManagement(available);
+    showAvailableSkillManagement(
+      available,
+      `已启用 ${entry.name} 到 Maka 工作区。下一次 Skill 扫描会读取该副本。`,
+    );
   };
 
   const reviewSkillTemplate = (entry: SkillTemplateManagementEntry): void => {
@@ -2153,7 +2159,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     );
   };
 
-  const showAvailableSkillManagement = (entries: readonly SkillTemplateManagementEntry[]): void => {
+  const showAvailableSkillManagement = (
+    entries: readonly SkillTemplateManagementEntry[],
+    feedback?: string,
+  ): void => {
     if (entries.length === 0) {
       state.entries.push({ kind: 'notice', level: 'info', text: '暂无可启用的 Skill 模板。' });
       requestRender();
@@ -2162,6 +2171,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     let overlay: OverlayHandle | undefined;
     const picker = new SkillTemplateManagementOverlay(tui, {
       entries,
+      ...(feedback ? { feedback } : {}),
       onSelect: (entry) => {
         overlay?.hide();
         reviewSkillTemplate(entry);

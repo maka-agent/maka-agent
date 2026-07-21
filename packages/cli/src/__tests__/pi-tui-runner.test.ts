@@ -7780,7 +7780,7 @@ describe('Maka Pi TUI runner', () => {
       terminal.input('summarization');
       terminal.input('\r');
       await waitFor(() => plainTerminalOutput(terminal.output()).includes('模板详情'));
-      await waitFor(() => terminal.output().includes('启用 Skill 模板'));
+      await waitFor(() => terminal.output().includes('启用到 Maka？'));
       terminal.input('\r');
       await waitFor(() => plainTerminalOutput(terminal.output()).includes('已启用'));
 
