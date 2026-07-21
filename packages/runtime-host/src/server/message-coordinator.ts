@@ -40,6 +40,7 @@ const MAX_FOLLOWUP_TEXT_BYTES = 64 * 1024;
 
 type MessageOperationErrorCode =
   | 'host_draining'
+  | 'operation_unavailable'
   | 'not_found'
   | 'session_archived'
   | 'session_busy'
@@ -55,6 +56,7 @@ type MessageOutcome<T> =
 
 export interface HostMessageSessionHeader {
   readonly isArchived: boolean;
+  readonly unavailableReason?: string;
 }
 
 export type HostMessageRootState =
@@ -442,6 +444,9 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
       if (header.isArchived) return failure('session_archived', 'Session is archived');
       const rootState = await this.#root.readRootState(input.sessionId);
       if (rootState.kind === 'idle') {
+        if (header.unavailableReason) {
+          return failure('operation_unavailable', header.unavailableReason);
+        }
         if (
           state.reservedRoot ||
           state.run ||

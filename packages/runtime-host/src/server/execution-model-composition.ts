@@ -38,6 +38,7 @@ import {
   type PermissionEngine,
   type ProxiedFetchProxy,
   type RuntimeCommitSink,
+  type SandboxDiagnosticsProvider,
   type SkillCatalogBudgetOptions,
 } from '@maka/runtime';
 import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
@@ -150,6 +151,7 @@ export interface HostAiSdkBackendInput {
   readonly artifacts: InteractiveArtifactStoreWriter;
   readonly usage: InteractiveUsageStoresWriter;
   readonly permissionEngine: PermissionEngine;
+  readonly sandboxDiagnosticsProvider: SandboxDiagnosticsProvider;
   readonly runtimeTools: readonly MakaTool[];
   readonly runtimeCommitSink: RuntimeCommitSink;
   readonly onCredentialRefreshed: () => Promise<void>;
@@ -164,6 +166,10 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
     onFatal: (fatal) => {
       throw fatal.fatalCause;
     },
+  });
+  const sandboxDiagnosticsSnapshot = await input.sandboxDiagnosticsProvider.resolve({
+    mode: input.context.header.permissionMode,
+    cwd: input.context.header.cwd,
   });
   const modelTransport = createProxiedFetchTransport(
     toProxySettings(target.networkProxy, target.proxySecret),
@@ -222,6 +228,7 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         permissionEngine: input.permissionEngine,
         modelFactory,
         tools: modelComposition.tools,
+        sandboxDiagnosticsSnapshot,
         runtimeCommitSink: input.runtimeCommitSink,
         shellRunContextSummary: input.context.shellRunContextSummary,
         providerOptions,
@@ -247,6 +254,7 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         }),
         recordHistoryCompactCheckpoint: input.context.recordHistoryCompactCheckpoint,
         loadTurnRuntimeEvents: input.context.loadTurnRuntimeEvents,
+        recordRunTrace: input.context.recordRunTrace,
         systemPrompt: modelComposition.systemPrompt,
         turnTailPrompt: modelComposition.turnTailPrompt,
         lookupPricing: pricing,

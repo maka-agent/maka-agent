@@ -9726,7 +9726,7 @@ describe('SessionManager permission mode updates', () => {
     expect(activeTurn?.status).toBe('completed');
   });
 
-  test('strict recovery can skip ShellRuns already recovered by the host composition', async () => {
+  test('best-effort and strict recovery recover ShellRuns', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const shellRunRecoveryCalls: string[] = [];
@@ -9755,10 +9755,6 @@ describe('SessionManager permission mode updates', () => {
     shellRunRecoveryCalls.length = 0;
     await manager.recoverInterruptedSessionsStrict(stores);
     expect(shellRunRecoveryCalls).toEqual([session.id]);
-
-    shellRunRecoveryCalls.length = 0;
-    await manager.recoverInterruptedSessionsStrict(stores, { shellRunsAlreadyRecovered: true });
-    expect(shellRunRecoveryCalls).toEqual([]);
   });
 
   test('startup recovery uses AgentRun ledger to fail stale running model-started runs', async () => {

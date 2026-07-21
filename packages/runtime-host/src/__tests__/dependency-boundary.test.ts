@@ -29,6 +29,8 @@ const allowedServerExternalImports = new Set([
   '@maka/core/artifacts',
   '@maka/core/backend-types',
   '@maka/core/events',
+  '@maka/core/expert-team',
+  '@maka/core/explore-agent',
   '@maka/core/interaction',
   '@maka/core/local-memory',
   '@maka/core/llm-connections',

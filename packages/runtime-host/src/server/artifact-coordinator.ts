@@ -123,6 +123,16 @@ export class HostArtifactCoordinator {
             error: { code: 'not_found', message: 'Artifact was not found' },
           };
         }
+        if (existing.source === 'deep_research') {
+          return {
+            ok: false,
+            error: {
+              code: 'invalid_request',
+              message:
+                'Deep Research artifacts cannot be deleted because they are owned by the durable research ledger',
+            },
+          };
+        }
         await this.#store.delete(input.artifactId);
         const canonical = await this.#store.get(input.artifactId);
         if (

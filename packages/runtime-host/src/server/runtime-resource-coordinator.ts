@@ -176,10 +176,6 @@ export class HostRuntimeResourceCoordinator
     return this.#manager.writeStdin(input);
   }
 
-  recoverSession(sessionId: string): Promise<number> {
-    return this.#manager.recoverOrphanedSession(sessionId);
-  }
-
   beginDrain(): void {
     if (this.#draining) return;
     this.#draining = true;

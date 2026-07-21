@@ -6,7 +6,7 @@ import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRunHeader } from '@maka/core/agent-run';
-import type { ArtifactRecord } from '@maka/core/artifacts';
+import type { ArtifactRecord, ArtifactSource } from '@maka/core/artifacts';
 import type { MessageContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import type { Task } from '@maka/core/task-ledger';
@@ -349,6 +349,7 @@ export class ExecutionFixture {
       content: string | Uint8Array;
       kind?: 'file' | 'image';
       mimeType?: string;
+      source?: ArtifactSource;
       now?: number;
     }[],
   ): Promise<ArtifactRecord[]> {
@@ -370,7 +371,7 @@ export class ExecutionFixture {
             ...(input.id === undefined ? {} : { id: input.id }),
             ...(input.mimeType === undefined ? {} : { mimeType: input.mimeType }),
             ...(input.now === undefined ? {} : { now: input.now }),
-            source: 'fixture',
+            source: input.source ?? 'fixture',
           }),
         );
       }

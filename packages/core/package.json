@@ -44,6 +44,8 @@
     "./agent-mailbox": "./dist/agent-mailbox.js",
     "./task-ledger": "./dist/task-ledger.js",
     "./foreign-session": "./dist/foreign-session.js",
+    "./explore-agent": "./dist/explore-agent.js",
+    "./expert-team": "./dist/expert-team.js",
     "./deep-research-run": "./dist/deep-research-run.js",
     "./memory": "./dist/memory.js",
     "./local-memory": "./dist/local-memory.js",

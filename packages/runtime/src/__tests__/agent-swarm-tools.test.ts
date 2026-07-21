@@ -1012,10 +1012,13 @@ describe('AgentSwarm adapter', () => {
       fail: () => {},
       runSuccessorEffect: (_kind, operation) => operation(),
     };
-    const runtime = buildRuntime(async (input) => childResultForPrompt(input.prompt), {
-      execution: { kind: 'hosted', requireRunControl: () => control },
-      messages,
-    });
+    const runtime = buildRuntime(
+      async (input) => childResult(input.prompt.endsWith('alpha') ? 0 : 1),
+      {
+        execution: { kind: 'hosted', requireRunControl: () => control },
+        messages,
+      },
+    );
     const result = await executeTool(
       runtime,
       { ...buildAgentSwarmTool(), permissionRequired: false },

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRunHeader } from '@maka/core/agent-run';
+import { isDeepResearchSession } from '@maka/core/explore-agent';
+import { isExpertTeamSession } from '@maka/core/expert-team';
 import {
   messageContentsEqual,
   normalizeMessageContent,
@@ -152,7 +154,11 @@ export type HostAutomationTurnStartResult =
   | { readonly kind: 'started'; readonly handle: HostAutomationTurnHandle }
   | {
       readonly kind: 'blocked';
-      readonly reason: 'session_not_found' | 'session_archived' | 'session_busy';
+      readonly reason:
+        | 'session_not_found'
+        | 'session_archived'
+        | 'session_busy'
+        | 'unsupported_session_mode';
     };
 
 export class RootTurnCoordinator {
@@ -389,7 +395,10 @@ export class RootTurnCoordinator {
     try {
       const header = await this.stores.sessionStore.readHeaderSnapshot(sessionId);
       this.#throwIfPoisoned();
-      return { isArchived: header.isArchived };
+      return {
+        isArchived: header.isArchived,
+        unavailableReason: unsupportedSessionModeReason(header),
+      };
     } catch (error) {
       this.#throwIfPoisoned();
       if (isMissingFile(error)) return null;
@@ -485,6 +494,11 @@ export class RootTurnCoordinator {
       }
       if (header.status === 'archived') {
         offered.resolve({ kind: 'unavailable', reason: 'Session is archived.' });
+        return;
+      }
+      const unavailableReason = unsupportedSessionModeReason(header);
+      if (unavailableReason) {
+        offered.resolve({ kind: 'unavailable', reason: unavailableReason });
         return;
       }
 
@@ -621,6 +635,9 @@ export class RootTurnCoordinator {
           }
           if (header.status === 'archived') {
             return { kind: 'blocked', reason: 'session_archived' };
+          }
+          if (unsupportedSessionModeReason(header)) {
+            return { kind: 'blocked', reason: 'unsupported_session_mode' };
           }
           if (this.#activeBySession.has(input.sessionId)) {
             return { kind: 'blocked', reason: 'session_busy' };
@@ -778,6 +795,16 @@ export class RootTurnCoordinator {
         }
         if (header.status === 'archived') {
           return completedStart(sessionArchived('Cannot start a new Turn in an archived Session'));
+        }
+        const unavailableReason = unsupportedSessionModeReason(header);
+        if (unavailableReason) {
+          return completedStart({
+            ok: false,
+            error: {
+              code: 'operation_unavailable',
+              message: unavailableReason,
+            },
+          });
         }
 
         if (this.#activeBySession.has(input.sessionId)) {
@@ -1365,6 +1392,7 @@ export class RootTurnCoordinator {
         modelId: session.model,
         cwd: session.cwd,
         permissionMode: session.permissionMode,
+        collaborationMode: session.collaborationMode ?? 'agent',
         createdAt: admission.admittedAt,
         updatedAt: admission.admittedAt,
       },
@@ -1686,6 +1714,21 @@ function erroredGoalOutcome(turnId: string, error: unknown): GoalTurnOutcome {
 
 function isMissingFile(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+}
+
+function unsupportedSessionModeReason(
+  header: Pick<SessionHeader, 'collaborationMode' | 'labels'>,
+): string | undefined {
+  if (header.collaborationMode === 'plan') {
+    return 'Plan sessions are not yet supported by Runtime Host.';
+  }
+  if (isDeepResearchSession(header.labels)) {
+    return 'Deep Research sessions are not yet supported by Runtime Host.';
+  }
+  if (isExpertTeamSession(header.labels)) {
+    return 'Expert Team sessions are not yet supported by Runtime Host.';
+  }
+  return undefined;
 }
 
 function isTerminalSnapshot(snapshot: TurnSnapshot): boolean {

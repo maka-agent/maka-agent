@@ -627,8 +627,7 @@ function parseArtifactRecord(value: unknown, line: number): ArtifactRecord {
     !ARTIFACT_STATUS_SET.has(value.status) ||
     !isOptionalNonEmptyString(value.mimeType) ||
     !isOptionalNonEmptyString(value.summary) ||
-    (value.deepResearchRole !== undefined &&
-      !isDeepResearchArtifactRole(value.deepResearchRole)) ||
+    (value.deepResearchRole !== undefined && !isDeepResearchArtifactRole(value.deepResearchRole)) ||
     (value.source !== undefined &&
       (typeof value.source !== 'string' ||
         !ARTIFACT_SOURCE_SET.has(value.source as ArtifactSource)))

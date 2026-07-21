@@ -81,6 +81,14 @@ test('two UDS Clients share one paused Goal generation and one clear transition'
       const facts = await readDurableFacts(fixture);
       assert.equal(facts.runs.length, 1);
       assert.equal(facts.messages.filter((message) => message.type === 'user').length, 1);
+      const providerRequest = JSON.stringify(provider.requests[0]?.body);
+      assert.ok(providerRequest.includes('Maka runtime sandbox context'));
+      assert.ok(providerRequest.includes(fixture.root));
+      const sandboxTrace = facts.agentEvents.find(
+        (event) => event.turnId === turnId && event.type === 'sandbox_context_resolved',
+      );
+      assert.ok(sandboxTrace);
+      assert.equal(JSON.stringify(sandboxTrace).includes(fixture.root), false);
     });
   } finally {
     await provider.close();
@@ -317,6 +325,7 @@ test('SIGKILL after durable Goal admission terminalizes without replaying the pr
         const recoveredLedger = await fixture.readTurn(pendingGoalTurn.turnId);
         assertSingleTerminalTurn(recoveredLedger);
         assert.equal(recoveredLedger.runs[0]?.runId, pendingGoalTurn.runId);
+        assert.equal(recoveredLedger.runs[0]?.collaborationMode, 'agent');
         assert.equal(recoveredLedger.runs[0]?.status, 'failed');
         assert.equal(recoveredLedger.runs[0]?.failureClass, 'app_restarted');
         const recoveredUser = recoveredLedger.userMessages[0];

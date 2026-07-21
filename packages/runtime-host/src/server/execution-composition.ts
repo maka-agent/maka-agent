@@ -7,6 +7,7 @@ import {
   buildBuiltinTools,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
+  createSandboxDiagnosticsProvider,
   FakeBackend,
   FilesystemWorkerClient,
   PermissionEngine,
@@ -102,22 +103,32 @@ export async function createExecutionRuntimeHostComposition(
     acquireResidency: context.acquireResidency,
   });
   const sandboxManager = createBuiltinSandboxManager();
+  const filesystemWorkerLaunchSpecProvider =
+    process.platform === 'darwin'
+      ? createHostFilesystemWorkerLaunchSpecProvider(
+          process.versions.electron
+            ? {
+                runtime: 'electron',
+                executable: process.execPath,
+                resourcesPath: (process as NodeJS.Process & { readonly resourcesPath: string })
+                  .resourcesPath,
+              }
+            : { runtime: 'node' },
+        )
+      : undefined;
   const filesystemWorker =
-    process.platform === 'darwin' && sandboxManager
+    sandboxManager && filesystemWorkerLaunchSpecProvider
       ? new FilesystemWorkerClient({
           sandboxManager,
-          getLaunchSpec: createHostFilesystemWorkerLaunchSpecProvider(
-            process.versions.electron
-              ? {
-                  runtime: 'electron',
-                  executable: process.execPath,
-                  resourcesPath: (process as NodeJS.Process & { readonly resourcesPath: string })
-                    .resourcesPath,
-                }
-              : { runtime: 'node' },
-          ),
+          getLaunchSpec: filesystemWorkerLaunchSpecProvider,
         })
       : undefined;
+  const sandboxDiagnosticsProvider = createSandboxDiagnosticsProvider({
+    ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorkerLaunchSpecProvider
+      ? { getFilesystemWorkerLaunchSpec: filesystemWorkerLaunchSpecProvider }
+      : {}),
+  });
   const runtimeTools = buildBuiltinTools({
     shellRuns: resources,
     runtimeResources: resources,
@@ -213,6 +224,7 @@ export async function createExecutionRuntimeHostComposition(
       artifacts: artifactStore,
       usage: usageStores,
       permissionEngine,
+      sandboxDiagnosticsProvider,
       runtimeTools: [...runtimeTools, ...requireGoalCoordinator(goals).tools],
       runtimeCommitSink: stores.runtimeEventStore,
       onCredentialRefreshed: refreshBackends,
@@ -488,12 +500,7 @@ export async function createExecutionRuntimeHostComposition(
       });
       await skills.recover();
       await interaction.recoverPendingAfterHostRestart();
-      for (const session of await stores.sessionStore.listForRecovery()) {
-        await resources.recoverSession(session.id);
-      }
-      await manager.recoverInterruptedSessionsStrict(stores, {
-        shellRunsAlreadyRecovered: true,
-      });
+      await manager.recoverInterruptedSessionsStrict(stores);
       await rootCoordinator.recover();
       await automation.recover();
       await automation.startScheduler();

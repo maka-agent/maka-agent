@@ -28,6 +28,14 @@ test('two UDS Clients share revision-pinned Artifact reads, deletes, recovery, a
         mimeType: 'image/png',
         now: 19_999,
       },
+      {
+        id: 'deep-research-report',
+        name: 'research-report.md',
+        content: '# Durable research report',
+        mimeType: 'text/markdown',
+        source: 'deep_research',
+        now: 19_998,
+      },
     ]);
     const residue = await fixture.seedArtifactPublicationResidue();
     const firstHost = await fixture.startHost();
@@ -37,6 +45,7 @@ test('two UDS Clients share revision-pinned Artifact reads, deletes, recovery, a
     let tui: RuntimeHostConnection | undefined;
     const deleteA = seeded[4]!;
     const deleteB = seeded[5]!;
+    const deepResearchArtifact = seeded.at(-1)!;
     try {
       desktop = await connectClient(fixture.root, 'desktop');
       tui = await connectClient(fixture.root, 'tui');
@@ -51,12 +60,12 @@ test('two UDS Clients share revision-pinned Artifact reads, deletes, recovery, a
         collectArtifacts(tui, tuiPage),
       ]);
       assert.deepEqual(tuiArtifacts, desktopArtifacts);
-      assert.equal(desktopArtifacts.length, 132);
-      assert.equal(new Set(desktopArtifacts.map((artifact) => artifact.id)).size, 132);
+      assert.equal(desktopArtifacts.length, 133);
+      assert.equal(new Set(desktopArtifacts.map((artifact) => artifact.id)).size, 133);
       assert.equal(JSON.stringify(desktopArtifacts).includes('relativePath'), false);
       assert.deepEqual(
-        desktopArtifacts.slice(0, 4).map((artifact) => artifact.id),
-        ['small-text', 'small-binary', 'artifact-000', 'artifact-001'],
+        desktopArtifacts.slice(0, 5).map((artifact) => artifact.id),
+        ['small-text', 'small-binary', deepResearchArtifact.id, 'artifact-000', 'artifact-001'],
       );
 
       const [text, binary] = await Promise.all([
@@ -95,6 +104,23 @@ test('two UDS Clients share revision-pinned Artifact reads, deletes, recovery, a
       assert.equal(deletedA.artifact.status, 'deleted');
       assert.equal(deletedB.artifact.status, 'deleted');
       assert.notEqual(deletedA.artifact.id, deletedB.artifact.id);
+
+      await Promise.all([
+        assert.rejects(
+          desktop.request('artifact.delete', {
+            sessionId: fixture.sessionId,
+            artifactId: deepResearchArtifact.id,
+          }),
+          operationError('invalid_request'),
+        ),
+        assert.rejects(
+          tui.request('artifact.delete', {
+            sessionId: fixture.sessionId,
+            artifactId: deepResearchArtifact.id,
+          }),
+          operationError('invalid_request'),
+        ),
+      ]);
 
       const retry = await desktop.request('artifact.delete', {
         sessionId: fixture.sessionId,
@@ -161,6 +187,27 @@ test('two UDS Clients share revision-pinned Artifact reads, deletes, recovery, a
         if (readResult.kind !== 'text') return;
         assert.deepEqual(readResult.preview, { ok: false, reason: 'deleted' });
       }
+
+      const deepResearchGet = await client.request('artifact.query', {
+        kind: 'get',
+        sessionId: fixture.sessionId,
+        artifactId: deepResearchArtifact.id,
+      });
+      const deepResearchRead = await client.request('artifact.query', {
+        kind: 'read_text',
+        sessionId: fixture.sessionId,
+        artifactId: deepResearchArtifact.id,
+      });
+      assert.equal(deepResearchGet.kind, 'artifact');
+      if (deepResearchGet.kind !== 'artifact') return;
+      assert.equal(deepResearchGet.artifact?.status, 'live');
+      assert.equal(deepResearchGet.artifact?.source, 'deep_research');
+      assert.deepEqual(deepResearchRead, {
+        kind: 'text',
+        sessionId: fixture.sessionId,
+        artifactId: deepResearchArtifact.id,
+        preview: { ok: true, text: '# Durable research report' },
+      });
     } finally {
       await client?.close();
       await fixture.stopHost(successor);
