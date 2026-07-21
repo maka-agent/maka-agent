@@ -72,7 +72,8 @@ describe('IPC surface contract', () => {
     // The ai-sdk backend wiring moved into session-stream.ts (arch R5); these two
     // pins now target the combined main-process source instead of main.ts itself.
     assert.match(combinedMainProcess, /const memoryPromptSnapshot = await systemPromptService\.buildLocalMemoryPromptFragment\(\)/);
-    assert.match(combinedMainProcess, /systemPrompt: \(\{ cwd \}\) => systemPromptService\.buildBackendSystemPrompt\(ctx\.header, cwd, \{[\s\S]*childInstruction: ctx\.systemPrompt/);
+    assert.match(combinedMainProcess, /systemPrompt: async \(\{ cwd \}\) => \{/);
+    assert.match(combinedMainProcess, /const base = await systemPromptService\.buildBackendSystemPrompt\([\s\S]*ctx\.header,[\s\S]*cwd,[\s\S]*childInstruction: ctx\.systemPrompt/);
     assert.match(combinedMainProcess, /async function buildBackendSystemPrompt/);
     assert.match(combinedMainProcess, /childInstruction[\s\S]*memoryFragment: null, includePersonalization: false/);
     assert.match(combinedMainProcess, /子代理必须继承当前会话的权限、隐私、工作区和技能约束/);

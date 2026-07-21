@@ -57,7 +57,7 @@
 }
 
 .maka-composer-plan-mode-label {
-  line-height: 1;
+  line-height: var(--leading-none);
 }
 
 .maka-composer-right-controls {

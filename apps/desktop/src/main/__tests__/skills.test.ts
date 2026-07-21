@@ -113,7 +113,7 @@ Use the Office tools.`);
     assert.match(mainProcess, /\[\.\.\.builtinTools, \.\.\.buildMcpTools\(mcpManager\)\]/);
     assert.match(mainProcess, /const backendTools = computerUseToolsForModel\(/);
     assert.match(mainProcess, /const backendToolNames = new Set\(/);
-    assert.match(mainProcess, /backendTools\.map\(\(tool\) => tool\.name\)/);
+    assert.match(mainProcess, /selectedTools\.map\(\(tool\) => tool\.name\)/);
     assert.match(mainProcess, /if \(!ctx\.tools\) desktopSessionSkillHosts\.set\(ctx\.sessionId, backendSkillHost\)/);
     assert.match(mainProcess, /host: backendSkillHost/);
   });

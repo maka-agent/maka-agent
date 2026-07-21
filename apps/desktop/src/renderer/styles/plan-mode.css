@@ -45,8 +45,7 @@
 }
 
 .plan-proposal-kicker,
-.plan-proposal-revision,
-.plan-execution-progress span {
+.plan-proposal-revision {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   line-height: var(--leading-snug);
@@ -73,7 +72,7 @@
 }
 
 .plan-proposal-status[data-status="pending_approval"] {
-  background: oklch(from var(--accent) l c h / 0.10);
+  background: oklch(from var(--status-running) l c h / 0.10);
   color: var(--foreground);
 }
 
@@ -136,9 +135,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: var(--border-width-hairline) solid oklch(from var(--accent) l c h / 0.28);
+  border: var(--border-width-hairline) solid oklch(from var(--status-running) l c h / 0.28);
   border-radius: var(--radius-pill);
-  background: oklch(from var(--accent) l c h / 0.10);
+  background: oklch(from var(--status-running) l c h / 0.10);
   color: var(--foreground);
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
@@ -213,7 +212,6 @@
   background: transparent;
   color: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
 .plan-execution-toggle:hover strong {
@@ -239,6 +237,7 @@
 }
 
 .plan-execution-toggle strong {
+  min-width: 0;
   overflow: hidden;
   color: var(--foreground);
   font-size: var(--font-size-ui);
@@ -305,7 +304,7 @@
 
 .plan-execution-steps li[data-status="in_progress"] {
   color: var(--foreground);
-  background: oklch(from var(--accent) l c h / 0.06);
+  background: oklch(from var(--status-running) l c h / 0.06);
 }
 
 .plan-execution-steps li[data-status="completed"],
@@ -328,9 +327,9 @@
 }
 
 .plan-execution-step-marker[data-status="in_progress"] {
-  border-color: oklch(from var(--accent) l c h / 0.38);
-  background: oklch(from var(--accent) l c h / 0.12);
-  color: var(--accent);
+  border-color: oklch(from var(--status-running) l c h / 0.38);
+  background: oklch(from var(--status-running) l c h / 0.12);
+  color: var(--status-running);
 }
 
 .plan-execution-step-marker[data-status="completed"] {
