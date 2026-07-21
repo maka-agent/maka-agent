@@ -513,13 +513,14 @@
 
 /* U3 no-model dead-end hint. Sits ABOVE the composer form (outside its box, so
    it never touches the #740 constant footprint). Edged, not pill; quiet caption
-   text + one link-button into Settings · 模型. Theme-aware via tokens. Left/right
-   inset matches the composer's horizontal padding so it lines up with the box. */
+   text + one link-button into Settings · 模型. Theme-aware via tokens. Centered to the chat measure, matching the revision-notice layout. */
 .maka-composer-no-model-hint {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: 0 var(--space-6) var(--space-1-5);
+  width: min(var(--maka-chat-measure), calc(100% - (2 * var(--space-6))));
+  max-width: var(--maka-chat-measure);
+  margin: 0 auto var(--space-1-5);
   padding: var(--space-1) var(--space-2-5);
   border: var(--border-width-hairline) solid var(--warning);
   border-radius: var(--radius-control);
@@ -538,4 +539,80 @@
 
 .maka-composer-no-model-hint-action:hover {
   text-decoration: underline;
+}
+
+.maka-composer-no-model-hint-action:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Edit-and-resend notice. A single quiet inline pill above the composer form,
+   matching the composer toolbar chip family (not a heavy info card). */
+.maka-composer-revision-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: min(var(--maka-chat-measure), calc(100% - (2 * var(--space-6))));
+  max-width: var(--maka-chat-measure);
+  margin: 0 auto var(--space-1);
+  padding: 0 var(--space-1-5);
+  box-sizing: border-box;
+  height: 26px;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--background-elevated);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-none);
+}
+
+.maka-composer-revision-notice > svg {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.maka-composer-revision-notice-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.maka-composer-revision-notice-detail {
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maka-composer-revision-notice-cancel {
+  appearance: none;
+  flex: 0 0 auto;
+  height: 18px;
+  padding: 0 var(--space-1-5);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-composer-revision-notice-cancel:hover:not(:disabled) {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+
+.maka-composer-revision-notice-cancel:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.maka-composer-revision-notice-cancel:disabled {
+  opacity: var(--opacity-disabled);
 }

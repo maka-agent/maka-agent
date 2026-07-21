@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import { ArrowUp, Blocks, Paperclip, Plus } from './icons.js';
+import { ArrowUp, Blocks, Paperclip, Pencil, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
@@ -152,7 +152,10 @@ export const Composer = forwardRef<
      * revision draft; Composer only renders the notice + cancel affordance.
      */
     revisionNotice?: {
-      message: string;
+      /** Short primary status, e.g. "修改已发送消息". */
+      title: string;
+      /** Optional quieter secondary line under the title. */
+      detail?: string;
       cancelLabel: string;
       onCancel(): void;
     };
@@ -545,11 +548,15 @@ export const Composer = forwardRef<
         </div>
       )}
       {!props.hidden && props.revisionNotice && (
-        <div className="maka-composer-no-model-hint" role="status" data-revision-notice="true">
-          <span>{props.revisionNotice.message}</span>
+        <div className="maka-composer-revision-notice" role="status" data-revision-notice="true">
+          <Pencil size={13} aria-hidden="true" />
+          <span className="maka-composer-revision-notice-text">
+            {props.revisionNotice.title}
+            {props.revisionNotice.detail ? <span className="maka-composer-revision-notice-detail">{props.revisionNotice.detail}</span> : null}
+          </span>
           <button
             type="button"
-            className="maka-composer-no-model-hint-action"
+            className="maka-composer-revision-notice-cancel"
             disabled={sendPending}
             aria-busy={sendPending ? 'true' : undefined}
             onClick={() => props.revisionNotice?.onCancel()}
