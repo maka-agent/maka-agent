@@ -209,9 +209,17 @@ export async function resolveHarnessRuntimeCredentials(input) {
   });
 }
 
-export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
+export function resolveHarnessAbRunId(
+  competitorProfile,
+  explicitRunId,
+  isolatedTaskId,
+  explicitTaskIds,
+) {
   if (isolatedTaskId?.trim() && !explicitRunId?.trim()) {
     throw new Error('MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID');
+  }
+  if (explicitTaskIds?.trim() && !explicitRunId?.trim()) {
+    throw new Error('MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_IDS');
   }
   const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   return (
@@ -313,12 +321,48 @@ export function resolveHarnessAbTaskSelection(
   rawLimit,
   rawPairConcurrency,
   competitorProfile = resolveHarnessCompetitorProfile(),
+  rawTaskIds,
 ) {
+  const taskId = rawTaskId?.trim();
+  const explicitTaskIds = rawTaskIds
+    ?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (rawTaskIds !== undefined && explicitTaskIds?.length === 0) {
+    throw new Error('MAKA_HARNESS_AB_TASK_IDS must contain at least one task id');
+  }
+  if (taskId && explicitTaskIds?.length) {
+    throw new Error('MAKA_HARNESS_AB_TASK_ID and MAKA_HARNESS_AB_TASK_IDS are mutually exclusive');
+  }
+  if (explicitTaskIds?.length) {
+    const uniqueTaskIds = [...new Set(explicitTaskIds)];
+    if (uniqueTaskIds.length !== explicitTaskIds.length) {
+      throw new Error('MAKA_HARNESS_AB_TASK_IDS must not contain duplicate task ids');
+    }
+    const invalidTaskIds = uniqueTaskIds.filter(
+      (selectedTaskId) => !TERMINAL_BENCH_2_1_TASK_IDS.includes(selectedTaskId),
+    );
+    if (invalidTaskIds.length > 0) {
+      throw new Error(
+        `MAKA_HARNESS_AB_TASK_IDS contains unknown Terminal-Bench 2.1 tasks: ${invalidTaskIds.join(', ')}`,
+      );
+    }
+    return {
+      taskIds: uniqueTaskIds,
+      limit: uniqueTaskIds.length,
+      pairConcurrency: Math.min(
+        runPairConcurrency(
+          rawPairConcurrency,
+          competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
+        ),
+        uniqueTaskIds.length,
+      ),
+    };
+  }
   const pairConcurrency = runPairConcurrency(
     rawPairConcurrency,
     competitorProfile.maxPairConcurrency ?? PAIR_CONCURRENCY,
   );
-  const taskId = rawTaskId?.trim();
   if (!taskId) {
     return {
       taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
@@ -437,12 +481,14 @@ export async function main() {
     competitorProfile,
     process.env.MAKA_HARNESS_AB_RUN_ID,
     process.env.MAKA_HARNESS_AB_TASK_ID,
+    process.env.MAKA_HARNESS_AB_TASK_IDS,
   );
   const selection = resolveHarnessAbTaskSelection(
     process.env.MAKA_HARNESS_AB_TASK_ID,
     process.env.MAKA_HARNESS_AB_LIMIT,
     process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
     competitorProfile,
+    process.env.MAKA_HARNESS_AB_TASK_IDS,
   );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {

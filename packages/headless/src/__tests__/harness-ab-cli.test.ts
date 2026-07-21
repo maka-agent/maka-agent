@@ -80,6 +80,57 @@ test('harness A/B selects one named task only with an explicit run identity', as
   assert.equal(manifest.maxConcurrentAttempts, 2);
 });
 
+test('harness A/B selects an explicit task subset in one resumable run', async () => {
+  const { resolveHarnessAbRunId, resolveHarnessAbTaskSelection, resolveHarnessCompetitorProfile } =
+    await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const taskIds = ['bn-fit-modify', 'write-compressor'];
+  const competitorProfile = resolveHarnessCompetitorProfile('codex');
+  const selection = resolveHarnessAbTaskSelection(
+    undefined,
+    undefined,
+    undefined,
+    competitorProfile,
+    taskIds.join(','),
+  );
+
+  assert.deepEqual(selection, { taskIds, limit: 2, pairConcurrency: 1 });
+  assert.throws(
+    () => resolveHarnessAbRunId(competitorProfile, undefined, undefined, taskIds.join(',')),
+    /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_IDS/,
+  );
+  assert.throws(
+    () =>
+      resolveHarnessAbTaskSelection(taskIds[0], undefined, undefined, undefined, taskIds.join(',')),
+    /MAKA_HARNESS_AB_TASK_ID and MAKA_HARNESS_AB_TASK_IDS are mutually exclusive/,
+  );
+  assert.throws(
+    () =>
+      resolveHarnessAbTaskSelection(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        `${taskIds[0]},${taskIds[0]}`,
+      ),
+    /MAKA_HARNESS_AB_TASK_IDS must not contain duplicate task ids/,
+  );
+  assert.throws(
+    () => resolveHarnessAbTaskSelection(undefined, undefined, undefined, undefined, ' , '),
+    /MAKA_HARNESS_AB_TASK_IDS must contain at least one task id/,
+  );
+  assert.throws(
+    () =>
+      resolveHarnessAbTaskSelection(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-terminal-bench-task',
+      ),
+    /MAKA_HARNESS_AB_TASK_IDS contains unknown Terminal-Bench 2\.1 tasks/,
+  );
+});
+
 test('harness A/B records its configured rolling pair concurrency in the manifest', async () => {
   const { buildHarnessAbManifest, resolveHarnessAbTaskSelection } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href

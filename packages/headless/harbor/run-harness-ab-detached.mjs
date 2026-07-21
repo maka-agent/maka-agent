@@ -27,6 +27,7 @@ function detachedRunPaths() {
     competitorProfile,
     process.env.MAKA_HARNESS_AB_RUN_ID,
     process.env.MAKA_HARNESS_AB_TASK_ID,
+    process.env.MAKA_HARNESS_AB_TASK_IDS,
   );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   return {
