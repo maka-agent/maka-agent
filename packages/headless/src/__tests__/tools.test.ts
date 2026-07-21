@@ -548,6 +548,46 @@ describe('isolated headless tools', () => {
     assert.deepEqual(Buffer.from(snapshots[0]?.bytes ?? []), pngBytes);
   });
 
+  test('Read rejects an invalid isolated image before snapshotting it', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-read-image-'));
+    await writeFile(join(cwd, 'screen.png'), Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'));
+    let snapshotCalls = 0;
+    const executor: IsolatedToolExecutor = {
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env: process.env,
+            maxBuffer: 16 * 1024 * 1024,
+          });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    };
+    const tools = buildIsolatedHeadlessTools(executor, {
+      snapshotImage: async () => {
+        snapshotCalls += 1;
+        return {
+          kind: 'session_file' as const,
+          sessionId: 's',
+          relativePath: 'artifacts/screen.png',
+        };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Read').impl({ path: 'screen.png' }, toolCtx(cwd)),
+      /dimensions/i,
+    );
+    assert.equal(snapshotCalls, 0);
+  });
+
   test('Read rejects executor stdout outside its output frame', async () => {
     const tools = buildIsolatedHeadlessTools({
       async exec() {

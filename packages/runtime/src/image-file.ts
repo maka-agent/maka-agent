@@ -42,7 +42,18 @@ export function validateImageBytes(bytes: Uint8Array): {
   const mimeType = sniffImageMime(bytes);
   if (!mimeType) throw new Error('Image content is not a supported PNG, JPEG, GIF, or WebP file.');
   const dimensions = imageDimensionsFromData(bytes);
-  if (dimensions && Math.max(dimensions.width, dimensions.height) > MAX_MODEL_IMAGE_EDGE) {
+  if (
+    !dimensions ||
+    !Number.isFinite(dimensions.width) ||
+    !Number.isFinite(dimensions.height) ||
+    !Number.isInteger(dimensions.width) ||
+    !Number.isInteger(dimensions.height) ||
+    dimensions.width <= 0 ||
+    dimensions.height <= 0
+  ) {
+    throw new Error('Image dimensions could not be read; verify the image file is valid.');
+  }
+  if (Math.max(dimensions.width, dimensions.height) > MAX_MODEL_IMAGE_EDGE) {
     throw new Error(
       `Image dimensions ${dimensions.width}x${dimensions.height} exceed the ${MAX_MODEL_IMAGE_EDGE}px model input limit; downscale it and try again.`,
     );

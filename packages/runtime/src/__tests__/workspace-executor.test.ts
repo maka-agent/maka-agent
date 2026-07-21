@@ -6,6 +6,22 @@ import { join } from 'node:path';
 import { expect } from '../test-helpers.js';
 import { LocalWorkspaceExecutor } from '../workspace-executor.js';
 
+const ONE_PIXEL_IMAGES = [
+  [
+    'image.PNG',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+    'image/png',
+  ],
+  [
+    'image.jpg',
+    '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9k=',
+    'image/jpeg',
+  ],
+  ['image.jpeg', 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'image/gif'],
+  ['image.webp', 'UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/vuUAAA=', 'image/webp'],
+] as const;
+const ONE_PIXEL_PNG = Buffer.from(ONE_PIXEL_IMAGES[0][1], 'base64');
+
 describe('LocalWorkspaceExecutor exec', () => {
   test('runs commands in the provided cwd and streams stdout/stderr', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-exec-'));
@@ -112,19 +128,14 @@ describe('LocalWorkspaceExecutor exec', () => {
 });
 
 describe('LocalWorkspaceExecutor file operations', () => {
-  test('reads PNG, JPEG, GIF, and WebP images by magic bytes', async () => {
+  test('reads valid PNG, JPEG, GIF, and WebP images by magic bytes', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-images-'));
     const executor = new LocalWorkspaceExecutor();
-    const fixtures = [
-      ['image.PNG', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'image/png'],
-      ['image.jpg', [0xff, 0xd8, 0xff], 'image/jpeg'],
-      ['image.jpeg', [...Buffer.from('GIF89a')], 'image/gif'],
-      ['image.webp', [...Buffer.from('RIFF0000WEBP')], 'image/webp'],
-    ] as const;
 
-    for (const [name, bytes, mimeType] of fixtures) {
+    for (const [name, base64, mimeType] of ONE_PIXEL_IMAGES) {
       const file = join(cwd, name);
-      await writeFile(file, Uint8Array.from(bytes));
+      const bytes = Buffer.from(base64, 'base64');
+      await writeFile(file, bytes);
       const result = await executor.readFile({ cwd, path: file });
       if (!('bytes' in result)) throw new Error('expected image result');
       expect(result.mimeType).toBe(mimeType);
@@ -136,13 +147,12 @@ describe('LocalWorkspaceExecutor file operations', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-images-'));
     const executor = new LocalWorkspaceExecutor();
     const file = join(cwd, 'image.png');
-    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    await writeFile(file, bytes);
+    await writeFile(file, ONE_PIXEL_PNG);
 
     const result = await executor.readFile({ cwd, path: file, offset: 1, limit: 1 });
 
     if (!('bytes' in result)) throw new Error('expected image result');
-    expect([...result.bytes]).toEqual([...bytes]);
+    expect([...result.bytes]).toEqual([...ONE_PIXEL_PNG]);
   });
 
   test('rejects extension-only and over-limit image files', async () => {

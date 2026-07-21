@@ -33,6 +33,11 @@ import {
   type WorkspaceExecutorFacts,
 } from '../workspace-executor.js';
 
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 describe('builtin tool activity kinds', () => {
   test('declares stable semantic categories independently of tool names', () => {
     const kinds = Object.fromEntries(
@@ -1268,7 +1273,7 @@ describe('builtin read tools path containment', () => {
 
   test('Read rejects image content without snapshot support, regardless of extension', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-read-image-'));
-    await writeFile(join(root, 'photo.png'), Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'));
+    await writeFile(join(root, 'photo.png'), ONE_PIXEL_PNG);
     await symlink('photo.png', join(root, 'notes.txt'));
     const readWithoutSnapshots = buildBuiltinTools().find((candidate) => candidate.name === 'Read');
     if (!readWithoutSnapshots) throw new Error('Read tool missing');

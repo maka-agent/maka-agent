@@ -14,6 +14,10 @@ import {
 } from '../filesystem-worker/protocol.js';
 
 const cleanup: string[] = [];
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -102,8 +106,7 @@ describe('filesystem worker operations', () => {
   test('reads a validated image through the approved path capability', async () => {
     const root = await temporaryDirectory('maka-worker-image-');
     const target = join(root, 'image.png');
-    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    await writeFile(target, bytes);
+    await writeFile(target, ONE_PIXEL_PNG);
 
     const response = await executeFilesystemWorkerRequest(
       requestFor(
@@ -116,7 +119,7 @@ describe('filesystem worker operations', () => {
     if (response.ok)
       assert.deepEqual(response.result, {
         kind: 'read_image',
-        base64: Buffer.from(bytes).toString('base64'),
+        base64: ONE_PIXEL_PNG.toString('base64'),
         mimeType: 'image/png',
       });
   });
@@ -127,8 +130,7 @@ describe('filesystem worker operations', () => {
     const imageLink = join(root, 'notes.txt');
     const text = join(root, 'notes.txt.real');
     const textLink = join(root, 'chart.png');
-    const bytes = Buffer.from('\x89PNG\r\n\x1a\n', 'latin1');
-    await writeFile(image, bytes);
+    await writeFile(image, ONE_PIXEL_PNG);
     await writeFile(text, 'notes', 'utf8');
     await symlink(image, imageLink);
     await symlink(text, textLink);

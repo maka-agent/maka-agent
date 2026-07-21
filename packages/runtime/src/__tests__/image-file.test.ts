@@ -3,7 +3,33 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readWorkspaceImage } from '../image-file.js';
+import { readWorkspaceImage, validateImageBytes } from '../image-file.js';
+
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test('validateImageBytes rejects image signatures without parseable dimensions', () => {
+  assert.throws(
+    () => validateImageBytes(Buffer.from('\x89PNG\r\n\x1a\n', 'latin1')),
+    /dimensions/i,
+  );
+});
+
+test('validateImageBytes accepts a valid one-pixel image', () => {
+  assert.deepEqual(validateImageBytes(ONE_PIXEL_PNG), {
+    bytes: ONE_PIXEL_PNG,
+    mimeType: 'image/png',
+  });
+});
+
+test('validateImageBytes rejects non-positive image dimensions', () => {
+  const png = Buffer.from(ONE_PIXEL_PNG);
+  png.writeUInt32BE(0, 16);
+
+  assert.throws(() => validateImageBytes(png), /dimensions/i);
+});
 
 test('readWorkspaceImage rejects images whose dimensions exceed the model input limit', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-image-file-'));
