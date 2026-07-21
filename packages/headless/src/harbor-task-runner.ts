@@ -8,6 +8,7 @@ import {
   providerAuthRequiresSecret,
   type ProviderType,
 } from '@maka/core/llm-connections';
+import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { fetchGitHubCopilotModels, isSupportedGitHubCopilotAccountToken } from '@maka/runtime';
 import {
   validateHarborCellExecutionIdentity,
@@ -121,7 +122,7 @@ export interface HarborTaskRunnerOptions {
   model: string;
   /** MAKA_PROVIDER, e.g. "deepseek". */
   provider?: string;
-  reasoningEffort?: 'high' | 'max';
+  reasoningEffort?: ThinkingLevel;
   /** Host path to an API key file. The key stays in the Harbor control process;
    * the task container receives no provider key env, key-file path, or secret mount. */
   apiKeyFile?: string;

@@ -142,6 +142,7 @@ const OPENAI_OAUTH_MODEL_METADATA: Record<string, ModelMetadata> = {
   'gpt-5.6-sol': {
     ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.6-sol']!,
     contextWindow: 372_000,
+    thinkingOptions: { efforts: ['none', 'low', 'medium', 'high', 'xhigh'] },
   },
   'gpt-5.5': {
     ...GENERATED_MODELS_DEV_METADATA.openai['gpt-5.5']!,

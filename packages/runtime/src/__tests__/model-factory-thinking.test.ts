@@ -80,6 +80,12 @@ describe('buildProviderOptions: thinking level', () => {
     });
   });
 
+  test('openai-codex gpt-5.6-sol sends xhigh reasoning effort', () => {
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.6-sol', 'xhigh'), {
+      openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'xhigh' },
+    });
+  });
+
   test('google effort model (gemini-3) sends thinkingLevel; Gemini 2.5 Flash off sends thinkingBudget 0; safetySettings always present', () => {
     const g3 = buildProviderOptions(conn('google'), 'gemini-3-pro-preview', 'high');
     assert.equal(

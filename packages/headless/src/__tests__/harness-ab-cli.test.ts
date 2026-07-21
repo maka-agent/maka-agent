@@ -436,6 +436,31 @@ test('Codex comparison freezes the OpenAI model, pricing, and run identity', asy
   });
 });
 
+test('harness execution profile rejects a reasoning effort unsupported by model metadata', async () => {
+  const { buildHarnessAbManifest, buildHarnessExecutionProfile, resolveHarnessCompetitorProfile } =
+    await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const competitorProfile = resolveHarnessCompetitorProfile('codex');
+  const invalidProfile = {
+    ...competitorProfile,
+    runtime: { ...competitorProfile.runtime, reasoningEffort: 'minimal' },
+  };
+
+  assert.throws(
+    () => buildHarnessExecutionProfile(invalidProfile),
+    /does not support reasoning effort minimal/,
+  );
+  assert.throws(
+    () =>
+      buildHarnessAbManifest({
+        subjectFingerprint: 'subject',
+        taskSourceFingerprint: 'tasks',
+        toolchainFingerprint: 'tools',
+        competitorProfile: invalidProfile,
+      }),
+    /does not support reasoning effort minimal/,
+  );
+});
+
 test('Codex comparison resolves both arms from one OAuth account workflow', async () => {
   const { resolveHarnessCompetitorProfile, resolveHarnessRuntimeCredentials } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href

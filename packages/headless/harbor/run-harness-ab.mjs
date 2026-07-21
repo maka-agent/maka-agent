@@ -50,6 +50,7 @@ import {
 } from '#harness-ab-manifest';
 import { runHarnessAbComparisonUnlocked, withHarnessAbRunLock } from '#harness-ab-run';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
+import { thinkingVariantsForModel } from '@maka/core/model-thinking';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
@@ -169,6 +170,13 @@ export function resolveHarnessRuntimeProfile(competitorProfile) {
 
 export function buildHarnessExecutionProfile(competitorProfile) {
   const runtime = resolveHarnessRuntimeProfile(competitorProfile);
+  if (
+    !thinkingVariantsForModel(runtime.provider, runtime.model).includes(runtime.reasoningEffort)
+  ) {
+    throw new Error(
+      `${runtime.provider}/${runtime.model} does not support reasoning effort ${runtime.reasoningEffort}`,
+    );
+  }
   return {
     modelSpec: `${runtime.provider}/${runtime.model}`,
     provider: runtime.provider,
@@ -410,6 +418,7 @@ export function buildHarnessAbManifest({
   credentialIdentity,
 }) {
   const runtime = resolveHarnessRuntimeProfile(competitorProfile);
+  const execution = buildHarnessExecutionProfile(competitorProfile);
   return buildHarnessAbRunManifest({
     benchmark: {
       dataset: 'terminal-bench',
@@ -421,14 +430,14 @@ export function buildHarnessAbManifest({
     },
     taskIds,
     orderSeed:
-      runtime.model === MODEL
+      execution.model === MODEL
         ? ORDER_SEED
-        : `terminal-bench-2.1:${runtime.model}:harness-comparison:v1`,
+        : `terminal-bench-2.1:${execution.model}:harness-comparison:v1`,
     pilotTaskCount: Math.min(CANARY_TASKS, taskIds.length),
     model: {
-      provider: runtime.provider,
-      id: runtime.model,
-      reasoningEffort: runtime.reasoningEffort,
+      provider: execution.provider,
+      id: execution.model,
+      reasoningEffort: execution.reasoningEffort,
       ...(credentialIdentity ? { credentialIdentity } : {}),
     },
     pricing: runtime.pricing,
@@ -439,7 +448,7 @@ export function buildHarnessAbManifest({
         config: {
           adapter: 'maka_agent:MakaAgent',
           externalSystemPrompt: 'empty',
-          reasoningEffort: runtime.reasoningEffort,
+          reasoningEffort: execution.reasoningEffort,
           continuation: false,
           attemptPolicy: 'single',
           billingMode: runtime.billingMode,

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.js';
 import type { AbRunManifest } from './ab-types.js';
 import type { HarnessOracleAnnotation } from './harness-oracle-registry.js';
@@ -166,7 +167,7 @@ export interface HarnessAbRunManifestInput {
   model: {
     provider: string;
     id: string;
-    reasoningEffort: 'max';
+    reasoningEffort: ThinkingLevel;
     credentialIdentity?: {
       connectionSlug: string;
       accountIdHash: string;

@@ -63,10 +63,7 @@ class MakaCodexAgent(Codex):
         )
         await self.exec_as_root(
             environment,
-            command=(
-                f"ln -sf -- {shlex.quote(str(_TOOLCHAIN_NODE))} /usr/local/bin/node && "
-                f"ln -sf -- {shlex.quote(str(_TOOLCHAIN_CODEX))} /usr/local/bin/codex"
-            ),
+            command=f"ln -sf -- {shlex.quote(str(_TOOLCHAIN_CODEX))} /usr/local/bin/codex",
         )
 
     def _get_env(self, key: str) -> str | None:

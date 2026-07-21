@@ -2874,11 +2874,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "curl" not in install_command, install_command
     alias_commands = [command for command, _env in commands if "ln -sf" in command]
     assert len(alias_commands) == 1, commands
-    assert "/opt/maka-codex-toolchain/bin/node" in alias_commands[0], alias_commands[0]
-    assert "/usr/local/bin/node" in alias_commands[0], alias_commands[0]
+    assert "/opt/maka-codex-toolchain/bin/node" not in alias_commands[0], alias_commands[0]
+    assert "/usr/local/bin/node" not in alias_commands[0], alias_commands[0]
     assert "/opt/maka-codex-toolchain/bin/codex" in alias_commands[0], alias_commands[0]
     assert "/usr/local/bin/codex" in alias_commands[0], alias_commands[0]
-    assert " && " in alias_commands[0], alias_commands[0]
 
     asyncio.run(agent.run("hi", environment, context))
     http_provider_command = next(
