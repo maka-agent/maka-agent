@@ -1,10 +1,49 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { selectCollaborationTools } from '../plan-mode.js';
+import {
+  renderInterruptedPlanContext,
+  renderPlanExecutionPrompt,
+  renderPlanModePrompt,
+  selectCollaborationTools,
+} from '../plan-mode.js';
+import { buildSubmitPlanTool } from '../plan-tools.js';
 import type { MakaTool } from '../tool-runtime.js';
 
 describe('Plan Mode tool surface', () => {
+  test('requires plain-text step titles and descriptions', () => {
+    const submitPlan = buildSubmitPlanTool({} as never);
+    const schema = submitPlan.parameters as {
+      safeParse(input: unknown): { success: boolean };
+    };
+    const valid = {
+      title: 'Plan',
+      steps: [{ id: 'inspect', title: 'Inspect code', description: 'Read the relevant files.' }],
+    };
+
+    assert.equal(schema.safeParse(valid).success, true);
+    assert.equal(
+      schema.safeParse({ title: 'Plan', steps: [{ id: 'inspect', description: 'Read files.' }] })
+        .success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        title: 'Plan',
+        steps: [{ id: 'inspect', title: '**Inspect code**', description: 'Read files.' }],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        title: 'Plan',
+        steps: [{ id: 'inspect', title: 'Inspect code', description: '- Read files' }],
+      }).success,
+      false,
+    );
+    assert.match(renderPlanModePrompt(), /plain text without Markdown formatting/);
+  });
+
   test('keeps read tools and plan controls while removing writes and subagents', () => {
     const selected = selectCollaborationTools({
       mode: 'plan',
@@ -41,6 +80,88 @@ describe('Plan Mode tool surface', () => {
       selected.map((tool) => tool.name),
       ['Write', 'update_plan', 'cancel_plan'],
     );
+  });
+
+  test('injects interrupted progress as replanning context without resuming execution', () => {
+    const prompt = renderInterruptedPlanContext({
+      proposal: {
+        planId: 'plan-1',
+        proposalId: 'proposal-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        revision: 1,
+        title: 'Original plan',
+        steps: [{ id: 'inspect', title: 'Inspect code', description: 'Inspect' }],
+        status: 'approved',
+        submittedAt: 1,
+      },
+      execution: {
+        executionId: 'execution-1',
+        planId: 'plan-1',
+        proposalId: 'proposal-1',
+        sessionId: 'session-1',
+        status: 'interrupted',
+        steps: [
+          {
+            id: 'inspect',
+            title: 'Inspect code',
+            description: 'Inspect',
+            status: 'completed',
+            updatedAt: 2,
+          },
+        ],
+        startedAt: 1,
+        updatedAt: 2,
+        interruptedAt: 2,
+        interruptionReason: 'User stopped execution',
+      },
+    });
+
+    assert.match(prompt, /Interrupted execution ID: execution-1/);
+    assert.match(prompt, /<title>Inspect code<\/title>/);
+    assert.match(prompt, /<description>Inspect<\/description>/);
+    assert.match(prompt, /<status>completed<\/status>/);
+    assert.match(prompt, /Do not resume execution or modify files/);
+  });
+
+  test('requires execution progress updates at step boundaries', () => {
+    const prompt = renderPlanExecutionPrompt({
+      proposal: {
+        planId: 'plan-1',
+        proposalId: 'proposal-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        revision: 1,
+        title: 'Implement plan',
+        steps: [{ id: 'change', title: 'Change implementation', description: 'Change code' }],
+        status: 'approved',
+        submittedAt: 1,
+      },
+      execution: {
+        executionId: 'execution-1',
+        planId: 'plan-1',
+        proposalId: 'proposal-1',
+        sessionId: 'session-1',
+        status: 'active',
+        steps: [
+          {
+            id: 'change',
+            title: 'Change implementation',
+            description: 'Change code',
+            status: 'pending',
+            updatedAt: 1,
+          },
+        ],
+        startedAt: 1,
+        updatedAt: 1,
+      },
+    });
+
+    assert.match(prompt, /Before implementation, call update_plan/);
+    assert.match(prompt, /<title>Change implementation<\/title>/);
+    assert.match(prompt, /<description>Change code<\/description>/);
+    assert.match(prompt, /Immediately after finishing a step, call update_plan again/);
+    assert.match(prompt, /Before the final response, update every finished or skipped step/);
   });
 });
 

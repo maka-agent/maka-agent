@@ -382,6 +382,83 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics).toEqual([]);
   });
 
+  test('restores legacy Plan tool results and consumes proposal state events', () => {
+    const output = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-plan-call',
+          ts: ts + 1,
+          role: 'model',
+          author: 'agent',
+          content: {
+            kind: 'function_call',
+            id: 'plan-tool-1',
+            name: 'SubmitPlan',
+            args: {
+              title: 'Plan',
+              steps: [{ id: 'one', title: 'First step', description: 'One' }],
+            },
+          },
+          refs: { toolCallId: 'plan-tool-1' },
+        }),
+        ev({
+          id: 'evt-plan-result',
+          ts: ts + 2,
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'plan-tool-1',
+            name: 'SubmitPlan',
+            result: {
+              kind: 'plan_submitted',
+              proposal: { proposalId: 'proposal-1' },
+              storeVersion: 1,
+            } as never,
+          },
+          refs: { toolCallId: 'plan-tool-1' },
+        }),
+        ev({
+          id: 'evt-plan-submitted',
+          ts: ts + 3,
+          role: 'system',
+          author: 'agent',
+          actions: {
+            stateDelta: {
+              planId: 'plan-1',
+              proposalId: 'proposal-1',
+              title: 'Plan',
+              steps: [
+                {
+                  id: 'one',
+                  title: 'First step',
+                  description: 'One',
+                  status: 'pending',
+                },
+              ],
+            },
+          },
+        }),
+        ev({
+          id: 'evt-plan-complete',
+          ts: ts + 4,
+          status: 'completed',
+          actions: { endInvocation: true },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    expect(output.diagnostics).toEqual([]);
+    expect(output.messages.map((message) => message.type)).toEqual([
+      'tool_call',
+      'tool_result',
+      'turn_state',
+    ]);
+    const result = output.messages.find((message) => message.type === 'tool_result');
+    expect(result?.type === 'tool_result' ? result.content.kind : undefined).toBe('json');
+  });
+
   test('normalizes an exact legacy terminal result at RuntimeEvent restore', () => {
     const out = projectRuntimeEventsToStoredMessages(
       [

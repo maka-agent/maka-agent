@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import {
   PlanConflictError,
   activePlanExecution,
+  type AbandonPlanProposalInput,
   emptyPlanSessionState,
   latestPlanProposal,
   type ApprovePlanProposalInput,
@@ -64,7 +65,15 @@ class FilePlanStore implements PlanStore {
       if (state.activeExecutionId) {
         throw new PlanConflictError('Cannot submit a new proposal while a plan is executing');
       }
-      const revisesLatest = latest !== undefined && latest.status !== 'approved';
+      const sourceExecution = input.sourceExecutionId
+        ? executionById(state, input.sourceExecutionId)
+        : undefined;
+      if (sourceExecution && sourceExecution.status !== 'interrupted') {
+        throw new PlanConflictError('Only an interrupted execution can be replanned');
+      }
+      const revisesLatest =
+        latest !== undefined &&
+        (latest.status !== 'approved' || sourceExecution?.proposalId === latest.proposalId);
       const planId = revisesLatest ? latest.planId : this.newId();
       const proposalId = this.newId();
       const submittedAt = this.now();
@@ -75,6 +84,7 @@ class FilePlanStore implements PlanStore {
         turnId: input.turnId,
         revision: revisesLatest ? latest.revision + 1 : 1,
         ...(revisesLatest ? { supersedesProposalId: latest.proposalId } : {}),
+        ...(sourceExecution ? { sourceExecutionId: sourceExecution.executionId } : {}),
         title,
         ...(optionalText(input.overview) ? { overview: optionalText(input.overview) } : {}),
         steps,
@@ -118,6 +128,27 @@ class FilePlanStore implements PlanStore {
     });
   }
 
+  async abandonProposal(input: AbandonPlanProposalInput): Promise<PlanMutationResult> {
+    return this.mutate(input.sessionId, async (state) => {
+      const proposal = proposalById(state, input.proposalId);
+      if (
+        proposal.status !== 'pending_approval' ||
+        state.latestProposalId !== proposal.proposalId
+      ) {
+        throw new PlanConflictError('Only the latest pending plan proposal can be abandoned');
+      }
+      return {
+        type: 'plan_abandoned',
+        id: this.newId(),
+        sessionId: input.sessionId,
+        ts: this.now(),
+        storeVersion: state.storeVersion + 1,
+        proposalId: proposal.proposalId,
+        reason: requiredText(input.reason, 'Plan abandonment reason'),
+      };
+    });
+  }
+
   async approveProposal(input: ApprovePlanProposalInput): Promise<PlanMutationResult> {
     let duplicate: PlanMutationResult | undefined;
     const result = await this.mutateOptional(input.sessionId, async (state, events) => {
@@ -150,6 +181,12 @@ class FilePlanStore implements PlanStore {
       }
       if (state.activeExecutionId) {
         throw new PlanConflictError('This session already has an active plan execution');
+      }
+      if (proposal.sourceExecutionId) {
+        const sourceExecution = executionById(state, proposal.sourceExecutionId);
+        if (sourceExecution.status !== 'interrupted') {
+          throw new PlanConflictError('The execution being replanned is no longer interrupted');
+        }
       }
       const startedAt = this.now();
       const execution: PlanExecution = {
@@ -215,7 +252,7 @@ class FilePlanStore implements PlanStore {
 
   async cancelExecution(input: CancelPlanExecutionInput): Promise<PlanMutationResult> {
     return this.mutate(input.sessionId, async (state) => {
-      const execution = requireActiveExecution(state, input.executionId);
+      const execution = requireCancellableExecution(state, input.executionId);
       return {
         type: 'plan_execution_cancelled',
         id: this.newId(),
@@ -376,11 +413,25 @@ export function applyPlanEvent(state: PlanSessionState, event: PlanEvent): PlanS
     case 'plan_revision_requested':
       proposalById(next, event.proposalId).status = 'stale';
       break;
-    case 'plan_approved':
-      proposalById(next, event.proposalId).status = 'approved';
+    case 'plan_abandoned':
+      proposalById(next, event.proposalId).status = 'stale';
+      break;
+    case 'plan_approved': {
+      const proposal = proposalById(next, event.proposalId);
+      proposal.status = 'approved';
+      if (proposal.sourceExecutionId) {
+        const sourceExecution = executionById(next, proposal.sourceExecutionId);
+        sourceExecution.status = 'cancelled';
+        sourceExecution.updatedAt = event.ts;
+        sourceExecution.cancelledAt = event.ts;
+        sourceExecution.cancelReason = `Replanned by proposal ${proposal.proposalId}`;
+        delete sourceExecution.interruptedAt;
+        delete sourceExecution.interruptionReason;
+      }
       next.executions.push(structuredClone(event.execution));
       next.activeExecutionId = event.execution.executionId;
       break;
+    }
     case 'plan_progress_updated': {
       const execution = executionById(next, event.executionId);
       execution.steps = structuredClone(event.steps);
@@ -465,7 +516,8 @@ function normalizeDefinitions(steps: PlanStepDefinition[]): PlanStepDefinition[]
   }
   const normalized = steps.map((step, index) => ({
     id: optionalText(step.id) ?? `step-${index + 1}`,
-    description: requiredText(step.description, 'Plan step description'),
+    title: requiredPlainText(step.title, 'Plan step title', 30),
+    description: requiredPlainText(step.description, 'Plan step description'),
     ...(step.files && step.files.length > 0
       ? { files: step.files.map((file) => requiredText(file, 'Plan step file')) }
       : {}),
@@ -500,9 +552,35 @@ function requireActiveExecution(state: PlanSessionState, executionId: string): P
   return execution;
 }
 
+function requireCancellableExecution(state: PlanSessionState, executionId: string): PlanExecution {
+  const execution = executionById(state, executionId);
+  if (execution.status !== 'active' && execution.status !== 'interrupted') {
+    throw new PlanConflictError('Plan execution cannot be cancelled');
+  }
+  if (execution.status === 'active' && state.activeExecutionId !== executionId) {
+    throw new PlanConflictError('The plan tool is bound to a stale execution');
+  }
+  return execution;
+}
+
 function requiredText(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new PlanConflictError(`${label} cannot be empty`);
+  return normalized;
+}
+
+function requiredPlainText(value: string, label: string, maxLength?: number): string {
+  const normalized = requiredText(value, label);
+  if (maxLength !== undefined && normalized.length > maxLength) {
+    throw new PlanConflictError(`${label} must be ${maxLength} characters or fewer`);
+  }
+  if (
+    /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~)|!?(?:\[[^\]\n]+\]\([^)\n]+\))|(?:\*\*|__|`)/.test(
+      normalized,
+    )
+  ) {
+    throw new PlanConflictError(`${label} must be plain text without Markdown formatting`);
+  }
   return normalized;
 }
 
@@ -529,6 +607,7 @@ function decodePlanEvent(value: unknown, sessionId: string): PlanEvent {
     ![
       'plan_submitted',
       'plan_revision_requested',
+      'plan_abandoned',
       'plan_approved',
       'plan_progress_updated',
       'plan_execution_completed',

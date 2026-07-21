@@ -1,4 +1,8 @@
-import { projectAgentSwarmResult, projectToolActivityArgs } from '@maka/core';
+import {
+  decodeCanonicalToolResultContent,
+  projectAgentSwarmResult,
+  projectToolActivityArgs,
+} from '@maka/core';
 import type {
   SessionEvent,
   ToolActivityKind,
@@ -1854,7 +1858,13 @@ function coerceResultContent(raw: unknown): ToolResultContent {
   if (typeof raw === 'string') return { kind: 'text', text: raw };
   if (raw && typeof raw === 'object') {
     const obj = raw as { kind?: string; text?: string };
-    if (typeof obj.kind === 'string') return raw as ToolResultContent;
+    if (typeof obj.kind === 'string') {
+      try {
+        return decodeCanonicalToolResultContent(raw);
+      } catch {
+        return { kind: 'json', value: raw };
+      }
+    }
     if (typeof obj.text === 'string') return { kind: 'text', text: obj.text };
     return { kind: 'json', value: raw };
   }

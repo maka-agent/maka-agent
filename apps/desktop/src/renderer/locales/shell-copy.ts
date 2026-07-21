@@ -397,6 +397,18 @@ type ShellCopy = {
     permissionModeStreaming: string;
     permissionModeRunning: string;
     permissionModeWaiting: string;
+    planModeChanging: string;
+    planModeStreaming: string;
+    planModeRunning: string;
+    planModeWaiting: string;
+    planModeFailedTitle: string;
+    planModeFallback: string;
+    planModeExitPendingTitle: string;
+    planModeExitPendingDescription(title: string): string;
+    planModeExitConfirm: string;
+    planModeExitCancel: string;
+    planModeExecutionActiveTitle: string;
+    planModeExecutionActiveDescription: string;
     resizeWorkbar: string;
   };
 };
@@ -1033,6 +1045,19 @@ const SHELL_COPY_BY_LOCALE = {
       permissionModeStreaming: '当前对话正在流式输出，等结束后再切换权限模式。',
       permissionModeRunning: '当前对话正在运行，等结束后再切换权限模式。',
       permissionModeWaiting: '当前有工具调用正在等待确认，处理后再切换权限模式。',
+      planModeChanging: 'Plan Mode 正在切换，完成后再继续操作。',
+      planModeStreaming: '当前对话正在流式输出，等结束后再切换 Plan Mode。',
+      planModeRunning: '当前对话正在运行，等结束后再切换 Plan Mode。',
+      planModeWaiting: '当前有工具调用正在等待确认，处理后再切换 Plan Mode。',
+      planModeFailedTitle: '切换 Plan Mode 失败',
+      planModeFallback: 'Plan Mode 暂时无法切换，请稍后重试。',
+      planModeExitPendingTitle: '放弃当前方案？',
+      planModeExitPendingDescription: (title: string) =>
+        `「${title}」尚未审批。退出 Plan Mode 后，该方案会标记为已放弃，但历史记录仍会保留。`,
+      planModeExitConfirm: '放弃并退出',
+      planModeExitCancel: '继续规划',
+      planModeExecutionActiveTitle: '计划仍在执行',
+      planModeExecutionActiveDescription: '请先中断当前执行，再进入 Plan Mode 调整方案。',
       resizeWorkbar: '调整会话工作栏宽度',
     },
   },
@@ -1497,6 +1522,19 @@ const SHELL_COPY_BY_LOCALE = {
         'This conversation is streaming. Wait for it to finish before changing the permission mode.',
       permissionModeRunning: 'This conversation is running. Wait for it to finish before changing the permission mode.',
       permissionModeWaiting: 'A tool call is waiting for confirmation. Respond before changing the permission mode.',
+      planModeChanging: 'Plan Mode is changing. Wait for it to finish before continuing.',
+      planModeStreaming: 'This conversation is streaming. Wait for it to finish before changing Plan Mode.',
+      planModeRunning: 'This conversation is running. Wait for it to finish before changing Plan Mode.',
+      planModeWaiting: 'A tool call is waiting for confirmation. Respond before changing Plan Mode.',
+      planModeFailedTitle: 'Could not change Plan Mode',
+      planModeFallback: 'Plan Mode could not be changed. Try again later.',
+      planModeExitPendingTitle: 'Abandon the current plan?',
+      planModeExitPendingDescription: (title: string) =>
+        `“${title}” has not been approved. Leaving Plan Mode will mark it as abandoned while preserving its history.`,
+      planModeExitConfirm: 'Abandon and leave',
+      planModeExitCancel: 'Keep planning',
+      planModeExecutionActiveTitle: 'The plan is still running',
+      planModeExecutionActiveDescription: 'Interrupt the active execution before entering Plan Mode to revise it.',
       resizeWorkbar: 'Resize conversation workbar',
     },
   },

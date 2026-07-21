@@ -33,7 +33,11 @@ import { useCommandPalette } from './command-palette';
 import { ChatMessageSurface } from './chat-message-surface';
 import { ChatComposerRegion } from './chat-composer-region';
 import { ChatWorkbar } from './chat-workbar';
-import { PlanModePanel } from './plan-mode-panel';
+import {
+  PlanExecutionPanel,
+  PlanProposalCard,
+  usePlanModeState,
+} from './plan-mode-panel';
 import { McpPage } from './mcp-page';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
@@ -204,6 +208,8 @@ function AppShellContent({
     removeAttachment,
     clearSubmittedAttachments,
   } = useAppShellComposerAttachments({ draftKey: attachmentDraftKey, toastApi });
+  const [newChatPlanModeActive, setNewChatPlanModeActive] = useState(false);
+  const [pendingCollaborationModeBySession, setPendingCollaborationModeBySession] = useState<Record<string, boolean>>({});
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -410,6 +416,7 @@ function AppShellContent({
   const pendingTurnActions = turnActionRegistry.keys;
   const sessionRowActionRegistry = useKeyedPendingRegistry();
   const permissionModeChangeRegistry = useKeyedPendingRegistry();
+  const collaborationModeChangeRegistry = useKeyedPendingRegistry();
   const sessionModelChangeRegistry = useKeyedPendingRegistry();
   const pendingKeyOf = (sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']) =>
     `${sessionId}:${turnId}:${actionId}`;
@@ -445,6 +452,8 @@ function AppShellContent({
     clearOwnedSessionState(sessionId);
     turnActionRegistry.clearForSession(sessionId);
     permissionModeChangeRegistry.keysRef.current.delete(sessionId);
+    collaborationModeChangeRegistry.keysRef.current.delete(sessionId);
+    setPendingCollaborationModeBySession((current) => omitSessionKey(current, sessionId));
     sessionModelChangeRegistry.keysRef.current.delete(sessionId);
   }
 
@@ -488,6 +497,67 @@ function AppShellContent({
     setSessions,
     toastApi,
   });
+
+  async function setPlanMode(active: boolean): Promise<void> {
+    const sessionId = activeIdRef.current;
+    if (!sessionId) {
+      setNewChatPlanModeActive(active);
+      return;
+    }
+    if (!addPendingSessionAction(
+      sessionId,
+      collaborationModeChangeRegistry.keysRef,
+      setPendingCollaborationModeBySession,
+    )) return;
+
+    try {
+      const planState = await window.maka.sessions.getPlanState(sessionId);
+      if (active && planState.activeExecutionId) {
+        toastApi.error(
+          shellCopy.planModeExecutionActiveTitle,
+          shellCopy.planModeExecutionActiveDescription,
+        );
+        return;
+      }
+      const latestProposal = planState.proposals.find(
+        (proposal) => proposal.proposalId === planState.latestProposalId,
+      );
+      if (!active && latestProposal?.status === 'pending_approval') {
+        const confirmed = await toastApi.confirm({
+          title: shellCopy.planModeExitPendingTitle,
+          description: shellCopy.planModeExitPendingDescription(latestProposal.title),
+          confirmLabel: shellCopy.planModeExitConfirm,
+          cancelLabel: shellCopy.planModeExitCancel,
+          destructive: true,
+        });
+        if (!confirmed) return;
+        await window.maka.sessions.abandonPlanProposal(sessionId, latestProposal.proposalId);
+        setSessions((current) => current.map((session) => (
+          session.id === sessionId ? { ...session, collaborationMode: 'agent' } : session
+        )));
+      } else {
+        const next = await window.maka.sessions.setCollaborationMode(
+          sessionId,
+          active ? 'plan' : 'agent',
+        );
+        setSessions((current) => current.map((session) => session.id === next.id ? next : session));
+      }
+      await refreshSessions();
+    } catch (error) {
+      if (activeIdRef.current === sessionId) {
+        toastApi.error(
+          shellCopy.planModeFailedTitle,
+          localizedShellErrorMessage(error, shellCopy.planModeFallback, uiLocale),
+        );
+      }
+    } finally {
+      clearPendingSessionAction(
+        sessionId,
+        collaborationModeChangeRegistry.keysRef,
+        setPendingCollaborationModeBySession,
+      );
+    }
+  }
 
   const {
     turnFooterActionsByTurn,
@@ -637,6 +707,12 @@ function AppShellContent({
     permissionMode: defaultPermissionMode,
         }
       : undefined);
+  const planMode = usePlanModeState(activeSessionForView);
+  const planConversationItems = (planMode.state?.proposals ?? []).map((proposal) => ({
+    id: proposal.proposalId,
+    afterTurnId: proposal.turnId,
+    content: <PlanProposalCard proposal={proposal} planMode={planMode} />,
+  }));
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
@@ -884,6 +960,7 @@ function AppShellContent({
     upsertSessionSummary,
     validPendingNewChatModel,
     pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
+    newChatCollaborationMode: newChatPlanModeActive ? 'plan' : 'agent',
   });
 
   const { handleTurnFooterAction } = useStableActions(createAppShellTurnActions, {
@@ -1109,6 +1186,7 @@ function AppShellContent({
 
   async function createSession() {
     startNewSession();
+    setNewChatPlanModeActive(false);
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setSearchScrollTarget(null);
     // New-task affordances reset to the empty-state composer; move focus
@@ -1490,15 +1568,12 @@ function AppShellContent({
                   setNavSelection({ section: target });
                 }}
                 onStartPlanReminder={openPlanReminderForm}
+                conversationItems={planConversationItems}
               />
               )}
-              <PlanModePanel
-                session={activeSessionForView}
-                disabled={activeStreamingLive || activeSessionForView?.status === 'running' || activeSessionForView?.status === 'waiting_for_user'}
-                onSessionChanged={(next) => {
-                  setSessions((current) => current.map((session) => session.id === next.id ? next : session));
-                }}
-              />
+              {navSelection.section === 'sessions' && (
+                <PlanExecutionPanel planMode={planMode} />
+              )}
               <ChatComposerRegion
                 composerRef={composerRef}
                 active={navSelection.section === 'sessions'}
@@ -1606,6 +1681,22 @@ function AppShellContent({
                           : undefined
                 }
                 onPermissionModeChange={(mode) => setPermissionMode(mode)}
+                planModeActive={activeId
+                  ? (activeSessionForView?.collaborationMode ?? 'agent') === 'plan'
+                  : newChatPlanModeActive}
+                planModePending={activeId ? pendingCollaborationModeBySession[activeId] === true : false}
+                planModeDisabledReason={
+                  activeId && pendingCollaborationModeBySession[activeId] === true
+                    ? shellCopy.planModeChanging
+                    : activeStreamingLive
+                        ? shellCopy.planModeStreaming
+                      : activeId && activeSessionForView?.status === 'running'
+                          ? shellCopy.planModeRunning
+                        : activeId && activeSessionForView?.status === 'waiting_for_user'
+                            ? shellCopy.planModeWaiting
+                          : undefined
+                }
+                onPlanModeChange={setPlanMode}
               />
             </div>
             {navSelection.section === 'sessions' && activeId && !workbarCollapsed && (

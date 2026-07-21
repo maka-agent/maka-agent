@@ -419,7 +419,19 @@ export class SessionManager {
 
     const ownUpdates = await shellRuns.listSessionUpdates(sessionId);
     const ownToolCalls = new Set(ownUpdates.map((update) => update.sourceToolCallId));
-    const messages = await this.getMessages(sessionId);
+    let messages: StoredMessage[];
+    try {
+      messages = await this.getMessages(sessionId);
+    } catch (error) {
+      if (!(error instanceof RuntimeReadModelError)) throw error;
+      // ShellRun hydration is a best-effort UI projection. A legacy RuntimeEvent
+      // incompatibility must not turn its retry loop into a permanent IPC error.
+      try {
+        messages = await this.deps.store.readMessages(sessionId);
+      } catch {
+        return ownUpdates;
+      }
+    }
     const bashToolCalls = new Set(
       messages.flatMap((message) =>
         message.type === 'tool_call' && message.toolName === 'Bash' ? [message.id] : [],
@@ -703,6 +715,12 @@ export class SessionManager {
     if (mode === 'plan' && planState.activeExecutionId) {
       throw new Error('当前计划仍在执行，结束或中断后才能切换到 Plan Mode。');
     }
+    const latestProposal = planState.proposals.find(
+      (proposal) => proposal.proposalId === planState.latestProposalId,
+    );
+    if (mode === 'agent' && latestProposal?.status === 'pending_approval') {
+      throw new Error('当前方案正在等待审批，请明确放弃方案后再退出 Plan Mode。');
+    }
 
     const next = await this.deps.store.updateHeader(sessionId, {
       collaborationMode: mode,
@@ -730,6 +748,35 @@ export class SessionManager {
     return result;
   }
 
+  async abandonPlanProposal(sessionId: string, proposalId: string): Promise<PlanMutationResult> {
+    const header = await this.deps.store.readHeader(sessionId);
+    if (this.runtimeKernel.hasActiveRuns(sessionId)) {
+      throw new Error('当前对话仍在运行，无法放弃计划。');
+    }
+    if (header.status === 'waiting_for_user') {
+      throw new Error('当前有工具调用正在等待确认，无法放弃计划。');
+    }
+    const result = await this.requirePlanStore().abandonProposal({
+      sessionId,
+      proposalId,
+      reason: 'User exited Plan Mode before approval.',
+    });
+    const from = header.collaborationMode ?? 'agent';
+    const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'agent' });
+    if (from !== 'agent') {
+      await this.deps.store.appendMessage(sessionId, {
+        type: 'system_note',
+        id: this.deps.newId(),
+        ts: this.deps.now(),
+        kind: 'mode_change',
+        data: { dimension: 'collaboration', from, to: 'agent' },
+      } satisfies SystemNoteMessage);
+    }
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
+    await this.runtimeKernel.disposeBackend(sessionId);
+    return result;
+  }
+
   async approvePlan(input: ApprovePlanProposalInput): Promise<PlanMutationResult> {
     const header = await this.deps.store.readHeader(input.sessionId);
     if (this.runtimeKernel.hasActiveRuns(input.sessionId)) {
@@ -751,6 +798,22 @@ export class SessionManager {
     const result = await this.requirePlanStore().resumeExecution(sessionId, executionId);
     const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'agent' });
     this.runtimeKernel.updateCachedHeader(sessionId, next);
+    await this.runtimeKernel.disposeBackend(sessionId);
+    return result;
+  }
+
+  async cancelPlanExecution(sessionId: string, executionId: string): Promise<PlanMutationResult> {
+    const planStore = this.requirePlanStore();
+    const state = await planStore.readState(sessionId);
+    const execution = state.executions.find((item) => item.executionId === executionId);
+    if (execution?.status !== 'interrupted') {
+      throw new Error('只有已中断的计划可以从这里放弃。');
+    }
+    const result = await planStore.cancelExecution({
+      sessionId,
+      executionId,
+      reason: 'User abandoned the interrupted plan.',
+    });
     await this.runtimeKernel.disposeBackend(sessionId);
     return result;
   }

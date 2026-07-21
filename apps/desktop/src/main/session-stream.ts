@@ -21,6 +21,7 @@ import {
   recordLlmCall,
   recordToolInvocation,
   renderPlanExecutionPrompt,
+  renderInterruptedPlanContext,
   renderPlanModePrompt,
   resolveSelectedModelContextWindow,
   selectCollaborationTools,
@@ -161,6 +162,9 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     const collaborationMode = ctx.header.collaborationMode ?? 'agent';
     const planState = await planStore.readState(ctx.sessionId);
     const activeExecution = activePlanExecution(planState);
+    const interruptedExecution = [...planState.executions]
+      .reverse()
+      .find((execution) => execution.status === 'interrupted');
     const candidateTools = isComputerUseRealModelE2e
       ? computerUseTools
       : ctx.tools
@@ -181,7 +185,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
       : undefined);
     const planControlTools = collaborationMode === 'plan'
-      ? [buildSubmitPlanTool(planStore)]
+      ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
       : activeExecution
         ? [
             buildUpdatePlanTool(planStore, activeExecution.executionId),
@@ -275,12 +279,18 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       },
       turnTailPrompt: async ({ cwd, sessionId }) => {
         const base = await systemPromptService.buildTurnTailPrompt(cwd, sessionId);
-        if (!activeExecution) return base;
+        const execution = activeExecution ?? (
+          collaborationMode === 'plan' ? interruptedExecution : undefined
+        );
+        if (!execution) return base;
         const proposal = planState.proposals.find(
-          (candidate) => candidate.proposalId === activeExecution.proposalId,
+          (candidate) => candidate.proposalId === execution.proposalId,
         );
         if (!proposal) return base;
-        return `${base}\n\n${renderPlanExecutionPrompt({ proposal, execution: activeExecution })}`;
+        const planContext = activeExecution
+          ? renderPlanExecutionPrompt({ proposal, execution: activeExecution })
+          : renderInterruptedPlanContext({ proposal, execution });
+        return `${base}\n\n${planContext}`;
       },
       shellRunContextSummary: ctx.shellRunContextSummary,
       lookupPricing: getLookupPricing(),

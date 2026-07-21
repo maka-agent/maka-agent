@@ -9,9 +9,22 @@ import type {
 
 import type { MakaTool } from './tool-runtime.js';
 
+const MARKDOWN_PATTERN =
+  /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~)|!?(?:\[[^\]\n]+\]\([^)\n]+\))|(?:\*\*|__|`)/;
+
+const plainTextSchema = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => !MARKDOWN_PATTERN.test(value), {
+      message: `${label} must be plain text without Markdown formatting`,
+    });
+
 const stepDefinitionSchema = z.object({
-  id: z.string().min(1),
-  description: z.string().min(1),
+  id: z.string().trim().min(1),
+  title: plainTextSchema('Plan step title').max(30),
+  description: plainTextSchema('Plan step description'),
   files: z.array(z.string().min(1)).optional(),
   complexity: z.enum(['low', 'medium', 'high']).optional(),
 });
@@ -39,12 +52,16 @@ export type PlanToolResult =
       storeVersion: number;
     };
 
-export function buildSubmitPlanTool(planStore: PlanStore): MakaTool<
+export function buildSubmitPlanTool(
+  planStore: PlanStore,
+  sourceExecutionId?: string,
+): MakaTool<
   {
     title: string;
     overview?: string;
     steps: Array<{
       id: string;
+      title: string;
       description: string;
       files?: string[];
       complexity?: 'low' | 'medium' | 'high';
@@ -56,7 +73,7 @@ export function buildSubmitPlanTool(planStore: PlanStore): MakaTool<
   return {
     name: 'SubmitPlan',
     description:
-      'Submit the finished implementation plan for user approval. This ends the planning turn; do not call it until the plan is ready to review.',
+      'Submit the finished implementation plan for user approval. Every step requires a concise plain-text title and a detailed plain-text description; do not use Markdown in either field. This ends the planning turn, so do not call it until the plan is ready to review.',
     parameters: z.object({
       title: z.string().min(1),
       overview: z.string().min(1).optional(),
@@ -68,6 +85,7 @@ export function buildSubmitPlanTool(planStore: PlanStore): MakaTool<
       const result = await planStore.submitProposal({
         sessionId: context.sessionId,
         turnId: context.turnId,
+        ...(sourceExecutionId ? { sourceExecutionId } : {}),
         ...input,
       });
       return {

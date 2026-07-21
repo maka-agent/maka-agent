@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { Fragment, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import {
   AlertTriangle,
@@ -82,6 +82,12 @@ export function ChatView(props: {
    * the regular prompt-suggestion hero shows.
    */
   emptyOverride?: ReactNode;
+  /** Session-owned records anchored after a durable conversation turn. */
+  conversationItems?: ReadonlyArray<{
+    id: string;
+    afterTurnId: string;
+    content: ReactNode;
+  }>;
   /**
    * Active autonomous-goal indicator for the session, or undefined when no
    * goal is running. Surfaces the loop (turn counter) with a one-click clear
@@ -258,6 +264,16 @@ export function ChatView(props: {
     (targetTurnId: string) => onLineageBadgeClickRef.current?.(targetTurnId),
     [],
   );
+  const conversationItemsByTurn = useMemo(() => {
+    const items = new Map<string, Array<{ id: string; content: ReactNode }>>();
+    for (const item of props.conversationItems ?? []) {
+      const current = items.get(item.afterTurnId) ?? [];
+      current.push({ id: item.id, content: item.content });
+      items.set(item.afterTurnId, current);
+    }
+    return items;
+  }, [props.conversationItems]);
+  const turnIds = useMemo(() => new Set(turns.map((turn) => turn.turnId)), [turns]);
   const {
     highlightedTurnId,
     onScroll,
@@ -294,6 +310,7 @@ export function ChatView(props: {
           contentClassName="maka-chatContent"
         >
           {props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} userLabel={props.userLabel} />}
+          {props.conversationItems?.map((item) => <Fragment key={item.id}>{item.content}</Fragment>)}
         </OverlayScrollArea>
       </main>
     );
@@ -395,31 +412,35 @@ export function ChatView(props: {
           )}
           {turns.map((turn) => {
             return (
-              <TurnView
-                key={turn.turnId}
-                turn={turn}
-                userLabel={props.userLabel}
-                footerActions={props.turnFooterActionsByTurn?.[turn.turnId]}
-                onFooterAction={stableTurnFooterAction}
-                failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
-                failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
-                safeResumeAction={props.safeResumeAction?.turnId === turn.turnId
-                  ? props.safeResumeAction
-                  : undefined}
-                lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
-                onLineageBadgeClick={stableLineageBadgeClick}
-                onReadAttachmentBytes={props.onReadAttachmentBytes}
-                searchHighlighted={highlightedTurnId === turn.turnId}
-                liveStreaming={
-                  turn.turnId === tailTurnId
-                    ? {
-                        onStreamingSettled: props.onStreamingSettled,
-                        processingIndicator: props.processingIndicator,
-                        continuingIndicator: props.continuingIndicator,
-                      }
-                    : undefined
-                }
-              />
+              <Fragment key={turn.turnId}>
+                <TurnView
+                  turn={turn}
+                  userLabel={props.userLabel}
+                  footerActions={props.turnFooterActionsByTurn?.[turn.turnId]}
+                  onFooterAction={stableTurnFooterAction}
+                  failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
+                  failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
+                  safeResumeAction={props.safeResumeAction?.turnId === turn.turnId
+                    ? props.safeResumeAction
+                    : undefined}
+                  lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
+                  onLineageBadgeClick={stableLineageBadgeClick}
+                  onReadAttachmentBytes={props.onReadAttachmentBytes}
+                  searchHighlighted={highlightedTurnId === turn.turnId}
+                  liveStreaming={
+                    turn.turnId === tailTurnId
+                      ? {
+                          onStreamingSettled: props.onStreamingSettled,
+                          processingIndicator: props.processingIndicator,
+                          continuingIndicator: props.continuingIndicator,
+                        }
+                      : undefined
+                  }
+                />
+                {conversationItemsByTurn.get(turn.turnId)?.map((item) => (
+                  <Fragment key={item.id}>{item.content}</Fragment>
+                ))}
+              </Fragment>
             );
           })}
           {/* #642 fallback: streaming began before the optimistic user turn
@@ -439,6 +460,9 @@ export function ChatView(props: {
               </Message>
             </section>
           )}
+          {props.conversationItems
+            ?.filter((item) => !turnIds.has(item.afterTurnId))
+            .map((item) => <Fragment key={item.id}>{item.content}</Fragment>)}
           {/* Defensive: if any tool ended up outside a turn (e.g. legacy
               sessions without turnId), render those at the very end so they
               still appear instead of vanishing. materializeTurns already

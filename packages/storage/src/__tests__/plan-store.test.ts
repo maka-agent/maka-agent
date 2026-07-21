@@ -7,21 +7,44 @@ import { describe, test } from 'node:test';
 import { createPlanStore } from '../plan-store.js';
 
 describe('FilePlanStore', () => {
+  test('requires plain-text titles and descriptions for every step', async () => {
+    await withStore(async (store) => {
+      await assert.rejects(
+        store.submitProposal({
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          title: 'Plan',
+          steps: [{ id: 'one', title: '**First step**', description: 'Do the work' }],
+        }),
+        /plain text without Markdown formatting/,
+      );
+      await assert.rejects(
+        store.submitProposal({
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          title: 'Plan',
+          steps: [{ id: 'one', title: 'First step', description: '- Do the work' }],
+        }),
+        /plain text without Markdown formatting/,
+      );
+    });
+  });
+
   test('persists proposal revisions and completes an approved execution', async () => {
     await withStore(async (store) => {
       const first = await store.submitProposal({
         sessionId: 'session-1',
         turnId: 'turn-1',
         title: 'First plan',
-        steps: [{ id: 'inspect', description: 'Inspect the code' }],
+        steps: [{ id: 'inspect', title: 'Inspect code', description: 'Inspect the code' }],
       });
       const second = await store.submitProposal({
         sessionId: 'session-1',
         turnId: 'turn-2',
         title: 'Revised plan',
         steps: [
-          { id: 'inspect', description: 'Inspect the code' },
-          { id: 'implement', description: 'Implement the change' },
+          { id: 'inspect', title: 'Inspect code', description: 'Inspect the code' },
+          { id: 'implement', title: 'Implement change', description: 'Implement the change' },
         ],
       });
 
@@ -53,7 +76,7 @@ describe('FilePlanStore', () => {
         sessionId: 'session-1',
         turnId: 'turn-3',
         title: 'A different plan',
-        steps: [{ id: 'new', description: 'Start a different task' }],
+        steps: [{ id: 'new', title: 'Start task', description: 'Start a different task' }],
       });
       assert.notEqual(nextPlan.state.proposals[2]?.planId, proposal.planId);
       assert.equal(nextPlan.state.proposals[2]?.revision, 1);
@@ -66,7 +89,7 @@ describe('FilePlanStore', () => {
         sessionId: 'session-1',
         turnId: 'turn-1',
         title: 'Plan',
-        steps: [{ id: 'one', description: 'One' }],
+        steps: [{ id: 'one', title: 'First step', description: 'One' }],
       });
       const proposal = submitted.state.proposals[0]!;
       const input = {
@@ -81,6 +104,117 @@ describe('FilePlanStore', () => {
       assert.equal(left.state.executions.length, 1);
       assert.equal(right.state.executions.length, 1);
       assert.equal(left.state.activeExecutionId, right.state.activeExecutionId);
+    });
+  });
+
+  test('abandons only the latest pending proposal without deleting its history', async () => {
+    await withStore(async (store) => {
+      const submitted = await store.submitProposal({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        title: 'Pending plan',
+        steps: [{ id: 'one', title: 'First step', description: 'One' }],
+      });
+      const proposal = submitted.state.proposals[0]!;
+
+      const abandoned = await store.abandonProposal({
+        sessionId: 'session-1',
+        proposalId: proposal.proposalId,
+        reason: 'User exited Plan Mode',
+      });
+
+      assert.equal(abandoned.event.type, 'plan_abandoned');
+      assert.equal(abandoned.state.proposals[0]?.status, 'stale');
+      assert.equal(abandoned.state.proposals[0]?.title, 'Pending plan');
+      await assert.rejects(
+        store.approveProposal({
+          sessionId: 'session-1',
+          proposalId: proposal.proposalId,
+          expectedRevision: proposal.revision,
+        }),
+        /latest pending plan proposal/,
+      );
+    });
+  });
+
+  test('replans an interrupted execution and retires it when the revision is approved', async () => {
+    await withStore(async (store) => {
+      const submitted = await store.submitProposal({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        title: 'Original plan',
+        steps: [{ id: 'one', title: 'First step', description: 'One' }],
+      });
+      const originalProposal = submitted.state.proposals[0]!;
+      const approved = await store.approveProposal({
+        sessionId: 'session-1',
+        proposalId: originalProposal.proposalId,
+        expectedRevision: originalProposal.revision,
+      });
+      const originalExecution = approved.state.executions[0]!;
+      await store.interruptActiveExecution('session-1', 'User stopped execution');
+
+      const replanned = await store.submitProposal({
+        sessionId: 'session-1',
+        turnId: 'turn-2',
+        title: 'Replanned remaining work',
+        sourceExecutionId: originalExecution.executionId,
+        steps: [{ id: 'one', title: 'Finish differently', description: 'Finish one differently' }],
+      });
+      const revision = replanned.state.proposals[1]!;
+      assert.equal(revision.planId, originalProposal.planId);
+      assert.equal(revision.revision, 2);
+      assert.equal(revision.sourceExecutionId, originalExecution.executionId);
+
+      const replacement = await store.approveProposal({
+        sessionId: 'session-1',
+        proposalId: revision.proposalId,
+        expectedRevision: revision.revision,
+      });
+      assert.equal(replacement.state.executions[0]?.status, 'cancelled');
+      assert.match(replacement.state.executions[0]?.cancelReason ?? '', /Replanned by proposal/);
+      assert.equal(replacement.state.executions[1]?.status, 'active');
+      assert.equal(
+        replacement.state.activeExecutionId,
+        replacement.state.executions[1]?.executionId,
+      );
+    });
+  });
+
+  test('allows the user to abandon an interrupted execution', async () => {
+    await withStore(async (store) => {
+      const submitted = await store.submitProposal({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        title: 'Interrupted plan',
+        steps: [{ id: 'one', title: 'First step', description: 'One' }],
+      });
+      const proposal = submitted.state.proposals[0]!;
+      const approved = await store.approveProposal({
+        sessionId: 'session-1',
+        proposalId: proposal.proposalId,
+        expectedRevision: proposal.revision,
+      });
+      const execution = approved.state.executions[0]!;
+      await store.interruptActiveExecution('session-1', 'User stopped execution');
+
+      const cancelled = await store.cancelExecution({
+        sessionId: 'session-1',
+        executionId: execution.executionId,
+        reason: 'User abandoned the interrupted plan',
+      });
+
+      assert.equal(cancelled.event.type, 'plan_execution_cancelled');
+      assert.equal(cancelled.state.executions[0]?.status, 'cancelled');
+      assert.equal(cancelled.state.activeExecutionId, undefined);
+      await assert.rejects(
+        store.cancelExecution({
+          sessionId: 'session-1',
+          executionId: execution.executionId,
+          reason: 'Cancel twice',
+        }),
+        /cannot be cancelled/,
+      );
     });
   });
 

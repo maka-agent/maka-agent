@@ -107,6 +107,33 @@ describe('localized conversation journey', () => {
     assert.match(en, /Go to model settings/);
   });
 
+  it('renders the compact Plan Mode switch only when the session action is available', () => {
+    const inactive = render(
+      'zh',
+      <Composer onSend={() => {}} onStop={() => {}} onPlanModeChange={() => {}} />,
+    );
+    assert.match(inactive, /maka-composer-plan-mode-control/);
+    assert.match(inactive, />Plan</);
+    assert.match(inactive, /role="switch"/);
+    assert.match(inactive, /aria-label="开启 Plan Mode"/);
+    assert.match(inactive, /aria-checked="false"/);
+
+    const active = render(
+      'en',
+      <Composer
+        onSend={() => {}}
+        onStop={() => {}}
+        planModeActive
+        onPlanModeChange={() => {}}
+      />,
+    );
+    assert.match(active, /aria-label="Disable Plan Mode"/);
+    assert.match(active, /aria-checked="true"/);
+
+    const unavailable = render('zh', <Composer onSend={() => {}} onStop={() => {}} />);
+    assert.doesNotMatch(unavailable, /maka-composer-plan-mode-control/);
+  });
+
   it('localizes permission and question chrome while preserving raw values', () => {
     const surface = (
       <>

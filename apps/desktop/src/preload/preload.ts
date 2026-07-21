@@ -217,6 +217,12 @@ const makaBridge = {
     requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanSessionState> {
       return ipcRenderer.invoke('plan-mode:requestRevision', sessionId, proposalId);
     },
+    abandonPlanProposal(
+      sessionId: string,
+      proposalId: string,
+    ): Promise<PlanSessionState> {
+      return ipcRenderer.invoke('plan-mode:abandon', sessionId, proposalId);
+    },
     approvePlan(sessionId: string, input: {
       proposalId: string;
       expectedRevision: number;
@@ -230,6 +236,9 @@ const makaBridge = {
       executionId: string;
     }> {
       return ipcRenderer.invoke('plan-mode:resume', sessionId, executionId);
+    },
+    abandonPlanExecution(sessionId: string, executionId: string): Promise<PlanSessionState> {
+      return ipcRenderer.invoke('plan-mode:abandonExecution', sessionId, executionId);
     },
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setModel', sessionId, input);

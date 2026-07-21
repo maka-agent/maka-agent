@@ -491,6 +491,7 @@ export interface PlanSubmittedEvent extends BaseEvent {
 
 export interface PlanStep {
   id: string;
+  title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'skipped';
   files?: string[];

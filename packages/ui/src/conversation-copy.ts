@@ -80,6 +80,9 @@ export interface ConversationCopy {
     switchDisabledStreaming: string;
     switchDisabledRunning: string;
     switchDisabledPermission: string;
+    planModeLabel: string;
+    enablePlanMode: string;
+    disablePlanMode: string;
     /** Inline hint shown above the composer when no model connection exists yet. */
     noModelHint: string;
     /** Link-button on that hint that opens Settings · 模型. */
@@ -293,6 +296,7 @@ const CONVERSATION_COPY = {
       interruptHint: '或点停止中断', addContext: '添加上下文', importText: '导入文本文件', attachFile: '附加文件', expertTeam: '专家团',
       selectModel: '选择模型', dropToImport: '松开以导入文件内容', addingAttachment: '正在添加附件', add: '添加', addTitle: '添加文件、专家团…', addFileOrDirectory: '添加文件或目录',
       switchDisabledStreaming: '当前对话正在流式输出，等结束后再切换模型。', switchDisabledRunning: '当前对话正在运行，等结束后再切换模型。', switchDisabledPermission: '当前有工具调用正在等待确认，处理后再切换模型。',
+      planModeLabel: 'Plan', enablePlanMode: '开启 Plan Mode', disablePlanMode: '退出 Plan Mode',
       noModelHint: '还没有可用的模型连接，无法发送。', noModelAction: '前往模型设置', noModelSendTitle: '先添加一个模型连接才能发送。',
     },
     model: {
@@ -402,6 +406,7 @@ const CONVERSATION_COPY = {
       interruptHint: 'or click Stop to interrupt', addContext: 'Add context', importText: 'Import text file', attachFile: 'Attach file', expertTeam: 'Expert team',
       selectModel: 'Choose model', dropToImport: 'Drop to import file contents', addingAttachment: 'Adding attachment', add: 'Add', addTitle: 'Add files or an expert team…', addFileOrDirectory: 'Add file or directory',
       switchDisabledStreaming: 'Wait for the current response to finish before switching models.', switchDisabledRunning: 'Wait for the current run to finish before switching models.', switchDisabledPermission: 'Resolve the pending tool permission before switching models.',
+      planModeLabel: 'Plan', enablePlanMode: 'Enable Plan Mode', disablePlanMode: 'Disable Plan Mode',
       noModelHint: 'No model connection yet, so sending is unavailable.', noModelAction: 'Go to model settings', noModelSendTitle: 'Add a model connection before sending.',
     },
     model: {

@@ -182,6 +182,12 @@ export function projectRuntimeEventsToStoredMessages(
       projected = true;
     }
 
+    if (isPlanProposalStateDelta(event)) {
+      // Plan proposals render from PlanStore as approval cards. This event is
+      // still a canonical runtime fact, but intentionally has no legacy chat row.
+      projected = true;
+    }
+
     if (event.actions?.permissionDecision) {
       projected = projectPermissionDecision(event, state, messages) || projected;
     }
@@ -633,12 +639,16 @@ function projectFunctionResponse(
       },
     );
   }
-  const archivedPlaceholder = isArchivedToolResultPlaceholder(event.content.result)
-    ? event.content.result
+  const legacyPlanResult = isLegacyPlanToolResult(event.content.result)
+    ? { kind: 'json' as const, value: event.content.result }
+    : undefined;
+  const compatibleResult = legacyPlanResult ?? event.content.result;
+  const archivedPlaceholder = isArchivedToolResultPlaceholder(compatibleResult)
+    ? compatibleResult
     : undefined;
   const normalizedShellResult = archivedPlaceholder
     ? { state: 'not_shell' as const }
-    : normalizeShellToolResultContent(event.content.result);
+    : normalizeShellToolResultContent(compatibleResult);
   if (normalizedShellResult.state === 'invalid') {
     diagnostic(
       state,
@@ -651,7 +661,7 @@ function projectFunctionResponse(
   if (
     !archivedPlaceholder &&
     normalizedShellResult.state === 'not_shell' &&
-    !isToolResultContent(event.content.result)
+    !isToolResultContent(compatibleResult)
   ) {
     diagnostic(
       state,
@@ -694,7 +704,7 @@ function projectFunctionResponse(
       }
     : normalizedShellResult.state === 'valid'
       ? normalizedShellResult.content
-      : (event.content.result as ToolResultContent);
+      : (compatibleResult as ToolResultContent);
   messages.push({
     type: 'tool_result',
     id: stableMessageId(event, state, 'tool_result'),
@@ -1028,6 +1038,27 @@ function isToolResultContent(value: unknown): value is ToolResultContent {
     kind === 'subagent' ||
     kind === 'agent_swarm' ||
     kind === 'rive_workflow'
+  );
+}
+
+function isLegacyPlanToolResult(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const kind = (value as { kind?: unknown }).kind;
+  return (
+    kind === 'plan_submitted' ||
+    kind === 'plan_progress_updated' ||
+    kind === 'plan_execution_completed' ||
+    kind === 'plan_execution_cancelled'
+  );
+}
+
+function isPlanProposalStateDelta(event: RuntimeEvent): boolean {
+  const stateDelta = event.actions?.stateDelta;
+  return (
+    event.role === 'system' &&
+    event.author === 'agent' &&
+    typeof stateDelta?.planId === 'string' &&
+    typeof stateDelta.title === 'string'
   );
 }
 

@@ -9,6 +9,7 @@ export type PlanStepStatus = (typeof PLAN_STEP_STATUSES)[number];
 
 export interface PlanStepDefinition {
   id: string;
+  title: string;
   description: string;
   files?: string[];
   complexity?: 'low' | 'medium' | 'high';
@@ -21,6 +22,8 @@ export interface PlanProposal {
   turnId: string;
   revision: number;
   supersedesProposalId?: string;
+  /** Interrupted execution whose remaining work this proposal replans. */
+  sourceExecutionId?: string;
   title: string;
   overview?: string;
   steps: PlanStepDefinition[];
@@ -78,6 +81,11 @@ export type PlanEvent =
       proposalId: string;
     })
   | (PlanEventBase & {
+      type: 'plan_abandoned';
+      proposalId: string;
+      reason: string;
+    })
+  | (PlanEventBase & {
       type: 'plan_approved';
       proposalId: string;
       execution: PlanExecution;
@@ -115,6 +123,7 @@ export interface SubmitPlanProposalInput {
   overview?: string;
   steps: PlanStepDefinition[];
   risks?: string[];
+  sourceExecutionId?: string;
 }
 
 export interface ApprovePlanProposalInput {
@@ -127,6 +136,12 @@ export interface ApprovePlanProposalInput {
 export interface RequestPlanRevisionInput {
   sessionId: string;
   proposalId: string;
+}
+
+export interface AbandonPlanProposalInput {
+  sessionId: string;
+  proposalId: string;
+  reason: string;
 }
 
 export interface UpdatePlanExecutionInput {
@@ -155,6 +170,7 @@ export interface PlanStore {
   readState(sessionId: string): Promise<PlanSessionState>;
   submitProposal(input: SubmitPlanProposalInput): Promise<PlanMutationResult>;
   requestRevision(input: RequestPlanRevisionInput): Promise<PlanMutationResult>;
+  abandonProposal(input: AbandonPlanProposalInput): Promise<PlanMutationResult>;
   approveProposal(input: ApprovePlanProposalInput): Promise<PlanMutationResult>;
   updateExecution(input: UpdatePlanExecutionInput): Promise<PlanMutationResult>;
   cancelExecution(input: CancelPlanExecutionInput): Promise<PlanMutationResult>;

@@ -1,4 +1,5 @@
 import type {
+  CollaborationMode,
   PermissionResponse,
   SessionSummary,
   StoredMessage,
@@ -160,6 +161,7 @@ export function createAppShellChatActions(deps: {
   upsertSessionSummary: (session: SessionSummary) => void;
   validPendingNewChatModel: PendingNewChatModel;
   pendingNewChatThinkingLevel: PendingNewChatThinkingLevel;
+  newChatCollaborationMode: CollaborationMode;
 }): AppShellChatActions {
   const {
     uiLocale,
@@ -184,6 +186,7 @@ export function createAppShellChatActions(deps: {
     upsertSessionSummary,
     validPendingNewChatModel,
     pendingNewChatThinkingLevel,
+    newChatCollaborationMode,
   } = deps;
   const copy = getShellCopy(uiLocale).chatActions;
 
@@ -273,6 +276,7 @@ export function createAppShellChatActions(deps: {
               }
             : {}),
           ...(pendingNewChatThinkingLevel ? { thinkingLevel: pendingNewChatThinkingLevel } : {}),
+          collaborationMode: newChatCollaborationMode,
         });
         upsertSessionSummary(session);
         optimisticSessionId = session.id;

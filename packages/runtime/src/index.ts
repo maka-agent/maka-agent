@@ -123,6 +123,7 @@ export {
   selectCollaborationTools,
   renderPlanModePrompt,
   renderPlanExecutionPrompt,
+  renderInterruptedPlanContext,
 } from './plan-mode.js';
 export { terminateChildProcessTree } from './process-tree-terminator.js';
 export type { AttachmentByteReader } from '@maka/core/attachments';

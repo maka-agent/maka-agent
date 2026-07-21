@@ -114,6 +114,35 @@ describe('ToolRuntime durable boundary', () => {
     assert.equal(outcomes[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
   });
 
+  it('wraps business-domain kind values as canonical JSON tool results', async () => {
+    const outcomes: ToolOutcomeCommit[] = [];
+    const harness = makeHarness({
+      commitToolPrepared: async () => ({ created: true, runtimeEventSeq: 1 }),
+      commitToolOutcome: async (input) => {
+        outcomes.push(input);
+        return { created: true, runtimeEventSeq: 2 };
+      },
+    });
+    const output = {
+      kind: 'plan_submitted',
+      proposal: { proposalId: 'proposal-1' },
+      storeVersion: 1,
+    };
+
+    assert.deepEqual(await harness.execute(tool(() => output)), output);
+    const response = outcomes[0]?.runtimeEvent.content;
+    assert.equal(response?.kind, 'function_response');
+    assert.deepEqual(response?.kind === 'function_response' ? response.result : undefined, {
+      kind: 'json',
+      value: output,
+    });
+    const message = harness.messages.find((candidate) => candidate.type === 'tool_result');
+    assert.deepEqual(message?.type === 'tool_result' ? message.content : undefined, {
+      kind: 'json',
+      value: output,
+    });
+  });
+
   it('does not create a prepared journal operation when permission is denied', async () => {
     let preparedCalls = 0;
     let implementationCalls = 0;

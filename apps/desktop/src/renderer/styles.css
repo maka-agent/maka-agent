@@ -23,6 +23,7 @@
 @import "./styles/model-switcher.css";
 @import "./styles/chat-header.css";
 @import "./styles/task-ledger.css";
+@import "./styles/plan-mode.css";
 @import "./styles/error.css";
 @import "./styles/toast.css";
 @import "./styles/help.css";
@@ -137,57 +138,3 @@
 
   --shadow-maka-panel: 0 0 0 1px var(--border), 0 1px 2px oklch(from var(--foreground) l c h / 0.04), 0 14px 40px oklch(from var(--foreground) l c h / 0.08);
 }
-
-.plan-mode-panel {
-  width: min(780px, calc(100% - 32px));
-  margin: 0 auto 8px;
-  color: var(--text-primary, #1f2937);
-}
-
-.plan-mode-toggle,
-.plan-resume-button,
-.plan-proposal-actions button {
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 8px;
-  background: var(--surface-primary, #fff);
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
-.plan-mode-toggle.is-active {
-  border-color: #8b5cf6;
-  color: #6d28d9;
-  background: color-mix(in srgb, #8b5cf6 10%, transparent);
-}
-
-.plan-proposal-card {
-  margin-top: 8px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, #8b5cf6 40%, transparent);
-  border-radius: 12px;
-  background: var(--surface-primary, #fff);
-}
-
-.plan-proposal-heading,
-.plan-execution-progress,
-.plan-proposal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.plan-proposal-heading span,
-.plan-execution-progress span {
-  color: var(--text-secondary, #6b7280);
-  font-size: 12px;
-}
-
-.plan-proposal-card ol { margin: 8px 0; padding-left: 22px; }
-.plan-proposal-risks { color: #b45309; }
-.plan-proposal-actions { justify-content: flex-end; }
-.plan-proposal-actions .is-primary { color: white; background: #7c3aed; border-color: #7c3aed; }
-.plan-execution-progress { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, #8b5cf6 8%, transparent); }
-.plan-resume-button { margin-left: 8px; }
-.plan-mode-error { margin: 6px 0 0; color: #b91c1c; font-size: 12px; }
-.plan-mode-panel button:disabled { cursor: not-allowed; opacity: .55; }

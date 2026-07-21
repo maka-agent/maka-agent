@@ -30,7 +30,7 @@ import { ComposerMentionPopup, mentionOptionId } from './composer-mention-popup.
 import { useMentionPopup } from './use-mention-popup.js';
 import { ComposerWorkspaceRow, type ComposerBranchPicker, type ComposerWorkspacePicker } from './composer-workspace-row.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
-import { Button as UiButton } from './ui.js';
+import { Button as UiButton, Switch } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
@@ -165,6 +165,14 @@ export const Composer = forwardRef<
     permissionModePending?: boolean;
     permissionModeDisabledReason?: string;
     onPermissionModeChange?(mode: PermissionMode): void | Promise<void>;
+    /**
+     * Session collaboration mode switch. Agent mode is the implicit default,
+     * so the composer only exposes whether Plan mode is enabled.
+     */
+    planModeActive?: boolean;
+    planModePending?: boolean;
+    planModeDisabledReason?: string;
+    onPlanModeChange?(active: boolean): void | Promise<void>;
     /**
      * Composer mention popups (v1 plain-text tokens; see
      * docs/archive/composer-mentions-spec-2026-07-14.md). Both are optional and the
@@ -651,6 +659,30 @@ export const Composer = forwardRef<
                 disabled={props.disabled || props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
                 disabledReason={props.permissionModeDisabledReason}
               />
+            ) : null}
+            {props.onPlanModeChange ? (
+              <span
+                className="maka-composer-plan-mode-control"
+                data-active={props.planModeActive ? 'true' : 'false'}
+              >
+                <span className="maka-composer-plan-mode-label">{copy.planModeLabel}</span>
+                <Switch
+                  checked={props.planModeActive === true}
+                  disabled={
+                    props.disabled
+                    || props.planModePending === true
+                    || Boolean(props.planModeDisabledReason)
+                  }
+                  onCheckedChange={(checked) => {
+                    void props.onPlanModeChange?.(checked);
+                  }}
+                  aria-label={props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode}
+                  title={
+                    props.planModeDisabledReason
+                    ?? (props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode)
+                  }
+                />
+              </span>
             ) : null}
           </div>
           <span className="maka-composer-status-slot">

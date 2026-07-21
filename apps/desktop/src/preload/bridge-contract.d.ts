@@ -211,6 +211,10 @@ export interface MakaBridge {
     setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary>;
     getPlanState(sessionId: string): Promise<PlanSessionState>;
     requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanSessionState>;
+    abandonPlanProposal(
+      sessionId: string,
+      proposalId: string,
+    ): Promise<PlanSessionState>;
     approvePlan(sessionId: string, input: {
       proposalId: string;
       expectedRevision: number;
@@ -221,6 +225,7 @@ export interface MakaBridge {
       turnId: string;
       executionId: string;
     }>;
+    abandonPlanExecution(sessionId: string, executionId: string): Promise<PlanSessionState>;
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
     setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
     remove(sessionId: string): Promise<void>;
