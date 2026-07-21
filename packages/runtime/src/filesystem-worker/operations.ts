@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { glob as nodeGlob } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, parse, resolve } from 'node:path';
 import { isPathInside } from '../path-containment.js';
 import { additionalPermissionAllowsPath } from '@maka/core/additional-permissions';
 
@@ -20,6 +20,7 @@ import {
 
 const DEFAULT_GLOB_LIMIT = 200;
 const MAX_GREP_OUTPUT_BYTES = 8 * 1024 * 1024;
+const MAX_GREP_STDERR_BYTES = 16 * 1024;
 
 export interface FilesystemWorkerOperationDependencies {
   grepExecutable?: string;
@@ -36,6 +37,7 @@ export interface FilesystemWorkerGrepRunInput {
 export interface FilesystemWorkerGrepRunResult {
   exitCode: number;
   stdout: string;
+  stderrTail: string;
 }
 
 export type FilesystemWorkerGrepRunner = (
@@ -228,12 +230,21 @@ export async function executeFilesystemOperation(
       const result = await (dependencies.runGrep ?? runRipgrep)({
         executable: dependencies.grepExecutable,
         args,
-        cwd: await fs.realpath(operation.cwd),
+        // The target is canonical and absolute. Running from its filesystem root avoids
+        // requiring operation-scoped workers to read the broader session workspace.
+        cwd: parse(path).root,
         timeoutMs: operation.timeoutMs,
       });
       if (result.exitCode === 1) return { kind: 'grep', matches: [] };
-      if (result.exitCode !== 0)
-        throw operationError('filesystem_error', 'Grep failed while searching files.');
+      if (result.exitCode !== 0) {
+        const detail = result.stderrTail.trim();
+        throw operationError(
+          'filesystem_error',
+          detail
+            ? `Grep failed while searching files.\n${detail}`
+            : 'Grep failed while searching files.',
+        );
+      }
       return {
         kind: 'grep',
         matches: result.stdout.split('\n').filter(Boolean).slice(0, operation.limit),
@@ -423,10 +434,11 @@ async function runRipgrep(
     const child = spawn(input.executable, [...input.args], {
       cwd: input.cwd,
       shell: false,
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];
     let bytes = 0;
+    let stderrTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     let settled = false;
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
@@ -441,12 +453,19 @@ async function runRipgrep(
         chunks.push(chunk);
       }
     });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrTail = appendBoundedTail(stderrTail, chunk, MAX_GREP_STDERR_BYTES);
+    });
     child.once('error', (error) => rejectOnce(error));
     child.once('close', (exitCode) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolvePromise({ exitCode: exitCode ?? 2, stdout: Buffer.concat(chunks).toString('utf8') });
+      resolvePromise({
+        exitCode: exitCode ?? 2,
+        stdout: Buffer.concat(chunks).toString('utf8'),
+        stderrTail: stderrTail.toString('utf8'),
+      });
     });
 
     function rejectOnce(error: unknown): void {
@@ -456,4 +475,10 @@ async function runRipgrep(
       reject(error);
     }
   });
+}
+
+function appendBoundedTail(current: Buffer, chunk: Buffer, limit: number): Buffer {
+  if (chunk.length >= limit) return chunk.subarray(chunk.length - limit);
+  if (current.length + chunk.length <= limit) return Buffer.concat([current, chunk]);
+  return Buffer.concat([current.subarray(current.length - (limit - chunk.length)), chunk]);
 }

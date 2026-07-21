@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -84,7 +84,54 @@ describe('macOS filesystem worker smoke', { skip: process.platform !== 'darwin' 
     });
     assert.equal(await readFile(allowedPath, 'utf8'), 'outside-ok');
   });
+
+  test('runs file and directory Grep inside the operation-scoped sandbox', async () => {
+    const sourceDirectory = join(workspace, 'src');
+    const sourceFile = join(sourceDirectory, 'health.ts');
+    await mkdir(sourceDirectory);
+    await writeFile(sourceFile, 'export const healthSignal = true;\n', 'utf8');
+
+    const fileResult = await client.execute({
+      operation: grepOperation(sourceFile, 'healthSignal'),
+      cwd: workspace,
+      mode: 'ask',
+    });
+    assert.equal(fileResult.kind, 'grep');
+    if (fileResult.kind === 'grep') {
+      assert.equal(fileResult.matches.length, 1);
+      assert.match(fileResult.matches[0] ?? '', /healthSignal/);
+    }
+
+    const directoryResult = await client.execute({
+      operation: grepOperation(sourceDirectory, 'healthSignal'),
+      cwd: workspace,
+      mode: 'ask',
+    });
+    assert.equal(directoryResult.kind, 'grep');
+    if (directoryResult.kind === 'grep') {
+      assert.equal(directoryResult.matches.length, 1);
+      assert.match(directoryResult.matches[0] ?? '', /healthSignal/);
+    }
+
+    const emptyResult = await client.execute({
+      operation: grepOperation(sourceDirectory, 'does-not-exist'),
+      cwd: workspace,
+      mode: 'ask',
+    });
+    assert.deepEqual(emptyResult, { kind: 'grep', matches: [] });
+  });
 });
+
+function grepOperation(path: string, pattern: string) {
+  return {
+    kind: 'grep' as const,
+    path,
+    pattern,
+    maxCountPerFile: 50,
+    limit: 200,
+    timeoutMs: 10_000,
+  };
+}
 
 async function grantFor(path: string, cwd: string): Promise<AdditionalPermissionGrant> {
   const normalized = await normalizeAdditionalPermissionProfile({

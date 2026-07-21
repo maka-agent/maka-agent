@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { afterEach, describe, test } from 'node:test';
 
 import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
@@ -20,6 +20,85 @@ afterEach(async () => {
 });
 
 describe('filesystem worker operations', () => {
+  test('runs Grep from the filesystem root without broadening its target permission', async () => {
+    const root = await temporaryDirectory('maka-worker-grep-root-');
+    const target = join(root, 'file.ts');
+    await writeFile(target, 'const healthSignal = true;', 'utf8');
+    let grepCwd: string | undefined;
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        {
+          kind: 'grep',
+          cwd: root,
+          path: target,
+          pattern: 'healthSignal',
+          maxCountPerFile: 50,
+          limit: 200,
+          timeoutMs: 1_000,
+        },
+        { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
+      ),
+      {
+        grepExecutable: '/usr/bin/rg',
+        runGrep: async (input) => {
+          grepCwd = input.cwd;
+          return { exitCode: 0, stdout: '1:const healthSignal = true;\n', stderrTail: '' };
+        },
+      },
+    );
+
+    assert.equal(grepCwd, parse(target).root);
+    assert.deepEqual(response, {
+      version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
+      requestId: 'request-1',
+      ok: true,
+      result: { kind: 'grep', matches: ['1:const healthSignal = true;'] },
+    });
+  });
+
+  test('returns no Grep matches for exit code 1 and surfaces bounded stderr for failures', async () => {
+    const root = await temporaryDirectory('maka-worker-grep-result-');
+    const target = join(root, 'file.ts');
+    await writeFile(target, 'const value = 1;', 'utf8');
+    const operation = {
+      kind: 'grep' as const,
+      cwd: root,
+      path: target,
+      pattern: 'missing',
+      maxCountPerFile: 50,
+      limit: 200,
+      timeoutMs: 1_000,
+    };
+    const request = requestFor(operation, {
+      enforcementPath: target,
+      access: 'read',
+      scope: 'exact',
+      targetType: 'file',
+    });
+
+    const empty = await executeFilesystemWorkerRequest(request, {
+      grepExecutable: '/usr/bin/rg',
+      runGrep: async () => ({ exitCode: 1, stdout: '', stderrTail: '' }),
+    });
+    assert.equal(empty.ok, true);
+    if (empty.ok) assert.deepEqual(empty.result, { kind: 'grep', matches: [] });
+
+    const failed = await executeFilesystemWorkerRequest(request, {
+      grepExecutable: '/usr/bin/rg',
+      runGrep: async () => ({
+        exitCode: 2,
+        stdout: '',
+        stderrTail: 'rg: invalid regular expression\n',
+      }),
+    });
+    assert.equal(failed.ok, false);
+    if (!failed.ok) {
+      assert.equal(failed.error.code, 'filesystem_error');
+      assert.match(failed.error.message, /rg: invalid regular expression/);
+    }
+  });
+
   test('reads a validated image through the approved path capability', async () => {
     const root = await temporaryDirectory('maka-worker-image-');
     const target = join(root, 'image.png');
