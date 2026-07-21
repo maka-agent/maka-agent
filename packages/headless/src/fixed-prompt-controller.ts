@@ -378,9 +378,6 @@ export interface RunFixedPromptControllerInput {
   /** Refuse resume when a model attempt was durably admitted but no terminal
    * event exists, preserving single-sample benchmark semantics. */
   protectPassAtOne?: boolean;
-  /** Explicit recovery mode for cells excluded from scoring by infrastructure.
-   * Scored cells, budget outcomes, and plumbing failures remain terminal. */
-  backfillUnscoredCells?: boolean;
   harborRunner: HarborTaskRunner;
   now?: () => number;
   newId?: () => string;
@@ -431,7 +428,6 @@ export async function runFixedPromptController(
     expectedPromptHash,
     input.resumeFingerprint,
     terminalInfraFailures,
-    input.backfillUnscoredCells ?? false,
   );
   const orphanedAttempts = orphanedTaskAttempts(
     [...attemptEvents, ...events],
@@ -462,11 +458,6 @@ export async function runFixedPromptController(
     expectedPromptHash,
     input.resumeFingerprint,
   );
-  if (input.backfillUnscoredCells) {
-    for (const [taskId, event] of stopEvidence) {
-      if (isBackfillableUnscoredCell(event)) stopEvidence.delete(taskId);
-    }
-  }
   let stopReason = controllerStopReason({
     events: [...stopEvidence.values()],
     taskCount: input.tasks.length,
@@ -1364,7 +1355,6 @@ function terminalTaskEvents(
   expectedPromptHash: string,
   resumeFingerprint: string | undefined,
   includeInfraFailure: boolean,
-  backfillUnscoredCells: boolean,
 ): Map<string, FixedPromptTaskWalEvent> {
   const byTask = new Map<string, FixedPromptTaskWalEvent>();
   for (const event of events) {
@@ -1372,24 +1362,15 @@ function terminalTaskEvents(
     if (event.runId !== runId || event.roundId !== roundId) continue;
     if (!eventMatchesResumeIdentity(event, expectedPromptHash, resumeFingerprint)) continue;
     if (
-      (event.type === 'task_completed' &&
-        !(backfillUnscoredCells && isBackfillableUnscoredCell(event))) ||
+      event.type === 'task_completed' ||
       event.type === 'task_budget_exhausted' ||
       event.type === 'task_plumbing_failed' ||
-      (includeInfraFailure && event.type === 'task_infra_failed' && !backfillUnscoredCells)
+      (includeInfraFailure && event.type === 'task_infra_failed')
     ) {
       setAuthoritativeTaskEvent(byTask, event);
     }
   }
   return byTask;
-}
-
-function isBackfillableUnscoredCell(event: FixedPromptTaskWalEvent): boolean {
-  return (
-    (event.type === 'task_completed' || event.type === 'task_infra_failed') &&
-    !event.scored &&
-    !event.eligible
-  );
 }
 
 function orphanedTaskAttempts(

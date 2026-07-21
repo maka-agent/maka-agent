@@ -30,7 +30,6 @@ export interface RunHarnessAbComparisonInput {
   arms: readonly [HarnessAbRuntimeArm, HarnessAbRuntimeArm];
   pairConcurrency?: number;
   armExecution?: 'parallel' | 'sequential';
-  backfillUnscoredCells?: boolean;
   now?: () => number;
   newId?: () => string;
 }
@@ -93,7 +92,6 @@ export async function runHarnessAbComparisonUnlocked(
         tasks: [task],
         infraFailurePolicy: 'terminal',
         protectPassAtOne: true,
-        backfillUnscoredCells: input.backfillUnscoredCells,
         requireExecutionIdentity: true,
         requireFinalUsage: true,
         expectedPricingProfile: runtimeArm.expectedPricingProfile,

@@ -288,10 +288,6 @@ function envPathFrom(env, name, fallback) {
   return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
 }
 
-export function resolveHarnessAbJobsDir(runRoot, backfillUnscoredCells) {
-  return join(runRoot, backfillUnscoredCells ? 'backfill-jobs' : 'jobs');
-}
-
 function defaultMakaWorkspaceRoot() {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default');
@@ -538,41 +534,6 @@ export async function main() {
   });
 }
 
-export async function resolveHarnessAbSubjectFingerprint({
-  manifestPath,
-  makaRepoPath,
-  explicitSubjectFingerprint,
-  resumeSubjectFingerprint,
-  buildFingerprint = buildSubjectFingerprint,
-}) {
-  if (!resumeSubjectFingerprint) {
-    return await buildFingerprint(makaRepoPath, explicitSubjectFingerprint);
-  }
-  if (explicitSubjectFingerprint) {
-    throw new Error(
-      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT cannot be combined with MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT',
-    );
-  }
-  const value = resumeSubjectFingerprint.trim();
-  if (!/^sha256:[a-f0-9]{64}$/.test(value)) {
-    throw new Error(
-      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint',
-    );
-  }
-  const existing = await readAbRunManifest(manifestPath);
-  if (!existing || typeof existing.subjectFingerprint !== 'string') {
-    throw new Error(
-      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT requires an existing harness A/B manifest',
-    );
-  }
-  if (existing.subjectFingerprint !== value) {
-    throw new Error(
-      'MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT must exactly match the existing manifest subject fingerprint',
-    );
-  }
-  return value;
-}
-
 async function runLocked({
   repoRoot,
   makaRepoPath,
@@ -595,13 +556,10 @@ async function runLocked({
     return;
   }
 
-  const manifestPath = join(runRoot, 'harness-ab-manifest.json');
-  const subjectFingerprint = await resolveHarnessAbSubjectFingerprint({
-    manifestPath,
+  const subjectFingerprint = await buildSubjectFingerprint(
     makaRepoPath,
-    explicitSubjectFingerprint: process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
-    resumeSubjectFingerprint: process.env.MAKA_HARNESS_AB_RESUME_SUBJECT_FINGERPRINT,
-  });
+    process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
+  );
   const hostToolchainFingerprint = await buildToolchainFingerprint(
     process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
     undefined,
@@ -617,6 +575,7 @@ async function runLocked({
   });
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
+  const manifestPath = join(runRoot, 'harness-ab-manifest.json');
   const oracleEvidence = await resolveHarnessOracleEvidenceForRun(manifestPath, () =>
     resolveAdvisoryOracleEvidence({
       allTasks,
@@ -668,8 +627,7 @@ async function runLocked({
     throw new Error('harness credential is empty');
   const controllerDir = join(runRoot, 'controller');
   const promptsDir = join(runRoot, 'prompts');
-  const backfillUnscoredCells = process.env.MAKA_HARNESS_AB_BACKFILL_UNSCORED === '1';
-  const jobsDir = resolveHarnessAbJobsDir(runRoot, backfillUnscoredCells);
+  const jobsDir = join(runRoot, 'jobs');
   await mkdir(controllerDir, { recursive: true });
   await mkdir(promptsDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
@@ -734,7 +692,6 @@ async function runLocked({
     ],
     pairConcurrency: manifest.maxConcurrency,
     armExecution: manifest.metadata.execution.armExecution,
-    backfillUnscoredCells,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
   const report = buildHarnessAbReport(
