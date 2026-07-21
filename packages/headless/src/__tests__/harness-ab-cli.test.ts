@@ -72,6 +72,10 @@ test('harness A/B uses one safe execution default and accepts per-run overrides'
     () => resolveHarnessAbExecutionPolicy(undefined, 'together', 30),
     /MAKA_HARNESS_AB_ARM_EXECUTION must be sequential or parallel/,
   );
+  assert.throws(
+    () => resolveHarnessAbExecutionPolicy(undefined, undefined, 0),
+    /harness A\/B execution policy requires at least one task/,
+  );
 });
 
 test('harness A/B selects one named task only with an explicit run identity', async () => {
