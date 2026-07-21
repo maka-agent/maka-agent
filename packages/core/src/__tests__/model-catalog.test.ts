@@ -109,6 +109,7 @@ describe('ModelCatalogEntry', () => {
     assert.deepEqual(
       entries.map((entry) => entry.id),
       [
+        'qwen3.8-max-preview',
         'qwen3.7-max',
         'qwen3.7-plus',
         'qwen3.6-plus',
@@ -137,12 +138,13 @@ describe('ModelCatalogEntry', () => {
         `${imageModel} must not be catalogued`,
       );
     }
-    assert.equal(entries[0]?.displayName, 'Qwen3.7 Max');
+    assert.equal(entries[0]?.displayName, 'Qwen3.8 Max Preview');
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.equal(entries[0]?.contextWindow, 1_000_000);
-    assert.equal(entries[0]?.maxOutputTokens, 65_536);
+    assert.equal(entries[0]?.maxOutputTokens, 131_072);
     assert.deepEqual(entries[0]?.capabilities, {
+      vision: true,
       reasoning: true,
       functionCalling: true,
     });

@@ -452,6 +452,7 @@ if (!alibabaTokenPlanGlobal.api) {
 // the plan's image models (qwen-image / wan) are not tool-callable, so only the
 // tool-calling text models are pinned here. China and global share one model list.
 const alibabaTokenPlanModelIds = [
+  'qwen3.8-max-preview',
   'qwen3.7-max',
   'qwen3.7-plus',
   'qwen3.6-plus',

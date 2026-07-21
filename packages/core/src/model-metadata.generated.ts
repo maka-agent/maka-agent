@@ -898,6 +898,14 @@ export const GENERATED_MODELS_DEV_METADATA: Record<
       maxOutputTokens: 64000,
       capabilities: { vision: true, reasoning: true, functionCalling: true },
     },
+    'qwen3.8-max-preview': {
+      displayName: 'Qwen3.8 Max Preview',
+      lifecycle: 'active',
+      docsUrl: 'https://www.alibabacloud.com/help/zh/model-studio/token-plan-overview',
+      contextWindow: 1000000,
+      maxOutputTokens: 131072,
+      capabilities: { vision: true, reasoning: true, functionCalling: true },
+    },
     'wan2.7-image': {
       displayName: 'Wan2.7 Image',
       lifecycle: 'active',
@@ -1042,6 +1050,14 @@ export const GENERATED_MODELS_DEV_METADATA: Record<
       docsUrl: 'https://www.alibabacloud.com/help/en/model-studio/token-plan-overview',
       contextWindow: 1000000,
       maxOutputTokens: 64000,
+      capabilities: { vision: true, reasoning: true, functionCalling: true },
+    },
+    'qwen3.8-max-preview': {
+      displayName: 'Qwen3.8 Max Preview',
+      lifecycle: 'active',
+      docsUrl: 'https://www.alibabacloud.com/help/en/model-studio/token-plan-overview',
+      contextWindow: 1000000,
+      maxOutputTokens: 131072,
       capabilities: { vision: true, reasoning: true, functionCalling: true },
     },
     'wan2.7-image': {

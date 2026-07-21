@@ -964,6 +964,7 @@ describe('provider compatibility contract', () => {
   });
 
   const alibabaTokenPlanModels = [
+    'qwen3.8-max-preview',
     'qwen3.7-max',
     'qwen3.7-plus',
     'qwen3.6-plus',
