@@ -68,16 +68,20 @@ export interface ModelDiscoveryResult {
 
 export type ConnectionLastTestStatus = 'verified' | 'needs_reauth' | 'error';
 
-export interface LlmConnection {
+/** Non-secret provider/model configuration required by runtime execution. */
+export interface RuntimeExecutionConnection {
   slug: string;
-  name: string;
   providerType: ProviderType;
   baseUrl?: string;
   defaultModel: string;
+  models?: ModelInfo[];
+}
+
+export interface LlmConnection extends RuntimeExecutionConnection {
+  name: string;
   enabled: boolean;
   /** Model ids shown in model pickers. Legacy connections omit this and enable only their default model. */
   enabledModelIds?: string[];
-  models?: ModelInfo[];
   modelSource?: ModelDiscoverySource;
   /** Unix ms timestamp for the last successful model discovery result. */
   modelsFetchedAt?: number;

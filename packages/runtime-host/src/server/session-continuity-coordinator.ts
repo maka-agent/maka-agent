@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import type { SessionEvent } from '@maka/core/events';
 import {
   encodeProtocolFrame,
   RUNTIME_HOST_MAX_FRAME_BYTES,
   SESSION_CONTINUITY_SCHEMA_VERSION,
   SESSION_LIVE_DELTA_MAX_BYTES,
+  SESSION_TOOL_NAME_MAX_BYTES,
   type SessionAssistantDelta,
   type SessionContinuityIdentity,
   type SessionContinuitySnapshot,
   type SessionDeltaFrame,
+  type SessionEventFrame,
+  type SessionToolEvent,
   type SessionInteractionProjection,
   type SessionMessageQueueProjection,
   type SubscriptionFrame,
@@ -42,6 +46,8 @@ export type AcceptedAssistantDeltaEvent =
       messageId: string;
       text: string;
     };
+
+export type AcceptedToolEvent = Extract<SessionEvent, { type: 'tool_start' | 'tool_result' }>;
 
 export type ReadCanonicalSessionProjection = (
   sessionId: string,
@@ -296,6 +302,26 @@ export class SessionContinuityCoordinator {
       if (!state || state.subscribers.size === 0) return;
       for (const subscriber of state.subscribers.values()) {
         this.#enqueueAssistantDelta(subscriber, sessionId, runId, event, kind);
+      }
+    });
+  }
+
+  async acceptToolEvent(sessionId: string, runId: string, event: AcceptedToolEvent): Promise<void> {
+    await this.#runInSessionLane(sessionId, () => {
+      const state = this.#sessions.get(sessionId);
+      if (!state || state.subscribers.size === 0) return;
+      const projected = projectToolEvent(event);
+      for (const subscriber of state.subscribers.values()) {
+        const frame: SessionEventFrame = {
+          kind: 'subscription.session_event',
+          hostEpoch: this.#hostEpoch,
+          subscriptionId: subscriber.subscriptionId,
+          sequence: subscriber.nextSequence,
+          sessionId,
+          runId,
+          event: projected,
+        };
+        this.#enqueue(subscriber, frame);
       }
     });
   }
@@ -739,4 +765,48 @@ function wireTextByteLimit(frame: SessionDeltaFrame): number {
 function jsonStringContentBytes(value: string): number {
   const encoded = JSON.stringify(value);
   return Buffer.byteLength(encoded.slice(1, -1), 'utf8');
+}
+
+function projectToolEvent(event: AcceptedToolEvent): SessionToolEvent {
+  const identity = {
+    id: event.id,
+    turnId: event.turnId,
+    ts: event.ts,
+    toolUseId: event.toolUseId,
+  };
+  switch (event.type) {
+    case 'tool_start':
+      return {
+        type: event.type,
+        ...identity,
+        toolName: boundedUtf8(event.toolName, SESSION_TOOL_NAME_MAX_BYTES),
+        ...(event.operationId === undefined ? {} : { operationId: event.operationId }),
+        ...(event.activityKind === undefined ? {} : { activityKind: event.activityKind }),
+        ...(event.displayName === undefined
+          ? {}
+          : { displayName: boundedUtf8(event.displayName, SESSION_TOOL_NAME_MAX_BYTES) }),
+        ...(event.stepId === undefined ? {} : { stepId: event.stepId }),
+      };
+    case 'tool_result':
+      return {
+        type: event.type,
+        ...identity,
+        ...(event.operationId === undefined ? {} : { operationId: event.operationId }),
+        status: event.isError ? 'errored' : 'completed',
+        ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
+      };
+  }
+}
+
+function boundedUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  let bounded = '';
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, 'utf8');
+    if (bytes + characterBytes > maxBytes) break;
+    bounded += character;
+    bytes += characterBytes;
+  }
+  return bounded;
 }

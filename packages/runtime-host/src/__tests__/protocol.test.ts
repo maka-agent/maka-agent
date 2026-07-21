@@ -17,6 +17,7 @@ import {
   RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
   SESSION_CONTINUITY_SCHEMA_VERSION,
   SESSION_LIVE_DELTA_MAX_BYTES,
+  SESSION_TOOL_NAME_MAX_BYTES,
   TURN_MESSAGE_CONTENT_MAX_BYTES,
   TURN_MESSAGE_TEXT_MAX_BYTES,
   RuntimeHostProtocolError,
@@ -1150,6 +1151,61 @@ describe('Runtime Host bootstrap protocol', () => {
     const decoded = decodeHostFrame(sessionDeltaFrame('a'.repeat(SESSION_LIVE_DELTA_MAX_BYTES)));
     assert.equal('kind' in decoded && decoded.kind, 'subscription.session_delta');
   });
+
+  test('decodes only the closed bounded Tool activity projection', () => {
+    const start = sessionEventFrame({
+      type: 'tool_start',
+      id: 'event-start',
+      turnId: 'turn-1',
+      ts: 10,
+      toolUseId: 'provider:tool.call-1',
+      toolName: 'TaskCreate',
+      operationId: 'operation-1',
+      activityKind: 'tool',
+      displayName: 'Task Create',
+      stepId: 'step-1',
+    });
+    assert.deepEqual(decodeHostFrame(start), start);
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...start,
+          event: { ...start.event, args: { subject: 'private model input' } },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...start,
+          event: { ...start.event, displayName: '界'.repeat(SESSION_TOOL_NAME_MAX_BYTES) },
+        }),
+      isInvalidFrame,
+    );
+
+    const result = sessionEventFrame({
+      type: 'tool_result',
+      id: 'event-result',
+      turnId: 'turn-1',
+      ts: 12,
+      toolUseId: 'provider:tool.call-1',
+      operationId: 'operation-1',
+      status: 'completed',
+      durationMs: 2,
+    });
+    assert.deepEqual(decodeHostFrame(result), result);
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...result,
+          event: {
+            ...result.event,
+            content: { kind: 'json', value: { secret: true } },
+          },
+        }),
+      isInvalidFrame,
+    );
+  });
 });
 
 function sessionProjectionFrame() {
@@ -1247,6 +1303,18 @@ function sessionDeltaFrame(text: string) {
       messageId: 'message-1',
       text,
     },
+  };
+}
+
+function sessionEventFrame(event: Record<string, unknown>) {
+  return {
+    kind: 'subscription.session_event' as const,
+    hostEpoch: 'epoch-1',
+    subscriptionId: 'subscription-1',
+    sequence: 1,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    event,
   };
 }
 

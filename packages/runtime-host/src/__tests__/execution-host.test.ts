@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { appendFile, chmod, readFile, stat, utimes, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { test } from 'node:test';
 import { FAKE_ASK_USER_QUESTION_PROMPT } from '@maka/runtime';
+import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
+import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
+import { tryAcquireInteractiveRootOwner } from '@maka/storage/root-authority';
 import {
   RuntimeHostOperationError,
   RuntimeHostSubscriptionError,
@@ -1050,6 +1054,463 @@ test('a disconnected Client leaves one retried follow-up for the Host to execute
     });
     assert.equal(ledger.terminalEvents.length, 1);
   });
+});
+
+test('routes bounded Tool activity from the real root Turn drain', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const client = await connectClient(fixture.root, 'desktop');
+    const subscription = await client.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const iterator = subscription[Symbol.asyncIterator]();
+    const turnId = randomUUID();
+    const started = await client.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+    });
+
+    let expectedSequence = 1;
+    let pending: InteractionPendingSnapshot | undefined;
+    let toolUseId: string | undefined;
+    while (!pending || !toolUseId) {
+      const next = await withTimeout(
+        iterator.next(),
+        PROCESS_TIMEOUT_MS,
+        'root Turn did not route its Tool start',
+      );
+      if (next.done) throw new Error('Session subscription closed before Tool start');
+      assert.equal(next.value.sequence, expectedSequence);
+      expectedSequence += 1;
+      if (next.value.kind === 'subscription.session_projection') {
+        pending = next.value.snapshot.interactions.pending.find(
+          (interaction) => interaction.turnId === turnId,
+        );
+      }
+      if (
+        next.value.kind === 'subscription.session_event' &&
+        next.value.event.type === 'tool_start'
+      ) {
+        assert.equal(next.value.sessionId, fixture.sessionId);
+        assert.equal(next.value.runId, started.runId);
+        assert.equal(next.value.event.turnId, turnId);
+        assert.equal(next.value.event.toolName, 'AskUserQuestion');
+        assert.equal('args' in next.value.event, false);
+        toolUseId = next.value.event.toolUseId;
+      }
+    }
+
+    await client.request('interaction.answer', {
+      interactionId: pending.interactionId,
+      answer: questionAnswer('邀请制', '本周', '是'),
+    });
+    let resultObserved = false;
+    let terminalObserved = false;
+    while (!resultObserved || !terminalObserved) {
+      const next = await withTimeout(
+        iterator.next(),
+        PROCESS_TIMEOUT_MS,
+        'root Turn did not route its Tool result and terminal projection',
+      );
+      if (next.done) throw new Error('Session subscription closed before Tool result');
+      assert.equal(next.value.sequence, expectedSequence);
+      expectedSequence += 1;
+      if (
+        next.value.kind === 'subscription.session_event' &&
+        next.value.event.type === 'tool_result'
+      ) {
+        assert.equal(next.value.runId, started.runId);
+        assert.equal(next.value.event.toolUseId, toolUseId);
+        assert.equal(next.value.event.status, 'completed');
+        assert.equal('content' in next.value.event, false);
+        resultObserved = true;
+      }
+      if (next.value.kind === 'subscription.session_projection') {
+        const rootTurn = next.value.snapshot.rootTurn;
+        terminalObserved =
+          rootTurn?.turnId === turnId &&
+          (rootTurn.status === 'completed' ||
+            rootTurn.status === 'failed' ||
+            rootTurn.status === 'cancelled');
+      }
+    }
+
+    await subscription.close();
+    await client.close();
+    await fixture.stopHost(host);
+  });
+});
+
+test('runs a real Host ai-sdk Tool loop across Clients and refreshes committed personalization', async () => {
+  const modelId = 'gpt-4o-mini-local';
+  const connectionSlug = 'local-openai-acceptance';
+  const apiKey = `local-provider-key-${randomUUID()}`;
+  const initialMarker = `INITIAL_HOST_PERSONALIZATION_${randomUUID()}`;
+  const updatedMarker = `UPDATED_HOST_PERSONALIZATION_${randomUUID()}`;
+  const taskSubject = `Persist real Host tool result ${randomUUID()}`;
+  const providerToolUseId = 'call:host.task.create';
+  const firstFinalText = 'The Host tool loop completed locally.';
+  const secondFinalText = 'The refreshed Host prompt reached the provider.';
+  const requests: Array<{
+    authorization: string | undefined;
+    method: string | undefined;
+    path: string | undefined;
+    body: Record<string, unknown>;
+  }> = [];
+  const handlerErrors: unknown[] = [];
+  let releaseFirstResponse: (() => void) | undefined;
+  const firstResponseGate = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  let markFirstRequestReceived: (() => void) | undefined;
+  const firstRequestReceived = new Promise<void>((resolve) => {
+    markFirstRequestReceived = resolve;
+  });
+
+  const readRequestBody = (request: IncomingMessage) =>
+    new Promise<string>((resolve, reject) => {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk) => {
+        body += chunk;
+      });
+      request.on('end', () => resolve(body));
+      request.on('error', reject);
+    });
+  const respondStream = (response: ServerResponse, chunks: readonly unknown[]) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    response.end('data: [DONE]\n\n');
+  };
+  const server = createServer((request, response) => {
+    void (async () => {
+      try {
+        const body = JSON.parse(await readRequestBody(request)) as Record<string, unknown>;
+        requests.push({
+          authorization: request.headers.authorization,
+          method: request.method,
+          path: request.url,
+          body,
+        });
+        const requestNumber = requests.length;
+        if (requestNumber === 1) {
+          markFirstRequestReceived?.();
+          await firstResponseGate;
+          respondStream(response, [
+            {
+              id: 'chatcmpl-host-tool',
+              object: 'chat.completion.chunk',
+              created: 1,
+              model: modelId,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: 'assistant',
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: providerToolUseId,
+                        type: 'function',
+                        function: {
+                          name: 'task_create',
+                          arguments: JSON.stringify({ tasks: [{ subject: taskSubject }] }),
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+              usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+            },
+          ]);
+          return;
+        }
+        const text = requestNumber === 2 ? firstFinalText : secondFinalText;
+        respondStream(response, [
+          {
+            id: `chatcmpl-host-final-${requestNumber}`,
+            object: 'chat.completion.chunk',
+            created: requestNumber,
+            model: modelId,
+            choices: [
+              {
+                index: 0,
+                delta: { role: 'assistant', content: text },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 18, completion_tokens: 7, total_tokens: 25 },
+          },
+        ]);
+      } catch (error) {
+        handlerErrors.push(error);
+        response.destroy(error as Error);
+      }
+    })();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const providerBaseUrl = `http://127.0.0.1:${address.port}/v1`;
+
+  try {
+    await withExecutionRoot(async (fixture) => {
+      const owner = await tryAcquireInteractiveRootOwner(fixture.capability);
+      assert.ok(owner);
+      if (!owner) return;
+      try {
+        const executionStores = await openInteractiveExecutionStoresForWrite(owner.lease);
+        const policyStores = await openInteractiveRuntimePolicyStoresForWrite(owner.lease);
+        const created = await policyStores.connectionCatalog.create({
+          expectedCatalogRevision: 0,
+          connection: {
+            slug: connectionSlug,
+            name: 'Local OpenAI acceptance provider',
+            providerType: 'openai',
+            baseUrl: providerBaseUrl,
+            enabled: true,
+            enabledModelIds: [modelId],
+          },
+        });
+        assert.equal(created.kind, 'committed');
+        if (created.kind !== 'committed') return;
+        const connection = created.snapshot.connections[0];
+        assert.ok(connection);
+        if (!connection) return;
+        const credential = await policyStores.credentialVault.set({
+          locator: {
+            scope: 'connection',
+            connectionId: connection.connectionId,
+            kind: 'api_key',
+          },
+          expected: null,
+          secret: apiKey,
+        });
+        assert.equal(credential.kind, 'committed');
+        const fetch = await policyStores.operations.beginModelFetch(connection.connectionId);
+        assert.equal(fetch.kind, 'ready');
+        if (fetch.kind !== 'ready') return;
+        const fetched = await policyStores.operations.completeModelFetch(fetch.ticket, {
+          models: [
+            {
+              id: modelId,
+              apiProtocol: 'openai-chat',
+              capabilities: { chat: true, functionCalling: true },
+            },
+          ],
+          source: 'fetched',
+          fetchedAt: Date.now(),
+        });
+        assert.equal(fetched.kind, 'committed');
+        const policy = await policyStores.runtimePolicy.getSnapshot();
+        const personalized = await policyStores.runtimePolicy.mutate({
+          expectedRevision: policy.revision,
+          operation: {
+            kind: 'set_personalization',
+            value: { displayName: 'Local acceptance user', assistantTone: initialMarker },
+          },
+        });
+        assert.equal(personalized.kind, 'committed');
+        await executionStores.sessionStore.updateHeader(fixture.sessionId, {
+          backend: 'ai-sdk',
+          llmConnectionSlug: connectionSlug,
+          model: modelId,
+        });
+      } finally {
+        await owner.close();
+      }
+
+      const host = await fixture.startHost();
+      let starter: RuntimeHostConnection | undefined;
+      let observer: RuntimeHostConnection | undefined;
+      try {
+        starter = await connectClient(fixture.root, 'desktop');
+        observer = await connectClient(fixture.root, 'tui');
+        const starterSubscription = await starter.openSessionSubscription({
+          sessionId: fixture.sessionId,
+        });
+        const observerSubscription = await observer.openSessionSubscription({
+          sessionId: fixture.sessionId,
+        });
+        assert.notEqual(starterSubscription.subscriptionId, observerSubscription.subscriptionId);
+        const iterator = observerSubscription[Symbol.asyncIterator]();
+        let expectedSequence = 1;
+        const firstTurnId = randomUUID();
+        const started = await starter.startTurn({
+          sessionId: fixture.sessionId,
+          turnId: firstTurnId,
+          content: { text: 'Create the requested durable task, then report completion.' },
+        });
+        await withTimeout(
+          firstRequestReceived,
+          PROCESS_TIMEOUT_MS,
+          'real provider did not receive the first Host request',
+        );
+        await starter.close();
+        starter = undefined;
+        const running = await observer.queryTurn({
+          sessionId: fixture.sessionId,
+          turnId: firstTurnId,
+        });
+        assert.equal(running.status, 'running');
+        assert.equal(running.runId, started.runId);
+        const policy = await observer.request('runtime.policy.query', {});
+        const mutation = await observer.request('runtime.policy.mutate', {
+          expectedRevision: policy.revision,
+          operation: {
+            kind: 'set_personalization',
+            value: { displayName: 'Updated acceptance user', assistantTone: updatedMarker },
+          },
+        });
+        assert.equal(mutation.kind, 'committed');
+        releaseFirstResponse?.();
+
+        let toolStarted = false;
+        let toolCompleted = false;
+        let firstText = '';
+        let firstTerminal: TurnSnapshot | undefined;
+        while (!toolStarted || !toolCompleted || !firstTerminal) {
+          const next = await withTimeout(
+            iterator.next(),
+            PROCESS_TIMEOUT_MS,
+            'surviving Client did not observe the real ai-sdk Tool loop',
+          );
+          if (next.done) throw new Error('Session subscription closed during the ai-sdk Tool loop');
+          assert.equal(next.value.sequence, expectedSequence);
+          expectedSequence += 1;
+          if (next.value.kind === 'subscription.session_delta') {
+            assert.equal(next.value.delta.turnId, firstTurnId);
+            assert.equal(next.value.delta.runId, started.runId);
+            if (next.value.delta.kind === 'text') firstText += next.value.delta.text;
+          }
+          if (
+            next.value.kind === 'subscription.session_event' &&
+            next.value.event.type === 'tool_start'
+          ) {
+            assert.equal(next.value.runId, started.runId);
+            assert.equal(next.value.event.toolName, 'task_create');
+            assert.equal(next.value.event.displayName, 'Task Create');
+            assert.equal('args' in next.value.event, false);
+            assert.equal(next.value.event.toolUseId, providerToolUseId);
+            toolStarted = true;
+          }
+          if (
+            next.value.kind === 'subscription.session_event' &&
+            next.value.event.type === 'tool_result'
+          ) {
+            assert.equal(next.value.runId, started.runId);
+            assert.equal(next.value.event.toolUseId, providerToolUseId);
+            assert.equal(next.value.event.status, 'completed');
+            assert.equal('content' in next.value.event, false);
+            toolCompleted = true;
+          }
+          if (next.value.kind === 'subscription.session_projection') {
+            const rootTurn = next.value.snapshot.rootTurn;
+            if (rootTurn?.turnId === firstTurnId && rootTurn.status === 'completed') {
+              firstTerminal = rootTurn;
+            }
+          }
+        }
+        assert.equal(firstText, firstFinalText);
+        assert.deepEqual(
+          firstTerminal,
+          await observer.queryTurn({ sessionId: fixture.sessionId, turnId: firstTurnId }),
+        );
+        const taskPage = await observer.request('task.ledger.query', {
+          kind: 'list_start',
+          sessionId: fixture.sessionId,
+        });
+        assert.equal(taskPage.kind, 'page');
+        if (taskPage.kind === 'page') {
+          assert.ok(taskPage.tasks.some((task) => task.subject === taskSubject));
+        }
+
+        assert.equal(handlerErrors.length, 0);
+        assert.equal(requests[0]?.method, 'POST');
+        assert.equal(requests[0]?.path, '/v1/chat/completions');
+        assert.equal(requests[0]?.authorization, `Bearer ${apiKey}`);
+        assert.equal(requests[0]?.body.model, modelId);
+        assert.equal(requests[0]?.body.stream, true);
+        assert.ok(JSON.stringify(requests[0]?.body).includes(initialMarker));
+        const tools = requests[0]?.body.tools as
+          | Array<{
+              type?: unknown;
+              function?: { name?: unknown; parameters?: Record<string, unknown> };
+            }>
+          | undefined;
+        const taskCreateSchema = tools?.find((tool) => tool.function?.name === 'task_create');
+        assert.ok(taskCreateSchema);
+        assert.equal(taskCreateSchema?.type, 'function');
+        assert.deepEqual(taskCreateSchema?.function?.parameters?.required, ['tasks']);
+        const properties = taskCreateSchema?.function?.parameters?.properties as
+          | Record<string, { type?: unknown; items?: { required?: unknown } }>
+          | undefined;
+        assert.equal(properties?.tasks?.type, 'array');
+        assert.deepEqual(properties?.tasks?.items?.required, ['subject']);
+        assert.equal(requests[1]?.authorization, `Bearer ${apiKey}`);
+        assert.ok(JSON.stringify(requests[1]?.body).includes(initialMarker));
+        assert.equal(JSON.stringify(requests[1]?.body).includes(updatedMarker), false);
+        const toolResultMessage = (
+          requests[1]?.body.messages as
+            | Array<{ role?: unknown; tool_call_id?: unknown; content?: unknown }>
+            | undefined
+        )?.find((message) => message.role === 'tool');
+        assert.equal(toolResultMessage?.tool_call_id, providerToolUseId);
+        assert.ok(JSON.stringify(toolResultMessage?.content).includes(taskSubject));
+
+        const secondTurnId = randomUUID();
+        const secondStarted = await observer.startTurn({
+          sessionId: fixture.sessionId,
+          turnId: secondTurnId,
+          content: { text: 'Confirm the refreshed personalization context.' },
+        });
+        let secondText = '';
+        let secondTerminal: TurnSnapshot | undefined;
+        while (!secondTerminal) {
+          const next = await withTimeout(
+            iterator.next(),
+            PROCESS_TIMEOUT_MS,
+            'next Turn did not use the refreshed real backend',
+          );
+          if (next.done) throw new Error('Session subscription closed during the next Turn');
+          assert.equal(next.value.sequence, expectedSequence);
+          expectedSequence += 1;
+          if (
+            next.value.kind === 'subscription.session_delta' &&
+            next.value.delta.turnId === secondTurnId
+          ) {
+            assert.equal(next.value.delta.runId, secondStarted.runId);
+            if (next.value.delta.kind === 'text') secondText += next.value.delta.text;
+          }
+          if (next.value.kind === 'subscription.session_projection') {
+            const rootTurn = next.value.snapshot.rootTurn;
+            if (rootTurn?.turnId === secondTurnId && rootTurn.status === 'completed') {
+              secondTerminal = rootTurn;
+            }
+          }
+        }
+        assert.equal(secondText, secondFinalText);
+        assert.equal(requests[2]?.authorization, `Bearer ${apiKey}`);
+        assert.ok(JSON.stringify(requests[2]?.body).includes(updatedMarker));
+        assert.equal(handlerErrors.length, 0);
+
+        await observerSubscription.close();
+      } finally {
+        await Promise.allSettled([starter?.close(), observer?.close()]);
+        if (host.child.exitCode === null && host.child.signalCode === null) {
+          await fixture.stopHost(host);
+        }
+      }
+    });
+  } finally {
+    releaseFirstResponse?.();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
 
 test('two Clients arbitrate one per-Run Interaction winner', async () => {

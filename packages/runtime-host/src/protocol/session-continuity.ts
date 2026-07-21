@@ -23,6 +23,7 @@ import { decodeTurnSnapshot, type TurnSnapshot } from './turn.js';
 
 export const SESSION_CONTINUITY_SCHEMA_VERSION = 3 as const;
 export const SESSION_LIVE_DELTA_MAX_BYTES = 16 * 1024;
+export const SESSION_TOOL_NAME_MAX_BYTES = 256;
 export const SESSION_CONTINUITY_SNAPSHOT_MAX_BYTES = 56 * 1024;
 
 export type SessionLifecycleStatus =
@@ -97,6 +98,47 @@ export interface SessionDeltaFrame extends SubscriptionEnvelope {
   delta: SessionAssistantDelta;
 }
 
+interface SessionToolEventIdentity {
+  id: string;
+  turnId: string;
+  ts: number;
+  toolUseId: string;
+}
+
+export interface SessionToolStartEvent extends SessionToolEventIdentity {
+  type: 'tool_start';
+  toolName: string;
+  operationId?: string;
+  activityKind?:
+    | 'read'
+    | 'search'
+    | 'websearch'
+    | 'webfetch'
+    | 'edit'
+    | 'command'
+    | 'explore'
+    | 'browser'
+    | 'tool';
+  displayName?: string;
+  stepId?: string;
+}
+
+export interface SessionToolResultEvent extends SessionToolEventIdentity {
+  type: 'tool_result';
+  operationId?: string;
+  status: 'completed' | 'errored' | 'interrupted';
+  durationMs?: number;
+}
+
+export type SessionToolEvent = SessionToolStartEvent | SessionToolResultEvent;
+
+export interface SessionEventFrame extends SubscriptionEnvelope {
+  kind: 'subscription.session_event';
+  sessionId: string;
+  runId: string;
+  event: SessionToolEvent;
+}
+
 export interface SubscriptionClosedFrame extends SubscriptionEnvelope {
   kind: 'subscription.closed';
   reason: 'slow_consumer';
@@ -105,6 +147,7 @@ export interface SubscriptionClosedFrame extends SubscriptionEnvelope {
 export type SubscriptionFrame =
   | SessionProjectionFrame
   | SessionDeltaFrame
+  | SessionEventFrame
   | SubscriptionClosedFrame;
 
 export const SESSION_CONTINUITY_OPERATION_SPECS = {
@@ -200,6 +243,24 @@ export function decodeSubscriptionFrame(value: unknown): SubscriptionFrame {
       },
     };
   }
+  if (record.kind === 'subscription.session_event') {
+    assertExactKeys(record, 'Session event frame', [
+      'kind',
+      'hostEpoch',
+      'subscriptionId',
+      'sequence',
+      'sessionId',
+      'runId',
+      'event',
+    ]);
+    return {
+      kind: record.kind,
+      ...envelope,
+      sessionId: requireEntityId(record.sessionId, 'sessionId'),
+      runId: requireEntityId(record.runId, 'runId'),
+      event: decodeSessionToolEvent(record.event),
+    };
+  }
   if (record.kind === 'subscription.closed') {
     assertExactKeys(record, 'subscription closed frame', [
       'kind',
@@ -220,8 +281,106 @@ export function isSubscriptionFrameKind(value: unknown): value is SubscriptionFr
   return (
     value === 'subscription.session_projection' ||
     value === 'subscription.session_delta' ||
+    value === 'subscription.session_event' ||
     value === 'subscription.closed'
   );
+}
+
+function decodeSessionToolEvent(value: unknown): SessionToolEvent {
+  const event = requireRecord(value, 'Session tool event');
+  const identity = {
+    id: requireId(event.id, 'Session tool event id'),
+    turnId: requireEntityId(event.turnId, 'turnId'),
+    ts: requireCount(event.ts, 'Session tool event timestamp'),
+    toolUseId: requireId(event.toolUseId, 'toolUseId'),
+  };
+  if (event.type === 'tool_start') {
+    assertAllowedKeys(event, 'Session tool start event', [
+      'type',
+      'id',
+      'turnId',
+      'ts',
+      'toolUseId',
+      'toolName',
+      'operationId',
+      'activityKind',
+      'displayName',
+      'stepId',
+    ]);
+    const activityKind = decodeToolActivityKind(event.activityKind);
+    return {
+      type: event.type,
+      ...identity,
+      toolName: requireUtf8BoundedString(
+        event.toolName,
+        'Session tool name',
+        SESSION_TOOL_NAME_MAX_BYTES,
+      ),
+      ...(event.operationId === undefined
+        ? {}
+        : { operationId: requireEntityId(event.operationId, 'operationId') }),
+      ...(activityKind === undefined ? {} : { activityKind }),
+      ...(event.displayName === undefined
+        ? {}
+        : {
+            displayName: requireUtf8BoundedString(
+              event.displayName,
+              'Session tool display name',
+              SESSION_TOOL_NAME_MAX_BYTES,
+            ),
+          }),
+      ...(event.stepId === undefined ? {} : { stepId: requireEntityId(event.stepId, 'stepId') }),
+    };
+  }
+  if (event.type === 'tool_result') {
+    assertAllowedKeys(event, 'Session tool result event', [
+      'type',
+      'id',
+      'turnId',
+      'ts',
+      'toolUseId',
+      'operationId',
+      'status',
+      'durationMs',
+    ]);
+    if (
+      event.status !== 'completed' &&
+      event.status !== 'errored' &&
+      event.status !== 'interrupted'
+    ) {
+      throw invalidProtocolFrame('Invalid Session tool result status');
+    }
+    return {
+      type: event.type,
+      ...identity,
+      ...(event.operationId === undefined
+        ? {}
+        : { operationId: requireEntityId(event.operationId, 'operationId') }),
+      status: event.status,
+      ...(event.durationMs === undefined
+        ? {}
+        : { durationMs: requireCount(event.durationMs, 'Session tool result duration') }),
+    };
+  }
+  throw invalidProtocolFrame('Invalid Session tool event type');
+}
+
+function decodeToolActivityKind(value: unknown): SessionToolStartEvent['activityKind'] | undefined {
+  if (value === undefined) return;
+  if (
+    value === 'read' ||
+    value === 'search' ||
+    value === 'websearch' ||
+    value === 'webfetch' ||
+    value === 'edit' ||
+    value === 'command' ||
+    value === 'explore' ||
+    value === 'browser' ||
+    value === 'tool'
+  ) {
+    return value;
+  }
+  throw invalidProtocolFrame('Invalid Session tool activity kind');
 }
 
 function decodeSubscriptionOpenInput(value: unknown): SubscriptionOpenInput {

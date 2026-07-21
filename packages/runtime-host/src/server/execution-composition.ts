@@ -3,6 +3,7 @@ import { defaultLocalMemoryMarkdown } from '@maka/core/local-memory';
 import {
   BackendRegistry,
   FakeBackend,
+  PermissionEngine,
   RuntimeInteractionFailStopError,
   RuntimeInteractionInvariantError,
   type RuntimeMessageAuthority,
@@ -16,6 +17,7 @@ import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtim
 import { openInteractiveTaskLedgerStoreForWrite } from '@maka/storage/task-ledger-store';
 import { openInteractiveUsageStoresForWrite } from '@maka/storage/usage-stores';
 import { createCanonicalSessionProjectionReader } from './canonical-session-projection.js';
+import { createHostAiSdkBackend } from './execution-model-composition.js';
 import type {
   RuntimeHostComposition,
   RuntimeHostCompositionCloseResult,
@@ -46,7 +48,21 @@ export async function createExecutionRuntimeHostComposition(
   const artifactStore = await openInteractiveArtifactStoreForWrite(context.owner.lease);
   const memoryStore = await openInteractiveMemoryStoreForWrite(context.owner.lease);
   const usageStores = await openInteractiveUsageStoresForWrite(context.owner.lease);
-  const runtimePolicy = new HostRuntimePolicyCoordinator(runtimePolicyStores);
+  let manager!: SessionManager;
+  let failStopHandoff!: (error: RuntimeInteractionFailStopError) => void;
+  const refreshBackends = async () => {
+    try {
+      await manager.refreshIdleBackends();
+    } catch (error) {
+      failStopHandoff(
+        new RuntimeInteractionFailStopError(
+          'Could not invalidate Runtime Host backend snapshots after a committed policy change',
+          error,
+        ),
+      );
+    }
+  };
+  const runtimePolicy = new HostRuntimePolicyCoordinator(runtimePolicyStores, refreshBackends);
   const memory = new HostMemoryCoordinator(memoryStore, runtimePolicyStores.runtimePolicy);
   const usagePricing = new HostUsagePricingCoordinator(usageStores);
   const skills = new HostSkillCatalogCoordinator(
@@ -68,7 +84,6 @@ export async function createExecutionRuntimeHostComposition(
     sessionAdmission,
   );
   let failStopDisposition: RuntimeHostFailStopDisposition | undefined;
-  let failStopHandoff!: (error: RuntimeInteractionFailStopError) => void;
   const interaction = new HostInteractionAuthority(
     stores.interactionStore,
     continuity,
@@ -116,9 +131,23 @@ export async function createExecutionRuntimeHostComposition(
   const runtimeMessageAuthority = createFailStopMessageAuthority(messageCoordinator, (error) =>
     failStopHandoff(error),
   );
+  const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
   backends.register('fake', (backendContext) => new FakeBackend(backendContext));
-  const manager = new SessionManager({
+  backends.register('ai-sdk', (backendContext) =>
+    createHostAiSdkBackend({
+      context: backendContext,
+      runtimePolicy: runtimePolicyStores,
+      skills,
+      memory,
+      taskLedger: taskLedgerStore,
+      artifacts: artifactStore,
+      usage: usageStores,
+      permissionEngine,
+      onCredentialRefreshed: refreshBackends,
+    }),
+  );
+  manager = new SessionManager({
     store: stores.sessionStore,
     runStore: stores.agentRunStore,
     runtimeEventStore: stores.runtimeEventStore,

@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRunHeader } from '@maka/core/agent-run';
-import { messageContentsEqual, normalizeMessageContent } from '@maka/core/events';
+import {
+  messageContentsEqual,
+  normalizeMessageContent,
+  type SessionEvent,
+} from '@maka/core/events';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
 import {
   type RuntimeInteractionFailStopError,
@@ -36,6 +40,7 @@ import type { RootAdmissionWriter } from './root-admission-owner.js';
 import { type SessionAdmissionLease, SessionAdmissionGate } from './session-admission-gate.js';
 import {
   type AcceptedAssistantDeltaEvent,
+  type AcceptedToolEvent,
   SessionContinuityCoordinator,
 } from './session-continuity-coordinator.js';
 
@@ -781,6 +786,10 @@ export class RootTurnCoordinator {
           await this.continuity.acceptAssistantDelta(input.sessionId, active.runId, event);
           this.#assertTurnUsable(active.ownership);
         } else {
+          if (isToolEvent(event)) {
+            await this.continuity.acceptToolEvent(input.sessionId, active.runId, event);
+            this.#assertTurnUsable(active.ownership);
+          }
           const snapshot = await this.readCanonicalSnapshot(
             input.sessionId,
             input.turnId,
@@ -1106,6 +1115,10 @@ type RecoveryUserMessage = Extract<StoredMessage, { type: 'user' }>;
 
 function isAssistantDeltaEvent(event: { type: string }): event is AcceptedAssistantDeltaEvent {
   return event.type === 'text_delta' || event.type === 'thinking_delta';
+}
+
+function isToolEvent(event: SessionEvent): event is AcceptedToolEvent {
+  return event.type === 'tool_start' || event.type === 'tool_result';
 }
 
 function isTerminalSessionEvent(event: { type: string }): boolean {

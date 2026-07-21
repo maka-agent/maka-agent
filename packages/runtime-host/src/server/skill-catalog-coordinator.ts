@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { dirname } from 'node:path';
+import { validateSkillMetadata, type ScannedSkill } from '@maka/runtime';
 import {
   SKILL_CATALOG_PAGE_MAX_BYTES,
   SKILL_CATALOG_PAGE_MAX_ITEMS,
@@ -29,6 +31,7 @@ interface CanonicalSkillCatalogSnapshot {
   readonly installed: readonly SkillCatalogEntry[];
   readonly sources: readonly SkillCatalogSourceEntry[];
   readonly diagnostics: readonly SkillCatalogDiagnostic[];
+  readonly modelSkills: readonly ScannedSkill[];
   readonly filesystem: HostSkillFilesystemSnapshot;
 }
 
@@ -58,6 +61,14 @@ export class HostSkillCatalogCoordinator {
     await this.#filesystem.recover();
     this.#snapshot = createCanonicalSnapshot(await this.#filesystem.scan());
     this.#projectionUncertain = false;
+  }
+
+  /** Model-facing Skill scan derived only from the recovered canonical snapshot. */
+  readCanonicalModelSkills(): readonly ScannedSkill[] {
+    if (this.#projectionUncertain) {
+      throw new Error('Skill catalog projection is uncertain after a committed write');
+    }
+    return this.#requireSnapshot().modelSkills;
   }
 
   beginDrain(): void {
@@ -312,8 +323,36 @@ function createCanonicalSnapshot(
         (left, right) => left.scope.localeCompare(right.scope) || left.id.localeCompare(right.id),
       ),
   );
+  const modelSkills = Object.freeze(filesystem.installed.map(toScannedSkill));
   const revision = digestRevision({ installed, sources, diagnostics });
-  return Object.freeze({ revision, installed, sources, diagnostics, filesystem });
+  return Object.freeze({ revision, installed, sources, diagnostics, modelSkills, filesystem });
+}
+
+function toScannedSkill(skill: HostInstalledSkill): ScannedSkill {
+  const validation = validateSkillMetadata(skill.content);
+  if (!validation.valid) {
+    throw new Error(`Canonical Skill ${skill.id} is no longer valid`);
+  }
+  const declaredTools = [...skill.declaredTools];
+  const requiredTools = [...skill.requiredTools];
+  const requiredCapabilities = [...skill.requiredCapabilities];
+  Object.freeze(declaredTools);
+  Object.freeze(requiredTools);
+  Object.freeze(requiredCapabilities);
+  return Object.freeze({
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    path: skill.path,
+    declaredTools,
+    requiredTools,
+    requiredCapabilities,
+    enabled: skill.enabled,
+    runtimeStatus: skill.runtimeStatus,
+    content: validation.body,
+    contentSha256: skill.contentSha256,
+    discoveryRoot: dirname(dirname(skill.path)),
+  });
 }
 
 function isSourceInstalled(

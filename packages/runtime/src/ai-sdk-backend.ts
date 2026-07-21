@@ -63,7 +63,7 @@ import type {
   PermissionDecision,
 } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { LlmConnection } from '@maka/core/llm-connections';
+import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
@@ -473,7 +473,7 @@ export interface AiSdkBackendInput {
   appendMessage: AppendMessageFn;
 
   // ── Provider / model resolution (resolved by BackendRegistry) ──────────
-  connection: LlmConnection;
+  connection: RuntimeExecutionConnection;
   apiKey: string;
   modelId: string;
 

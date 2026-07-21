@@ -1,9 +1,9 @@
 import {
   PROVIDER_DEFAULTS,
   effectiveBaseUrl,
-  type LlmConnection,
   type ModelInfo,
   type ProviderRuntimeAdapter,
+  type RuntimeExecutionConnection,
 } from '@maka/core/llm-connections';
 import { lookupModelProviderOverride } from '@maka/core/model-metadata';
 
@@ -15,7 +15,7 @@ export interface ResolvedModelRuntime {
 }
 
 export function resolveModelRuntime(
-  connection: LlmConnection,
+  connection: RuntimeExecutionConnection,
   modelId: string,
 ): ResolvedModelRuntime {
   const override = lookupModelProviderOverride(connection.providerType, modelId);

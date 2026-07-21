@@ -350,6 +350,88 @@ describe('runtime policy stores', () => {
     });
   });
 
+  test('resolves execution connection material from one mutation cut', async () => {
+    await withInteractiveOwner(async ({ stores }) => {
+      const disabled = await createConnection(stores, 0, {
+        ...connectionDraft('execution-disabled', 'openai', 'Disabled'),
+        enabled: false,
+      });
+      const required = await createConnection(
+        stores,
+        1,
+        connectionDraft('execution-required', 'openai', 'Required'),
+      );
+      const optional = await createConnection(
+        stores,
+        2,
+        connectionDraft('execution-optional', 'localai', 'Optional'),
+      );
+      const none = await createConnection(
+        stores,
+        3,
+        connectionDraft('execution-none', 'ollama', 'None'),
+      );
+
+      assert.deepEqual(await stores.operations.resolveExecutionConnection('missing'), {
+        kind: 'not_found',
+      });
+      assert.deepEqual(await stores.operations.resolveExecutionConnection(disabled.slug), {
+        kind: 'disabled',
+      });
+
+      const missingRequired = await stores.operations.resolveExecutionConnection(required.slug);
+      assert.equal(missingRequired.kind, 'credential_not_configured');
+      if (missingRequired.kind === 'credential_not_configured') {
+        assert.deepEqual(missingRequired.status.locator, connectionCredential(required, 'api_key'));
+      }
+      for (const connection of [optional, none]) {
+        const resolved = await stores.operations.resolveExecutionConnection(connection.slug);
+        assert.equal(resolved.kind, 'ready');
+        if (resolved.kind === 'ready') assert.deepEqual(resolved.secretMaterial, {});
+      }
+
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: connectionCredential(required, 'api_key'),
+            expected: null,
+            secret: 'execution-connection-secret',
+          })
+        ).kind,
+        'committed',
+      );
+      assert.equal(
+        (
+          await stores.runtimePolicy.mutate(
+            networkProxyMutation(0, { host: 'execution.proxy.internal' }),
+          )
+        ).kind,
+        'committed',
+      );
+      const missingProxy = await stores.operations.resolveExecutionConnection(required.slug);
+      assert.equal(missingProxy.kind, 'credential_not_configured');
+      if (missingProxy.kind === 'credential_not_configured') {
+        assert.deepEqual(missingProxy.status.locator, proxyCredential());
+      }
+
+      const [proxySet, resolved] = await Promise.all([
+        stores.credentialVault.set({
+          locator: proxyCredential(),
+          expected: null,
+          secret: 'execution-proxy-secret',
+        }),
+        stores.operations.resolveExecutionConnection(required.slug),
+      ]);
+      assert.equal(proxySet.kind, 'committed');
+      assert.equal(resolved.kind, 'ready');
+      if (resolved.kind !== 'ready') return;
+      assert.deepEqual(resolved.connection, required);
+      assert.equal(resolved.networkProxy.host, 'execution.proxy.internal');
+      assert.equal(resolved.secretMaterial.connection?.secret, 'execution-connection-secret');
+      assert.equal(resolved.secretMaterial.networkProxy?.secret, 'execution-proxy-secret');
+    });
+  });
+
   test('supersedes older tickets per action, keeps action issuance independent, and rejects replay', async () => {
     await withInteractiveOwner(async ({ stores }) => {
       const connection = await createConnection(

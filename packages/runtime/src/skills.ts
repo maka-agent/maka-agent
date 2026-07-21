@@ -501,7 +501,15 @@ export async function buildSkillsPromptFragment(
   host?: HostCapabilities,
   budgetOptions?: SkillCatalogBudgetOptions,
 ): Promise<string | undefined> {
-  let skills = (await scanSkills(source)).filter((skill) => skill.enabled);
+  return buildSkillsPromptFragmentFromScan(await scanSkills(source), host, budgetOptions);
+}
+
+export function buildSkillsPromptFragmentFromScan(
+  scannedSkills: ScannedSkill[],
+  host?: HostCapabilities,
+  budgetOptions?: SkillCatalogBudgetOptions,
+): string | undefined {
+  let skills = scannedSkills.filter((skill) => skill.enabled);
   // Gate before prompt-budget truncation so a host lacking a required tool
   // never advertises the skill. `host === undefined` keeps the legacy
   // no-gating behavior.
@@ -642,6 +650,36 @@ export function buildSkillAgentTool(
   source: SkillSource | SkillSourceResolver,
   host?: HostCapabilities | HostCapabilitiesResolver,
 ): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
+  return buildSkillAgentToolWithLoader(
+    (name, context, resolvedHost) =>
+      loadSkillInstructions(
+        typeof source === 'function' ? source(context) : source,
+        name,
+        resolvedHost,
+      ),
+    host,
+  );
+}
+
+export function buildSkillAgentToolFromScan(
+  resolveSkills: (context: MakaToolContext) => ScannedSkill[] | Promise<ScannedSkill[]>,
+  host?: HostCapabilities | HostCapabilitiesResolver,
+): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
+  return buildSkillAgentToolWithLoader(
+    async (name, context, resolvedHost) =>
+      loadSkillInstructionsFromScan(await resolveSkills(context), name, resolvedHost),
+    host,
+  );
+}
+
+function buildSkillAgentToolWithLoader(
+  load: (
+    name: string,
+    context: MakaToolContext,
+    host?: HostCapabilities,
+  ) => LoadSkillInstructionsResult | Promise<LoadSkillInstructionsResult>,
+  host?: HostCapabilities | HostCapabilitiesResolver,
+): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
   return {
     name: SKILL_TOOL_NAME,
     description:
@@ -651,12 +689,7 @@ export function buildSkillAgentTool(
     }),
     permissionRequired: false,
     displayName: SKILL_TOOL_NAME,
-    impl: async ({ name }, ctx) =>
-      loadSkillInstructions(
-        typeof source === 'function' ? source(ctx) : source,
-        name,
-        typeof host === 'function' ? host(ctx) : host,
-      ),
+    impl: async ({ name }, ctx) => load(name, ctx, typeof host === 'function' ? host(ctx) : host),
   };
 }
 

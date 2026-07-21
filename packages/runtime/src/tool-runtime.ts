@@ -31,7 +31,7 @@ import type {
   ToolPermissionRule,
 } from '@maka/core/permission';
 import { createCanonicalToolIntent } from '@maka/core/permission';
-import type { LlmConnection } from '@maka/core/llm-connections';
+import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import type {
   UserQuestion,
   UserQuestionResponse,
@@ -290,7 +290,7 @@ function composeChildAbortSignal(
 export interface ToolRuntimeInput {
   sessionId: string;
   header: SessionHeader;
-  connection: LlmConnection;
+  connection: RuntimeExecutionConnection;
   modelId: string;
   appendMessage: AppendMessageFn;
   permissionEngine: PermissionEngine;

@@ -257,6 +257,7 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
           switch (frame.kind) {
             case 'subscription.session_projection':
             case 'subscription.session_delta':
+            case 'subscription.session_event':
             case 'subscription.closed':
               this.#acceptSubscriptionFrame(frame);
               continue;

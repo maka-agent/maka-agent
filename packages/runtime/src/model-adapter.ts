@@ -5,7 +5,10 @@ import type {
   ThinkingDeltaEvent,
   CompleteEvent,
 } from '@maka/core/events';
-import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
+import {
+  providerAuthRequiresSecret,
+  type RuntimeExecutionConnection,
+} from '@maka/core/llm-connections';
 import { lookupModelMetadata } from '@maka/core/model-metadata';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
@@ -25,7 +28,7 @@ import type { ProviderRequestTracker } from './provider-request-telemetry.js';
  * `LanguageModelV2` type into core's dependency graph.
  */
 export interface ModelFactoryInput {
-  connection: LlmConnection;
+  connection: RuntimeExecutionConnection;
   apiKey: string;
   modelId: string;
 }
@@ -40,7 +43,7 @@ export interface RepairableAiSdkToolCall {
 }
 
 export interface ModelAdapterInput {
-  connection: LlmConnection;
+  connection: RuntimeExecutionConnection;
   apiKey: string;
   modelId: string;
   modelFactory: ModelFactory;
@@ -391,7 +394,7 @@ export class ModelAdapter {
 }
 
 function selectedModelMaxOutputTokens(
-  connection: LlmConnection,
+  connection: RuntimeExecutionConnection,
   modelId: string,
   providerOptions: Record<string, unknown> | undefined,
 ): number | undefined {

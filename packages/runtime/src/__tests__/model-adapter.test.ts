@@ -13,12 +13,8 @@ describe('ModelAdapter stream and error normalization', () => {
     const adapter = new ModelAdapter({
       connection: {
         slug: 'localai',
-        name: 'LocalAI',
         providerType: 'localai',
         defaultModel: 'qwen3-8b',
-        enabled: true,
-        createdAt: 1,
-        updatedAt: 1,
       },
       apiKey: '',
       modelId: 'qwen3-8b',
@@ -583,12 +579,8 @@ function newAdapter(): ModelAdapter {
   return new ModelAdapter({
     connection: {
       slug: 'anthropic-main',
-      name: 'Anthropic',
       providerType: 'anthropic',
       defaultModel: 'claude-sonnet-4-5-20250929',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
     },
     apiKey: 'sk-test',
     modelId: 'claude-sonnet-4-5-20250929',

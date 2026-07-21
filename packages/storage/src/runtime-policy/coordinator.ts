@@ -1,4 +1,5 @@
 import {
+  decodeConnectionSlug,
   decodeCredentialLocator,
   decodeCredentialVersionBasis,
   decodeRuntimePolicyEntityId,
@@ -60,6 +61,7 @@ import {
   type ModelFetchTicket,
   type RuntimePolicyCredentialMaterial,
   type RuntimePolicyOperationSecretMaterial,
+  type ResolveExecutionConnectionResult,
   type StoredOAuthRefreshCompletionResult,
   type StoredOAuthRefreshResult,
   type StoredOAuthRefreshTicket,
@@ -232,6 +234,35 @@ export class RuntimePolicyCoordinator {
         return deepFreeze({ kind: 'connection_not_found' as const });
       }
       return this.vault.delete(root, { expected });
+    });
+  }
+
+  resolveExecutionConnection(rawConnectionSlug: string): Promise<ResolveExecutionConnectionResult> {
+    return this.inLane(async (root) => {
+      const connectionSlug = decodeConnectionInput(() => decodeConnectionSlug(rawConnectionSlug));
+      const catalog = await this.catalog.read(root);
+      const connection = catalog.connections.find((candidate) => candidate.slug === connectionSlug);
+      if (!connection) return deepFreeze({ kind: 'not_found' as const });
+      if (!connection.enabled) return deepFreeze({ kind: 'disabled' as const });
+
+      const contract = deriveProviderAuthContract({
+        providerType: connection.providerType,
+        enabled: true,
+        hasSecret: true,
+        lastTestStatus: connection.lastTest?.status,
+      });
+      const prepared = await this.prepareConnectionMaterial(
+        root,
+        connection,
+        contract.requiresSecret,
+      );
+      if (prepared.kind !== 'ready') return prepared;
+      return deepFreeze({
+        kind: 'ready' as const,
+        connection: structuredClone(connection),
+        secretMaterial: prepared.secretMaterial,
+        networkProxy: structuredClone(prepared.networkProxy),
+      });
     });
   }
 
@@ -439,8 +470,19 @@ export class RuntimePolicyCoordinator {
       return deepFreeze({ kind: 'provider_action_unavailable' as const, availability });
     }
 
+    return this.prepareConnectionMaterial(root, connection, inherentContract.requiresSecret);
+  }
+
+  private async prepareConnectionMaterial(
+    root: string,
+    connection: ConnectionCatalogEntry,
+    requiresConnectionSecret: boolean,
+  ): Promise<
+    | PreparedConnectionOperation
+    | Extract<BeginPreparationFailure, { readonly kind: 'credential_not_configured' }>
+  > {
     const authKind = PROVIDER_DEFAULTS[connection.providerType].authKind;
-    const locator = connectionCredentialLocator(connectionId, authKind);
+    const locator = connectionCredentialLocator(connection.connectionId, authKind);
     const policy = await this.policy.read(root);
     const networkProxy = structuredClone(policy.policy.networkProxy);
     const proxyLocator = requiresNetworkProxyCredential(networkProxy)
@@ -459,7 +501,7 @@ export class RuntimePolicyCoordinator {
         connectionCredentialStatus = credentialStatus(vault, locator);
         const entry = findCredential(vault, locator);
         if (!entry) {
-          if (inherentContract.requiresSecret) {
+          if (requiresConnectionSecret) {
             return deepFreeze({
               kind: 'credential_not_configured' as const,
               status: connectionCredentialStatus,

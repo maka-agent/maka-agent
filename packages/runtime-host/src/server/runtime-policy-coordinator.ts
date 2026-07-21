@@ -76,9 +76,14 @@ export class HostRuntimePolicyCoordinator {
   };
 
   readonly #stores: RuntimePolicyStoresWriter;
+  readonly #onCommittedMutation: () => Promise<void>;
 
-  constructor(stores: RuntimePolicyStoresWriter) {
+  constructor(
+    stores: RuntimePolicyStoresWriter,
+    onCommittedMutation: () => Promise<void> = async () => {},
+  ) {
     this.#stores = authenticateRuntimePolicyStoresWriter(stores);
+    this.#onCommittedMutation = onCommittedMutation;
   }
 
   async #queryPolicy(): Promise<OperationOutcome<'runtime.policy.query'>> {
@@ -231,7 +236,11 @@ export class HostRuntimePolicyCoordinator {
   }
 
   async #storeMutation<T>(operation: () => Promise<T>): Promise<StoreMutationOutcome<T>> {
-    return this.#runStoreOperation(operation, 'mutation');
+    const outcome = await this.#runStoreOperation(operation, 'mutation');
+    if (outcome.ok && isCommittedMutation(outcome.result)) {
+      await this.#onCommittedMutation();
+    }
+    return outcome;
   }
 
   async #runStoreOperation<T>(
@@ -448,4 +457,13 @@ function sameLocator(left: CredentialLocator, right: CredentialLocator): boolean
 
 function invariantFailure(message: string): Error {
   return new Error(`Runtime policy coordinator invariant failed: ${message}`);
+}
+
+function isCommittedMutation(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'kind' in value &&
+    (value as { kind?: unknown }).kind === 'committed'
+  );
 }

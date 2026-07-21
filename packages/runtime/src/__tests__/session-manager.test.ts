@@ -107,6 +107,23 @@ function unusedMessageAuthority(): RuntimeMessageAuthority {
   };
 }
 
+function settledInteractionAuthority(): RuntimeInteractionAuthority {
+  const unexpectedCall = async (): Promise<never> => {
+    throw new Error('Interaction request is not part of this lifecycle test');
+  };
+  return {
+    bindRun: (identity) => ({
+      ...identity,
+      acceptPermissionRequest: unexpectedCall,
+      commitPermissionAnswer: unexpectedCall,
+      commitPermissionTimeout: unexpectedCall,
+      acceptUserQuestionRequest: unexpectedCall,
+      close: async () => {},
+      release: () => {},
+    }),
+  };
+}
+
 describe('SessionManager hosted lifecycle boundary', () => {
   test('rejects archive and remove before mutating the canonical Session', async () => {
     const store = new MemorySessionStore();
@@ -226,6 +243,179 @@ describe('SessionManager Interaction fail-stop', () => {
     await first.ownerIsolationDrain;
     await assert.rejects(first.reclaimDrain, (error: unknown) => error === fatal);
     assert.deepEqual(await runStore.readSessionRuntimeEvents(session.id), eventsBefore);
+  });
+});
+
+describe('SessionManager backend lifecycle', () => {
+  test('defers invalidation across pending backend activation and rebuilds after that turn', async () => {
+    const store = new MemorySessionStore();
+    const buildStarted = makeGate();
+    const buildRelease = makeGate();
+    const sendStarted = makeGate();
+    const sendRelease = makeGate();
+    const built: BackendLifecycleProbe[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', async (ctx) => {
+      const backend = new BackendLifecycleProbe(
+        ctx,
+        `backend-${built.length + 1}`,
+        built.length === 0 ? { sendStarted, sendRelease } : undefined,
+      );
+      built.push(backend);
+      if (built.length === 1) {
+        buildStarted.release();
+        await buildRelease.promise;
+      }
+      return backend;
+    });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(800),
+    });
+    const session = await manager.createSession(makeInput());
+
+    const firstTurn = drain(
+      manager.sendMessage(session.id, { turnId: 'turn-pending', text: 'first' }),
+    );
+    await buildStarted.promise;
+    await manager.refreshIdleBackends();
+    expect(built[0]?.identity).toBe('backend-1');
+    expect(built[0]?.disposed).toBe(false);
+
+    buildRelease.release();
+    await sendStarted.promise;
+    expect(built[0]?.disposed).toBe(false);
+
+    sendRelease.release();
+    await firstTurn;
+    expect(built[0]?.disposed).toBe(true);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-rebuilt', text: 'second' }));
+    expect(built.map((backend) => backend.identity)).toEqual(['backend-1', 'backend-2']);
+    assert.notEqual(built[1], built[0]);
+  });
+
+  test('clean drain disposes cached backend before reclaim completes', async () => {
+    const store = new MemorySessionStore();
+    const disposeStarted = makeGate();
+    const disposeRelease = makeGate();
+    const built: BackendLifecycleProbe[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      const backend = new BackendLifecycleProbe(ctx, 'cached-backend', undefined, {
+        disposeStarted,
+        disposeRelease,
+      });
+      built.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: settledInteractionAuthority(),
+        messageAuthority: unusedMessageAuthority(),
+      },
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(900),
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-complete', text: 'cache me' }));
+    const cachedBackend = built[0];
+    if (!cachedBackend) throw new Error('backend was not built');
+
+    const runtimeDrain = manager.beginRuntimeDrain();
+    let reclaimSettled = false;
+    void runtimeDrain.reclaimDrain.then(
+      () => {
+        reclaimSettled = true;
+      },
+      () => {
+        reclaimSettled = true;
+      },
+    );
+    await disposeStarted.promise;
+
+    expect(cachedBackend.identity).toBe('cached-backend');
+    expect(cachedBackend.disposed).toBe(false);
+    expect(reclaimSettled).toBe(false);
+
+    disposeRelease.release();
+    await runtimeDrain.reclaimDrain;
+    expect(cachedBackend.disposed).toBe(true);
+  });
+
+  test('clean drain disposes cached backend after admitted execution reclaim fails', async () => {
+    const store = new MemorySessionStore();
+    const reclaimFailure = new Error('admitted execution reclaim failed');
+    const disposalFailure = new Error('cached backend disposal failed');
+    const disposeStarted = makeGate();
+    const disposeRelease = makeGate();
+    let manager!: SessionManager;
+    let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
+    let cachedBackend: BackendLifecycleProbe | undefined;
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      if (ctx.header.name === 'Cached backend') {
+        cachedBackend = new BackendLifecycleProbe(ctx, 'cached-backend', undefined, {
+          disposeStarted,
+          disposeRelease,
+          failure: disposalFailure,
+        });
+        return cachedBackend;
+      }
+      runtimeDrain = manager.beginRuntimeDrain();
+      throw reclaimFailure;
+    });
+    manager = new SessionManager({
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: settledInteractionAuthority(),
+        messageAuthority: unusedMessageAuthority(),
+      },
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(950),
+    });
+    const cachedSession = await manager.createSession(makeInput({ name: 'Cached backend' }));
+    await drain(
+      manager.sendMessage(cachedSession.id, { turnId: 'turn-cached', text: 'cache me' }),
+    );
+    const failingSession = await manager.createSession(makeInput({ name: 'Failing execution' }));
+
+    const running = drain(
+      manager.sendMessage(failingSession.id, {
+        turnId: 'turn-reclaim-failure',
+        text: 'fail after admission',
+      }),
+    );
+    await assert.rejects(running, (error: unknown) => error === reclaimFailure);
+    assert.ok(runtimeDrain);
+    let reclaimSettled = false;
+    void runtimeDrain.reclaimDrain.then(
+      () => {
+        reclaimSettled = true;
+      },
+      () => {
+        reclaimSettled = true;
+      },
+    );
+
+    await disposeStarted.promise;
+    expect(cachedBackend?.disposed).toBe(false);
+    expect(reclaimSettled).toBe(false);
+
+    disposeRelease.release();
+    await assert.rejects(runtimeDrain.reclaimDrain, (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [reclaimFailure, disposalFailure]);
+      return true;
+    });
   });
 });
 
@@ -11854,6 +12044,15 @@ async function steeringDeliverySession(
   const backends = new BackendRegistry();
   let manager!: SessionManager;
   let sessionId = '';
+  const connection: LlmConnection = {
+    slug: 'mock-main',
+    name: 'Mock',
+    providerType: 'anthropic',
+    defaultModel: 'mock-model-id',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
   backends.register(
     'fake',
     (ctx) =>
@@ -11862,15 +12061,7 @@ async function steeringDeliverySession(
         sessionId: ctx.sessionId,
         header: ctx.header,
         appendMessage: async () => {},
-        connection: {
-          slug: 'mock-main',
-          name: 'Mock',
-          providerType: 'anthropic',
-          defaultModel: 'mock-model-id',
-          enabled: true,
-          createdAt: 1,
-          updatedAt: 1,
-        } satisfies LlmConnection,
+        connection,
         apiKey: 'sk-test',
         modelId: 'mock-model-id',
         permissionEngine: new PermissionEngine({ newId: () => 'perm-1', now: () => 1 }),
@@ -12140,6 +12331,43 @@ class TestBackend implements AgentBackend {
     if (this.ctx.store instanceof MemorySessionStore) {
       this.ctx.store.disposeCount += 1;
     }
+  }
+}
+
+class BackendLifecycleProbe extends TestBackend {
+  disposed = false;
+
+  constructor(
+    ctx: BackendFactoryContext,
+    readonly identity: string,
+    private readonly sending?: { sendStarted: Gate; sendRelease: Gate },
+    private readonly disposal?: {
+      disposeStarted: Gate;
+      disposeRelease: Gate;
+      failure?: unknown;
+    },
+  ) {
+    super(ctx, sending?.sendRelease);
+  }
+
+  [RUNTIME_BIND_HOSTED_RUN](_control: RuntimeHostedRunControl): RuntimeHostedBackendRunBinding {
+    return {
+      isolateRegisteredSuccessorEffects: async () => {},
+      revoke: () => {},
+    };
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sending?.sendStarted.release();
+    yield* super.send(input);
+  }
+
+  override async dispose(): Promise<void> {
+    this.disposal?.disposeStarted.release();
+    await this.disposal?.disposeRelease.promise;
+    if (this.disposal?.failure !== undefined) throw this.disposal.failure;
+    await super.dispose();
+    this.disposed = true;
   }
 }
 

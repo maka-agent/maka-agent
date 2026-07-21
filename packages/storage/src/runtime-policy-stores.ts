@@ -46,6 +46,7 @@ export type {
   RuntimePolicyCredentialMaterial,
   RuntimePolicyOperationCoordinator,
   RuntimePolicyOperationSecretMaterial,
+  ResolveExecutionConnectionResult,
   StoredOAuthRefreshCompletionResult,
   StoredOAuthRefreshResult,
   StoredOAuthRefreshTicket,
@@ -199,6 +200,8 @@ function createWriterFacade(coordinator: RuntimePolicyCoordinator): RuntimePolic
       delete: (input) => coordinator.deleteCredential(input),
     },
     operations: {
+      resolveExecutionConnection: (connectionSlug) =>
+        coordinator.resolveExecutionConnection(connectionSlug),
       beginModelFetch: (connectionId) => coordinator.beginModelFetch(connectionId),
       completeModelFetch: (ticket, result) => coordinator.completeModelFetch(ticket, result),
       beginConnectionTest: (connectionId) => coordinator.beginConnectionTest(connectionId),

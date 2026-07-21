@@ -950,6 +950,9 @@ export {
   testWechatIlinkCredentials,
   WechatBridge,
 } from './bots/index.js';
+export { createProxiedFetchTransport } from './bots/proxied-fetch.js';
+export type { ProxiedFetchProxy, ProxiedFetchTransport } from './bots/proxied-fetch.js';
+export { TOKEN_REFRESH_SKEW_MS, isModelExplicitlyUnsupportedForChat } from '@maka/core';
 export { setActiveProxy, resolveActiveProxy } from './network/active-proxy-state.js';
 export type {
   BotBridge,
@@ -1336,8 +1339,10 @@ export {
   scanSkillsWithDiagnostics,
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
+  buildSkillsPromptFragmentFromScan,
   loadSkillInstructions,
   buildSkillAgentTool,
+  buildSkillAgentToolFromScan,
   SKILL_TOOL_NAME,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,

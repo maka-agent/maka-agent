@@ -132,10 +132,11 @@ export class ClientSessionSubscription
       }
       this.#latestProjectionRevision = frame.snapshot.projectionRevision;
     } else if (
-      frame.kind === 'subscription.session_delta' &&
+      (frame.kind === 'subscription.session_delta' ||
+        frame.kind === 'subscription.session_event') &&
       frame.sessionId !== this.#expectedSessionId
     ) {
-      throw new Error('Session subscription delta identity changed');
+      throw new Error('Session subscription frame identity changed');
     }
 
     this.#offer(frame);

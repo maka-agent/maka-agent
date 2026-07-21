@@ -103,6 +103,17 @@ export type BeginStoredOAuthRefreshResult =
       readonly networkProxy: RuntimePolicy['networkProxy'];
     };
 
+export type ResolveExecutionConnectionResult =
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'credential_not_configured'; readonly status: CredentialStatus }
+  | {
+      readonly kind: 'ready';
+      readonly connection: ConnectionCatalogEntry;
+      readonly secretMaterial: RuntimePolicyOperationSecretMaterial;
+      readonly networkProxy: RuntimePolicy['networkProxy'];
+    };
+
 export type ModelFetchCompletionResult =
   | { readonly kind: 'committed'; readonly snapshot: ConnectionCatalogSnapshot }
   | { readonly kind: 'stale'; readonly changed: readonly CompletionChangedDomain[] }
@@ -118,6 +129,7 @@ export type StoredOAuthRefreshCompletionResult =
   | { readonly kind: 'stale'; readonly changed: readonly CompletionChangedDomain[] };
 
 export interface RuntimePolicyOperationCoordinator {
+  resolveExecutionConnection(connectionSlug: string): Promise<ResolveExecutionConnectionResult>;
   beginModelFetch(connectionId: string): Promise<BeginModelFetchResult>;
   completeModelFetch(
     ticket: ModelFetchTicket,

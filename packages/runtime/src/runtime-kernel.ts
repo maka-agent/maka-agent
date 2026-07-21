@@ -288,9 +288,26 @@ export class RuntimeKernel implements RuntimeKernelLike {
       ...isolation,
       ...fenced.executions.map((execution) => execution.waitForHostOwnerRelease()),
     ]).then(() => COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED);
+    const reclaimDrain = fenced.reclaimDrain.then(
+      async (settled) => {
+        await this.disposeCachedBackends();
+        return settled;
+      },
+      async (reclaimError: unknown) => {
+        try {
+          await this.disposeCachedBackends();
+        } catch (disposalError) {
+          throw new AggregateError(
+            [reclaimError, disposalError],
+            'Runtime reclaim and cached backend disposal failed',
+          );
+        }
+        throw reclaimError;
+      },
+    );
     this.runtimeDrain = Object.freeze({
       ownerIsolationDrain,
-      reclaimDrain: fenced.reclaimDrain,
+      reclaimDrain,
     });
     observeRuntimeTask(this.runtimeDrain.ownerIsolationDrain);
     observeRuntimeTask(this.runtimeDrain.reclaimDrain);
@@ -344,7 +361,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
             this.registerParentRun(active, activeRun);
             if (pending) {
               pending = false;
-              this.finishPendingTurnStart(sessionId, true);
+              this.finishPendingTurnStart(sessionId);
             }
           },
           unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
@@ -366,8 +383,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
           : undefined,
       );
     } finally {
-      if (pending) this.finishPendingTurnStart(sessionId, false);
-      execution.release();
+      try {
+        if (pending) {
+          const remaining = this.finishPendingTurnStart(sessionId);
+          if (remaining === 0) await this.flushBackendInvalidation(sessionId);
+        }
+      } finally {
+        execution.release();
+      }
     }
   }
 
@@ -1556,10 +1579,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     this.stopOperations.delete(sessionId);
   }
 
-  private finishPendingTurnStart(sessionId: string, _registered: boolean): void {
+  private finishPendingTurnStart(sessionId: string): number {
     const remaining = Math.max(0, (this.pendingTurnStarts.get(sessionId) ?? 1) - 1);
     if (remaining === 0) this.pendingTurnStarts.delete(sessionId);
     else this.pendingTurnStarts.set(sessionId, remaining);
+    return remaining;
   }
 
   private async appendStopProjection(sessionId: string, message: StoredMessage): Promise<void> {
@@ -1821,6 +1845,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
     for (const [key, active] of this.childActive.entries()) {
       if (active.sessionId === sessionId) this.childActive.delete(key);
     }
+  }
+
+  private async disposeCachedBackends(): Promise<void> {
+    const sessionIds = new Set(this.active.keys());
+    for (const active of this.childActive.values()) sessionIds.add(active.sessionId);
+    await settleRuntimeTasks([...sessionIds].map((sessionId) => this.disposeBackend(sessionId)));
   }
 
   private activeSessionsFor(sessionId: string): ActiveSession[] {
@@ -2208,7 +2238,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   private async flushBackendInvalidation(sessionId: string): Promise<void> {
-    if (!this.backendInvalidations.has(sessionId) || this.hasActiveRuns(sessionId)) return;
+    if (
+      !this.backendInvalidations.has(sessionId) ||
+      (this.pendingTurnStarts.get(sessionId) ?? 0) > 0 ||
+      this.hasActiveRuns(sessionId)
+    )
+      return;
     await this.disposeBackend(sessionId);
   }
 
