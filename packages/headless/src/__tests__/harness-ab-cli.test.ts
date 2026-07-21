@@ -93,7 +93,7 @@ test('harness A/B selects an explicit task subset in one resumable run', async (
     taskIds.join(','),
   );
 
-  assert.deepEqual(selection, { taskIds, limit: 2, pairConcurrency: 1 });
+  assert.deepEqual(selection, { taskIds, limit: 2, pairConcurrency: 2 });
   assert.throws(
     () => resolveHarnessAbRunId(competitorProfile, undefined, undefined, taskIds.join(',')),
     /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_IDS/,
@@ -330,10 +330,10 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.equal(codexProfile.config.permissions, 'container-full-access');
   assert.equal(codexProfile.config.transport, 'responses-http');
   const codexSelection = resolveHarnessAbTaskSelection(undefined, '5', undefined, codexProfile);
-  assert.equal(codexSelection.pairConcurrency, 1);
+  assert.equal(codexSelection.pairConcurrency, 4);
   assert.throws(
-    () => resolveHarnessAbTaskSelection(undefined, '5', '2', codexProfile),
-    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 1/,
+    () => resolveHarnessAbTaskSelection(undefined, '5', '5', codexProfile),
+    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 4/,
   );
   const codexManifest = buildHarnessAbManifest({
     subjectFingerprint: 'subject',
@@ -342,9 +342,9 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
     pairConcurrency: codexSelection.pairConcurrency,
     competitorProfile: codexProfile,
   });
-  assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'sequential' });
-  assert.equal(codexManifest.maxConcurrency, 1);
-  assert.equal(codexManifest.maxConcurrentAttempts, codexManifest.maxConcurrency);
+  assert.deepEqual(codexManifest.metadata.execution, { armExecution: 'parallel' });
+  assert.equal(codexManifest.maxConcurrency, 4);
+  assert.equal(codexManifest.maxConcurrentAttempts, 8);
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
     provider: 'kimi-coding-plan',

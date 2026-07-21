@@ -113,8 +113,8 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
   }),
   codex: Object.freeze({
     id: 'codex',
-    armExecution: 'sequential',
-    maxPairConcurrency: 1,
+    armExecution: 'parallel',
+    maxPairConcurrency: PAIR_CONCURRENCY,
     version: CODEX_TOOLCHAIN_SPEC.codex.version,
     toolchainFingerprint: CODEX_TOOLCHAIN_FINGERPRINT,
     runtime: Object.freeze({
