@@ -1,6 +1,7 @@
 import type {
   BranchFromTurnInput,
   PermissionResponse,
+  QuoteRef,
   RegenerateTurnInput,
   ReviseBeforeTurnInput,
   TurnOrchestration,
@@ -12,6 +13,9 @@ const MAX_PERMISSION_REQUEST_ID_LENGTH = 128;
 const MAX_TURN_ID_LENGTH = 128;
 const MAX_BRANCH_NAME_LENGTH = 200;
 const MAX_SESSION_SEND_TEXT_LENGTH = 128_000;
+const MAX_QUOTE_COUNT = 16;
+const MAX_QUOTE_TEXT_LENGTH = 32_000;
+const MAX_QUOTE_LABEL_LENGTH = 200;
 
 interface NormalizedSendSessionCommand {
   type: 'send';
@@ -19,6 +23,7 @@ interface NormalizedSendSessionCommand {
   text: string;
   attachmentItems?: unknown;
   turnOrchestration?: TurnOrchestration;
+  quotes?: QuoteRef[];
 }
 type NormalizedStopSessionInput = { source?: 'stop_button' };
 
@@ -111,6 +116,7 @@ export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessi
     ...(value.turnOrchestration !== undefined
       ? { turnOrchestration: normalizeTurnOrchestration(value.turnOrchestration) }
       : {}),
+    ...normalizeOptionalQuotes(value.quotes),
   };
 }
 
@@ -120,6 +126,34 @@ function normalizeTurnOrchestration(input: unknown): TurnOrchestration {
     throw new Error('Invalid turn orchestration');
   }
   return { mode: value.mode, source: value.source };
+}
+
+function normalizeOptionalQuotes(input: unknown): { quotes?: QuoteRef[] } {
+  if (input === undefined) return {};
+  if (!Array.isArray(input) || input.length > MAX_QUOTE_COUNT) {
+    throw new Error('Invalid send quotes');
+  }
+  const quotes = input.map((entry) => {
+    const value = requireObject(entry, 'Invalid send quote');
+    const label =
+      value.label === undefined
+        ? undefined
+        : normalizeOptionalString(value.label, 'Invalid send quote label', MAX_QUOTE_LABEL_LENGTH);
+    const sourceTurnId =
+      value.sourceTurnId === undefined
+        ? undefined
+        : normalizeRequiredString(
+            value.sourceTurnId,
+            'Invalid send quote sourceTurnId',
+            MAX_TURN_ID_LENGTH,
+          );
+    return {
+      text: normalizeRequiredString(value.text, 'Invalid send quote text', MAX_QUOTE_TEXT_LENGTH),
+      ...(label ? { label } : {}),
+      ...(sourceTurnId ? { sourceTurnId } : {}),
+    };
+  });
+  return quotes.length > 0 ? { quotes } : {};
 }
 
 export function normalizeStopSessionInput(input: unknown): NormalizedStopSessionInput {

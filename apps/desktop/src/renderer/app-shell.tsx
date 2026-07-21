@@ -105,6 +105,7 @@ import {
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
 import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
+import { useAppShellComposerQuotes } from './use-app-shell-composer-quotes';
 import { useComposerMentions } from './use-composer-mentions';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 import { useShellExpertTeams } from './use-shell-expert-teams';
@@ -220,6 +221,9 @@ function AppShellContent({
     removeAttachment,
     clearSubmittedAttachments,
   } = useAppShellComposerAttachments({ draftKey: attachmentDraftKey, toastApi });
+  const { pendingQuotes, addQuote, removeQuote, clearQuotes } = useAppShellComposerQuotes({
+    draftKey: attachmentDraftKey,
+  });
   const [newChatPlanModeActive, setNewChatPlanModeActive] = useState(false);
   const [pendingCollaborationModeBySession, setPendingCollaborationModeBySession] = useState<Record<string, boolean>>({});
   const [newChatSwarmModeActive, setNewChatSwarmModeActive] = useState(false);
@@ -1153,18 +1157,23 @@ function AppShellContent({
         return changed;
       }
       const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
+      const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
       const ok = await send(swarmCommand.task, pending, {
         turnOrchestration: { mode: 'swarm', source: 'slash_command' },
+        ...(quotes ? { quotes } : {}),
       });
       if (ok !== false && pending) clearSubmittedAttachments(pending);
+      if (ok !== false && quotes) clearQuotes();
       return ok;
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const expectedRevisionSessionId = revisionSend
       ? revisionDraftRef.current?.draftSessionId
       : undefined;
-    const ok = await send(text, pending);
+    const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
+    const ok = await send(text, pending, { ...(quotes ? { quotes } : {}) });
     if (ok !== false && pending) clearSubmittedAttachments(pending);
+    if (ok !== false && quotes) clearQuotes();
     if (ok !== false && revisionSend) {
       if (expectedRevisionSessionId) {
         composerRef.current?.clearDraft(expectedRevisionSessionId);
@@ -1713,6 +1722,10 @@ function AppShellContent({
                 onRevisionNavigate={openSessionInChat}
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
+                onQuoteSelection={(selection) => {
+                  addQuote(selection);
+                  composerRef.current?.focus();
+                }}
                 onContinueDeepResearchHandoff={(run) => {
                   const prompt = buildDeepResearchImplementationPrompt(run);
                   void createSession().then(() => {
@@ -1805,6 +1818,9 @@ function AppShellContent({
                 onSearchMentionFiles={searchMentionFiles}
                 pendingAttachments={pendingAttachments}
                 onRemoveAttachment={removeAttachment}
+                pendingQuotes={pendingQuotes}
+                onRemoveQuote={removeQuote}
+                onPasteAsQuote={addQuote}
                 onPickAttachments={
                   revisionDraft && activeId === revisionDraft.draftSessionId
                     ? undefined

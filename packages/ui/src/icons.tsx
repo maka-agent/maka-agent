@@ -104,6 +104,7 @@ export {
   SunMoon,
   Target,
   Terminal,
+  TextQuote,
   Timer,
   Trash2,
   User,

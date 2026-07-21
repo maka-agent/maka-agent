@@ -16,7 +16,7 @@ import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-m
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
-import { appendPromptContextDraft } from './composer-helpers.js';
+import { appendPromptContextDraft, isReferenceSizedPaste } from './composer-helpers.js';
 import { useComposerDraft } from './use-composer-draft.js';
 import { useComposerHistory } from './use-composer-history.js';
 import {
@@ -29,10 +29,11 @@ import {
 import { ComposerMentionPopup, mentionOptionId } from './composer-mention-popup.js';
 import { useMentionPopup } from './use-mention-popup.js';
 import { ComposerWorkspaceRow, type ComposerBranchPicker, type ComposerWorkspacePicker } from './composer-workspace-row.js';
-import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
+import type { AttachmentRef, PermissionMode, ProviderType, QuoteRef, SessionSummary } from '@maka/core';
 import { Button as UiButton, Switch } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
+import { QuoteRefChip } from './quote-ref-chip.js';
 import { Kbd } from './primitives/kbd.js';
 import { PermissionModeSelect } from './permission-mode-menu.js';
 import { Menu, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
@@ -102,6 +103,15 @@ export const Composer = forwardRef<
     onAttachFilePaths?(files: File[]): void | Promise<void>;
     pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
     onRemoveAttachment?(index: number): void;
+    /** Quoted excerpts staged for the next send; rendered as removable chips. */
+    pendingQuotes?: readonly QuoteRef[];
+    onRemoveQuote?(index: number): void;
+    /**
+     * Stage a reference-sized paste as a quote chip rather than letting it
+     * flood the textarea. Omitted by hosts that don't compose quotes, in which
+     * case a large paste behaves like any other paste.
+     */
+    onPasteAsQuote?(input: { text: string; label?: string }): void;
     /** Built-in expert teams offered under 专家团 in the "+" menu. */
     expertTeams?: readonly { id: string; name: string; description?: string }[];
     /** Start a new expert-team session from the "+" menu. */
@@ -509,12 +519,30 @@ export const Composer = forwardRef<
     // + a typed cast so this compiles AND keeps working when the
     // browser does expose the flag.
     if (isChatInputComposing(event, compositionActiveRef.current)) return;
-    if (!hasPastedFiles(event)) return;
+    if (!hasPastedFiles(event)) {
+      pasteLongTextAsQuote(event);
+      return;
+    }
     if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
     void runImportAction('attach', () => props.onAttachFilePaths?.(files));
+  }
+
+  /**
+   * A paste this big is reference material (a log, a diff, a doc section), not
+   * a prompt the user is going to keep editing inline — so it becomes a quote
+   * chip instead of flooding the textarea, and the model still receives it
+   * verbatim. Below the threshold the paste stays a normal paste; the user is
+   * writing, not attaching.
+   */
+  function pasteLongTextAsQuote(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (!props.onPasteAsQuote || props.disabled) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!isReferenceSizedPaste(text)) return;
+    event.preventDefault();
+    props.onPasteAsQuote({ text, label: copy.pastedQuoteLabel });
   }
 
   useEffect(() => {
@@ -597,6 +625,19 @@ export const Composer = forwardRef<
         className="maka-composer-inner composerInner agents-parchment-paper-surface"
         data-streaming={props.streaming ? 'true' : undefined}
       >
+        {/* No px on the chip row: `.maka-composer-inner` already pads the card,
+            so an extra px-3 would sit the chips 12px right of the textarea. */}
+        {props.pendingQuotes && props.pendingQuotes.length > 0 ? (
+          <div className="flex flex-wrap items-start gap-1 pb-1">
+            {props.pendingQuotes.map((quote, index) => (
+              <QuoteRefChip
+                key={`${quote.sourceTurnId ?? 'quote'}-${index}`}
+                quote={quote}
+                onRemove={props.onRemoveQuote ? () => props.onRemoveQuote?.(index) : undefined}
+              />
+            ))}
+          </div>
+        ) : null}
         {props.pendingAttachments && props.pendingAttachments.length > 0 ? (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {props.pendingAttachments.map((attachment, index) => (

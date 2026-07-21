@@ -40,6 +40,7 @@
 @import "./styles/daily-review.css";
 @import "./styles/theme-glass.css";
 @import "./styles/prompt-rail.css";
+@import "./styles/quote-chip.css";
 
 @theme inline {
   --color-background: var(--background);

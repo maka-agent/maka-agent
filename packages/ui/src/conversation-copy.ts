@@ -58,6 +58,7 @@ export interface ConversationCopy {
   composer: {
     placeholder: string;
     textareaAriaLabel: string;
+    pastedQuoteLabel: string;
     awaitingPermission: string;
     sending: string;
     importing: string;
@@ -205,6 +206,7 @@ export interface ConversationCopy {
     editMessage: string;
     editMessageDisabledRunning: string;
     editMessageDisabledAttachments: string;
+    editMessageDisabledQuotes: string;
     editMessageDisabledTransformedText: string;
     copyThinking: string;
     imageAriaLabel: (name: string) => string;
@@ -218,6 +220,10 @@ export interface ConversationCopy {
     thinkingTruncatedTitle: string;
     outputTruncatedTitle: string;
     removeAttachmentAriaLabel: (name: string) => string;
+    quoteLabel: string;
+    quoteExpandAriaLabel: string;
+    quoteCollapseAriaLabel: string;
+    removeQuoteAriaLabel: string;
     aborted: string;
     abortedByStop: string;
   };
@@ -252,6 +258,7 @@ export interface ConversationCopy {
     loading: string;
     retryLoad: string;
     jumpLatest: string;
+    quoteSelection: string;
     noMessages: string;
     branchTitle: (name: string, beforeAbort: boolean) => string;
     branchLabel: (name: string, beforeAbort: boolean) => string;
@@ -319,7 +326,7 @@ const CONVERSATION_COPY = {
       startersAriaLabel: '深度研究起手式', starters: DEEP_RESEARCH_STARTER_PROMPTS,
     },
     composer: {
-      placeholder: '描述任务，@ 引用文件，/ 选择技能…', textareaAriaLabel: '消息输入框', awaitingPermission: '等待你确认权限…',
+      placeholder: '描述任务，@ 引用文件，/ 选择技能…', textareaAriaLabel: '消息输入框', pastedQuoteLabel: '粘贴的文本', awaitingPermission: '等待你确认权限…',
       sending: '正在发送…', importing: '正在导入…', sendLabel: '发送', stopLabel: '停止', stopping: '停止中…',
       streaming: 'Maka 正在回答…', processing: 'Maka 正在处理…', continuing: 'Maka 继续中…',
       interruptHint: '或点停止中断', addContext: '添加上下文', importText: '导入文本文件', attachFile: '附加文件', expertTeam: '专家团',
@@ -367,9 +374,9 @@ const CONVERSATION_COPY = {
       branchTitle: (branch) => branch ? `分支：${branch}` : '选择分支', branchAriaLabel: (branch) => branch ? `切换分支：${branch}` : '选择分支',
     },
     messages: {
-      you: '你', assistant: 'Maka', processing: '正在处理…', continuing: '继续中…', safeResumePending: '正在验证…', safeResume: '安全恢复', thinking: '深度思考', truncated: '已截断', copied: '已复制', copying: '复制中', copyFailed: '复制失败', copy: '复制', copyMessage: '复制消息', editMessage: '编辑并重发', editMessageDisabledRunning: '当前回答仍在进行中，结束后再编辑', editMessageDisabledAttachments: '包含附件的历史消息暂不支持编辑并重发', editMessageDisabledTransformedText: '通过显式技能发送的历史消息暂不支持编辑并重发', copyThinking: '复制思考过程',
+      you: '你', assistant: 'Maka', processing: '正在处理…', continuing: '继续中…', safeResumePending: '正在验证…', safeResume: '安全恢复', thinking: '深度思考', truncated: '已截断', copied: '已复制', copying: '复制中', copyFailed: '复制失败', copy: '复制', copyMessage: '复制消息', editMessage: '编辑并重发', editMessageDisabledRunning: '当前回答仍在进行中，结束后再编辑', editMessageDisabledAttachments: '包含附件的历史消息暂不支持编辑并重发', editMessageDisabledQuotes: '包含引用的历史消息暂不支持编辑并重发', editMessageDisabledTransformedText: '通过显式技能发送的历史消息暂不支持编辑并重发', copyThinking: '复制思考过程',
       imageAriaLabel: (name) => `查看图片 ${name}`, userAriaLabel: '你发送的消息', assistantAriaLabel: 'Maka 的回答', answerActionsAriaLabel: '本轮回答操作', sourceAriaLabel: '本轮回答的来源', derivativesAriaLabel: '本轮回答的衍生', automationTriggered: '定时任务触发', automationTitle: (id) => `由定时任务触发 · ${id}`,
-      thinkingTruncatedTitle: '部分 reasoning 已截断；显示的是最近的内容', outputTruncatedTitle: '助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。', removeAttachmentAriaLabel: (name) => `移除 ${name}`, aborted: '(已中断)', abortedByStop: '(已中断 · 由停止按钮触发)',
+      thinkingTruncatedTitle: '部分 reasoning 已截断；显示的是最近的内容', outputTruncatedTitle: '助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。', removeAttachmentAriaLabel: (name) => `移除 ${name}`, quoteLabel: '引用', quoteExpandAriaLabel: '展开引用全文', quoteCollapseAriaLabel: '收起引用', removeQuoteAriaLabel: '移除引用', aborted: '(已中断)', abortedByStop: '(已中断 · 由停止按钮触发)',
     },
     chat: {
       memory: '记忆', memoryAriaLabel: '本地记忆已启用', memoryTitle: '本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆管理。', deepResearch: '深度研究', deepResearchAriaLabel: '深度研究，只读探索', deepResearchTitle: '深度研究会话使用只读探索边界：先阅读和分析，默认不改文件。',
@@ -397,7 +404,7 @@ const CONVERSATION_COPY = {
         },
       },
       clearGoal: (condition, iteration, max, status) => `自主执行目标进行中：「${condition}」（第 ${iteration}/${max} 轮，${status}）。系统每轮后自动续行；点击可清除目标、停止续行。`, clearGoalAriaLabel: (iteration, max) => `清除自主执行目标（已进行 ${iteration}/${max} 轮）`, goalLabel: (iteration, max) => `目标 ${iteration}/${max} · 清除`,
-      loadFailed: '对话载入失败', loading: '载入中…', retryLoad: '重试载入', jumpLatest: '跳到最新消息', noMessages: '暂无消息',
+      loadFailed: '对话载入失败', loading: '载入中…', retryLoad: '重试载入', jumpLatest: '跳到最新消息', quoteSelection: '引用', noMessages: '暂无消息',
       branchTitle: (name, beforeAbort) => beforeAbort ? `从中断前分支自 ${name} · 点击跳回原会话` : `分自 ${name} · 点击跳回原会话`, branchLabel: (name, beforeAbort) => beforeAbort ? `从中断前分支自 ${name}` : `分自 ${name}`,
       revisionVersionsAriaLabel: '对话版本', revisionVersion: (current, total) => `版本 ${current} / ${total}`, previousRevision: '查看上一版本', nextRevision: '查看下一版本',
     },
@@ -454,7 +461,7 @@ const CONVERSATION_COPY = {
       ],
     },
     composer: {
-      placeholder: 'Describe a task, @ to reference files, / for skills…', textareaAriaLabel: 'Message input', awaitingPermission: 'Waiting for your permission decision…',
+      placeholder: 'Describe a task, @ to reference files, / for skills…', textareaAriaLabel: 'Message input', pastedQuoteLabel: 'Pasted text', awaitingPermission: 'Waiting for your permission decision…',
       sending: 'Sending…', importing: 'Importing…', sendLabel: 'Send', stopLabel: 'Stop', stopping: 'Stopping…',
       streaming: 'Maka is responding…', processing: 'Maka is working…', continuing: 'Maka is continuing…',
       interruptHint: 'or click Stop to interrupt', addContext: 'Add context', importText: 'Import text file', attachFile: 'Attach file', expertTeam: 'Expert team',
@@ -502,9 +509,9 @@ const CONVERSATION_COPY = {
       branchTitle: (branch) => branch ? `Branch: ${branch}` : 'Choose branch', branchAriaLabel: (branch) => branch ? `Switch branch: ${branch}` : 'Choose branch',
     },
     messages: {
-      you: 'You', assistant: 'Maka', processing: 'Working…', continuing: 'Continuing…', safeResumePending: 'Checking…', safeResume: 'Safe recovery', thinking: 'Thinking', truncated: 'Truncated', copied: 'Copied', copying: 'Copying', copyFailed: 'Copy failed', copy: 'Copy', copyMessage: 'Copy message', editMessage: 'Edit & resend', editMessageDisabledRunning: 'Wait for this answer to finish before editing', editMessageDisabledAttachments: 'Edit & resend does not yet support messages with attachments', editMessageDisabledTransformedText: 'Edit & resend does not yet support messages sent with an explicit skill', copyThinking: 'Copy reasoning',
+      you: 'You', assistant: 'Maka', processing: 'Working…', continuing: 'Continuing…', safeResumePending: 'Checking…', safeResume: 'Safe recovery', thinking: 'Thinking', truncated: 'Truncated', copied: 'Copied', copying: 'Copying', copyFailed: 'Copy failed', copy: 'Copy', copyMessage: 'Copy message', editMessage: 'Edit & resend', editMessageDisabledRunning: 'Wait for this answer to finish before editing', editMessageDisabledAttachments: 'Edit & resend does not yet support messages with attachments', editMessageDisabledQuotes: 'Edit & resend does not yet support messages with quotes', editMessageDisabledTransformedText: 'Edit & resend does not yet support messages sent with an explicit skill', copyThinking: 'Copy reasoning',
       imageAriaLabel: (name) => `View image ${name}`, userAriaLabel: 'Your message', assistantAriaLabel: "Maka's response", answerActionsAriaLabel: 'Response actions', sourceAriaLabel: 'Source of this response', derivativesAriaLabel: 'Responses derived from this one', automationTriggered: 'Triggered by automation', automationTitle: (id) => `Triggered by automation · ${id}`,
-      thinkingTruncatedTitle: 'Some reasoning was truncated; showing the most recent content', outputTruncatedTitle: 'The assistant output exceeded the per-turn limit. Regenerate it or inspect the persisted session log for the complete content.', removeAttachmentAriaLabel: (name) => `Remove ${name}`, aborted: '(Interrupted)', abortedByStop: '(Interrupted · Stop button)',
+      thinkingTruncatedTitle: 'Some reasoning was truncated; showing the most recent content', outputTruncatedTitle: 'The assistant output exceeded the per-turn limit. Regenerate it or inspect the persisted session log for the complete content.', removeAttachmentAriaLabel: (name) => `Remove ${name}`, quoteLabel: 'Quote', quoteExpandAriaLabel: 'Show the full quoted excerpt', quoteCollapseAriaLabel: 'Collapse the quoted excerpt', removeQuoteAriaLabel: 'Remove quote', aborted: '(Interrupted)', abortedByStop: '(Interrupted · Stop button)',
     },
     chat: {
       memory: 'Memory', memoryAriaLabel: 'Local memory enabled', memoryTitle: 'Local MEMORY.md is included in the agent system prompt. Click to manage it in Settings · Memory.', deepResearch: 'Deep Research', deepResearchAriaLabel: 'Deep Research, read-only exploration', deepResearchTitle: 'Deep Research uses a read-only boundary: inspect and analyze first, without changing files by default.',
@@ -532,7 +539,7 @@ const CONVERSATION_COPY = {
         },
       },
       clearGoal: (condition, iteration, max, status) => `Autonomous goal in progress: “${condition}” (iteration ${iteration}/${max}, ${status}). Maka continues after each iteration; click to clear the goal and stop continuing.`, clearGoalAriaLabel: (iteration, max) => `Clear autonomous goal after ${iteration}/${max} iterations`, goalLabel: (iteration, max) => `Goal ${iteration}/${max} · Clear`,
-      loadFailed: 'Conversation failed to load', loading: 'Loading…', retryLoad: 'Retry', jumpLatest: 'Jump to latest message', noMessages: 'No messages yet',
+      loadFailed: 'Conversation failed to load', loading: 'Loading…', retryLoad: 'Retry', jumpLatest: 'Jump to latest message', quoteSelection: 'Quote', noMessages: 'No messages yet',
       branchTitle: (name, beforeAbort) => beforeAbort ? `Branched before interruption from ${name} · Click to return` : `Branched from ${name} · Click to return`, branchLabel: (name, beforeAbort) => beforeAbort ? `Branched before interruption from ${name}` : `Branched from ${name}`,
       revisionVersionsAriaLabel: 'Conversation versions', revisionVersion: (current, total) => `Version ${current} of ${total}`, previousRevision: 'View previous version', nextRevision: 'View next version',
     },

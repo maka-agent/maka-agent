@@ -9,6 +9,7 @@
 import {
   TOOL_ACTIVITY_KINDS,
   type AttachmentRef,
+  type QuoteRef,
   type ToolActivityKind,
   type ToolResultContent,
 } from './events.js';
@@ -239,6 +240,8 @@ export interface UserMessage {
    */
   displayText?: string;
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts carried into this message; rendered as chips. */
+  quotes?: QuoteRef[];
   /** Non-user trigger source (automation fire). Lets the chat mark turns the
    *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
   origin?: { kind: 'automation'; automationId: string };
@@ -411,7 +414,7 @@ export interface SystemNoteMessage {
 
 const USER_MESSAGE_SHAPE = defineObjectShape<UserMessage>()(
   ['type', 'id', 'turnId', 'ts', 'text'],
-  ['displayText', 'attachments', 'origin'],
+  ['displayText', 'attachments', 'quotes', 'origin'],
 );
 const ASSISTANT_MESSAGE_SHAPE = defineObjectShape<AssistantMessage>()(
   ['type', 'id', 'turnId', 'ts', 'text', 'modelId'],

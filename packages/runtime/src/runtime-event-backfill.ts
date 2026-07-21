@@ -94,6 +94,9 @@ export function backfillRuntimeEventsFromStoredMessages(
             ...(message.attachments !== undefined && message.attachments.length > 0
               ? { attachments: message.attachments }
               : {}),
+            ...(message.quotes !== undefined && message.quotes.length > 0
+              ? { quotes: message.quotes }
+              : {}),
           },
           actions: { stateDelta: recoveryState(now, message) },
           refs: { storedMessageId: message.id },

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AttachmentRef, SessionHeader } from '@maka/core';
+import type { AttachmentRef, QuoteRef, SessionHeader } from '@maka/core';
 import type { ArtifactStore } from '@maka/storage';
 import { ingestAttachments, resolveIngestItems } from './attachment-ingest.js';
 import type { AttachmentApprovalRegistry } from './attachment-approval.js';
@@ -9,6 +9,8 @@ export interface SendCommandWithItems {
   turnId?: string;
   text: string;
   attachmentItems?: unknown;
+  /** Inline quoted excerpts; already normalized at the IPC boundary. */
+  quotes?: QuoteRef[];
 }
 
 /**

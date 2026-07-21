@@ -196,6 +196,7 @@ export interface MakaBridge {
             text: string;
             attachmentItems?: RendererIngestInput[];
             turnOrchestration?: TurnOrchestration;
+            quotes?: import('@maka/core').QuoteRef[];
           },
     ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;

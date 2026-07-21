@@ -8,7 +8,7 @@
  * implementation file.
  */
 
-import type { AttachmentRef, SessionEvent } from './events.js';
+import type { AttachmentRef, QuoteRef, SessionEvent } from './events.js';
 import type { RuntimeEvent } from './runtime-event.js';
 import type { StoredMessage, BackendKind } from './session.js';
 import type { PermissionResponse } from './permission.js';
@@ -40,6 +40,8 @@ export interface BackendSendInput {
   headAnchorRuntimeEvent?: RuntimeEvent;
   text: string;
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts folded into the model-facing user content. */
+  quotes?: QuoteRef[];
   /**
    * Prior conversation projected from the RuntimeEvent ledger into the
    * existing StoredMessage public shape. Adapters materialize this into the

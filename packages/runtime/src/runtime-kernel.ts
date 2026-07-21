@@ -742,6 +742,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
           : {}),
         text: input.text,
         ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+        ...(begin.backendInput.quotes ? { quotes: begin.backendInput.quotes } : {}),
         context: begin.backendInput.context,
         ...(begin.backendInput.runtimeContext !== undefined
           ? { runtimeContext: begin.backendInput.runtimeContext }

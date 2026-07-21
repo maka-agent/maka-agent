@@ -346,6 +346,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
           ? { turnOrchestration: sendCommand.turnOrchestration }
           : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(sendCommand.quotes ? { quotes: sendCommand.quotes } : {}),
       },
       {
         onRunStarted: async (_runId, header) => {

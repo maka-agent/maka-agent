@@ -2,7 +2,7 @@
  * Inputs to runtime APIs (create session, send message, list/filter).
  */
 
-import type { AttachmentRef } from './events.js';
+import type { AttachmentRef, QuoteRef } from './events.js';
 import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
@@ -59,6 +59,8 @@ export interface UserMessageInput {
   /** Trusted host-supplied orchestration override for this turn only. */
   turnOrchestration?: TurnOrchestration;
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts; folded into model content, rendered as chips. */
+  quotes?: QuoteRef[];
   parentRunId?: string;
   /** Child AgentRun whose durable conversation this child continues. */
   resumedFromRunId?: string;

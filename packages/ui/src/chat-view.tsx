@@ -11,11 +11,13 @@ import {
   History,
   Target,
   Sparkles,
+  TextQuote,
 } from './icons.js';
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
+import { useMessageSelectionQuote } from './use-message-selection-quote.js';
 import type {
   DeepResearchRun,
   ProviderType,
@@ -195,6 +197,13 @@ export function ChatView(props: {
   onReadAttachmentBytes?: ReadAttachmentBytes;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
+  /**
+   * Codex/Cursor-style "quote this": when set, selecting text in the transcript
+   * surfaces a floating action that hands the excerpt (+ its turn) to the host,
+   * which stages it as a quote chip on the composer. Omitted by hosts that
+   * don't compose quotes.
+   */
+  onQuoteSelection?(input: { text: string; turnId?: string }): void;
 }) {
   const copy = getConversationCopy(useUiLocale()).chat;
   // chat + storedTools survive for the empty-state and streaming-bubble
@@ -332,6 +341,10 @@ export function ChatView(props: {
     target: props.scrollTargetTurn,
     behavior: props.scrollBehavior,
   });
+  const { quote: selectionQuote, clear: clearSelectionQuote } = useMessageSelectionQuote(
+    scrollRef,
+    Boolean(props.onQuoteSelection),
+  );
 
   if (!props.activeSession) {
     return (
@@ -543,6 +556,29 @@ export function ChatView(props: {
             <ArrowDown size={16} aria-hidden="true" />
           </BaseButton>
         )}
+        {selectionQuote && props.onQuoteSelection ? (
+          <button
+            type="button"
+            className="maka-quote-action"
+            style={{
+              top: `${Math.max(8, selectionQuote.rect.top - 42)}px`,
+              left: `${selectionQuote.rect.left + selectionQuote.rect.width / 2}px`,
+            }}
+            // Keep the live selection alive while clicking the action.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              props.onQuoteSelection?.({
+                text: selectionQuote.text,
+                ...(selectionQuote.turnId ? { turnId: selectionQuote.turnId } : {}),
+              });
+              clearSelectionQuote();
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <TextQuote size={14} aria-hidden="true" />
+            {copy.quoteSelection}
+          </button>
+        ) : null}
       </div>
     </main>
   );

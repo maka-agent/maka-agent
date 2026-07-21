@@ -51,6 +51,7 @@ export type {
   AbortEvent,
   StorageRef,
   AttachmentRef,
+  QuoteRef,
   AttachmentIngestItem,
   CompleteStopReason,
   ContextBudgetExhaustedDetail,

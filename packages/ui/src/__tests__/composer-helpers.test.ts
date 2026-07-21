@@ -1,11 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isReferenceSizedPaste,
   navigateComposerHistory,
   readComposerDraft,
   reconcileHistorySync,
   rememberComposerDraft,
   rememberComposerHistoryEntry,
+  PASTE_AS_QUOTE_MIN_CHARS,
+  PASTE_AS_QUOTE_MIN_LINES,
   type ComposerHistoryState,
 } from '../composer-helpers.js';
 
@@ -203,5 +206,30 @@ describe('navigateComposerHistory', () => {
     }
     assert.equal(value, '原始输入');
     assert.deepEqual(state, { entries: ['one', 'two'], index: -1, savedDraft: '' });
+  });
+});
+
+// A reference-sized paste becomes a quote chip instead of flooding the
+// textarea. The threshold has to catch both shapes of reference material —
+// long prose (few lines, many characters) and logs/diffs (many short lines) —
+// without stealing an ordinary multi-line prompt the user is still writing.
+describe('isReferenceSizedPaste', () => {
+  it('leaves an ordinary prompt alone', () => {
+    assert.equal(isReferenceSizedPaste(''), false);
+    assert.equal(isReferenceSizedPaste('fix the failing test'), false);
+    assert.equal(isReferenceSizedPaste('line one\nline two\nline three'), false);
+  });
+
+  it('catches a wall of prose on the character bound', () => {
+    assert.equal(isReferenceSizedPaste('x'.repeat(PASTE_AS_QUOTE_MIN_CHARS - 1)), false);
+    assert.equal(isReferenceSizedPaste('x'.repeat(PASTE_AS_QUOTE_MIN_CHARS)), true);
+  });
+
+  it('catches a log or diff on the line bound while each line stays short', () => {
+    const lines = (count: number) => Array.from({ length: count }, () => 'ok').join('\n');
+    assert.equal(isReferenceSizedPaste(lines(PASTE_AS_QUOTE_MIN_LINES)), false);
+    const pasted = lines(PASTE_AS_QUOTE_MIN_LINES + 1);
+    assert.ok(pasted.length < PASTE_AS_QUOTE_MIN_CHARS, 'must trip the line bound, not the char bound');
+    assert.equal(isReferenceSizedPaste(pasted), true);
   });
 });

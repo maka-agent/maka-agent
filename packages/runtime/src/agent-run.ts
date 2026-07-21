@@ -405,6 +405,7 @@ export class AgentRun {
         ...(this.input.userInput.attachments
           ? { attachments: this.input.userInput.attachments }
           : {}),
+        ...(this.input.userInput.quotes ? { quotes: this.input.userInput.quotes } : {}),
         context: begin.backendInput.context,
         ...(begin.backendInput.runtimeContext
           ? { runtimeContext: begin.backendInput.runtimeContext }
@@ -436,6 +437,7 @@ export class AgentRun {
       for await (const _runtimeEvent of flow.run(ctx, {
         text: begin.backendInput.text,
         ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+        ...(begin.backendInput.quotes ? { quotes: begin.backendInput.quotes } : {}),
         context: begin.backendInput.context,
         ...(begin.backendInput.runtimeContext
           ? { runtimeContext: begin.backendInput.runtimeContext }
@@ -501,6 +503,7 @@ export class AgentRun {
         ...(this.input.userInput.attachments
           ? { attachments: this.input.userInput.attachments }
           : {}),
+        ...(this.input.userInput.quotes ? { quotes: this.input.userInput.quotes } : {}),
         ...(this.input.userInput.origin ? { origin: this.input.userInput.origin } : {}),
       };
       await this.input.store.appendMessage(this.sessionId, userMsg);
@@ -542,6 +545,7 @@ export class AgentRun {
         ...(this.input.userInput.attachments
           ? { attachments: this.input.userInput.attachments }
           : {}),
+        ...(this.input.userInput.quotes ? { quotes: this.input.userInput.quotes } : {}),
         context: projectionContext,
         ...(priorRuntimeContext ? { runtimeContext: priorRuntimeContext.events } : {}),
       },
@@ -627,6 +631,7 @@ export class AgentRun {
       ...(this.input.userInput.attachments !== undefined
         ? { attachments: this.input.userInput.attachments }
         : {}),
+      ...(this.input.userInput.quotes !== undefined ? { quotes: this.input.userInput.quotes } : {}),
       ...(this.toolBoundaryProtocol ? { toolBoundaryProtocol: this.toolBoundaryProtocol } : {}),
     });
   }

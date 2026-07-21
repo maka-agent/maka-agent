@@ -14,7 +14,7 @@
  * projection, or ledger logic lives here. Those arrive in later nodes.
  */
 
-import type { AttachmentRef } from './events.js';
+import type { AttachmentRef, QuoteRef } from './events.js';
 import type { PermissionRequestPayload, PermissionResponse } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
@@ -126,6 +126,8 @@ export interface RuntimeEventTextContent {
    * into plain text.
    */
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts carried with the text turn (see QuoteRef). */
+  quotes?: QuoteRef[];
   /**
    * Marks a user message steered into a running turn at a step boundary.
    * `text` stays raw for UI/transcript projections; model-replay projections
@@ -376,7 +378,7 @@ const RUNTIME_EVENT_SHAPE = defineObjectShape<RuntimeEvent>()(
 );
 const TEXT_CONTENT_SHAPE = defineObjectShape<RuntimeEventTextContent>()(
   ['kind', 'text'],
-  ['displayText', 'attachments', 'steering'],
+  ['displayText', 'attachments', 'quotes', 'steering'],
 );
 const THINKING_CONTENT_SHAPE = defineObjectShape<RuntimeEventThinkingContent>()(
   ['kind', 'text'],

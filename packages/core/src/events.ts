@@ -63,6 +63,20 @@ export interface AttachmentRef {
   ref: StorageRef;
 }
 
+/**
+ * An inline quoted excerpt attached to a user message — e.g. text selected in
+ * the transcript and carried into a follow-up. Unlike {@link AttachmentRef}
+ * (file-backed), the quoted text lives inline: it renders as a chip on the user
+ * bubble (never as raw body text) and is folded into the model-facing content.
+ */
+export interface QuoteRef {
+  text: string;
+  /** Optional label shown on the chip (e.g. the source turn's role/preview). */
+  label?: string;
+  /** Provenance: the transcript turn the excerpt was selected from. */
+  sourceTurnId?: string;
+}
+
 // ============================================================================
 // Event union
 // ============================================================================

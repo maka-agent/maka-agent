@@ -121,6 +121,7 @@ export interface InitialUserRuntimeEventInput {
   /** Human-facing view when it differs from `text`; see RuntimeEventTextContent. */
   displayText?: string;
   attachments?: InvocationRequest['attachments'];
+  quotes?: InvocationRequest['quotes'];
   toolBoundaryProtocol?: ToolBoundaryProtocol;
 }
 
@@ -188,7 +189,11 @@ export class RuntimeRunner {
       if (!request.runtimeContext) {
         throw new Error('Runtime continuation requires replay context');
       }
-      if (request.text.length > 0 || request.attachments !== undefined) {
+      if (
+        request.text.length > 0 ||
+        request.attachments !== undefined ||
+        request.quotes !== undefined
+      ) {
         throw new Error('Runtime continuation cannot carry a new user message or attachments');
       }
       assertRuntimeContinuationEnvelope({
@@ -281,6 +286,7 @@ export class RuntimeRunner {
           ...(ctx.branch ? { branch: ctx.branch } : {}),
           text: request.text,
           ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+          ...(request.quotes !== undefined ? { quotes: request.quotes } : {}),
           ...(this.toolBoundaryProtocol ? { toolBoundaryProtocol: this.toolBoundaryProtocol } : {}),
         });
       events.push(userEvent);
@@ -486,6 +492,7 @@ export function buildInitialUserRuntimeEvent(input: InitialUserRuntimeEventInput
       ...(input.attachments !== undefined && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),
+      ...(input.quotes !== undefined && input.quotes.length > 0 ? { quotes: input.quotes } : {}),
     },
     ...(input.toolBoundaryProtocol
       ? { actions: { runtimeProtocol: { toolBoundary: input.toolBoundaryProtocol } } }
@@ -525,6 +532,7 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
     ...(request.runtimeContext !== undefined ? { runtimeContext: request.runtimeContext } : {}),
     ...(continuation !== undefined ? { continuation } : {}),
     ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+    ...(request.quotes !== undefined ? { quotes: request.quotes } : {}),
     ...(request.pullSteering !== undefined ? { pullSteering: request.pullSteering } : {}),
     ...(request.ackSteering !== undefined ? { ackSteering: request.ackSteering } : {}),
     ...(request.nackSteering !== undefined ? { nackSteering: request.nackSteering } : {}),

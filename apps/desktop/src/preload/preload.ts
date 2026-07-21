@@ -107,6 +107,7 @@ import type {
   AttachmentRef,
   OnboardingMilestoneId,
   QuickChatMode,
+  QuoteRef,
 } from '@maka/core';
 
 type LocalMemoryMutationResult =
@@ -152,6 +153,7 @@ const makaBridge = {
             text: string;
             attachmentItems?: RendererIngestInput[];
             turnOrchestration?: TurnOrchestration;
+            quotes?: QuoteRef[];
           },
     ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
       if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {

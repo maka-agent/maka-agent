@@ -42,6 +42,7 @@ import type {
   TokenUsageEvent,
   StorageRef,
   AttachmentRef,
+  QuoteRef,
 } from '@maka/core/events';
 import type {
   StoredMessage,
@@ -151,7 +152,7 @@ import {
   buildRuntimeEventModelReplayPlan,
   buildSteeringEnvelope,
   collectToolActivityTurnIds,
-  formatTextWithAttachmentRefs,
+  formatTextWithInlineRefs,
   steeringMessagesMissingFromBase,
   steeringModelMessage,
   steeringProviderOptions,
@@ -1118,7 +1119,7 @@ export class AiSdkBackend implements AgentBackend {
             ]);
         const currentUserContent = input.continuation
           ? undefined
-          : await this.buildCurrentUserContent(input.text, input.attachments);
+          : await this.buildCurrentUserContent(input.text, input.attachments, input.quotes);
         const messages =
           currentUserContent === undefined
             ? [...priorReplay.messages]
@@ -1157,7 +1158,10 @@ export class AiSdkBackend implements AgentBackend {
               priorRuntimeEventCount: priorReplay.runtimeEventCount,
               currentUserContent: input.continuation
                 ? ''
-                : formatTextWithAttachmentRefs(input.text, input.attachments),
+                : formatTextWithInlineRefs(input.text, {
+                    ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+                    ...(input.quotes !== undefined ? { quotes: input.quotes } : {}),
+                  }),
               turnTailPrompt,
             }),
             requestShape: computeRequestShapeDiagnostic(
@@ -2680,20 +2684,12 @@ export class AiSdkBackend implements AgentBackend {
         // still presents steering exactly once, in its one provider form.
         const sidecar = steeringSidecar?.get(m.id);
         if (sidecar) {
-          out.push(
-            steeringModelMessage(
-              sidecar.eventId,
-              formatTextWithAttachmentRefs(m.text, m.attachments),
-            ),
-          );
+          out.push(steeringModelMessage(sidecar.eventId, formatTextWithInlineRefs(m.text, m)));
           continue;
         }
         out.push({
           role: 'user',
-          content: await this.appendImageParts(
-            formatTextWithAttachmentRefs(m.text, m.attachments),
-            m.attachments,
-          ),
+          content: await this.appendImageParts(formatTextWithInlineRefs(m.text, m), m.attachments),
         } as ModelMessage);
       }
       // A thinking/tool-only step projects an assistant row with empty text;
@@ -2833,8 +2829,15 @@ export class AiSdkBackend implements AgentBackend {
   private async buildCurrentUserContent(
     text: string,
     attachments?: AttachmentRef[],
+    quotes?: QuoteRef[],
   ): Promise<ModelMessage['content']> {
-    return this.appendImageParts(formatTextWithAttachmentRefs(text, attachments), attachments);
+    return this.appendImageParts(
+      formatTextWithInlineRefs(text, {
+        ...(attachments !== undefined ? { attachments } : {}),
+        ...(quotes !== undefined ? { quotes } : {}),
+      }),
+      attachments,
+    );
   }
 
   private async resolveSystemPrompt(): Promise<string | undefined> {

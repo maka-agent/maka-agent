@@ -194,6 +194,46 @@ describe('permission response IPC boundary', () => {
     );
   });
 
+  it('normalizes inline quotes and rejects malformed quote payloads', () => {
+    assert.deepEqual(
+      normalizeSessionSendCommand({
+        type: 'send',
+        text: 'explain this',
+        quotes: [
+          { text: 'the excerpt', label: '  助手回复  ', sourceTurnId: 'turn-9', extra: true },
+          { text: 'second' },
+        ],
+      }),
+      {
+        type: 'send',
+        text: 'explain this',
+        quotes: [
+          { text: 'the excerpt', label: '助手回复', sourceTurnId: 'turn-9' },
+          { text: 'second' },
+        ],
+      },
+    );
+    // An empty array carries no reference — drop the key rather than persisting
+    // `quotes: []` onto the message.
+    assert.deepEqual(
+      normalizeSessionSendCommand({ type: 'send', text: 'hi', quotes: [] }),
+      { type: 'send', text: 'hi' },
+    );
+    assert.throws(() => normalizeSessionSendCommand({ type: 'send', text: 'hi', quotes: {} }), /send quotes/);
+    assert.throws(
+      () => normalizeSessionSendCommand({ type: 'send', text: 'hi', quotes: Array(17).fill({ text: 'x' }) }),
+      /send quotes/,
+    );
+    assert.throws(
+      () => normalizeSessionSendCommand({ type: 'send', text: 'hi', quotes: [{ text: '' }] }),
+      /send quote text/,
+    );
+    assert.throws(
+      () => normalizeSessionSendCommand({ type: 'send', text: 'hi', quotes: [{ text: 'x', sourceTurnId: 1 }] }),
+      /send quote sourceTurnId/,
+    );
+  });
+
   it('normalizes stop session input and rejects malformed stop sources', () => {
     assert.deepEqual(normalizeStopSessionInput(undefined), {});
     assert.deepEqual(normalizeStopSessionInput({ source: 'stop_button', extra: true }), { source: 'stop_button' });
@@ -566,7 +606,7 @@ describe('permission response IPC boundary', () => {
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,
-      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
+      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{[\s\S]*?replaceCurrentMessages: true,[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
       'normal Composer first-send must switch/show the new user turn only while the empty-chat surface still owns the async continuation',
     );
     assert.doesNotMatch(
@@ -581,7 +621,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       existingSessionBranch,
-      /window\.maka\.sessions\.send\(sessionId, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
+      /window\.maka\.sessions\.send\(sessionId, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments, \{[\s\S]*?\}\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
       'existing sessions should also show the user turn immediately before waiting for persisted storage',
     );
     assert.match(

@@ -30,7 +30,7 @@
  * `RuntimeRunner -> AiSdkFlow` without a flag day.
  */
 
-import type { AttachmentRef } from '@maka/core/events';
+import type { AttachmentRef, QuoteRef } from '@maka/core/events';
 import type { SteeringLease } from '@maka/core/backend-types';
 import type { StoredMessage } from '@maka/core/session';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -63,6 +63,8 @@ export interface FlowInput {
   text: string;
   /** Optional attachments bound to the user message. */
   attachments?: AttachmentRef[];
+  /** Optional inline quoted excerpts bound to the user message. */
+  quotes?: QuoteRef[];
   /**
    * Prior conversation history for model-history projection. The flow does
    * not own the inclusion policy; it receives whatever the runner/gate

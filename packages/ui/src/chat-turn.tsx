@@ -8,9 +8,10 @@ import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from '
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { Button as UiButton, DialogContent, DialogRoot } from './ui.js';
-import type { AttachmentRef } from '@maka/core';
+import type { AttachmentRef, QuoteRef } from '@maka/core';
 import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
+import { QuoteRefChip } from './quote-ref-chip.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
@@ -97,6 +98,7 @@ const MessageBody = memo(function MessageBody(props: {
   text: string;
   ts?: number;
   attachments?: readonly AttachmentRef[];
+  quotes?: readonly QuoteRef[];
   onReadAttachmentBytes?: ReadAttachmentBytes;
   /** When set on a user message, show an edit affordance that starts a revision draft. */
   onEditUserMessage?: () => void;
@@ -121,6 +123,13 @@ const MessageBody = memo(function MessageBody(props: {
       <>
         <Bubble variant="user">
           <span>{props.text}</span>
+          {props.quotes && props.quotes.length > 0 ? (
+            <div className="maka-user-quotes flex flex-wrap items-start gap-1 mt-1">
+              {props.quotes.map((quote, index) => (
+                <QuoteRefChip key={`${quote.sourceTurnId ?? 'quote'}-${index}`} quote={quote} />
+              ))}
+            </div>
+          ) : null}
           {props.attachments && props.attachments.length > 0 ? (
             <div className="maka-user-attachments flex flex-wrap gap-1.5 mt-2">
               {props.attachments.map((attachment, index) => (
@@ -420,14 +429,19 @@ export const TurnView = memo(function TurnView(props: {
             text={turn.user.text}
             ts={turn.user.ts}
             attachments={turn.user.attachments}
+            quotes={turn.user.quotes}
             onReadAttachmentBytes={props.onReadAttachmentBytes}
             onEditUserMessage={
               props.onEditUserMessage && !turn.user.automationOrigin
                 ? () => props.onEditUserMessage?.(turn.turnId)
                 : undefined
             }
+            // A revision restages neither attachments nor quotes, so a turn
+            // carrying either can't be edited without silently dropping the
+            // reference the answer was grounded in.
             editDisabled={
               (turn.user.attachments?.length ?? 0) > 0 ||
+              (turn.user.quotes?.length ?? 0) > 0 ||
               props.editUserMessageTransformed === true ||
               props.editUserMessageDisabled === true ||
               turn.status === 'running' ||
@@ -436,11 +450,14 @@ export const TurnView = memo(function TurnView(props: {
             editDisabledReason={
               (turn.user.attachments?.length ?? 0) > 0
                 ? copy.editMessageDisabledAttachments
-                : props.editUserMessageTransformed
-                  ? copy.editMessageDisabledTransformedText
-                  : copy.editMessageDisabledRunning
+                : (turn.user.quotes?.length ?? 0) > 0
+                  ? copy.editMessageDisabledQuotes
+                  : props.editUserMessageTransformed
+                    ? copy.editMessageDisabledTransformedText
+                    : copy.editMessageDisabledRunning
             }
           />
+
         </Message>
       )}
       {turn.notes.map((note) => (

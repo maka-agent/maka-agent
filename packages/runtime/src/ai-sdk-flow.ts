@@ -719,6 +719,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
           : {}),
         text: input.text,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+        ...(input.quotes !== undefined ? { quotes: input.quotes } : {}),
         context: input.context,
         ...(input.runtimeContext !== undefined ? { runtimeContext: input.runtimeContext } : {}),
         ...(input.continuation !== undefined ? { continuation: input.continuation } : {}),

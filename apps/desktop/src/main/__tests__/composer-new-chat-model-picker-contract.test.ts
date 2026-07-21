@@ -196,7 +196,7 @@ describe('home composer new-chat model picker', () => {
     assert.match(sendBlock, /upsertSessionSummary\(session\);/);
     assert.match(
       sendBlock,
-      /if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(session\.id\);[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\);[\s\S]*\}/,
+      /if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(session\.id\);[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{[\s\S]*?replaceCurrentMessages: true,[\s\S]*\}/,
       'newly-created sessions may only become active if the user is still on the original empty new-chat surface',
     );
     assert.match(
