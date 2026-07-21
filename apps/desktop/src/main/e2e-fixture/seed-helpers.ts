@@ -2,9 +2,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { SessionHeader, StoredMessage, E2EFixtureScenario } from '@maka/core';
 
-// Fixed clock for screenshot fixtures. All seeded timestamps and
-// transient smoke state derive from this value unless tests explicitly
-// pass `now`, so two baseline runs produce identical visible time copy.
+// Fixed clock for the e2e-fixture. All seeded timestamps and
+// transient fixture state derive from this value unless tests explicitly
+// pass `now`, so two runs produce identical visible time copy.
 export const E2E_FIXTURE_NOW = Date.UTC(2026, 4, 22, 3, 0, 0);
 
 export const TURN_SESSION_ID = 'e2e-fixture-turn';

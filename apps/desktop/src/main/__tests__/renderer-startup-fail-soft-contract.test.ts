@@ -42,7 +42,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(mountEffect, /void (?:options\.|latest\.)?refreshShellSettings\(\)/);
     assert.match(
       refreshShellSettings,
-      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*setUiLocaleOverride\(smoke\?\.locale \?\? null\)[\s\S]*uiLocaleUpdateGate\.commitHydration\([\s\S]*setUiLocalePreference\(preference\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*const copy = getShellCopy\(uiLocale\)\.app;[\s\S]*toastApi\.error\([\s\S]*copy\.appearanceLoadErrorTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.appearanceLoadErrorFallback, uiLocale\)/,
+      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*setUiLocaleOverride\(fixtureState\?\.locale \?\? null\)[\s\S]*uiLocaleUpdateGate\.commitHydration\([\s\S]*setUiLocalePreference\(preference\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*const copy = getShellCopy\(uiLocale\)\.app;[\s\S]*toastApi\.error\([\s\S]*copy\.appearanceLoadErrorTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.appearanceLoadErrorFallback, uiLocale\)/,
       'startup shell settings load failures must surface visibly without exposing raw storage/system details',
     );
     assert.doesNotMatch(refreshShellSettings, /toastApi\.error\('载入外观设置失败', cleanErrorMessage\(error\)\)/);

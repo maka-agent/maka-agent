@@ -1367,7 +1367,7 @@ html[data-os="darwin"].dark {
    as literal utilities in the primitive. Sweeps a clipped light band left→right
    across the glyph shape by translating `background-position`; the two-layer
    primitive keeps an opaque base underneath so the text stays readable. Frozen
-   by the global reduced-motion / visual-smoke rules in base.css and the
+   by the global reduced-motion / e2e-fixture rules in base.css and the
    primitive's own `motion-reduce:` guards. */
 @keyframes maka-text-shimmer {
   from { background-position: 150% 0; }
@@ -1380,7 +1380,7 @@ html[data-os="darwin"].dark {
    boundary) in `.maka-stream-fade` with a negative `animation-delay` (= -age)
    so the entrance resumes mid-flight across React re-renders instead of
    re-flashing. Only opacity animates (no layout). The wrapping is skipped
-   entirely under reduced-motion / visual-smoke (the smoother's snap path), so
+   entirely under reduced-motion / e2e-fixture (the smoother's snap path), so
    this never freezes text at opacity 0 in a deterministic capture. */
 @keyframes maka-stream-fade-in {
   from { opacity: 0; }

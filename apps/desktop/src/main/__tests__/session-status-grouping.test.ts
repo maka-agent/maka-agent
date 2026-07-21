@@ -3,7 +3,7 @@
  *
  * The group order is locked at the renderer + design-system level
  * (@kenji review). Future edits MUST update this test alongside the
- * helper or the smoke screenshot baseline goes stale silently.
+ * helper or the sidebar status-grouping contract goes stale silently.
  */
 
 import { strict as assert } from 'node:assert';

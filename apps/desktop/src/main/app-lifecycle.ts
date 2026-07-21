@@ -201,7 +201,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     // settled. Any state that background startup mutates is pushed to the
     // renderer via the existing `sessions:changed` / `connections:event`
     // / `settings:bots:statusChanged` channels, so the UI converges lazily.
-    // Visual-smoke fixture mode wipes and reseeds the whole workspace
+    // E2e-fixture mode wipes and reseeds the whole workspace
     // (`rm -rf` first). That wipe must finish BEFORE the window opens and
     // before background startup touches the workspace: createWindow reads
     // the settings store, and a concurrent wipe lands inside the store's
@@ -267,7 +267,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
    * with the app shell.
    */
   async function runBackgroundStartup(): Promise<void> {
-    // Visual-smoke seeding happens synchronously in `whenReady` before the
+    // E2e-fixture seeding happens synchronously in `whenReady` before the
     // window opens (see there for why); only the real bootstrap runs here.
     if (!e2eFixture) {
       await ensureBootstrapConnection();

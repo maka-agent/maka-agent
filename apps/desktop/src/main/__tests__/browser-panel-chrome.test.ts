@@ -2,10 +2,10 @@
  * Source contract for BrowserPanel renderer chrome invariants (#819).
  *
  * Symmetric to `artifact-pane-layout.test.ts` (regex over the component's
- * source). The e2e-fixture `browser-empty` fixture owns screenshot
- * verification of the chrome layout; this test locks the declarative
- * wirings that produce the chrome's state-dependent DOM — the invariants
- * the issue lists as not needing a screenshot:
+ * source). The e2e-fixture `browser-empty` fixture renders the chrome
+ * layout; this test locks the declarative wirings that produce the
+ * chrome's state-dependent DOM — the invariants the issue lists as not
+ * needing a dedicated fixture render:
  *
  *  - back / forward buttons `:disabled` track `canGoBack` / `canGoForward`;
  *  - reload / stop icon swaps with `loading` (+ aria-label + onClick branch);

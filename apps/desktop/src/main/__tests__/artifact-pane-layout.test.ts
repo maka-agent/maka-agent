@@ -1,7 +1,7 @@
 /**
  * CSS contract tests for ArtifactPane narrow layout (PR108j).
  *
- * The e2e-fixture path still owns screenshot verification. These tests are
+ * The e2e-fixture path still owns deterministic rendering. These tests are
  * a cheap automated floor for the @kenji gate: at narrow widths the pane must
  * stop being a squeezed right rail and become a bottom sheet that leaves the
  * composer/send path usable.

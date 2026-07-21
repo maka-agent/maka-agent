@@ -59,14 +59,14 @@ export function BotChatSettingsPage(props: {
 
   // #1233 deferral: under the settings-bots-onboarding e2e-fixture fixture,
   // jump straight to the seeded provider's detail view and flag the scan-login
-  // modal to auto-open so the QR waiting state captures deterministically.
+  // modal to auto-open so the QR waiting state renders deterministically.
   useEffect(() => {
     let active = true;
-    void window.maka.e2eFixture.getState().then((smoke) => {
-      if (!active || !smoke?.botOnboardingProvider) return;
-      setSelected(smoke.botOnboardingProvider);
+    void window.maka.e2eFixture.getState().then((fixtureState) => {
+      if (!active || !fixtureState?.botOnboardingProvider) return;
+      setSelected(fixtureState.botOnboardingProvider);
       setDetailOpen(true);
-      setAutoOpenScanProvider(smoke.botOnboardingProvider);
+      setAutoOpenScanProvider(fixtureState.botOnboardingProvider);
     }).catch(() => undefined);
     return () => {
       active = false;

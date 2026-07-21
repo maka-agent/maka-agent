@@ -3,7 +3,7 @@
  * turn-control-history fixture, at the helper layer (no DOM /
  * Electron). The deterministic fixture verifies the same matrix against
  * rendered screenshots; this test exists so a regression in the
- * helpers gets caught before screenshot CI runs.
+ * helpers gets caught before the E2E specs run.
  *
  *  S1 Failed banner copy comes from `describeTurnErrorClass` — Chinese
  *     generalized phrasing, never the raw enum.
@@ -11,7 +11,7 @@
  *  S3 Lineage badges produce stable Chinese copy with direction tags.
  *  S4 Branch banner only renders when parent is in the sessions list
  *     (covered separately in branch-banner.test.ts; cross-linked here).
- *  S5 Visual-smoke flag is enough to collapse smooth scroll to auto
+ *  S5 The e2e-fixture flag is enough to collapse smooth scroll to auto
  *     (covered separately in scroll-motion-policy.test.ts).
  *  S6 No raw enum identifier from `errorClass` / `SessionBlockedReason`
  *     leaks into the user-facing strings.

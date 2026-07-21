@@ -2,7 +2,7 @@
  * Tests for the PR-UI-LAYOUT-4 / B1-a1 review fixup
  * `detectDayPeriod` boundary contract (@kenji msg 1d7ba56c).
  *
- * Visual-smoke fixtures freeze `Date.now()` to a deterministic
+ * E2e-fixture renders freeze `Date.now()` to a deterministic
  * timestamp; the EmptyChatHero greeting prefix would drift across
  * the 5/11/14/18-hour boundaries if `detectDayPeriod()` read
  * `new Date()` instead. The function now accepts an explicit

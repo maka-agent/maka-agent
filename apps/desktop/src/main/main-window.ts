@@ -367,7 +367,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     // let a cold Vite transform or slow disk consume the whole timeout and
     // reveal index.html's preload skeleton before React had a chance to paint.
     // If renderer-ready arrived while loadURL/loadFile was resolving, the
-    // window is already visible and no timer is needed. Visual-smoke windows
+    // window is already visible and no timer is needed. E2e-fixture windows
     // remain hidden for their whole lifecycle.
     if (!keepHiddenForE2EFixture && !mainWindow.isVisible()) {
       showFallbackTimer = setTimeout(() => {

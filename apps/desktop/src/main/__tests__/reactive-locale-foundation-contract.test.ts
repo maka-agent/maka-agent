@@ -37,7 +37,7 @@ describe('reactive locale foundation', () => {
       'AppShell must derive one locale exactly once',
     );
     assert.match(shellAppearance, /setUiLocalePreference\(preference\)/);
-    assert.match(shellAppearance, /setUiLocaleOverride\(smoke\?\.locale \?\? null\)/);
+    assert.match(shellAppearance, /setUiLocaleOverride\(fixtureState\?\.locale \?\? null\)/);
     assert.match(
       source,
       /<LocaleProvider locale=\{uiLocale\} override=\{uiLocaleOverride\}>[\s\S]*?<ToastProvider>[\s\S]*?<AppShellOverlays/,
@@ -88,7 +88,7 @@ describe('reactive locale foundation', () => {
     assert.match(source, /setUiLocaleOverride\(state\.locale \?\? null\)/);
     assert.doesNotMatch(source, /data-maka-e2e-fixture-locale/);
     assert.ok(
-      shellAppearance.indexOf('setUiLocaleOverride(smoke?.locale ?? null)')
+      shellAppearance.indexOf('setUiLocaleOverride(fixtureState?.locale ?? null)')
         < shellAppearance.indexOf('uiLocaleUpdateGate.commitHydration('),
       'e2e-fixture override hydration must not be gated by persisted preference hydration',
     );

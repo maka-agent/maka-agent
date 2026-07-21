@@ -52,12 +52,12 @@ export function useShellAppearance({
     const uiLocaleHydration = uiLocaleUpdateGate.beginHydration();
     try {
       const next = await window.maka.settings.get();
-      const smoke = await window.maka.e2eFixture.getState();
-      const pref = smoke?.theme ?? next.appearance?.theme ?? 'auto';
+      const fixtureState = await window.maka.e2eFixture.getState();
+      const pref = fixtureState?.theme ?? next.appearance?.theme ?? 'auto';
       const palette = next.appearance?.palette ?? 'default';
       const name = next.personalization?.displayName ?? '';
       const uiLocale = next.personalization?.uiLocale ?? 'auto';
-      setUiLocaleOverride(smoke?.locale ?? null);
+      setUiLocaleOverride(fixtureState?.locale ?? null);
       uiLocaleUpdateGate.commitHydration(
         uiLocaleHydration,
         uiLocale,

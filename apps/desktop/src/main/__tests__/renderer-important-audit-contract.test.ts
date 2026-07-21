@@ -143,6 +143,27 @@ function findFieldFocusSelector(source: string): string | null {
 }
 
 describe('renderer !important audit contract', () => {
+  it('keeps the e2e-fixture deterministic-render CSS hooks in sync with the renderer attribute write', async () => {
+    // The renderer writes `data-maka-e2e-fixture="true"` on <html>
+    // (app-shell-e2e-fixture.ts); base.css must pause decorative
+    // animation and sidebar.css must stop the running-status spinner
+    // under that attribute, or fixture renders drift non-deterministically.
+    // base.css is an isA11yOnlyFile in the !important audit below (skipped
+    // wholesale), so this asserts the selectors directly.
+    const base = await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/base.css`, 'utf8');
+    const sidebar = await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/sidebar.css`, 'utf8');
+    assert.match(
+      base,
+      /\[data-maka-e2e-fixture="true"\] \*/,
+      'base.css must pause decorative animation under the e2e-fixture attribute',
+    );
+    assert.match(
+      sidebar,
+      /\[data-maka-e2e-fixture="true"\] \.maka-list-row-status-icon\[data-status="running"\] svg/,
+      'sidebar.css must stop the running-status spinner under the e2e-fixture attribute',
+    );
+  });
+
   it('keeps non-a11y `!important` sites explicitly justified and allowlisted', async () => {
     const rendererRoot = `${REPO_ROOT}/apps/desktop/src/renderer`;
     const styleFiles = [

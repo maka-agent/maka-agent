@@ -76,7 +76,7 @@
    * overlay viewport activates correctly.
    *
    * Hard gate: 50+ sessions in a narrow window must still let the
-   * footer stay visible. See the visual-smoke `sidebar-long-sessions`
+   * footer stay visible. See the e2e-fixture `sidebar-long-sessions`
    * scenario.
    */
   min-height: 0;
@@ -635,7 +635,7 @@
 /* PR109b: SessionStatusIcon — small inline icon next to session name
  * representing lifecycle status. Tone-based color from the
  * design-system token vocabulary; running spins via `animation`
- * (capped under reduced-motion + visual-smoke per PR-IR-04). */
+ * (capped under reduced-motion + e2e-fixture per PR-IR-04). */
 .maka-list-row-status-icon {
   display: inline-flex;
   align-items: center;
@@ -690,7 +690,7 @@
     animation: none;
   }
 }
-[data-maka-visual-smoke="true"] .maka-list-row-status-icon[data-status="running"] svg {
+[data-maka-e2e-fixture="true"] .maka-list-row-status-icon[data-status="running"] svg {
   animation: none;
 }
 

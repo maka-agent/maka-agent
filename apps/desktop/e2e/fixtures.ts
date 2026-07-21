@@ -97,7 +97,7 @@ async function withE2eWindow(
   try {
     if (seed) await seedE2eConnection(userDataDir);
     // Legacy E2E specs assert Chinese labels and should not inherit the CI
-    // host locale. Visual-smoke workspaces use the explicit renderer override.
+    // host locale. E2e-fixture workspaces use the explicit renderer override.
     if (locale && !e2eFixtureScenario) await seedE2eLocale(userDataDir, locale);
     app = await electron.launch({
       args: ['.'],
