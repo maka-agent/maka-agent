@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { BackendKind, PricingConfig, ProviderType } from '@maka/core';
-import { isThinkingLevel } from '@maka/core';
+import { isThinkingLevel, resolveModelVisionSupport } from '@maka/core';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -23,7 +23,9 @@ import {
 } from '@maka/runtime';
 import {
   createAgentRunStore,
+  createAttachmentByteReader,
   createArtifactStore,
+  createReadImageSnapshotter,
   createRuntimeEventStore,
   createSessionStore,
   persistProviderRequestCaptureArtifact,
@@ -760,6 +762,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
           ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
           : {}),
+        snapshotImage: createReadImageSnapshotter(artifactStore),
       });
       return new AiSdkBackend({
         sessionId: ctx.sessionId,
@@ -787,6 +790,15 @@ export function buildAiSdkCellBackendRegistration(input: {
           ? (childInput) => context.readChildAgentOutput!(ctx.sessionId, childInput)
           : undefined,
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
+        supportsVision: resolveModelVisionSupport(
+          connection.providerType,
+          connection.models,
+          input.model,
+        ),
+        readAttachmentBytes: createAttachmentByteReader({
+          artifactStore,
+          sessionId: ctx.sessionId,
+        }),
         ...(streamConnectTimeoutMs !== undefined ? { streamConnectTimeoutMs } : {}),
         ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
         systemPrompt: context.config.systemPrompt,

@@ -1950,7 +1950,7 @@ describe('runHarborCell', () => {
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.6-sol',
         env: {
           OPENAI_API_KEY: 'test-key',
           MAKA_STREAM_CONNECT_TIMEOUT_MS: '456000',
@@ -1964,7 +1964,7 @@ describe('runHarborCell', () => {
           id: 'harbor-ai-sdk',
           backend: 'ai-sdk',
           llmConnectionSlug: 'openai',
-          model: 'gpt-4o-mini',
+          model: 'gpt-5.6-sol',
           systemPrompt: DEFAULT_HEADLESS_SYSTEM_PROMPT,
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
@@ -1982,6 +1982,8 @@ describe('runHarborCell', () => {
             systemPrompt?: string;
             streamConnectTimeoutMs?: number;
             streamIdleTimeoutMs?: number;
+            supportsVision?: boolean;
+            readAttachmentBytes?: unknown;
           };
         }
       ).input;
@@ -2001,6 +2003,71 @@ describe('runHarborCell', () => {
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
       assert.equal(backendInput.streamConnectTimeoutMs, 456_000);
       assert.equal(backendInput.streamIdleTimeoutMs, 789_000);
+      assert.equal(backendInput.supportsVision, true);
+      assert.equal(typeof backendInput.readAttachmentBytes, 'function');
+    });
+  });
+
+  test('Harbor Read persists an isolated screenshot for the provider image input', async () => {
+    await withDirs(async ({ workspaceDir, storageRoot }) => {
+      const pngBytes = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      await writeFile(join(workspaceDir, 'screen.png'), pngBytes);
+      const registry = new BackendRegistry();
+      const toolExecutor = createHarborCellLocalToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-5.6-sol',
+        },
+        task: { id: 'harbor-cell', instruction: 'inspect screen', workspaceDir },
+        storageRoot,
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (
+        backend as unknown as {
+          input: Pick<AiSdkBackendInput, 'tools' | 'readAttachmentBytes'>;
+        }
+      ).input;
+      const read = backendInput.tools.find((candidate) => candidate.name === 'Read');
+      assert.ok(read);
+      const result = (await read.impl(
+        { path: 'screen.png' },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          cwd: workspaceDir,
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      )) as {
+        kind: string;
+        mimeType: string;
+        ref: Parameters<NonNullable<AiSdkBackendInput['readAttachmentBytes']>>[0];
+      };
+
+      assert.equal(result.kind, 'image');
+      assert.equal(result.mimeType, 'image/png');
+      assert.ok(backendInput.readAttachmentBytes);
+      const stored = await backendInput.readAttachmentBytes(result.ref);
+      assert.equal(stored.ok, true);
+      if (stored.ok) assert.deepEqual(Buffer.from(stored.bytes), pngBytes);
     });
   });
 

@@ -171,13 +171,20 @@ export function compactToolEvidence(
             limit: input.input.limit,
           },
           ok: true,
-          outputs: [
-            compactTextEvidence(input.result.content, {
-              stream: 'content',
-              refKind: 'future_storage',
-              forceTruncated: input.input.limit !== undefined,
-            }),
-          ],
+          outputs:
+            'content' in input.result
+              ? [
+                  compactTextEvidence(input.result.content, {
+                    stream: 'content',
+                    refKind: 'future_storage',
+                    forceTruncated: input.input.limit !== undefined,
+                  }),
+                ]
+              : [
+                  compactTextEvidence(`[image snapshot: ${input.result.mimeType}]`, {
+                    stream: 'content',
+                  }),
+                ],
           diff: { status: 'not_applicable' },
         },
       };

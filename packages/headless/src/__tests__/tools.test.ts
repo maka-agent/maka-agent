@@ -488,6 +488,66 @@ describe('isolated headless tools', () => {
     assert.ok(!r.content.includes('RAW-NATIVE-BYPASS'), 'the native readFile result is never used');
   });
 
+  test('Read snapshots an isolated screenshot for model vision', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-read-image-'));
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await writeFile(join(cwd, 'screen.png'), pngBytes);
+    const snapshots: Array<{ name: string; bytes: Uint8Array; mimeType: string }> = [];
+    const executor: IsolatedToolExecutor = {
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env: process.env,
+            maxBuffer: 16 * 1024 * 1024,
+          });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    };
+    const tools = buildIsolatedHeadlessTools(executor, {
+      snapshotImage: async (input: {
+        sessionId: string;
+        turnId: string;
+        name: string;
+        bytes: Uint8Array;
+        mimeType: string;
+      }) => {
+        snapshots.push({ name: input.name, bytes: input.bytes, mimeType: input.mimeType });
+        return {
+          kind: 'session_file' as const,
+          sessionId: input.sessionId,
+          relativePath: 'artifacts/screen.png',
+        };
+      },
+    } as any);
+
+    const result = await tool(tools, 'Read').impl({ path: 'screen.png' }, toolCtx(cwd));
+
+    assert.deepEqual(result, {
+      kind: 'image',
+      mimeType: 'image/png',
+      ref: {
+        kind: 'session_file',
+        sessionId: 's',
+        relativePath: 'artifacts/screen.png',
+      },
+    });
+    assert.equal(snapshots.length, 1);
+    assert.equal(snapshots[0]?.name, 'screen.png');
+    assert.equal(snapshots[0]?.mimeType, 'image/png');
+    assert.deepEqual(Buffer.from(snapshots[0]?.bytes ?? []), pngBytes);
+  });
+
   test('Read rejects executor stdout outside its output frame', async () => {
     const tools = buildIsolatedHeadlessTools({
       async exec() {

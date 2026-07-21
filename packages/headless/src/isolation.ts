@@ -1,4 +1,5 @@
 import type { ShellPlan } from '@maka/runtime';
+import type { StorageRef } from '@maka/core';
 import type { Config, Task } from './contracts.js';
 import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
 import type { HeavyTaskModeSelection } from './heavy-task-policy.js';
@@ -45,9 +46,13 @@ export interface IsolatedReadFileInput {
   limit?: number;
 }
 
-export interface IsolatedReadFileResult {
-  content: string;
-}
+export type IsolatedReadFileResult =
+  | { content: string }
+  | {
+      kind: 'image';
+      mimeType: string;
+      ref: Extract<StorageRef, { kind: 'session_file' }>;
+    };
 
 export interface IsolatedWriteFileInput {
   cwd: string;

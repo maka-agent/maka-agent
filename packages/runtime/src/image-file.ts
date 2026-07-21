@@ -31,6 +31,13 @@ export async function readWorkspaceImage(
   const bytes = await readFile(path).catch(() => {
     throw new Error('Image could not be read.');
   });
+  return validateImageBytes(bytes);
+}
+
+export function validateImageBytes(bytes: Uint8Array): {
+  bytes: Uint8Array;
+  mimeType: ImageMimeType;
+} {
   if (bytes.length > MAX_READ_IMAGE_BYTES) throw imageTooLargeError();
   const mimeType = sniffImageMime(bytes);
   if (!mimeType) throw new Error('Image content is not a supported PNG, JPEG, GIF, or WebP file.');

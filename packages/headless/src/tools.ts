@@ -1,3 +1,4 @@
+import { MAX_READ_IMAGE_BYTES, type StorageRef } from '@maka/core';
 import type { MakaTool, ToolAvailabilityConfig } from '@maka/runtime';
 import {
   assertProductBindingCatalogClean,
@@ -6,6 +7,8 @@ import {
   buildForegroundBashTool,
   buildParentAgentTools,
   computeEditedSource,
+  isSupportedImagePath,
+  validateImageBytes,
 } from '@maka/runtime';
 import { withFileWriteLock } from '@maka/runtime/file-write-lock';
 import { createHash } from 'node:crypto';
@@ -36,6 +39,13 @@ export interface BuildIsolatedHeadlessToolsOptions {
   taskLedgerExperiment?: {
     store: TaskLedgerExperimentStore;
   };
+  snapshotImage?: (input: {
+    sessionId: string;
+    turnId: string;
+    name: string;
+    bytes: Uint8Array;
+    mimeType: string;
+  }) => Promise<Extract<StorageRef, { kind: 'session_file' }>>;
 }
 
 // Key Write and Edit on a JSON [cwd, path] pair (JSON.stringify so no path
@@ -161,11 +171,12 @@ function cleanupCommandTimeoutMs(command: string): number | undefined {
 
 export function buildIsolatedReadTool(
   executor: IsolatedToolExecutor,
-  options: Pick<BuildIsolatedHeadlessToolsOptions, 'heavyTaskEvidence'> = {},
+  options: Pick<BuildIsolatedHeadlessToolsOptions, 'heavyTaskEvidence' | 'snapshotImage'> = {},
 ): MakaTool {
   return {
     name: 'Read',
-    description: 'Read a file from the isolated headless task workspace.',
+    description:
+      'Read a text file or view a PNG, JPEG, GIF, or WebP image from the isolated headless task workspace. Use Read on screenshots when visual inspection is needed.',
     parameters: z.object({
       path: z.string(),
       offset: z.number().int().nonnegative().optional(),
@@ -176,6 +187,30 @@ export function buildIsolatedReadTool(
       const { cwd } = ctx;
       const normalizedPath = normalizeWorkspacePath(path, cwd, 'Read path');
       const input = { cwd, path: normalizedPath, offset, limit };
+      if (isSupportedImagePath(normalizedPath)) {
+        if (!options.snapshotImage) {
+          throw new Error('Read image snapshots are not available in this toolset.');
+        }
+        const bytes = await readIsolatedFileBytes(
+          executor,
+          cwd,
+          normalizedPath,
+          ctx.abortSignal,
+          READ_IMAGE_BYTES_SCRIPT,
+          'Read image',
+        );
+        const image = validateImageBytes(bytes);
+        const ref = await options.snapshotImage({
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          name: pathPosix.basename(normalizedPath),
+          bytes: image.bytes,
+          mimeType: image.mimeType,
+        });
+        const result = { kind: 'image' as const, mimeType: image.mimeType, ref };
+        await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Read', input, result }, ctx);
+        return result;
+      }
       // Read has no native fast path: every result must go through READ_SCRIPT so
       // it carries the line-number / line+byte-cap / binary-guard contract (#92).
       const stdout = await execFramedFileCommand(
@@ -416,46 +451,55 @@ async function readIsolatedFileBytes(
   cwd: string,
   path: string,
   abortSignal: AbortSignal,
+  script = EDIT_READ_BYTES_SCRIPT,
+  integrityLabel = 'Edit read',
 ): Promise<Buffer> {
   const stdout = await execFileCommand(
     executor,
     cwd,
-    shellFileCommand(EDIT_READ_BYTES_SCRIPT, [path]),
+    shellFileCommand(script, [path]),
     abortSignal,
   );
-  return parseEditReadFrame(stdout);
+  return parseEditReadFrame(stdout, integrityLabel);
 }
 
-function parseEditReadFrame(stdout: string): Buffer {
+function parseEditReadFrame(stdout: string, integrityLabel = 'Edit read'): Buffer {
   const lines = stdout.split('\n');
   if (lines.length !== 4 || lines[3] !== '' || lines[2] !== EDIT_READ_FRAME_END) {
-    throw editReadIntegrityError('expected exactly one complete frame with no surrounding output');
+    throw editReadIntegrityError(
+      'expected exactly one complete frame with no surrounding output',
+      integrityLabel,
+    );
   }
 
   const header = lines[0]?.match(EDIT_READ_FRAME_HEADER_PATTERN);
-  if (!header) throw editReadIntegrityError('frame header is missing or malformed');
+  if (!header) throw editReadIntegrityError('frame header is missing or malformed', integrityLabel);
   const expectedLength = Number(header[1]);
   if (!Number.isSafeInteger(expectedLength))
-    throw editReadIntegrityError('declared byte length is not safe');
+    throw editReadIntegrityError('declared byte length is not safe', integrityLabel);
 
   const payload = lines[1] ?? '';
   if (!CANONICAL_BASE64_PATTERN.test(payload)) {
-    throw editReadIntegrityError('payload is not canonical Base64');
+    throw editReadIntegrityError('payload is not canonical Base64', integrityLabel);
   }
   const decoded = Buffer.from(payload, 'base64');
   if (decoded.toString('base64') !== payload) {
-    throw editReadIntegrityError('payload is not canonical Base64');
+    throw editReadIntegrityError('payload is not canonical Base64', integrityLabel);
   }
   if (decoded.length !== expectedLength) {
-    throw editReadIntegrityError(`declared ${expectedLength} bytes but decoded ${decoded.length}`);
+    throw editReadIntegrityError(
+      `declared ${expectedLength} bytes but decoded ${decoded.length}`,
+      integrityLabel,
+    );
   }
   const actualDigest = createHash('sha256').update(decoded).digest('hex');
-  if (actualDigest !== header[2]) throw editReadIntegrityError('SHA-256 digest mismatch');
+  if (actualDigest !== header[2])
+    throw editReadIntegrityError('SHA-256 digest mismatch', integrityLabel);
   return decoded;
 }
 
-function editReadIntegrityError(reason: string): Error {
-  return new Error(`Edit read transport integrity check failed: ${reason}`);
+function editReadIntegrityError(reason: string, label: string): Error {
+  return new Error(`${label} transport integrity check failed: ${reason}`);
 }
 
 function parseFileToolOutputFrame(
@@ -783,6 +827,23 @@ elif command -v shasum >/dev/null 2>&1; then
   digest=$(shasum -a 256 "$target" | awk '{print $1}') || exit 1
 else
   fail 'SHA-256 utility is required for Edit transport'
+fi
+printf 'MAKA_EDIT_BYTES_V1 length=%s sha256=%s\n' "$size" "$digest"
+base64 < "$target" | LC_ALL=C tr -d '\\r\\n'
+printf '\nMAKA_EDIT_BYTES_END\n'
+`;
+
+const READ_IMAGE_BYTES_SCRIPT = `${COMMON_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+target=$(existing_target "$1" 'Read path') || exit 1
+size=$(wc -c < "$target" | tr -d '[:space:]') || exit 1
+[ "$size" -le ${MAX_READ_IMAGE_BYTES} ] || fail 'Image exceeds the 5MB model input limit; downscale it and try again.'
+if command -v sha256sum >/dev/null 2>&1; then
+  digest=$(sha256sum "$target" | awk '{print $1}') || exit 1
+elif command -v shasum >/dev/null 2>&1; then
+  digest=$(shasum -a 256 "$target" | awk '{print $1}') || exit 1
+else
+  fail 'SHA-256 utility is required for Read image transport'
 fi
 printf 'MAKA_EDIT_BYTES_V1 length=%s sha256=%s\n' "$size" "$digest"
 base64 < "$target" | LC_ALL=C tr -d '\\r\\n'
