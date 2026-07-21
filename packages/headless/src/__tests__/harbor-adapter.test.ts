@@ -2878,6 +2878,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "/usr/local/bin/node" in alias_commands[0], alias_commands[0]
     assert "/opt/maka-codex-toolchain/bin/codex" in alias_commands[0], alias_commands[0]
     assert "/usr/local/bin/codex" in alias_commands[0], alias_commands[0]
+    assert " && " in alias_commands[0], alias_commands[0]
 
     asyncio.run(agent.run("hi", environment, context))
     http_provider_command = next(
