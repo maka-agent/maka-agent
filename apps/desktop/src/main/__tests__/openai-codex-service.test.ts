@@ -169,9 +169,18 @@ describe('Codex service source-grep contract', () => {
     );
   });
 
-  it('uses globalThis.fetch by default so Electron session proxy applies', async () => {
+  it('uses proxiedFetch by default so the active Maka proxy applies to OAuth requests', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(src, /globalThis\.fetch/);
+    assert.match(
+      src,
+      /deps\.fetchFn\s*\?\?\s*\(proxiedFetch as unknown as typeof fetch\)/,
+      'authorization-code exchange and token refresh must use the active Maka proxy by default',
+    );
+    assert.doesNotMatch(
+      src,
+      /deps\.fetchFn\s*\?\?\s*\(globalThis\.fetch/,
+      'Electron global fetch does not honor Maka active-proxy state',
+    );
   });
 
   it('does not expose tokens through the `getAccountState` return object', async () => {

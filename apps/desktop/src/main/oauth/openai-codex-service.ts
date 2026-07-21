@@ -37,6 +37,7 @@ import {
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
+  proxiedFetch,
   refreshAndPersistOAuthSubscriptionTokens,
   refreshOAuthSubscriptionTokens,
   resolveAndPersistOAuthSubscriptionTokens,
@@ -115,7 +116,7 @@ export interface OpenAiCodexServiceDeps {
   userDataDir: string;
   /** Function returning current epoch ms. Injectable for tests. */
   now?: () => number;
-  /** fetch implementation. Defaults to global fetch (Node 18+). */
+  /** Fetch implementation. Defaults to Maka's active-proxy-aware fetch. */
   fetchFn?: typeof fetch;
   /** Shared workspace credential store — the authoritative token store for every surface (#1125). */
   credentialStore: SharedOAuthCredentialStore;
@@ -140,7 +141,7 @@ export class OpenAiCodexService {
   constructor(deps: OpenAiCodexServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.codex_subscription_token');
     this.now = deps.now ?? (() => Date.now());
-    this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
+    this.fetchFn = deps.fetchFn ?? (proxiedFetch as unknown as typeof fetch);
     this.credentialStore = deps.credentialStore;
   }
 
