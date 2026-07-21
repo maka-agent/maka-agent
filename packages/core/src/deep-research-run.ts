@@ -116,6 +116,8 @@ export interface DeepResearchArtifactRef {
   artifactId: string;
   role: DeepResearchArtifactRole;
   name: string;
+  /** Exact caller-provided summary used for semantic retry validation. */
+  summary?: string;
   createdAt: number;
   /** URL, repository path, file path, or another human-inspectable source locator. */
   locator?: string;
@@ -681,6 +683,8 @@ function isDeepResearchArtifactRef(value: unknown): value is DeepResearchArtifac
     !isStableId(value.artifactId)
     || !isDeepResearchArtifactRole(value.role)
     || !isBoundedText(value.name, DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS)
+    || !(value.summary === undefined
+      || isBoundedText(value.summary, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS))
     || !isFiniteNumber(value.createdAt)
     || !(value.locator === undefined || isBoundedText(value.locator, DEEP_RESEARCH_LOCATOR_MAX_CHARS))
     || typeof value.contentHash !== 'string'

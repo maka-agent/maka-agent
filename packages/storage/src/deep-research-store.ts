@@ -390,6 +390,7 @@ function sameArtifact(
   return left.artifactId === right.artifactId
     && left.role === right.role
     && left.name === right.name
+    && left.summary === right.summary
     && left.createdAt === right.createdAt
     && left.locator === right.locator
     && left.contentHash === right.contentHash

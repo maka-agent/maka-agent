@@ -96,8 +96,11 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
   ipcMain.handle('artifacts:readText', (_event, artifactId: string) => deps.artifactStore.readText(artifactId));
   ipcMain.handle('artifacts:readBinary', (_event, artifactId: string) => deps.artifactStore.readBinary(artifactId));
   ipcMain.handle('artifacts:delete', async (_event, artifactId: string) => {
-    await deps.artifactStore.delete(artifactId);
     const artifact = await deps.artifactStore.get(artifactId);
+    if (artifact?.source === 'deep_research') {
+      throw new Error('Deep Research artifacts are protected by the durable research ledger');
+    }
+    await deps.artifactStore.delete(artifactId);
     if (artifact) {
       deps.sendToRenderer('artifacts:changed', {
         reason: 'deleted',

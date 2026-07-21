@@ -61,6 +61,8 @@ describe('FileArtifactStore', () => {
         name: 'report.html',
         kind: 'html',
         content: '<h1>Report</h1>',
+        source: 'deep_research',
+        deepResearchRole: 'report',
         now: 100,
       });
 
@@ -69,6 +71,7 @@ describe('FileArtifactStore', () => {
         (await second.get('artifact-1'))?.relativePath,
         'session-1/artifact-1-report.html',
       );
+      assert.equal((await second.get('artifact-1'))?.deepResearchRole, 'report');
       assert.deepEqual(await second.readText('artifact-1'), { ok: true, text: '<h1>Report</h1>' });
     });
   });

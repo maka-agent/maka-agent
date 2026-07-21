@@ -8,6 +8,7 @@ import type {
   ArtifactRecord,
   ArtifactSource,
   ArtifactTextReadResult,
+  DeepResearchArtifactRole,
 } from '@maka/core';
 
 export const ARTIFACT_TEXT_PREVIEW_LIMIT_BYTES = 10 * 1024 * 1024;
@@ -22,6 +23,7 @@ export interface CreateArtifactInput {
   mimeType?: string;
   source?: ArtifactSource;
   summary?: string;
+  deepResearchRole?: DeepResearchArtifactRole;
   now?: number;
   id?: string;
 }
@@ -78,6 +80,7 @@ class FileArtifactStore implements ArtifactStore {
       ...(input.mimeType ? { mimeType: input.mimeType } : {}),
       ...(input.source ? { source: input.source } : {}),
       ...(input.summary ? { summary: input.summary } : {}),
+      ...(input.deepResearchRole ? { deepResearchRole: input.deepResearchRole } : {}),
       status: 'live',
     };
     return this.append(record);

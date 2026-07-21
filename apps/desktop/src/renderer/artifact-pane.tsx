@@ -512,7 +512,7 @@ export function ArtifactPane(props: {
                   <TooltipTrigger
                     render={<Button type="button" variant="destructive" size="icon-sm" />}
                     onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
-                    disabled={artifactActionBusy}
+                    disabled={artifactActionBusy || selected.source === 'deep_research'}
                     data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
                     aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
                   >

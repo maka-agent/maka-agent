@@ -182,6 +182,10 @@ The root Deep Research agent follows this sequence:
 Mutation retries are idempotent by tool-call id. Exact replays return the
 existing projection; reusing the same tool-call id with different start,
 artifact, checklist, step, checkpoint, or completion input fails closed.
+The id is unique across all Deep Research mutation tools, and artifact replay
+comparison includes the exact name, summary, body hash, provenance, locator,
+role, and report-section metadata. Replay lookup happens before terminal-state
+rejection, so an exact retry remains safe after completion.
 Save-artifact ids also derive from session, turn, and tool-call ids. If ledger
 validation fails after an artifact body was created, the artifact is rolled
 back.
@@ -198,6 +202,7 @@ back.
 | Corrupt JSONL | Fail closed; do not expose a partial run |
 | Missing, deleted, or cross-session artifact | Reject the read |
 | Artifact content hash mismatch | Reject the read as an integrity failure |
+| Completion artifact missing, deleted, corrupt, cross-session, or wrong role/type | Reject completion before sealing the ledger |
 | Interrupted or blocked research | Preserve checkpoint, blocker, inspected refs, and collected evidence for review/resume |
 
 ## Read-only implementation handoff
@@ -222,10 +227,14 @@ narrow exception for writes into Maka-owned state only. They do not expose a
 general filesystem path and cannot edit the user's project. Ordinary sessions
 and child agents do not receive these tools.
 
-Status and artifact text are secret-redacted and strip forged workspace
-envelope tags before they are returned to the model. Artifact reads verify
-session ownership, live state, source type, and the SHA-256 hash recorded in the
-ledger.
+Status and artifact text are secret-redacted and strip forged workspace and
+artifact envelope tags before they are returned to the model. Artifact reads
+verify session ownership, live state, source type, and the SHA-256 hash recorded
+in the ledger. Completion repeats these checks for every archived source, the
+current artifact for all five report sections, the final report, and the
+handoff, including persisted Markdown type and Deep Research role. Generic
+Artifact Pane deletion is disabled for ledger-owned artifacts so UI actions
+cannot silently invalidate a completed workspace.
 
 ## Compatibility and operating limits
 

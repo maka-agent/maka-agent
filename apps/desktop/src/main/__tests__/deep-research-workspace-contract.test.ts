@@ -9,10 +9,18 @@ describe('Deep Research durable workspace wiring', () => {
       fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url)),
       'utf8',
     );
-    const builtinTools = main.match(
+    const toolAssembly = await readFile(
+      fileURLToPath(new URL('../../../src/main/tool-assembly.ts', import.meta.url)),
+      'utf8',
+    );
+    const sessionStream = await readFile(
+      fileURLToPath(new URL('../../../src/main/session-stream.ts', import.meta.url)),
+      'utf8',
+    );
+    const builtinTools = toolAssembly.match(
       /const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/,
     )?.[0] ?? '';
-    const candidateTools = main.match(
+    const candidateTools = sessionStream.match(
       /const candidateTools = isComputerUseRealModelE2e[\s\S]*?const candidateToolAvailability/,
     )?.[0] ?? '';
     const preload = await readFile(
@@ -40,5 +48,20 @@ describe('Deep Research durable workspace wiring', () => {
       /ctx\.tools\s*\?\s*\[\.\.\.ctx\.tools\][\s\S]*isDeepResearchSession\(ctx\.header\.labels\) \? deepResearchTools : \[\]/,
       'child tool scopes must win before the root-only Deep Research label gate',
     );
+  });
+
+  it('protects ledger-owned artifacts from generic deletion', async () => {
+    const ipc = await readFile(
+      fileURLToPath(new URL('../../../src/main/workspace-resources-ipc-main.ts', import.meta.url)),
+      'utf8',
+    );
+    const pane = await readFile(
+      fileURLToPath(new URL('../../../src/renderer/artifact-pane.tsx', import.meta.url)),
+      'utf8',
+    );
+
+    assert.match(ipc, /artifact\?\.source === 'deep_research'/);
+    assert.match(ipc, /protected by the durable research ledger/);
+    assert.match(pane, /artifactActionBusy \|\| selected\.source === 'deep_research'/);
   });
 });

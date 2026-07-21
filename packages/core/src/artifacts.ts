@@ -31,6 +31,8 @@ export interface ArtifactRecord {
   mimeType?: string;
   source?: ArtifactSource;
   summary?: string;
+  /** Durable role for artifacts owned by a Deep Research workspace. */
+  deepResearchRole?: import('./deep-research-run.js').DeepResearchArtifactRole;
   status: ArtifactStatus;
 }
 

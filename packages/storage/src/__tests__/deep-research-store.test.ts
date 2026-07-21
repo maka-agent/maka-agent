@@ -214,6 +214,7 @@ describe('DeepResearchStore', () => {
         artifactId: 'source-1',
         role: 'source' as const,
         name: 'source.md',
+        summary: 'Primary source.',
         createdAt: 100,
         locator: 'https://example.com/source',
         contentHash: HASH,
@@ -229,6 +230,39 @@ describe('DeepResearchStore', () => {
           artifactContext,
         ),
         /retried with different input/,
+      );
+      await assert.rejects(
+        () => store.recordArtifact(
+          SESSION_ID,
+          { ...source, name: 'renamed-source.md' },
+          artifactContext,
+        ),
+        /retried with different input/,
+      );
+      await assert.rejects(
+        () => store.recordArtifact(
+          SESSION_ID,
+          { ...source, summary: 'Different summary.' },
+          artifactContext,
+        ),
+        /retried with different input/,
+      );
+      await assert.rejects(
+        () => store.recordCheckpoint(
+          SESSION_ID,
+          {
+            round: 1,
+            stage: 'knowledge_base',
+            status: 'active',
+            summary: 'Cross-tool replay.',
+            openQuestions: [],
+            nextSteps: [],
+            taskIds: [],
+            artifactIds: [],
+          },
+          artifactContext,
+        ),
+        /already used for research_artifact_recorded/,
       );
 
       const checklistContext = { turnId: 'turn-1', toolCallId: 'call-checklist' };

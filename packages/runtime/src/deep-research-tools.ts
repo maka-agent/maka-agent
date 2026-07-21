@@ -24,6 +24,8 @@ import {
   redactSecrets,
   type ArtifactRecord,
   type DeepResearchRun,
+  type DeepResearchArtifactRef,
+  type DeepResearchEvent,
   type DeepResearchStore,
 } from '@maka/core';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
@@ -56,6 +58,7 @@ export interface DeepResearchArtifactStore {
     mimeType: 'text/markdown';
     source: 'deep_research';
     summary: string;
+    deepResearchRole: typeof DEEP_RESEARCH_ARTIFACT_ROLES[number];
     id: string;
   }): Promise<ArtifactRecord>;
   get(artifactId: string): Promise<ArtifactRecord | null>;
@@ -103,7 +106,7 @@ function buildStartTool(
     displayName: 'Initialize Research Workspace',
     description:
       'Initialize the durable Deep Research workspace for this session. Call once before archiving sources, '
-      + 'writing evidence notes, or checkpointing. Repeating the same objective is safe.',
+      + 'writing evidence notes, or checkpointing. Retrying the same tool call is safe.',
     parameters: z.object({
       objective: z.string().trim().min(1).max(DEEP_RESEARCH_OBJECTIVE_MAX_CHARS)
         .describe('The concrete research question and requested outcome.'),
@@ -114,13 +117,6 @@ function buildStartTool(
     impl: async (input, ctx) => {
       const objective = normalizeDeepResearchObjective(input.objective);
       if (!objective) throw new Error('Deep Research objective is invalid');
-      const existing = await deps.store.read(ctx.sessionId);
-      if (existing) {
-        if (existing.objective !== objective || existing.scopeLevel !== input.scope_level) {
-          throw new Error('Deep Research workspace already has a different objective or scope level');
-        }
-        return renderRunStatus(existing);
-      }
       const run = await deps.store.start(
         ctx.sessionId,
         objective,
@@ -282,13 +278,22 @@ function buildSaveArtifactTool(
     permissionRequired: false,
     impl: async (input, ctx) => {
       const artifactId = stableArtifactId(ctx);
-      const activeRun = await requireActiveRun(deps.store, ctx.sessionId);
       const sourceArtifactIds = dedupe(input.source_artifact_ids ?? []);
       const inputHash = `sha256:${createHash('sha256').update(input.content).digest('hex')}`;
-      const replay = activeRun.artifacts.find((item) => item.artifactId === artifactId);
-      if (replay) {
+      const replayEvent = await findToolCallEvent(deps.store, ctx.sessionId, ctx.toolCallId);
+      if (replayEvent) {
+        if (replayEvent.type !== 'research_artifact_recorded') {
+          throw new Error(
+            `Deep Research tool call ${ctx.toolCallId} was already used for ${replayEvent.type}`,
+          );
+        }
+        const replay = replayEvent.artifact;
+        const replayRecord = await deps.artifactStore.get(replay.artifactId);
         if (
-          replay.role !== input.role
+          replay.artifactId !== artifactId
+          || replay.role !== input.role
+          || replay.name !== input.name
+          || (replay.summary ?? replayRecord?.summary) !== input.summary
           || replay.locator !== input.locator
           || replay.contentHash !== inputHash
           || !sameStringArray(replay.sourceArtifactIds, sourceArtifactIds)
@@ -297,8 +302,11 @@ function buildSaveArtifactTool(
         ) {
           throw new Error('Deep Research artifact tool call was retried with different content or metadata');
         }
-        return `Research artifact ${artifactId} was already saved.\n${renderRunStatus(activeRun)}`;
+        const replayRun = await deps.store.read(ctx.sessionId);
+        if (!replayRun) throw new Error('Deep Research artifact replay is missing its workspace');
+        return `Research artifact ${artifactId} was already saved.\n${renderRunStatus(replayRun)}`;
       }
+      await requireActiveRun(deps.store, ctx.sessionId);
       const artifact = await deps.artifactStore.create({
         sessionId: ctx.sessionId,
         turnId: ctx.turnId,
@@ -308,6 +316,7 @@ function buildSaveArtifactTool(
         mimeType: 'text/markdown',
         source: 'deep_research',
         summary: input.summary,
+        deepResearchRole: input.role,
         id: artifactId,
       });
       let run: DeepResearchRun;
@@ -317,7 +326,8 @@ function buildSaveArtifactTool(
           {
             artifactId,
             role: input.role,
-            name: artifact.name,
+            name: input.name,
+            summary: input.summary,
             createdAt: artifact.createdAt,
             ...(input.locator ? { locator: input.locator } : {}),
             contentHash: inputHash,
@@ -397,7 +407,7 @@ function buildUpdateChecklistTool(
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
-      await requireActiveRun(deps.store, ctx.sessionId);
+      await requireRun(deps.store, ctx.sessionId);
       const run = await deps.store.updateChecklist(
         ctx.sessionId,
         {
@@ -503,7 +513,7 @@ function buildRecordStepTool(
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
-      await requireActiveRun(deps.store, ctx.sessionId);
+      await requireRun(deps.store, ctx.sessionId);
       const run = await deps.store.recordStep(
         ctx.sessionId,
         {
@@ -568,7 +578,7 @@ function buildCheckpointTool(
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
-      await requireActiveRun(deps.store, ctx.sessionId);
+      await requireRun(deps.store, ctx.sessionId);
       const run = await deps.store.recordCheckpoint(
         ctx.sessionId,
         {
@@ -650,37 +660,34 @@ function buildCompleteTool(
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
-      const existing = await deps.store.read(ctx.sessionId);
-      if (!existing) {
-        throw new Error(`Call ${DEEP_RESEARCH_START_TOOL_NAME} before completing research`);
+      const handoff = {
+        artifactId: input.handoff_artifact_id,
+        implementationTasks: dedupe(input.implementation_tasks),
+        recommendedIssues: dedupe(input.recommended_issues ?? []),
+        recommendedPullRequests: dedupe(input.recommended_pull_requests ?? []),
+        verificationCommands: dedupe(input.verification_commands),
+      };
+      const replay = await findToolCallEvent(deps.store, ctx.sessionId, ctx.toolCallId);
+      if (replay) {
+        const run = await deps.store.complete(
+          ctx.sessionId,
+          input.report_artifact_id,
+          handoff,
+          mutationContext(ctx),
+        );
+        return renderRunStatus(run);
       }
-      if (existing.status === 'completed') {
-        const requestedHandoff = {
-          artifactId: input.handoff_artifact_id,
-          implementationTasks: dedupe(input.implementation_tasks),
-          recommendedIssues: dedupe(input.recommended_issues ?? []),
-          recommendedPullRequests: dedupe(input.recommended_pull_requests ?? []),
-          verificationCommands: dedupe(input.verification_commands),
-        };
-        if (
-          existing.reportArtifactId !== input.report_artifact_id
-          || existing.handoff?.artifactId !== input.handoff_artifact_id
-          || JSON.stringify(existing.handoff) !== JSON.stringify(requestedHandoff)
-        ) {
-          throw new Error('Deep Research workspace is already completed with another report or handoff');
-        }
-        return renderRunStatus(existing);
-      }
+      const existing = await requireActiveRun(deps.store, ctx.sessionId);
+      await validateCompletionArtifacts(
+        deps.artifactStore,
+        existing,
+        input.report_artifact_id,
+        input.handoff_artifact_id,
+      );
       const run = await deps.store.complete(
         ctx.sessionId,
         input.report_artifact_id,
-        {
-          artifactId: input.handoff_artifact_id,
-          implementationTasks: dedupe(input.implementation_tasks),
-          recommendedIssues: dedupe(input.recommended_issues ?? []),
-          recommendedPullRequests: dedupe(input.recommended_pull_requests ?? []),
-          verificationCommands: dedupe(input.verification_commands),
-        },
+        handoff,
         mutationContext(ctx),
       );
       return renderRunStatus(run);
@@ -700,6 +707,92 @@ async function requireActiveRun(
     throw new Error('Deep Research workspace is already completed');
   }
   return run;
+}
+
+async function requireRun(
+  store: DeepResearchStore,
+  sessionId: string,
+): Promise<DeepResearchRun> {
+  const run = await store.read(sessionId);
+  if (!run) {
+    throw new Error(`Call ${DEEP_RESEARCH_START_TOOL_NAME} before using the research workspace`);
+  }
+  return run;
+}
+
+async function findToolCallEvent(
+  store: DeepResearchStore,
+  sessionId: string,
+  toolCallId: string,
+): Promise<DeepResearchEvent | undefined> {
+  return (await store.readEvents(sessionId))
+    .find((event) => event.refs?.toolCallId === toolCallId);
+}
+
+async function validateCompletionArtifacts(
+  artifactStore: DeepResearchArtifactStore,
+  run: DeepResearchRun,
+  reportArtifactId: string,
+  handoffArtifactId: string,
+): Promise<void> {
+  const required = new Map<string, DeepResearchArtifactRef>();
+  for (const source of run.artifacts.filter((artifact) => artifact.role === 'source')) {
+    required.set(source.artifactId, source);
+  }
+  for (const section of run.reportSections) {
+    if (!section.artifactId) {
+      throw new Error(`Deep Research report section ${section.key} has no current artifact`);
+    }
+    const ref = run.artifacts.find((artifact) => artifact.artifactId === section.artifactId);
+    if (!ref || ref.role !== 'report_section' || ref.reportSectionKey !== section.key) {
+      throw new Error(`Deep Research report section ${section.key} has an invalid current artifact`);
+    }
+    required.set(ref.artifactId, ref);
+  }
+  for (const [artifactId, role] of [
+    [reportArtifactId, 'report'],
+    [handoffArtifactId, 'handoff'],
+  ] as const) {
+    const ref = run.artifacts.find((artifact) => artifact.artifactId === artifactId);
+    if (!ref || ref.role !== role) {
+      throw new Error(`Deep Research ${role} artifact ${artifactId} is missing from the ledger`);
+    }
+    required.set(ref.artifactId, ref);
+  }
+  for (const ref of required.values()) {
+    await validateArtifactIntegrity(artifactStore, run.sessionId, ref);
+  }
+}
+
+async function validateArtifactIntegrity(
+  artifactStore: DeepResearchArtifactStore,
+  sessionId: string,
+  ref: DeepResearchArtifactRef,
+): Promise<void> {
+  const record = await artifactStore.get(ref.artifactId);
+  if (!record || record.status !== 'live') {
+    throw new Error(`Deep Research artifact ${ref.artifactId} is missing or deleted`);
+  }
+  if (record.sessionId !== sessionId || record.source !== 'deep_research') {
+    throw new Error(`Deep Research artifact ${ref.artifactId} belongs to another workspace`);
+  }
+  if (
+    record.kind !== 'file'
+    || record.mimeType !== 'text/markdown'
+    || record.deepResearchRole !== ref.role
+  ) {
+    throw new Error(`Deep Research artifact ${ref.artifactId} type or role does not match the ledger`);
+  }
+  const read = await artifactStore.readText(ref.artifactId, {
+    maxBytes: DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS * 4,
+  });
+  if (!read.ok) {
+    throw new Error(`Deep Research artifact ${ref.artifactId} could not be read: ${read.reason}`);
+  }
+  const contentHash = `sha256:${createHash('sha256').update(read.text).digest('hex')}`;
+  if (contentHash !== ref.contentHash) {
+    throw new Error(`Deep Research artifact ${ref.artifactId} content does not match the ledger`);
+  }
 }
 
 function mutationContext(
@@ -736,14 +829,14 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
 
 function normalizeInlineText(value: string): string {
   return redactSecrets(value)
-    .replace(/<\/?deep-research-workspace\b[^>]{0,4096}>/gi, '')
+    .replace(/<\/?deep-research-(?:workspace|artifact)\b[^>]{0,4096}>/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function safeResearchArtifactContent(value: string): string {
   return redactSecrets(value)
-    .replace(/<\/?deep-research-artifact\b[^>]{0,4096}>/gi, '');
+    .replace(/<\/?deep-research-(?:workspace|artifact)\b[^>]{0,4096}>/gi, '');
 }
 
 export function renderDeepResearchRunStatus(run: DeepResearchRun): string {
