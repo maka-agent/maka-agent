@@ -90,6 +90,12 @@ type SkillInventorySnapshot = {
   hostBasis: 'session' | 'desktop_default';
   entries: SkillEntry[];
 };
+type SetSkillEnabledResult =
+  | { ok: true; inventory: SkillInventorySnapshot }
+  | {
+      ok: false;
+      reason: 'not_found' | 'not_toggleable' | 'blocked_path' | 'state_error' | 'write_failed';
+    };
 import type {
   OnboardingMilestone,
   OnboardingMilestoneId,
@@ -657,6 +663,7 @@ export interface MakaBridge {
   };
   skills: {
     list(input?: { sessionId?: string }): Promise<SkillInventorySnapshot>;
+    setEnabled(input: { entryKey: string; enabled: boolean; sessionId?: string }): Promise<SetSkillEnabledResult>;
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]>;
       activate(id: string): Promise<

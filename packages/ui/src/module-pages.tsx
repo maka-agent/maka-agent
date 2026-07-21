@@ -43,6 +43,7 @@ export function SkillsPage(props: {
   planReminders?: PlanReminder[];
   onRefreshSkills?(): void | Promise<void>;
   onOpenSkill?(entryKey: string, repairTarget: SkillEntry['repairTarget']): void | Promise<void>;
+  onSetSkillEnabled?(entryKey: string, enabled: boolean): boolean | Promise<boolean>;
   bundledSkillCatalog?: BundledSkillCatalogEntry[];
   onRefreshBundledSkillCatalog?(): void | Promise<void>;
   onActivateBundledSkill?(id: string): boolean | Promise<boolean>;

@@ -10,6 +10,7 @@ import {
   readContainedRegularTextFile,
   readSkillRuntimeState,
   scanWorkspaceSkills,
+  setDiscoveredSkillEnabled as setRuntimeDiscoveredSkillEnabled,
   writeContainedRegularTextFile,
   writeSkillRuntimeState,
   type RuntimeSkillDefinition,
@@ -166,6 +167,13 @@ export type SetSkillEnabledResult =
   | { ok: true; skill: SkillEntry }
   | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' };
 
+export type SetDiscoveredSkillEnabledResult =
+  | { ok: true; inventory: SkillInventorySnapshot }
+  | {
+      ok: false;
+      reason: 'not_found' | 'not_toggleable' | 'blocked_path' | 'state_error' | 'write_failed';
+    };
+
 interface InstalledSkillDefinition extends InstalledSkill {
   content: string;
 }
@@ -301,7 +309,11 @@ export async function listSkillInventory(input: {
         runtimeStatus: entry.runtimeStatus,
         canUse: false,
         canOpen: !blockedPath,
-        canToggle: false,
+        canToggle:
+          entry.effective &&
+          entry.metadataStatus !== 'invalid' &&
+          entry.operationalStatus !== 'state_error' &&
+          !blockedPath,
         canDelete: false,
         canUpdate: false,
         repairTarget: blockedPath
@@ -312,6 +324,24 @@ export async function listSkillInventory(input: {
       };
     }),
   };
+}
+
+export async function setDiscoveredSkillEnabled(input: {
+  workspaceRoot: string;
+  source: SkillSource;
+  host: HostCapabilities;
+  hostBasis: SkillInventorySnapshot['hostBasis'];
+  entryKey: string;
+  enabled: boolean;
+}): Promise<SetDiscoveredSkillEnabledResult> {
+  const result = await setRuntimeDiscoveredSkillEnabled({
+    source: input.source,
+    host: input.host,
+    entryKey: input.entryKey,
+    enabled: input.enabled,
+  });
+  if (!result.ok) return result;
+  return { ok: true, inventory: await listSkillInventory(input) };
 }
 
 export function toSkillEntry(skill: InstalledSkill): SkillEntry {

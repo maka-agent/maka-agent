@@ -130,6 +130,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+.maka-skill-global-scope,
+.maka-skill-status-filter-help {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.maka-skill-global-scope {
+  margin-bottom: var(--space-2);
+  color: var(--foreground-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-skill-status-filter-help {
+  margin-top: var(--space-1-5);
+}
+
 .maka-skill-section-row {
   display: flex;
   align-items: center;
@@ -253,6 +271,13 @@
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: auto;
+}
+
+.maka-skill-catalog-card-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .maka-skill-installed {

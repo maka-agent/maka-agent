@@ -65,7 +65,7 @@ const MIN_INSTALL_INDICATOR_MS = 500;
 
 type InstallPhase = 'installing' | 'cancelling';
 
-export function McpPage() {
+export function McpPage(props: { embedded?: boolean } = {}) {
   const locale = useUiLocale();
   const copy = getMcpCopy(locale);
   const catalog = getMcpCatalog(locale);
@@ -262,8 +262,14 @@ export function McpPage() {
     }
   }
 
+  const Root = props.embedded ? 'div' : 'main';
   return (
-    <main className="maka-main detailPane maka-module-main maka-mcp-page agents-chat-panel" data-module="mcp" aria-label="MCP">
+    <Root
+      className="maka-main detailPane maka-module-main maka-mcp-page agents-chat-panel"
+      data-module="mcp"
+      data-embedded={props.embedded ? 'true' : undefined}
+      aria-label="MCP"
+    >
       <PageHeader
         className="maka-module-main-header"
         as="h2"
@@ -389,7 +395,7 @@ export function McpPage() {
           onImport={importJson}
         />
       )}
-    </main>
+    </Root>
   );
 }
 

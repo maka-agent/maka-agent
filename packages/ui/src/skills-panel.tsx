@@ -13,6 +13,7 @@ import {
   Button as UiButton,
   DialogContent,
   DialogRoot,
+  Switch,
   TabsRoot,
   TabsList,
   TabsTrigger,
@@ -42,7 +43,9 @@ function SkillLibraryPanel(props: {
   searchQuery?: string;
   bundledSkillCatalog?: BundledSkillCatalogEntry[];
   onActivateBundledSkill?(id: string): boolean | Promise<boolean>;
+  onSetSkillEnabled?(entryKey: string, enabled: boolean): boolean | Promise<boolean>;
   activatingBundledId?: string | null;
+  togglingSkillEntryKey?: string | null;
 }) {
   const copy = getSkillsCopy(useUiLocale());
   const skillCount = props.skills?.length ?? 0;
@@ -58,6 +61,7 @@ function SkillLibraryPanel(props: {
   });
   const [statusFilter, setStatusFilter] = useState<SkillStatusFilter>('all');
   const [reviewTemplateId, setReviewTemplateId] = useState<string | null>(null);
+  const [confirmTemplateId, setConfirmTemplateId] = useState<string | null>(null);
   const [detailEntryKey, setDetailEntryKey] = useState<string | null>(null);
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
   const filteredSkills = (props.skills ?? []).filter((skill) => {
@@ -68,8 +72,11 @@ function SkillLibraryPanel(props: {
   // 可启用 = shipped templates that only join the runtime after the user
   // explicitly creates a Maka-workspace copy. 已发现 = the read-only runtime
   // inspection across project, Maka-workspace, and user sources.
-  const bundledCatalog = props.bundledSkillCatalog ?? [];
+  const bundledCatalog = (props.bundledSkillCatalog ?? []).filter(
+    (entry) => entry.activationState === 'available',
+  );
   const reviewTemplate = bundledCatalog.find((entry) => entry.id === reviewTemplateId);
+  const confirmTemplate = bundledCatalog.find((entry) => entry.id === confirmTemplateId);
   const detailSkill = (props.skills ?? []).find((entry) => entry.entryKey === detailEntryKey);
   const bundledCatalogFiltered = bundledCatalog.filter((entry) => {
     if (!normalizedSkillQuery) return true;
@@ -141,7 +148,6 @@ function SkillLibraryPanel(props: {
           {bundledCatalogFiltered.map((entry) => {
             const activating = props.activatingBundledId === entry.id;
             const description = entry.description || copy.builtin.fallback;
-            const active = entry.activationState === 'active';
             return (
               <article key={entry.id} className="maka-skill-catalog-card">
                 <div className="maka-skill-catalog-card-head">
@@ -159,16 +165,27 @@ function SkillLibraryPanel(props: {
                     onClick={() => setReviewTemplateId(entry.id)}
                     disabled={props.actionBusy}
                     aria-label={copy.activation.action(entry.name)}
-                    title={active ? copy.activation.activeTitle : copy.activation.action(entry.name)}
+                    title={copy.activation.action(entry.name)}
                   >
                     {activating ? <Loader2 size={16} aria-hidden="true" /> : <Search size={16} aria-hidden="true" />}
-                    {copy.activation.review}
+                    {copy.activation.details}
                   </UiButton>
                 </div>
                 <p>{description}</p>
                 <div className="maka-skill-catalog-card-foot">
                   <Chip size="sm" variant="neutral" className="maka-skill-catalog-category">{copy.categories[entry.category]}</Chip>
-                  <span>{entry.activationState === 'available' ? copy.activation.available : entry.activationState === 'active' ? copy.activation.active : copy.activation.attention}</span>
+                  <div className="maka-skill-catalog-card-actions">
+                    <UiButton
+                      type="button"
+                      size="sm"
+                      onClick={() => setConfirmTemplateId(entry.id)}
+                      disabled={props.actionBusy || !props.onActivateBundledSkill}
+                      aria-label={`${copy.activation.enable}: ${entry.name}`}
+                    >
+                      <Download size={16} aria-hidden="true" />
+                      {copy.activation.enable}
+                    </UiButton>
+                  </div>
                 </div>
               </article>
             );
@@ -208,6 +225,7 @@ function SkillLibraryPanel(props: {
               const runtimeLabel = formatSkillRuntimeLabel(skill, copy);
               const lifecycleReason = formatSkillLifecycleReason(skill, copy);
               const opening = props.openingSkillId === skill.entryKey;
+              const toggling = props.togglingSkillEntryKey === skill.entryKey;
               const needsRepair = skill.operationalStatus === 'invalid' || skill.operationalStatus === 'state_error';
               const hoverText = tools.length > 0
                 ? copy.row.hoverWithTools(skill.id, runtimeLabel, statusLabel, toolsLabel)
@@ -253,6 +271,22 @@ function SkillLibraryPanel(props: {
                         <Chip size="sm" variant={skillStatusChipTone(skill)} className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</Chip>
                       )}
                       {opening && <span>{copy.row.opening}</span>}
+                      {skill.canToggle && (
+                        <Switch
+                          checked={skill.operationalStatus !== 'disabled'}
+                          disabled={props.actionBusy || !props.onSetSkillEnabled}
+                          aria-label={skill.operationalStatus === 'disabled'
+                            ? copy.row.enableAriaLabel(skill.name)
+                            : copy.row.disableAriaLabel(skill.name)}
+                          title={skill.operationalStatus === 'disabled'
+                            ? copy.row.enableGlobalTitle
+                            : copy.row.disableGlobalTitle}
+                          onCheckedChange={(checked) => {
+                            void props.onSetSkillEnabled?.(skill.entryKey, checked);
+                          }}
+                        />
+                      )}
+                      {toggling && <span>{copy.row.toggling}</span>}
                     </span>
                   </div>
                   <UiButton
@@ -292,6 +326,7 @@ function SkillLibraryPanel(props: {
         {tabs}
         <TabsPanel value="builtin">{builtinCatalog}</TabsPanel>
         <TabsPanel value="installed">
+          <p className="maka-skill-global-scope">{copy.installed.globalScope}</p>
           <div className="maka-skill-status-filters" role="group" aria-label={copy.installed.filters.ariaLabel}>
             {([
               ['all', copy.installed.filters.all],
@@ -312,6 +347,7 @@ function SkillLibraryPanel(props: {
               </UiButton>
             ))}
           </div>
+          <p className="maka-skill-status-filter-help">{copy.installed.filterHelp}</p>
           {props.skillHostBasis && installedSkills.length > 0 && (
             <p className="maka-skill-compatibility-basis">
               {copy.installed.compatibilityBasis[props.skillHostBasis]}
@@ -347,7 +383,7 @@ function SkillLibraryPanel(props: {
           >
             <DialogHeader
               icon={<Blocks aria-hidden="true" />}
-              title={copy.activation.review}
+              title={copy.activation.details}
               subtitle={`${reviewTemplate.name} · ${reviewTemplate.id}`}
               titleId="maka-skill-template-review-title"
               closeLabel={copy.activation.close}
@@ -361,33 +397,76 @@ function SkillLibraryPanel(props: {
               <SkillDetailField label={copy.activation.requiredCapabilities} value={formatStringList(reviewTemplate.requiredCapabilities, copy.activation.none)} />
               <p className="maka-skill-dialog-notice">{copy.activation.scopeHelp}</p>
               <p className="maka-skill-dialog-notice">{copy.activation.permissionNotice}</p>
-              {reviewTemplate.activationState === 'active' && (
-                <p className="maka-skill-dialog-notice">{copy.activation.activeHelp}</p>
-              )}
-              {reviewTemplate.activationState === 'attention' && (
-                <p className="maka-skill-dialog-notice" data-tone="warning">{copy.activation.attentionHelp}</p>
-              )}
             </div>
             <div className="maka-skill-dialog-actions">
               <UiButton type="button" variant="secondary" onClick={() => setReviewTemplateId(null)} disabled={props.activatingBundledId != null}>
                 {copy.activation.close}
               </UiButton>
-              {reviewTemplate.activationState === 'available' && (
-                <UiButton
-                  type="button"
-                  onClick={() => {
-                    void Promise.resolve(props.onActivateBundledSkill?.(reviewTemplate.id)).then((activated) => {
-                      if (activated) setReviewTemplateId(null);
-                    });
-                  }}
-                  disabled={props.actionBusy || !props.onActivateBundledSkill}
-                >
-                  {props.activatingBundledId === reviewTemplate.id
-                    ? <Loader2 size={16} aria-hidden="true" />
-                    : <Download size={16} aria-hidden="true" />}
-                  {copy.activation.confirm}
-                </UiButton>
-              )}
+              <UiButton
+                type="button"
+                onClick={() => {
+                  setReviewTemplateId(null);
+                  setConfirmTemplateId(reviewTemplate.id);
+                }}
+                disabled={props.actionBusy || !props.onActivateBundledSkill}
+              >
+                <Download size={16} aria-hidden="true" />
+                {copy.activation.enable}
+              </UiButton>
+            </div>
+          </DialogContent>
+        )}
+      </DialogRoot>
+      <DialogRoot
+        open={confirmTemplate != null}
+        onOpenChange={(open) => {
+          if (!open && props.activatingBundledId == null) setConfirmTemplateId(null);
+        }}
+      >
+        {confirmTemplate && (
+          <DialogContent
+            className="maka-modal maka-skill-dialog"
+            aria-labelledby="maka-skill-template-confirm-title"
+            showClose={false}
+          >
+            <DialogHeader
+              icon={<Download aria-hidden="true" />}
+              title={copy.activation.confirmTitle}
+              subtitle={`${confirmTemplate.name} · ${confirmTemplate.id}`}
+              titleId="maka-skill-template-confirm-title"
+              closeLabel={copy.activation.cancel}
+              onClose={() => setConfirmTemplateId(null)}
+            />
+            <div className="maka-skill-dialog-body">
+              <p>{copy.activation.confirmDescription}</p>
+              <SkillDetailField label={copy.activation.target} value={confirmTemplate.targetPath} mono />
+              <p className="maka-skill-dialog-notice">{copy.activation.scopeHelp}</p>
+              <p className="maka-skill-dialog-notice">{copy.activation.permissionNotice}</p>
+              <p className="maka-skill-dialog-notice">{copy.activation.noOverwriteNotice}</p>
+            </div>
+            <div className="maka-skill-dialog-actions">
+              <UiButton
+                type="button"
+                variant="secondary"
+                onClick={() => setConfirmTemplateId(null)}
+                disabled={props.activatingBundledId != null}
+              >
+                {copy.activation.cancel}
+              </UiButton>
+              <UiButton
+                type="button"
+                onClick={() => {
+                  void Promise.resolve(props.onActivateBundledSkill?.(confirmTemplate.id)).then((activated) => {
+                    if (activated) setConfirmTemplateId(null);
+                  });
+                }}
+                disabled={props.actionBusy || !props.onActivateBundledSkill}
+              >
+                {props.activatingBundledId === confirmTemplate.id
+                  ? <Loader2 size={16} aria-hidden="true" />
+                  : <Download size={16} aria-hidden="true" />}
+                {copy.activation.confirm}
+              </UiButton>
             </div>
           </DialogContent>
         )}
@@ -609,6 +688,7 @@ export function SkillsModuleMain(props: {
   onRefreshBundledSkillCatalog?(): void | Promise<void>;
   onOpenSkill?(entryKey: string, repairTarget: SkillEntry['repairTarget']): void | Promise<void>;
   onActivateBundledSkill?(id: string): boolean | Promise<boolean>;
+  onSetSkillEnabled?(entryKey: string, enabled: boolean): boolean | Promise<boolean>;
 }) {
   const copy = getSkillsCopy(useUiLocale());
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
@@ -688,10 +768,17 @@ export function SkillsModuleMain(props: {
         onActivateBundledSkill={props.onActivateBundledSkill
           ? async (id) => (await runSkillAction(`bundled:activate:${id}`, () => props.onActivateBundledSkill!(id))) === true
           : undefined}
+        onSetSkillEnabled={props.onSetSkillEnabled
+          ? async (entryKey, enabled) => (await runSkillAction(
+              `toggle:${entryKey}`,
+              () => props.onSetSkillEnabled!(entryKey, enabled),
+            )) === true
+          : undefined}
         actionBusy={skillActionBusy}
         refreshPending={pendingSkillAction === 'refresh'}
         openingSkillId={pendingSkillAction?.startsWith('open:') ? pendingSkillAction.slice('open:'.length) : null}
         activatingBundledId={pendingSkillAction?.startsWith('bundled:activate:') ? pendingSkillAction.slice('bundled:activate:'.length) : null}
+        togglingSkillEntryKey={pendingSkillAction?.startsWith('toggle:') ? pendingSkillAction.slice('toggle:'.length) : null}
         searchQuery={skillSearchQuery}
       />
     </Root>

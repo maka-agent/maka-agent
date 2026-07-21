@@ -93,6 +93,12 @@ type SkillInventorySnapshot = {
   hostBasis: 'session' | 'desktop_default';
   entries: SkillEntry[];
 };
+type SetSkillEnabledResult =
+  | { ok: true; inventory: SkillInventorySnapshot }
+  | {
+      ok: false;
+      reason: 'not_found' | 'not_toggleable' | 'blocked_path' | 'state_error' | 'write_failed';
+    };
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
@@ -1031,6 +1037,9 @@ const makaBridge = {
   skills: {
     list(input?: { sessionId?: string }): Promise<SkillInventorySnapshot> {
       return ipcRenderer.invoke('skills:list', input);
+    },
+    setEnabled(input: { entryKey: string; enabled: boolean; sessionId?: string }): Promise<SetSkillEnabledResult> {
+      return ipcRenderer.invoke('skills:setEnabled', input);
     },
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]> {

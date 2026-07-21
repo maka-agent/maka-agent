@@ -13,6 +13,7 @@ export interface AppShellSkillActions {
   refreshSkills(options?: { shouldShowError?: () => boolean }): Promise<void>;
   refreshBundledSkillCatalog(options?: { shouldShowError?: () => boolean }): Promise<void>;
   activateBundledSkill(id: string): Promise<boolean>;
+  setSkillEnabled(entryKey: string, enabled: boolean): Promise<boolean>;
   openSkill(entryKey: string, repairTarget: SkillEntry['repairTarget']): Promise<void>;
 }
 
@@ -97,10 +98,46 @@ export function createAppShellSkillActions(deps: {
     }
   }
 
+  async function setSkillEnabled(entryKey: string, enabled: boolean) {
+    try {
+      const result = await window.maka.skills.setEnabled({
+        entryKey,
+        enabled,
+        sessionId: getActiveSessionId(),
+      });
+      if (!result.ok) {
+        if (isSkillsSurfaceActive()) {
+          toastApi.error(copy.toggleFailedTitle, copy.runtimeFailures[result.reason]);
+        }
+        return false;
+      }
+      setSkills(result.inventory.entries);
+      setSkillHostBasis(result.inventory.hostBasis);
+      await refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive });
+      if (isSkillsSurfaceActive()) {
+        const toggled = result.inventory.entries.find((entry) => entry.entryKey === entryKey);
+        toastApi.success(
+          enabled ? copy.enabledTitle : copy.disabledTitle,
+          copy.runtimeDescription(toggled?.name ?? entryKey),
+        );
+      }
+      return true;
+    } catch (error) {
+      if (isSkillsSurfaceActive()) {
+        toastApi.error(
+          copy.toggleFailedTitle,
+          localizedShellErrorMessage(error, copy.toggleFallback, uiLocale),
+        );
+      }
+      return false;
+    }
+  }
+
   return {
     refreshSkills,
     refreshBundledSkillCatalog,
     activateBundledSkill,
+    setSkillEnabled,
     openSkill,
   };
 }

@@ -56,7 +56,7 @@ export function AppShellOverlays(props: {
   onOpenDailyReview(): void;
   onOpenSettingsSession(sessionId: string): void;
   onSettingsSectionChange(section: SettingsSection): void;
-  renderSettingsExtensionPage(section: 'skills'): ReactNode;
+  renderSettingsExtensionPage(section: 'skills' | 'mcp'): ReactNode;
   helpOpen: boolean;
   closeHelp(): void;
   searchModalOpen: boolean;

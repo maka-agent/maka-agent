@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import type { SettingsSection } from '@maka/core';
-import { safeLocalStorageSet } from './browser-storage';
+import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
+
+function hasLegacyMcpNavigation(): boolean {
+  try {
+    const raw = safeLocalStorageGet('maka-nav-selection-v1');
+    return raw != null && (JSON.parse(raw) as { section?: unknown }).section === 'mcp';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Owns the Settings modal surface state (issue #1043): the open flag, the
@@ -12,11 +21,14 @@ import { safeLocalStorageSet } from './browser-storage';
  * cross-slice orchestration that belongs to the shell, not the modal.
  */
 export function useSettingsModal() {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [legacyMcpNavigation] = useState(hasLegacyMcpNavigation);
+  const [settingsOpen, setSettingsOpen] = useState(legacyMcpNavigation);
   const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(
-    undefined,
+    legacyMcpNavigation ? 'mcp' : undefined,
   );
-  const [settingsActiveSection, setSettingsActiveSection] = useState<SettingsSection | undefined>(undefined);
+  const [settingsActiveSection, setSettingsActiveSection] = useState<SettingsSection | undefined>(
+    legacyMcpNavigation ? 'mcp' : undefined,
+  );
   const [settingsProviderCatalogOpen, setSettingsProviderCatalogOpen] = useState(false);
   const [settingsConnectionDetailSlug, setSettingsConnectionDetailSlug] = useState<string | undefined>(undefined);
 

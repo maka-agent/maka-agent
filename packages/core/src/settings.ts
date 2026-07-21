@@ -71,6 +71,7 @@ export const SETTINGS_SECTIONS = [
   'daily-review',
   'models',
   'skills',
+  'mcp',
   'usage',
   'voice',
   'open-gateway',

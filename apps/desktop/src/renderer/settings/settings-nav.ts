@@ -12,6 +12,7 @@ import {
   Mic,
   Network,
   Palette,
+  Plug,
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -83,6 +84,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'appearance', Icon: Palette, enabled: true, group: 'general' },
   { id: 'models', Icon: Cpu, enabled: true, group: 'ai-integrations' },
   { id: 'skills', Icon: Blocks, enabled: true, group: 'ai-integrations' },
+  { id: 'mcp', Icon: Plug, enabled: true, group: 'ai-integrations' },
   { id: 'usage', Icon: BarChart3, enabled: true, group: 'ai-integrations' },
   { id: 'memory', Icon: Brain, enabled: true, group: 'ai-integrations' },
   { id: 'daily-review', Icon: CalendarDays, enabled: true, group: 'ai-integrations' },
@@ -120,7 +122,6 @@ export function readLastSettingsSection(): SettingsSection {
   // page lands on 语音 (the more user-frequent of the two split
   // pages) instead of being silently bounced back to 模型.
   if (value === 'voice-gateway') return 'voice';
-  if (value === 'mcp') return 'models';
   if (SETTINGS_NAV.some((item) => item.id === value)) {
     return value as SettingsSection;
   }

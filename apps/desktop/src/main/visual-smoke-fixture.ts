@@ -499,9 +499,8 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'module-skills-diagnostics':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'skills', extensionView: 'skills_diagnostics' };
     case 'module-mcp':
-      // Open the 扩展 → MCP module directly so the CDP baseline captures the
-      // real market grid, tab row, hero banner, and installed server list.
-      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'mcp', sidebarCollapsed: false };
+      // MCP is a peer of Skills under Settings → AI & Integrations.
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'mcp' };
     case 'module-daily-review':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'daily-review', sidebarCollapsed: false };
     case 'workstation-statuses':

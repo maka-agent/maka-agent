@@ -56,7 +56,7 @@ export function SettingsSurface(props: {
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
   onSectionChange?(section: SettingsSection): void;
-  renderExtensionPage?(section: 'skills'): ReactNode;
+  renderExtensionPage?(section: 'skills' | 'mcp'): ReactNode;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -212,7 +212,7 @@ export function SettingsSurface(props: {
   // silently rendering 通用 copy over a different page's body. The nav
   // highlight below still keys off `section === item.id` independently.
   const headerCopy = getSettingsNavigationCopy(locale).sections[section];
-  const extensionSection = section === 'skills' ? section : null;
+  const extensionSection = section === 'skills' || section === 'mcp' ? section : null;
 
   return (
     <main className="settingsSurface agents-layout-body" data-modal="true" aria-label={copy.contentLabel}>

@@ -21,6 +21,7 @@ import {
   scanSkills,
   scanSkillsWithDiagnostics,
   scanWorkspaceSkills,
+  setDiscoveredSkillEnabled,
   validateSkillMetadata,
   writeSkillRuntimeState,
   type HostCapabilities,
@@ -1182,6 +1183,122 @@ description: Compatible user-level skill.
         rm(workspaceRoot, { recursive: true, force: true }),
         rm(homeRoot, { recursive: true, force: true }),
       ]);
+    }
+  });
+
+  it('setDiscoveredSkillEnabled persists one global id state across projects', async () => {
+    const projectA = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-project-a-'));
+    const projectB = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-project-b-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-workspace-'));
+    const homeRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-home-'));
+    try {
+      for (const projectRoot of [projectA, projectB]) {
+        await writeSkillAt(
+          join(projectRoot, '.maka', 'skills'),
+          'shared-toggle',
+          `---
+name: Shared Toggle
+description: The same Skill id in multiple projects.
+---
+# Shared Toggle`,
+        );
+      }
+      const sourceA = resolveSkillDiscoveryPaths(projectA, workspaceRoot, homeRoot);
+      const sourceB = resolveSkillDiscoveryPaths(projectB, workspaceRoot, homeRoot);
+      const disabled = await setDiscoveredSkillEnabled({
+        source: sourceA,
+        entryKey: 'project_maka:shared-toggle',
+        enabled: false,
+      });
+      assert.equal(disabled.ok, true);
+      assert.equal(
+        (await inspectSkills(sourceB)).entries.find(
+          (entry) => entry.entryKey === 'project_maka:shared-toggle',
+        )?.operationalStatus,
+        'disabled',
+      );
+      assert.deepEqual(await readSkillRuntimeState(workspaceRoot), {
+        ok: true,
+        states: new Map([['shared-toggle', false]]),
+      });
+    } finally {
+      await Promise.all(
+        [projectA, projectB, workspaceRoot, homeRoot].map((root) =>
+          rm(root, { recursive: true, force: true }),
+        ),
+      );
+    }
+  });
+
+  it('setDiscoveredSkillEnabled rejects shadowed, invalid, missing, and unsafe state targets', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-safety-project-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-safety-workspace-'));
+    const homeRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-safety-home-'));
+    const outside = await mkdtemp(join(tmpdir(), 'maka-runtime-toggle-safety-outside-'));
+    try {
+      await writeSkillAt(
+        join(projectRoot, '.maka', 'skills'),
+        'shared',
+        `---
+name: Project Shared
+description: Effective copy.
+---
+# Project`,
+      );
+      await writeSkillAt(
+        join(workspaceRoot, 'skills'),
+        'shared',
+        `---
+name: Workspace Shared
+description: Shadowed copy.
+---
+# Workspace`,
+      );
+      await writeSkillAt(
+        join(workspaceRoot, 'skills'),
+        'broken',
+        `---
+name: Broken
+---
+# Broken`,
+      );
+      const source = resolveSkillDiscoveryPaths(projectRoot, workspaceRoot, homeRoot);
+      assert.deepEqual(
+        await setDiscoveredSkillEnabled({
+          source,
+          entryKey: 'workspace:shared',
+          enabled: false,
+        }),
+        { ok: false, reason: 'not_toggleable' },
+      );
+      assert.deepEqual(
+        await setDiscoveredSkillEnabled({
+          source,
+          entryKey: 'workspace:broken',
+          enabled: false,
+        }),
+        { ok: false, reason: 'not_toggleable' },
+      );
+      assert.deepEqual(
+        await setDiscoveredSkillEnabled({ source, entryKey: 'workspace:missing', enabled: false }),
+        { ok: false, reason: 'not_found' },
+      );
+
+      await symlink(outside, join(workspaceRoot, '.maka'));
+      assert.deepEqual(
+        await setDiscoveredSkillEnabled({
+          source,
+          entryKey: 'project_maka:shared',
+          enabled: false,
+        }),
+        { ok: false, reason: 'blocked_path' },
+      );
+    } finally {
+      await Promise.all(
+        [projectRoot, workspaceRoot, homeRoot, outside].map((root) =>
+          rm(root, { recursive: true, force: true }),
+        ),
+      );
     }
   });
 

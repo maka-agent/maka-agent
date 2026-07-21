@@ -1,10 +1,9 @@
 import type { PlanReminder } from '@maka/core';
-import { Blocks, CalendarCheck, ChevronDown, ChevronRight, Settings, SquarePen, Timer } from './icons.js';
+import { CalendarCheck, Settings, SquarePen, Timer } from './icons.js';
 import type { NavSelection } from './nav-selection.js';
 import { cn } from './ui.js';
 import { cva } from 'class-variance-authority';
 import { Button as BaseButton } from '@base-ui/react/button';
-import { useId, useState } from 'react';
 import { useUiLocale } from './locale-context.js';
 import { getShellControlsCopy } from './shell-controls-copy.js';
 
@@ -38,7 +37,7 @@ const navRowVariants = cva(
   },
 );
 
-type ModuleNavId = 'daily-review' | 'mcp' | 'automations';
+type ModuleNavId = 'daily-review' | 'automations';
 
 const settingsButtonClass =
   'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-1.5 py-1.5 ' +
@@ -54,11 +53,8 @@ export function SessionSidebarNav(props: {
 }) {
   const locale = useUiLocale();
   const copy = getShellControlsCopy(locale).navigation;
-  const extensionsTreeId = useId();
-  const [extensionsOpen, setExtensionsOpen] = useState(true);
   const moduleNavLabel: Record<ModuleNavId, string> = {
     automations: copy.automations,
-    mcp: copy.mcp,
     'daily-review': copy.dailyReview,
   };
   const isModuleActive = (id: ModuleNavId) => props.selection.section === id;
@@ -84,41 +80,6 @@ export function SessionSidebarNav(props: {
           ⌘ N
         </kbd>
       </BaseButton>
-      <div className="maka-sidebar-nav-group" data-open={extensionsOpen ? 'true' : 'false'}>
-        <BaseButton
-          className={cn('maka-nav-row maka-nav-extension-toggle', navRowVariants())}
-          data-expanded={extensionsOpen ? 'true' : 'false'}
-          aria-expanded={extensionsOpen}
-          aria-controls={extensionsTreeId}
-          type="button"
-          onClick={() => setExtensionsOpen((open) => !open)}
-        >
-          <span className="maka-nav-extension-glyph" aria-hidden="true">
-            <Blocks className="maka-nav-icon maka-nav-extension-default-icon" />
-            <ChevronRight className="maka-nav-icon maka-nav-extension-hover-icon" />
-            <ChevronDown className="maka-nav-icon maka-nav-extension-open-icon" />
-          </span>
-          <span>{copy.extensions}</span>
-        </BaseButton>
-        <div
-          id={extensionsTreeId}
-          className="maka-sidebar-nav-tree"
-          role="group"
-          aria-label={copy.extensions}
-          hidden={!extensionsOpen}
-        >
-          <BaseButton
-            className={cn('maka-nav-row maka-nav-tree-row', navRowVariants())}
-            data-active={isModuleActive('mcp')}
-            aria-current={isModuleActive('mcp') ? 'page' : undefined}
-            aria-label={moduleNavLabel.mcp}
-            type="button"
-            onClick={() => selectModule('mcp')}
-          >
-            <span>{moduleNavLabel.mcp}</span>
-          </BaseButton>
-        </div>
-      </div>
       <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('daily-review')}

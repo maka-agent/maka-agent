@@ -53,7 +53,7 @@ export function SettingsModal(props: {
    */
   onOpenSession?(sessionId: string): void;
   onSectionChange?(section: SettingsSection): void;
-  renderExtensionPage?(section: 'skills'): ReactNode;
+  renderExtensionPage?(section: 'skills' | 'mcp'): ReactNode;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);

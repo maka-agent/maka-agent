@@ -837,6 +837,7 @@ function AppShellContent({
     refreshSkills,
     refreshBundledSkillCatalog,
     activateBundledSkill,
+    setSkillEnabled,
     openSkill,
   } = useAppShellModuleData({
     uiLocale,
@@ -1366,8 +1367,6 @@ function AppShellContent({
           data-agents-view={
             navSelection.section === 'automations'
               ? 'cron'
-              : navSelection.section === 'mcp'
-                ? 'mcp'
               : navSelection.section === 'sessions'
                   ? 'im_hub'
                   : navSelection.section
@@ -1393,9 +1392,7 @@ function AppShellContent({
           <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
-              {navSelection.section === 'mcp' ? (
-                <McpPage />
-              ) : navSelection.section === 'automations' ? (
+              {navSelection.section === 'automations' ? (
                 <AutomationsPage
                   skills={skills}
                   reminders={planReminders}
@@ -1688,19 +1685,22 @@ function AppShellContent({
         settingsProviderCatalogOpen={settingsProviderCatalogOpen}
         settingsConnectionDetailSlug={settingsConnectionDetailSlug}
         onSettingsSectionChange={setSettingsActiveSection}
-        renderSettingsExtensionPage={() => (
-          <SkillsPage
-            embedded
-            skills={skills}
-            skillHostBasis={skillHostBasis}
-            planReminders={planReminders}
-            onRefreshSkills={() => refreshSkills({ shouldShowError: isSkillsSurfaceActive })}
-            onOpenSkill={(entryKey, repairTarget) => openSkill(entryKey, repairTarget)}
-            bundledSkillCatalog={bundledSkillCatalog}
-            onRefreshBundledSkillCatalog={() => refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive })}
-            onActivateBundledSkill={(id) => activateBundledSkill(id)}
-          />
-        )}
+        renderSettingsExtensionPage={(section) => section === 'mcp'
+          ? <McpPage embedded />
+          : (
+            <SkillsPage
+              embedded
+              skills={skills}
+              skillHostBasis={skillHostBasis}
+              planReminders={planReminders}
+              onRefreshSkills={() => refreshSkills({ shouldShowError: isSkillsSurfaceActive })}
+              onOpenSkill={(entryKey, repairTarget) => openSkill(entryKey, repairTarget)}
+              onSetSkillEnabled={(entryKey, enabled) => setSkillEnabled(entryKey, enabled)}
+              bundledSkillCatalog={bundledSkillCatalog}
+              onRefreshBundledSkillCatalog={() => refreshBundledSkillCatalog({ shouldShowError: isSkillsSurfaceActive })}
+              onActivateBundledSkill={(id) => activateBundledSkill(id)}
+            />
+          )}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });

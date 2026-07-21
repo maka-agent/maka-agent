@@ -1405,7 +1405,7 @@ description: Exercise workspace-contained open paths.
     assert.doesNotMatch(renderer, /onOpenSkill=\{\(skillId\) => void openSkill\(skillId\)\}/, 'renderer must return the open promise to the UI pending gate');
   });
 
-  it('keeps discovered Skills diagnostic-only and activation semantics explicit', async () => {
+  it('keeps discovered Skills diagnostic-first with safe global toggles and explicit activation', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
@@ -1418,7 +1418,7 @@ description: Exercise workspace-contained open paths.
     assert.match(ui, /onOpenSkill\?\(entryKey: string, repairTarget: SkillEntry\['repairTarget'\]\)/);
     assert.match(ui, /onActivateBundledSkill\?\(id: string\)/);
     assert.match(ui, /entry\.activationState === 'available'/);
-    assert.match(ui, /setReviewTemplateId\(entry\.id\)/, 'catalog cards must open review before activation');
+    assert.match(ui, /setConfirmTemplateId\(entry\.id\)/, 'catalog cards must confirm before activation');
     assert.match(ui, /copy\.activation\.confirm/);
     assert.match(ui, /reviewTemplate\.targetPath/);
     assert.match(ui, /reviewTemplate\.requiredTools/);
@@ -1432,7 +1432,11 @@ description: Exercise workspace-contained open paths.
     assert.match(ui, /copy\.installed\.userSection/);
     assert.match(ui, /skill\.shadowedBy/);
     assert.match(ui, /skill\.repairTarget/);
-    assert.doesNotMatch(ui, /onCreateSkillTemplate|onDeleteSkill|onSetSkillEnabled|onUpdateManagedSkill|onPreviewManagedSkillUpdate|<Switch/);
+    assert.match(ui, /onSetSkillEnabled\?\(entryKey: string, enabled: boolean\)/);
+    assert.match(ui, /skill\.canToggle && \(/);
+    assert.match(ui, /<Switch/);
+    assert.match(ui, /copy\.installed\.globalScope/);
+    assert.doesNotMatch(ui, /onCreateSkillTemplate|onDeleteSkill|onUpdateManagedSkill|onPreviewManagedSkillUpdate/);
     assert.doesNotMatch(ui, /maka-skill-library-delete-button|maka-skill-featured-banner|value="market"/);
     assert.match(types, /shadowedBy\?: string/);
     assert.match(types, /repairTarget: 'skill_file' \| 'state_file' \| null/);
@@ -1444,8 +1448,10 @@ description: Exercise workspace-contained open paths.
     assert.match(renderer, /onActivateBundledSkill=\{\(id\) => activateBundledSkill\(id\)\}/);
     assert.match(preload, /openRepairTarget\(input: \{ entryKey: string; sessionId\?: string \}\)/);
     assert.match(preload, /catalog:[\s\S]*activate\(id: string\)/);
+    assert.match(preload, /setEnabled\(input: \{ entryKey: string; enabled: boolean; sessionId\?: string \}\)/);
     assert.match(main, /ipcMain\.handle\(\s*'skills:openRepairTarget'/);
     assert.match(main, /ipcMain\.handle\('skills:catalog:activate'/);
+    assert.match(main, /'skills:setEnabled'/);
   });
 
   it('opens the lifecycle repair file only through contained paths', async () => {

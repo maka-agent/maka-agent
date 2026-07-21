@@ -275,7 +275,10 @@ type ShellCopy = {
       string
     >;
     deleteFailures: Record<'not_found' | 'blocked_path' | 'delete_failed', string>;
-    runtimeFailures: Record<'not_found' | 'blocked_path' | 'state_error' | 'write_failed', string>;
+    runtimeFailures: Record<
+      'not_found' | 'not_toggleable' | 'blocked_path' | 'state_error' | 'write_failed',
+      string
+    >;
   };
   sessionSettingsActions: {
     permissionLabels: Record<ChatDefaultPermissionMode, string>;
@@ -584,6 +587,7 @@ const ZH_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
   appearance: '外观',
   models: '模型',
   skills: '技能',
+  mcp: 'MCP',
   usage: '使用统计',
   memory: '记忆',
   'daily-review': '每日回顾',
@@ -602,6 +606,7 @@ const EN_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
   appearance: 'Appearance',
   models: 'Models',
   skills: 'Skills',
+  mcp: 'MCP',
   usage: 'Usage',
   memory: 'Memory',
   'daily-review': 'Daily Review',
@@ -770,7 +775,7 @@ const SHELL_COPY_BY_LOCALE = {
       toggleFallback: '无法切换 Skill，请稍后重试。',
       enabledTitle: '已启用 Skill',
       disabledTitle: '已停用 Skill',
-      runtimeDescription: (name: string) => `${name} 已更新当前项目的运行状态。`,
+      runtimeDescription: (name: string) => `${name} 已按 Skill ID 更新全局状态，将影响 Maka 的所有项目。`,
       deleteFailedTitle: '无法删除 Skill',
       deleteFallback: '无法删除 Skill，请稍后重试。',
       deletedTitle: '已删除 Skill',
@@ -817,10 +822,11 @@ const SHELL_COPY_BY_LOCALE = {
         delete_failed: '删除 Skill 失败，请检查文件权限。',
       },
       runtimeFailures: {
-        not_found: '当前工作区找不到这个 Skill。',
-        blocked_path: 'Skill 状态路径不允许写入。',
-        state_error: '当前工作区的 Skill 状态文件异常，需要先修复。',
-        write_failed: '写入当前项目的 Skill 状态失败，请检查文件权限。',
+        not_found: '最新扫描结果中找不到这个 Skill。请刷新后重试。',
+        not_toggleable: '只有当前生效且配置有效的 Skill 才能切换全局状态。',
+        blocked_path: 'Skill 或状态文件路径被安全策略阻止。',
+        state_error: 'Maka 全局 Skill 状态文件异常，需要先修复。',
+        write_failed: '写入 Maka 全局 Skill 状态失败，请检查文件权限。',
       },
     },
     sessionSettingsActions: {
@@ -1190,7 +1196,7 @@ const SHELL_COPY_BY_LOCALE = {
       toggleFallback: 'The Skill status could not be changed. Try again later.',
       enabledTitle: 'Skill enabled',
       disabledTitle: 'Skill disabled',
-      runtimeDescription: (name: string) => `${name} runtime status was updated for the current project.`,
+      runtimeDescription: (name: string) => `${name} was updated globally by Skill ID for every Maka project.`,
       deleteFailedTitle: 'Could not delete Skill',
       deleteFallback: 'The Skill could not be deleted. Try again later.',
       deletedTitle: 'Skill deleted',
@@ -1238,10 +1244,11 @@ const SHELL_COPY_BY_LOCALE = {
         delete_failed: 'The Skill could not be deleted. Check file permissions.',
       },
       runtimeFailures: {
-        not_found: 'This Skill was not found in the current workspace.',
-        blocked_path: 'The Skill status path cannot be written.',
-        state_error: 'The Skill status file in this workspace is invalid and must be fixed first.',
-        write_failed: 'The Skill status for the current project could not be written. Check file permissions.',
+        not_found: 'This Skill was not found in the latest scan. Refresh and try again.',
+        not_toggleable: 'Only the effective Skill with valid configuration can be changed globally.',
+        blocked_path: 'The Skill or state-file path was blocked by the safety policy.',
+        state_error: 'The global Maka Skill state file is invalid and must be fixed first.',
+        write_failed: 'The global Maka Skill state could not be written. Check file permissions.',
       },
     },
     sessionSettingsActions: {

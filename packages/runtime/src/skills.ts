@@ -253,6 +253,13 @@ export type SkillRuntimeStateReadResult =
   | { ok: true; states: Map<string, boolean> }
   | { ok: false; reason: 'blocked_path' | 'read_failed' | 'invalid_json' };
 
+export type SetDiscoveredSkillEnabledResult =
+  | { ok: true; inspection: SkillInspectionResult }
+  | {
+      ok: false;
+      reason: 'not_found' | 'not_toggleable' | 'blocked_path' | 'state_error' | 'write_failed';
+    };
+
 /**
  * Skill source accepted by the multi-path scanning functions. A bare string is
  * a workspace root scanned at `{root}/skills/` (backward-compatible with
@@ -1180,6 +1187,59 @@ export async function writeSkillRuntimeState(
     `${JSON.stringify(file, null, 2)}\n`,
   );
   return ok ? { ok: true } : { ok: false, reason: 'write_failed' };
+}
+
+/**
+ * Toggle the effective discovered entry for one Skill id. Discovery is
+ * repeated before the write so stale renderer/TUI rows, shadowed candidates,
+ * invalid metadata, and unsafe paths cannot become mutation targets. The
+ * version-1 state file remains keyed by id at the source's shared state root,
+ * so the result applies to that id in every Maka project.
+ */
+export async function setDiscoveredSkillEnabled(input: {
+  source: SkillSource;
+  entryKey: string;
+  enabled: boolean;
+  host?: HostCapabilities;
+}): Promise<SetDiscoveredSkillEnabledResult> {
+  if (
+    typeof input.entryKey !== 'string' ||
+    input.entryKey.length === 0 ||
+    input.entryKey.length > 300
+  ) {
+    return { ok: false, reason: 'not_found' };
+  }
+  const inspection = await inspectSkills(input.source, input.host);
+  const entry = inspection.entries.find((candidate) => candidate.entryKey === input.entryKey);
+  if (!entry) return { ok: false, reason: 'not_found' };
+  if (
+    entry.issues.some((issue) => issue.code === 'blocked_path' || issue.code === 'unreadable_skill')
+  ) {
+    return { ok: false, reason: 'blocked_path' };
+  }
+  const stateRoot = typeof input.source === 'string' ? input.source : input.source.stateRoot;
+  if (entry.operationalStatus === 'state_error') {
+    const state = await readSkillRuntimeState(stateRoot);
+    return {
+      ok: false,
+      reason: !state.ok && state.reason === 'blocked_path' ? 'blocked_path' : 'state_error',
+    };
+  }
+  if (!entry.effective || entry.metadataStatus === 'invalid') {
+    return { ok: false, reason: 'not_toggleable' };
+  }
+
+  const current = await readSkillRuntimeState(stateRoot);
+  if (!current.ok) {
+    return {
+      ok: false,
+      reason: current.reason === 'blocked_path' ? 'blocked_path' : 'state_error',
+    };
+  }
+  current.states.set(entry.id, input.enabled);
+  const written = await writeSkillRuntimeState(stateRoot, current.states);
+  if (!written.ok) return written;
+  return { ok: true, inspection: await inspectSkills(input.source, input.host) };
 }
 
 // ── Path-safety primitives (shared with desktop governance) ──────────────

@@ -12,6 +12,7 @@ import {
   listSkillInventory,
   resolveDiscoveredSkillOpenPath,
   resolveSkillRepairOpenPath,
+  setDiscoveredSkillEnabled,
   toSkillEntry,
 } from './skills.js';
 
@@ -112,6 +113,27 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
       hostBasis: skillHost.basis,
     });
   });
+  ipcMain.handle(
+    'skills:setEnabled',
+    async (
+      _event,
+      input?: { entryKey?: string; enabled?: boolean; sessionId?: string },
+    ) => {
+      if (typeof input?.entryKey !== 'string' || typeof input.enabled !== 'boolean') {
+        return { ok: false as const, reason: 'not_found' as const };
+      }
+      const sessionId = typeof input.sessionId === 'string' ? input.sessionId : undefined;
+      const skillHost = deps.getSkillHost(sessionId);
+      return setDiscoveredSkillEnabled({
+        workspaceRoot: deps.workspaceRoot,
+        source: await resolveDesktopSkillDiscoverySource(deps, sessionId),
+        host: skillHost.host,
+        hostBasis: skillHost.basis,
+        entryKey: input.entryKey,
+        enabled: input.enabled,
+      });
+    },
+  );
   ipcMain.handle('skills:catalog:list', async () => {
     return listBundledSkillCatalog(deps.workspaceRoot);
   });
