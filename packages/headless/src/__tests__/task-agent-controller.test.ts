@@ -1789,4 +1789,32 @@ describe('runTaskOnce', () => {
       assert.match(runtimeEvents, /report-artifact/);
     });
   });
+
+  test('carries the configured reasoning effort into the runtime session', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      let observedThinkingLevel: SessionHeader['thinkingLevel'];
+      const task: Task = {
+        id: 'thinking-level-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      await runTaskOnce({ ...fakeConfig, thinkingLevel: 'xhigh' }, task, {
+        storageRoot,
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) => {
+            observedThinkingLevel = ctx.header.thinkingLevel;
+            return new FakeBackend({
+              sessionId: ctx.sessionId,
+              header: ctx.header,
+              store: ctx.store,
+            });
+          });
+        },
+      });
+
+      assert.equal(observedThinkingLevel, 'xhigh');
+    });
+  });
 });

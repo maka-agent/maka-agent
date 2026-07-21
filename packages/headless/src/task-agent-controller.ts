@@ -304,6 +304,9 @@ export async function runTaskOnce(
       backend: config.backend,
       llmConnectionSlug: effectiveConfig.llmConnectionSlug,
       model: effectiveConfig.model,
+      ...(effectiveConfig.thinkingLevel !== undefined
+        ? { thinkingLevel: effectiveConfig.thinkingLevel }
+        : {}),
       permissionMode: deps.permissionMode ?? 'execute',
       ...(deps.orchestrationMode ? { orchestrationMode: deps.orchestrationMode } : {}),
       name: `task:${config.id}:${task.id}`,
