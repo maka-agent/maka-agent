@@ -131,6 +131,24 @@ test('harness A/B selects an explicit task subset in one resumable run', async (
   );
 });
 
+test('harness A/B caps subset pair concurrency to the selected task count', async () => {
+  const { resolveHarnessAbTaskSelection, resolveHarnessCompetitorProfile } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const taskIds = ['bn-fit-modify', 'write-compressor'];
+
+  assert.deepEqual(
+    resolveHarnessAbTaskSelection(
+      undefined,
+      undefined,
+      '4',
+      resolveHarnessCompetitorProfile('kimi-code'),
+      taskIds.join(','),
+    ),
+    { taskIds, limit: 2, pairConcurrency: 2 },
+  );
+});
+
 test('harness A/B records its configured rolling pair concurrency in the manifest', async () => {
   const { buildHarnessAbManifest, resolveHarnessAbTaskSelection } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
