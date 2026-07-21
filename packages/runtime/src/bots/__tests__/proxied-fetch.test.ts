@@ -107,32 +107,50 @@ describe('proxiedFetch', () => {
     });
 
     const proxySockets = new Set<net.Socket>();
-    let tunneledSocket: net.Socket | undefined;
+    let capturedProxySocket: net.Socket | undefined;
     const proxy = net.createServer((client) => {
       proxySockets.add(client);
-      tunneledSocket = client;
+      capturedProxySocket = client;
       client.on('close', () => proxySockets.delete(client));
 
       let pending = Buffer.alloc(0);
-      const readConnect = (chunk: Buffer) => {
+      const readProxyRequest = (chunk: Buffer) => {
         pending = Buffer.concat([pending, chunk]);
         const headerEnd = pending.indexOf('\r\n\r\n');
         if (headerEnd < 0) return;
-        client.off('data', readConnect);
+        client.pause();
+        client.off('data', readProxyRequest);
 
-        const requestLine = pending.subarray(0, headerEnd).toString('ascii').split('\r\n')[0];
-        const match = /^CONNECT ([^:]+):(\d+) HTTP\/1\.[01]$/.exec(requestLine);
-        assert.ok(match, `Unexpected proxy request: ${requestLine}`);
-        const upstream = net.connect(Number(match[2]), match[1], () => {
-          client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        const requestHead = pending.subarray(0, headerEnd).toString('latin1');
+        const requestLineEnd = requestHead.indexOf('\r\n');
+        const requestLine = requestHead.slice(0, requestLineEnd);
+        const [method, target, version] = requestLine.split(' ');
+        assert.ok(
+          method && target && /^HTTP\/1\.[01]$/.test(version ?? ''),
+          `Unexpected proxy request: ${requestLine}`,
+        );
+
+        const destination = new URL(method === 'CONNECT' ? `http://${target}` : target);
+        assert.equal(destination.protocol, 'http:');
+        const upstream = net.connect(Number(destination.port || 80), destination.hostname, () => {
+          if (method === 'CONNECT') {
+            client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+          } else {
+            const originTarget = `${destination.pathname}${destination.search}`;
+            upstream.write(
+              `${method} ${originTarget} ${version}${requestHead.slice(requestLineEnd)}\r\n\r\n`,
+              'latin1',
+            );
+          }
           const remainder = pending.subarray(headerEnd + 4);
           if (remainder.length > 0) upstream.write(remainder);
           client.pipe(upstream).pipe(client);
+          client.resume();
         });
         upstream.on('error', () => client.destroy());
         client.on('close', () => upstream.destroy());
       };
-      client.on('data', readConnect);
+      client.on('data', readProxyRequest);
     });
 
     const originPort = await listen(origin);
@@ -153,9 +171,9 @@ describe('proxiedFetch', () => {
       assert.equal(response.status, 200);
       const first = await response.body?.getReader().read();
       assert.equal(Buffer.from(first?.value ?? []).toString(), 'first chunk');
-      assert.ok(tunneledSocket && !tunneledSocket.destroyed);
+      assert.ok(capturedProxySocket && !capturedProxySocket.destroyed);
 
-      const socketClosed = waitForSocketClose(tunneledSocket);
+      const socketClosed = waitForSocketClose(capturedProxySocket);
       await withTimeout(
         Promise.all([transport.close(), socketClosed]),
         'Transport close deadlocked',
