@@ -163,9 +163,9 @@ describe('Automation service-backed tool', () => {
         context('current-session'),
       ),
     ).then((value) => {
-        settled = true;
-        return value;
-      });
+      settled = true;
+      return value;
+    });
 
     await Promise.resolve();
     assert.equal(settled, false);
@@ -214,14 +214,12 @@ describe('Automation service-backed tool', () => {
       },
       {
         input: { mode: 'pause' as const, id: 'auto-1' },
-        settle: () =>
-          pauseCompletion.resolve({ outcome: 'paused', automation: projection() }),
+        settle: () => pauseCompletion.resolve({ outcome: 'paused', automation: projection() }),
         expected: 'Automation "deploy check" paused. Use mode "resume" to reactivate.',
       },
       {
         input: { mode: 'resume' as const, id: 'auto-1' },
-        settle: () =>
-          resumeCompletion.resolve({ outcome: 'resumed', automation: projection() }),
+        settle: () => resumeCompletion.resolve({ outcome: 'resumed', automation: projection() }),
         expectedPrefix: 'Automation "deploy check" resumed. Next fire:',
       },
     ];

@@ -117,20 +117,14 @@ export function createAutomationManagerToolService(
       ),
     pause: (request) =>
       changed(() => {
-        const automation = deps.automationManager.pause(
-          request.id,
-          request.requester.sessionId,
-        );
+        const automation = deps.automationManager.pause(request.id, request.requester.sessionId);
         return automation
           ? { outcome: 'paused' as const, automation: projectAutomation(automation) }
           : { outcome: 'not_found_or_invalid' as const };
       }),
     resume: (request) =>
       changed(() => {
-        const automation = deps.automationManager.resume(
-          request.id,
-          request.requester.sessionId,
-        );
+        const automation = deps.automationManager.resume(request.id, request.requester.sessionId);
         if (automation) {
           return { outcome: 'resumed' as const, automation: projectAutomation(automation) };
         }

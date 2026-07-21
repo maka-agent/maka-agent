@@ -485,7 +485,10 @@ function decodeSchedule(value: unknown): AutomationSchedule {
     };
   }
   if (record.type === 'interval') {
-    const schedule = requireExactRecord(record, 'automation interval schedule', ['type', 'seconds']);
+    const schedule = requireExactRecord(record, 'automation interval schedule', [
+      'type',
+      'seconds',
+    ]);
     return {
       type: 'interval',
       seconds: boundedPositiveInteger(
@@ -545,13 +548,9 @@ function decodeExecutionTarget(value: unknown): AutomationExecutionTarget {
     sourceSessionId: requireEntityId(target.sourceSessionId, 'automation source sessionId'),
     cwd: requireUtf8BoundedString(target.cwd, 'automation cwd', AUTOMATION_CWD_MAX_BYTES),
     backend: automationBackend(target.backend),
-    llmConnectionSlug: requireEntityId(
-      target.llmConnectionSlug,
-      'automation LLM connection slug',
-    ),
+    llmConnectionSlug: requireEntityId(target.llmConnectionSlug, 'automation LLM connection slug'),
     model: requireUtf8BoundedString(target.model, 'automation model', AUTOMATION_MODEL_MAX_BYTES),
-    thinkingLevel:
-      target.thinkingLevel === null ? null : thinkingLevel(target.thinkingLevel),
+    thinkingLevel: target.thinkingLevel === null ? null : thinkingLevel(target.thinkingLevel),
     permissionMode: 'explore',
   };
 }

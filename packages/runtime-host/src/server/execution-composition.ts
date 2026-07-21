@@ -17,10 +17,7 @@ import {
   type RuntimeMessageRunOwner,
   SessionManager,
 } from '@maka/runtime';
-import {
-  createReadImageSnapshotter,
-  openInteractiveAutomationStoreForWrite,
-} from '@maka/storage';
+import { createReadImageSnapshotter, openInteractiveAutomationStoreForWrite } from '@maka/storage';
 import { openInteractiveArtifactStoreForWrite } from '@maka/storage/artifact-stores';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveMemoryStoreForWrite } from '@maka/storage/memory-store';

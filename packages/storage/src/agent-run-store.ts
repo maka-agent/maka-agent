@@ -2073,7 +2073,10 @@ function rootTurnAdmissionPayloadsEqual(
   );
 }
 
-function rootTurnOriginsEqual(left: TurnOrigin | undefined, right: TurnOrigin | undefined): boolean {
+function rootTurnOriginsEqual(
+  left: TurnOrigin | undefined,
+  right: TurnOrigin | undefined,
+): boolean {
   return (
     left?.kind === right?.kind &&
     left?.automationId === right?.automationId &&

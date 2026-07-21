@@ -2,11 +2,7 @@ import { isThinkingLevel, type ThinkingLevel } from './model-thinking.js';
 import type { BackendKind } from './session.js';
 
 export const AUTOMATION_STATUSES = ['enabled', 'disabled', 'exhausted'] as const;
-export const AUTOMATION_FIRE_OUTCOME_KINDS = [
-  'succeeded',
-  'failed',
-  'outcome_unknown',
-] as const;
+export const AUTOMATION_FIRE_OUTCOME_KINDS = ['succeeded', 'failed', 'outcome_unknown'] as const;
 
 export type AutomationStatus = (typeof AUTOMATION_STATUSES)[number];
 export type AutomationSchedule =
@@ -225,13 +221,7 @@ export function decodeUpdateAutomationDefinitionRequest(
 
 export function decodeSetAutomationEnabledRequest(value: unknown): SetAutomationEnabledRequest {
   const item = record(value, 'Set automation enabled request');
-  fields(item, [
-    'automationId',
-    'expectedRevision',
-    'enabled',
-    'updatedAt',
-    'nextFireAt',
-  ]);
+  fields(item, ['automationId', 'expectedRevision', 'enabled', 'updatedAt', 'nextFireAt']);
   const enabled = boolean(item.enabled, 'enabled');
   const nextFireAt = nullableTimestamp(item.nextFireAt, 'nextFireAt');
   if (enabled !== (nextFireAt !== null)) invalid('enabled and nextFireAt disagree');
@@ -315,9 +305,7 @@ export function decodeAdmitAutomationFireRequest(value: unknown): AdmitAutomatio
   });
 }
 
-export function decodeAutomationFireTerminalOutcome(
-  value: unknown,
-): AutomationFireTerminalOutcome {
+export function decodeAutomationFireTerminalOutcome(value: unknown): AutomationFireTerminalOutcome {
   const item = record(value, 'Automation fire terminal outcome');
   if (item.kind === 'succeeded') {
     fields(item, ['kind', 'settledAt']);
@@ -349,11 +337,7 @@ export function decodeAutomationFireTerminalOutcome(
 
 export function decodeAutomationFire(value: unknown): AutomationFire {
   const item = record(value, 'Automation fire');
-  fields(
-    item,
-    ['admission', 'definitionAfterAdmission'],
-    ['outcome'],
-  );
+  fields(item, ['admission', 'definitionAfterAdmission'], ['outcome']);
   const fire: AutomationFire = {
     admission: decodeAutomationFireAdmission(item.admission),
     definitionAfterAdmission: decodeAutomationDefinition(item.definitionAfterAdmission),
@@ -532,11 +516,7 @@ function boolean(value: unknown, context: string): boolean {
   if (typeof value !== 'boolean') return invalid(`${context} must be a boolean`);
   return value;
 }
-function enumeration<T extends string>(
-  value: unknown,
-  values: readonly T[],
-  context: string,
-): T {
+function enumeration<T extends string>(value: unknown, values: readonly T[], context: string): T {
   if (typeof value !== 'string' || !values.includes(value as T)) {
     return invalid(`${context} is invalid`);
   }

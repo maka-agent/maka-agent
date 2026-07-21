@@ -4,16 +4,20 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
 import type { CreateSessionInput, SessionHeader, StoredMessage } from '@maka/core';
-import {
-  createSessionStore,
-  type CreateAutomationSessionRequest,
-} from '../session-store.js';
+import { createSessionStore, type CreateAutomationSessionRequest } from '../session-store.js';
 
 describe('FileSessionStore CRUD', () => {
   test('creates a stable automation session and returns existing for a semantic retry', async () => {
     await withStore(async (store) => {
-      const origin = { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' } as const;
-      const request = automationSessionRequest({ name: 'Automation session', labels: ['scheduled'] });
+      const origin = {
+        kind: 'automation',
+        automationId: 'automation-1',
+        fireId: 'fire-1',
+      } as const;
+      const request = automationSessionRequest({
+        name: 'Automation session',
+        labels: ['scheduled'],
+      });
 
       const created = await store.createAutomationSession({
         sessionId: 'stable-session',
@@ -69,7 +73,11 @@ describe('FileSessionStore CRUD', () => {
 
   test('returns conflict when a stable session id targets different creation identity', async () => {
     await withStore(async (store) => {
-      const origin = { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' } as const;
+      const origin = {
+        kind: 'automation',
+        automationId: 'automation-1',
+        fireId: 'fire-1',
+      } as const;
       const request = automationSessionRequest();
       assert.equal(
         (await store.createAutomationSession({ sessionId: 'stable-conflict', origin, ...request }))
@@ -146,7 +154,11 @@ describe('FileSessionStore CRUD', () => {
 
   test('serializes concurrent creation attempts for the same stable session id', async () => {
     await withStore(async (store) => {
-      const origin = { kind: 'automation', automationId: 'automation-1', fireId: 'fire-1' } as const;
+      const origin = {
+        kind: 'automation',
+        automationId: 'automation-1',
+        fireId: 'fire-1',
+      } as const;
       const results = await Promise.all(
         Array.from({ length: 8 }, () =>
           store.createAutomationSession({

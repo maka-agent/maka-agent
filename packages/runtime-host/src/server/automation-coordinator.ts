@@ -46,10 +46,7 @@ import {
   type OperationOutcome,
   type TurnSnapshot,
 } from '../protocol/index.js';
-import type {
-  AutomationOperationHandlerMap,
-  OperationResidency,
-} from './operation-dispatcher.js';
+import type { AutomationOperationHandlerMap, OperationResidency } from './operation-dispatcher.js';
 import { RootTurnCoordinator } from './root-turn-coordinator.js';
 import { SessionAdmissionGate } from './session-admission-gate.js';
 
@@ -252,9 +249,7 @@ export class HostAutomationCoordinator implements AutomationToolService {
       const fires = indexFires(snapshot);
       return snapshot.definitions
         .filter((definition) => isOwnedBy(definition, request.requester.sessionId))
-        .map((definition) =>
-          toolProjection(definition, firesFor(fires, definition), this.#now()),
-        );
+        .map((definition) => toolProjection(definition, firesFor(fires, definition), this.#now()));
     } catch (error) {
       this.#enterDrain();
       throw error;
@@ -424,10 +419,7 @@ export class HostAutomationCoordinator implements AutomationToolService {
         encodeAutomationMutateResult({
           kind: result.replayed ? 'unchanged' : 'committed',
           catalogRevision: snapshot.catalogRevision,
-          automation: await this.#projection(
-            definition,
-            firesFor(fires, definition),
-          ),
+          automation: await this.#projection(definition, firesFor(fires, definition)),
         }),
       );
     } catch {
@@ -471,7 +463,8 @@ export class HostAutomationCoordinator implements AutomationToolService {
       const now = this.#now();
       const definition = await this.#canonicalDefinition(mutation.definition);
       const nextFireAt = nextFireAtFor(definition.schedule, now, definition.expiresAt);
-      if (nextFireAt === null) throw new AutomationRequestError('Schedule has no fire before expiry');
+      if (nextFireAt === null)
+        throw new AutomationRequestError('Schedule has no fire before expiry');
       validateProspectiveDefinition({
         automationId: mutation.automationId,
         ...definition,
@@ -944,7 +937,8 @@ export class HostAutomationCoordinator implements AutomationToolService {
   }
 
   #registerActiveFire(fireId: string, residency: OperationResidency): ActiveFire {
-    if (this.#activeFires.has(fireId)) throw new Error(`Automation fire is already active: ${fireId}`);
+    if (this.#activeFires.has(fireId))
+      throw new Error(`Automation fire is already active: ${fireId}`);
     const active: ActiveFire = { residency, task: Promise.resolve(), released: false };
     this.#activeFires.set(fireId, active);
     return active;
@@ -1023,13 +1017,15 @@ function canonicalSchedule(
   schedule: AutomationSchedule | ToolAutomationSchedule,
 ): CanonicalAutomationSchedule {
   if (schedule.type === 'once') return { kind: 'once', delayMs: schedule.delaySeconds * 1000 };
-  if (schedule.type === 'interval') return { kind: 'interval', intervalMs: schedule.seconds * 1000 };
+  if (schedule.type === 'interval')
+    return { kind: 'interval', intervalMs: schedule.seconds * 1000 };
   return { kind: 'cron', expression: schedule.expression };
 }
 
 function protocolSchedule(schedule: CanonicalAutomationSchedule): AutomationSchedule {
   if (schedule.kind === 'once') return { type: 'once', delaySeconds: schedule.delayMs / 1000 };
-  if (schedule.kind === 'interval') return { type: 'interval', seconds: schedule.intervalMs / 1000 };
+  if (schedule.kind === 'interval')
+    return { type: 'interval', seconds: schedule.intervalMs / 1000 };
   return { type: 'cron', expression: schedule.expression };
 }
 
@@ -1048,11 +1044,11 @@ function nextFireAtFor(
   return next;
 }
 
-function nextFireAfterAdmission(definition: AutomationDefinition, admittedAt: number): number | null {
-  if (
-    definition.maxFireCount !== null &&
-    definition.fireCount + 1 >= definition.maxFireCount
-  ) {
+function nextFireAfterAdmission(
+  definition: AutomationDefinition,
+  admittedAt: number,
+): number | null {
+  if (definition.maxFireCount !== null && definition.fireCount + 1 >= definition.maxFireCount) {
     return null;
   }
   if (definition.schedule.kind === 'once') return null;
@@ -1144,9 +1140,7 @@ function lastFireProjection(fire: AutomationFire): NonNullable<AutomationProject
     completedAt: outcome.settledAt,
     runId: fire.admission.runId,
     failure:
-      outcome.kind === 'failed'
-        ? boundedFailure(`${outcome.errorCode}: ${outcome.message}`)
-        : null,
+      outcome.kind === 'failed' ? boundedFailure(`${outcome.errorCode}: ${outcome.message}`) : null,
   };
 }
 

@@ -181,10 +181,7 @@ export interface AutomationStoreWriter extends AutomationStoreReader {
 const writerBrand: unique symbol = Symbol('InteractiveAutomationStoreWriter');
 const writers = new WeakSet<object>();
 const writerByLease = new WeakMap<object, InteractiveAutomationStoreWriterFacade>();
-const writerOpeningByLease = new WeakMap<
-  object,
-  Promise<InteractiveAutomationStoreWriterFacade>
->();
+const writerOpeningByLease = new WeakMap<object, Promise<InteractiveAutomationStoreWriterFacade>>();
 
 export interface InteractiveAutomationStoreWriterFacade extends AutomationStoreWriter {
   readonly kind: 'interactive';
@@ -223,8 +220,7 @@ export async function openInteractiveAutomationStoreForWrite(
     if (recovered) return recovered;
 
     const lifecycle = new WriterLifecycle();
-    const run = <T>(operation: () => Promise<T>) =>
-      lifecycle.accept(() => runWithLease(operation));
+    const run = <T>(operation: () => Promise<T>) => lifecycle.accept(() => runWithLease(operation));
     const facade = {
       kind: 'interactive' as const,
       access: 'write' as const,
@@ -243,8 +239,7 @@ export async function openInteractiveAutomationStoreForWrite(
         run(() => store.createDefinition(request)),
       updateDefinition: (request: UpdateAutomationDefinitionRequest) =>
         run(() => store.updateDefinition(request)),
-      setEnabled: (request: SetAutomationEnabledRequest) =>
-        run(() => store.setEnabled(request)),
+      setEnabled: (request: SetAutomationEnabledRequest) => run(() => store.setEnabled(request)),
       deleteDefinition: (request: DeleteAutomationDefinitionRequest) =>
         run(() => store.deleteDefinition(request)),
       admitFire: (request: AdmitAutomationFireRequest) => run(() => store.admitFire(request)),
@@ -401,10 +396,7 @@ class FileAutomationStore {
   setEnabled(input: SetAutomationEnabledRequest): Promise<AutomationDefinitionMutationResult> {
     const request = decodeSetAutomationEnabledRequest(input);
     return this.mutate(async (snapshot) => {
-      const prepared = prepareDefinitionMutation(
-        snapshot,
-        semanticRequest('set_enabled', request),
-      );
+      const prepared = prepareDefinitionMutation(snapshot, semanticRequest('set_enabled', request));
       if (prepared.status !== 'ready') return preparedMutationResult(prepared);
       const current = prepared.current;
       if (!current) throw new Error('Prepared active Automation disappeared');
@@ -470,10 +462,7 @@ class FileAutomationStore {
         return fireConflict('revision_mismatch', current);
       }
       if (current.status !== 'enabled') return fireConflict('automation_not_enabled', current);
-      if (
-        current.expiresAt !== null &&
-        request.admission.admittedAt >= current.expiresAt
-      ) {
+      if (current.expiresAt !== null && request.admission.admittedAt >= current.expiresAt) {
         return fireConflict('automation_expired', current);
       }
       if (current.nextFireAt !== request.admission.scheduledFor) {
@@ -493,7 +482,9 @@ class FileAutomationStore {
         return fireConflict('fire_budget_exhausted', current);
       }
       const targetSessionId =
-        current.target.kind === 'heartbeat' ? current.target.sessionId : request.admission.targetSessionId;
+        current.target.kind === 'heartbeat'
+          ? current.target.sessionId
+          : request.admission.targetSessionId;
       if (targetSessionId !== request.admission.targetSessionId) {
         return fireConflict('scheduled_slot_mismatch', current);
       }
@@ -528,9 +519,7 @@ class FileAutomationStore {
   settleFire(input: SettleAutomationFireRequest): Promise<AutomationFireSettlementResult> {
     const request = decodeSettleAutomationFireRequest(input);
     return this.mutate(async (snapshot) => {
-      const index = snapshot.fires.findIndex(
-        (item) => item.admission.fireId === request.fireId,
-      );
+      const index = snapshot.fires.findIndex((item) => item.admission.fireId === request.fireId);
       if (index < 0) return { status: 'conflict', code: 'fire_not_found' };
       const current = snapshot.fires[index];
       if (current.outcome) {
@@ -678,8 +667,14 @@ function decodeSnapshot(value: unknown, path: string): AutomationSnapshot {
     const fires = item.fires.map(decodeAutomationFire);
     const definitionMutations = item.definitionMutations.map(decodeReceipt);
     const activeDefinitionIds = new Set(definitions.map((entry) => entry.automationId));
-    assertUnique(definitions.map((entry) => entry.automationId), 'automationId');
-    assertUnique(fires.map((entry) => entry.admission.fireId), 'fireId');
+    assertUnique(
+      definitions.map((entry) => entry.automationId),
+      'automationId',
+    );
+    assertUnique(
+      fires.map((entry) => entry.admission.fireId),
+      'fireId',
+    );
     assertUnique(
       definitionMutations.map((receipt) => receipt.automationId),
       'definition mutation automationId',
@@ -745,12 +740,7 @@ function decodePrepareRequest(value: unknown): AutomationDefinitionMutationPrepa
     });
   }
   if (kind === 'update') {
-    const item = strictRecord(value, [
-      'kind',
-      'automationId',
-      'expectedRevision',
-      'config',
-    ]);
+    const item = strictRecord(value, ['kind', 'automationId', 'expectedRevision', 'config']);
     const request = decodeUpdateAutomationDefinitionRequest({
       automationId: item.automationId,
       expectedRevision: item.expectedRevision,
@@ -833,7 +823,9 @@ function canonicalSnapshot(snapshot: AutomationSnapshot): AutomationSnapshot {
   return {
     schemaVersion: AUTOMATION_STORE_SCHEMA_VERSION,
     catalogRevision: snapshot.catalogRevision,
-    definitions: [...snapshot.definitions].sort((a, b) => a.automationId.localeCompare(b.automationId)),
+    definitions: [...snapshot.definitions].sort((a, b) =>
+      a.automationId.localeCompare(b.automationId),
+    ),
     fires: [...snapshot.fires].sort((a, b) => a.admission.fireId.localeCompare(b.admission.fireId)),
     definitionMutations: [...snapshot.definitionMutations].sort((a, b) =>
       receiptIdentity(a).localeCompare(receiptIdentity(b)),
@@ -841,7 +833,12 @@ function canonicalSnapshot(snapshot: AutomationSnapshot): AutomationSnapshot {
   };
 }
 
-function definitionConfig(value: CreateAutomationDefinitionRequest | UpdateAutomationDefinitionRequest | AutomationDefinition) {
+function definitionConfig(
+  value:
+    | CreateAutomationDefinitionRequest
+    | UpdateAutomationDefinitionRequest
+    | AutomationDefinition,
+) {
   return {
     name: value.name,
     prompt: value.prompt,
@@ -973,10 +970,7 @@ function prepareDefinitionMutation(
   return { status: 'ready', identity: 'active', current };
 }
 
-function replaceDefinitionReceipt(
-  snapshot: MutableSnapshot,
-  receipt: DefinitionMutationReceipt,
-) {
+function replaceDefinitionReceipt(snapshot: MutableSnapshot, receipt: DefinitionMutationReceipt) {
   snapshot.definitionMutations = snapshot.definitionMutations.filter(
     (item) => item.automationId !== receipt.automationId,
   );
@@ -1062,9 +1056,7 @@ function prepareConflict(
 function preparedMutationResult(
   prepared: Exclude<AutomationDefinitionMutationPrepareResult, { status: 'ready' }>,
 ): AutomationDefinitionMutationResult {
-  return prepared.status === 'replay'
-    ? prepared.result
-    : conflict(prepared.code, prepared.current);
+  return prepared.status === 'replay' ? prepared.result : conflict(prepared.code, prepared.current);
 }
 function fireConflict(
   code: AutomationFireAdmissionConflictCode,

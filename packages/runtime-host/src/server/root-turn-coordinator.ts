@@ -438,116 +438,116 @@ export class RootTurnCoordinator {
         this.#throwIfPoisoned();
         const content = normalizeMessageContent(input.content);
         const origin = Object.freeze({
-        kind: 'automation' as const,
-        automationId: input.automationId,
-        fireId: input.fireId,
-      });
-      const executionInput: RootTurnExecutionInput = {
-        sessionId: input.sessionId,
-        turnId: input.turnId,
-        content,
-        origin,
-      };
-      let admission = await this.stores.agentRunStore.readRootTurnAdmission(
-        input.sessionId,
-        input.turnId,
-      );
-      this.#throwIfPoisoned();
-      if (!admission) {
-        let header: SessionHeader;
-        try {
-          header = await this.stores.sessionStore.readHeaderSnapshot(input.sessionId);
-          this.#throwIfPoisoned();
-        } catch (error) {
-          this.#throwIfPoisoned();
-          if (isMissingFile(error)) {
-            return { kind: 'blocked', reason: 'session_not_found' };
-          }
-          throw error;
-        }
-        if (header.status === 'archived') {
-          return { kind: 'blocked', reason: 'session_archived' };
-        }
-        if (this.#activeBySession.has(input.sessionId)) {
-          return { kind: 'blocked', reason: 'session_busy' };
-        }
-        const previousRootTurnId = this.rootAdmissionWriter.previousRootTurnIdForNextAdmission(
-          input.sessionId,
-        );
-        const admitted = await this.stores.agentRunStore.admitRootTurn({
+          kind: 'automation' as const,
+          automationId: input.automationId,
+          fireId: input.fireId,
+        });
+        const executionInput: RootTurnExecutionInput = {
           sessionId: input.sessionId,
           turnId: input.turnId,
-          proposedRunId: input.runId,
-          proposedUserMessageId: input.userMessageId,
-          previousRootTurnId,
-          normalizedInput: content,
-          sourceMessages: [],
+          content,
           origin,
-          admittedAt: Date.now(),
-        });
-        this.#throwIfPoisoned();
-        admission = admitted.admission;
-        if (admitted.kind === 'admitted') this.rootAdmissionWriter.record(admission);
-      }
-      if (
-        admission.runId !== input.runId ||
-        admission.userMessageId !== input.userMessageId ||
-        admission.sourceMessages.length !== 0 ||
-        !messageContentsEqual(admission.normalizedInput, content) ||
-        !turnOriginsEqual(admission.origin, origin)
-      ) {
-        throw new RuntimeInteractionInvariantError(
-          `Automation fire ${input.fireId} conflicts with its root Turn admission`,
-        );
-      }
-      const disposition = await this.prepareAdmittedTurn(
-        executionInput,
-        admission,
-        this.acquireRecoveryResidency,
-        admissionLease,
-      );
-      this.#throwIfPoisoned();
-      if (disposition.kind === 'complete') {
-        if (!disposition.outcome.ok) {
-          if (disposition.outcome.error.code === 'session_busy') {
-            return { kind: 'blocked', reason: 'session_busy' };
-          }
-          throw new RuntimeInteractionInvariantError(
-            `Automation fire ${input.fireId} could not resume its admitted Turn`,
-          );
-        }
-        if (!isTerminalSnapshot(disposition.outcome.result)) {
-          throw new RuntimeInteractionInvariantError(
-            `Automation fire ${input.fireId} resolved without a terminal Turn`,
-          );
-        }
-        return {
-          kind: 'started',
-          handle: {
-            terminal: Promise.resolve(disposition.outcome.result),
-          },
         };
-      }
-      const terminal = (async () => {
-        await disposition.active.started.promise;
-        this.#assertTurnUsable(disposition.active.ownership);
-        await disposition.active.done.promise;
-        this.#throwIfPoisoned();
-        const result = await this.readCanonicalSnapshot(
+        let admission = await this.stores.agentRunStore.readRootTurnAdmission(
           input.sessionId,
           input.turnId,
-          input.runId,
         );
         this.#throwIfPoisoned();
-        if (!isTerminalSnapshot(result)) {
+        if (!admission) {
+          let header: SessionHeader;
+          try {
+            header = await this.stores.sessionStore.readHeaderSnapshot(input.sessionId);
+            this.#throwIfPoisoned();
+          } catch (error) {
+            this.#throwIfPoisoned();
+            if (isMissingFile(error)) {
+              return { kind: 'blocked', reason: 'session_not_found' };
+            }
+            throw error;
+          }
+          if (header.status === 'archived') {
+            return { kind: 'blocked', reason: 'session_archived' };
+          }
+          if (this.#activeBySession.has(input.sessionId)) {
+            return { kind: 'blocked', reason: 'session_busy' };
+          }
+          const previousRootTurnId = this.rootAdmissionWriter.previousRootTurnIdForNextAdmission(
+            input.sessionId,
+          );
+          const admitted = await this.stores.agentRunStore.admitRootTurn({
+            sessionId: input.sessionId,
+            turnId: input.turnId,
+            proposedRunId: input.runId,
+            proposedUserMessageId: input.userMessageId,
+            previousRootTurnId,
+            normalizedInput: content,
+            sourceMessages: [],
+            origin,
+            admittedAt: Date.now(),
+          });
+          this.#throwIfPoisoned();
+          admission = admitted.admission;
+          if (admitted.kind === 'admitted') this.rootAdmissionWriter.record(admission);
+        }
+        if (
+          admission.runId !== input.runId ||
+          admission.userMessageId !== input.userMessageId ||
+          admission.sourceMessages.length !== 0 ||
+          !messageContentsEqual(admission.normalizedInput, content) ||
+          !turnOriginsEqual(admission.origin, origin)
+        ) {
           throw new RuntimeInteractionInvariantError(
-            `Automation fire ${input.fireId} completed without a terminal Turn`,
+            `Automation fire ${input.fireId} conflicts with its root Turn admission`,
           );
         }
-        return result;
-      })();
-      void terminal.catch(() => undefined);
-      return { kind: 'started', handle: { terminal } };
+        const disposition = await this.prepareAdmittedTurn(
+          executionInput,
+          admission,
+          this.acquireRecoveryResidency,
+          admissionLease,
+        );
+        this.#throwIfPoisoned();
+        if (disposition.kind === 'complete') {
+          if (!disposition.outcome.ok) {
+            if (disposition.outcome.error.code === 'session_busy') {
+              return { kind: 'blocked', reason: 'session_busy' };
+            }
+            throw new RuntimeInteractionInvariantError(
+              `Automation fire ${input.fireId} could not resume its admitted Turn`,
+            );
+          }
+          if (!isTerminalSnapshot(disposition.outcome.result)) {
+            throw new RuntimeInteractionInvariantError(
+              `Automation fire ${input.fireId} resolved without a terminal Turn`,
+            );
+          }
+          return {
+            kind: 'started',
+            handle: {
+              terminal: Promise.resolve(disposition.outcome.result),
+            },
+          };
+        }
+        const terminal = (async () => {
+          await disposition.active.started.promise;
+          this.#assertTurnUsable(disposition.active.ownership);
+          await disposition.active.done.promise;
+          this.#throwIfPoisoned();
+          const result = await this.readCanonicalSnapshot(
+            input.sessionId,
+            input.turnId,
+            input.runId,
+          );
+          this.#throwIfPoisoned();
+          if (!isTerminalSnapshot(result)) {
+            throw new RuntimeInteractionInvariantError(
+              `Automation fire ${input.fireId} completed without a terminal Turn`,
+            );
+          }
+          return result;
+        })();
+        void terminal.catch(() => undefined);
+        return { kind: 'started', handle: { terminal } };
       });
     } catch (error) {
       if (!this.#poisoned) this.requestHostDrain();
@@ -1278,8 +1278,9 @@ export class RootTurnCoordinator {
 type RecoveryUserMessage = Extract<StoredMessage, { type: 'user' }>;
 
 function turnOriginsEqual(
-  left: { readonly kind: 'automation'; readonly automationId: string; readonly fireId?: string } |
-    undefined,
+  left:
+    | { readonly kind: 'automation'; readonly automationId: string; readonly fireId?: string }
+    | undefined,
   right: RootTurnOrigin | undefined,
 ): boolean {
   return (

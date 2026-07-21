@@ -41,7 +41,9 @@ describe('Automation protocol', () => {
   });
 
   test('requires caller identity for create and CAS revisions for later mutations', () => {
-    assert.doesNotThrow(() => mutate({ kind: 'create', automationId: 'auto-1', definition: definition() }));
+    assert.doesNotThrow(() =>
+      mutate({ kind: 'create', automationId: 'auto-1', definition: definition() }),
+    );
     assert.doesNotThrow(() =>
       mutate({
         kind: 'update',
@@ -122,7 +124,9 @@ describe('Automation protocol', () => {
 
   test('closes and bounds definition and fire projections', () => {
     const automation = projection();
-    assert.doesNotThrow(() => response('automation.query', { kind: 'item', catalogRevision: 4, automation }));
+    assert.doesNotThrow(() =>
+      response('automation.query', { kind: 'item', catalogRevision: 4, automation }),
+    );
     assert.doesNotThrow(() =>
       response('automation.query', {
         kind: 'page',
@@ -140,7 +144,12 @@ describe('Automation protocol', () => {
     );
 
     for (const result of [
-      { kind: 'page', revision: 4, items: Array(AUTOMATION_PAGE_MAX_ITEMS + 1).fill(automation), nextCursor: null },
+      {
+        kind: 'page',
+        revision: 4,
+        items: Array(AUTOMATION_PAGE_MAX_ITEMS + 1).fill(automation),
+        nextCursor: null,
+      },
       { kind: 'item', catalogRevision: 4, automation: { ...automation, fireCount: 1 } },
       {
         kind: 'item',
@@ -163,7 +172,12 @@ describe('Automation protocol', () => {
     }
 
     assert.throws(
-      () => mutate({ kind: 'create', automationId: 'auto-2', definition: definition('x'.repeat(AUTOMATION_PROMPT_MAX_BYTES + 1)) }),
+      () =>
+        mutate({
+          kind: 'create',
+          automationId: 'auto-2',
+          definition: definition('x'.repeat(AUTOMATION_PROMPT_MAX_BYTES + 1)),
+        }),
       isInvalidFrame,
     );
   });

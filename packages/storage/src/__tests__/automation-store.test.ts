@@ -47,7 +47,8 @@ describe('Automation durable store', () => {
       if (created.status !== 'committed') return;
       const replay = await writer.prepareDefinitionMutation(semanticCreate);
       assert.equal(replay.status, 'replay');
-      if (replay.status === 'replay') assert.deepEqual(replay.result, { ...created, replayed: true });
+      if (replay.status === 'replay')
+        assert.deepEqual(replay.result, { ...created, replayed: true });
 
       const semanticConflict = await writer.prepareDefinitionMutation({
         ...semanticCreate,
@@ -286,7 +287,9 @@ describe('Automation durable store', () => {
       });
       assert.equal(heartbeatCron.status, 'committed');
 
-      const raw = JSON.parse(await readFile(join(owner.capability.canonicalPath, 'automations.json'), 'utf8'));
+      const raw = JSON.parse(
+        await readFile(join(owner.capability.canonicalPath, 'automations.json'), 'utf8'),
+      );
       assert.deepEqual(
         raw.definitions.find((item: { automationId: string }) => item.automationId === 'cron-1')
           .target,
@@ -382,7 +385,9 @@ describe('Automation durable store', () => {
         assert.deepEqual(createRetry.definition, admitted.definition);
       }
 
-      const raw = JSON.parse(await readFile(join(owner.capability.canonicalPath, 'automations.json'), 'utf8'));
+      const raw = JSON.parse(
+        await readFile(join(owner.capability.canonicalPath, 'automations.json'), 'utf8'),
+      );
       assert.equal(raw.definitions[0].fireCount, 1);
       assert.equal(raw.definitions[0].nextFireAt, 3_000);
       assert.equal(raw.fires[0].admission.fireId, 'fire-1');
