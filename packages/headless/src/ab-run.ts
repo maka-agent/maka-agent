@@ -175,7 +175,7 @@ async function runComparisonTaskArm(
     throw new Error(
       `A/B arm ${roundId} produced event for ${event.taskId}, expected ${pair.task.id}`,
     );
-  if (!input.preexistingTerminalEventIds?.has(event.id)) onArmEvent(event);
+  if (!input.preexistingEventIds?.has(event.id)) onArmEvent(event);
   return event;
 }
 

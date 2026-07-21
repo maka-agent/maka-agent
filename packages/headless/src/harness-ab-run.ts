@@ -52,7 +52,7 @@ export async function runHarnessAbComparisonUnlocked(
   if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
     throw new Error('pairConcurrency must be a positive integer');
   }
-  const preexistingTerminalEventIds = new Set(
+  const preexistingEventIds = new Set(
     (await readFixedPromptWal(input.resultsJsonlPath))
       .filter(
         (event) =>
@@ -80,7 +80,7 @@ export async function runHarnessAbComparisonUnlocked(
     reps: 1,
     maxConcurrency: pairConcurrency,
     armExecution: input.armExecution ?? 'parallel',
-    preexistingTerminalEventIds,
+    preexistingEventIds,
     runArm: async ({ roundId, arm, task }) => {
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
       if (!runtimeArm) throw new Error(`harness A/B arm ${arm.id} is not configured`);
