@@ -42,10 +42,7 @@ import {
   filterModelVisibleTaskLedgerTasks,
   renderTaskLedgerPromptText,
 } from '@maka/core/task-ledger';
-import {
-  createAttachmentByteReader,
-  persistProviderRequestCaptureArtifact,
-} from '@maka/storage';
+import { createAttachmentByteReader, persistProviderRequestCaptureArtifact } from '@maka/storage';
 import type { InteractiveArtifactStoreWriter } from '@maka/storage/artifact-stores';
 import {
   authenticateInteractiveTaskLedgerWriter,

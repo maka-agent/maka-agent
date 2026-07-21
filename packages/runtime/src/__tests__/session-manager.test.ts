@@ -383,9 +383,7 @@ describe('SessionManager backend lifecycle', () => {
       now: nextNow(950),
     });
     const cachedSession = await manager.createSession(makeInput({ name: 'Cached backend' }));
-    await drain(
-      manager.sendMessage(cachedSession.id, { turnId: 'turn-cached', text: 'cache me' }),
-    );
+    await drain(manager.sendMessage(cachedSession.id, { turnId: 'turn-cached', text: 'cache me' }));
     const failingSession = await manager.createSession(makeInput({ name: 'Failing execution' }));
 
     const running = drain(
