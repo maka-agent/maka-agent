@@ -687,14 +687,20 @@ export const Composer = forwardRef<
             {skillDraft.skills.map((skill) => (
               <li className="maka-composer-skill-chip" key={skill.id}>
                 <span>{skill.name}</span>
-                <button
+                <UiButton
                   type="button"
+                  variant="quiet"
+                  size="icon"
+                  shape="pill"
                   className="maka-composer-skill-chip-remove"
                   aria-label={copy.removeSkillAriaLabel(skill.name)}
-                  onClick={() => skillDraft.remove(skill.id)}
+                  onClick={() => {
+                    skillDraft.remove(skill.id);
+                    window.requestAnimationFrame(() => textareaRef.current?.focus());
+                  }}
                 >
                   <X size={12} aria-hidden="true" />
-                </button>
+                </UiButton>
               </li>
             ))}
           </ul>

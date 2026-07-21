@@ -495,7 +495,7 @@ describe('permission response IPC boundary', () => {
       'initial mount should call bootstrapSessions(), not raw refreshSessions(), for boot-only selection',
     );
     const quickChatHandler = renderer.match(
-      /async function handleQuickChatSubmit\(prompt: string, mode\?: QuickChatMode\): Promise<boolean> \{[\s\S]*?\n  function showModelSetupToast/,
+      /async function handleQuickChatSubmit\([\s\S]*?\): Promise<boolean> \{[\s\S]*?\n  async function handleExpertTeamStart/,
     );
     assert.ok(quickChatHandler, 'handleQuickChatSubmit() must exist');
     assert.match(
@@ -616,7 +616,7 @@ describe('permission response IPC boundary', () => {
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,
-      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{[\s\S]*?replaceCurrentMessages: true,[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
+      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\([\s\S]*session\.id,[\s\S]*turnId,[\s\S]*skillInvocationDisplayText\(text, sendResult\.skillInvocation\),[\s\S]*sendResult\.attachments,[\s\S]*\{[\s\S]*replaceCurrentMessages: true,[\s\S]*\}[\s\S]*\)[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
       'normal Composer first-send must switch/show the new user turn only while the empty-chat surface still owns the async continuation',
     );
     assert.doesNotMatch(
@@ -631,7 +631,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       existingSessionBranch,
-      /window\.maka\.sessions\.send\(sessionId, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments, \{[\s\S]*?\}\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
+      /window\.maka\.sessions\.send\(sessionId, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*showOptimisticUserMessage\([\s\S]*sessionId,[\s\S]*turnId,[\s\S]*skillInvocationDisplayText\(text, sendResult\.skillInvocation\),[\s\S]*sendResult\.attachments,[\s\S]*\{[\s\S]*\}[\s\S]*\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
       'existing sessions should also show the user turn immediately before waiting for persisted storage',
     );
     assert.match(

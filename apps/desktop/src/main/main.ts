@@ -42,6 +42,7 @@ import {
   BotRegistry,
   ShellRunProcessManager,
   SessionActivityRegistry,
+  listInvocableSkills,
   prepareSkillInvocationMessage,
   resolveSkillDiscoveryPaths,
 } from '@maka/runtime';
@@ -132,6 +133,7 @@ import {
 import { createProjectRootController } from './project-root-controller.js';
 import {
   assertSessionWorkspaceAvailable,
+  isSessionWorkspaceUnavailableError,
   resolveProjectContextRoot,
 } from './project-context-root.js';
 
@@ -882,6 +884,7 @@ function registerIpc(): void {
     artifactStore,
     mainWindowController,
     sendToRenderer: safeSendToRenderer,
+    listInvocableSkills: listDesktopInvocableSkills,
   });
   registerWorkspaceSearchIpc({ getProjectRoot: resolveProjectRootForContext });
   registerGitIpc({ getProjectRoot: resolveProjectRootForContext });
@@ -902,16 +905,7 @@ function registerIpc(): void {
     e2eFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
-    prepareSkillInvocation: async (sessionId, text, skillIds) =>
-      prepareSkillInvocationMessage({
-        text,
-        ...(skillIds ? { skillIds } : {}),
-        source: resolveSkillDiscoveryPaths(
-          await resolveProjectRootForContext(sessionId),
-          workspaceRoot,
-        ),
-        host: desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities,
-      }),
+    prepareSkillInvocation: prepareDesktopSkillInvocation,
     invalidateSessionBindings: (sessionId) => botIncoming.invalidateSessionBindings(sessionId),
     clearSkillHost: (sessionId) => desktopSessionSkillHosts.delete(sessionId),
     ensureSessionWorkspaceAvailable,
@@ -1086,6 +1080,42 @@ function getReadyConnection(slug: string | null | undefined, model?: string) {
   return requireReadyConnection(slug, readyConnectionDeps, model);
 }
 
+async function prepareDesktopSkillInvocation(
+  sessionId: string,
+  text: string,
+  skillIds?: readonly string[],
+) {
+  return prepareSkillInvocationMessage({
+    text,
+    ...(skillIds ? { skillIds } : {}),
+    source: resolveSkillDiscoveryPaths(
+      await resolveProjectRootForContext(sessionId),
+      workspaceRoot,
+    ),
+    host: desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities,
+  });
+}
+
+async function listDesktopInvocableSkills(sessionId?: string) {
+  try {
+    return await listInvocableSkills(
+      resolveSkillDiscoveryPaths(
+        await resolveProjectRootForContext(sessionId),
+        workspaceRoot,
+      ),
+      sessionId
+        ? (desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities)
+        : desktopHostCapabilities,
+    );
+  } catch (error) {
+    // Stale sessions with a removed working directory remain browseable, but
+    // cannot offer project-aware Skill suggestions. Treat that expected state
+    // as an empty projection instead of generating a rejected IPC/log entry.
+    if (sessionId && isSessionWorkspaceUnavailableError(error)) return [];
+    throw error;
+  }
+}
+
 /**
  * PR110b: Quick Chat entry — thin adapter over the extracted helper.
  * The discriminated-union logic + readiness gating lives in
@@ -1125,13 +1155,20 @@ async function handleQuickChatStart(
     },
     emitCreated: (sessionId) => emitSessionsChanged('created', sessionId),
     ensureCanSend: (sessionId) => ensureSessionCanSend(sessionId),
-    sendFirstMessage: async (sessionId, text) => {
+    prepareSkillInvocation: (sessionId, text, skillIds) =>
+      prepareDesktopSkillInvocation(sessionId, text, skillIds),
+    removeSession: (sessionId) => runtime.remove(sessionId),
+    sendFirstMessage: async (sessionId, text, displayText) => {
       // @xuan PR110b: do NOT return the turnId — its lifetime / id
       // ownership belongs to SessionManager + the eventual
       // sessions:event stream, not to Quick Chat. The user message
       // id is generated inside `runtime.sendMessage()`.
       const turnId = randomUUID();
-      const iterator = runtime.sendMessage(sessionId, { turnId, text });
+      const iterator = runtime.sendMessage(sessionId, {
+        turnId,
+        text,
+        ...(displayText ? { displayText } : {}),
+      });
       void streamEvents(sessionId, iterator, {
         turnId,
         goalBoundary: 'external',

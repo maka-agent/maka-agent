@@ -965,14 +965,6 @@ function AppShellContent({
   // the bridge is absent the panel hides the row (fail-soft).
   const keepSystemAwakeController = useKeepSystemAwake();
 
-  // Composer mention popups: `/` skills (enabled only) + `@` workspace file
-  // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
-  // inline mention state.
-  const { mentionSkills, searchMentionFiles } = useComposerMentions({
-    skills,
-    sessionId: activeId,
-  });
-
   const {
     projectInfo,
     branchList,
@@ -999,6 +991,15 @@ function AppShellContent({
       if (ownerSessionId && activeIdRef.current === ownerSessionId) void createSession();
     },
     toastApi,
+  });
+
+  // Composer mention popups: `/` uses Runtime's session/project-aware,
+  // host-compatible projection; `@` uses workspace file search. Keep the
+  // resolved project path as a refresh key for new-chat project changes.
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({
+    skills,
+    sessionId: activeId,
+    projectPath: projectInfo?.projectPath,
   });
 
   const { applyE2eFixture } = useStableActions(createAppShellE2eFixtureActions, {
@@ -1753,6 +1754,7 @@ function AppShellContent({
                 }}
                 onBrowseProviders={openProviderCatalog}
                 onQuickChatSubmit={handleQuickChatSubmit}
+                mentionSkills={mentionSkills}
                 quickChatPending={quickChatPending}
                 connections={connections}
                 onRefreshConnections={refreshConnections}

@@ -110,7 +110,7 @@ export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessi
   const value = requireObject(input, 'Invalid session command');
   if (value.type !== 'send') return undefined;
   const text = normalizeSendText(value.text);
-  const skillIds = normalizeSkillIds(value.skillIds);
+  const skillIds = normalizeSessionSkillIds(value.skillIds);
   if (!text.trim() && skillIds.length === 0) throw new Error('Invalid send text');
   return {
     type: 'send',
@@ -168,7 +168,7 @@ function normalizeSendText(input: unknown): string {
   return input;
 }
 
-function normalizeSkillIds(input: unknown): string[] {
+export function normalizeSessionSkillIds(input: unknown): string[] {
   if (input === undefined) return [];
   if (
     !Array.isArray(input) ||

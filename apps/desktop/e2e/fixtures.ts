@@ -1,6 +1,6 @@
 import { _electron as electron, test as base, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createConnectionStore, createFileCredentialStore, createSettingsStore } from '@maka/storage';
@@ -33,6 +33,40 @@ async function seedE2eLocale(userDataDir: string, locale: 'zh' | 'en'): Promise<
   await createSettingsStore(workspaceRoot).update({
     personalization: { uiLocale: locale },
   });
+}
+
+async function seedE2eInvocableSkills(userDataDir: string): Promise<void> {
+  const workspaceRoot = path.join(userDataDir, 'workspaces', 'default');
+  const projectRoot = path.join(userDataDir, 'project');
+  const projectSkillRoot = path.join(projectRoot, '.maka', 'skills');
+  const workspaceSkillRoot = path.join(workspaceRoot, 'skills');
+  await Promise.all([
+    mkdir(path.join(projectSkillRoot, 'project-only'), { recursive: true }),
+    mkdir(path.join(projectSkillRoot, 'host-incompatible'), { recursive: true }),
+    mkdir(path.join(workspaceSkillRoot, 'workspace-only'), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(
+      path.join(projectSkillRoot, 'project-only', 'SKILL.md'),
+      `---\nname: Project Only\ndescription: Project-scoped suggestion.\n---\n# Project Only`,
+      'utf8',
+    ),
+    writeFile(
+      path.join(projectSkillRoot, 'host-incompatible', 'SKILL.md'),
+      `---\nname: Host Incompatible\ndescription: Must be hidden from this host.\nrequired-tools: [DefinitelyMissingTool]\n---\n# Host Incompatible`,
+      'utf8',
+    ),
+    writeFile(
+      path.join(workspaceSkillRoot, 'workspace-only', 'SKILL.md'),
+      `---\nname: Workspace Only\ndescription: Maka workspace suggestion.\n---\n# Workspace Only`,
+      'utf8',
+    ),
+    writeFile(
+      path.join(workspaceRoot, 'last-project-path.json'),
+      JSON.stringify({ projectPath: projectRoot }),
+      'utf8',
+    ),
+  ]);
 }
 
 /**
@@ -89,13 +123,14 @@ function buildE2eEnv(
  * Electron and a leaked `maka-e2e-*` directory.
  */
 async function withE2eWindow(
-  { seed, readinessSelector, e2eFixtureScenario, locale, platform }: {
+  { seed, readinessSelector, e2eFixtureScenario, locale, platform, invocableSkills }: {
     seed: boolean;
     readinessSelector: string;
     e2eFixtureScenario?: string;
     locale?: 'zh' | 'en';
     /** #1312: force app:info's platform so the window boots natively into that platform's `data-os` cascade. */
     platform?: 'darwin' | 'win32' | 'linux';
+    invocableSkills?: boolean;
   },
   use: (page: Page) => Promise<void>,
 ): Promise<void> {
@@ -105,6 +140,7 @@ async function withE2eWindow(
   const rendererLogs: string[] = [];
   try {
     if (seed) await seedE2eConnection(userDataDir);
+    if (invocableSkills) await seedE2eInvocableSkills(userDataDir);
     // Legacy E2E specs assert Chinese labels and should not inherit the CI
     // host locale. E2e-fixture workspaces use the explicit renderer override.
     if (locale && !e2eFixtureScenario) await seedE2eLocale(userDataDir, locale);
@@ -166,6 +202,7 @@ export const test = base.extend<{
   zhLocaleWindow: Page;
   enLocaleWindow: Page;
   localeSwitchWindow: Page;
+  invocableSkillsWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
@@ -275,6 +312,16 @@ export const test = base.extend<{
   // actual host language while the legacy fixtures remain deterministic.
   localeSwitchWindow: async ({}, use) => {
     await withE2eWindow({ seed: true, readinessSelector: '.maka-onboarding-quickchat-input' }, use);
+  },
+  // Project + Maka-workspace Skills with one deliberately host-incompatible
+  // entry. Proves `/` uses Runtime discovery/gating rather than management UI data.
+  invocableSkillsWindow: async ({}, use) => {
+    await withE2eWindow({
+      seed: true,
+      readinessSelector: '.maka-onboarding-quickchat-input',
+      locale: 'zh',
+      invocableSkills: true,
+    }, use);
   },
 });
 

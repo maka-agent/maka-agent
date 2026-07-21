@@ -679,15 +679,15 @@ describe('e2e-fixture mode', () => {
   });
 
   it('composer-skill-invocation opens a real chat draft and seeds invocable Skills', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-skill-composer-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-skill-composer-'));
     try {
-      const fixture = resolveVisualSmokeFixture('composer-skill-invocation', false);
+      const fixture = resolveE2eFixture('composer-skill-invocation', false);
       assert.ok(fixture);
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+      const state = getE2eFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
       assert.equal(state?.composerText, '请整理这次会议的行动项');
       assert.deepEqual(state?.composerSkills, [{ id: 'meeting-followup', name: '会议跟进' }]);
-      await seedVisualSmokeFixture({
+      await seedE2eFixture({
         workspaceRoot,
         fixture,
         credentialStore: fakeCredentialStore(),

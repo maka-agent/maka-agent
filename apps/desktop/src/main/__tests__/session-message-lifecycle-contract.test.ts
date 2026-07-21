@@ -51,7 +51,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       src,
-      /setActiveId\(session\.id\);[\s\S]*?showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{[\s\S]*?replaceCurrentMessages: true,/,
+      /setActiveId\(session\.id\);[\s\S]*?showOptimisticUserMessage\([\s\S]*?session\.id,[\s\S]*?turnId,[\s\S]*?skillInvocationDisplayText\(text, sendResult\.skillInvocation\),[\s\S]*?sendResult\.attachments,[\s\S]*?\{[\s\S]*?replaceCurrentMessages: true,[\s\S]*?\}[\s\S]*?\)/,
       'the new-session-then-send path lets the optimistic user message overwrite the setActiveId clear in the same React batch, so the first message survives until the real read lands',
     );
     assert.match(

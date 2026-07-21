@@ -95,7 +95,7 @@
 
 .maka-composer-skill-chip {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 32px;
   align-items: center;
   gap: var(--space-1);
   border: var(--border-width-hairline) solid var(--border);
@@ -104,26 +104,4 @@
   padding-left: var(--space-2-5);
   color: var(--foreground);
   font-size: var(--font-size-caption);
-}
-
-.maka-composer-skill-chip-remove {
-  display: inline-grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--muted-foreground);
-}
-
-.maka-composer-skill-chip-remove:hover,
-.maka-composer-skill-chip-remove:focus-visible {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-
-.maka-composer-skill-chip-remove:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
 }
