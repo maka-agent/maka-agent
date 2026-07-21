@@ -7748,100 +7748,105 @@ describe('Maka Pi TUI runner', () => {
     });
   });
 
-  test('/skills reviews and activates a bundled template through the shared service', async () => {
-    await withSkillWorkspace(async (workspaceRoot) => {
-      const terminal = new FakeTerminal();
-      const driver = new SlashCommandDriver();
-      const template = BUNDLED_SKILL_TEMPLATES.find(
-        (candidate) => candidate.id === 'summarization',
-      );
-      assert.ok(template);
-      const run = runMakaPiTui({
-        title: 'Maka',
-        driver,
-        cwd: '/repo',
-        model: 'claude-sonnet-4-5',
-        connectionSlug: 'claude-subscription',
-        permissionMode: 'ask',
-        terminal,
-        skills: {
-          source: () => workspaceRoot,
-          host: { toolNames: new Set<string>() },
-          bundledTemplates: [template],
-          activateBundledTemplate: (id) => activateBundledSkillTemplate(workspaceRoot, id),
-        },
+  for (const [columns, rows] of [
+    [80, 24],
+    [120, 40],
+  ] as const) {
+    test(`/skills reviews and activates a bundled template at ${columns}x${rows}`, async () => {
+      await withSkillWorkspace(async (workspaceRoot) => {
+        const terminal = new FakeTerminal(columns, rows);
+        const driver = new SlashCommandDriver();
+        const template = BUNDLED_SKILL_TEMPLATES.find(
+          (candidate) => candidate.id === 'summarization',
+        );
+        assert.ok(template);
+        const run = runMakaPiTui({
+          title: 'Maka',
+          driver,
+          cwd: '/repo',
+          model: 'claude-sonnet-4-5',
+          connectionSlug: 'claude-subscription',
+          permissionMode: 'ask',
+          terminal,
+          skills: {
+            source: () => workspaceRoot,
+            host: { toolNames: new Set<string>() },
+            bundledTemplates: [template],
+            activateBundledTemplate: (id) => activateBundledSkillTemplate(workspaceRoot, id),
+          },
+        });
+
+        terminal.input('/skills');
+        terminal.input('\r');
+        await waitFor(() => terminal.output().includes('可启用'));
+        terminal.input('\r');
+        await waitFor(() => terminal.output().includes('Skills · 可启用'));
+        terminal.input('summarization');
+        terminal.input('\r');
+        await waitFor(() => plainTerminalOutput(terminal.output()).includes('模板详情'));
+        await waitFor(() => terminal.output().includes('启用到 Maka？'));
+        terminal.input('\r');
+        await waitFor(() => plainTerminalOutput(terminal.output()).includes('已启用'));
+
+        assert.equal(driver.prompts.length, 0, 'activation never sends a chat prompt');
+        assert.match(
+          await readFile(join(workspaceRoot, 'skills', 'summarization', 'SKILL.md'), 'utf8'),
+          /name: 智能摘要/,
+        );
+
+        exitMaka(terminal);
+        await run;
       });
-
-      terminal.input('/skills');
-      terminal.input('\r');
-      await waitFor(() => terminal.output().includes('可启用'));
-      terminal.input('\r');
-      await waitFor(() => terminal.output().includes('Skills · 可启用'));
-      terminal.input('summarization');
-      terminal.input('\r');
-      await waitFor(() => plainTerminalOutput(terminal.output()).includes('模板详情'));
-      await waitFor(() => terminal.output().includes('启用到 Maka？'));
-      terminal.input('\r');
-      await waitFor(() => plainTerminalOutput(terminal.output()).includes('已启用'));
-
-      assert.equal(driver.prompts.length, 0, 'activation never sends a chat prompt');
-      assert.match(
-        await readFile(join(workspaceRoot, 'skills', 'summarization', 'SKILL.md'), 'utf8'),
-        /name: 智能摘要/,
-      );
-
-      exitMaka(terminal);
-      await run;
     });
-  });
 
-  test('/skills globally toggles an effective Skill and refreshes the discovered view', async () => {
-    await withSkillWorkspace(async (workspaceRoot) => {
-      const terminal = new FakeTerminal();
-      const driver = new SlashCommandDriver();
-      const run = runMakaPiTui({
-        title: 'Maka',
-        driver,
-        cwd: '/repo',
-        model: 'claude-sonnet-4-5',
-        connectionSlug: 'claude-subscription',
-        permissionMode: 'ask',
-        terminal,
-        skills: {
-          source: () => workspaceRoot,
-          host: { toolNames: new Set<string>() },
-          setDiscoveredEnabled: (_cwd, entryKey, enabled) =>
-            setDiscoveredSkillEnabled({ source: workspaceRoot, entryKey, enabled }),
-        },
+    test(`/skills globally toggles an effective Skill at ${columns}x${rows}`, async () => {
+      await withSkillWorkspace(async (workspaceRoot) => {
+        const terminal = new FakeTerminal(columns, rows);
+        const driver = new SlashCommandDriver();
+        const run = runMakaPiTui({
+          title: 'Maka',
+          driver,
+          cwd: '/repo',
+          model: 'claude-sonnet-4-5',
+          connectionSlug: 'claude-subscription',
+          permissionMode: 'ask',
+          terminal,
+          skills: {
+            source: () => workspaceRoot,
+            host: { toolNames: new Set<string>() },
+            setDiscoveredEnabled: (_cwd, entryKey, enabled) =>
+              setDiscoveredSkillEnabled({ source: workspaceRoot, entryKey, enabled }),
+          },
+        });
+
+        terminal.input('/skills');
+        terminal.input('\r');
+        await waitFor(() => terminal.output().includes('已发现'));
+        terminal.input('\x1b[B');
+        terminal.input('\r');
+        await waitFor(() => terminal.output().includes('Skills · 已发现'));
+        terminal.input('\r');
+        await waitFor(() => terminal.output().includes('全局停用'));
+        terminal.input('\r');
+        await waitFor(() => terminal.output().includes('全局停用 Skill？'));
+        terminal.input('\r');
+        await waitFor(() =>
+          plainTerminalOutput(terminal.output()).includes('已按 Skill ID 全局停用'),
+        );
+        await waitFor(() => plainTerminalOutput(terminal.output()).includes('已停用'));
+
+        const state = JSON.parse(
+          await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8'),
+        ) as { schemaVersion: number; skills: Record<string, { enabled: boolean }> };
+        assert.equal(state.schemaVersion, 1);
+        assert.equal(state.skills.alpha?.enabled, false);
+        assert.equal(driver.prompts.length, 0, 'management never sends a chat prompt');
+
+        exitMaka(terminal);
+        await run;
       });
-
-      terminal.input('/skills');
-      terminal.input('\r');
-      await waitFor(() => terminal.output().includes('已发现'));
-      terminal.input('\x1b[B');
-      terminal.input('\r');
-      await waitFor(() => terminal.output().includes('Skills · 已发现'));
-      terminal.input('\r');
-      await waitFor(() => terminal.output().includes('全局停用'));
-      terminal.input('\r');
-      await waitFor(() => terminal.output().includes('全局停用 Skill？'));
-      terminal.input('\r');
-      await waitFor(() =>
-        plainTerminalOutput(terminal.output()).includes('已按 Skill ID 全局停用'),
-      );
-      await waitFor(() => plainTerminalOutput(terminal.output()).includes('已停用'));
-
-      const state = JSON.parse(
-        await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8'),
-      ) as { schemaVersion: number; skills: Record<string, { enabled: boolean }> };
-      assert.equal(state.schemaVersion, 1);
-      assert.equal(state.skills.alpha?.enabled, false);
-      assert.equal(driver.prompts.length, 0, 'management never sends a chat prompt');
-
-      exitMaka(terminal);
-      await run;
     });
-  });
+  }
 
   // #1055: `/recap` and the generator injection point it shares with idle-return
   // auto-recap. The idle-timer path itself is not covered here (it depends on

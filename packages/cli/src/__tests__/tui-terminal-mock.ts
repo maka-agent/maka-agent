@@ -3,8 +3,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Terminal } from '@earendil-works/pi-tui';
 
 export class FakeTerminal implements Terminal {
-  readonly columns = 80;
-  readonly rows = 24;
+  readonly columns: number;
+  readonly rows: number;
   readonly kittyProtocolActive = false;
   readonly progressStates: boolean[] = [];
   readonly writes: string[] = [];
@@ -15,6 +15,11 @@ export class FakeTerminal implements Terminal {
   // start() is called.
   startWriteIndex: number | null = null;
   private onInput: ((data: string) => void) | null = null;
+
+  constructor(columns = 80, rows = 24) {
+    this.columns = columns;
+    this.rows = rows;
+  }
 
   start(onInput: (data: string) => void, _onResize: () => void): void {
     this.startWriteIndex = this.writes.length;
