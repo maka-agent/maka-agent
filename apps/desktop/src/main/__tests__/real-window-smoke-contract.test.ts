@@ -71,6 +71,11 @@ describe('real Electron window smoke gate', () => {
     }
     assert.match(src, /--user-data-dir=/, 'real-window smoke must isolate Electron user data');
     assert.match(src, /MAKA_VISUAL_SMOKE_FIXTURE/, 'real-window smoke must launch a deterministic fixture');
+    assert.match(
+      src,
+      /MAKA_E2E_SHOW_WINDOW:\s*['"]1['"]/,
+      'real-window smoke must reveal its deterministic fixture for native hit-testing',
+    );
     assert.match(src, /cleanupStaleElectronProcesses/, 'real-window smoke must clean/report stale Electron smoke processes');
     assert.match(src, /electronPid/, 'real-window smoke report must record the launched Electron pid');
     assert.match(src, /Launch command/, 'real-window smoke report must record the launch command');

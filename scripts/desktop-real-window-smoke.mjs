@@ -260,6 +260,10 @@ async function launchElectron(args, diagnostics) {
     MAKA_VISUAL_SMOKE_WIDTH: String(args.width),
     MAKA_VISUAL_SMOKE_HEIGHT: String(args.height),
     MAKA_REAL_WINDOW_SMOKE: '1',
+    // The deterministic fixture normally keeps visual-smoke windows hidden.
+    // Native hit-testing requires an actual visible window, so opt this harness
+    // into the same explicit reveal path used by headed E2E runs.
+    MAKA_E2E_SHOW_WINDOW: '1',
   };
   const launchArgs = ['.', `--user-data-dir=${userDataDir}`];
   const child = spawn(electronBin, launchArgs, {
