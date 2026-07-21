@@ -1,4 +1,5 @@
 import type {
+  DeepResearchReportSectionKey,
   PermissionMode,
   SessionBlockedReason,
   SessionStatus,
@@ -220,6 +221,23 @@ export interface ConversationCopy {
     deepResearch: string;
     deepResearchAriaLabel: string;
     deepResearchTitle: string;
+    deepResearchProgress: {
+      ariaLabel: string;
+      title: string;
+      completedSummary: string;
+      activeSummary: (stage: string, scope: string, round: number) => string;
+      handoffTitle: string;
+      handoffAction: string;
+      checklistTitle: string;
+      reportTitle: string;
+      inspectedTitle: string;
+      inspectedEmpty: string;
+      executionTitle: string;
+      executionSummary: (steps: number, artifacts: number) => string;
+      workersLabel: string;
+      noBlockers: string;
+      sectionLabels: Record<DeepResearchReportSectionKey, string>;
+    };
     clearGoal: (condition: string, iteration: number, max: number, status: string) => string;
     clearGoalAriaLabel: (iteration: number, max: number) => string;
     goalLabel: (iteration: number, max: number) => string;
@@ -343,6 +361,29 @@ const CONVERSATION_COPY = {
     },
     chat: {
       memory: '记忆', memoryAriaLabel: '本地记忆已启用', memoryTitle: '本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆管理。', deepResearch: '深度研究', deepResearchAriaLabel: '深度研究，只读探索', deepResearchTitle: '深度研究会话使用只读探索边界：先阅读和分析，默认不改文件。',
+      deepResearchProgress: {
+        ariaLabel: '深度研究实时进度',
+        title: '研究进度',
+        completedSummary: '研究完成 · 原会话保持只读',
+        activeSummary: (stage, scope, round) => `${stage} · ${scope} · 第 ${round} 轮`,
+        handoffTitle: '新建普通任务并填入研究 handoff；不会自动发送，也不会改变原研究会话权限',
+        handoffAction: '在新任务中继续实现',
+        checklistTitle: '检查清单',
+        reportTitle: '报告草稿',
+        inspectedTitle: '已检查位置',
+        inspectedEmpty: '等待记录文件、符号或来源。',
+        executionTitle: '执行与阻塞',
+        executionSummary: (steps, artifacts) => `${steps} 个研究步骤 · ${artifacts} 个持久化证据`,
+        workersLabel: 'Workers',
+        noBlockers: '当前无阻塞。',
+        sectionLabels: {
+          conclusion: '结论',
+          source_evidence: '证据',
+          borrow_diverge_risk_gate: '取舍与风险',
+          implementation_recommendations: '实施建议',
+          verification: '验证',
+        },
+      },
       clearGoal: (condition, iteration, max, status) => `自主执行目标进行中：「${condition}」（第 ${iteration}/${max} 轮，${status}）。系统每轮后自动续行；点击可清除目标、停止续行。`, clearGoalAriaLabel: (iteration, max) => `清除自主执行目标（已进行 ${iteration}/${max} 轮）`, goalLabel: (iteration, max) => `目标 ${iteration}/${max} · 清除`,
       loadFailed: '对话载入失败', loading: '载入中…', retryLoad: '重试载入', jumpLatest: '跳到最新消息', noMessages: '暂无消息',
       branchTitle: (name, beforeAbort) => beforeAbort ? `从中断前分支自 ${name} · 点击跳回原会话` : `分自 ${name} · 点击跳回原会话`, branchLabel: (name, beforeAbort) => beforeAbort ? `从中断前分支自 ${name}` : `分自 ${name}`,
@@ -453,6 +494,29 @@ const CONVERSATION_COPY = {
     },
     chat: {
       memory: 'Memory', memoryAriaLabel: 'Local memory enabled', memoryTitle: 'Local MEMORY.md is included in the agent system prompt. Click to manage it in Settings · Memory.', deepResearch: 'Deep Research', deepResearchAriaLabel: 'Deep Research, read-only exploration', deepResearchTitle: 'Deep Research uses a read-only boundary: inspect and analyze first, without changing files by default.',
+      deepResearchProgress: {
+        ariaLabel: 'Live Deep Research progress',
+        title: 'Research progress',
+        completedSummary: 'Research complete · Original session remains read-only',
+        activeSummary: (stage, scope, round) => `${stage} · ${scope} · Round ${round}`,
+        handoffTitle: 'Create a normal task with the research handoff. It will not send automatically or change the original research session permissions.',
+        handoffAction: 'Continue implementation in a new task',
+        checklistTitle: 'Checklist',
+        reportTitle: 'Report draft',
+        inspectedTitle: 'Inspected locations',
+        inspectedEmpty: 'Waiting for recorded files, symbols, or sources.',
+        executionTitle: 'Execution and blockers',
+        executionSummary: (steps, artifacts) => `${steps} research steps · ${artifacts} persisted evidence items`,
+        workersLabel: 'Workers',
+        noBlockers: 'No current blockers.',
+        sectionLabels: {
+          conclusion: 'Conclusion',
+          source_evidence: 'Evidence',
+          borrow_diverge_risk_gate: 'Tradeoffs and risks',
+          implementation_recommendations: 'Implementation recommendations',
+          verification: 'Verification',
+        },
+      },
       clearGoal: (condition, iteration, max, status) => `Autonomous goal in progress: “${condition}” (iteration ${iteration}/${max}, ${status}). Maka continues after each iteration; click to clear the goal and stop continuing.`, clearGoalAriaLabel: (iteration, max) => `Clear autonomous goal after ${iteration}/${max} iterations`, goalLabel: (iteration, max) => `Goal ${iteration}/${max} · Clear`,
       loadFailed: 'Conversation failed to load', loading: 'Loading…', retryLoad: 'Retry', jumpLatest: 'Jump to latest message', noMessages: 'No messages yet',
       branchTitle: (name, beforeAbort) => beforeAbort ? `Branched before interruption from ${name} · Click to return` : `Branched from ${name} · Click to return`, branchLabel: (name, beforeAbort) => beforeAbort ? `Branched before interruption from ${name}` : `Branched from ${name}`,

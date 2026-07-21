@@ -170,14 +170,14 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     const interruptedExecution = [...planState.executions]
       .reverse()
       .find((execution) => execution.status === 'interrupted');
+    const buildDesktopBaseTools = () => [...builtinTools, ...buildMcpTools(mcpManager)];
     const candidateTools = isComputerUseRealModelE2e
       ? computerUseTools
       : ctx.tools
         ? [...ctx.tools]
         : [
-            ...builtinTools,
+            ...buildDesktopBaseTools(),
             ...(isDeepResearchSession(ctx.header.labels) ? deepResearchTools : []),
-            ...buildMcpTools(mcpManager),
           ];
     const candidateToolAvailability = isComputerUseRealModelE2e
       ? { economy: false, groups: [] }

@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { DeepResearchRun } from '@maka/core';
 import { DeepResearchProgressPanel } from '../chat-view.js';
+import { getConversationCopy } from '../conversation-copy.js';
 
 function completedRun(): DeepResearchRun {
   return {
@@ -85,5 +86,18 @@ describe('DeepResearchProgressPanel', () => {
 
     assert.doesNotMatch(markup, /在新任务中继续实现/);
     assert.match(markup, /report_writing/);
+  });
+
+  it('renders the progress surface from the selected locale catalog', () => {
+    const markup = renderToStaticMarkup(
+      <DeepResearchProgressPanel
+        run={completedRun()}
+        copy={getConversationCopy('en').chat.deepResearchProgress}
+      />,
+    );
+
+    assert.match(markup, /Research complete · Original session remains read-only/);
+    assert.match(markup, /Tradeoffs and risks/);
+    assert.doesNotMatch(markup, /研究完成|取舍与风险/);
   });
 });

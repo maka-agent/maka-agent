@@ -389,6 +389,7 @@ export function ChatView(props: {
         <DeepResearchProgressPanel
           run={props.deepResearchRun}
           onContinue={props.onContinueDeepResearchHandoff}
+          copy={copy.deepResearchProgress}
         />
       )}
       <div className="maka-chat-shell">
@@ -502,20 +503,14 @@ export function ChatView(props: {
   );
 }
 
-const REPORT_SECTION_LABELS: Record<DeepResearchRun['reportSections'][number]['key'], string> = {
-  conclusion: '结论',
-  source_evidence: '证据',
-  borrow_diverge_risk_gate: '取舍与风险',
-  implementation_recommendations: '实施建议',
-  verification: '验证',
-};
-
 export function DeepResearchProgressPanel({
   run,
   onContinue,
+  copy = getConversationCopy('zh').chat.deepResearchProgress,
 }: {
   run: DeepResearchRun;
   onContinue?: (run: DeepResearchRun) => void;
+  copy?: ReturnType<typeof getConversationCopy>['chat']['deepResearchProgress'];
 }) {
   const completedItems = run.checklist.filter(
     (item) => item.status === 'completed' || item.status === 'skipped',
@@ -532,16 +527,16 @@ export function DeepResearchProgressPanel({
   return (
     <section
       className="maka-deep-research-run-panel"
-      aria-label="深度研究实时进度"
+      aria-label={copy.ariaLabel}
       data-status={run.status}
     >
       <div className="maka-deep-research-run-summary">
         <div>
-          <strong>研究进度</strong>
+          <strong>{copy.title}</strong>
           <span>
             {run.status === 'completed'
-              ? '研究完成 · 原会话保持只读'
-              : `${run.stage} · ${run.scopeLevel} · 第 ${run.round} 轮`}
+              ? copy.completedSummary
+              : copy.activeSummary(run.stage, run.scopeLevel, run.round)}
           </span>
         </div>
         <div className="maka-deep-research-run-actions">
@@ -553,9 +548,9 @@ export function DeepResearchProgressPanel({
               type="button"
               className="maka-deep-research-handoff-button"
               onClick={() => onContinue(run)}
-              title="新建普通任务并填入研究 handoff；不会自动发送，也不会改变原研究会话权限"
+              title={copy.handoffTitle}
             >
-              <span>在新任务中继续实现</span>
+              <span>{copy.handoffAction}</span>
               <ArrowRight size={12} aria-hidden="true" />
             </BaseButton>
           )}
@@ -563,7 +558,7 @@ export function DeepResearchProgressPanel({
       </div>
       <div className="maka-deep-research-run-grid">
         <div>
-          <h3>检查清单</h3>
+          <h3>{copy.checklistTitle}</h3>
           <ul>
             {run.checklist.map((item) => (
               <li key={item.itemId} data-status={item.status}>
@@ -574,18 +569,18 @@ export function DeepResearchProgressPanel({
           </ul>
         </div>
         <div>
-          <h3>报告草稿</h3>
+          <h3>{copy.reportTitle}</h3>
           <ul>
             {run.reportSections.map((section) => (
               <li key={section.key} data-status={section.status}>
                 <span>{section.status === 'completed' ? '✓' : section.status === 'drafted' ? '◐' : '·'}</span>
-                {REPORT_SECTION_LABELS[section.key]}
+                {copy.sectionLabels[section.key]}
               </li>
             ))}
           </ul>
         </div>
         <div>
-          <h3>已检查位置</h3>
+          <h3>{copy.inspectedTitle}</h3>
           {inspectedRefs.length > 0 ? (
             <ul>
               {inspectedRefs.map((ref, index) => (
@@ -595,17 +590,17 @@ export function DeepResearchProgressPanel({
                 </li>
               ))}
             </ul>
-          ) : <p>等待记录文件、符号或来源。</p>}
+          ) : <p>{copy.inspectedEmpty}</p>}
         </div>
         <div>
-          <h3>执行与阻塞</h3>
-          <p>{run.steps.length} 个研究步骤 · {run.artifacts.length} 个持久化证据</p>
-          {workerRunIds.length > 0 && <p>Workers: {workerRunIds.join(', ')}</p>}
+          <h3>{copy.executionTitle}</h3>
+          <p>{copy.executionSummary(run.steps.length, run.artifacts.length)}</p>
+          {workerRunIds.length > 0 && <p>{copy.workersLabel}: {workerRunIds.join(', ')}</p>}
           {blockers.length > 0 ? (
             <ul className="maka-deep-research-run-blockers">
               {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
             </ul>
-          ) : <p>当前无阻塞。</p>}
+          ) : <p>{copy.noBlockers}</p>}
         </div>
       </div>
     </section>

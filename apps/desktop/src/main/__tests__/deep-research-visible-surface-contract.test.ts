@@ -92,6 +92,7 @@ describe('deep research visible surface contract', () => {
 
   it('renders durable checklist, inspected refs, workers, blockers, and report state', async () => {
     const ui = await readRepo('packages/ui/src/chat-view.tsx');
+    const conversationCopy = await readRepo('packages/ui/src/conversation-copy.ts');
     const surface = await readRepo('apps/desktop/src/renderer/chat-message-surface.tsx');
     const hook = await readRepo('apps/desktop/src/renderer/use-deep-research-run.ts');
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
@@ -105,8 +106,11 @@ describe('deep research visible surface contract', () => {
     assert.match(ui, /run\.steps\.flatMap\(\(step\) => step\.inspectedRefs\)/);
     assert.match(ui, /run\.steps\.flatMap\(\(step\) => step\.workerRunIds\)/);
     assert.match(ui, /step\.blockedReason/);
-    assert.match(ui, /研究完成 · 原会话保持只读/);
-    assert.match(ui, /在新任务中继续实现/);
+    assert.match(ui, /copy=\{copy\.deepResearchProgress\}/);
+    assert.match(ui, /copy\.completedSummary/);
+    assert.match(ui, /copy\.handoffAction/);
+    assert.match(conversationCopy, /completedSummary: '研究完成 · 原会话保持只读'/);
+    assert.match(conversationCopy, /handoffAction: '在新任务中继续实现'/);
     assert.match(surface, /useDeepResearchRun/);
     assert.match(hook, /window\.maka\.deepResearch\.subscribeChanges/);
     assert.match(appShell, /buildDeepResearchImplementationPrompt/);

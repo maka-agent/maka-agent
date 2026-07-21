@@ -157,7 +157,6 @@
   color: var(--foreground);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
-  cursor: pointer;
   transition:
     background-color var(--duration-quick) var(--ease-out-strong),
     border-color var(--duration-quick) var(--ease-out-strong);
@@ -218,12 +217,13 @@
 
 .maka-deep-research-run-grid code {
   overflow: hidden;
+  min-width: 0;
   color: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 620px) {
   .maka-deep-research-run-summary {
     align-items: flex-start;
   }
