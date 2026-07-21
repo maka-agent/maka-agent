@@ -82,6 +82,7 @@ describe('runtime resume phase 0 projection', () => {
     assert.equal(indeterminate.operations[0]?.status, 'parked');
     assert.equal(indeterminate.requiresVerification, true);
     assert.deepEqual(indeterminate.rejectionReasons, ['dangling_tool_state']);
+    assert.equal(indeterminate.diagnostics[0]?.code, 'tool_outcome_indeterminate');
     assert.equal(indeterminate.sourceRuntimeEventHighWater, 1);
     assert.ok(indeterminate.directive);
     assert.match(indeterminate.directive, /Do not retry/i);

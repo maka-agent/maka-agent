@@ -47,7 +47,8 @@ export type RuntimeContinuationRevalidationCode =
   | 'workspace_identity_changed'
   | 'background_operation_started'
   | 'tool_catalog_changed'
-  | 'workspace_checkpoint_changed';
+  | 'workspace_checkpoint_changed'
+  | 'tool_recovery_decision_changed';
 
 export class RuntimeContinuationRevalidationError extends Error {
   readonly code: RuntimeContinuationRevalidationCode;
@@ -85,8 +86,13 @@ export type ResumePlanDiagnosticCode =
   | 'resume_feature_disabled'
   | 'resume_candidate_missing'
   | 'tool_not_dispatched'
-  | 'tool_recovery_corruption'
-  | 'tool_recovery_parked'
+  | 'tool_recovery_required'
+  | 'tool_recovery_contract_missing'
+  | 'tool_recovery_observation_failed'
+  | 'tool_recovery_conflict'
+  | 'tool_outcome_indeterminate'
+  | 'tool_fact_corruption'
+  | 'restricted_verification_violation'
   | 'protocol_marker_invalid'
   | 'runtime_fact_unsupported';
 
@@ -805,6 +811,27 @@ function parkedPlan(
   };
 }
 
+function recoveryDiagnosticCode(
+  reasonCode: RecoveryReasonCode,
+): Extract<
+  ResumePlanDiagnosticCode,
+  | 'tool_recovery_required'
+  | 'tool_recovery_contract_missing'
+  | 'tool_recovery_conflict'
+  | 'tool_outcome_indeterminate'
+> {
+  switch (reasonCode) {
+    case 'recovery_contract_unavailable':
+      return 'tool_recovery_contract_missing';
+    case 'recovery_contract_mismatch':
+      return 'tool_recovery_conflict';
+    case 'legacy_dispatch_unknown':
+      return 'tool_outcome_indeterminate';
+    default:
+      return 'tool_recovery_required';
+  }
+}
+
 function collectResumeDiagnostics(
   events: readonly RuntimeEvent[],
   operations: readonly ToolOperation[],
@@ -830,7 +857,10 @@ function collectResumeDiagnostics(
   for (const operation of operations) {
     if (operation.status === 'parked' || operation.status === 'reconcile_required') {
       diagnostics.push({
-        code: operation.status === 'parked' ? 'tool_recovery_parked' : 'pending_tool_result',
+        code:
+          operation.status === 'parked'
+            ? recoveryDiagnosticCode(operation.recoveryReason)
+            : 'tool_recovery_required',
         message:
           operation.status === 'parked'
             ? `tool recovery parked: ${operation.recoveryReason}`
@@ -853,7 +883,7 @@ function collectResumeDiagnostics(
       });
     } else if (operation.status === 'corruption') {
       diagnostics.push({
-        code: 'tool_recovery_corruption',
+        code: 'tool_fact_corruption',
         message: 'tool recovery facts conflict',
         eventId: operation.callRuntimeEventId,
         toolCallId: operation.toolCallId,
@@ -892,7 +922,7 @@ function collectResumeDiagnostics(
     )
       continue;
     diagnostics.push({
-      code: 'tool_recovery_corruption',
+      code: 'tool_fact_corruption',
       message: `tool recovery fact is corrupt: ${decision.reasonCode}`,
       eventId: decision.dispatchRuntimeEventId ?? decision.responseRuntimeEventId,
       toolCallId: decision.toolCallId,
@@ -950,9 +980,14 @@ function deriveRejectionReasons(
         reasons.add('runtime_fact_unsupported');
         break;
       case 'pending_tool_result':
-      case 'tool_recovery_parked':
+      case 'tool_recovery_required':
+      case 'tool_recovery_contract_missing':
+      case 'tool_recovery_observation_failed':
+      case 'tool_recovery_conflict':
+      case 'tool_outcome_indeterminate':
+      case 'tool_fact_corruption':
+      case 'restricted_verification_violation':
       case 'tool_not_dispatched':
-      case 'tool_recovery_corruption':
       case 'protocol_marker_invalid':
       case 'unmatched_tool_result':
       case 'tool_name_mismatch':
