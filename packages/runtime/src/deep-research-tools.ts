@@ -44,9 +44,16 @@ export const DEEP_RESEARCH_ARTIFACT_READ_DEFAULT_CHARS = 32_000;
 export const DEEP_RESEARCH_ARTIFACT_READ_MAX_CHARS = 64_000;
 export const DEEP_RESEARCH_STATUS_ARTIFACTS_MAX = 100;
 
-const stableIdSchema = z.string().trim().min(1).max(128)
+const stableIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, 'Expected a stable research, task, or artifact id.')
-  .refine((value) => redactSecrets(value) === value, 'Research references cannot contain secret-like values.');
+  .refine(
+    (value) => redactSecrets(value) === value,
+    'Research references cannot contain secret-like values.',
+  );
 
 export interface DeepResearchArtifactStore {
   create(input: {
@@ -58,7 +65,7 @@ export interface DeepResearchArtifactStore {
     mimeType: 'text/markdown';
     source: 'deep_research';
     summary: string;
-    deepResearchRole: typeof DEEP_RESEARCH_ARTIFACT_ROLES[number];
+    deepResearchRole: (typeof DEEP_RESEARCH_ARTIFACT_ROLES)[number];
     id: string;
   }): Promise<ArtifactRecord>;
   get(artifactId: string): Promise<ArtifactRecord | null>;
@@ -80,9 +87,7 @@ export interface BuildDeepResearchToolsDeps {
   }) => void | Promise<void>;
 }
 
-export function buildDeepResearchTools(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool[] {
+export function buildDeepResearchTools(deps: BuildDeepResearchToolsDeps): MakaTool[] {
   return [
     buildStartTool(deps),
     buildSaveArtifactTool(deps),
@@ -95,22 +100,29 @@ export function buildDeepResearchTools(
   ];
 }
 
-function buildStartTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  objective: string;
-  scope_level: typeof DEEP_RESEARCH_SCOPE_LEVELS[number];
-}, string> {
+function buildStartTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    objective: string;
+    scope_level: (typeof DEEP_RESEARCH_SCOPE_LEVELS)[number];
+  },
+  string
+> {
   return {
     name: DEEP_RESEARCH_START_TOOL_NAME,
     displayName: 'Initialize Research Workspace',
     description:
-      'Initialize the durable Deep Research workspace for this session. Call once before archiving sources, '
-      + 'writing evidence notes, or checkpointing. Retrying the same tool call is safe.',
+      'Initialize the durable Deep Research workspace for this session. Call once before archiving sources, ' +
+      'writing evidence notes, or checkpointing. Retrying the same tool call is safe.',
     parameters: z.object({
-      objective: z.string().trim().min(1).max(DEEP_RESEARCH_OBJECTIVE_MAX_CHARS)
+      objective: z
+        .string()
+        .trim()
+        .min(1)
+        .max(DEEP_RESEARCH_OBJECTIVE_MAX_CHARS)
         .describe('The concrete research question and requested outcome.'),
-      scope_level: z.enum(DEEP_RESEARCH_SCOPE_LEVELS).default('standard')
+      scope_level: z
+        .enum(DEEP_RESEARCH_SCOPE_LEVELS)
+        .default('standard')
         .describe('Research budget: quick, standard, or deep.'),
     }),
     permissionRequired: false,
@@ -128,25 +140,38 @@ function buildStartTool(
   };
 }
 
-function buildReadArtifactTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  artifact_id: string;
-  offset_chars?: number;
-  max_chars?: number;
-}, string> {
+function buildReadArtifactTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    artifact_id: string;
+    offset_chars?: number;
+    max_chars?: number;
+  },
+  string
+> {
   return {
     name: DEEP_RESEARCH_READ_ARTIFACT_TOOL_NAME,
     displayName: 'Read Research Artifact',
     description:
-      'Read a bounded chunk of a persisted artifact from this Deep Research workspace. '
-      + 'Use artifact ids from deep_research_status to recover evidence after interruption or restart.',
+      'Read a bounded chunk of a persisted artifact from this Deep Research workspace. ' +
+      'Use artifact ids from deep_research_status to recover evidence after interruption or restart.',
     parameters: z.object({
       artifact_id: stableIdSchema.describe('Research artifact id from the current workspace.'),
-      offset_chars: z.number().int().min(0).max(DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS)
-        .optional().describe('Zero-based character offset for chunked reads.'),
-      max_chars: z.number().int().min(1).max(DEEP_RESEARCH_ARTIFACT_READ_MAX_CHARS)
-        .optional().describe(`Maximum characters to return (default ${DEEP_RESEARCH_ARTIFACT_READ_DEFAULT_CHARS}).`),
+      offset_chars: z
+        .number()
+        .int()
+        .min(0)
+        .max(DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS)
+        .optional()
+        .describe('Zero-based character offset for chunked reads.'),
+      max_chars: z
+        .number()
+        .int()
+        .min(1)
+        .max(DEEP_RESEARCH_ARTIFACT_READ_MAX_CHARS)
+        .optional()
+        .describe(
+          `Maximum characters to return (default ${DEEP_RESEARCH_ARTIFACT_READ_DEFAULT_CHARS}).`,
+        ),
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
@@ -158,10 +183,10 @@ function buildReadArtifactTool(
       if (!ref) throw new Error('Research artifact is not part of this session workspace');
       const record = await deps.artifactStore.get(input.artifact_id);
       if (
-        !record
-        || record.sessionId !== ctx.sessionId
-        || record.source !== 'deep_research'
-        || record.status !== 'live'
+        !record ||
+        record.sessionId !== ctx.sessionId ||
+        record.source !== 'deep_research' ||
+        record.status !== 'live'
       ) {
         throw new Error('Research artifact is missing, deleted, or belongs to another session');
       }
@@ -191,90 +216,117 @@ function buildReadArtifactTool(
   };
 }
 
-function buildSaveArtifactTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  role: typeof DEEP_RESEARCH_ARTIFACT_ROLES[number];
-  name: string;
-  content: string;
-  summary: string;
-  locator?: string;
-  source_artifact_ids?: string[];
-  report_section_key?: typeof DEEP_RESEARCH_REPORT_SECTION_KEYS[number];
-  report_section_status?: Exclude<typeof DEEP_RESEARCH_REPORT_SECTION_STATUSES[number], 'pending'>;
-}, string> {
+function buildSaveArtifactTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    role: (typeof DEEP_RESEARCH_ARTIFACT_ROLES)[number];
+    name: string;
+    content: string;
+    summary: string;
+    locator?: string;
+    source_artifact_ids?: string[];
+    report_section_key?: (typeof DEEP_RESEARCH_REPORT_SECTION_KEYS)[number];
+    report_section_status?: Exclude<
+      (typeof DEEP_RESEARCH_REPORT_SECTION_STATUSES)[number],
+      'pending'
+    >;
+  },
+  string
+> {
   return {
     name: DEEP_RESEARCH_SAVE_ARTIFACT_TOOL_NAME,
     displayName: 'Save Research Artifact',
     description:
-      'Persist a Markdown research artifact outside the model context. Archive raw source material as role=source '
-      + 'before writing derived evidence notes or report content. Derived artifacts must cite source artifact ids.',
-    parameters: z.object({
-      role: z.enum(DEEP_RESEARCH_ARTIFACT_ROLES)
-        .describe('Artifact role in the two-stage research workspace.'),
-      name: z.string().trim().min(1).max(DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS)
-        .describe('Human-readable Markdown filename.'),
-      content: z.string().min(1).max(DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS)
-        .describe('Exact Markdown body to persist.'),
-      summary: z.string().trim().min(1).max(DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)
-        .describe('Short description shown in the artifact list.'),
-      locator: z.string().trim().min(1).max(DEEP_RESEARCH_LOCATOR_MAX_CHARS).optional()
-        .describe('Required for source artifacts: URL, repository path, or other inspectable source locator.'),
-      source_artifact_ids: z.array(stableIdSchema)
-        .max(DEEP_RESEARCH_REFS_MAX)
-        .optional()
-        .describe('Direct raw source artifact ids supporting this derived artifact.'),
-      report_section_key: z.enum(DEEP_RESEARCH_REPORT_SECTION_KEYS).optional()
-        .describe('Required when role=report_section.'),
-      report_section_status: z.enum(['drafted', 'completed']).optional()
-        .describe('Required when role=report_section.'),
-    }).superRefine((input, ctx) => {
-      const sourceIds = input.source_artifact_ids ?? [];
-      if (input.role === 'source' && !input.locator) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['locator'],
-          message: 'Source artifacts require a locator.',
-        });
-      }
-      if (input.role === 'source' && sourceIds.length > 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['source_artifact_ids'],
-          message: 'Source artifacts cannot cite other research artifacts.',
-        });
-      }
-      if (
-        input.role !== 'source'
-        && sourceIds.length === 0
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['source_artifact_ids'],
-          message: `${input.role} artifacts require direct source artifact ids.`,
-        });
-      }
-      if (
-        input.role === 'report_section'
-        && (!input.report_section_key || !input.report_section_status)
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['report_section_key'],
-          message: 'Report section artifacts require a section key and status.',
-        });
-      }
-      if (
-        input.role !== 'report_section'
-        && (input.report_section_key || input.report_section_status)
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['report_section_key'],
-          message: 'Report section metadata is only valid for role=report_section.',
-        });
-      }
-    }),
+      'Persist a Markdown research artifact outside the model context. Archive raw source material as role=source ' +
+      'before writing derived evidence notes or report content. Derived artifacts must cite source artifact ids.',
+    parameters: z
+      .object({
+        role: z
+          .enum(DEEP_RESEARCH_ARTIFACT_ROLES)
+          .describe('Artifact role in the two-stage research workspace.'),
+        name: z
+          .string()
+          .trim()
+          .min(1)
+          .max(DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS)
+          .describe('Human-readable Markdown filename.'),
+        content: z
+          .string()
+          .min(1)
+          .max(DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS)
+          .describe('Exact Markdown body to persist.'),
+        summary: z
+          .string()
+          .trim()
+          .min(1)
+          .max(DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)
+          .describe('Short description shown in the artifact list.'),
+        locator: z
+          .string()
+          .trim()
+          .min(1)
+          .max(DEEP_RESEARCH_LOCATOR_MAX_CHARS)
+          .optional()
+          .describe(
+            'Required for source artifacts: URL, repository path, or other inspectable source locator.',
+          ),
+        source_artifact_ids: z
+          .array(stableIdSchema)
+          .max(DEEP_RESEARCH_REFS_MAX)
+          .optional()
+          .describe('Direct raw source artifact ids supporting this derived artifact.'),
+        report_section_key: z
+          .enum(DEEP_RESEARCH_REPORT_SECTION_KEYS)
+          .optional()
+          .describe('Required when role=report_section.'),
+        report_section_status: z
+          .enum(['drafted', 'completed'])
+          .optional()
+          .describe('Required when role=report_section.'),
+      })
+      .superRefine((input, ctx) => {
+        const sourceIds = input.source_artifact_ids ?? [];
+        if (input.role === 'source' && !input.locator) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['locator'],
+            message: 'Source artifacts require a locator.',
+          });
+        }
+        if (input.role === 'source' && sourceIds.length > 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['source_artifact_ids'],
+            message: 'Source artifacts cannot cite other research artifacts.',
+          });
+        }
+        if (input.role !== 'source' && sourceIds.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['source_artifact_ids'],
+            message: `${input.role} artifacts require direct source artifact ids.`,
+          });
+        }
+        if (
+          input.role === 'report_section' &&
+          (!input.report_section_key || !input.report_section_status)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['report_section_key'],
+            message: 'Report section artifacts require a section key and status.',
+          });
+        }
+        if (
+          input.role !== 'report_section' &&
+          (input.report_section_key || input.report_section_status)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['report_section_key'],
+            message: 'Report section metadata is only valid for role=report_section.',
+          });
+        }
+      }),
     permissionRequired: false,
     impl: async (input, ctx) => {
       const artifactId = stableArtifactId(ctx);
@@ -290,17 +342,19 @@ function buildSaveArtifactTool(
         const replay = replayEvent.artifact;
         const replayRecord = await deps.artifactStore.get(replay.artifactId);
         if (
-          replay.artifactId !== artifactId
-          || replay.role !== input.role
-          || replay.name !== input.name
-          || (replay.summary ?? replayRecord?.summary) !== input.summary
-          || replay.locator !== input.locator
-          || replay.contentHash !== inputHash
-          || !sameStringArray(replay.sourceArtifactIds, sourceArtifactIds)
-          || replay.reportSectionKey !== input.report_section_key
-          || replay.reportSectionStatus !== input.report_section_status
+          replay.artifactId !== artifactId ||
+          replay.role !== input.role ||
+          replay.name !== input.name ||
+          (replay.summary ?? replayRecord?.summary) !== input.summary ||
+          replay.locator !== input.locator ||
+          replay.contentHash !== inputHash ||
+          !sameStringArray(replay.sourceArtifactIds, sourceArtifactIds) ||
+          replay.reportSectionKey !== input.report_section_key ||
+          replay.reportSectionStatus !== input.report_section_status
         ) {
-          throw new Error('Deep Research artifact tool call was retried with different content or metadata');
+          throw new Error(
+            'Deep Research artifact tool call was retried with different content or metadata',
+          );
         }
         const replayRun = await deps.store.read(ctx.sessionId);
         if (!replayRun) throw new Error('Deep Research artifact replay is missing its workspace');
@@ -332,9 +386,7 @@ function buildSaveArtifactTool(
             ...(input.locator ? { locator: input.locator } : {}),
             contentHash: inputHash,
             sourceArtifactIds,
-            ...(input.report_section_key
-              ? { reportSectionKey: input.report_section_key }
-              : {}),
+            ...(input.report_section_key ? { reportSectionKey: input.report_section_key } : {}),
             ...(input.report_section_status
               ? { reportSectionStatus: input.report_section_status }
               : {}),
@@ -360,51 +412,54 @@ function buildSaveArtifactTool(
   };
 }
 
-function buildUpdateChecklistTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  item_id: string;
-  status: typeof DEEP_RESEARCH_CHECKLIST_STATUSES[number];
-  evidence_artifact_ids?: string[];
-  blocked_reason?: string;
-}, string> {
+function buildUpdateChecklistTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    item_id: string;
+    status: (typeof DEEP_RESEARCH_CHECKLIST_STATUSES)[number];
+    evidence_artifact_ids?: string[];
+    blocked_reason?: string;
+  },
+  string
+> {
   return {
     name: DEEP_RESEARCH_UPDATE_CHECKLIST_TOOL_NAME,
     displayName: 'Update Research Checklist',
     description:
-      'Update one durable Deep Research checklist item. Completed items require saved evidence artifacts; '
-      + 'blocked items require a concrete blocker that remains visible after restart.',
-    parameters: z.object({
-      item_id: stableIdSchema.refine(
-        (value) => DEEP_RESEARCH_DEFAULT_CHECKLIST.some((item) => item.itemId === value),
-        'Unknown Deep Research checklist item.',
-      ),
-      status: z.enum(DEEP_RESEARCH_CHECKLIST_STATUSES),
-      evidence_artifact_ids: z.array(stableIdSchema).max(DEEP_RESEARCH_REFS_MAX).optional(),
-      blocked_reason: z.string().trim().min(1).max(DEEP_RESEARCH_STEP_TEXT_MAX_CHARS).optional(),
-    }).superRefine((input, ctx) => {
-      if (input.status === 'completed' && (input.evidence_artifact_ids?.length ?? 0) === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['evidence_artifact_ids'],
-          message: 'Completed checklist items require evidence artifacts.',
-        });
-      }
-      if (input.status === 'blocked' && !input.blocked_reason) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['blocked_reason'],
-          message: 'Blocked checklist items require a reason.',
-        });
-      }
-      if (input.status !== 'blocked' && input.blocked_reason) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['blocked_reason'],
-          message: 'A blocked reason is only valid for blocked checklist items.',
-        });
-      }
-    }),
+      'Update one durable Deep Research checklist item. Completed items require saved evidence artifacts; ' +
+      'blocked items require a concrete blocker that remains visible after restart.',
+    parameters: z
+      .object({
+        item_id: stableIdSchema.refine(
+          (value) => DEEP_RESEARCH_DEFAULT_CHECKLIST.some((item) => item.itemId === value),
+          'Unknown Deep Research checklist item.',
+        ),
+        status: z.enum(DEEP_RESEARCH_CHECKLIST_STATUSES),
+        evidence_artifact_ids: z.array(stableIdSchema).max(DEEP_RESEARCH_REFS_MAX).optional(),
+        blocked_reason: z.string().trim().min(1).max(DEEP_RESEARCH_STEP_TEXT_MAX_CHARS).optional(),
+      })
+      .superRefine((input, ctx) => {
+        if (input.status === 'completed' && (input.evidence_artifact_ids?.length ?? 0) === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['evidence_artifact_ids'],
+            message: 'Completed checklist items require evidence artifacts.',
+          });
+        }
+        if (input.status === 'blocked' && !input.blocked_reason) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['blocked_reason'],
+            message: 'Blocked checklist items require a reason.',
+          });
+        }
+        if (input.status !== 'blocked' && input.blocked_reason) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['blocked_reason'],
+            message: 'A blocked reason is only valid for blocked checklist items.',
+          });
+        }
+      }),
     permissionRequired: false,
     impl: async (input, ctx) => {
       await requireRun(deps.store, ctx.sessionId);
@@ -423,94 +478,102 @@ function buildUpdateChecklistTool(
   };
 }
 
-function buildRecordStepTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  kind: typeof DEEP_RESEARCH_STEP_KINDS[number];
-  status: typeof DEEP_RESEARCH_STEP_STATUSES[number];
-  objective: string;
-  summary: string;
-  roots?: string[];
-  keywords?: string[];
-  ignored_paths?: string[];
-  stopping_condition: string;
-  expected_evidence: string;
-  evidence_artifact_ids?: string[];
-  inspected_refs?: Array<{
-    kind: typeof DEEP_RESEARCH_INSPECTED_REF_KINDS[number];
-    locator: string;
-    label?: string;
-    source_artifact_id?: string;
-  }>;
-  worker_run_ids?: string[];
-  blocked_reason?: string;
-}, string> {
+function buildRecordStepTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    kind: (typeof DEEP_RESEARCH_STEP_KINDS)[number];
+    status: (typeof DEEP_RESEARCH_STEP_STATUSES)[number];
+    objective: string;
+    summary: string;
+    roots?: string[];
+    keywords?: string[];
+    ignored_paths?: string[];
+    stopping_condition: string;
+    expected_evidence: string;
+    evidence_artifact_ids?: string[];
+    inspected_refs?: Array<{
+      kind: (typeof DEEP_RESEARCH_INSPECTED_REF_KINDS)[number];
+      locator: string;
+      label?: string;
+      source_artifact_id?: string;
+    }>;
+    worker_run_ids?: string[];
+    blocked_reason?: string;
+  },
+  string
+> {
   const boundedText = z.string().trim().min(1).max(DEEP_RESEARCH_STEP_TEXT_MAX_CHARS);
-  const boundedList = z.array(
-    z.string().trim().min(1).max(DEEP_RESEARCH_LOCATOR_MAX_CHARS),
-  ).max(DEEP_RESEARCH_STEP_LIST_ITEMS_MAX);
+  const boundedList = z
+    .array(z.string().trim().min(1).max(DEEP_RESEARCH_LOCATOR_MAX_CHARS))
+    .max(DEEP_RESEARCH_STEP_LIST_ITEMS_MAX);
   return {
     name: DEEP_RESEARCH_RECORD_STEP_TOOL_NAME,
     displayName: 'Record Research Step',
     description:
-      'Record a bounded local-exploration or web-research step, including its search roots/query terms, '
-      + 'stopping condition, inspected references, worker runs, evidence, and any blocker.',
-    parameters: z.object({
-      kind: z.enum(DEEP_RESEARCH_STEP_KINDS),
-      status: z.enum(DEEP_RESEARCH_STEP_STATUSES),
-      objective: boundedText,
-      summary: boundedText,
-      roots: boundedList.optional(),
-      keywords: boundedList.optional(),
-      ignored_paths: boundedList.optional(),
-      stopping_condition: boundedText,
-      expected_evidence: boundedText,
-      evidence_artifact_ids: z.array(stableIdSchema).max(DEEP_RESEARCH_REFS_MAX).optional(),
-      inspected_refs: z.array(z.object({
-        kind: z.enum(DEEP_RESEARCH_INSPECTED_REF_KINDS),
-        locator: z.string().trim().min(1).max(DEEP_RESEARCH_LOCATOR_MAX_CHARS),
-        label: z.string().trim().min(1).max(DEEP_RESEARCH_STEP_TEXT_MAX_CHARS).optional(),
-        source_artifact_id: stableIdSchema.optional(),
-      })).max(DEEP_RESEARCH_STEP_LIST_ITEMS_MAX).optional(),
-      worker_run_ids: z.array(stableIdSchema).max(DEEP_RESEARCH_STEP_LIST_ITEMS_MAX).optional(),
-      blocked_reason: boundedText.optional(),
-    }).superRefine((input, ctx) => {
-      if (input.kind === 'local_exploration' && (input.roots?.length ?? 0) === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['roots'],
-          message: 'Local exploration requires at least one bounded root.',
-        });
-      }
-      if (input.kind === 'web_research' && (input.keywords?.length ?? 0) === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['keywords'],
-          message: 'Web research requires at least one query or keyword.',
-        });
-      }
-      if (input.status === 'completed' && (input.evidence_artifact_ids?.length ?? 0) === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['evidence_artifact_ids'],
-          message: 'Completed research steps require persisted evidence.',
-        });
-      }
-      if (input.status === 'blocked' && !input.blocked_reason) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['blocked_reason'],
-          message: 'Blocked research steps require a reason.',
-        });
-      }
-      if (input.status !== 'blocked' && input.blocked_reason) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['blocked_reason'],
-          message: 'A blocked reason is only valid for blocked research steps.',
-        });
-      }
-    }),
+      'Record a bounded local-exploration or web-research step, including its search roots/query terms, ' +
+      'stopping condition, inspected references, worker runs, evidence, and any blocker.',
+    parameters: z
+      .object({
+        kind: z.enum(DEEP_RESEARCH_STEP_KINDS),
+        status: z.enum(DEEP_RESEARCH_STEP_STATUSES),
+        objective: boundedText,
+        summary: boundedText,
+        roots: boundedList.optional(),
+        keywords: boundedList.optional(),
+        ignored_paths: boundedList.optional(),
+        stopping_condition: boundedText,
+        expected_evidence: boundedText,
+        evidence_artifact_ids: z.array(stableIdSchema).max(DEEP_RESEARCH_REFS_MAX).optional(),
+        inspected_refs: z
+          .array(
+            z.object({
+              kind: z.enum(DEEP_RESEARCH_INSPECTED_REF_KINDS),
+              locator: z.string().trim().min(1).max(DEEP_RESEARCH_LOCATOR_MAX_CHARS),
+              label: z.string().trim().min(1).max(DEEP_RESEARCH_STEP_TEXT_MAX_CHARS).optional(),
+              source_artifact_id: stableIdSchema.optional(),
+            }),
+          )
+          .max(DEEP_RESEARCH_STEP_LIST_ITEMS_MAX)
+          .optional(),
+        worker_run_ids: z.array(stableIdSchema).max(DEEP_RESEARCH_STEP_LIST_ITEMS_MAX).optional(),
+        blocked_reason: boundedText.optional(),
+      })
+      .superRefine((input, ctx) => {
+        if (input.kind === 'local_exploration' && (input.roots?.length ?? 0) === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['roots'],
+            message: 'Local exploration requires at least one bounded root.',
+          });
+        }
+        if (input.kind === 'web_research' && (input.keywords?.length ?? 0) === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['keywords'],
+            message: 'Web research requires at least one query or keyword.',
+          });
+        }
+        if (input.status === 'completed' && (input.evidence_artifact_ids?.length ?? 0) === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['evidence_artifact_ids'],
+            message: 'Completed research steps require persisted evidence.',
+          });
+        }
+        if (input.status === 'blocked' && !input.blocked_reason) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['blocked_reason'],
+            message: 'Blocked research steps require a reason.',
+          });
+        }
+        if (input.status !== 'blocked' && input.blocked_reason) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['blocked_reason'],
+            message: 'A blocked reason is only valid for blocked research steps.',
+          });
+        }
+      }),
     permissionRequired: false,
     impl: async (input, ctx) => {
       await requireRun(deps.store, ctx.sessionId);
@@ -543,35 +606,44 @@ function buildRecordStepTool(
   };
 }
 
-function buildCheckpointTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  round: number;
-  stage: typeof DEEP_RESEARCH_ACTIVE_STAGES[number];
-  status: 'active' | 'blocked';
-  summary: string;
-  open_questions?: string[];
-  next_steps?: string[];
-  task_ids?: string[];
-  artifact_ids?: string[];
-}, string> {
-  const itemArray = z.array(
-    z.string().trim().min(1).max(DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS),
-  ).max(DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX);
+function buildCheckpointTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    round: number;
+    stage: (typeof DEEP_RESEARCH_ACTIVE_STAGES)[number];
+    status: 'active' | 'blocked';
+    summary: string;
+    open_questions?: string[];
+    next_steps?: string[];
+    task_ids?: string[];
+    artifact_ids?: string[];
+  },
+  string
+> {
+  const itemArray = z
+    .array(z.string().trim().min(1).max(DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS))
+    .max(DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX);
   const refArray = z.array(stableIdSchema).max(DEEP_RESEARCH_REFS_MAX);
   return {
     name: DEEP_RESEARCH_CHECKPOINT_TOOL_NAME,
     displayName: 'Checkpoint Research',
     description:
-      'Record a durable research checkpoint after a meaningful round or before context compaction. '
-      + 'Include unresolved questions, next steps, task ids, and the artifacts needed to resume.',
+      'Record a durable research checkpoint after a meaningful round or before context compaction. ' +
+      'Include unresolved questions, next steps, task ids, and the artifacts needed to resume.',
     parameters: z.object({
       round: z.number().int().min(1).describe('Monotonic research round number.'),
       stage: z.enum(DEEP_RESEARCH_ACTIVE_STAGES).describe('Current two-stage workflow phase.'),
-      status: z.enum(['active', 'blocked']).describe('Whether research can proceed without outside input.'),
-      summary: z.string().trim().min(1).max(DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)
+      status: z
+        .enum(['active', 'blocked'])
+        .describe('Whether research can proceed without outside input.'),
+      summary: z
+        .string()
+        .trim()
+        .min(1)
+        .max(DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)
         .describe('What was established during this round.'),
-      open_questions: itemArray.optional().describe('Questions still requiring evidence or resolution.'),
+      open_questions: itemArray
+        .optional()
+        .describe('Questions still requiring evidence or resolution.'),
       next_steps: itemArray.optional().describe('Concrete continuation steps.'),
       task_ids: refArray.optional().describe('Related ids from the session Task Ledger.'),
       artifact_ids: refArray.optional().describe('Known research artifact ids required to resume.'),
@@ -605,59 +677,62 @@ function buildStatusTool(
     name: DEEP_RESEARCH_STATUS_TOOL_NAME,
     displayName: 'Read Research Workspace',
     description:
-      'Read the durable Deep Research workspace projection. Use after interruption, context compaction, '
-      + 'or process restart to recover the objective, stage, latest checkpoint, and artifact inventory.',
+      'Read the durable Deep Research workspace projection. Use after interruption, context compaction, ' +
+      'or process restart to recover the objective, stage, latest checkpoint, and artifact inventory.',
     parameters: z.object({}),
     permissionRequired: false,
     impl: async (_input, ctx) => {
       const run = await deps.store.read(ctx.sessionId);
-      return run
-        ? renderRunStatus(run)
-        : '<deep-research-workspace state="uninitialized" />';
+      return run ? renderRunStatus(run) : '<deep-research-workspace state="uninitialized" />';
     },
   };
 }
 
-function buildCompleteTool(
-  deps: BuildDeepResearchToolsDeps,
-): MakaTool<{
-  report_artifact_id: string;
-  handoff_artifact_id: string;
-  implementation_tasks: string[];
-  recommended_issues?: string[];
-  recommended_pull_requests?: string[];
-  verification_commands: string[];
-}, string> {
-  const handoffList = z.array(
-    z.string().trim().min(1).max(DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS),
-  ).max(DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX);
+function buildCompleteTool(deps: BuildDeepResearchToolsDeps): MakaTool<
+  {
+    report_artifact_id: string;
+    handoff_artifact_id: string;
+    implementation_tasks: string[];
+    recommended_issues?: string[];
+    recommended_pull_requests?: string[];
+    verification_commands: string[];
+  },
+  string
+> {
+  const handoffList = z
+    .array(z.string().trim().min(1).max(DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS))
+    .max(DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX);
   return {
     name: DEEP_RESEARCH_COMPLETE_TOOL_NAME,
     displayName: 'Complete Research',
     description:
-      'Complete Deep Research only after every checklist item and required report section is settled. '
-      + 'A saved handoff artifact and structured implementation, issue/PR, and verification guidance are required.',
-    parameters: z.object({
-      report_artifact_id: stableIdSchema
-        .describe('Artifact id of the final source-backed report.'),
-      handoff_artifact_id: stableIdSchema
-        .describe('Artifact id of the saved role=handoff artifact.'),
-      implementation_tasks: handoffList.min(1),
-      recommended_issues: handoffList.optional(),
-      recommended_pull_requests: handoffList.optional(),
-      verification_commands: handoffList.min(1),
-    }).superRefine((input, ctx) => {
-      if (
-        (input.recommended_issues?.length ?? 0) === 0
-        && (input.recommended_pull_requests?.length ?? 0) === 0
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['recommended_issues'],
-          message: 'Provide at least one recommended issue or pull request.',
-        });
-      }
-    }),
+      'Complete Deep Research only after every checklist item and required report section is settled. ' +
+      'A saved handoff artifact and structured implementation, issue/PR, and verification guidance are required.',
+    parameters: z
+      .object({
+        report_artifact_id: stableIdSchema.describe(
+          'Artifact id of the final source-backed report.',
+        ),
+        handoff_artifact_id: stableIdSchema.describe(
+          'Artifact id of the saved role=handoff artifact.',
+        ),
+        implementation_tasks: handoffList.min(1),
+        recommended_issues: handoffList.optional(),
+        recommended_pull_requests: handoffList.optional(),
+        verification_commands: handoffList.min(1),
+      })
+      .superRefine((input, ctx) => {
+        if (
+          (input.recommended_issues?.length ?? 0) === 0 &&
+          (input.recommended_pull_requests?.length ?? 0) === 0
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['recommended_issues'],
+            message: 'Provide at least one recommended issue or pull request.',
+          });
+        }
+      }),
     permissionRequired: false,
     impl: async (input, ctx) => {
       const handoff = {
@@ -709,10 +784,7 @@ async function requireActiveRun(
   return run;
 }
 
-async function requireRun(
-  store: DeepResearchStore,
-  sessionId: string,
-): Promise<DeepResearchRun> {
+async function requireRun(store: DeepResearchStore, sessionId: string): Promise<DeepResearchRun> {
   const run = await store.read(sessionId);
   if (!run) {
     throw new Error(`Call ${DEEP_RESEARCH_START_TOOL_NAME} before using the research workspace`);
@@ -725,8 +797,7 @@ async function findToolCallEvent(
   sessionId: string,
   toolCallId: string,
 ): Promise<DeepResearchEvent | undefined> {
-  return (await store.readEvents(sessionId))
-    .find((event) => event.refs?.toolCallId === toolCallId);
+  return (await store.readEvents(sessionId)).find((event) => event.refs?.toolCallId === toolCallId);
 }
 
 async function validateCompletionArtifacts(
@@ -745,7 +816,9 @@ async function validateCompletionArtifacts(
     }
     const ref = run.artifacts.find((artifact) => artifact.artifactId === section.artifactId);
     if (!ref || ref.role !== 'report_section' || ref.reportSectionKey !== section.key) {
-      throw new Error(`Deep Research report section ${section.key} has an invalid current artifact`);
+      throw new Error(
+        `Deep Research report section ${section.key} has an invalid current artifact`,
+      );
     }
     required.set(ref.artifactId, ref);
   }
@@ -777,11 +850,13 @@ async function validateArtifactIntegrity(
     throw new Error(`Deep Research artifact ${ref.artifactId} belongs to another workspace`);
   }
   if (
-    record.kind !== 'file'
-    || record.mimeType !== 'text/markdown'
-    || record.deepResearchRole !== ref.role
+    record.kind !== 'file' ||
+    record.mimeType !== 'text/markdown' ||
+    record.deepResearchRole !== ref.role
   ) {
-    throw new Error(`Deep Research artifact ${ref.artifactId} type or role does not match the ledger`);
+    throw new Error(
+      `Deep Research artifact ${ref.artifactId} type or role does not match the ledger`,
+    );
   }
   const read = await artifactStore.readText(ref.artifactId, {
     maxBytes: DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS * 4,
@@ -795,9 +870,11 @@ async function validateArtifactIntegrity(
   }
 }
 
-function mutationContext(
-  ctx: MakaToolContext,
-): { runId?: string; turnId: string; toolCallId: string } {
+function mutationContext(ctx: MakaToolContext): {
+  runId?: string;
+  turnId: string;
+  toolCallId: string;
+} {
   return {
     ...(ctx.runId ? { runId: ctx.runId } : {}),
     turnId: ctx.turnId,
@@ -835,8 +912,10 @@ function normalizeInlineText(value: string): string {
 }
 
 function safeResearchArtifactContent(value: string): string {
-  return redactSecrets(value)
-    .replace(/<\/?deep-research-(?:workspace|artifact)\b[^>]{0,4096}>/gi, '');
+  return redactSecrets(value).replace(
+    /<\/?deep-research-(?:workspace|artifact)\b[^>]{0,4096}>/gi,
+    '',
+  );
 }
 
 export function renderDeepResearchRunStatus(run: DeepResearchRun): string {
@@ -844,9 +923,9 @@ export function renderDeepResearchRunStatus(run: DeepResearchRun): string {
   const lines = [
     `<deep-research-workspace status="${run.status}" stage="${run.stage}" scope="${run.scopeLevel}" round="${run.round}">`,
     `Objective: ${normalizeInlineText(run.objective)}`,
-    `Artifacts: ${run.artifacts.length} (${DEEP_RESEARCH_ARTIFACT_ROLES
-      .map((role) => `${role}=${run.artifacts.filter((artifact) => artifact.role === role).length}`)
-      .join(', ')})`,
+    `Artifacts: ${run.artifacts.length} (${DEEP_RESEARCH_ARTIFACT_ROLES.map(
+      (role) => `${role}=${run.artifacts.filter((artifact) => artifact.role === role).length}`,
+    ).join(', ')})`,
   ];
   const visibleArtifacts = run.artifacts.slice(-DEEP_RESEARCH_STATUS_ARTIFACTS_MAX);
   for (const artifact of visibleArtifacts) {
@@ -857,9 +936,11 @@ export function renderDeepResearchRunStatus(run: DeepResearchRun): string {
   lines.push('Checklist:');
   for (const item of run.checklist) {
     lines.push(
-      `- [${item.status}] ${normalizeInlineText(item.itemId)}: ${normalizeInlineText(item.title)}`
-      + (item.evidenceArtifactIds.length > 0 ? ` (evidence: ${item.evidenceArtifactIds.join(', ')})` : '')
-      + (item.blockedReason ? ` (blocked: ${normalizeInlineText(item.blockedReason)})` : ''),
+      `- [${item.status}] ${normalizeInlineText(item.itemId)}: ${normalizeInlineText(item.title)}` +
+        (item.evidenceArtifactIds.length > 0
+          ? ` (evidence: ${item.evidenceArtifactIds.join(', ')})`
+          : '') +
+        (item.blockedReason ? ` (blocked: ${normalizeInlineText(item.blockedReason)})` : ''),
     );
   }
   lines.push('Report sections:');
@@ -871,9 +952,9 @@ export function renderDeepResearchRunStatus(run: DeepResearchRun): string {
   lines.push(`Research steps: ${run.steps.length}`);
   for (const step of run.steps.slice(-10)) {
     lines.push(
-      `- [${step.status}] ${step.kind}: ${normalizeInlineText(step.summary)}`
-      + (step.workerRunIds.length > 0 ? ` (workers: ${step.workerRunIds.join(', ')})` : '')
-      + (step.blockedReason ? ` (blocked: ${normalizeInlineText(step.blockedReason)})` : ''),
+      `- [${step.status}] ${step.kind}: ${normalizeInlineText(step.summary)}` +
+        (step.workerRunIds.length > 0 ? ` (workers: ${step.workerRunIds.join(', ')})` : '') +
+        (step.blockedReason ? ` (blocked: ${normalizeInlineText(step.blockedReason)})` : ''),
     );
   }
   if (run.artifacts.length > visibleArtifacts.length) {
@@ -896,8 +977,12 @@ export function renderDeepResearchRunStatus(run: DeepResearchRun): string {
   if (run.reportArtifactId) lines.push(`Final report: ${run.reportArtifactId}`);
   if (run.handoff) {
     lines.push(`Handoff artifact: ${run.handoff.artifactId}`);
-    lines.push(`Implementation tasks: ${run.handoff.implementationTasks.map(normalizeInlineText).join(' | ')}`);
-    lines.push(`Verification commands: ${run.handoff.verificationCommands.map(normalizeInlineText).join(' | ')}`);
+    lines.push(
+      `Implementation tasks: ${run.handoff.implementationTasks.map(normalizeInlineText).join(' | ')}`,
+    );
+    lines.push(
+      `Verification commands: ${run.handoff.verificationCommands.map(normalizeInlineText).join(' | ')}`,
+    );
   }
   lines.push('</deep-research-workspace>');
   return lines.join('\n');

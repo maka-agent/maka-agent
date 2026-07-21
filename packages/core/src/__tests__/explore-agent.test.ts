@@ -65,7 +65,12 @@ describe('deep research session profile', () => {
     assert.match(prompt, /Final report artifact: report-1/);
     assert.ok(Array.from(prompt).length <= DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS);
     assert.throws(
-      () => buildDeepResearchImplementationPrompt({ ...run, status: 'active', stage: 'knowledge_base' }),
+      () =>
+        buildDeepResearchImplementationPrompt({
+          ...run,
+          status: 'active',
+          stage: 'knowledge_base',
+        }),
       /requires a completed run/,
     );
   });

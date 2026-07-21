@@ -16,16 +16,16 @@ import { redactSecrets } from './redaction.js';
 export const DEEP_RESEARCH_RUN_SCHEMA_VERSION = 1 as const;
 
 export const DEEP_RESEARCH_ACTIVE_STAGES = ['knowledge_base', 'report_writing'] as const;
-export type DeepResearchActiveStage = typeof DEEP_RESEARCH_ACTIVE_STAGES[number];
+export type DeepResearchActiveStage = (typeof DEEP_RESEARCH_ACTIVE_STAGES)[number];
 
 export const DEEP_RESEARCH_STAGES = [...DEEP_RESEARCH_ACTIVE_STAGES, 'completed'] as const;
-export type DeepResearchStage = typeof DEEP_RESEARCH_STAGES[number];
+export type DeepResearchStage = (typeof DEEP_RESEARCH_STAGES)[number];
 
 export const DEEP_RESEARCH_RUN_STATUSES = ['active', 'blocked', 'completed'] as const;
-export type DeepResearchRunStatus = typeof DEEP_RESEARCH_RUN_STATUSES[number];
+export type DeepResearchRunStatus = (typeof DEEP_RESEARCH_RUN_STATUSES)[number];
 
 export const DEEP_RESEARCH_SCOPE_LEVELS = ['quick', 'standard', 'deep'] as const;
-export type DeepResearchScopeLevel = typeof DEEP_RESEARCH_SCOPE_LEVELS[number];
+export type DeepResearchScopeLevel = (typeof DEEP_RESEARCH_SCOPE_LEVELS)[number];
 
 export const DEEP_RESEARCH_ARTIFACT_ROLES = [
   'source',
@@ -35,7 +35,7 @@ export const DEEP_RESEARCH_ARTIFACT_ROLES = [
   'report',
   'handoff',
 ] as const;
-export type DeepResearchArtifactRole = typeof DEEP_RESEARCH_ARTIFACT_ROLES[number];
+export type DeepResearchArtifactRole = (typeof DEEP_RESEARCH_ARTIFACT_ROLES)[number];
 
 export const DEEP_RESEARCH_CHECKLIST_STATUSES = [
   'pending',
@@ -44,7 +44,7 @@ export const DEEP_RESEARCH_CHECKLIST_STATUSES = [
   'completed',
   'skipped',
 ] as const;
-export type DeepResearchChecklistStatus = typeof DEEP_RESEARCH_CHECKLIST_STATUSES[number];
+export type DeepResearchChecklistStatus = (typeof DEEP_RESEARCH_CHECKLIST_STATUSES)[number];
 
 export const DEEP_RESEARCH_REPORT_SECTION_KEYS = [
   'conclusion',
@@ -53,16 +53,17 @@ export const DEEP_RESEARCH_REPORT_SECTION_KEYS = [
   'implementation_recommendations',
   'verification',
 ] as const;
-export type DeepResearchReportSectionKey = typeof DEEP_RESEARCH_REPORT_SECTION_KEYS[number];
+export type DeepResearchReportSectionKey = (typeof DEEP_RESEARCH_REPORT_SECTION_KEYS)[number];
 
 export const DEEP_RESEARCH_REPORT_SECTION_STATUSES = ['pending', 'drafted', 'completed'] as const;
-export type DeepResearchReportSectionStatus = typeof DEEP_RESEARCH_REPORT_SECTION_STATUSES[number];
+export type DeepResearchReportSectionStatus =
+  (typeof DEEP_RESEARCH_REPORT_SECTION_STATUSES)[number];
 
 export const DEEP_RESEARCH_STEP_KINDS = ['local_exploration', 'web_research'] as const;
-export type DeepResearchStepKind = typeof DEEP_RESEARCH_STEP_KINDS[number];
+export type DeepResearchStepKind = (typeof DEEP_RESEARCH_STEP_KINDS)[number];
 
 export const DEEP_RESEARCH_STEP_STATUSES = ['completed', 'blocked', 'stopped'] as const;
-export type DeepResearchStepStatus = typeof DEEP_RESEARCH_STEP_STATUSES[number];
+export type DeepResearchStepStatus = (typeof DEEP_RESEARCH_STEP_STATUSES)[number];
 
 export const DEEP_RESEARCH_INSPECTED_REF_KINDS = [
   'file',
@@ -72,7 +73,7 @@ export const DEEP_RESEARCH_INSPECTED_REF_KINDS = [
   'runtime',
   'url',
 ] as const;
-export type DeepResearchInspectedRefKind = typeof DEEP_RESEARCH_INSPECTED_REF_KINDS[number];
+export type DeepResearchInspectedRefKind = (typeof DEEP_RESEARCH_INSPECTED_REF_KINDS)[number];
 
 export const DEEP_RESEARCH_EVENT_TYPES = [
   'research_started',
@@ -82,7 +83,7 @@ export const DEEP_RESEARCH_EVENT_TYPES = [
   'research_checkpoint_recorded',
   'research_completed',
 ] as const;
-export type DeepResearchEventType = typeof DEEP_RESEARCH_EVENT_TYPES[number];
+export type DeepResearchEventType = (typeof DEEP_RESEARCH_EVENT_TYPES)[number];
 
 export const DEEP_RESEARCH_OBJECTIVE_MAX_CHARS = 2_000;
 export const DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS = 240;
@@ -103,7 +104,10 @@ export const DEEP_RESEARCH_DEFAULT_CHECKLIST = [
   { itemId: 'project_entrypoints', title: 'Map project entrypoints and execution setup' },
   { itemId: 'core_flow', title: 'Trace the core implementation and data flow' },
   { itemId: 'boundaries', title: 'Verify permissions, privacy, failure, and runtime boundaries' },
-  { itemId: 'verification_evidence', title: 'Collect tests, fixtures, and reproducible verification evidence' },
+  {
+    itemId: 'verification_evidence',
+    title: 'Collect tests, fixtures, and reproducible verification evidence',
+  },
 ] as const;
 
 export interface DeepResearchEventRefs {
@@ -316,51 +320,68 @@ export interface DeepResearchStore {
 }
 
 export function isDeepResearchActiveStage(value: unknown): value is DeepResearchActiveStage {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_ACTIVE_STAGES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (DEEP_RESEARCH_ACTIVE_STAGES as readonly string[]).includes(value)
+  );
 }
 
 export function isDeepResearchArtifactRole(value: unknown): value is DeepResearchArtifactRole {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_ARTIFACT_ROLES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (DEEP_RESEARCH_ARTIFACT_ROLES as readonly string[]).includes(value)
+  );
 }
 
 export function isDeepResearchScopeLevel(value: unknown): value is DeepResearchScopeLevel {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_SCOPE_LEVELS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (DEEP_RESEARCH_SCOPE_LEVELS as readonly string[]).includes(value)
+  );
 }
 
-export function isDeepResearchChecklistStatus(value: unknown): value is DeepResearchChecklistStatus {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_CHECKLIST_STATUSES as readonly string[]).includes(value);
+export function isDeepResearchChecklistStatus(
+  value: unknown,
+): value is DeepResearchChecklistStatus {
+  return (
+    typeof value === 'string' &&
+    (DEEP_RESEARCH_CHECKLIST_STATUSES as readonly string[]).includes(value)
+  );
 }
 
-export function isDeepResearchReportSectionKey(value: unknown): value is DeepResearchReportSectionKey {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_REPORT_SECTION_KEYS as readonly string[]).includes(value);
+export function isDeepResearchReportSectionKey(
+  value: unknown,
+): value is DeepResearchReportSectionKey {
+  return (
+    typeof value === 'string' &&
+    (DEEP_RESEARCH_REPORT_SECTION_KEYS as readonly string[]).includes(value)
+  );
 }
 
-export function isDeepResearchReportSectionStatus(value: unknown): value is DeepResearchReportSectionStatus {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_REPORT_SECTION_STATUSES as readonly string[]).includes(value);
+export function isDeepResearchReportSectionStatus(
+  value: unknown,
+): value is DeepResearchReportSectionStatus {
+  return (
+    typeof value === 'string' &&
+    (DEEP_RESEARCH_REPORT_SECTION_STATUSES as readonly string[]).includes(value)
+  );
 }
 
 export function isDeepResearchStepKind(value: unknown): value is DeepResearchStepKind {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_STEP_KINDS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (DEEP_RESEARCH_STEP_KINDS as readonly string[]).includes(value)
+  );
 }
 
 export function isDeepResearchStepStatus(value: unknown): value is DeepResearchStepStatus {
-  return typeof value === 'string'
-    && (DEEP_RESEARCH_STEP_STATUSES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (DEEP_RESEARCH_STEP_STATUSES as readonly string[]).includes(value)
+  );
 }
 
 export function normalizeDeepResearchObjective(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.normalize('NFC').replace(/\s+/g, ' ').trim();
   if (
-    normalized.length === 0
-    || Array.from(normalized).length > DEEP_RESEARCH_OBJECTIVE_MAX_CHARS
+    normalized.length === 0 ||
+    Array.from(normalized).length > DEEP_RESEARCH_OBJECTIVE_MAX_CHARS
   ) {
     return undefined;
   }
@@ -369,19 +390,21 @@ export function normalizeDeepResearchObjective(value: unknown): string | undefin
 
 export function isDeepResearchEvent(value: unknown): value is DeepResearchEvent {
   if (
-    !isRecord(value)
-    || !isStableId(value.eventId)
-    || !(DEEP_RESEARCH_EVENT_TYPES as readonly unknown[]).includes(value.type)
-    || !isStableId(value.sessionId)
-    || !isFiniteNumber(value.ts)
-    || !isEventRefs(value.refs)
+    !isRecord(value) ||
+    !isStableId(value.eventId) ||
+    !(DEEP_RESEARCH_EVENT_TYPES as readonly unknown[]).includes(value.type) ||
+    !isStableId(value.sessionId) ||
+    !isFiniteNumber(value.ts) ||
+    !isEventRefs(value.refs)
   ) {
     return false;
   }
   switch (value.type) {
     case 'research_started':
-      return normalizeDeepResearchObjective(value.objective) === value.objective
-        && isDeepResearchScopeLevel(value.scopeLevel);
+      return (
+        normalizeDeepResearchObjective(value.objective) === value.objective &&
+        isDeepResearchScopeLevel(value.scopeLevel)
+      );
     case 'research_artifact_recorded':
       return isDeepResearchArtifactRef(value.artifact);
     case 'research_checklist_updated':
@@ -476,20 +499,26 @@ export function projectDeepResearchEvents(
             (section) => section.key === artifact.reportSectionKey,
           );
           if (
-            currentSection?.status === 'completed'
-            && artifact.reportSectionStatus === 'drafted'
+            currentSection?.status === 'completed' &&
+            artifact.reportSectionStatus === 'drafted'
           ) {
-            diagnostics.push(`report section ${artifact.reportSectionKey} cannot regress to drafted`);
+            diagnostics.push(
+              `report section ${artifact.reportSectionKey} cannot regress to drafted`,
+            );
             break;
           }
         }
         artifactIds.add(artifact.artifactId);
-        const reportSections = artifact.role === 'report_section'
-          ? applyReportSectionArtifact(run.reportSections, artifact)
-          : run.reportSections;
+        const reportSections =
+          artifact.role === 'report_section'
+            ? applyReportSectionArtifact(run.reportSections, artifact)
+            : run.reportSections;
         run = {
           ...run,
-          artifacts: [...run.artifacts, { ...artifact, sourceArtifactIds: [...artifact.sourceArtifactIds] }],
+          artifacts: [
+            ...run.artifacts,
+            { ...artifact, sourceArtifactIds: [...artifact.sourceArtifactIds] },
+          ],
           reportSections,
           updatedAt: Math.max(run.updatedAt, event.ts),
         };
@@ -503,15 +532,17 @@ export function projectDeepResearchEvents(
           break;
         }
         if (
-          (current.status === 'completed' || current.status === 'skipped')
-          && current.status !== item.status
+          (current.status === 'completed' || current.status === 'skipped') &&
+          current.status !== item.status
         ) {
           diagnostics.push(`research checklist item ${item.itemId} is already terminal`);
           break;
         }
         const missingArtifact = item.evidenceArtifactIds.find((id) => !artifactIds.has(id));
         if (missingArtifact) {
-          diagnostics.push(`research checklist item ${item.itemId} references unknown artifact ${missingArtifact}`);
+          diagnostics.push(
+            `research checklist item ${item.itemId} references unknown artifact ${missingArtifact}`,
+          );
           break;
         }
         if (item.status === 'completed' && item.evidenceArtifactIds.length === 0) {
@@ -523,10 +554,13 @@ export function projectDeepResearchEvents(
           break;
         }
         const checklist = run.checklist.map((candidate) =>
-          candidate.itemId === item.itemId ? cloneChecklistItem(item) : candidate);
+          candidate.itemId === item.itemId ? cloneChecklistItem(item) : candidate,
+        );
         run = {
           ...run,
-          status: checklist.some((candidate) => candidate.status === 'blocked') ? 'blocked' : 'active',
+          status: checklist.some((candidate) => candidate.status === 'blocked')
+            ? 'blocked'
+            : 'active',
           checklist,
           updatedAt: Math.max(run.updatedAt, event.ts),
         };
@@ -544,13 +578,18 @@ export function projectDeepResearchEvents(
         }
         const missingEvidence = step.evidenceArtifactIds.find((id) => !artifactIds.has(id));
         if (missingEvidence) {
-          diagnostics.push(`research step ${step.stepId} references unknown artifact ${missingEvidence}`);
+          diagnostics.push(
+            `research step ${step.stepId} references unknown artifact ${missingEvidence}`,
+          );
           break;
         }
         const recordedArtifacts = run.artifacts;
         const invalidInspectedSource = step.inspectedRefs.find((ref) => {
           if (!ref.sourceArtifactId) return false;
-          return recordedArtifacts.find((artifact) => artifact.artifactId === ref.sourceArtifactId)?.role !== 'source';
+          return (
+            recordedArtifacts.find((artifact) => artifact.artifactId === ref.sourceArtifactId)
+              ?.role !== 'source'
+          );
         });
         if (invalidInspectedSource?.sourceArtifactId) {
           diagnostics.push(
@@ -577,7 +616,9 @@ export function projectDeepResearchEvents(
       }
       case 'research_checkpoint_recorded': {
         if (run.checkpoints.length >= DEEP_RESEARCH_CHECKPOINTS_MAX) {
-          diagnostics.push(`deep research checkpoint cap ${DEEP_RESEARCH_CHECKPOINTS_MAX} exceeded`);
+          diagnostics.push(
+            `deep research checkpoint cap ${DEEP_RESEARCH_CHECKPOINTS_MAX} exceeded`,
+          );
           break;
         }
         const checkpoint = event.checkpoint;
@@ -590,7 +631,9 @@ export function projectDeepResearchEvents(
           break;
         }
         if (run.stage === 'report_writing' && checkpoint.stage === 'knowledge_base') {
-          diagnostics.push('deep research stage cannot regress from report_writing to knowledge_base');
+          diagnostics.push(
+            'deep research stage cannot regress from report_writing to knowledge_base',
+          );
           break;
         }
         const missingArtifact = checkpoint.artifactIds.find((id) => !artifactIds.has(id));
@@ -610,9 +653,13 @@ export function projectDeepResearchEvents(
         break;
       }
       case 'research_completed': {
-        const report = run.artifacts.find((artifact) => artifact.artifactId === event.reportArtifactId);
+        const report = run.artifacts.find(
+          (artifact) => artifact.artifactId === event.reportArtifactId,
+        );
         if (!report || report.role !== 'report') {
-          diagnostics.push(`research_completed references missing report artifact ${event.reportArtifactId}`);
+          diagnostics.push(
+            `research_completed references missing report artifact ${event.reportArtifactId}`,
+          );
           break;
         }
         if (!run.artifacts.some((artifact) => artifact.role === 'source')) {
@@ -623,17 +670,23 @@ export function projectDeepResearchEvents(
           (artifact) => artifact.artifactId === event.handoff.artifactId,
         );
         if (!handoffArtifact || handoffArtifact.role !== 'handoff') {
-          diagnostics.push(`research_completed references missing handoff artifact ${event.handoff.artifactId}`);
+          diagnostics.push(
+            `research_completed references missing handoff artifact ${event.handoff.artifactId}`,
+          );
           break;
         }
         const incompleteChecklist = run.checklist.find(
           (item) => item.status !== 'completed' && item.status !== 'skipped',
         );
         if (incompleteChecklist) {
-          diagnostics.push(`research_completed requires checklist item ${incompleteChecklist.itemId} to be settled`);
+          diagnostics.push(
+            `research_completed requires checklist item ${incompleteChecklist.itemId} to be settled`,
+          );
           break;
         }
-        const incompleteSection = run.reportSections.find((section) => section.status !== 'completed');
+        const incompleteSection = run.reportSections.find(
+          (section) => section.status !== 'completed',
+        );
         if (incompleteSection) {
           diagnostics.push(`research_completed requires report section ${incompleteSection.key}`);
           break;
@@ -680,134 +733,154 @@ function validateSourceReferences(
 function isDeepResearchArtifactRef(value: unknown): value is DeepResearchArtifactRef {
   if (!isRecord(value)) return false;
   if (
-    !isStableId(value.artifactId)
-    || !isDeepResearchArtifactRole(value.role)
-    || !isBoundedText(value.name, DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS)
-    || !(value.summary === undefined
-      || isBoundedText(value.summary, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS))
-    || !isFiniteNumber(value.createdAt)
-    || !(value.locator === undefined || isBoundedText(value.locator, DEEP_RESEARCH_LOCATOR_MAX_CHARS))
-    || typeof value.contentHash !== 'string'
-    || !/^sha256:[a-f0-9]{64}$/.test(value.contentHash)
-    || !isStableIdArray(value.sourceArtifactIds, DEEP_RESEARCH_REFS_MAX)
+    !isStableId(value.artifactId) ||
+    !isDeepResearchArtifactRole(value.role) ||
+    !isBoundedText(value.name, DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS) ||
+    !(
+      value.summary === undefined ||
+      isBoundedText(value.summary, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)
+    ) ||
+    !isFiniteNumber(value.createdAt) ||
+    !(
+      value.locator === undefined || isBoundedText(value.locator, DEEP_RESEARCH_LOCATOR_MAX_CHARS)
+    ) ||
+    typeof value.contentHash !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/.test(value.contentHash) ||
+    !isStableIdArray(value.sourceArtifactIds, DEEP_RESEARCH_REFS_MAX)
   ) {
     return false;
   }
   if (value.role === 'report_section') {
-    return isDeepResearchReportSectionKey(value.reportSectionKey)
-      && (value.reportSectionStatus === 'drafted' || value.reportSectionStatus === 'completed');
+    return (
+      isDeepResearchReportSectionKey(value.reportSectionKey) &&
+      (value.reportSectionStatus === 'drafted' || value.reportSectionStatus === 'completed')
+    );
   }
   return value.reportSectionKey === undefined && value.reportSectionStatus === undefined;
 }
 
 function isDeepResearchChecklistItem(value: unknown): value is DeepResearchChecklistItem {
-  return isRecord(value)
-    && isStableId(value.itemId)
-    && isBoundedText(value.title, DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS)
-    && isDeepResearchChecklistStatus(value.status)
-    && isStableIdArray(value.evidenceArtifactIds, DEEP_RESEARCH_REFS_MAX)
-    && (value.blockedReason === undefined
-      || isBoundedText(value.blockedReason, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS))
-    && (value.status === 'blocked' ? value.blockedReason !== undefined : value.blockedReason === undefined)
-    && isFiniteNumber(value.updatedAt);
+  return (
+    isRecord(value) &&
+    isStableId(value.itemId) &&
+    isBoundedText(value.title, DEEP_RESEARCH_ARTIFACT_NAME_MAX_CHARS) &&
+    isDeepResearchChecklistStatus(value.status) &&
+    isStableIdArray(value.evidenceArtifactIds, DEEP_RESEARCH_REFS_MAX) &&
+    (value.blockedReason === undefined ||
+      isBoundedText(value.blockedReason, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)) &&
+    (value.status === 'blocked'
+      ? value.blockedReason !== undefined
+      : value.blockedReason === undefined) &&
+    isFiniteNumber(value.updatedAt)
+  );
 }
 
 function isDeepResearchStep(value: unknown): value is DeepResearchStep {
-  return isRecord(value)
-    && isStableId(value.stepId)
-    && isDeepResearchStepKind(value.kind)
-    && isDeepResearchStepStatus(value.status)
-    && isBoundedText(value.objective, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS)
-    && isBoundedText(value.summary, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS)
-    && isBoundedTextArray(
+  return (
+    isRecord(value) &&
+    isStableId(value.stepId) &&
+    isDeepResearchStepKind(value.kind) &&
+    isDeepResearchStepStatus(value.status) &&
+    isBoundedText(value.objective, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS) &&
+    isBoundedText(value.summary, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS) &&
+    isBoundedTextArray(
       value.roots,
       DEEP_RESEARCH_STEP_LIST_ITEMS_MAX,
       DEEP_RESEARCH_LOCATOR_MAX_CHARS,
-    )
-    && (value.kind !== 'local_exploration' || value.roots.length > 0)
-    && isBoundedTextArray(
+    ) &&
+    (value.kind !== 'local_exploration' || value.roots.length > 0) &&
+    isBoundedTextArray(
       value.keywords,
       DEEP_RESEARCH_STEP_LIST_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && (value.kind !== 'web_research' || value.keywords.length > 0)
-    && isBoundedTextArray(
+    ) &&
+    (value.kind !== 'web_research' || value.keywords.length > 0) &&
+    isBoundedTextArray(
       value.ignoredPaths,
       DEEP_RESEARCH_STEP_LIST_ITEMS_MAX,
       DEEP_RESEARCH_LOCATOR_MAX_CHARS,
-    )
-    && isBoundedText(value.stoppingCondition, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS)
-    && isBoundedText(value.expectedEvidence, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS)
-    && isStableIdArray(value.evidenceArtifactIds, DEEP_RESEARCH_REFS_MAX)
-    && Array.isArray(value.inspectedRefs)
-    && value.inspectedRefs.length <= DEEP_RESEARCH_INSPECTED_REFS_MAX
-    && value.inspectedRefs.every(isDeepResearchInspectedRef)
-    && isStableIdArray(value.workerRunIds, DEEP_RESEARCH_REFS_MAX)
-    && (value.blockedReason === undefined
-      || isBoundedText(value.blockedReason, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS))
-    && (value.status === 'blocked' ? value.blockedReason !== undefined : value.blockedReason === undefined)
-    && isFiniteNumber(value.createdAt);
+    ) &&
+    isBoundedText(value.stoppingCondition, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS) &&
+    isBoundedText(value.expectedEvidence, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS) &&
+    isStableIdArray(value.evidenceArtifactIds, DEEP_RESEARCH_REFS_MAX) &&
+    Array.isArray(value.inspectedRefs) &&
+    value.inspectedRefs.length <= DEEP_RESEARCH_INSPECTED_REFS_MAX &&
+    value.inspectedRefs.every(isDeepResearchInspectedRef) &&
+    isStableIdArray(value.workerRunIds, DEEP_RESEARCH_REFS_MAX) &&
+    (value.blockedReason === undefined ||
+      isBoundedText(value.blockedReason, DEEP_RESEARCH_STEP_TEXT_MAX_CHARS)) &&
+    (value.status === 'blocked'
+      ? value.blockedReason !== undefined
+      : value.blockedReason === undefined) &&
+    isFiniteNumber(value.createdAt)
+  );
 }
 
 function isDeepResearchInspectedRef(value: unknown): value is DeepResearchInspectedRef {
-  return isRecord(value)
-    && typeof value.kind === 'string'
-    && (DEEP_RESEARCH_INSPECTED_REF_KINDS as readonly string[]).includes(value.kind)
-    && isBoundedText(value.locator, DEEP_RESEARCH_LOCATOR_MAX_CHARS)
-    && (value.label === undefined
-      || isBoundedText(value.label, DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS))
-    && (value.sourceArtifactId === undefined || isStableId(value.sourceArtifactId));
+  return (
+    isRecord(value) &&
+    typeof value.kind === 'string' &&
+    (DEEP_RESEARCH_INSPECTED_REF_KINDS as readonly string[]).includes(value.kind) &&
+    isBoundedText(value.locator, DEEP_RESEARCH_LOCATOR_MAX_CHARS) &&
+    (value.label === undefined ||
+      isBoundedText(value.label, DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS)) &&
+    (value.sourceArtifactId === undefined || isStableId(value.sourceArtifactId))
+  );
 }
 
 function isDeepResearchHandoff(value: unknown): value is DeepResearchHandoff {
-  return isRecord(value)
-    && isStableId(value.artifactId)
-    && isBoundedTextArray(
+  return (
+    isRecord(value) &&
+    isStableId(value.artifactId) &&
+    isBoundedTextArray(
       value.implementationTasks,
       DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && value.implementationTasks.length > 0
-    && isBoundedTextArray(
+    ) &&
+    value.implementationTasks.length > 0 &&
+    isBoundedTextArray(
       value.recommendedIssues,
       DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && isBoundedTextArray(
+    ) &&
+    isBoundedTextArray(
       value.recommendedPullRequests,
       DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && (value.recommendedIssues.length + value.recommendedPullRequests.length > 0)
-    && isBoundedTextArray(
+    ) &&
+    value.recommendedIssues.length + value.recommendedPullRequests.length > 0 &&
+    isBoundedTextArray(
       value.verificationCommands,
       DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && value.verificationCommands.length > 0;
+    ) &&
+    value.verificationCommands.length > 0
+  );
 }
 
 function isDeepResearchCheckpoint(value: unknown): value is DeepResearchCheckpoint {
-  return isRecord(value)
-    && isStableId(value.checkpointId)
-    && Number.isSafeInteger(value.round)
-    && (value.round as number) >= 1
-    && isDeepResearchActiveStage(value.stage)
-    && (value.status === 'active' || value.status === 'blocked')
-    && isBoundedText(value.summary, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS)
-    && isBoundedTextArray(
+  return (
+    isRecord(value) &&
+    isStableId(value.checkpointId) &&
+    Number.isSafeInteger(value.round) &&
+    (value.round as number) >= 1 &&
+    isDeepResearchActiveStage(value.stage) &&
+    (value.status === 'active' || value.status === 'blocked') &&
+    isBoundedText(value.summary, DEEP_RESEARCH_CHECKPOINT_TEXT_MAX_CHARS) &&
+    isBoundedTextArray(
       value.openQuestions,
       DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && isBoundedTextArray(
+    ) &&
+    isBoundedTextArray(
       value.nextSteps,
       DEEP_RESEARCH_CHECKPOINT_ITEMS_MAX,
       DEEP_RESEARCH_CHECKPOINT_ITEM_MAX_CHARS,
-    )
-    && isStableIdArray(value.taskIds, DEEP_RESEARCH_REFS_MAX)
-    && isStableIdArray(value.artifactIds, DEEP_RESEARCH_REFS_MAX)
-    && isFiniteNumber(value.createdAt);
+    ) &&
+    isStableIdArray(value.taskIds, DEEP_RESEARCH_REFS_MAX) &&
+    isStableIdArray(value.artifactIds, DEEP_RESEARCH_REFS_MAX) &&
+    isFiniteNumber(value.createdAt)
+  );
 }
 
 function isEventRefs(value: unknown): value is DeepResearchEventRefs | undefined {
@@ -815,8 +888,9 @@ function isEventRefs(value: unknown): value is DeepResearchEventRefs | undefined
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
   if (keys.some((key) => !['runId', 'turnId', 'toolCallId'].includes(key))) return false;
-  return [value.runId, value.turnId, value.toolCallId]
-    .every((item) => item === undefined || isBoundedReference(item));
+  return [value.runId, value.turnId, value.toolCallId].every(
+    (item) => item === undefined || isBoundedReference(item),
+  );
 }
 
 function isBoundedReference(value: unknown): value is string {
@@ -824,30 +898,34 @@ function isBoundedReference(value: unknown): value is string {
 }
 
 function isStableId(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length >= 1
-    && value.length <= 128
-    && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
-    && redactSecrets(value) === value;
+  return (
+    typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value) &&
+    redactSecrets(value) === value
+  );
 }
 
 function isStableIdArray(value: unknown, max: number): value is string[] {
-  return Array.isArray(value)
-    && value.length <= max
-    && new Set(value).size === value.length
-    && value.every(isStableId);
+  return (
+    Array.isArray(value) &&
+    value.length <= max &&
+    new Set(value).size === value.length &&
+    value.every(isStableId)
+  );
 }
 
 function isBoundedText(value: unknown, max: number): value is string {
-  return typeof value === 'string'
-    && value.trim().length > 0
-    && Array.from(value).length <= max;
+  return typeof value === 'string' && value.trim().length > 0 && Array.from(value).length <= max;
 }
 
 function isBoundedTextArray(value: unknown, maxItems: number, maxChars: number): value is string[] {
-  return Array.isArray(value)
-    && value.length <= maxItems
-    && value.every((item) => isBoundedText(item, maxChars));
+  return (
+    Array.isArray(value) &&
+    value.length <= maxItems &&
+    value.every((item) => isBoundedText(item, maxChars))
+  );
 }
 
 function cloneCheckpoint(checkpoint: DeepResearchCheckpoint): DeepResearchCheckpoint {
@@ -882,9 +960,9 @@ function applyReportSectionArtifact(
   artifact: DeepResearchArtifactRef,
 ): DeepResearchReportSectionState[] {
   if (
-    artifact.role !== 'report_section'
-    || !artifact.reportSectionKey
-    || !artifact.reportSectionStatus
+    artifact.role !== 'report_section' ||
+    !artifact.reportSectionKey ||
+    !artifact.reportSectionStatus
   ) {
     return [...sections];
   }
@@ -896,7 +974,8 @@ function applyReportSectionArtifact(
           artifactId: artifact.artifactId,
           updatedAt: artifact.createdAt,
         }
-      : section);
+      : section,
+  );
 }
 
 function cloneChecklistItem(item: DeepResearchChecklistItem): DeepResearchChecklistItem {

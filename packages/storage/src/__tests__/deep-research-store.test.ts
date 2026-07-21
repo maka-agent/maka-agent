@@ -8,9 +8,7 @@ import { createDeepResearchStore } from '../deep-research-store.js';
 const SESSION_ID = 'session-1';
 const HASH = `sha256:${'b'.repeat(64)}`;
 
-async function withTempRoot(
-  fn: (root: string) => Promise<void>,
-): Promise<void> {
+async function withTempRoot(fn: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'maka-deep-research-'));
   try {
     await fn(root);
@@ -29,12 +27,11 @@ describe('DeepResearchStore', () => {
         now: () => ++now,
       });
 
-      await store.start(
-        SESSION_ID,
-        '  Reproduce durable Deep Research   in Maka. ',
-        'deep',
-        { runId: 'run-1', turnId: 'turn-1', toolCallId: 'call-start' },
-      );
+      await store.start(SESSION_ID, '  Reproduce durable Deep Research   in Maka. ', 'deep', {
+        runId: 'run-1',
+        turnId: 'turn-1',
+        toolCallId: 'call-start',
+      });
       await store.recordArtifact(SESSION_ID, {
         artifactId: 'source-1',
         role: 'source',
@@ -125,18 +122,19 @@ describe('DeepResearchStore', () => {
         { runId: 'run-2', turnId: 'turn-2', toolCallId: 'call-complete' },
       );
       await assert.rejects(
-        () => store.complete(
-          SESSION_ID,
-          'report-1',
-          {
-            artifactId: 'handoff-1',
-            implementationTasks: ['Implement the workspace.'],
-            recommendedIssues: ['Track the UI slice.'],
-            recommendedPullRequests: [],
-            verificationCommands: ['npm run test:fast'],
-          },
-          { runId: 'run-2', turnId: 'turn-2', toolCallId: 'call-complete' },
-        ),
+        () =>
+          store.complete(
+            SESSION_ID,
+            'report-1',
+            {
+              artifactId: 'handoff-1',
+              implementationTasks: ['Implement the workspace.'],
+              recommendedIssues: ['Track the UI slice.'],
+              recommendedPullRequests: [],
+              verificationCommands: ['npm run test:fast'],
+            },
+            { runId: 'run-2', turnId: 'turn-2', toolCallId: 'call-complete' },
+          ),
         /retried with different input/,
       );
 
@@ -155,10 +153,7 @@ describe('DeepResearchStore', () => {
       assert.equal(events.length, 15);
       assert.equal(events[0]?.type, 'research_started');
       assert.equal(events.at(-1)?.type, 'research_completed');
-      assert.equal(
-        events.filter((event) => event.type === 'research_checklist_updated').length,
-        4,
-      );
+      assert.equal(events.filter((event) => event.type === 'research_checklist_updated').length, 4);
       assert.equal(events[0]?.refs?.toolCallId, 'call-start');
       assert.equal(events.at(-1)?.refs?.toolCallId, 'call-complete');
 
@@ -180,14 +175,15 @@ describe('DeepResearchStore', () => {
       await store.start(SESSION_ID, 'Trace every claim.', 'standard');
 
       await assert.rejects(
-        () => store.recordArtifact(SESSION_ID, {
-          artifactId: 'note-1',
-          role: 'evidence_note',
-          name: 'note.md',
-          createdAt: 100,
-          contentHash: HASH,
-          sourceArtifactIds: ['missing-source'],
-        }),
+        () =>
+          store.recordArtifact(SESSION_ID, {
+            artifactId: 'note-1',
+            role: 'evidence_note',
+            name: 'note.md',
+            createdAt: 100,
+            contentHash: HASH,
+            sourceArtifactIds: ['missing-source'],
+          }),
         /non-source artifact missing-source/,
       );
 
@@ -224,64 +220,81 @@ describe('DeepResearchStore', () => {
       await store.recordArtifact(SESSION_ID, source, artifactContext);
       await store.recordArtifact(SESSION_ID, source, artifactContext);
       await assert.rejects(
-        () => store.recordArtifact(
-          SESSION_ID,
-          { ...source, locator: 'https://example.com/other' },
-          artifactContext,
-        ),
+        () =>
+          store.recordArtifact(
+            SESSION_ID,
+            { ...source, locator: 'https://example.com/other' },
+            artifactContext,
+          ),
         /retried with different input/,
       );
       await assert.rejects(
-        () => store.recordArtifact(
-          SESSION_ID,
-          { ...source, name: 'renamed-source.md' },
-          artifactContext,
-        ),
+        () =>
+          store.recordArtifact(
+            SESSION_ID,
+            { ...source, name: 'renamed-source.md' },
+            artifactContext,
+          ),
         /retried with different input/,
       );
       await assert.rejects(
-        () => store.recordArtifact(
-          SESSION_ID,
-          { ...source, summary: 'Different summary.' },
-          artifactContext,
-        ),
+        () =>
+          store.recordArtifact(
+            SESSION_ID,
+            { ...source, summary: 'Different summary.' },
+            artifactContext,
+          ),
         /retried with different input/,
       );
       await assert.rejects(
-        () => store.recordCheckpoint(
-          SESSION_ID,
-          {
-            round: 1,
-            stage: 'knowledge_base',
-            status: 'active',
-            summary: 'Cross-tool replay.',
-            openQuestions: [],
-            nextSteps: [],
-            taskIds: [],
-            artifactIds: [],
-          },
-          artifactContext,
-        ),
+        () =>
+          store.recordCheckpoint(
+            SESSION_ID,
+            {
+              round: 1,
+              stage: 'knowledge_base',
+              status: 'active',
+              summary: 'Cross-tool replay.',
+              openQuestions: [],
+              nextSteps: [],
+              taskIds: [],
+              artifactIds: [],
+            },
+            artifactContext,
+          ),
         /already used for research_artifact_recorded/,
       );
 
       const checklistContext = { turnId: 'turn-1', toolCallId: 'call-checklist' };
-      await store.updateChecklist(SESSION_ID, {
-        itemId: 'project_entrypoints',
-        status: 'in_progress',
-        evidenceArtifactIds: [],
-      }, checklistContext);
-      await store.updateChecklist(SESSION_ID, {
-        itemId: 'project_entrypoints',
-        status: 'in_progress',
-        evidenceArtifactIds: [],
-      }, checklistContext);
-      await assert.rejects(
-        () => store.updateChecklist(SESSION_ID, {
+      await store.updateChecklist(
+        SESSION_ID,
+        {
           itemId: 'project_entrypoints',
-          status: 'completed',
-          evidenceArtifactIds: ['source-1'],
-        }, checklistContext),
+          status: 'in_progress',
+          evidenceArtifactIds: [],
+        },
+        checklistContext,
+      );
+      await store.updateChecklist(
+        SESSION_ID,
+        {
+          itemId: 'project_entrypoints',
+          status: 'in_progress',
+          evidenceArtifactIds: [],
+        },
+        checklistContext,
+      );
+      await assert.rejects(
+        () =>
+          store.updateChecklist(
+            SESSION_ID,
+            {
+              itemId: 'project_entrypoints',
+              status: 'completed',
+              evidenceArtifactIds: ['source-1'],
+            },
+            checklistContext,
+          ),
         /retried with different input/,
       );
 
@@ -321,11 +334,12 @@ describe('DeepResearchStore', () => {
       await store.recordCheckpoint(SESSION_ID, checkpoint, checkpointContext);
       await store.recordCheckpoint(SESSION_ID, checkpoint, checkpointContext);
       await assert.rejects(
-        () => store.recordCheckpoint(
-          SESSION_ID,
-          { ...checkpoint, summary: 'Conflicting checkpoint.' },
-          checkpointContext,
-        ),
+        () =>
+          store.recordCheckpoint(
+            SESSION_ID,
+            { ...checkpoint, summary: 'Conflicting checkpoint.' },
+            checkpointContext,
+          ),
         /retried with different input/,
       );
 

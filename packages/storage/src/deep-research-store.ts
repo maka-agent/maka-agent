@@ -86,7 +86,9 @@ class FileDeepResearchStore implements DeepResearchStore {
         );
       }
       if (!isDeepResearchEvent(parsed)) {
-        throw new Error(`Invalid deep research event JSONL line ${index + 1}: unexpected event shape`);
+        throw new Error(
+          `Invalid deep research event JSONL line ${index + 1}: unexpected event shape`,
+        );
       }
       events.push(parsed);
     }
@@ -125,9 +127,9 @@ class FileDeepResearchStore implements DeepResearchStore {
         };
       },
       (event) =>
-        event.type === 'research_started'
-        && event.objective === normalized
-        && event.scopeLevel === scopeLevel,
+        event.type === 'research_started' &&
+        event.objective === normalized &&
+        event.scopeLevel === scopeLevel,
     );
   }
 
@@ -152,8 +154,7 @@ class FileDeepResearchStore implements DeepResearchStore {
         ...refsFromContext(context),
       }),
       (event) =>
-        event.type === 'research_artifact_recorded'
-        && sameArtifact(event.artifact, artifact),
+        event.type === 'research_artifact_recorded' && sameArtifact(event.artifact, artifact),
     );
   }
 
@@ -185,11 +186,11 @@ class FileDeepResearchStore implements DeepResearchStore {
         };
       },
       (event) =>
-        event.type === 'research_checklist_updated'
-        && event.item.itemId === item.itemId
-        && event.item.status === item.status
-        && event.item.blockedReason === item.blockedReason
-        && sameStrings(event.item.evidenceArtifactIds, item.evidenceArtifactIds),
+        event.type === 'research_checklist_updated' &&
+        event.item.itemId === item.itemId &&
+        event.item.status === item.status &&
+        event.item.blockedReason === item.blockedReason &&
+        sameStrings(event.item.evidenceArtifactIds, item.evidenceArtifactIds),
     );
   }
 
@@ -220,9 +221,7 @@ class FileDeepResearchStore implements DeepResearchStore {
         },
         ...refsFromContext(context),
       }),
-      (event) =>
-        event.type === 'research_step_recorded'
-        && sameStep(event.step, step),
+      (event) => event.type === 'research_step_recorded' && sameStep(event.step, step),
     );
   }
 
@@ -252,8 +251,8 @@ class FileDeepResearchStore implements DeepResearchStore {
         ...refsFromContext(context),
       }),
       (event) =>
-        event.type === 'research_checkpoint_recorded'
-        && sameCheckpoint(event.checkpoint, checkpoint),
+        event.type === 'research_checkpoint_recorded' &&
+        sameCheckpoint(event.checkpoint, checkpoint),
     );
   }
 
@@ -283,9 +282,9 @@ class FileDeepResearchStore implements DeepResearchStore {
         ...refsFromContext(context),
       }),
       (event) =>
-        event.type === 'research_completed'
-        && event.reportArtifactId === reportArtifactId
-        && sameHandoff(event.handoff, handoff),
+        event.type === 'research_completed' &&
+        event.reportArtifactId === reportArtifactId &&
+        sameHandoff(event.handoff, handoff),
     );
   }
 
@@ -345,7 +344,9 @@ class FileDeepResearchStore implements DeepResearchStore {
   private project(events: readonly DeepResearchEvent[]): DeepResearchRun | undefined {
     const projection = projectDeepResearchEvents(events);
     if (projection.diagnostics.length > 0) {
-      throw new Error(`Deep Research ledger projection failed: ${projection.diagnostics.join('; ')}`);
+      throw new Error(
+        `Deep Research ledger projection failed: ${projection.diagnostics.join('; ')}`,
+      );
     }
     return projection.run;
   }
@@ -364,9 +365,7 @@ class FileDeepResearchStore implements DeepResearchStore {
   }
 }
 
-function refsFromContext(
-  context: DeepResearchMutationContext,
-): { refs?: DeepResearchEventRefs } {
+function refsFromContext(context: DeepResearchMutationContext): { refs?: DeepResearchEventRefs } {
   const refs: DeepResearchEventRefs = {
     ...(context.runId ? { runId: context.runId } : {}),
     ...(context.turnId ? { turnId: context.turnId } : {}),
@@ -383,67 +382,74 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function sameArtifact(
-  left: DeepResearchArtifactRef,
-  right: DeepResearchArtifactRef,
-): boolean {
-  return left.artifactId === right.artifactId
-    && left.role === right.role
-    && left.name === right.name
-    && left.summary === right.summary
-    && left.createdAt === right.createdAt
-    && left.locator === right.locator
-    && left.contentHash === right.contentHash
-    && left.reportSectionKey === right.reportSectionKey
-    && left.reportSectionStatus === right.reportSectionStatus
-    && sameStrings(left.sourceArtifactIds, right.sourceArtifactIds);
+function sameArtifact(left: DeepResearchArtifactRef, right: DeepResearchArtifactRef): boolean {
+  return (
+    left.artifactId === right.artifactId &&
+    left.role === right.role &&
+    left.name === right.name &&
+    left.summary === right.summary &&
+    left.createdAt === right.createdAt &&
+    left.locator === right.locator &&
+    left.contentHash === right.contentHash &&
+    left.reportSectionKey === right.reportSectionKey &&
+    left.reportSectionStatus === right.reportSectionStatus &&
+    sameStrings(left.sourceArtifactIds, right.sourceArtifactIds)
+  );
 }
 
 function sameStep(
   left: DeepResearchStep,
   right: Omit<DeepResearchStep, 'stepId' | 'createdAt'>,
 ): boolean {
-  return left.kind === right.kind
-    && left.status === right.status
-    && left.objective === right.objective
-    && left.summary === right.summary
-    && left.stoppingCondition === right.stoppingCondition
-    && left.expectedEvidence === right.expectedEvidence
-    && left.blockedReason === right.blockedReason
-    && sameStrings(left.roots, right.roots)
-    && sameStrings(left.keywords, right.keywords)
-    && sameStrings(left.ignoredPaths, right.ignoredPaths)
-    && sameStrings(left.evidenceArtifactIds, right.evidenceArtifactIds)
-    && sameStrings(left.workerRunIds, right.workerRunIds)
-    && left.inspectedRefs.length === right.inspectedRefs.length
-    && left.inspectedRefs.every((ref, index) => {
+  return (
+    left.kind === right.kind &&
+    left.status === right.status &&
+    left.objective === right.objective &&
+    left.summary === right.summary &&
+    left.stoppingCondition === right.stoppingCondition &&
+    left.expectedEvidence === right.expectedEvidence &&
+    left.blockedReason === right.blockedReason &&
+    sameStrings(left.roots, right.roots) &&
+    sameStrings(left.keywords, right.keywords) &&
+    sameStrings(left.ignoredPaths, right.ignoredPaths) &&
+    sameStrings(left.evidenceArtifactIds, right.evidenceArtifactIds) &&
+    sameStrings(left.workerRunIds, right.workerRunIds) &&
+    left.inspectedRefs.length === right.inspectedRefs.length &&
+    left.inspectedRefs.every((ref, index) => {
       const candidate = right.inspectedRefs[index];
-      return candidate !== undefined
-        && ref.kind === candidate.kind
-        && ref.locator === candidate.locator
-        && ref.label === candidate.label
-        && ref.sourceArtifactId === candidate.sourceArtifactId;
-    });
+      return (
+        candidate !== undefined &&
+        ref.kind === candidate.kind &&
+        ref.locator === candidate.locator &&
+        ref.label === candidate.label &&
+        ref.sourceArtifactId === candidate.sourceArtifactId
+      );
+    })
+  );
 }
 
 function sameCheckpoint(
   left: DeepResearchCheckpoint,
   right: Omit<DeepResearchCheckpoint, 'checkpointId' | 'createdAt'>,
 ): boolean {
-  return left.round === right.round
-    && left.stage === right.stage
-    && left.status === right.status
-    && left.summary === right.summary
-    && sameStrings(left.openQuestions, right.openQuestions)
-    && sameStrings(left.nextSteps, right.nextSteps)
-    && sameStrings(left.taskIds, right.taskIds)
-    && sameStrings(left.artifactIds, right.artifactIds);
+  return (
+    left.round === right.round &&
+    left.stage === right.stage &&
+    left.status === right.status &&
+    left.summary === right.summary &&
+    sameStrings(left.openQuestions, right.openQuestions) &&
+    sameStrings(left.nextSteps, right.nextSteps) &&
+    sameStrings(left.taskIds, right.taskIds) &&
+    sameStrings(left.artifactIds, right.artifactIds)
+  );
 }
 
 function sameHandoff(left: DeepResearchHandoff, right: DeepResearchHandoff): boolean {
-  return left.artifactId === right.artifactId
-    && sameStrings(left.implementationTasks, right.implementationTasks)
-    && sameStrings(left.recommendedIssues, right.recommendedIssues)
-    && sameStrings(left.recommendedPullRequests, right.recommendedPullRequests)
-    && sameStrings(left.verificationCommands, right.verificationCommands);
+  return (
+    left.artifactId === right.artifactId &&
+    sameStrings(left.implementationTasks, right.implementationTasks) &&
+    sameStrings(left.recommendedIssues, right.recommendedIssues) &&
+    sameStrings(left.recommendedPullRequests, right.recommendedPullRequests) &&
+    sameStrings(left.verificationCommands, right.verificationCommands)
+  );
 }

@@ -44,9 +44,7 @@ function artifact(
       ...(role === 'source' ? { locator: 'https://example.com/source' } : {}),
       contentHash: HASH,
       sourceArtifactIds,
-      ...(reportSectionKey
-        ? { reportSectionKey, reportSectionStatus: 'completed' as const }
-        : {}),
+      ...(reportSectionKey ? { reportSectionKey, reportSectionStatus: 'completed' as const } : {}),
     },
   };
 }
@@ -130,7 +128,12 @@ describe('Deep Research run projection', () => {
       artifact('section-conclusion', 'report_section', ['source-1'], 'conclusion'),
       artifact('section-evidence', 'report_section', ['source-1'], 'source_evidence'),
       artifact('section-tradeoffs', 'report_section', ['source-1'], 'borrow_diverge_risk_gate'),
-      artifact('section-implementation', 'report_section', ['source-1'], 'implementation_recommendations'),
+      artifact(
+        'section-implementation',
+        'report_section',
+        ['source-1'],
+        'implementation_recommendations',
+      ),
       artifact('section-verification', 'report_section', ['source-1'], 'verification'),
       artifact('report-1', 'report', ['source-1']),
       artifact('handoff-1', 'handoff', ['source-1']),
@@ -194,10 +197,7 @@ describe('Deep Research run projection', () => {
       artifact('report-1', 'report', ['source-1']),
       artifact('handoff-1', 'handoff', ['source-1']),
     ];
-    const checklistBlocked = projectDeepResearchEvents([
-      ...base,
-      completed('report-1'),
-    ]);
+    const checklistBlocked = projectDeepResearchEvents([...base, completed('report-1')]);
     assert.match(checklistBlocked.diagnostics.join('\n'), /checklist item project_entrypoints/);
 
     const sectionBlocked = projectDeepResearchEvents([

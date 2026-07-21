@@ -174,9 +174,11 @@ export function buildDeepResearchImplementationPrompt(run: DeepResearchRun): str
   const characters = Array.from(content);
   if (characters.length <= DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS) return content;
   const marker = '\n[Handoff truncated to the safe composer limit.]';
-  return characters
-    .slice(0, DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS - Array.from(marker).length)
-    .join('') + marker;
+  return (
+    characters
+      .slice(0, DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS - Array.from(marker).length)
+      .join('') + marker
+  );
 }
 
 export function buildDeepResearchSystemPromptFragment(): string {
