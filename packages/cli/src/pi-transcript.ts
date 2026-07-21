@@ -873,6 +873,7 @@ function shellRunTranscriptStatus(
   status: Extract<ToolResultContent, { kind: 'shell_run' }>['status'],
 ): MakaPiToolEntry['status'] {
   switch (status) {
+    case 'starting':
     case 'running':
       return 'running';
     case 'completed':

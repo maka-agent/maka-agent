@@ -34,6 +34,7 @@ export interface RuntimeHostConnectionSessionOptions {
   resolveContinuity(): SessionContinuityService | undefined;
   beginOperation(frame: RequestFrame): Promise<ConnectionOperationLease | HostOperationErrorCode>;
   onTeardown(): void;
+  onConnectionSettled?(): Promise<void>;
 }
 
 export class RuntimeHostConnectionSession {
@@ -43,6 +44,7 @@ export class RuntimeHostConnectionSession {
   #continuityService: SessionContinuityService | undefined;
   #continuity: SessionContinuityConnection | undefined;
   #closed = false;
+  #connectionSettled = false;
 
   constructor(options: RuntimeHostConnectionSessionOptions) {
     this.#options = options;
@@ -57,8 +59,18 @@ export class RuntimeHostConnectionSession {
     } finally {
       this.#teardown();
       await Promise.allSettled(this.#requests.values());
-      await Promise.all([this.#writer.settled(), this.#options.transport.closed]);
+      try {
+        await this.#notifyConnectionSettled();
+      } finally {
+        await Promise.all([this.#writer.settled(), this.#options.transport.closed]);
+      }
     }
+  }
+
+  async #notifyConnectionSettled(): Promise<void> {
+    if (this.#connectionSettled) return;
+    this.#connectionSettled = true;
+    await this.#options.onConnectionSettled?.();
   }
 
   async #pumpInbound(): Promise<void> {

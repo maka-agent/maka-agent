@@ -604,6 +604,156 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 
+  test('a recovering connection waits for the composition factory outcome before settlement', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      const factoryEntered = deferred<void>();
+      const releaseFactory = deferred<void>();
+      const hookCalled = deferred<void>();
+      const settledConnectionIds: string[] = [];
+      const startup = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async () => {
+          factoryEntered.resolve();
+          await releaseFactory.promise;
+          return {
+            handlers: createUnavailableDomainOperationHandlers(),
+            onConnectionSettled: async (connectionId) => {
+              settledConnectionIds.push(connectionId);
+              hookCalled.resolve();
+            },
+            recover: async () => undefined,
+            close: async () => ({ kind: 'clean' }),
+          };
+        },
+      });
+      const startupOutcome = observeStartup(startup);
+      let transport: FramedTransport | undefined;
+      try {
+        await factoryEntered.promise;
+        const registration = await readHostRegistration(owner.controlDirectory);
+        assert.ok(registration);
+        const accepted = await openAcceptedConnection(
+          registration.endpoint,
+          'factory-gated-settlement-client',
+        );
+        transport = accepted.transport;
+        transport.destroy();
+        await transport.closed;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.deepEqual(settledConnectionIds, []);
+
+        releaseFactory.resolve();
+        const outcome = await startupOutcome;
+        assert.equal(outcome.kind, 'started');
+        if (outcome.kind !== 'started') return;
+        paths.resources.trackCloseable(outcome.host);
+        await hookCalled.promise;
+        assert.deepEqual(settledConnectionIds, [accepted.connectionId]);
+        await outcome.host.close();
+        assert.deepEqual(settledConnectionIds, [accepted.connectionId]);
+      } finally {
+        releaseFactory.resolve();
+        transport?.destroy();
+        const outcome = await startupOutcome;
+        if (outcome.kind === 'started') await outcome.host.close().catch(() => undefined);
+      }
+    });
+  });
+
+  test('startup recovery failure waits for a blocked connection hook before composition close', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      const recoveryEntered = deferred<void>();
+      const failRecovery = deferred<void>();
+      const hookEntered = deferred<void>();
+      const releaseHook = deferred<void>();
+      const compositionDraining = deferred<void>();
+      const startupFailure = new Error('controlled startup recovery failure');
+      const lifecycleEvents: string[] = [];
+      let expectedConnectionId: string | undefined;
+      const startup = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async () => ({
+          handlers: createUnavailableDomainOperationHandlers(),
+          onConnectionSettled: async (connectionId) => {
+            assert.equal(connectionId, expectedConnectionId);
+            lifecycleEvents.push('hook-start');
+            hookEntered.resolve();
+            await releaseHook.promise;
+            lifecycleEvents.push('hook-settled');
+          },
+          beginDrain: () => {
+            lifecycleEvents.push('composition-draining');
+            compositionDraining.resolve();
+          },
+          recover: async () => {
+            recoveryEntered.resolve();
+            await failRecovery.promise;
+            throw startupFailure;
+          },
+          close: async () => {
+            lifecycleEvents.push('composition-close');
+            return { kind: 'clean' };
+          },
+        }),
+      });
+      const startupOutcome = observeStartup(startup);
+      let transport: FramedTransport | undefined;
+      try {
+        await recoveryEntered.promise;
+        const registration = await readHostRegistration(owner.controlDirectory);
+        assert.ok(registration);
+        const accepted = await openAcceptedConnection(
+          registration.endpoint,
+          'recovery-failure-settlement-client',
+        );
+        expectedConnectionId = accepted.connectionId;
+        transport = accepted.transport;
+        transport.destroy();
+        await Promise.all([transport.closed, hookEntered.promise]);
+
+        failRecovery.resolve();
+        await compositionDraining.promise;
+        const startupSettledBeforeHook = await Promise.race([
+          startupOutcome.then(() => true),
+          new Promise<false>((resolve) => setImmediate(() => resolve(false))),
+        ]);
+        assert.equal(startupSettledBeforeHook, false);
+        assert.equal(owner.closed, false);
+        assert.deepEqual(lifecycleEvents, ['hook-start', 'composition-draining']);
+
+        releaseHook.resolve();
+        const outcome = await startupOutcome;
+        assert.deepEqual(outcome, { kind: 'failed', error: startupFailure });
+        assert.deepEqual(lifecycleEvents, [
+          'hook-start',
+          'composition-draining',
+          'hook-settled',
+          'composition-close',
+        ]);
+        assert.equal(owner.closed, true);
+      } finally {
+        failRecovery.resolve();
+        releaseHook.resolve();
+        transport?.destroy();
+        await startupOutcome;
+      }
+    });
+  });
+
   test('startup abort drains an issued operation before composition close and owner release', async () => {
     await withHostPaths(async (paths) => {
       const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
@@ -878,6 +1028,159 @@ describe('non-serving Runtime Host kernel', () => {
       await host.closed;
       assert.equal(compositionState, 'closed');
       assert.equal(owner.closed, true);
+    });
+  });
+
+  test('waits for accepted connection settlement before composition close and host close', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      const hookEntered = deferred<void>();
+      const releaseHook = deferred<void>();
+      const hookFailure = new Error('controlled connection settlement failure');
+      const lifecycleEvents: string[] = [];
+      let expectedConnectionId: string | undefined;
+      const host = paths.resources.trackCloseable(
+        await RuntimeHostKernel.start({
+          owner,
+          idleGraceMs: 10_000,
+          compositionFactory: async () => ({
+            handlers: createUnavailableDomainOperationHandlers(),
+            onConnectionSettled: async (connectionId) => {
+              assert.equal(connectionId, expectedConnectionId);
+              lifecycleEvents.push('hook-start');
+              hookEntered.resolve();
+              try {
+                await releaseHook.promise;
+              } finally {
+                lifecycleEvents.push('hook-settled');
+              }
+            },
+            recover: async () => undefined,
+            close: async () => {
+              lifecycleEvents.push('composition-close');
+              return { kind: 'clean' };
+            },
+          }),
+        }),
+      );
+      const connected = await connectRuntimeHost({
+        rootPath: paths.root,
+        surface: 'tui',
+        protocol: CURRENT_PROTOCOL,
+      });
+      assert.equal(connected.kind, 'connected');
+      if (connected.kind !== 'connected') return;
+      expectedConnectionId = connected.connection.connectionId;
+      const hostClosed = host.closed.then(
+        () => lifecycleEvents.push('host-closed'),
+        (error: unknown) => {
+          lifecycleEvents.push('host-closed');
+          throw error;
+        },
+      );
+      try {
+        const closing = host.close();
+        await hookEntered.promise;
+        await connected.connection.closed;
+        const closedBeforeHook = await Promise.race([
+          host.closed.then(
+            () => true,
+            () => true,
+          ),
+          new Promise<false>((resolve) => setImmediate(() => resolve(false))),
+        ]);
+        assert.equal(closedBeforeHook, false);
+        assert.deepEqual(lifecycleEvents, ['hook-start']);
+
+        releaseHook.reject(hookFailure);
+        const preservesHookFailure = (error: unknown) =>
+          error instanceof AggregateError && error.errors.includes(hookFailure);
+        await assert.rejects(() => closing, preservesHookFailure);
+        await assert.rejects(() => hostClosed, preservesHookFailure);
+        assert.deepEqual(lifecycleEvents, [
+          'hook-start',
+          'hook-settled',
+          'composition-close',
+          'host-closed',
+        ]);
+      } finally {
+        releaseHook.resolve();
+        await connected.connection.close().catch(() => undefined);
+      }
+    });
+  });
+
+  test('settles an admitted connection when its accepted response write fails', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+
+      const hookCalled = deferred<void>();
+      const acceptedWriteEntered = deferred<void>();
+      const releaseAcceptedWrite = deferred<void>();
+      const settledConnectionIds: string[] = [];
+      let acceptedConnectionId: string | undefined;
+      let serverTransport: FramedTransport | undefined;
+      const originalWrite = FramedTransport.prototype.write;
+      const host = paths.resources.trackCloseable(
+        await RuntimeHostKernel.start({
+          owner,
+          idleGraceMs: 10_000,
+          compositionFactory: async () => ({
+            handlers: createUnavailableDomainOperationHandlers(),
+            onConnectionSettled: async (connectionId) => {
+              settledConnectionIds.push(connectionId);
+              hookCalled.resolve();
+            },
+            recover: async () => undefined,
+            close: async () => ({ kind: 'clean' }),
+          }),
+        }),
+      );
+      let clientTransport: FramedTransport | undefined;
+      FramedTransport.prototype.write = async function (frame) {
+        if ('kind' in frame && frame.kind === 'accepted') {
+          acceptedConnectionId = frame.connectionId;
+          serverTransport = this;
+          acceptedWriteEntered.resolve();
+          await releaseAcceptedWrite.promise;
+        }
+        return originalWrite.call(this, frame);
+      };
+      try {
+        clientTransport = new FramedTransport(await openSocket(host.endpoint));
+        await clientTransport.write({
+          kind: 'hello',
+          clientInstanceId: 'disconnect-during-accepted-response',
+          surface: 'tui',
+          protocolMin: CURRENT_PROTOCOL.min,
+          protocolMax: CURRENT_PROTOCOL.max,
+        });
+        await acceptedWriteEntered.promise;
+        const acceptedTransport = serverTransport;
+        assert.ok(acceptedTransport);
+
+        clientTransport.destroy();
+        await Promise.all([clientTransport.closed, acceptedTransport.closed]);
+        assert.deepEqual(settledConnectionIds, []);
+        releaseAcceptedWrite.resolve();
+
+        await hookCalled.promise;
+        await host.close();
+        assert.deepEqual(settledConnectionIds, [acceptedConnectionId]);
+      } finally {
+        FramedTransport.prototype.write = originalWrite;
+        releaseAcceptedWrite.resolve();
+        clientTransport?.destroy();
+      }
     });
   });
 
@@ -1911,6 +2214,13 @@ async function openAcceptedTransport(
   path: string,
   clientInstanceId: string,
 ): Promise<FramedTransport> {
+  return (await openAcceptedConnection(path, clientInstanceId)).transport;
+}
+
+async function openAcceptedConnection(
+  path: string,
+  clientInstanceId: string,
+): Promise<{ transport: FramedTransport; connectionId: string }> {
   const transport = new FramedTransport(await openSocket(path));
   await transport.write({
     kind: 'hello',
@@ -1922,7 +2232,7 @@ async function openAcceptedTransport(
   const handshake = decodeHostFrame(await transport.read(2_000));
   assert.ok('kind' in handshake && handshake.kind === 'accepted');
   assert.equal(handshake.state, 'recovering');
-  return transport;
+  return { transport, connectionId: handshake.connectionId };
 }
 
 function writeSocket(socket: Socket, value: string): Promise<void> {

@@ -24,6 +24,7 @@ import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js
 import { chainWrite } from './write-queue.js';
 import {
   DurableStoreWriteError,
+  TOOL_BOUNDARY_PROTOCOL_V1,
   decodeMessageContent,
   isAttachmentRef,
   isTerminalRuntimeEvent,
@@ -37,6 +38,7 @@ import {
   type MessageContent,
   type RuntimeEvent,
   type RuntimeEventStore,
+  type ToolRecoveryMode,
 } from '@maka/core';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -114,7 +116,36 @@ export interface DurableAgentRunStore extends AgentRunStore, RootTurnAdmissionSt
   ): Promise<void>;
 }
 
-export interface DurableRuntimeEventStore extends RuntimeEventStore {
+export interface FileToolPreparedCommit {
+  operationId: string;
+  journalEventId: string;
+  runtimeEvent: RuntimeEvent;
+  dispatchRuntimeEvent: RuntimeEvent;
+  providerToolCallId: string;
+  toolName: string;
+  canonicalArgsHash: string;
+  recoveryMode: ToolRecoveryMode;
+  committedAt: number;
+}
+
+export interface FileToolOutcomeCommit {
+  operationId: string;
+  journalEventId: string;
+  runtimeEvent: RuntimeEvent;
+  committedAt: number;
+}
+
+export interface FileRuntimeCommitResult {
+  created: boolean;
+  runtimeEventSeq: number;
+}
+
+export interface FileRuntimeCommitSink {
+  commitToolPrepared(input: FileToolPreparedCommit): Promise<FileRuntimeCommitResult>;
+  commitToolOutcome(input: FileToolOutcomeCommit): Promise<FileRuntimeCommitResult>;
+}
+
+export interface DurableRuntimeEventStore extends RuntimeEventStore, FileRuntimeCommitSink {
   readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
 }
 
@@ -787,20 +818,101 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
         }
         return;
       }
+      const path = this.runtimeEventsPath(sessionId, runId);
+      if (isToolBoundaryShapedRuntimeEvent(event)) {
+        const immutableEvents = await readRuntimeEventJsonl(
+          path,
+          await this.readRunHeader(sessionId, runId),
+        );
+        const canonical = JSON.parse(JSON.stringify(event, sanitizeJson)) as RuntimeEvent;
+        if (reconcileOrdinaryBoundaryAppend(immutableEvents, canonical) === 'noop') {
+          await this.cleanupCompletedRuntimePartial(sessionId, runId, canonical);
+          return;
+        }
+      }
       await appendJsonl(
-        this.runtimeEventsPath(sessionId, runId),
+        path,
         JSON.stringify(event, sanitizeJson) + '\n',
         { ...options, durabilityRoot: this.durabilityRoot },
       );
-      const completedPartialKey = completedPartialRuntimeStreamKey(event);
-      if (completedPartialKey) {
-        await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), {
-          force: true,
-        }).catch(() => {
-          // The immutable final is already durable. Reads suppress any stale snapshot.
-        });
-      }
+      await this.cleanupCompletedRuntimePartial(sessionId, runId, event);
     });
+  }
+
+  async commitToolPrepared(input: FileToolPreparedCommit): Promise<FileRuntimeCommitResult> {
+    assertFilePreparedInput(input);
+    const { sessionId, runId } = input.runtimeEvent;
+    let result: FileRuntimeCommitResult | undefined;
+    await this.withQueue(sessionId, runId, async () => {
+      const header = await this.readRunHeader(sessionId, runId);
+      const call = canonicalRuntimeEvent(input.runtimeEvent, header);
+      const dispatch = canonicalRuntimeEvent(input.dispatchRuntimeEvent, header);
+      const path = this.runtimeEventsPath(sessionId, runId);
+      const events = await readRuntimeEventJsonl(path, header);
+      const callSeq = findPreparedCallSequence(events, input, call);
+      const dispatchSeq = findPreparedDispatchSequence(events, input, dispatch);
+
+      if (dispatchSeq !== undefined) {
+        if (callSeq === undefined || callSeq >= dispatchSeq) {
+          throw new Error(`Tool operation ${input.operationId} has a dispatch without its call`);
+        }
+        await syncRuntimeEventLedgerDurably(
+          path,
+          this.durabilityRoot,
+          `Tool operation ${input.operationId} T1 did not reach stable storage`,
+        );
+        result = { created: false, runtimeEventSeq: dispatchSeq };
+        return;
+      }
+      if (hasOutcomeForIdentity(events, input.operationId, input.providerToolCallId)) {
+        throw new Error(`Tool operation identity conflict for ${input.operationId}`);
+      }
+
+      const appended = callSeq === undefined ? [call, dispatch] : [dispatch];
+      await appendJsonl(
+        path,
+        appended.map((event) => JSON.stringify(event, sanitizeJson)).join('\n') + '\n',
+        { durable: true, durabilityRoot: this.durabilityRoot },
+      );
+      result = { created: true, runtimeEventSeq: events.length + appended.length };
+    });
+    if (!result) throw new Error(`Tool operation ${input.operationId} did not commit`);
+    return result;
+  }
+
+  async commitToolOutcome(input: FileToolOutcomeCommit): Promise<FileRuntimeCommitResult> {
+    assertFileOutcomeInput(input);
+    const { sessionId, runId } = input.runtimeEvent;
+    let result: FileRuntimeCommitResult | undefined;
+    await this.withQueue(sessionId, runId, async () => {
+      const header = await this.readRunHeader(sessionId, runId);
+      const response = canonicalRuntimeEvent(input.runtimeEvent, header);
+      const path = this.runtimeEventsPath(sessionId, runId);
+      const events = await readRuntimeEventJsonl(path, header);
+      const dispatchSeq = assertOutcomeDispatchIdentity(events, input, response);
+      const responseSeq = findOutcomeResponseSequence(events, input, response);
+      if (responseSeq !== undefined) {
+        if (responseSeq <= dispatchSeq) {
+          throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
+        }
+        await syncRuntimeEventLedgerDurably(
+          path,
+          this.durabilityRoot,
+          `Tool operation ${input.operationId} T2 did not reach stable storage`,
+        );
+        await this.cleanupCompletedRuntimePartial(sessionId, runId, response);
+        result = { created: false, runtimeEventSeq: responseSeq };
+        return;
+      }
+      await appendJsonl(path, JSON.stringify(response, sanitizeJson) + '\n', {
+        durable: true,
+        durabilityRoot: this.durabilityRoot,
+      });
+      await this.cleanupCompletedRuntimePartial(sessionId, runId, response);
+      result = { created: true, runtimeEventSeq: events.length + 1 };
+    });
+    if (!result) throw new Error(`Tool operation ${input.operationId} outcome did not commit`);
+    return result;
   }
 
   async ensureTerminalRuntimeEventDurable(
@@ -985,6 +1097,20 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     return partials;
   }
 
+  private async cleanupCompletedRuntimePartial(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    const completedPartialKey = completedPartialRuntimeStreamKey(event);
+    if (!completedPartialKey) return;
+    await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), {
+      force: true,
+    }).catch(() => {
+      // The immutable final is already durable. Reads suppress any stale snapshot.
+    });
+  }
+
   private withQueue(
     sessionId: string,
     runId: string,
@@ -993,6 +1119,354 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
+  }
+}
+
+function canonicalRuntimeEvent(event: RuntimeEvent, expected: AgentRunHeader): RuntimeEvent {
+  return decodeRuntimeEvent(JSON.parse(JSON.stringify(event, sanitizeJson)), expected);
+}
+
+function assertFilePreparedInput(input: FileToolPreparedCommit): void {
+  const content = input.runtimeEvent.content;
+  if (
+    content?.kind !== 'function_call' ||
+    input.runtimeEvent.partial ||
+    isTerminalRuntimeEvent(input.runtimeEvent)
+  ) {
+    throw new Error('T1 requires a final non-terminal function_call RuntimeEvent');
+  }
+  if (content.id !== input.providerToolCallId || content.name !== input.toolName) {
+    throw new Error('T1 RuntimeEvent identity does not match the tool operation');
+  }
+  const dispatch = input.dispatchRuntimeEvent.actions?.toolDispatch;
+  if (
+    !dispatch ||
+    dispatch.protocol !== TOOL_BOUNDARY_PROTOCOL_V1 ||
+    input.dispatchRuntimeEvent.content !== undefined ||
+    input.dispatchRuntimeEvent.partial ||
+    isTerminalRuntimeEvent(input.dispatchRuntimeEvent) ||
+    dispatch.operationId !== input.operationId ||
+    dispatch.providerToolCallId !== input.providerToolCallId ||
+    dispatch.toolName !== input.toolName ||
+    dispatch.canonicalArgsHash !== input.canonicalArgsHash ||
+    dispatch.recoveryMode !== input.recoveryMode ||
+    input.runtimeEvent.refs?.operationId !== input.operationId ||
+    input.runtimeEvent.refs?.toolCallId !== input.providerToolCallId ||
+    input.dispatchRuntimeEvent.refs?.operationId !== input.operationId ||
+    input.dispatchRuntimeEvent.refs?.toolCallId !== input.providerToolCallId
+  ) {
+    throw new Error('T1 requires a matching tool-dispatch RuntimeEvent');
+  }
+  assertSameFileRuntimeIdentity(input.runtimeEvent, input.dispatchRuntimeEvent, 'T1');
+}
+
+function assertFileOutcomeInput(input: FileToolOutcomeCommit): void {
+  const content = input.runtimeEvent.content;
+  if (
+    content?.kind !== 'function_response' ||
+    input.runtimeEvent.partial ||
+    isTerminalRuntimeEvent(input.runtimeEvent)
+  ) {
+    throw new Error('T2 requires a final non-terminal function_response RuntimeEvent');
+  }
+  if (
+    input.runtimeEvent.refs?.operationId !== input.operationId ||
+    input.runtimeEvent.refs?.toolCallId !== content.id
+  ) {
+    throw new Error('T2 requires operation and tool-call refs on the function_response RuntimeEvent');
+  }
+}
+
+function reconcileOrdinaryBoundaryAppend(
+  events: readonly RuntimeEvent[],
+  candidate: RuntimeEvent,
+): 'append' | 'noop' {
+  const candidateIdentity = toolBoundaryIdentityClaims(candidate);
+  const dispatchEvents: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  const dispatchMatches: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  const sameIdOperationIds = new Set<string>();
+  const sameIdToolCallIds = new Set<string>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    const dispatch = event.actions?.toolDispatch;
+    if (dispatch) {
+      const entry = { event, sequence: index + 1 };
+      dispatchEvents.push(entry);
+      if (
+        event.id === candidate.id ||
+        candidateIdentity.operationIds.has(dispatch.operationId) ||
+        candidateIdentity.toolCallIds.has(dispatch.providerToolCallId)
+      ) {
+        dispatchMatches.push(entry);
+      }
+    }
+    if (event.id === candidate.id && isToolBoundaryShapedRuntimeEvent(event)) {
+      const identity = toolBoundaryIdentityClaims(event);
+      for (const operationId of identity.operationIds) sameIdOperationIds.add(operationId);
+      for (const toolCallId of identity.toolCallIds) sameIdToolCallIds.add(toolCallId);
+    }
+  }
+  if (dispatchMatches.length === 0) {
+    const sameIdCommittedBoundary = dispatchEvents.some(({ event }) => {
+      const dispatch = event.actions?.toolDispatch;
+      return (
+        dispatch !== undefined &&
+        (sameIdOperationIds.has(dispatch.operationId) ||
+          sameIdToolCallIds.has(dispatch.providerToolCallId))
+      );
+    });
+    if (sameIdCommittedBoundary) throw ordinaryBoundaryConflict(candidate);
+    if (candidate.actions?.toolDispatch) {
+      throw new Error('Ordinary RuntimeEvent append cannot create a tool dispatch boundary');
+    }
+    return 'append';
+  }
+  if (dispatchMatches.length !== 1) throw ordinaryBoundaryConflict(candidate);
+
+  const dispatchMatch = dispatchMatches[0]!;
+  const dispatch = dispatchMatch.event.actions?.toolDispatch;
+  if (!dispatch) throw ordinaryBoundaryConflict(candidate);
+  const calls: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  const responses: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    const content = event.content;
+    if (
+      content?.kind === 'function_call' &&
+      (content.id === dispatch.providerToolCallId ||
+        event.refs?.operationId === dispatch.operationId ||
+        event.refs?.toolCallId === dispatch.providerToolCallId)
+    ) {
+      calls.push({ event, sequence: index + 1 });
+    } else if (
+      content?.kind === 'function_response' &&
+      (content.id === dispatch.providerToolCallId ||
+        event.refs?.operationId === dispatch.operationId ||
+        event.refs?.toolCallId === dispatch.providerToolCallId)
+    ) {
+      responses.push({ event, sequence: index + 1 });
+    }
+  }
+  const call = calls[0];
+  const response = responses[0];
+  if (
+    calls.length !== 1 ||
+    !call ||
+    call.sequence >= dispatchMatch.sequence ||
+    call.event.content?.kind !== 'function_call' ||
+    call.event.content.id !== dispatch.providerToolCallId ||
+    call.event.content.name !== dispatch.toolName ||
+    call.event.refs?.operationId !== dispatch.operationId ||
+    call.event.refs?.toolCallId !== dispatch.providerToolCallId ||
+    dispatchMatch.event.refs?.operationId !== dispatch.operationId ||
+    dispatchMatch.event.refs?.toolCallId !== dispatch.providerToolCallId ||
+    responses.length > 1 ||
+    (response !== undefined &&
+      (response.sequence <= dispatchMatch.sequence ||
+        response.event.content?.kind !== 'function_response' ||
+        response.event.content.id !== dispatch.providerToolCallId ||
+        response.event.content.name !== dispatch.toolName ||
+        response.event.refs?.operationId !== dispatch.operationId ||
+        response.event.refs?.toolCallId !== dispatch.providerToolCallId))
+  ) {
+    throw ordinaryBoundaryConflict(candidate);
+  }
+  assertSameFileRuntimeIdentity(call.event, dispatchMatch.event, 'Tool boundary');
+  if (response) assertSameFileRuntimeIdentity(dispatchMatch.event, response.event, 'Tool boundary');
+
+  if (
+    isDeepStrictEqual(candidate, call.event) ||
+    isDeepStrictEqual(candidate, dispatchMatch.event) ||
+    (response !== undefined && isDeepStrictEqual(candidate, response.event))
+  ) {
+    return 'noop';
+  }
+  throw ordinaryBoundaryConflict(candidate);
+}
+
+function isToolBoundaryShapedRuntimeEvent(event: RuntimeEvent): boolean {
+  return (
+    event.content?.kind === 'function_call' ||
+    event.content?.kind === 'function_response' ||
+    event.actions?.toolDispatch !== undefined
+  );
+}
+
+function toolBoundaryIdentityClaims(event: RuntimeEvent): {
+  operationIds: ReadonlySet<string>;
+  toolCallIds: ReadonlySet<string>;
+} {
+  const operationIds = new Set<string>();
+  const toolCallIds = new Set<string>();
+  if (event.refs?.operationId) operationIds.add(event.refs.operationId);
+  if (event.refs?.toolCallId) toolCallIds.add(event.refs.toolCallId);
+  const content = event.content;
+  if (content?.kind === 'function_call' || content?.kind === 'function_response') {
+    toolCallIds.add(content.id);
+  }
+  const dispatch = event.actions?.toolDispatch;
+  if (dispatch) {
+    operationIds.add(dispatch.operationId);
+    toolCallIds.add(dispatch.providerToolCallId);
+  }
+  return { operationIds, toolCallIds };
+}
+
+function ordinaryBoundaryConflict(event: RuntimeEvent): Error {
+  return new Error(`Ordinary RuntimeEvent tool boundary conflict for ${event.id}`);
+}
+
+async function syncRuntimeEventLedgerDurably(
+  path: string,
+  durabilityRoot: string,
+  message: string,
+): Promise<void> {
+  try {
+    await syncFile(path);
+    await syncDirectoryChain(dirname(path), durabilityRoot);
+  } catch (error) {
+    throw new DurableStoreWriteError(`${message}: ${path}`, error);
+  }
+}
+
+function findPreparedCallSequence(
+  events: readonly RuntimeEvent[],
+  input: FileToolPreparedCommit,
+  expected: RuntimeEvent,
+): number | undefined {
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(
+      ({ event }) =>
+        event.id === expected.id ||
+        (event.content?.kind === 'function_call' && event.content.id === input.providerToolCallId),
+    );
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1 || !isDeepStrictEqual(candidates[0]!.event, expected)) {
+    throw new Error(`Tool call identity conflict for ${input.providerToolCallId}`);
+  }
+  return candidates[0]!.sequence;
+}
+
+function findPreparedDispatchSequence(
+  events: readonly RuntimeEvent[],
+  input: FileToolPreparedCommit,
+  expected: RuntimeEvent,
+): number | undefined {
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(({ event }) => {
+      const dispatch = event.actions?.toolDispatch;
+      return (
+        event.id === expected.id ||
+        dispatch?.operationId === input.operationId ||
+        dispatch?.providerToolCallId === input.providerToolCallId
+      );
+    });
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1 || !isDeepStrictEqual(candidates[0]!.event, expected)) {
+    throw new Error(`Tool operation identity conflict for ${input.operationId}`);
+  }
+  return candidates[0]!.sequence;
+}
+
+function assertOutcomeDispatchIdentity(
+  events: readonly RuntimeEvent[],
+  input: FileToolOutcomeCommit,
+  response: RuntimeEvent,
+): number {
+  const content = response.content;
+  if (content?.kind !== 'function_response') throw new Error('Invalid T2 response');
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(({ event }) => {
+      const dispatch = event.actions?.toolDispatch;
+      return (
+        dispatch?.operationId === input.operationId || dispatch?.providerToolCallId === content.id
+      );
+    });
+  if (candidates.length === 0) throw new Error(`Unknown tool operation ${input.operationId}`);
+  const { event: dispatchEvent, sequence: dispatchSeq } = candidates[0]!;
+  const dispatch = dispatchEvent.actions?.toolDispatch;
+  if (
+    candidates.length !== 1 ||
+    !dispatch ||
+    dispatch.operationId !== input.operationId ||
+    dispatch.providerToolCallId !== content.id ||
+    dispatch.toolName !== content.name ||
+    dispatchEvent.refs?.operationId !== input.operationId ||
+    dispatchEvent.refs?.toolCallId !== content.id
+  ) {
+    throw new Error(`Tool operation outcome identity conflict for ${input.operationId}`);
+  }
+  assertSameFileRuntimeIdentity(dispatchEvent, response, 'T2');
+  const calls = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(
+      ({ event }) => event.content?.kind === 'function_call' && event.content.id === content.id,
+    );
+  const call = calls[0];
+  if (
+    calls.length !== 1 ||
+    !call ||
+    call.sequence >= dispatchSeq ||
+    call.event.content?.kind !== 'function_call' ||
+    call.event.content.name !== content.name ||
+    call.event.refs?.operationId !== input.operationId ||
+    call.event.refs?.toolCallId !== content.id
+  ) {
+    throw new Error(`Tool operation outcome identity conflict for ${input.operationId}`);
+  }
+  assertSameFileRuntimeIdentity(call.event, response, 'T2');
+  return dispatchSeq;
+}
+
+function hasOutcomeForIdentity(
+  events: readonly RuntimeEvent[],
+  operationId: string,
+  providerToolCallId: string,
+): boolean {
+  return events.some(
+    (event) =>
+      event.content?.kind === 'function_response' &&
+      (event.refs?.operationId === operationId || event.content.id === providerToolCallId),
+  );
+}
+
+function findOutcomeResponseSequence(
+  events: readonly RuntimeEvent[],
+  input: FileToolOutcomeCommit,
+  expected: RuntimeEvent,
+): number | undefined {
+  const content = expected.content;
+  if (content?.kind !== 'function_response') throw new Error('Invalid T2 response');
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(
+      ({ event }) =>
+        event.id === expected.id ||
+        (event.content?.kind === 'function_response' &&
+          (event.refs?.operationId === input.operationId || event.content.id === content.id)),
+    );
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1 || !isDeepStrictEqual(candidates[0]!.event, expected)) {
+    throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
+  }
+  return candidates[0]!.sequence;
+}
+
+function assertSameFileRuntimeIdentity(
+  first: RuntimeEvent,
+  second: RuntimeEvent,
+  boundary: string,
+): void {
+  if (
+    first.sessionId !== second.sessionId ||
+    first.invocationId !== second.invocationId ||
+    first.runId !== second.runId ||
+    first.turnId !== second.turnId
+  ) {
+    throw new Error(`${boundary} RuntimeEvents do not share one execution identity`);
   }
 }
 

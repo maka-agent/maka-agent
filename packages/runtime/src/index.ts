@@ -375,6 +375,7 @@ export type {
   ShellRunWriteInput,
 } from './shell-run-contract.js';
 export { ShellRunProcessManager } from './shell-run-manager.js';
+export { projectPtyOutputForModel } from './shell-run-tool-result.js';
 export type { ShellRunUpdate } from '@maka/core';
 export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,

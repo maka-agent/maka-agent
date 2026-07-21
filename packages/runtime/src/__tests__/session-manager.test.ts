@@ -9726,6 +9726,41 @@ describe('SessionManager permission mode updates', () => {
     expect(activeTurn?.status).toBe('completed');
   });
 
+  test('strict recovery can skip ShellRuns already recovered by the host composition', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const shellRunRecoveryCalls: string[] = [];
+    const shellRuns = {
+      async recoverOrphanedSession(sessionId: string) {
+        shellRunRecoveryCalls.push(sessionId);
+        return 0;
+      },
+    } as unknown as ShellRunProcessManager;
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      shellRuns,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(12_805),
+    });
+    const session = await manager.createSession(makeInput());
+    const stores = { sessionStore: store, agentRunStore: runStore };
+
+    await manager.recoverInterruptedSessions();
+    expect(shellRunRecoveryCalls).toEqual([session.id]);
+
+    shellRunRecoveryCalls.length = 0;
+    await manager.recoverInterruptedSessionsStrict(stores);
+    expect(shellRunRecoveryCalls).toEqual([session.id]);
+
+    shellRunRecoveryCalls.length = 0;
+    await manager.recoverInterruptedSessionsStrict(stores, { shellRunsAlreadyRecovered: true });
+    expect(shellRunRecoveryCalls).toEqual([]);
+  });
+
   test('startup recovery uses AgentRun ledger to fail stale running model-started runs', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -13757,6 +13792,10 @@ class MemorySessionStore implements SessionStore {
     return Array.from(this.headers.values()).map(headerToSummary);
   }
 
+  async listForRecovery(): Promise<SessionHeader[]> {
+    return Array.from(this.headers.values());
+  }
+
   async readHeader(sessionId: string): Promise<SessionHeader> {
     const gate = this.nextReadHeaderGate;
     if (gate) {
@@ -13784,6 +13823,10 @@ class MemorySessionStore implements SessionStore {
     if (this.failReadMessagesFor.has(sessionId))
       throw new Error(`Cannot read messages for ${sessionId}`);
     return [...(this.messages.get(sessionId) ?? [])];
+  }
+
+  async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
+    return this.readMessages(sessionId);
   }
 
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
@@ -13941,6 +13984,10 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
       .map((header) => ({ ...header }));
   }
 
+  async listSessionRunsForRecovery(sessionId: string): Promise<AgentRunHeader[]> {
+    return this.listSessionRuns(sessionId);
+  }
+
   async appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
     await this.options.beforeAgentRunEventAppend?.(sessionId, runId, event);
     const eventKey = key(sessionId, runId);
@@ -13951,6 +13998,10 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     this.readEventsCalls += 1;
     await this.options.beforeAgentRunEventRead?.(sessionId, runId);
     return (this.events.get(key(sessionId, runId)) ?? []).map(copyEvent);
+  }
+
+  async readEventsForRecovery(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
+    return this.readEvents(sessionId, runId);
   }
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {

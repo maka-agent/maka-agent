@@ -562,11 +562,18 @@ export class SessionManager {
     return this.recoverInterruptedSessionsWithPolicy({ kind: 'best_effort' });
   }
 
-  async recoverInterruptedSessionsStrict(stores: StrictRecoveryStores): Promise<string[]> {
+  async recoverInterruptedSessionsStrict(
+    stores: StrictRecoveryStores,
+    options: { shellRunsAlreadyRecovered?: boolean } = {},
+  ): Promise<string[]> {
     if (stores.sessionStore !== this.deps.store || stores.agentRunStore !== this.deps.runStore) {
       throw new Error('Strict recovery stores must match the SessionManager composition');
     }
-    return this.recoverInterruptedSessionsWithPolicy({ kind: 'strict', stores });
+    return this.recoverInterruptedSessionsWithPolicy({
+      kind: 'strict',
+      stores,
+      shellRunsAlreadyRecovered: options.shellRunsAlreadyRecovered === true,
+    });
   }
 
   private async recoverInterruptedSessionsWithPolicy(policy: RecoveryPolicy): Promise<string[]> {
@@ -584,7 +591,10 @@ export class SessionManager {
         );
         if (planRecovery) recovered.add(session.id);
       }
-      if (this.deps.shellRuns) {
+      if (
+        this.deps.shellRuns &&
+        !(policy.kind === 'strict' && policy.shellRunsAlreadyRecovered)
+      ) {
         const recoveredShellRuns = await recoverOr(
           policy,
           () => this.deps.shellRuns!.recoverOrphanedSession(session.id),
@@ -2298,7 +2308,13 @@ function continuationExecutionErrorClass(error: unknown): string {
   return error instanceof Error ? error.name : 'unknown';
 }
 
-type RecoveryPolicy = { kind: 'best_effort' } | { kind: 'strict'; stores: StrictRecoveryStores };
+type RecoveryPolicy =
+  | { kind: 'best_effort' }
+  | {
+      kind: 'strict';
+      stores: StrictRecoveryStores;
+      shellRunsAlreadyRecovered: boolean;
+    };
 
 function listSessionsForRecovery(
   store: SessionStore,

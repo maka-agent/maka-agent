@@ -1,18 +1,26 @@
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
-  isValidLegacyShellRunState,
   isShellOutput,
   isShellRunId,
   isShellRunStatus,
+  isTerminalShellRunStatus,
   isValidShellRunState,
   type ShellRunRecord,
   type ShellRunPatch,
   type ShellRunStore,
 } from '@maka/core';
+import { isValidShellRunStatusTransition } from '@maka/core/shell-run';
+import { syncDirectoryChain, syncFile } from './stable-storage.js';
 import { chainWrite } from './write-queue.js';
+import {
+  assertStorageRootLease,
+  runWithStorageRootLease,
+  StorageRootAuthorityError,
+  type StorageRootLease,
+} from './root-authority.js';
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const SHELL_RUN_PATCH_KEYS = new Set([
@@ -45,40 +53,66 @@ const SHELL_RUN_RECORD_KEYS = new Set([
   'observedAt',
   'output',
 ]);
-const LEGACY_SHELL_RUN_RECORD_KEYS = new Set([
-  'shellRunId',
-  'sessionId',
-  'sourceRunId',
-  'sourceTurnId',
-  'sourceToolCallId',
-  'cwd',
-  'command',
-  'status',
-  'startedAt',
-  'updatedAt',
-  'completedAt',
-  'timeoutMs',
-  'exitCode',
-  'failureMessage',
-  'stdoutTail',
-  'stderrTail',
-  'latestOutputStream',
-  'stdoutTruncated',
-  'stderrTruncated',
-  'observedAt',
-  'orphanedReason',
-  'pid',
-]);
+const writerBrand: unique symbol = Symbol('InteractiveShellRunWriter');
+const writers = new WeakSet<object>();
+const writerByLease = new WeakMap<object, InteractiveShellRunWriterFacade>();
+
+export interface InteractiveShellRunWriterFacade extends ShellRunStore {
+  readonly kind: 'interactive';
+  readonly access: 'write';
+  readonly [writerBrand]: true;
+}
+
+export function authenticateInteractiveShellRunWriter(
+  store: InteractiveShellRunWriterFacade,
+): InteractiveShellRunWriterFacade {
+  if (!writers.has(store)) {
+    throw new StorageRootAuthorityError(
+      'invalid_lease',
+      'Expected an authenticated interactive ShellRun writer',
+    );
+  }
+  return store;
+}
+
+export async function openInteractiveShellRunStoreForWrite(
+  lease: StorageRootLease<'interactive', 'write'>,
+): Promise<InteractiveShellRunWriterFacade> {
+  await assertStorageRootLease(lease, 'interactive', 'write');
+  const existing = writerByLease.get(lease);
+  if (existing) return existing;
+
+  const store = new FileShellRunStore(lease.canonicalPath);
+  const run = <T>(operation: () => Promise<T>) =>
+    runWithStorageRootLease(lease, 'interactive', 'write', operation);
+  const facade: InteractiveShellRunWriterFacade = {
+    kind: 'interactive',
+    access: 'write',
+    [writerBrand]: true,
+    createShellRun: (record) => run(() => store.createShellRun(record)),
+    updateShellRun: (sessionId, shellRunId, patch) =>
+      run(() => store.updateShellRun(sessionId, shellRunId, patch)),
+    readShellRun: (sessionId, shellRunId) =>
+      run(() => store.readShellRun(sessionId, shellRunId)),
+    listSessionShellRuns: (sessionId) => run(() => store.listSessionShellRuns(sessionId)),
+  };
+  Object.freeze(facade);
+  writers.add(facade);
+  writerByLease.set(lease, facade);
+  return facade;
+}
 
 export function createShellRunStore(workspaceRoot: string): ShellRunStore {
   return new FileShellRunStore(workspaceRoot);
 }
 
 class FileShellRunStore implements ShellRunStore {
+  private readonly durabilityRoot: string;
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
 
   constructor(workspaceRoot: string) {
+    this.durabilityRoot = workspaceRoot;
     this.sessionsRoot = join(workspaceRoot, 'sessions');
   }
 
@@ -94,6 +128,8 @@ class FileShellRunStore implements ShellRunStore {
       await writeAtomic(
         this.shellRunPath(record.sessionId, record.shellRunId),
         JSON.stringify(normalized, sanitizeJson) + '\n',
+        this.durabilityRoot,
+        true,
       );
     });
     return normalized;
@@ -107,6 +143,8 @@ class FileShellRunStore implements ShellRunStore {
     let next: ShellRunRecord | undefined;
     await this.withQueue(sessionId, shellRunId, async () => {
       assertShellRunPatch(patch);
+      const hasDurableIntent =
+        Object.hasOwn(patch, 'status') || Object.hasOwn(patch, 'observedAt');
       const current = await this.readShellRunUnlocked(sessionId, shellRunId);
       if (patch.output && patch.output.mode !== current.output.mode) {
         throw new Error(`ShellRun output mode is immutable: ${current.output.mode}`);
@@ -120,7 +158,13 @@ class FileShellRunStore implements ShellRunStore {
         sessionId,
         shellRunId,
       );
+      assertShellRunTransition(current, candidate);
       if (isDeepStrictEqual(candidate, current)) {
+        if (hasDurableIntent) {
+          const path = this.shellRunPath(sessionId, shellRunId);
+          await syncFile(path);
+          await syncDirectoryChain(dirname(path), this.durabilityRoot);
+        }
         next = current;
         return;
       }
@@ -132,6 +176,8 @@ class FileShellRunStore implements ShellRunStore {
       await writeAtomic(
         this.shellRunPath(sessionId, shellRunId),
         JSON.stringify(next, sanitizeJson) + '\n',
+        this.durabilityRoot,
+        hasDurableIntent,
       );
     });
     if (!next) throw new Error(`Failed to update shell run ${shellRunId}`);
@@ -204,11 +250,23 @@ class FileShellRunStore implements ShellRunStore {
   }
 }
 
-async function writeAtomic(path: string, content: string): Promise<void> {
+async function writeAtomic(
+  path: string,
+  content: string,
+  durabilityRoot: string,
+  durable: boolean,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-  await writeFile(tempPath, content, 'utf8');
-  await rename(tempPath, path);
+  try {
+    await writeFile(tempPath, content, 'utf8');
+    if (durable) await syncFile(tempPath);
+    await rename(tempPath, path);
+    if (durable) await syncDirectoryChain(dirname(path), durabilityRoot);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -229,8 +287,7 @@ function normalizeShellRunRecord(
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: expected an object`);
   }
-  const record = (normalizeLegacyShellRunRecord(value, sessionId, shellRunId) ??
-    value) as Partial<ShellRunRecord>;
+  const record = value as Partial<ShellRunRecord>;
   const requiredStrings = [
     record.shellRunId,
     record.sessionId,
@@ -264,81 +321,6 @@ function normalizeShellRunRecord(
     throw new Error(`Invalid ShellRun record for ${shellRunId}: inconsistent state fields`);
   }
   return canonicalShellRunRecord(record as ShellRunRecord);
-}
-
-function normalizeLegacyShellRunRecord(
-  value: object,
-  sessionId: string,
-  shellRunId: string,
-): ShellRunRecord | undefined {
-  if (!hasOnlyKeys(value, LEGACY_SHELL_RUN_RECORD_KEYS)) return undefined;
-  const record = value as Record<string, unknown>;
-  if (
-    record.output !== undefined ||
-    record.revision !== undefined ||
-    record.shellRunId !== shellRunId ||
-    record.sessionId !== sessionId ||
-    typeof record.sourceTurnId !== 'string' ||
-    typeof record.sourceToolCallId !== 'string' ||
-    typeof record.cwd !== 'string' ||
-    typeof record.command !== 'string' ||
-    !isShellRunStatus(record.status) ||
-    !isFiniteNumber(record.startedAt) ||
-    !isFiniteNumber(record.updatedAt) ||
-    typeof record.stdoutTail !== 'string' ||
-    typeof record.stderrTail !== 'string' ||
-    typeof record.stdoutTruncated !== 'boolean' ||
-    typeof record.stderrTruncated !== 'boolean' ||
-    (record.sourceRunId !== undefined && typeof record.sourceRunId !== 'string') ||
-    (record.completedAt !== undefined && !isFiniteNumber(record.completedAt)) ||
-    (record.timeoutMs !== undefined && !isFiniteNumber(record.timeoutMs)) ||
-    (record.exitCode !== undefined && !isFiniteNumber(record.exitCode)) ||
-    (record.failureMessage !== undefined && typeof record.failureMessage !== 'string') ||
-    (record.observedAt !== undefined && !isFiniteNumber(record.observedAt)) ||
-    (record.orphanedReason !== undefined && typeof record.orphanedReason !== 'string') ||
-    (record.pid !== undefined && !isFiniteNumber(record.pid)) ||
-    (record.latestOutputStream !== undefined &&
-      record.latestOutputStream !== 'stdout' &&
-      record.latestOutputStream !== 'stderr') ||
-    !isValidLegacyShellRunState(record)
-  )
-    return undefined;
-
-  const failureMessage =
-    typeof record.failureMessage === 'string'
-      ? record.failureMessage
-      : record.status === 'orphaned'
-        ? (record.orphanedReason as string)
-        : undefined;
-  return {
-    shellRunId,
-    sessionId,
-    ...(typeof record.sourceRunId === 'string' ? { sourceRunId: record.sourceRunId } : {}),
-    sourceTurnId: record.sourceTurnId,
-    sourceToolCallId: record.sourceToolCallId,
-    cwd: record.cwd,
-    command: record.command,
-    status: record.status,
-    startedAt: record.startedAt,
-    updatedAt: record.updatedAt,
-    ...(isFiniteNumber(record.completedAt) ? { completedAt: record.completedAt } : {}),
-    ...(isFiniteNumber(record.timeoutMs) ? { timeoutMs: record.timeoutMs } : {}),
-    ...(isFiniteNumber(record.exitCode) ? { exitCode: record.exitCode } : {}),
-    ...(failureMessage !== undefined ? { failureMessage } : {}),
-    revision: 1,
-    ...(isFiniteNumber(record.observedAt) ? { observedAt: record.observedAt } : {}),
-    output: {
-      mode: 'pipes',
-      stdout: record.stdoutTail,
-      stderr: record.stderrTail,
-      ...(record.latestOutputStream === 'stdout' || record.latestOutputStream === 'stderr'
-        ? { latestStream: record.latestOutputStream }
-        : {}),
-      stdoutTruncated: record.stdoutTruncated,
-      stderrTruncated: record.stderrTruncated,
-      redacted: false,
-    },
-  };
 }
 
 function assertSessionId(value: string): void {
@@ -389,6 +371,20 @@ function assertShellRunPatch(patch: ShellRunPatch): void {
     if (!SHELL_RUN_PATCH_KEYS.has(key)) {
       throw new Error(`ShellRun field is immutable: ${key}`);
     }
+  }
+}
+
+function assertShellRunTransition(current: ShellRunRecord, candidate: ShellRunRecord): void {
+  if (!isValidShellRunStatusTransition(current.status, candidate.status)) {
+    throw new Error(`Invalid ShellRun status transition: ${current.status} -> ${candidate.status}`);
+  }
+  if (
+    isTerminalShellRunStatus(current.status) &&
+    (candidate.completedAt !== current.completedAt ||
+      candidate.exitCode !== current.exitCode ||
+      candidate.failureMessage !== current.failureMessage)
+  ) {
+    throw new Error(`ShellRun terminal outcome is immutable: ${current.status}`);
   }
 }
 

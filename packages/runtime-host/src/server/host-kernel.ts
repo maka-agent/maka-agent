@@ -52,6 +52,16 @@ interface KernelResidencyToken {
   released: boolean;
 }
 
+interface AcceptedConnectionSettlement {
+  notify(): Promise<void>;
+  finish(): void;
+}
+
+interface HandshakeAdmission {
+  readonly result: HostHandshakeResult;
+  readonly connectionSettlement?: AcceptedConnectionSettlement;
+}
+
 export type RuntimeHostResidency = OperationResidency;
 
 export interface RuntimeHostFailStopDisposition {
@@ -75,6 +85,7 @@ export interface RuntimeHostCompositionContext {
 export interface RuntimeHostComposition {
   readonly handlers: AllDomainOperationHandlerMap;
   readonly continuity?: SessionContinuityService;
+  onConnectionSettled?(connectionId: string): Promise<void>;
   /** Synchronously closes domain admission without residency or I/O. */
   beginDrain?(): void;
   recover(): Promise<void>;
@@ -100,6 +111,8 @@ export class RuntimeHostKernel {
   readonly #server: Server;
   readonly #handshakingTransports = new Set<FramedTransport>();
   readonly #acceptedTransports = new Set<FramedTransport>();
+  readonly #acceptedConnectionSettlements = new Set<Promise<void>>();
+  readonly #connectionSettlementFailures: unknown[] = [];
   readonly #operationDrainWaiters = new Set<() => void>();
   readonly #operationTokens = new Set<KernelOperationToken>();
   readonly #commandTokens = new Set<KernelOperationToken>();
@@ -112,6 +125,9 @@ export class RuntimeHostKernel {
   #operationAdmissionOpen = true;
   #readyAdmissionOpen = false;
   #composition: RuntimeHostComposition | undefined;
+  #compositionOutcomeSettled = false;
+  readonly #compositionOutcome: Promise<RuntimeHostComposition | undefined>;
+  #resolveCompositionOutcome!: (composition: RuntimeHostComposition | undefined) => void;
   #compositionDrainStarted = false;
   #compositionDrainFailure: { error: unknown } | undefined;
   #operationHandlers: OperationHandlerMap;
@@ -147,6 +163,10 @@ export class RuntimeHostKernel {
     this.#operationHandlers = this.#createOperationHandlers(
       createUnavailableDomainOperationHandlers(),
     );
+    this.#compositionOutcome = new Promise((resolve) => {
+      this.#resolveCompositionOutcome = resolve;
+    });
+    if (!options.compositionFactory) this.#settleCompositionOutcome(undefined);
     this.#failStopSignal = new Promise((resolve) => {
       this.#resolveFailStopSignal = resolve;
     });
@@ -267,6 +287,7 @@ export class RuntimeHostKernel {
         requestDrain: () => this.#requestDrain(),
         requestFailStop: (disposition) => this.#requestFailStop(disposition),
       });
+      this.#settleCompositionOutcome(this.#composition);
       if (this.#shutdownRequested) this.#beginCompositionDrain();
       if (this.#failStopDisposition) {
         this.#startCompositionClose();
@@ -304,6 +325,8 @@ export class RuntimeHostKernel {
   async #serveConnection(transport: FramedTransport): Promise<void> {
     let connectionAccepted = false;
     let connectionReleased = false;
+    let sessionStarted = false;
+    let connectionSettlement: AcceptedConnectionSettlement | undefined;
     const releaseConnection = () => {
       if (!connectionAccepted || connectionReleased) return;
       connectionReleased = true;
@@ -314,8 +337,10 @@ export class RuntimeHostKernel {
       if (!('kind' in frame) || frame.kind !== 'hello') {
         throw new Error('First Runtime Host frame must be a hello');
       }
-      const result = await this.#admitHandshake(frame, transport);
+      const admission = await this.#admitHandshake(frame, transport);
+      const { result } = admission;
       connectionAccepted = result.kind === 'accepted';
+      connectionSettlement = admission.connectionSettlement;
       await transport.write(result);
       if (result.kind !== 'accepted') {
         transport.destroyAfterFlush();
@@ -333,21 +358,71 @@ export class RuntimeHostKernel {
         resolveContinuity: () => this.#composition?.continuity,
         beginOperation: (request) => this.#beginOperation(request),
         onTeardown: releaseConnection,
+        onConnectionSettled: () => connectionSettlement!.notify(),
       });
+      sessionStarted = true;
       await session.run();
     } catch {
       transport.destroy();
     } finally {
       releaseConnection();
+      if (connectionSettlement) {
+        try {
+          if (!sessionStarted) await connectionSettlement.notify();
+        } catch {
+          transport.destroy();
+        } finally {
+          if (!sessionStarted) await transport.closed;
+          connectionSettlement.finish();
+        }
+      }
     }
+  }
+
+  #trackAcceptedConnection(connectionId: string): AcceptedConnectionSettlement {
+    let resolveSettlement!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      resolveSettlement = resolve;
+    });
+    this.#acceptedConnectionSettlements.add(settled);
+    let notification: Promise<void> | undefined;
+    let finished = false;
+    return {
+      notify: () => {
+        if (!notification) {
+          notification = this.#compositionOutcome
+            .then(async (composition) => {
+              await composition?.onConnectionSettled?.(connectionId);
+            })
+            .catch((error: unknown) => {
+              pushUniqueError(this.#connectionSettlementFailures, error);
+              throw error;
+            });
+          observePromise(notification);
+        }
+        return notification;
+      },
+      finish: () => {
+        if (finished) return;
+        finished = true;
+        this.#acceptedConnectionSettlements.delete(settled);
+        resolveSettlement();
+      },
+    };
+  }
+
+  #settleCompositionOutcome(composition: RuntimeHostComposition | undefined): void {
+    if (this.#compositionOutcomeSettled) return;
+    this.#compositionOutcomeSettled = true;
+    this.#resolveCompositionOutcome(composition);
   }
 
   async #admitHandshake(
     hello: ClientHello,
     transport: FramedTransport,
-  ): Promise<HostHandshakeResult> {
+  ): Promise<HandshakeAdmission> {
     if (!(await this.#hasLiveOwnerOrDrain()) || this.#state === 'draining') {
-      return { kind: 'draining', hostEpoch: this.hostEpoch };
+      return { result: { kind: 'draining', hostEpoch: this.hostEpoch } };
     }
     const admittedState = this.#state;
     const selectedProtocol = negotiateProtocol(
@@ -356,23 +431,30 @@ export class RuntimeHostKernel {
     );
     if (selectedProtocol === undefined) {
       return {
-        kind: 'incompatible',
-        hostEpoch: this.hostEpoch,
-        protocolMin: HOST_PROTOCOL.min,
-        protocolMax: HOST_PROTOCOL.max,
-        state: admittedState,
-        replacement: this.#isTrueIdle() ? 'wait_for_idle_exit' : 'blocked_by_residency',
+        result: {
+          kind: 'incompatible',
+          hostEpoch: this.hostEpoch,
+          protocolMin: HOST_PROTOCOL.min,
+          protocolMax: HOST_PROTOCOL.max,
+          state: admittedState,
+          replacement: this.#isTrueIdle() ? 'wait_for_idle_exit' : 'blocked_by_residency',
+        },
       };
     }
+    const connectionId = randomUUID();
+    const connectionSettlement = this.#trackAcceptedConnection(connectionId);
     this.#acceptedTransports.add(transport);
     this.#handshakingTransports.delete(transport);
     this.#cancelIdle();
     return {
-      kind: 'accepted',
-      hostEpoch: this.hostEpoch,
-      connectionId: randomUUID(),
-      selectedProtocol,
-      state: admittedState,
+      result: {
+        kind: 'accepted',
+        hostEpoch: this.hostEpoch,
+        connectionId,
+        selectedProtocol,
+        state: admittedState,
+      },
+      connectionSettlement,
     };
   }
 
@@ -479,6 +561,12 @@ export class RuntimeHostKernel {
     return new Promise((resolve) => this.#operationDrainWaiters.add(resolve));
   }
 
+  async #waitForAcceptedConnectionSettlements(): Promise<void> {
+    while (this.#acceptedConnectionSettlements.size > 0) {
+      await Promise.all(this.#acceptedConnectionSettlements);
+    }
+  }
+
   #scheduleIdleIfNeeded(): void {
     if (this.#shutdownRequested) return;
     if (!this.#isTrueIdle() || this.#idleTimer) return;
@@ -565,6 +653,15 @@ export class RuntimeHostKernel {
       throw error;
     }
     if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
+    destroyTransports(this.#acceptedTransports, errors);
+    try {
+      await this.#raceFailStop(this.#waitForAcceptedConnectionSettlements());
+    } catch (error) {
+      if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
+      throw error;
+    }
+    for (const error of this.#connectionSettlementFailures) pushUniqueError(errors, error);
+    if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
     this.#beginCompositionDrain();
     const compositionClose = this.#startCompositionClose();
     if (compositionClose) {
@@ -594,6 +691,7 @@ export class RuntimeHostKernel {
   }
 
   async #abortStartup(): Promise<void> {
+    this.#settleCompositionOutcome(this.#composition);
     if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
     this.#sealOperationAdmission();
     this.#shutdownRequested = true;
@@ -612,6 +710,14 @@ export class RuntimeHostKernel {
     }
     if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
     await serverClosed.catch((error: unknown) => pushUniqueError(errors, error));
+    if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
+    try {
+      await this.#raceFailStop(this.#waitForAcceptedConnectionSettlements());
+    } catch (error) {
+      if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
+      throw error;
+    }
+    for (const error of this.#connectionSettlementFailures) pushUniqueError(errors, error);
     if (this.#forcedCleanupTask) return this.#forcedCleanupTask;
     const compositionClose = this.#startCompositionClose();
     if (compositionClose) {

@@ -14,6 +14,9 @@ export type HostOperationErrorCode =
   | 'session_busy'
   | 'operation_conflict'
   | 'already_resolved'
+  | 'controller_held'
+  | 'controller_invalid'
+  | 'resource_terminal'
   | 'outcome_unknown'
   | 'internal_failure';
 

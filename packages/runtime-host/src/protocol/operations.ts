@@ -14,6 +14,7 @@ import {
 import { SESSION_CONTINUITY_OPERATION_SPECS } from './session-continuity.js';
 import { TURN_OPERATION_SPECS } from './turn.js';
 import { RUNTIME_POLICY_OPERATION_SPECS } from './runtime-policy.js';
+import { RUNTIME_RESOURCE_OPERATION_SPECS } from './runtime-resource.js';
 import { SKILL_CATALOG_OPERATION_SPECS } from './skill-catalog.js';
 import { TASK_LEDGER_OPERATION_SPECS } from './task-ledger.js';
 import { USAGE_PRICING_OPERATION_SPECS } from './usage-pricing.js';
@@ -118,6 +119,23 @@ export type {
   UpdateCatalogConnectionResult,
 } from './runtime-policy.js';
 export type {
+  PtyAcquireInput,
+  PtyAcquireResult,
+  PtyControlInput,
+  PtyControlResult,
+  PtyCursor,
+  PtyReadInput,
+  PtyReadResult,
+  PtyReleaseInput,
+  PtyReleaseResult,
+  PtyShellRunMetadata,
+  PtyShellRunSnapshot,
+  RuntimeResourceQueryResult,
+  RuntimeResourceReadResult,
+  RuntimeResourceRefInput,
+  RuntimeResourceStopResult,
+} from './runtime-resource.js';
+export type {
   SkillCatalogDiagnostic,
   SkillCatalogEntry,
   SkillCatalogItem,
@@ -194,6 +212,35 @@ export {
   RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
 } from './runtime-policy.js';
 export {
+  decodePtyAcquireInput,
+  decodePtyAcquireResult,
+  decodePtyControlInput,
+  decodePtyControlResult,
+  decodePtyReadInput,
+  decodePtyReadResult,
+  decodePtyReleaseInput,
+  decodePtyReleaseResult,
+  decodeRuntimeResourceQueryResult,
+  decodeRuntimeResourceReadResult,
+  decodeRuntimeResourceRefInput,
+  decodeRuntimeResourceStopResult,
+  encodePtyAcquireResult,
+  encodePtyControlResult,
+  encodePtyReadResult,
+  encodePtyReleaseResult,
+  encodeRuntimeResourceQueryResult,
+  encodeRuntimeResourceReadResult,
+  encodeRuntimeResourceStopResult,
+  PTY_CONTROLLER_ID_MAX_BYTES,
+  PTY_CURSOR_MAX_BYTES,
+  PTY_INPUT_MAX_BYTES,
+  RUNTIME_RESOURCE_COMMAND_MAX_BYTES,
+  RUNTIME_RESOURCE_CWD_MAX_BYTES,
+  RUNTIME_RESOURCE_FAILURE_MAX_BYTES,
+  RUNTIME_RESOURCE_OUTPUT_FIELD_MAX_BYTES,
+  RUNTIME_RESOURCE_RESULT_MAX_BYTES,
+} from './runtime-resource.js';
+export {
   decodePricingMutateInput,
   decodePricingMutateResult,
   decodePricingQueryInput,
@@ -255,8 +302,13 @@ const HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS = composeOperationSpecMaps(
   MEMORY_OPERATION_SPECS,
 );
 
-export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_MEMORY_AND_RESOURCE_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS,
+  RUNTIME_RESOURCE_OPERATION_SPECS,
+);
+
+export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_MEMORY_AND_RESOURCE_OPERATION_SPECS,
   USAGE_PRICING_OPERATION_SPECS,
 );
 

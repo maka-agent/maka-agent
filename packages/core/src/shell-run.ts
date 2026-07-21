@@ -1,4 +1,5 @@
 export const SHELL_RUN_STATUSES = [
+  'starting',
   'running',
   'completed',
   'failed',
@@ -153,6 +154,17 @@ export function isTerminalShellRunStatus(value: ShellRunStatus): value is ShellR
   return (SHELL_RUN_TERMINAL_STATUSES as readonly string[]).includes(value);
 }
 
+export function isValidShellRunStatusTransition(
+  current: ShellRunStatus,
+  next: ShellRunStatus,
+): boolean {
+  if (current === next) return true;
+  if (current === 'starting') {
+    return next === 'running' || next === 'failed' || next === 'orphaned';
+  }
+  return current === 'running' && isTerminalShellRunStatus(next);
+}
+
 export function isShellOutput(value: unknown): value is ShellOutput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const output = value as Partial<ShellOutput>;
@@ -200,6 +212,7 @@ export function isValidShellRunState(value: {
   observedAt?: unknown;
 }): boolean {
   switch (value.status) {
+    case 'starting':
     case 'running':
       return (
         value.completedAt === undefined &&

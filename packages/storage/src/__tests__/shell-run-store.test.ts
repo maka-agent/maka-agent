@@ -1,16 +1,32 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { ShellRunPatch, ShellRunRecord } from '@maka/core';
-import { createShellRunStore } from '../shell-run-store.js';
+import {
+  authenticateInteractiveShellRunWriter,
+  createShellRunStore,
+  openInteractiveShellRunStoreForWrite,
+} from '../shell-run-store.js';
+import {
+  resolveStorageRoot,
+  StorageRootAuthorityError,
+  tryAcquireInteractiveRootOwner,
+} from '../root-authority.js';
 
 describe('ShellRunStore', () => {
   it('creates, updates, reads, and lists ShellRuns under a session', async () => {
     await withStore(async (store, root) => {
       await store.createShellRun(record({ shellRunId: 'shell-2', startedAt: 2, updatedAt: 2 }));
-      await store.createShellRun(record({ shellRunId: 'shell-1', startedAt: 1, updatedAt: 1 }));
+      await store.createShellRun(
+        record({ shellRunId: 'shell-1', status: 'starting', startedAt: 1, updatedAt: 1 }),
+      );
+
+      const running = await store.updateShellRun('session-1', 'shell-1', {
+        status: 'running',
+        updatedAt: 2,
+      });
 
       const updated = await store.updateShellRun('session-1', 'shell-1', {
         status: 'completed',
@@ -26,7 +42,8 @@ describe('ShellRunStore', () => {
         updated.output.mode === 'pipes' ? updated.output.latestStream : undefined,
         'stdout',
       );
-      assert.equal(updated.revision, 2);
+      assert.equal(running.revision, 2);
+      assert.equal(updated.revision, 3);
       assert.deepEqual(
         (await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId),
         ['shell-1', 'shell-2'],
@@ -121,6 +138,51 @@ describe('ShellRunStore', () => {
     });
   });
 
+  it('retries lifecycle intent durably after an output-only successor', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('POSIX directory durability only');
+      return;
+    }
+    await withStore(async (store, root) => {
+      await store.createShellRun(record({ shellRunId: 'shell-1', status: 'starting' }));
+      const runDir = join(root, 'sessions', 'session-1', 'shell-runs', 'shell-1');
+      await chmod(runDir, 0o300);
+      try {
+        try {
+          const handle = await open(runDir, 'r');
+          await handle.close();
+          t.skip('Directory permissions do not block the durability barrier');
+          return;
+        } catch (error) {
+          if (!isPermissionError(error)) throw error;
+        }
+
+        const lifecyclePatch: ShellRunPatch = {
+          status: 'running',
+          output: pipeOutput({ stdout: 'lifecycle' }),
+          updatedAt: 2,
+        };
+        await assert.rejects(
+          () => store.updateShellRun('session-1', 'shell-1', lifecyclePatch),
+          isPermissionError,
+        );
+
+        const successor = await store.updateShellRun('session-1', 'shell-1', {
+          output: pipeOutput({ stdout: 'successor' }),
+          updatedAt: 3,
+        });
+        assert.equal(successor.output.mode === 'pipes' ? successor.output.stdout : '', 'successor');
+
+        await assert.rejects(
+          () => store.updateShellRun('session-1', 'shell-1', lifecyclePatch),
+          isPermissionError,
+        );
+      } finally {
+        await chmod(runDir, 0o700);
+      }
+    });
+  });
+
   it('records only the first terminal observation under concurrent updates', async () => {
     await withStore(async (store) => {
       await store.createShellRun(
@@ -141,6 +203,47 @@ describe('ShellRunStore', () => {
       assert.equal(second.observedAt, 10);
       assert.equal(second.revision, 2);
       assert.equal((await store.readShellRun('session-1', 'shell-1')).revision, 2);
+    });
+  });
+
+  it('allows starting launch failures and rejects status regression or terminal rewrites', async () => {
+    await withStore(async (store) => {
+      await store.createShellRun(record({ shellRunId: 'failed-launch', status: 'starting' }));
+      const failed = await store.updateShellRun('session-1', 'failed-launch', {
+        status: 'failed',
+        failureMessage: 'spawn failed',
+        completedAt: 2,
+        updatedAt: 2,
+      });
+      assert.equal(failed.status, 'failed');
+
+      await store.createShellRun(record({ shellRunId: 'lost-launch', status: 'starting' }));
+      const orphaned = await store.updateShellRun('session-1', 'lost-launch', {
+        status: 'orphaned',
+        failureMessage: 'host restarted before launch outcome was known',
+        completedAt: 2,
+        updatedAt: 2,
+      });
+      assert.equal(orphaned.status, 'orphaned');
+
+      await assert.rejects(
+        () =>
+          store.updateShellRun('session-1', 'failed-launch', {
+            status: 'running',
+            completedAt: undefined,
+            failureMessage: undefined,
+            updatedAt: 3,
+          }),
+        /Invalid ShellRun status transition: failed -> running/,
+      );
+      await assert.rejects(
+        () =>
+          store.updateShellRun('session-1', 'failed-launch', {
+            failureMessage: 'different failure',
+            updatedAt: 3,
+          }),
+        /ShellRun terminal outcome is immutable: failed/,
+      );
     });
   });
 
@@ -218,115 +321,6 @@ describe('ShellRunStore', () => {
     });
   });
 
-  it('normalizes an exact legacy ShellRun record and writes only the current shape on update', async () => {
-    await withStore(async (store, root) => {
-      const dir = join(root, 'sessions', 'session-1', 'shell-runs', 'shell-legacy');
-      const path = join(dir, 'shell-run.json');
-      await mkdir(dir, { recursive: true });
-      await writeFile(
-        path,
-        JSON.stringify({
-          shellRunId: 'shell-legacy',
-          sessionId: 'session-1',
-          sourceRunId: 'run-1',
-          sourceTurnId: 'turn-1',
-          sourceToolCallId: 'tool-1',
-          cwd: '/workspace',
-          command: 'printf ready; sleep 30',
-          status: 'running',
-          startedAt: 1,
-          updatedAt: 1,
-          timeoutMs: 30_000,
-          stdoutTail: 'ready',
-          stderrTail: '',
-          latestOutputStream: 'stdout',
-          stdoutTruncated: false,
-          stderrTruncated: false,
-          pid: 123,
-        }) + '\n',
-        'utf8',
-      );
-
-      const restored = await store.readShellRun('session-1', 'shell-legacy');
-      assert.equal(restored.revision, 1);
-      assert.deepEqual(restored.output, {
-        mode: 'pipes',
-        stdout: 'ready',
-        stderr: '',
-        latestStream: 'stdout',
-        stdoutTruncated: false,
-        stderrTruncated: false,
-        redacted: false,
-      });
-
-      await store.updateShellRun('session-1', 'shell-legacy', {
-        updatedAt: 2,
-        output: pipeOutput({ stdout: 'ready\nnext', latestStream: 'stdout' }),
-      });
-      const written = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
-      assert.equal(written.revision, 2);
-      assert.equal(Object.hasOwn(written, 'stdoutTail'), false);
-      assert.equal(Object.hasOwn(written, 'pid'), false);
-      assert.deepEqual(written.output, {
-        mode: 'pipes',
-        stdout: 'ready\nnext',
-        stderr: '',
-        latestStream: 'stdout',
-        stdoutTruncated: false,
-        stderrTruncated: false,
-        redacted: false,
-      });
-    });
-  });
-
-  it('rejects legacy ShellRun records that violate the preceding state invariants', async () => {
-    await withStore(async (store, root) => {
-      const cases = [
-        {
-          shellRunId: 'legacy-completed-with-orphan-reason',
-          status: 'completed',
-          completedAt: 2,
-          exitCode: 0,
-          orphanedReason: 'contradictory',
-        },
-        {
-          shellRunId: 'legacy-failed-without-exit',
-          status: 'failed',
-          completedAt: 2,
-          failureMessage: 'old store required a non-zero exit code',
-        },
-      ] as const;
-      for (const invalid of cases) {
-        const dir = join(root, 'sessions', 'session-1', 'shell-runs', invalid.shellRunId);
-        await mkdir(dir, { recursive: true });
-        await writeFile(
-          join(dir, 'shell-run.json'),
-          JSON.stringify({
-            sessionId: 'session-1',
-            sourceRunId: 'run-1',
-            sourceTurnId: 'turn-1',
-            sourceToolCallId: 'tool-1',
-            cwd: '/workspace',
-            command: 'printf ready',
-            ...invalid,
-            startedAt: 1,
-            updatedAt: 2,
-            stdoutTail: 'ready',
-            stderrTail: '',
-            latestOutputStream: 'stdout',
-            stdoutTruncated: false,
-            stderrTruncated: false,
-          }) + '\n',
-          'utf8',
-        );
-        await assert.rejects(
-          () => store.readShellRun('session-1', invalid.shellRunId),
-          /Invalid ShellRun record/,
-        );
-      }
-    });
-  });
-
   it('rejects inconsistent ShellRun state fields', async () => {
     await withStore(async (store) => {
       await assert.rejects(
@@ -365,6 +359,38 @@ describe('ShellRunStore', () => {
         /Invalid shell run id/,
       );
     });
+  });
+
+  it('binds the authenticated interactive writer to the live root lease', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-shell-run-authority-'));
+    const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
+    const owner = await tryAcquireInteractiveRootOwner(capability);
+    assert.ok(owner);
+    try {
+      const writer = await openInteractiveShellRunStoreForWrite(owner.lease);
+      assert.equal(authenticateInteractiveShellRunWriter(writer), writer);
+      await writer.createShellRun(record({ shellRunId: 'lease-bound', status: 'starting' }));
+      assert.equal((await writer.readShellRun('session-1', 'lease-bound')).status, 'starting');
+
+      await owner.close();
+      await assert.rejects(
+        () => writer.listSessionShellRuns('session-1'),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+      await assert.rejects(
+        () =>
+          writer.updateShellRun('session-1', 'lease-bound', {
+            status: 'running',
+            updatedAt: 2,
+          }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+    } finally {
+      await owner.close();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -419,4 +445,11 @@ function pipeOutput(
     stderrTruncated: false,
     redacted: false,
   };
+}
+
+function isPermissionError(error: unknown): boolean {
+  return (
+    (error as NodeJS.ErrnoException).code === 'EACCES' ||
+    (error as NodeJS.ErrnoException).code === 'EPERM'
+  );
 }

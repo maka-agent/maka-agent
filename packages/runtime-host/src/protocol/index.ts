@@ -18,6 +18,7 @@ export { RuntimeHostProtocolError } from './errors.js';
 export * from './interaction.js';
 export * from './message.js';
 export * from './operations.js';
+export * from './runtime-resource.js';
 export * from './session-continuity.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;

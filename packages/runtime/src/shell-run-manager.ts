@@ -37,6 +37,7 @@ import {
   DEFAULT_BASH_TIMEOUT_MS,
   DEFAULT_MAX_LIVE_PTY_RUNS,
   DEFAULT_MAX_LIVE_SHELL_RUNS,
+  DEFAULT_PIPE_OUTPUT_DRAIN_MS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
@@ -75,6 +76,7 @@ interface TerminationLifecycle {
 }
 
 type PendingStopOutcome = 'abort' | 'termination' | 'exit';
+type TerminalObservation = 'model' | 'wire';
 
 class PendingStop {
   private readonly decision = new CompletionLatch<PendingStopOutcome>();
@@ -188,6 +190,7 @@ export class ShellRunProcessManager
   private readonly maxLiveEmitChars: number;
   private readonly killGraceMs: number;
   private readonly exitAcknowledgementMs: number;
+  private readonly pipeOutputDrainMs: number;
   private reservedShellRuns = 0;
   private reservedPtyRuns = 0;
   private shuttingDown = false;
@@ -202,6 +205,7 @@ export class ShellRunProcessManager
     this.killGraceMs = input.killGraceMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
     this.exitAcknowledgementMs =
       input.exitAcknowledgementMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
+    this.pipeOutputDrainMs = input.pipeOutputDrainMs ?? DEFAULT_PIPE_OUTPUT_DRAIN_MS;
   }
 
   async runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult> {
@@ -241,14 +245,26 @@ export class ShellRunProcessManager
   }
 
   async writeStdin(input: ShellRunWriteInput): Promise<ShellRunToolResult> {
+    return this.controlPty(input, 'model');
+  }
+
+  async controlPtyResource(input: ShellRunWriteInput): Promise<ShellRunToolResult> {
+    return this.controlPty(input, 'wire');
+  }
+
+  private async controlPty(
+    input: ShellRunWriteInput,
+    terminalObservation: TerminalObservation,
+  ): Promise<ShellRunToolResult> {
     validateWriteStdinInput(input);
     const target = parseShellRunResourceRef(input.ref);
     if (!target) throw new Error(`Unsupported runtime background task ref: ${input.ref}`);
     const live = this.liveResource(input.sessionId, target.shellRunId);
-    if (!live) return this.writeStdinWithoutLive(input, target.shellRunId);
+    if (!live)
+      return this.writeStdinWithoutLive(input, target.shellRunId, terminalObservation);
     if (live.mode !== 'pty') throw new Error('WriteStdin requires a PTY background task ref');
     if (live.driverExit) {
-      const record = await this.markObserved(await live.finished.join());
+      const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
       return shellRunContent(
         record,
         ptyControlOperation(input, {
@@ -329,7 +345,7 @@ export class ShellRunProcessManager
       failed: operationFailed,
     });
     if (exitBeforeControlCut || operationFailed) {
-      const record = await this.markObserved(await live.finished.join());
+      const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
       return shellRunContent(record, operation);
     }
     let record: ShellRunRecord;
@@ -337,7 +353,7 @@ export class ShellRunProcessManager
       record = await persistedControl;
     } catch (error) {
       if (live.integrityFailure && !live.persistFailure) {
-        record = await this.markObserved(await live.finished.join());
+        record = await this.observeTerminal(await live.finished.join(), terminalObservation);
         return shellRunContent(
           record,
           ptyControlOperation(input, {
@@ -351,7 +367,7 @@ export class ShellRunProcessManager
       throw error;
     }
     if (live.integrityFailure && !live.persistFailure) {
-      record = await this.markObserved(await live.finished.join());
+      record = await this.observeTerminal(await live.finished.join(), terminalObservation);
       return shellRunContent(
         record,
         ptyControlOperation(input, {
@@ -362,7 +378,9 @@ export class ShellRunProcessManager
         }),
       );
     }
-    if (isTerminalShellRunStatus(record.status)) record = await this.markObserved(record);
+    if (isTerminalShellRunStatus(record.status)) {
+      record = await this.observeTerminal(record, terminalObservation);
+    }
     return shellRunContent(record, operation);
   }
 
@@ -388,17 +406,41 @@ export class ShellRunProcessManager
     ref: string,
     abortSignal: AbortSignal,
   ): Promise<ToolResultContent> {
+    return this.stopResource(sessionId, ref, abortSignal, 'model');
+  }
+
+  async stopRuntimeResource(
+    sessionId: string,
+    ref: string,
+    abortSignal: AbortSignal,
+  ): Promise<ToolResultContent> {
+    return this.stopResource(sessionId, ref, abortSignal, 'wire');
+  }
+
+  private async stopResource(
+    sessionId: string,
+    ref: string,
+    abortSignal: AbortSignal,
+    terminalObservation: TerminalObservation,
+  ): Promise<ToolResultContent> {
     const target = parseShellRunResourceRef(ref);
     if (!target) throw new Error(`Unsupported runtime background task ref: ${ref}`);
     const live = this.liveResource(sessionId, target.shellRunId);
-    if (!live) return this.stopWithoutLive(sessionId, target.shellRunId, abortSignal);
+    if (!live) {
+      return this.stopWithoutLive(
+        sessionId,
+        target.shellRunId,
+        abortSignal,
+        terminalObservation,
+      );
+    }
     if (live.driverExit) {
-      const record = await this.markObserved(await live.finished.join());
+      const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
       return shellRunContent(record, { kind: 'stop', applied: false });
     }
     if (live.termination) {
       await this.waitForTerminationDecision(live.termination, abortSignal);
-      const record = await this.markObserved(await live.finished.join());
+      const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
       return shellRunContent(record, { kind: 'stop', applied: false });
     }
     if (abortSignal.aborted)
@@ -416,7 +458,10 @@ export class ShellRunProcessManager
         } catch (error) {
           if (isAbortError(error)) throw error;
           this.handleIntegrityFailure(live, asError(error, 'PTY stop sequencing failed'));
-          const record = await this.markObserved(await live.finished.join());
+          const record = await this.observeTerminal(
+            await live.finished.join(),
+            terminalObservation,
+          );
           return shellRunContent(record, { kind: 'stop', applied: false });
         }
       } else {
@@ -426,7 +471,7 @@ export class ShellRunProcessManager
       live.pendingStops.delete(pending);
       pending.dispose();
     }
-    const record = await this.markObserved(await live.finished.join());
+    const record = await this.observeTerminal(await live.finished.join(), terminalObservation);
     return shellRunContent(record, { kind: 'stop', applied });
   }
 
@@ -466,7 +511,11 @@ export class ShellRunProcessManager
     const records = await this.input.store.listSessionShellRuns(sessionId);
     let recovered = 0;
     for (const record of records) {
-      if (record.status !== 'running' || this.live.has(record.shellRunId)) continue;
+      if (
+        (record.status !== 'starting' && record.status !== 'running') ||
+        this.live.has(record.shellRunId)
+      )
+        continue;
       await this.markOrphaned(record, 'Runtime restarted without a live shell process handle');
       recovered += 1;
     }
@@ -478,7 +527,7 @@ export class ShellRunProcessManager
     this.holdSessionClose(lease);
     this.sessionTerminationEpochs.set(sessionId, this.sessionTerminationEpoch(sessionId) + 1);
     const targets = [...this.live.values()].filter((live) => live.sessionId === sessionId);
-    await Promise.all(targets.map((live) => this.terminateLive(live, 'shutdown')));
+    await this.terminateLives(targets, 'shutdown');
     return lease;
   }
 
@@ -491,7 +540,7 @@ export class ShellRunProcessManager
       this.sessionTerminationEpoch(lease.sessionId) + 1,
     );
     const targets = [...this.live.values()].filter((live) => live.sessionId === lease.sessionId);
-    await Promise.all(targets.map((live) => this.terminateLive(live, 'shutdown')));
+    await this.terminateLives(targets, 'shutdown');
   }
 
   rollbackSessionClose(lease: SessionCloseLease): void {
@@ -507,7 +556,7 @@ export class ShellRunProcessManager
 
   async terminateAll(): Promise<void> {
     this.shuttingDown = true;
-    await Promise.all([...this.live.values()].map((live) => this.terminateLive(live, 'shutdown')));
+    await this.terminateLives([...this.live.values()], 'shutdown');
   }
 
   liveCount(): number {
@@ -533,14 +582,28 @@ export class ShellRunProcessManager
     try {
       const shellRunId = this.input.newId();
       if (mode === 'pipes') {
-        return await this.startPipe(input, shellRunId, timeoutMs, forwardLive, slotReservation);
+        return await this.startPipe(
+          input,
+          shellRunId,
+          timeoutMs,
+          forwardLive,
+          slotReservation,
+          sessionEpoch,
+        );
       }
 
       const stack = await racePromiseWithAbort(loadPtyStack(), input.abortSignal);
       this.assertStartAllowed(input.sessionId, sessionEpoch);
       if (input.abortSignal?.aborted)
         throw abortError('Command aborted before PTY process started');
-      return await this.startPty(input, shellRunId, timeoutMs, stack, slotReservation);
+      return await this.startPty(
+        input,
+        shellRunId,
+        timeoutMs,
+        stack,
+        slotReservation,
+        sessionEpoch,
+      );
     } catch (error) {
       this.releaseSlot(slotReservation);
       throw error;
@@ -553,58 +616,67 @@ export class ShellRunProcessManager
     timeoutMs: number | undefined,
     forwardLive: boolean,
     slotReservation: ShellRunSlotReservation,
+    sessionEpoch: number,
   ): Promise<LivePipeShellRun> {
+    const collector = new PipeTailCollector(this.maxRetainedChars);
+    const startingRecord = await this.createStartingRecord(
+      input,
+      shellRunId,
+      timeoutMs,
+      collector.snapshot(),
+    );
     const pending: Array<(live: LivePipeShellRun) => void> = [];
     let live: LivePipeShellRun | undefined;
     const dispatch = (callback: (target: LivePipeShellRun) => void): void => {
       if (live) callback(live);
       else pending.push(callback);
     };
-    const collector = new PipeTailCollector(this.maxRetainedChars);
-    const plan = input.argv
-      ? {
-          file: requireProgram(input.argv),
-          args: [...input.argv.slice(1)],
-          useShellOption: false,
-        }
-      : buildShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
-    const driver = new PipeProcessDriver({
-      plan,
-      cwd: input.cwd,
-      ...(input.env ? { env: input.env } : {}),
-      ...(input.fdInputs ? { fdInputs: input.fdInputs } : {}),
-      onData: (stream, data) => dispatch((target) => this.onPipeData(target, stream, data)),
-      onExit: (exit) =>
-        dispatch((target) => this.onDriverExit(target, { mode: 'pipes', value: exit })),
-      onFailure: (error) => dispatch((target) => this.handleIntegrityFailure(target, error)),
-    });
-    live = {
-      ...this.createLiveBase(input, shellRunId, 'pipes', timeoutMs, slotReservation),
-      mode: 'pipes',
-      driver,
-      collector,
-      pendingFlushChars: 0,
-      forwardLive,
-      liveEmitted: { stdout: 0, stderr: 0 },
-      liveSuppressed: { stdout: false, stderr: false },
-      emitOutput: input.emitOutput,
-    };
-    this.live.set(shellRunId, live);
     try {
+      const plan = input.argv
+        ? {
+            file: requireProgram(input.argv),
+            args: [...input.argv.slice(1)],
+            useShellOption: false,
+          }
+        : buildShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
+      const driver = new PipeProcessDriver({
+        plan,
+        cwd: input.cwd,
+        ...(input.env ? { env: input.env } : {}),
+        ...(input.fdInputs ? { fdInputs: input.fdInputs } : {}),
+        outputDrainMs: this.pipeOutputDrainMs,
+        onData: (stream, data) => dispatch((target) => this.onPipeData(target, stream, data)),
+        onExit: (exit) =>
+          dispatch((target) => this.onDriverExit(target, { mode: 'pipes', value: exit })),
+        onFailure: (error) => dispatch((target) => this.handleIntegrityFailure(target, error)),
+      });
+      live = {
+        ...this.createLiveBase(
+          input,
+          startingRecord,
+          'pipes',
+          timeoutMs,
+          slotReservation,
+        ),
+        mode: 'pipes',
+        driver,
+        collector,
+        pendingFlushChars: 0,
+        forwardLive,
+        liveEmitted: { stdout: 0, stderr: 0 },
+        liveSuppressed: { stdout: false, stderr: false },
+        emitOutput: input.emitOutput,
+      };
+      this.live.set(shellRunId, live);
       for (const callback of pending) callback(live);
       await racePromiseWithAbort(driver.ready, input.abortSignal);
-      live.startedAt = this.input.now();
       this.armTimeout(live);
-      await this.createDurableRecord(live, input);
+      this.assertLiveStartupAllowed(live, sessionEpoch, input.abortSignal);
+      await this.markRunning(live);
       live.startupSettled.resolve();
       return live;
     } catch (error) {
-      try {
-        await this.cleanupUndurable(live);
-      } finally {
-        live.startupSettled.resolve();
-      }
-      throw error;
+      throw await this.completeStartupFailure(live, startingRecord, error);
     }
   }
 
@@ -614,6 +686,7 @@ export class ShellRunProcessManager
     timeoutMs: number | undefined,
     stack: PtyStack,
     slotReservation: ShellRunSlotReservation,
+    sessionEpoch: number,
   ): Promise<LivePtyShellRun> {
     const pending: Array<(live: LivePtyShellRun) => void> = [];
     let live: LivePtyShellRun | undefined;
@@ -623,6 +696,7 @@ export class ShellRunProcessManager
       else pending.push(callback);
     };
     let collector: PtyScreenCollector | undefined;
+    let startingRecord: ShellRunRecord | undefined;
     try {
       collector = new PtyScreenCollector({
         stack,
@@ -639,6 +713,12 @@ export class ShellRunProcessManager
         pauseSource: () => driver?.pause(),
         resumeSource: () => driver?.resume(),
       });
+      startingRecord = await this.createStartingRecord(
+        input,
+        shellRunId,
+        timeoutMs,
+        collector.lastGoodSnapshot(),
+      );
       const plan = buildPtyShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
       driver = new PtyProcessDriver({
         stack,
@@ -665,48 +745,45 @@ export class ShellRunProcessManager
       } catch {
         /* startup cleanup continues */
       }
-      throw error;
+      if (!startingRecord) throw error;
+      throw await this.completeStartupFailure(undefined, startingRecord, error);
     }
-    if (!driver || !collector) {
+    if (!driver || !collector || !startingRecord) {
       throw new Error('PTY startup completed without a driver and collector');
     }
     live = {
-      ...this.createLiveBase(input, shellRunId, 'pty', timeoutMs, slotReservation),
+      ...this.createLiveBase(input, startingRecord, 'pty', timeoutMs, slotReservation),
       mode: 'pty',
       driver,
       collector,
     };
     this.live.set(shellRunId, live);
     try {
-      for (const callback of pending) callback(live);
-      live.startedAt = this.input.now();
       this.armTimeout(live);
-      await this.createDurableRecord(live, input);
+      for (const callback of pending) callback(live);
+      this.assertLiveStartupAllowed(live, sessionEpoch, input.abortSignal);
+      await this.markRunning(live);
       live.startupSettled.resolve();
       return live;
     } catch (error) {
-      try {
-        await this.cleanupUndurable(live);
-      } finally {
-        live.startupSettled.resolve();
-      }
-      throw error;
+      throw await this.completeStartupFailure(live, startingRecord, error);
     }
   }
 
   private createLiveBase(
     input: ShellRunBashInput,
-    shellRunId: string,
+    record: ShellRunRecord,
     mode: ShellMode,
     timeoutMs: number | undefined,
     slotReservation: ShellRunSlotReservation,
   ): LiveShellRunBase {
     return {
-      shellRunId,
+      shellRunId: record.shellRunId,
       sessionId: input.sessionId,
       mode,
-      startedAt: 0,
+      startedAt: record.startedAt,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      record,
       visibleRef: false,
       pendingStops: new Set(),
       persistChain: Promise.resolve(),
@@ -719,19 +796,25 @@ export class ShellRunProcessManager
     };
   }
 
-  private async createDurableRecord(live: LiveShellRun, input: ShellRunBashInput): Promise<void> {
+  private async createStartingRecord(
+    input: ShellRunBashInput,
+    shellRunId: string,
+    timeoutMs: number | undefined,
+    output: ShellOutput,
+  ): Promise<ShellRunRecord> {
+    const startedAt = this.input.now();
     const record: ShellRunRecord = {
-      shellRunId: live.shellRunId,
+      shellRunId,
       sessionId: input.sessionId,
       ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
       sourceTurnId: input.sourceTurnId,
       sourceToolCallId: input.sourceToolCallId,
       cwd: input.cwd,
       command: redactSecrets(input.command),
-      status: 'running',
-      startedAt: live.startedAt,
-      updatedAt: live.startedAt,
-      ...(live.timeoutMs !== undefined ? { timeoutMs: live.timeoutMs } : {}),
+      status: 'starting',
+      startedAt,
+      updatedAt: startedAt,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(input.sandboxType
         ? {
             sandboxExecution: {
@@ -749,9 +832,17 @@ export class ShellRunProcessManager
           }
         : {}),
       revision: 1,
-      output: live.mode === 'pipes' ? live.collector.snapshot() : live.collector.lastGoodSnapshot(),
+      output,
     };
-    live.record = await this.input.store.createShellRun(record);
+    return this.input.store.createShellRun(record);
+  }
+
+  private async markRunning(live: LiveShellRun): Promise<void> {
+    live.record = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
+      status: 'running',
+      output: (await this.snapshotAtCut(live, false)).output,
+      updatedAt: this.input.now(),
+    });
     if (live.driverExit) {
       void this.beginFinalize(live).catch(() => {});
     } else if (this.currentGeneration(live) > 0) {
@@ -785,6 +876,7 @@ export class ShellRunProcessManager
   private scheduleAutomaticFlush(live: LiveShellRun): void {
     if (
       !live.record ||
+      live.record.status !== 'running' ||
       live.finalizeOnce ||
       live.driverExit ||
       live.integrityFailure ||
@@ -885,11 +977,25 @@ export class ShellRunProcessManager
       const candidate: ShellRunRecord = { ...current, ...patch, output: snapshot.output };
       let updated = current;
       if (!isDeepStrictEqual(candidate, current)) {
-        updated = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
+        const update = {
           ...patch,
           output: snapshot.output,
           updatedAt: this.input.now(),
-        });
+        };
+        try {
+          updated = await this.input.store.updateShellRun(
+            live.sessionId,
+            live.shellRunId,
+            update,
+          );
+        } catch (error) {
+          if (!options.bestEffort) throw error;
+          updated = await this.input.store.updateShellRun(
+            live.sessionId,
+            live.shellRunId,
+            update,
+          );
+        }
         live.record = updated;
         if (live.visibleRef) this.notifyShellRunUpdate(updated);
       }
@@ -913,8 +1019,13 @@ export class ShellRunProcessManager
 
   private snapshotAtCut(live: LiveShellRun, allowLastGood: boolean): Promise<SnapshotAtCut> {
     if (live.mode === 'pipes') {
+      const output = live.collector.snapshot();
+      if (live.driverExit?.mode === 'pipes') {
+        output.stdoutTruncated ||= live.driverExit.value.stdoutTruncated;
+        output.stderrTruncated ||= live.driverExit.value.stderrTruncated;
+      }
       return Promise.resolve({
-        output: live.collector.snapshot(),
+        output,
         generation: live.collector.currentGeneration(),
       });
     }
@@ -929,10 +1040,19 @@ export class ShellRunProcessManager
   private onDriverExit(live: LiveShellRun, exit: DriverExit): void {
     if (live.driverExit || live.finalizeOnce) return;
     live.driverExit = exit;
+    if (
+      exit.mode === 'pipes' &&
+      (exit.value.stdoutTruncated || exit.value.stderrTruncated) &&
+      !live.integrityFailure
+    ) {
+      live.integrityFailure = new Error(
+        'Shell root exited before inherited output pipes drained completely',
+      );
+    }
     this.settlePendingStops(live, 'exit');
     live.nativeExit.resolve(exit);
     if (live.mode === 'pty') live.collector.closeDataAdmission();
-    if (live.record) void this.beginFinalize(live).catch(() => {});
+    if (live.record?.status === 'running') void this.beginFinalize(live).catch(() => {});
   }
 
   private beginFinalize(live: LiveShellRun, abandoned = false): Promise<ShellRunRecord> {
@@ -954,7 +1074,10 @@ export class ShellRunProcessManager
     let completionError: Error | undefined;
     try {
       const state = this.finalState(live);
-      finalRecord = await this.queuePersist(live, state, { allowLastGood: true, bestEffort: true });
+      finalRecord = await this.queuePersist(live, state, {
+        allowLastGood: true,
+        bestEffort: true,
+      });
     } catch (error) {
       completionError = asError(error, 'ShellRun final persistence failed');
     }
@@ -998,6 +1121,7 @@ export class ShellRunProcessManager
         const error =
           completionError ??
           new Error(`ShellRun ${live.shellRunId} finalized without a durable record`);
+        completionError = error;
         live.finished.reject(error);
         throw error;
       }
@@ -1006,6 +1130,7 @@ export class ShellRunProcessManager
     } finally {
       this.live.delete(live.shellRunId);
       this.releaseLiveSlot(live);
+      this.notifyShellRunSettled(live, completionError);
     }
   }
 
@@ -1131,7 +1256,7 @@ export class ShellRunProcessManager
         if (live.termination !== lifecycle) return;
         live.integrityFailure ??= asError(error, 'Shell process termination failed');
         if (live.mode === 'pty') live.collector.closeDataAdmission();
-        if (live.record) void this.beginFinalize(live, true).catch(() => {});
+        if (live.record?.status === 'running') void this.beginFinalize(live, true).catch(() => {});
       })
       .finally(() => {
         lifecycle.initialDecision.resolve();
@@ -1178,7 +1303,7 @@ export class ShellRunProcessManager
       live,
       new Error('Shell process did not acknowledge exit after forced termination'),
     );
-    if (live.record) void this.beginFinalize(live, true).catch(() => {});
+    if (live.record?.status === 'running') void this.beginFinalize(live, true).catch(() => {});
   }
 
   private signalProcessTree(
@@ -1209,32 +1334,99 @@ export class ShellRunProcessManager
   private async terminateLive(live: LiveShellRun, cause: LifecycleCause): Promise<void> {
     this.requestForcedTermination(live, cause);
     await live.startupSettled.join();
-    if (live.record) await live.finished.join().catch(() => undefined);
+    if (live.record) await live.finished.join();
   }
 
-  private async cleanupUndurable(live: LiveShellRun): Promise<void> {
+  private async terminateLives(lives: LiveShellRun[], cause: LifecycleCause): Promise<void> {
+    const settlements = await Promise.allSettled(
+      lives.map((live) => this.terminateLive(live, cause)),
+    );
+    const failure = settlements.find(
+      (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
+    );
+    if (failure) throw failure.reason;
+  }
+
+  private async cleanupStartupNative(live: LiveShellRun): Promise<void> {
+    this.clearLiveTimers(live);
+    if (!live.driverExit) {
+      const termination = live.termination ?? this.requestTermination(live);
+      if (termination) await termination.finished.join();
+    }
     try {
-      this.clearLiveTimers(live);
-      if (!live.driverExit) {
-        const termination = live.termination ?? this.requestTermination(live);
-        if (termination) await termination.finished.join();
+      if (live.mode === 'pty') {
+        live.collector.closeDataAdmission();
+        live.collector.dispose();
       }
+    } catch {
+      // Startup already failed; continue releasing native and manager resources.
+    }
+    try {
+      live.driver.dispose();
+    } catch {
+      /* startup cleanup continues */
+    }
+  }
+
+  private assertLiveStartupAllowed(
+    live: LiveShellRun,
+    sessionEpoch: number,
+    abortSignal: AbortSignal | undefined,
+  ): void {
+    if (abortSignal?.aborted) throw abortError('Command aborted before shell process became ready');
+    this.assertStartAllowed(live.sessionId, sessionEpoch);
+  }
+
+  private async completeStartupFailure(
+    live: LiveShellRun | undefined,
+    record: ShellRunRecord,
+    startupFailure: unknown,
+  ): Promise<Error> {
+    const startupError = asError(startupFailure, 'Shell process startup failed');
+    let reportedError = startupError;
+    let terminalizationError: Error | undefined;
+    try {
+      if (live) await this.cleanupStartupNative(live);
       try {
-        if (live.mode === 'pty') {
-          live.collector.closeDataAdmission();
-          live.collector.dispose();
-        }
-      } catch {
-        // Startup already failed; continue releasing native and manager resources.
+        const failed = await this.markStartupFailed(record, startupError);
+        live?.finished.resolve(failed);
+      } catch (persistenceFailure) {
+        reportedError = startupPersistenceError(startupError, persistenceFailure);
+        terminalizationError = reportedError;
+        live?.finished.reject(reportedError);
       }
-      try {
-        live.driver.dispose();
-      } catch {
-        /* startup cleanup continues */
-      }
+    } catch (cleanupFailure) {
+      reportedError = startupCleanupError(startupError, cleanupFailure);
+      terminalizationError = reportedError;
+      live?.finished.reject(reportedError);
     } finally {
-      this.live.delete(live.shellRunId);
-      this.releaseLiveSlot(live);
+      if (live) {
+        live.startupSettled.resolve();
+        this.live.delete(live.shellRunId);
+        this.releaseLiveSlot(live);
+      }
+      if (terminalizationError) this.notifyShellRunSettled(record, terminalizationError);
+    }
+    return reportedError;
+  }
+
+  private async markStartupFailed(
+    record: ShellRunRecord,
+    startupError: Error,
+  ): Promise<ShellRunRecord> {
+    const now = this.input.now();
+    const patch: ShellRunPatch = {
+      status: 'failed',
+      failureMessage: safeFailureMessage(startupError),
+      exitCode: undefined,
+      completedAt: now,
+      observedAt: now,
+      updatedAt: now,
+    };
+    try {
+      return await this.input.store.updateShellRun(record.sessionId, record.shellRunId, patch);
+    } catch {
+      return this.input.store.updateShellRun(record.sessionId, record.shellRunId, patch);
     }
   }
 
@@ -1260,7 +1452,7 @@ export class ShellRunProcessManager
       if (abortSignal.aborted)
         throw abortError('Read aborted before the durable runtime snapshot was read');
       record = await this.readDurableRecord(sessionId, target.shellRunId);
-      if (record.status === 'running') {
+      if (record.status === 'starting' || record.status === 'running') {
         record = await this.markOrphaned(
           record,
           'Runtime restarted without a live shell process handle',
@@ -1282,6 +1474,7 @@ export class ShellRunProcessManager
   private async writeStdinWithoutLive(
     input: ShellRunWriteInput,
     shellRunId: string,
+    terminalObservation: TerminalObservation,
   ): Promise<ShellRunToolResult> {
     if (input.abortSignal?.aborted) {
       throw abortError('WriteStdin aborted before the terminal state was observed');
@@ -1289,7 +1482,7 @@ export class ShellRunProcessManager
     let record = await this.readDurableRecord(input.sessionId, shellRunId);
     if (record.output.mode !== 'pty')
       throw new Error('WriteStdin requires a PTY background task ref');
-    if (record.status === 'running') {
+    if (record.status === 'starting' || record.status === 'running') {
       record = await this.markOrphaned(
         record,
         'Runtime restarted without a live shell process handle',
@@ -1298,7 +1491,7 @@ export class ShellRunProcessManager
     if (input.abortSignal?.aborted) {
       throw abortError('WriteStdin aborted before the terminal state was observed');
     }
-    record = await this.markObserved(record);
+    record = await this.observeTerminal(record, terminalObservation);
     return shellRunContent(
       record,
       ptyControlOperation(input, {
@@ -1312,13 +1505,14 @@ export class ShellRunProcessManager
   private async stopWithoutLive(
     sessionId: string,
     shellRunId: string,
-    abortSignal?: AbortSignal,
+    abortSignal: AbortSignal | undefined,
+    terminalObservation: TerminalObservation,
   ): Promise<ShellRunToolResult> {
     if (abortSignal?.aborted) {
       throw abortError('StopBackgroundTask aborted before the terminal state was observed');
     }
     let record = await this.readDurableRecord(sessionId, shellRunId);
-    if (record.status === 'running') {
+    if (record.status === 'starting' || record.status === 'running') {
       record = await this.markOrphaned(
         record,
         'Runtime restarted without a live shell process handle',
@@ -1327,7 +1521,7 @@ export class ShellRunProcessManager
     if (abortSignal?.aborted) {
       throw abortError('StopBackgroundTask aborted before the terminal state was observed');
     }
-    record = await this.markObserved(record);
+    record = await this.observeTerminal(record, terminalObservation);
     return shellRunContent(record, { kind: 'stop', applied: false });
   }
 
@@ -1355,8 +1549,15 @@ export class ShellRunProcessManager
     });
   }
 
+  private observeTerminal(
+    record: ShellRunRecord,
+    terminalObservation: TerminalObservation,
+  ): Promise<ShellRunRecord> {
+    return terminalObservation === 'model' ? this.markObserved(record) : Promise.resolve(record);
+  }
+
   private async markOrphaned(record: ShellRunRecord, reason: string): Promise<ShellRunRecord> {
-    if (record.status !== 'running') return record;
+    if (record.status !== 'starting' && record.status !== 'running') return record;
     const now = this.input.now();
     return this.input.store.updateShellRun(record.sessionId, record.shellRunId, {
       status: 'orphaned',
@@ -1373,6 +1574,7 @@ export class ShellRunProcessManager
       .filter(
         (record) =>
           record.status === 'running' ||
+          record.status === 'starting' ||
           (record.observedAt === undefined && isTerminalShellRunStatus(record.status)),
       )
       .sort(compareActionableShellRuns);
@@ -1383,6 +1585,24 @@ export class ShellRunProcessManager
       this.input.onShellRunUpdate?.(shellRunUpdate(record));
     } catch {
       // Durable state is authoritative; presentation observers are best-effort.
+    }
+  }
+
+  private notifyShellRunSettled(
+    identity: Pick<ShellRunRecord, 'sessionId' | 'shellRunId'>,
+    terminalizationError?: Error,
+  ): void {
+    const observer = this.input.onShellRunSettled;
+    if (!observer) return;
+    try {
+      const result = observer({
+        sessionId: identity.sessionId,
+        ref: shellRunResourceRef(identity.shellRunId),
+        ...(terminalizationError ? { terminalizationError } : {}),
+      });
+      void Promise.resolve(result).catch(() => {});
+    } catch {
+      // Native lifecycle cleanup is authoritative; settlement observers are best-effort.
     }
   }
 
@@ -1492,8 +1712,28 @@ function safeFailureMessage(error: Error): string {
   return message.length <= 500 ? message : `${message.slice(0, 497)}...`;
 }
 
+function startupPersistenceError(startupError: Error, persistenceFailure: unknown): Error {
+  const persistenceError = asError(
+    persistenceFailure,
+    'ShellRun startup failure persistence failed',
+  );
+  return new Error(
+    `Shell process startup failed: ${safeFailureMessage(startupError)}; failed to persist terminal ShellRun after retry: ${safeFailureMessage(persistenceError)}`,
+    { cause: new AggregateError([startupError, persistenceError]) },
+  );
+}
+
+function startupCleanupError(startupError: Error, cleanupFailure: unknown): Error {
+  const cleanupError = asError(cleanupFailure, 'Shell process startup cleanup failed');
+  return new Error(
+    `Shell process startup failed: ${safeFailureMessage(startupError)}; startup cleanup failed: ${safeFailureMessage(cleanupError)}`,
+    { cause: new AggregateError([startupError, cleanupError]) },
+  );
+}
+
 function compareActionableShellRuns(a: ShellRunRecord, b: ShellRunRecord): number {
-  const rank = (record: ShellRunRecord) => (record.status === 'running' ? 1 : 0);
+  const rank = (record: ShellRunRecord) =>
+    record.status === 'starting' || record.status === 'running' ? 1 : 0;
   return (
     rank(a) - rank(b) ||
     b.updatedAt - a.updatedAt ||

@@ -1104,6 +1104,55 @@ describe('execution stores', () => {
     });
   });
 
+  test('checks the writer lease for every file runtime commit', async () => {
+    await withRoot(async ({ base, root }) => {
+      const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      if (!owner) return;
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      const session = await stores.sessionStore.create(sessionInput(root));
+      const header = runHeader(session.id, 'run-1');
+      await stores.agentRunStore.createRun(header);
+      await owner.close();
+      await rename(root, join(base, 'moved-root'));
+      await mkdir(root, { recursive: true });
+
+      await assert.rejects(
+        stores.runtimeEventStore.commitToolPrepared(
+          runtimePreparedCommit(session.id, header.runId),
+        ),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+      await assert.rejects(
+        stores.runtimeEventStore.commitToolOutcome({
+          operationId: 'operation-1',
+          journalEventId: 'journal-outcome-1',
+          runtimeEvent: {
+            ...runtimePreparedCommit(session.id, header.runId).runtimeEvent,
+            id: 'response-event-1',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'provider-call-1',
+              name: 'Read',
+              result: 'ok',
+            },
+          },
+          committedAt: 21,
+        }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+      await assert.rejects(
+        stat(join(root, 'sessions', session.id, 'runs', header.runId, 'runtime-events.jsonl')),
+        { code: 'ENOENT' },
+      );
+    });
+  });
+
   test('strict recovery removes recognizable uncommitted exclusive-create staging', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -1269,5 +1318,50 @@ function runtimeEvent(sessionId: string, runId: string, id: string, ts: number):
     role: 'user',
     author: 'user',
     content: { kind: 'text', text: 'hello' },
+  };
+}
+
+function runtimePreparedCommit(sessionId: string, runId: string) {
+  const base = {
+    invocationId: runId,
+    runId,
+    sessionId,
+    turnId: 'turn-1',
+    ts: 20,
+    partial: false as const,
+  };
+  return {
+    operationId: 'operation-1',
+    journalEventId: 'journal-prepared-1',
+    runtimeEvent: {
+      ...base,
+      id: 'call-event-1',
+      role: 'model' as const,
+      author: 'agent' as const,
+      content: { kind: 'function_call' as const, id: 'provider-call-1', name: 'Read', args: {} },
+      refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+    },
+    dispatchRuntimeEvent: {
+      ...base,
+      id: 'dispatch-event-1',
+      role: 'system' as const,
+      author: 'system' as const,
+      actions: {
+        toolDispatch: {
+          protocol: 't1_after_preflight_v1' as const,
+          operationId: 'operation-1',
+          providerToolCallId: 'provider-call-1',
+          toolName: 'Read',
+          canonicalArgsHash: 'sha256:args-1',
+          recoveryMode: 'replay_safe' as const,
+        },
+      },
+      refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+    },
+    providerToolCallId: 'provider-call-1',
+    toolName: 'Read',
+    canonicalArgsHash: 'sha256:args-1',
+    recoveryMode: 'replay_safe' as const,
+    committedAt: 20,
   };
 }

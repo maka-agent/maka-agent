@@ -33,6 +33,7 @@ const CURRENT_PROTOCOL = {
 } as const;
 
 type TurnQueryHandler = RuntimeHostComposition['handlers']['turn.query'];
+type ConnectionSettledHandler = NonNullable<RuntimeHostComposition['onConnectionSettled']>;
 
 test('concurrent responses remain framed and correlated in reverse completion order', async () => {
   const requestCount = 16;
@@ -129,6 +130,73 @@ test('an admitted operation settles without connection or residency leakage afte
         await client.close().catch(() => undefined);
         await Promise.allSettled([requestFailure]);
       }
+    },
+  );
+});
+
+test('connection settlement waits for an admitted request after disconnect and runs once', async () => {
+  const handlerEntered = deferred();
+  const releaseHandler = deferred();
+  const connectionSettled = deferred();
+  const settledConnectionIds: string[] = [];
+  await withRuntimeHost(
+    async (input) => {
+      handlerEntered.resolve();
+      await releaseHandler.promise;
+      return {
+        ok: true,
+        result: runningSnapshot(input.sessionId, input.turnId),
+      };
+    },
+    async ({ connectClient }) => {
+      const client = await connectClient();
+      const expectedConnectionId = client.connectionId;
+      const request = client
+        .queryTurn({ sessionId: 'session', turnId: 'settled-hook' }, 5_000)
+        .catch(() => undefined);
+      try {
+        await withTimeout(handlerEntered.promise, 1_000, 'handler was not admitted');
+        await client.close();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.deepEqual(settledConnectionIds, []);
+
+        releaseHandler.resolve();
+        await withTimeout(connectionSettled.promise, 1_000, 'connection settlement hook did not run');
+        assert.deepEqual(settledConnectionIds, [expectedConnectionId]);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(settledConnectionIds.length, 1);
+      } finally {
+        releaseHandler.resolve();
+        await Promise.allSettled([request, client.close()]);
+      }
+    },
+    async (connectionId) => {
+      settledConnectionIds.push(connectionId);
+      connectionSettled.resolve();
+    },
+  );
+});
+
+test('connection settlement runs once on disconnect without requests', async () => {
+  const connectionSettled = deferred();
+  const settledConnectionIds: string[] = [];
+  await withRuntimeHost(
+    async (input) => ({
+      ok: true,
+      result: runningSnapshot(input.sessionId, input.turnId),
+    }),
+    async ({ connectClient }) => {
+      const client = await connectClient();
+      const expectedConnectionId = client.connectionId;
+      await client.close();
+      await withTimeout(connectionSettled.promise, 1_000, 'connection settlement hook did not run');
+      assert.deepEqual(settledConnectionIds, [expectedConnectionId]);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(settledConnectionIds.length, 1);
+    },
+    async (connectionId) => {
+      settledConnectionIds.push(connectionId);
+      connectionSettled.resolve();
     },
   );
 });
@@ -369,6 +437,7 @@ interface RuntimeHostTestFixture {
 async function withRuntimeHost(
   queryTurn: TurnQueryHandler,
   run: (fixture: RuntimeHostTestFixture) => Promise<void>,
+  onConnectionSettled?: ConnectionSettledHandler,
 ): Promise<void> {
   const base = await mkdtemp(join(tmpdir(), 'maka-runtime-host-continuity-'));
   const root = join(base, 'root');
@@ -384,6 +453,7 @@ async function withRuntimeHost(
     idleGraceMs: 10_000,
     compositionFactory: async () => ({
       handlers: createHandlers(queryTurn),
+      onConnectionSettled,
       async recover() {},
       async close() {
         return { kind: 'clean' };

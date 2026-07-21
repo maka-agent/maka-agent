@@ -23,6 +23,7 @@ export const DEFAULT_MAX_LIVE_SHELL_RUNS = 64;
 export const DEFAULT_MAX_LIVE_PTY_RUNS = 8;
 export const DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS = 1_000;
 export const DEFAULT_SHELL_RUN_FLUSH_BYTES = 64 * 1024;
+export const DEFAULT_PIPE_OUTPUT_DRAIN_MS = 2_000;
 export const SHELL_RUN_CONTEXT_SUMMARY_LIMIT = 8;
 export const SHELL_RUN_RESOURCE_PREFIX = 'maka://runtime/background-tasks';
 export const MAX_SHELL_RUN_RESOURCE_REF_CHARS =
@@ -37,6 +38,7 @@ export interface ShellRunProcessManagerInput {
   newId: () => string;
   now: () => number;
   onShellRunUpdate?: (update: ShellRunUpdate) => void;
+  onShellRunSettled?: (event: ShellRunSettlementEvent) => void | Promise<void>;
   maxLiveShellRuns?: number;
   maxLivePtyRuns?: number;
   flushIntervalMs?: number;
@@ -45,6 +47,13 @@ export interface ShellRunProcessManagerInput {
   maxLiveEmitChars?: number;
   killGraceMs?: number;
   exitAcknowledgementMs?: number;
+  pipeOutputDrainMs?: number;
+}
+
+export interface ShellRunSettlementEvent {
+  sessionId: string;
+  ref: string;
+  terminalizationError?: Error;
 }
 
 export interface ShellRunBashInput {

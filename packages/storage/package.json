@@ -12,6 +12,7 @@
     "./memory-store": "./dist/memory-store.js",
     "./pricing-store": "./dist/pricing-store.js",
     "./root-authority": "./dist/root-authority.js",
+    "./shell-run-store": "./dist/shell-run-store.js",
     "./task-ledger-store": "./dist/task-ledger-store.js",
     "./usage-stores": "./dist/usage-stores.js",
     "./runtime-policy-stores": "./dist/runtime-policy-stores.js"

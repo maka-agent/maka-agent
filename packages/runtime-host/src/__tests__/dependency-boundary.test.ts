@@ -37,6 +37,7 @@ const allowedServerExternalImports = new Set([
   '@maka/core/runtime-event',
   '@maka/core/runtime-policy',
   '@maka/core/session',
+  '@maka/core/shell-run',
   '@maka/core/task-ledger',
   '@maka/core/usage-stats/types',
   '@maka/runtime',
@@ -45,6 +46,7 @@ const allowedServerExternalImports = new Set([
   '@maka/storage/execution-stores',
   '@maka/storage/memory-store',
   '@maka/storage/runtime-policy-stores',
+  '@maka/storage/shell-run-store',
   '@maka/storage/task-ledger-store',
   '@maka/storage/pricing-store',
   '@maka/storage/usage-stores',
@@ -155,13 +157,14 @@ test('the production Candidate dependency graph remains non-serving', () => {
     'server/execution-candidate.ts',
     'server/execution-composition.ts',
     'server/root-turn-coordinator.ts',
+    'server/runtime-resource-coordinator.ts',
   ]);
   const violations: string[] = [];
   for (const path of reached) {
     const localPath = relative(sourceRoot, path);
     if (forbiddenLocalModules.has(localPath)) violations.push(localPath);
     for (const specifier of moduleSpecifiers(path)) {
-      if (specifier === '@maka/runtime' || specifier === '@maka/storage/execution-stores') {
+      if (isServingDependency(specifier)) {
         violations.push(`${localPath}: ${specifier}`);
       }
     }
@@ -169,7 +172,7 @@ test('the production Candidate dependency graph remains non-serving', () => {
   assert.deepEqual(violations, []);
 });
 
-test('the public server entrypoint does not expose the test execution composition', async () => {
+test('the public server entrypoint does not expose serving execution composition', async () => {
   const publicEntrypoints = await readPublicEntrypoints();
   const serverEntrypoint = publicEntrypoints.get('server');
   assert.ok(serverEntrypoint, 'missing public server entrypoint');
@@ -177,14 +180,17 @@ test('the public server entrypoint does not expose the test execution compositio
     'server/execution-candidate.ts',
     'server/execution-composition.ts',
     'server/root-turn-coordinator.ts',
+    'server/runtime-resource-coordinator.ts',
   ]);
-  assert.deepEqual(
-    reachableModules(serverEntrypoint, publicEntrypoints)
-      .map((path) => relative(sourceRoot, path))
-      .filter((path) => forbidden.has(path))
-      .sort(),
-    [],
-  );
+  const violations: string[] = [];
+  for (const path of reachableModules(serverEntrypoint, publicEntrypoints)) {
+    const localPath = relative(sourceRoot, path);
+    if (forbidden.has(localPath)) violations.push(localPath);
+    for (const specifier of moduleSpecifiers(path)) {
+      if (isServingDependency(specifier)) violations.push(`${localPath}: ${specifier}`);
+    }
+  }
+  assert.deepEqual(violations.sort(), []);
 });
 
 test('dependency scanning fails closed on computed loads, loader aliases, and unapproved packages', () => {
@@ -198,6 +204,21 @@ test('dependency scanning fails closed on computed loads, loader aliases, and un
   assert.equal(scan.forbiddenLoaderCapabilities.length, 1);
   assert.match(scan.forbiddenLoaderCapabilities[0] ?? '', /getBuiltinModule/);
 });
+
+test('serving dependencies include the Storage barrel and every writer subpath', () => {
+  assert.equal(isServingDependency('@maka/runtime'), true);
+  assert.equal(isServingDependency('@maka/storage'), true);
+  assert.equal(isServingDependency('@maka/storage/future-writer'), true);
+  assert.equal(isServingDependency('@maka/storage/root-authority'), false);
+});
+
+function isServingDependency(specifier: string): boolean {
+  return (
+    specifier === '@maka/runtime' ||
+    (specifier !== '@maka/storage/root-authority' &&
+      (specifier === '@maka/storage' || specifier.startsWith('@maka/storage/')))
+  );
+}
 
 function reachableModules(
   entrypoint: string,

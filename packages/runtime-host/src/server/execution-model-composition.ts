@@ -33,6 +33,7 @@ import {
   type MakaTool,
   type PermissionEngine,
   type ProxiedFetchProxy,
+  type RuntimeCommitSink,
   type SkillCatalogBudgetOptions,
 } from '@maka/runtime';
 import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
@@ -72,6 +73,7 @@ export interface HostExecutionModelCompositionInput {
   readonly skills: HostSkillCatalogCoordinator;
   readonly memory: HostMemoryCoordinator;
   readonly taskLedger: InteractiveTaskLedgerWriterFacade;
+  readonly runtimeTools: readonly MakaTool[];
   readonly skillBudget?: SkillCatalogBudgetOptions;
   readonly platform?: NodeJS.Platform;
   readonly shell?: string;
@@ -89,6 +91,7 @@ export function createHostExecutionModelComposition(
     questionTool.name,
     SKILL_TOOL_NAME,
     ...taskTools.map((tool) => tool.name),
+    ...input.runtimeTools.map((tool) => tool.name),
   ]);
   const skillTool = buildSkillAgentToolFromScan(
     () => [...input.skills.readCanonicalModelSkills()],
@@ -96,7 +99,7 @@ export function createHostExecutionModelComposition(
   );
 
   return Object.freeze({
-    tools: [questionTool, skillTool, ...taskTools],
+    tools: [questionTool, skillTool, ...taskTools, ...input.runtimeTools],
     systemPrompt: async (context: HostModelPromptContext) => {
       const policy = (await input.policy.getSnapshot()).policy;
       const personalization = buildPersonalizationPromptFragment(policy.personalization).text;
@@ -139,6 +142,8 @@ export interface HostAiSdkBackendInput {
   readonly artifacts: InteractiveArtifactStoreWriter;
   readonly usage: InteractiveUsageStoresWriter;
   readonly permissionEngine: PermissionEngine;
+  readonly runtimeTools: readonly MakaTool[];
+  readonly runtimeCommitSink: RuntimeCommitSink;
   readonly onCredentialRefreshed: () => Promise<void>;
 }
 
@@ -168,6 +173,7 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
     skills: input.skills,
     memory: input.memory,
     taskLedger: input.taskLedger,
+    runtimeTools: input.runtimeTools,
     skillBudget: {
       contextWindow: resolveSelectedModelContextWindow(target.connection, target.model),
     },
@@ -204,6 +210,8 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         permissionEngine: input.permissionEngine,
         modelFactory,
         tools: modelComposition.tools,
+        runtimeCommitSink: input.runtimeCommitSink,
+        shellRunContextSummary: input.context.shellRunContextSummary,
         providerOptions,
         contextBudget: buildDefaultContextBudgetPolicy(target.connection, {
           name: 'runtime-host-default-history-budget',

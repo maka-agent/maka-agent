@@ -211,6 +211,8 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
     runtimeEventStore: {
       appendRuntimeEvent: (sessionId, runId, event, options) =>
         run(() => runtimeEventStore.appendRuntimeEvent(sessionId, runId, event, options)),
+      commitToolPrepared: (input) => run(() => runtimeEventStore.commitToolPrepared(input)),
+      commitToolOutcome: (input) => run(() => runtimeEventStore.commitToolOutcome(input)),
       ensureTerminalRuntimeEventDurable: (sessionId, runId, event) =>
         run(() => runtimeEventStore.ensureTerminalRuntimeEventDurable(sessionId, runId, event)),
       readRuntimeEvents: (sessionId, runId) =>

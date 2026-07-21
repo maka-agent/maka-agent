@@ -9,6 +9,8 @@ import { defineObjectShape, hasExactShape } from './record-schema.js';
 import {
   isShellOutput,
   isShellRunStatus,
+  isTerminalShellRunStatus,
+  isValidShellRunStatusTransition,
   isValidShellRunState,
   type ShellOutput,
   type ShellRunStatus,
@@ -367,7 +369,7 @@ function legacyPipeOutput(value: Record<string, unknown>): Extract<ShellOutput, 
 
 function isLegacyTerminalStatus(
   value: unknown,
-): value is Exclude<ShellRunStatus, 'running' | 'orphaned'> {
+): value is Exclude<ShellRunStatus, 'starting' | 'running' | 'orphaned'> {
   return (
     value === 'completed' || value === 'failed' || value === 'timed_out' || value === 'cancelled'
   );
@@ -511,7 +513,11 @@ function isOptionalOutputStream(value: unknown): boolean {
 export interface ShellRunStateMerge<Result extends ShellRunStateResult = ShellRunStateResult> {
   result: Result;
   changed: boolean;
-  invariantViolation?: 'ref_mismatch' | 'same_revision_conflict';
+  invariantViolation?:
+    | 'ref_mismatch'
+    | 'same_revision_conflict'
+    | 'invalid_status_transition'
+    | 'terminal_outcome_conflict';
 }
 
 export interface ShellRunMergeDiagnostic {
@@ -554,7 +560,15 @@ export function mergeShellRunState(
   if (previous.ref !== next.ref) {
     return { result: previous, changed: false, invariantViolation: 'ref_mismatch' };
   }
-  if (next.revision > previous.revision) return { result: next, changed: true };
+  if (next.revision > previous.revision) {
+    if (!isProjectionStatusReachable(previous, next)) {
+      return { result: previous, changed: false, invariantViolation: 'invalid_status_transition' };
+    }
+    if (terminalOutcomeChanged(previous, next)) {
+      return { result: previous, changed: false, invariantViolation: 'terminal_outcome_conflict' };
+    }
+    return { result: next, changed: true };
+  }
   if (next.revision < previous.revision) return { result: previous, changed: false };
 
   if (!sameMetadata(previous, next)) {
@@ -570,6 +584,30 @@ export function mergeShellRunState(
     return { result: previous, changed: false };
   }
   return { result: previous, changed: false, invariantViolation: 'same_revision_conflict' };
+}
+
+function isProjectionStatusReachable(
+  current: ShellRunStateResult,
+  candidate: ShellRunStateResult,
+): boolean {
+  if (isValidShellRunStatusTransition(current.status, candidate.status)) return true;
+  return (
+    current.status === 'starting' &&
+    candidate.revision - current.revision >= 2 &&
+    isTerminalShellRunStatus(candidate.status)
+  );
+}
+
+function terminalOutcomeChanged(
+  current: ShellRunStateResult,
+  candidate: ShellRunStateResult,
+): boolean {
+  return (
+    isTerminalShellRunStatus(current.status) &&
+    (candidate.completedAt !== current.completedAt ||
+      candidate.exitCode !== current.exitCode ||
+      candidate.failureMessage !== current.failureMessage)
+  );
 }
 
 export function mergeShellRunStateWithDiagnostics(

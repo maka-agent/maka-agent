@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { stableLocalMemoryEntryId } from '@maka/core/local-memory';
+import { buildBuiltinTools } from '@maka/runtime';
 import { openInteractiveMemoryStoreForWrite } from '@maka/storage/memory-store';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import { resolveStorageRoot, tryAcquireInteractiveRootOwner } from '@maka/storage/root-authority';
@@ -37,7 +38,7 @@ test('composes only canonical Host model context in the fixed order', async () =
     await mkdir(join(root, 'skills', 'canonical-skill'), { recursive: true });
     await writeFile(
       join(root, 'skills', 'canonical-skill', 'SKILL.md'),
-      skillDocument('Canonical Skill', 'Read from the Host snapshot', 'FIRST_BODY'),
+      skillDocument('Canonical Skill', 'Read from the Host snapshot', 'FIRST_BODY', ['Bash']),
       'utf8',
     );
     await writeFile(join(root, 'AGENTS.md'), 'WORKSPACE_INSTRUCTION_SENTINEL\n', 'utf8');
@@ -52,7 +53,7 @@ test('composes only canonical Host model context in the fixed order', async () =
 
     await writeFile(
       join(root, 'skills', 'canonical-skill', 'SKILL.md'),
-      skillDocument('Canonical Skill', 'Changed outside the snapshot', 'SECOND_BODY'),
+      skillDocument('Canonical Skill', 'Changed outside the snapshot', 'SECOND_BODY', ['Bash']),
       'utf8',
     );
     assert.equal(skills.readCanonicalModelSkills()[0]?.content.trim(), 'FIRST_BODY');
@@ -80,18 +81,21 @@ test('composes only canonical Host model context in the fixed order', async () =
 
     await taskLedger.create(SESSION_ID, [{ subject: 'TASK_LEDGER_SENTINEL' }]);
 
+    const bashTool = buildBuiltinTools().find((tool) => tool.name === 'Bash');
+    assert.ok(bashTool);
     const composition = createHostExecutionModelComposition({
       policy: policyStores.runtimePolicy,
       skills,
       memory,
       taskLedger,
+      runtimeTools: [bashTool],
       platform: 'linux',
       shell: 'test-shell',
       now: () => new Date('2026-07-21T00:00:00Z'),
     });
     assert.deepEqual(
       composition.tools.map((tool) => tool.name),
-      ['AskUserQuestion', 'Skill', 'task_create', 'task_update', 'task_list', 'task_get'],
+      ['AskUserQuestion', 'Skill', 'task_create', 'task_update', 'task_list', 'task_get', 'Bash'],
     );
 
     const context = { sessionId: SESSION_ID, cwd: root };
@@ -176,6 +180,7 @@ test('composes only canonical Host model context in the fixed order', async () =
       skills,
       memory,
       taskLedger,
+      runtimeTools: [bashTool],
     });
     const coherentSystem = await coherentComposition.systemPrompt(context);
     assert.ok(coherentSystem);
@@ -196,8 +201,15 @@ test('composes only canonical Host model context in the fixed order', async () =
   }
 });
 
-function skillDocument(name: string, description: string, body: string): string {
-  return `---\nname: ${name}\ndescription: ${description}\n---\n${body}\n`;
+function skillDocument(
+  name: string,
+  description: string,
+  body: string,
+  requiredTools: readonly string[] = [],
+): string {
+  const requirements =
+    requiredTools.length > 0 ? `required-tools: [${requiredTools.join(', ')}]\n` : '';
+  return `---\nname: ${name}\ndescription: ${description}\n${requirements}---\n${body}\n`;
 }
 
 function memoryDocument(content: string): string {

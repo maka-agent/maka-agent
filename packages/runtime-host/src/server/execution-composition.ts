@@ -1,19 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import { defaultLocalMemoryMarkdown } from '@maka/core/local-memory';
+import { TOOL_BOUNDARY_PROTOCOL_V1 } from '@maka/core/runtime-event';
 import {
   BackendRegistry,
+  buildBuiltinTools,
+  createBuiltinSandboxManager,
+  createFilesystemWorkerLaunchSpecProvider,
   FakeBackend,
+  FilesystemWorkerClient,
   PermissionEngine,
   RuntimeInteractionFailStopError,
   RuntimeInteractionInvariantError,
+  type CreateFilesystemWorkerLaunchSpecProviderInput,
+  type FilesystemWorkerLaunchSpecProvider,
   type RuntimeMessageAuthority,
   type RuntimeMessageRunOwner,
   SessionManager,
 } from '@maka/runtime';
+import { createReadImageSnapshotter } from '@maka/storage';
 import { openInteractiveArtifactStoreForWrite } from '@maka/storage/artifact-stores';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveMemoryStoreForWrite } from '@maka/storage/memory-store';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
+import { openInteractiveShellRunStoreForWrite } from '@maka/storage/shell-run-store';
 import { openInteractiveTaskLedgerStoreForWrite } from '@maka/storage/task-ledger-store';
 import { openInteractiveUsageStoresForWrite } from '@maka/storage/usage-stores';
 import { createCanonicalSessionProjectionReader } from './canonical-session-projection.js';
@@ -32,6 +41,7 @@ import { combineDomainOperationHandlers } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
 import { RootTurnCoordinator } from './root-turn-coordinator.js';
 import { HostRuntimePolicyCoordinator } from './runtime-policy-coordinator.js';
+import { HostRuntimeResourceCoordinator } from './runtime-resource-coordinator.js';
 import { SessionAdmissionGate } from './session-admission-gate.js';
 import { SessionContinuityCoordinator } from './session-continuity-coordinator.js';
 import { HostSkillCatalogCoordinator } from './skill-catalog-coordinator.js';
@@ -48,6 +58,7 @@ export async function createExecutionRuntimeHostComposition(
   const artifactStore = await openInteractiveArtifactStoreForWrite(context.owner.lease);
   const memoryStore = await openInteractiveMemoryStoreForWrite(context.owner.lease);
   const usageStores = await openInteractiveUsageStoresForWrite(context.owner.lease);
+  const shellRunStore = await openInteractiveShellRunStoreForWrite(context.owner.lease);
   let manager!: SessionManager;
   let failStopHandoff!: (error: RuntimeInteractionFailStopError) => void;
   const refreshBackends = async () => {
@@ -71,6 +82,44 @@ export async function createExecutionRuntimeHostComposition(
   const sessionAdmission = new SessionAdmissionGate();
   const taskLedger = new HostTaskLedgerCoordinator(taskLedgerStore, sessionAdmission);
   const artifacts = new HostArtifactCoordinator(artifactStore, sessionAdmission);
+  const resources = new HostRuntimeResourceCoordinator({
+    store: shellRunStore,
+    newId: randomUUID,
+    now: Date.now,
+    acquireResidency: context.acquireResidency,
+  });
+  const sandboxManager = createBuiltinSandboxManager();
+  const filesystemWorker =
+    process.platform === 'darwin' && sandboxManager
+      ? new FilesystemWorkerClient({
+          sandboxManager,
+          getLaunchSpec: createHostFilesystemWorkerLaunchSpecProvider(
+            process.versions.electron
+              ? {
+                  runtime: 'electron',
+                  executable: process.execPath,
+                  resourcesPath: (process as NodeJS.Process & { readonly resourcesPath: string })
+                    .resourcesPath,
+                }
+              : { runtime: 'node' },
+          ),
+        })
+      : undefined;
+  const runtimeTools = buildBuiltinTools({
+    shellRuns: resources,
+    runtimeResources: resources,
+    backgroundTasks: resources,
+    ptyControls: resources,
+    snapshotImage: createReadImageSnapshotter(artifactStore),
+    ...(sandboxManager ? { sandboxManager } : {}),
+    ...(filesystemWorker
+      ? {
+          filesystemWorker,
+          enableBashAdditionalPermissions: true,
+          enableFileToolAdditionalPermissions: true,
+        }
+      : {}),
+  });
   const rootAdmissionOwner = new RootAdmissionOwner();
   let messages: HostMessageCoordinator | undefined;
   const canonicalProjection = createCanonicalSessionProjectionReader(
@@ -144,6 +193,8 @@ export async function createExecutionRuntimeHostComposition(
       artifacts: artifactStore,
       usage: usageStores,
       permissionEngine,
+      runtimeTools,
+      runtimeCommitSink: stores.runtimeEventStore,
       onCredentialRefreshed: refreshBackends,
     }),
   );
@@ -151,6 +202,8 @@ export async function createExecutionRuntimeHostComposition(
     store: stores.sessionStore,
     runStore: stores.agentRunStore,
     runtimeEventStore: stores.runtimeEventStore,
+    toolBoundaryProtocol: TOOL_BOUNDARY_PROTOCOL_V1,
+    shellRuns: resources.shellRuns,
     backends,
     newId: randomUUID,
     now: Date.now,
@@ -198,6 +251,7 @@ export async function createExecutionRuntimeHostComposition(
     skills.beginDrain();
     messageCoordinator.beginDrain();
     interaction.beginDrain();
+    resources.beginDrain();
     runtimeDrain ??= manager.beginRuntimeDrain();
     observe(runtimeDrain.ownerIsolationDrain);
     observe(runtimeDrain.reclaimDrain);
@@ -212,6 +266,7 @@ export async function createExecutionRuntimeHostComposition(
       beginUsageDrain();
       skills.beginDrain();
       const runtimeFailStop = manager.installInteractionFailStop(error);
+      resources.beginDrain();
       observe(runtimeFailStop.ownerIsolationDrain);
       observe(runtimeFailStop.reclaimDrain);
       if (runtimeFailStop.error !== error) {
@@ -277,8 +332,10 @@ export async function createExecutionRuntimeHostComposition(
       artifacts.handlers,
       memory.handlers,
       usagePricing.handlers,
+      resources.handlers,
     ),
     continuity,
+    onConnectionSettled: (connectionId) => resources.releaseConnection(connectionId),
     beginDrain: () => {
       beginArtifactDrain();
       beginMemoryDrain();
@@ -286,6 +343,7 @@ export async function createExecutionRuntimeHostComposition(
       skills.beginDrain();
       messageCoordinator.beginDrain();
       interaction.beginDrain();
+      resources.beginDrain();
       if (!failStopDisposition) beginRuntimeDrain();
     },
     recover: async () => {
@@ -296,7 +354,12 @@ export async function createExecutionRuntimeHostComposition(
       });
       await skills.recover();
       await interaction.recoverPendingAfterHostRestart();
-      await manager.recoverInterruptedSessionsStrict(stores);
+      for (const session of await stores.sessionStore.listForRecovery()) {
+        await resources.recoverSession(session.id);
+      }
+      await manager.recoverInterruptedSessionsStrict(stores, {
+        shellRunsAlreadyRecovered: true,
+      });
       await rootCoordinator.recover();
     },
     close: () => {
@@ -314,12 +377,53 @@ export async function createExecutionRuntimeHostComposition(
         artifactStore,
         memoryStore,
         usageStores,
+        resources,
         drain,
         () => failStopDisposition,
       );
       return closeTask;
     },
   };
+}
+
+type HostFilesystemWorkerRuntime =
+  | { readonly runtime: 'node' }
+  | {
+      readonly runtime: 'electron';
+      readonly executable: string;
+      readonly resourcesPath: string;
+    };
+
+type FilesystemWorkerProviderFactory = (
+  input: CreateFilesystemWorkerLaunchSpecProviderInput,
+) => FilesystemWorkerLaunchSpecProvider;
+
+/** Selects the worker runtime and resolves packaged Electron resources before dev resources. */
+export function createHostFilesystemWorkerLaunchSpecProvider(
+  host: HostFilesystemWorkerRuntime,
+  createProvider: FilesystemWorkerProviderFactory = createFilesystemWorkerLaunchSpecProvider,
+): FilesystemWorkerLaunchSpecProvider {
+  if (host.runtime === 'node') {
+    return createProvider({ runtime: 'node', resourceLocation: { kind: 'runtime' } });
+  }
+
+  const packagedProvider = createProvider({
+    runtime: 'electron',
+    executable: host.executable,
+    resourceLocation: { kind: 'desktop-packaged', resourcesPath: host.resourcesPath },
+  });
+  let runtimeProvider: FilesystemWorkerLaunchSpecProvider | undefined;
+  let resolution: ReturnType<FilesystemWorkerLaunchSpecProvider> | undefined;
+  return () =>
+    (resolution ??= packagedProvider().then((result) => {
+      if (result.ok || result.reason !== 'worker_bundle_unavailable') return result;
+      runtimeProvider ??= createProvider({
+        runtime: 'electron',
+        executable: host.executable,
+        resourceLocation: { kind: 'runtime' },
+      });
+      return runtimeProvider();
+    }));
 }
 
 async function closeComposition(
@@ -331,6 +435,7 @@ async function closeComposition(
   artifactStore: Awaited<ReturnType<typeof openInteractiveArtifactStoreForWrite>>,
   memoryStore: Awaited<ReturnType<typeof openInteractiveMemoryStoreForWrite>>,
   usageStores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>>,
+  resources: HostRuntimeResourceCoordinator,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
   getFailStop: () => RuntimeHostFailStopDisposition | undefined,
 ): Promise<RuntimeHostCompositionCloseResult> {
@@ -349,6 +454,7 @@ async function closeComposition(
     artifactStore,
     memoryStore,
     usageStores,
+    resources,
     runtimeDrain,
   );
   const observedNormal = normalClose.then(
@@ -381,6 +487,7 @@ async function closeNormally(
   artifactStore: Awaited<ReturnType<typeof openInteractiveArtifactStoreForWrite>>,
   memoryStore: Awaited<ReturnType<typeof openInteractiveMemoryStoreForWrite>>,
   usageStores: Awaited<ReturnType<typeof openInteractiveUsageStoresForWrite>>,
+  resources: HostRuntimeResourceCoordinator,
   runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']>,
 ): Promise<{ readonly kind: 'clean' }> {
   const errors: unknown[] = [];
@@ -389,6 +496,7 @@ async function closeNormally(
       coordinator.close(),
       runtimeDrain.ownerIsolationDrain,
       runtimeDrain.reclaimDrain,
+      resources.close(),
     ]);
     for (const outcome of outcomes) {
       if (outcome.status === 'rejected') errors.push(outcome.reason);
