@@ -389,6 +389,20 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /bridge-contract ok/);
   });
 
+  test('maka_agent.py task-run maps host proxy authority into backend env', (t: TestContext) => {
+    const python = harborPython();
+    if (!python) {
+      t.skip('Harbor 0.13.2 python is not available (CI has no harbor)');
+      return;
+    }
+    const result = spawnSync(python, ['-c', pythonTaskRunHostProxyContractScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /task-run-host-proxy-contract ok/);
+  });
+
   test('run-prompt-optimization.mjs wires the headless run API with a key file, not a raw key', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-prompt-optimization.mjs');
     assert.match(source, /runPromptOptimizationRun/);
@@ -1354,6 +1368,32 @@ asyncio.run(fix4_deadline_reclaims_all_scoped_commands())
 asyncio.run(fix5_timed_out_command_is_reclaimed_immediately())
 asyncio.run(fix6_cleanup_failure_is_not_reported_as_a_typed_timeout())
 print("bridge-contract ok")
+`;
+}
+
+function pythonTaskRunHostProxyContractScript(root: string): string {
+  return String.raw`
+import sys
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+
+import maka_agent
+
+env = {
+    "MAKA_PROVIDER": "openai-codex",
+    "MAKA_HOST_API_KEY": "host-proxy-token",
+    "MAKA_HOST_API_KEY_ENV_NAME": "OPENAI_CODEX_OAUTH_TOKEN",
+    "MAKA_HOST_BASE_URL": "http://127.0.0.1:43210/v1",
+    "MAKA_HOST_MODEL_API_PROTOCOL": "openai-responses",
+}
+maka_agent._normalize_cli_env(env)
+
+assert env["OPENAI_CODEX_OAUTH_TOKEN"] == "host-proxy-token", env
+assert env["MAKA_BASE_URL"] == "http://127.0.0.1:43210/v1", env
+assert env["MAKA_MODEL_API_PROTOCOL"] == "openai-responses", env
+print("task-run-host-proxy-contract ok")
 `;
 }
 
