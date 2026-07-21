@@ -1001,18 +1001,6 @@ const makaBridge = {
     getState(): Promise<VisualSmokeState | null> {
       return ipcRenderer.invoke('visualSmoke:getState');
     },
-    /**
-     * PR-IR-01: capture a screenshot of the renderer to disk. Only
-     * works in fixture mode (refuses otherwise). The capture script
-     * drives this from outside Electron via the test runner — renderer
-     * code doesn't normally call it.
-     */
-    capture(input: { scenario: string; variant: string }): Promise<
-      | { ok: true; path: string }
-      | { ok: false; reason: 'not_in_fixture_mode' | 'invalid_input' | 'capture_failed' | 'write_failed' }
-    > {
-      return ipcRenderer.invoke('visualSmoke:capture', input);
-    },
   },
   artifacts: {
     list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]> {

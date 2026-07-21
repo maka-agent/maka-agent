@@ -216,8 +216,6 @@ Desktop real-window and visual verification:
 
 ```sh
 npm --workspace @maka/desktop run e2e
-npm --workspace @maka/desktop run screenshots
-npm --workspace @maka/desktop run screenshots:diff:stable
 npm --workspace @maka/desktop run smoke:real-window
 ```
 

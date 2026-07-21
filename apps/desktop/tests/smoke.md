@@ -1,6 +1,6 @@
 # Desktop smoke runbook
 
-Use the narrowest deterministic check that covers the change, then add live-window or screenshot evidence when the risk requires it. Scenario inventories and check identifiers live in the scripts and fixtures, not in this document.
+Use the narrowest deterministic check that covers the change, then add live-window evidence or a Storybook story when the risk requires it. Scenario inventories and check identifiers live in the scripts and fixtures, not in this document.
 
 ## Automated desktop checks
 
@@ -44,39 +44,22 @@ For environments that cannot perform native hit testing, run the programmatic la
 npm --workspace @maka/desktop run smoke:programmatic-window
 ```
 
-## Screenshot validation
+## Storybook baseline and visual contracts
 
-The capture script owns `ALL_SCENARIOS` and `VARIANTS`. Capture one relevant scenario during iteration or the full matrix for broad visual changes:
-
-```bash
-npm --workspace @maka/desktop run screenshots:single artifact-pane
-npm --workspace @maka/desktop run screenshots
-```
-
-Compare the stable subset or full baseline:
+The product's visual baseline is Storybook, not a screenshot harness. Page-level stories (e.g. `apps/desktop/stories/settings/settings-pages.stories.tsx`) render each surface with mocked IPC via `withScopedMakaBridge`; add a story variant for any state the page does not already cover. Style and layout invariants are locked by computed-style or text contract tests (pattern: `apps/desktop/e2e/settings.spec.ts`), not by fixed screenshots. Run Storybook with:
 
 ```bash
-npm --workspace @maka/desktop run screenshots:diff:stable
-npm --workspace @maka/desktop run screenshots:diff
+npm --workspace @maka/desktop run storybook
 ```
 
-Promote baselines only after intentional changes have been reviewed:
-
-```bash
-npm --workspace @maka/desktop run screenshots:baseline:stable
-npm --workspace @maka/desktop run screenshots:baseline
-```
-
-The dimension/inventory diff is a capture-integrity gate, not a pixel-level visual oracle. Review changed images for layout, color, typography, spacing, state, and reduced-motion behavior.
-
-To inspect deterministic fixtures interactively without touching a real workspace:
+To inspect a deterministic fixture interactively without touching a real workspace (the same `MAKA_VISUAL_SMOKE_FIXTURE` mechanism the Playwright E2E suite uses):
 
 ```bash
 MAKA_VISUAL_SMOKE_FIXTURE=all npm --workspace @maka/desktop run dev
 ```
 
-Use a scenario name from `ALL_SCENARIOS` for a narrower launch.
+Use a scenario name from the fixture registry for a narrower launch.
 
 ## Release floor
 
-Before a release, run the full automated suite, the full screenshot matrix and review, and real-window smoke on supported desktop platforms. Record any platform that could not be verified rather than treating absence of evidence as a pass.
+Before a release, run the full automated suite and real-window smoke on supported desktop platforms. Visual regressions are caught by Storybook stories and computed-style contract tests; record any platform that could not be verified rather than treating absence of evidence as a pass.

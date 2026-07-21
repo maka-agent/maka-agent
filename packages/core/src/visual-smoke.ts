@@ -171,7 +171,6 @@ export interface VisualSmokeLiveTurnProjection {
 
 export interface VisualSmokeState {
   enabled: true;
-  scenario: VisualSmokeScenario;
   /**
    * Deterministic wall-clock timestamp for fixture rendering. The
    * renderer uses it to freeze `Date.now()` while visual smoke mode is
@@ -208,16 +207,6 @@ export interface VisualSmokeState {
    * ~0.01ms.
    */
   reducedMotion?: boolean;
-  /**
-   * PR-IR-01: when set, the renderer waits for fixture state to settle
-   * then auto-triggers `window.maka.visualSmoke.capture()` to dump a
-   * screenshot, then the main process logs a deterministic line to
-   * stdout so the driver script (`scripts/capture-screenshots.mjs`)
-   * knows the capture finished. Driven by env var
-   * `MAKA_VISUAL_SMOKE_AUTO_CAPTURE=<variant>` (variant matches the
-   * regex `[a-zA-Z0-9._-]+`, e.g. `light-1280-motion`).
-   */
-  autoCaptureVariant?: string;
   /**
    * PR-IR-01b: theme override driven by `MAKA_VISUAL_SMOKE_THEME=light|dark|auto`.
    * Lets the screenshot pipeline capture each scenario in both light

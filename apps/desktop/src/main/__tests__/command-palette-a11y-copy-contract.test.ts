@@ -198,14 +198,12 @@ describe('Command palette accessibility and visible copy', () => {
     const main = await readRendererShellCombinedSource();
     const core = await readRepo('packages/core/src/visual-smoke.ts');
     const fixture = await readRepo('apps/desktop/src/main/visual-smoke-fixture.ts');
-    const screenshotDriver = await readRepo('scripts/capture-screenshots.mjs');
 
     assert.match(core, /\| 'command-palette-open'/, 'VisualSmokeScenario must include command-palette-open');
     assert.match(core, /paletteOpen\?: boolean;/, 'VisualSmokeState must expose the paletteOpen hint');
     assert.match(fixture, /'command-palette-open'/, 'visual smoke fixture resolver must accept command-palette-open');
     assert.match(fixture, /case 'command-palette-open':[\s\S]*paletteOpen: true/, 'command-palette-open must auto-open the palette');
     assert.match(main, /if \(state\.paletteOpen\) \{\s*openPalette\(\);\s*\}/, 'renderer must consume paletteOpen and open CommandPalette');
-    assert.match(screenshotDriver, /'command-palette-open'/, 'screenshot driver must capture command-palette-open');
   });
 
   it('sources primary command hints from the locale catalog', async () => {

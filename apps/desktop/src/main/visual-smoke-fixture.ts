@@ -212,13 +212,6 @@ export interface VisualSmokeFixture {
    */
   reducedMotion: boolean;
   /**
-   * PR-IR-01: when set, the renderer auto-captures a screenshot after
-   * the fixture settles. The variant name becomes the filename under
-   * `<scenario>/<variant>.png`. Validated against `[a-zA-Z0-9._-]+`
-   * — anything else fails closed.
-   */
-  autoCaptureVariant: string | null;
-  /**
    * PR-IR-01b: theme override (light | dark | auto). null means "use
    * the user's persisted theme preference". Unknown values fail closed
    * to null.
@@ -252,7 +245,6 @@ export function resolveVisualSmokeFixture(
   rawScenario: string | undefined,
   isPackaged: boolean,
   rawReducedMotion: string | undefined = undefined,
-  rawAutoCaptureVariant: string | undefined = undefined,
   rawTheme: string | undefined = undefined,
   rawLocale: string | undefined = undefined,
   rawTimezone: string | undefined = undefined,
@@ -266,7 +258,6 @@ export function resolveVisualSmokeFixture(
   }
   const scenario = rawScenario as VisualSmokeScenario;
   const reducedMotion = parseReducedMotionFlag(rawReducedMotion);
-  const autoCaptureVariant = parseAutoCaptureVariant(rawAutoCaptureVariant);
   const theme = parseThemeFlag(rawTheme);
   const locale = parseLocaleFlag(rawLocale);
   const timezone = parseTimezoneFlag(rawTimezone);
@@ -274,7 +265,6 @@ export function resolveVisualSmokeFixture(
     scenario,
     workspaceName: `visual-smoke-${scenario}`,
     reducedMotion,
-    autoCaptureVariant,
     theme,
     locale,
     timezone,
@@ -349,27 +339,12 @@ function parseReducedMotionFlag(raw: string | undefined): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
-/**
- * Validate the auto-capture variant name. Must be `[a-zA-Z0-9._-]+` (no
- * slashes, no `..`, no whitespace). Fail-closed for invalid input.
- */
-function parseAutoCaptureVariant(raw: string | undefined): string | null {
-  if (raw === undefined) return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.length > 64) return null;
-  if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) return null;
-  if (trimmed === '.' || trimmed === '..') return null;
-  return trimmed;
-}
-
 export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualSmokeState | null {
   if (!fixture) return null;
   const state: VisualSmokeState = {
     enabled: true,
-    scenario: fixture.scenario,
     now: VISUAL_SMOKE_NOW,
     ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
-    ...(fixture.autoCaptureVariant ? { autoCaptureVariant: fixture.autoCaptureVariant } : {}),
     ...(fixture.theme ? { theme: fixture.theme } : {}),
     ...(fixture.locale ? { locale: fixture.locale } : {}),
     ...(fixture.timezone ? { timezone: fixture.timezone } : {}),

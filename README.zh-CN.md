@@ -214,8 +214,6 @@ Desktop 的真实窗口与视觉验证：
 
 ```sh
 npm --workspace @maka/desktop run e2e
-npm --workspace @maka/desktop run screenshots
-npm --workspace @maka/desktop run screenshots:diff:stable
 npm --workspace @maka/desktop run smoke:real-window
 ```
 

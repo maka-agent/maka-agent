@@ -16,9 +16,9 @@
  * loads the REAL built renderer CSS from both `main` and the PR branch
  * into a headless window and diffs `getComputedStyle` for the migrated
  * chrome. It is the deterministic equivalent of a before/after screenshot
- * for the resting surface — `scripts/diff-screenshots.mjs` documents why
- * byte/pixel image diffs are too jittery to gate on (font rasterization
- * drifts ~70/88 PNGs between runs); computed style does not.
+ * for the resting surface — byte/pixel image diffs are too jittery to
+ * gate on (font rasterization drifts ~70/88 PNGs between runs, as the
+ * retired diff-screenshots harness documented); computed style does not.
  *
  * The CSS is INLINED into a `<style>` block of a file:// temp document, NOT
  * linked. An earlier version `<link>`ed the bundle from a `data:`/`file:`

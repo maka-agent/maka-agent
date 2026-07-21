@@ -166,19 +166,17 @@ if (!app.requestSingleInstanceLock()) {
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
 // PR-VISUAL-SMOKE-HEADLESS: resolve the fixture defensively. An unknown
-// scenario (e.g. the capture script's list got ahead of a stale build, or
-// a typo'd MAKA_VISUAL_SMOKE_FIXTURE) throws here during top-level module
-// evaluation. Left uncaught it surfaces a blocking native error dialog and
-// the capture driver waits out its full marker timeout (~60s). In capture
-// mode we instead log a parseable line and exit fast so the run fails in
-// milliseconds with no dialog. Outside capture mode the throw is rethrown.
+// scenario (e.g. a stale build, or a typo'd MAKA_VISUAL_SMOKE_FIXTURE) throws
+// here during top-level module evaluation. Left uncaught it surfaces a
+// blocking native error dialog. In fixture mode we instead log a parseable
+// line and exit fast so the run fails in milliseconds with no dialog.
+// Outside fixture mode the throw is rethrown.
 let visualSmokeFixture: ReturnType<typeof resolveVisualSmokeFixture>;
 try {
   visualSmokeFixture = resolveVisualSmokeFixture(
     process.env.MAKA_VISUAL_SMOKE_FIXTURE,
     app.isPackaged,
     process.env.MAKA_VISUAL_SMOKE_REDUCED_MOTION,
-    process.env.MAKA_VISUAL_SMOKE_AUTO_CAPTURE,
     process.env.MAKA_VISUAL_SMOKE_THEME,
     process.env.MAKA_VISUAL_SMOKE_LOCALE,
     process.env.MAKA_VISUAL_SMOKE_TIMEZONE,

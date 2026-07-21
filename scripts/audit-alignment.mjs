@@ -57,7 +57,7 @@ async function resolveElectronBin() {
 
 function launchArgs(debugPort, userDataDir) {
   // Chromium/Electron switches must come before the app path. Mirror the
-  // capture-screenshots / Playwright e2e launch: cwd=apps/desktop, app='.'.
+  // Playwright e2e launch: cwd=apps/desktop, app=''.
   const args = [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${userDataDir}`];
   // Headless Linux runners (GitHub Actions) need these; macOS/Windows e2e
   // already pass without them. Playwright's chromium launcher adds the same

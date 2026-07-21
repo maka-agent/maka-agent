@@ -37,7 +37,6 @@ describe('visual smoke fixture mode', () => {
       scenario: 'provider-workspace',
       workspaceName: 'visual-smoke-provider-workspace',
       reducedMotion: false,
-      autoCaptureVariant: null,
       theme: null,
       locale: null,
       timezone: null,
@@ -55,7 +54,7 @@ describe('visual smoke fixture mode', () => {
 
     it('accepts the closed enum light / dark / auto', () => {
       for (const raw of ['light', 'dark', 'auto', 'LIGHT', ' Dark ']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, raw);
         assert.equal(typeof fixture?.theme, 'string', `raw=${JSON.stringify(raw)}`);
         const state = getVisualSmokeState(fixture);
         assert.ok(state?.theme && ['light', 'dark', 'auto'].includes(state.theme), `raw=${JSON.stringify(raw)}`);
@@ -64,7 +63,7 @@ describe('visual smoke fixture mode', () => {
 
     it('rejects unknown values (fail-closed)', () => {
       for (const raw of ['solar', '', 'oklch', 'high-contrast', 'monochrome']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, raw);
         assert.equal(fixture?.theme, null, `raw=${JSON.stringify(raw)}`);
       }
     });
@@ -80,7 +79,7 @@ describe('visual smoke fixture mode', () => {
 
     it('accepts the closed enum zh / en (case + whitespace tolerant)', () => {
       for (const raw of ['zh', 'en', 'ZH', ' En ', 'EN']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, raw);
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
         assert.ok(fixture?.locale, `raw=${JSON.stringify(raw)}`);
         assert.ok(['zh', 'en'].includes(fixture!.locale!), `raw=${JSON.stringify(raw)}`);
         const state = getVisualSmokeState(fixture);
@@ -93,31 +92,29 @@ describe('visual smoke fixture mode', () => {
       // bare `zh` / `en` short codes. `zh-CN` etc. fail closed so the
       // override is unambiguous; users wanting CN locale set `zh`.
       for (const raw of ['', 'es', 'ja', 'zh-CN', 'en-US', 'auto', 'system']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, raw);
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
         assert.equal(fixture?.locale, null, `raw=${JSON.stringify(raw)}`);
       }
     });
 
     it('locale flag carries through into VisualSmokeState across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, undefined, 'zh');
+        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, 'zh');
         assert.equal(fixture?.locale, 'zh', `scenario=${scenario}`);
         const state = getVisualSmokeState(fixture);
         assert.equal(state?.locale, 'zh', `scenario=${scenario}`);
       }
     });
 
-    it('locale is independent from theme / reduced-motion / auto-capture', () => {
-      const fixture = resolveVisualSmokeFixture('all', false, '1', 'light-1280-motion', 'dark', 'en');
+    it('locale is independent from theme / reduced-motion', () => {
+      const fixture = resolveVisualSmokeFixture('all', false, '1', 'dark', 'en');
       assert.equal(fixture?.locale, 'en');
       assert.equal(fixture?.theme, 'dark');
       assert.equal(fixture?.reducedMotion, true);
-      assert.equal(fixture?.autoCaptureVariant, 'light-1280-motion');
       const state = getVisualSmokeState(fixture);
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
       assert.equal(state?.reducedMotion, true);
-      assert.equal(state?.autoCaptureVariant, 'light-1280-motion');
     });
   });
 
@@ -143,7 +140,7 @@ describe('visual smoke fixture mode', () => {
         'Pacific/Auckland',
       ];
       for (const tz of valid) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, tz);
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, tz);
         assert.equal(fixture?.timezone, tz, `tz=${tz}`);
         const state = getVisualSmokeState(fixture);
         assert.equal(state?.timezone, tz, `tz=${tz}`);
@@ -155,7 +152,7 @@ describe('visual smoke fixture mode', () => {
       // (`America/New_York`, not `america/new_york`). The parser
       // trim-onlys; it does not lowercase, so the canonical form
       // survives.
-      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, '  Asia/Shanghai  ');
+      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, '  Asia/Shanghai  ');
       assert.equal(fixture?.timezone, 'Asia/Shanghai');
     });
 
@@ -172,14 +169,14 @@ describe('visual smoke fixture mode', () => {
         'utc/zulu',
       ];
       for (const tz of invalid) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, tz);
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, tz);
         assert.equal(fixture?.timezone, null, `tz=${JSON.stringify(tz)}`);
       }
     });
 
     it('rejects oversize inputs (>128 chars) without invoking Intl.DateTimeFormat', () => {
       const oversize = 'A'.repeat(129);
-      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, oversize);
+      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, oversize);
       assert.equal(fixture?.timezone, null);
     });
 
@@ -189,7 +186,7 @@ describe('visual smoke fixture mode', () => {
       // surfaces the IANA name. It does NOT mutate `Date.prototype`,
       // global `Intl.DateTimeFormat`, or `state.now`. `state.now`
       // is still the canonical clock-freeze for visual smoke.
-      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, 'Asia/Shanghai');
+      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, 'Asia/Shanghai');
       const state = getVisualSmokeState(fixture);
       assert.equal(state?.timezone, 'Asia/Shanghai');
       assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
@@ -204,51 +201,24 @@ describe('visual smoke fixture mode', () => {
 
     it('timezone flag carries through into VisualSmokeState across all known scenarios', () => {
       for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
-        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, undefined, undefined, 'Europe/London');
+        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, undefined, 'Europe/London');
         assert.equal(fixture?.timezone, 'Europe/London', `scenario=${scenario}`);
         const state = getVisualSmokeState(fixture);
         assert.equal(state?.timezone, 'Europe/London', `scenario=${scenario}`);
       }
     });
 
-    it('timezone is independent from theme / locale / reduced-motion / auto-capture', () => {
-      const fixture = resolveVisualSmokeFixture('all', false, '1', 'light-1280-motion', 'dark', 'en', 'Asia/Tokyo');
+    it('timezone is independent from theme / locale / reduced-motion', () => {
+      const fixture = resolveVisualSmokeFixture('all', false, '1', 'dark', 'en', 'Asia/Tokyo');
       assert.equal(fixture?.timezone, 'Asia/Tokyo');
       assert.equal(fixture?.locale, 'en');
       assert.equal(fixture?.theme, 'dark');
       assert.equal(fixture?.reducedMotion, true);
-      assert.equal(fixture?.autoCaptureVariant, 'light-1280-motion');
       const state = getVisualSmokeState(fixture);
       assert.equal(state?.timezone, 'Asia/Tokyo');
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
       assert.equal(state?.reducedMotion, true);
-      assert.equal(state?.autoCaptureVariant, 'light-1280-motion');
-    });
-  });
-
-  describe('auto-capture variant (PR-IR-01)', () => {
-    it('defaults to null when env var unset', () => {
-      const fixture = resolveVisualSmokeFixture('all', false);
-      assert.equal(fixture?.autoCaptureVariant, null);
-      const state = getVisualSmokeState(fixture);
-      assert.equal(state?.autoCaptureVariant, undefined);
-    });
-
-    it('accepts well-formed variant names', () => {
-      for (const raw of ['light-1280-motion', 'dark-990-reduced-motion', 'narrow_1024']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, raw);
-        assert.equal(fixture?.autoCaptureVariant, raw, `raw=${JSON.stringify(raw)}`);
-        const state = getVisualSmokeState(fixture);
-        assert.equal(state?.autoCaptureVariant, raw, `raw=${JSON.stringify(raw)}`);
-      }
-    });
-
-    it('rejects path-traversal / unsafe variant names (fail-closed)', () => {
-      for (const raw of ['../escape', '.', '..', 'with/slash', 'with space', 'a'.repeat(65), '']) {
-        const fixture = resolveVisualSmokeFixture('all', false, undefined, raw);
-        assert.equal(fixture?.autoCaptureVariant, null, `raw=${JSON.stringify(raw)} should fail-closed`);
-      }
     });
   });
 
@@ -290,7 +260,6 @@ describe('visual smoke fixture mode', () => {
     const fixture = resolveVisualSmokeFixture('first-run', false);
     const state = getVisualSmokeState(fixture);
     assert.equal(state?.enabled, true);
-    assert.equal(state?.scenario, 'first-run');
     assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     assert.equal(state?.activeSessionId, undefined);
     assert.equal(state?.liveTurnBySession, undefined);
@@ -301,7 +270,6 @@ describe('visual smoke fixture mode', () => {
     const fixture = resolveVisualSmokeFixture('all', false);
     const state = getVisualSmokeState(fixture);
     assert.equal(state?.enabled, true);
-    assert.equal(state?.scenario, 'all');
     assert.equal(state?.activeSessionId, 'visual-smoke-turn');
     const liveTurns = state?.liveTurnBySession;
     assert.equal(liveTurns?.['visual-smoke-streaming']?.turnId, 'turn-streaming');
@@ -470,7 +438,6 @@ describe('visual smoke fixture mode', () => {
         const fixture = resolveVisualSmokeFixture(scenario, false);
         assert.ok(fixture, `${scenario} should resolve`);
         const state = getVisualSmokeState(fixture);
-        assert.equal(state?.scenario, scenario);
         assert.equal(state?.openSettingsSection, expectedSection);
         // Active session is the standard turn fixture so the chat
         // surface behind the modal renders meaningful context.
@@ -1284,7 +1251,6 @@ describe('visual smoke fixture mode', () => {
         now: 1_700_000_000_000,
       });
       const state = getVisualSmokeState(fixture);
-      assert.equal(state?.scenario, 'artifact-errors');
       assert.equal(state?.activeSessionId, 'visual-smoke-artifact');
 
       const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
@@ -1316,7 +1282,6 @@ describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
     const fixture = resolveVisualSmokeFixture('settings-bots-onboarding', false);
     assert.ok(fixture, 'settings-bots-onboarding should resolve');
     const state = getVisualSmokeState(fixture);
-    assert.equal(state?.scenario, 'settings-bots-onboarding');
     assert.equal(state?.openSettingsSection, 'bot-chat');
     // botOnboardingProvider is the contract the renderer reads to jump to the
     // provider detail + auto-open the QR modal in its waiting state.
@@ -1351,7 +1316,6 @@ describe('browser-empty chrome fixture (#819)', () => {
     const fixture = resolveVisualSmokeFixture('browser-empty', false);
     assert.ok(fixture, 'browser-empty should resolve');
     const state = getVisualSmokeState(fixture);
-    assert.equal(state?.scenario, 'browser-empty');
     // Active session is the standard turn session so the chat surface
     // behind the browser panel renders meaningful context.
     assert.equal(state?.activeSessionId, 'visual-smoke-turn');

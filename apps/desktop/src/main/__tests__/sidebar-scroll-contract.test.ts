@@ -10,9 +10,12 @@
  * (Settings + Version info) gets pushed off-screen
  * again — the exact P0 WAWQAQ flagged in msg `761141c5`.
  *
- * The fixture seed (`sidebar-long-sessions`, 60 sessions) and the
- * `scripts/capture-screenshots.mjs` ALL_SCENARIOS entry are the visual
- * baseline gate. This file is the static-analysis gate.
+ * The fixture seed (`sidebar-long-sessions`, 60 sessions) exists for
+ * interactive / E2E use. The sidebar-footer-stays-visible geometry invariant
+ * is NOT locked here nor by the `scroll-geometry` E2E spec (which boots the
+ * `long-transcript` fixture and checks the chat viewport, not the sidebar);
+ * it is tracked separately as a computed-style / E2E contract. This file is
+ * the static-analysis gate for the sidebar scroll CSS.
  *
  * Pattern mirrors `stale-sessions.test.ts` "stale session CSS
  * contract" describe block.

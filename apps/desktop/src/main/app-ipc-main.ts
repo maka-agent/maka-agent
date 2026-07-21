@@ -1,4 +1,3 @@
-import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { arch as osArch, release as osRelease } from 'node:os';
 import { app, ipcMain, shell } from 'electron';
@@ -21,22 +20,6 @@ export interface AppIpcDeps {
   workspaceRoot: string;
   buildInfo: BuildInfo;
   visualSmokeFixture: VisualSmokeFixture;
-}
-
-/**
- * Sanitize a single path segment for use under `screenshots/`. Allows
- * only `[a-zA-Z0-9._-]`; rejects everything else (slashes, `..`, NUL,
- * UTF-8 letters). Returns null when the input is empty after sanitization
- * so the capture IPC can fail-closed rather than write to an attacker-
- * controlled relative path.
- */
-function sanitizeSegment(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > 128) return null;
-  if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) return null;
-  if (trimmed === '.' || trimmed === '..') return null;
-  return trimmed;
 }
 
 export function registerAppIpc(deps: AppIpcDeps): void {
@@ -158,61 +141,4 @@ export function registerAppIpc(deps: AppIpcDeps): void {
     },
   );
   ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
-  /**
-   * PR-IR-01 screenshot capture (dev/test-only).
-   *
-   * Available only when `MAKA_VISUAL_SMOKE_FIXTURE` is set — refuses
-   * otherwise so real users / packaged builds can't be coerced into
-   * dumping the renderer to disk. The capture script
-   * (`scripts/capture-screenshots.mjs`) drives this IPC after the
-   * fixture finishes settling.
-   *
-   * Returns the absolute path of the written file or a structured
-   * failure reason. The renderer never sees absolute paths (per the
-   * filesystem-boundary contract); the script reads the result back
-   * over IPC because it owns the screenshot directory.
-   */
-  ipcMain.handle(
-    'visualSmoke:capture',
-    async (
-      _event,
-      input: { scenario: string; variant: string },
-    ): Promise<
-      | { ok: true; path: string }
-      | { ok: false; reason: 'not_in_fixture_mode' | 'invalid_input' | 'capture_failed' | 'write_failed' }
-    > => {
-      if (!visualSmokeFixture) return { ok: false, reason: 'not_in_fixture_mode' };
-      const scenario = sanitizeSegment(input?.scenario);
-      const variant = sanitizeSegment(input?.variant);
-      if (!scenario || !variant) return { ok: false, reason: 'invalid_input' };
-      let image: Electron.NativeImage;
-      try {
-        const capture = await mainWindowController.capturePage();
-        if (!capture) return { ok: false, reason: 'capture_failed' };
-        image = capture;
-      } catch {
-        return { ok: false, reason: 'capture_failed' };
-      }
-      const dir = join(workspaceRoot, 'screenshots', scenario);
-      try {
-        await mkdir(dir, { recursive: true });
-      } catch {
-        return { ok: false, reason: 'write_failed' };
-      }
-      const filePath = join(dir, `${variant}.png`);
-      try {
-        const { writeFile } = await import('node:fs/promises');
-        await writeFile(filePath, image.toPNG());
-      } catch {
-        return { ok: false, reason: 'write_failed' };
-      }
-      // Deterministic stdout marker so the driver script
-      // (`scripts/capture-screenshots.mjs`) can match on the line and
-      // know the capture completed without polling the filesystem.
-      // The line is single-token whitespace-separated so it's easy to
-      // parse by regex.
-      console.log(`[visual-smoke] captured scenario=${scenario} variant=${variant} path=${filePath}`);
-      return { ok: true, path: filePath };
-    },
-  );
 }

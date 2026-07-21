@@ -26,7 +26,6 @@ export interface MainWindowController {
   setTitleBarOverlayTheme(sender: Electron.WebContents, theme: unknown): void;
   showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue>;
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>;
-  capturePage(): Promise<Electron.NativeImage | null>;
   getBrowserViews(): BrowserViewManager<BrowserViewController>;
   disposeBrowserViews(): Promise<void>;
   hasOpenWindows(): boolean;
@@ -236,19 +235,16 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // The renderer signals `window:notifyRendererReady` after its first
       // commit (app.tsx) and a fallback timer below reveals the window if that
       // signal never arrives; the reveal gate (showWindowOnceReady) keeps the
-      // window hidden for its whole life under visual-smoke capture, where
-      // `webContents.capturePage()` still returns a painted frame because
-      // `paintWhenInitiallyHidden` defaults to true and the app must never take
-      // foreground while the developer keeps working in another app.
+      // window hidden until the first real content can paint, so the app
+      // never flashes the `.maka-preload` skeleton past it.
       show: false,
       // Native sidebar vibrancy lets the CSS-side sidebar render
       // transparent and inherit the system's blurred window material
       // (Big Sur+). Renderer CSS gates the transparency on
       // `[data-vibrancy="active"]` so non-macOS builds (where vibrancy is
       // a no-op) keep their opaque chrome.
-      // Skip vibrancy under MAKA_VISUAL_SMOKE_FIXTURE — capture environments
-      // can't paint native window material reliably, and the auto-capture
-      // renderer would stall waiting for compositor frames that never settle.
+      // Skip vibrancy under MAKA_VISUAL_SMOKE_FIXTURE — fixture / E2E
+      // environments can't paint native window material reliably.
       ...(process.platform === 'darwin' && !process.env.MAKA_VISUAL_SMOKE_FIXTURE
         ? { vibrancy: 'sidebar' as const }
         : {}),
@@ -428,10 +424,6 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       return mainWindow
         ? dialog.showSaveDialog(mainWindow, options)
         : dialog.showSaveDialog(options);
-    },
-    async capturePage() {
-      if (!mainWindow) return null;
-      return mainWindow.webContents.capturePage();
     },
     getBrowserViews,
     disposeBrowserViews,

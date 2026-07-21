@@ -176,72 +176,7 @@ export function createAppShellVisualSmokeActions(options: {
         });
       });
     }
-    // PR-IR-01: when MAKA_VISUAL_SMOKE_AUTO_CAPTURE is set, snap a
-    // screenshot once the fixture has settled and the renderer has
-    // committed. We wait two RAFs + a small idle delay so async layout
-    // (Settings modal mount, sidebar group rendering, etc.) finishes
-    // before the capture lands. The driver script reads the stdout
-    // marker emitted from main and kills the subprocess after.
-    if (state.autoCaptureVariant) {
-      const variant = state.autoCaptureVariant;
-      // Two RAFs + 400ms idle is the same pattern Chromium uses for
-      // settled layout in DevTools "Capture full size screenshot" —
-      // gives fonts and late-stream IPC time to flush.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTimeout(async () => {
-            // Keep screenshot baselines free of focus rings / caret blink.
-            // Interaction-specific focus behavior is covered by node tests
-            // and manual smoke paths; auto-capture should measure layout.
-            //
-            // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 exception (WAWQAQ
-            // msg `5dd1c348`): when the fixture asks for a focused
-            // active row (e.g. the `sidebar-row-actions-visible`
-            // scenario, which proves the overflow action doesn't
-            // overlap the time meta), the blur step would defeat the
-            // whole point of the capture. Skip the blur in that
-            // narrow case; other captures still get a clean (focusless)
-            // baseline.
-            if (!state.focusActiveRow && document.activeElement instanceof HTMLElement) {
-              document.activeElement.blur();
-            }
-            // #1233 deferral: the settings-bots-onboarding fixture opens a QR
-            // modal whose 'waiting' state depends on a main-process device-code
-            // start + QR render round-trip that outlasts the fixed idle above.
-            // Wait (bounded) for the QR image to actually paint so the capture
-            // lands on the deterministic waiting layout, not the transient
-            // "正在生成安全二维码…" spinner. `performance.now()` is used because
-            // `Date.now` is frozen to `state.now` in visual-smoke mode.
-            if (state.botOnboardingProvider) {
-              await waitForVisualSmokeElement('.settingsBotOnboardingQrFrame[data-state="waiting"] img');
-            }
-            if ('fonts' in document) {
-              await document.fonts.ready;
-            }
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                void window.maka.visualSmoke.capture({ scenario: state.scenario, variant });
-              });
-            });
-          }, 400);
-        });
-      });
-    }
   }
 
   return { applyVisualSmokeFixture };
-}
-
-/**
- * #1233 deferral: bounded poll for a selector to appear before an auto-capture.
- * Used for the QR-onboarding fixture, whose 'waiting' layout only paints after
- * an async main-process round-trip. Uses `performance.now()` (not `Date.now`,
- * which visual-smoke freezes) for the timeout bound. Visual-smoke only.
- */
-async function waitForVisualSmokeElement(selector: string, timeoutMs = 4_000): Promise<void> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    if (document.querySelector(selector)) return;
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  }
 }
