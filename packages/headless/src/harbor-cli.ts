@@ -6,9 +6,14 @@ import { dirname, join, resolve } from 'node:path';
 import type { BackendKind, ProviderType } from '@maka/core';
 import { isThinkingLevel, PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
 import type { Config, Task } from './contracts.js';
-import { validateHarborCellOutput } from './cell-output.js';
+import {
+  type HarborCellExecutionIdentity,
+  validateHarborCellExecutionIdentity,
+  validateHarborCellOutput,
+} from './cell-output.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
+import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import {
   buildHarborAiSdkBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
@@ -19,6 +24,7 @@ import {
   type RunHarborCellInput,
 } from './harbor-cell.js';
 import { classifyExternalHarborBenchmarkFailure } from './harbor-failure-policy.js';
+import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import type { RealBackendIsolation } from './isolation.js';
 import { writeTaskRunExport } from './result-export.js';
 import { backendNeedsIsolation } from './runner.js';
@@ -26,6 +32,7 @@ import { runTaskOnce } from './task-agent-controller.js';
 import { taxonomyFromResultRecord } from './task-contracts.js';
 import { createTaskRunStore } from './task-run-store.js';
 import { requireProviderCredentialEnv } from './provider-env.js';
+import { resolveHeadlessSystemPrompt } from './system-prompts.js';
 
 type HarborMode = 'cell' | 'task-run';
 type HarborIsolationMode = 'none' | 'harbor-local' | 'harbor-http';
@@ -46,6 +53,7 @@ interface HarborRunOptions {
   workdir: string;
   sourceWorkspaceDir: string;
   outDir: string;
+  cellArtifactDir: string;
   storageRoot: string;
   taskId: string;
   taskRunId: string;
@@ -150,12 +158,16 @@ async function runHarborCellMode(options: HarborRunOptions): Promise<number> {
 }
 
 async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> {
-  await mkdir(options.outDir, { recursive: true });
+  await Promise.all([
+    mkdir(options.outDir, { recursive: true }),
+    mkdir(options.cellArtifactDir, { recursive: true }),
+  ]);
   if (options.sourceWorkspaceDir !== options.workdir) {
     await mkdir(options.sourceWorkspaceDir, { recursive: true });
   }
   const store = createTaskRunStore(options.storageRoot);
   const task = buildHarborTask(options);
+  const executionIdentity = await writeTaskRunExecutionIdentity(options, task);
   const common = {
     storageRoot: options.storageRoot,
     taskRunStore: store,
@@ -218,6 +230,7 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
   const latestScore = run.projection.latestScoreResult;
   const cellArtifacts = await writeTaskRunCellArtifacts({
     options,
+    executionIdentity,
     resultRecord: run.resultRecord,
     scoreDetails: latestScore?.details,
   });
@@ -258,6 +271,7 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
 
 async function writeTaskRunCellArtifacts(input: {
   options: HarborRunOptions;
+  executionIdentity: HarborCellExecutionIdentity;
   resultRecord: Awaited<ReturnType<typeof runTaskOnce>>['resultRecord'];
   scoreDetails: Record<string, unknown> | undefined;
 }): Promise<{ outputPath: string; runtimeEventsPath: string }> {
@@ -266,35 +280,23 @@ async function writeTaskRunCellArtifacts(input: {
   if (!runtimeRefs) throw new Error('task-run result is missing runtime refs');
   const sessionId = requiredString(runtimeRefs.sessionId, 'runtimeRefs.sessionId');
   const runId = requiredString(runtimeRefs.runId, 'runtimeRefs.runId');
-  const runtimeEventsPath = join(input.options.outDir, 'runtime-events.jsonl');
+  const runtimeEventsPath = join(input.options.cellArtifactDir, 'runtime-events.jsonl');
   await copyFile(
     join(input.options.storageRoot, 'sessions', sessionId, 'runs', runId, 'runtime-events.jsonl'),
     runtimeEventsPath,
   );
 
   const promptHash = input.resultRecord.systemPromptHash;
+  if (promptHash !== input.executionIdentity.systemPromptHash) {
+    throw new Error('task-run result prompt hash disagrees with durable execution identity');
+  }
   const cell = validateHarborCellOutput({
     schemaVersion: 1,
     status: details.invocationStatus ?? input.resultRecord.status,
     ...(details.runtimeFailureClass ? { errorClass: details.runtimeFailureClass } : {}),
     runtimeEventsPath,
     ...(promptHash ? { promptHash } : {}),
-    ...(promptHash
-      ? {
-          executionIdentity: {
-            llmConnectionSlug: input.options.config.llmConnectionSlug,
-            model: input.options.config.model,
-            ...(input.options.config.thinkingLevel
-              ? { reasoningEffort: input.options.config.thinkingLevel }
-              : {}),
-            ...(input.resultRecord.systemPromptMode
-              ? { systemPromptMode: input.resultRecord.systemPromptMode }
-              : {}),
-            systemPromptHash: promptHash,
-            pricingProfile: input.options.env.MAKA_TRIAL_PRICING_SOURCE ?? 'runtime',
-          },
-        }
-      : {}),
+    executionIdentity: input.executionIdentity,
     toolSummary: details.tools,
     steps: details.steps ?? input.resultRecord.steps,
     durationMs: input.resultRecord.durationMs,
@@ -307,9 +309,33 @@ async function writeTaskRunCellArtifacts(input: {
       turnId: runtimeRefs.turnId,
     },
   });
-  const outputPath = join(input.options.outDir, 'maka-cell-output.json');
+  const outputPath = join(input.options.cellArtifactDir, 'maka-cell-output.json');
   await writeFile(outputPath, `${JSON.stringify(cell, null, 2)}\n`, 'utf8');
   return { outputPath, runtimeEventsPath };
+}
+
+async function writeTaskRunExecutionIdentity(
+  options: HarborRunOptions,
+  task: Task,
+): Promise<HarborCellExecutionIdentity> {
+  const prompt = resolveHeadlessSystemPrompt(options.config, {
+    heavyTaskMode: resolveHeavyTaskMode(options.config, task),
+    economyTaskMode: resolveEconomyTaskMode(options.config, task),
+  });
+  const executionIdentity = validateHarborCellExecutionIdentity({
+    llmConnectionSlug: options.config.llmConnectionSlug,
+    model: options.config.model,
+    ...(options.config.thinkingLevel ? { reasoningEffort: options.config.thinkingLevel } : {}),
+    systemPromptMode: prompt.mode,
+    systemPromptHash: prompt.systemPromptHash,
+    pricingProfile: options.env.MAKA_TRIAL_PRICING_SOURCE ?? 'runtime',
+  });
+  await writeFile(
+    join(options.cellArtifactDir, 'maka-cell-execution-identity.json'),
+    `${JSON.stringify(executionIdentity, null, 2)}\n`,
+    'utf8',
+  );
+  return executionIdentity;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -349,6 +375,7 @@ export async function resolveHarborRunOptions(
   preflightIsolation(backend, isolation, env);
 
   const outDir = resolve(valueOf(parsed, env, 'out', 'MAKA_OUTPUT_DIR') ?? '/logs/agent');
+  const cellArtifactDir = resolve(env.MAKA_CELL_ARTIFACT_DIR ?? outDir);
   const storageRoot = resolve(
     valueOf(parsed, env, 'storage-root', 'MAKA_STORAGE_ROOT') ??
       (mode === 'task-run' ? join(outDir, 'runs') : join(outDir, 'maka-storage')),
@@ -399,6 +426,7 @@ export async function resolveHarborRunOptions(
     workdir,
     sourceWorkspaceDir,
     outDir,
+    cellArtifactDir,
     storageRoot,
     taskId,
     taskRunId,

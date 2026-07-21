@@ -232,6 +232,7 @@ describe('maka-headless CLI', () => {
     try {
       const fixture = join(dir, 'fixture');
       const outDir = join(dir, 'out');
+      const cellArtifactDir = join(dir, 'cell-artifacts');
       await mkdir(fixture, { recursive: true });
       await writeFile(join(fixture, 'README.txt'), 'Harbor owns the task workspace.\n', 'utf8');
 
@@ -258,6 +259,7 @@ describe('maka-headless CLI', () => {
         {
           env: {
             MAKA_ECONOMY_TASK_MODE: 'true',
+            MAKA_CELL_ARTIFACT_DIR: cellArtifactDir,
             MAKA_MODEL: 'fake-model',
             MAKA_REASONING_EFFORT: 'xhigh',
             MAKA_TRIAL_PRICING_SOURCE: 'test-account-plan',
@@ -272,7 +274,7 @@ describe('maka-headless CLI', () => {
       assert.equal(summary.authoritative, false);
 
       const cell = validateHarborCellOutput(
-        JSON.parse(await readFile(join(outDir, 'maka-cell-output.json'), 'utf8')),
+        JSON.parse(await readFile(join(cellArtifactDir, 'maka-cell-output.json'), 'utf8')),
       );
       assert.equal(cell.status, 'completed');
       assert.equal(cell.promptHash, cell.executionIdentity?.systemPromptHash);
@@ -281,8 +283,12 @@ describe('maka-headless CLI', () => {
       assert.equal(cell.executionIdentity?.reasoningEffort, 'xhigh');
       assert.equal(cell.executionIdentity?.pricingProfile, 'test-account-plan');
       assert.equal(cell.toolSummary.actualToolCalls, 0);
-      assert.equal(cell.runtimeEventsPath, join(outDir, 'runtime-events.jsonl'));
+      assert.equal(cell.runtimeEventsPath, join(cellArtifactDir, 'runtime-events.jsonl'));
       assert.match(await readFile(cell.runtimeEventsPath, 'utf8'), /"role":"system"/);
+      const durableIdentity = JSON.parse(
+        await readFile(join(cellArtifactDir, 'maka-cell-execution-identity.json'), 'utf8'),
+      );
+      assert.deepEqual(durableIdentity, cell.executionIdentity);
 
       const taskRunJson = JSON.parse(
         await readFile(join(outDir, 'exports', 'harbor-run-1', 'task-run.json'), 'utf8'),

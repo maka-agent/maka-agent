@@ -596,6 +596,7 @@ class MakaAgent(BaseInstalledAgent):
         env.setdefault("MAKA_MODEL", "deepseek-chat")
         env.setdefault("MAKA_MAX_STEPS", "35")
         env.setdefault("MAKA_TASK_RUN_OUT_DIR", str(self.logs_dir / "maka-task-run"))
+        env.setdefault("MAKA_CELL_ARTIFACT_DIR", str(self.logs_dir))
         task_run_out_dir = Path(env["MAKA_TASK_RUN_OUT_DIR"])
         if not task_run_out_dir.is_absolute():
             task_run_out_dir = task_run_out_dir.resolve()
