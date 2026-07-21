@@ -6,12 +6,18 @@ import {
   type RuntimeEventFunctionCallContent,
   type RuntimeEventFunctionResponseContent,
 } from '@maka/core/runtime-event';
-import { resolveRuntimeRecovery, type RuntimeRecoveryResolution } from './recovery-resolver.js';
+import {
+  resolveRuntimeRecovery,
+  type RecoveryReasonCode,
+  type RuntimeRecoveryResolution,
+} from './recovery-resolver.js';
+import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 
 export type ToolOperationStatus =
   | 'succeeded'
   | 'failed'
-  | 'indeterminate'
+  | 'reconcile_required'
+  | 'parked'
   | 'not_dispatched'
   | 'corruption';
 
@@ -23,6 +29,8 @@ export interface ToolOperation {
   callRuntimeEventId: string;
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
+  recoveryReason: RecoveryReasonCode;
+  evidenceEventIds: readonly string[];
 }
 
 export type ResumePlanDisposition = 'safe_replay' | 'blocked';
@@ -78,6 +86,7 @@ export type ResumePlanDiagnosticCode =
   | 'resume_candidate_missing'
   | 'tool_not_dispatched'
   | 'tool_recovery_corruption'
+  | 'tool_recovery_parked'
   | 'protocol_marker_invalid'
   | 'runtime_fact_unsupported';
 
@@ -129,6 +138,7 @@ export interface ResumePlan {
 
 export interface BuildResumePlanOptions {
   expectedRuntimeEventHighWater?: number;
+  recoveryContracts?: ToolRecoveryContractRegistry;
 }
 
 export type RuntimeResumeFailpointId =
@@ -449,12 +459,15 @@ function hasConsistentTerminalBoundary(
   return eventStatus === runStatus;
 }
 
-export const INDETERMINATE_TOOL_RESULT_DIRECTIVE = [
+export const UNSETTLED_TOOL_RESULT_DIRECTIVE = [
   'Tool execution was interrupted before a matching committed tool result was found.',
   'The side effects may or may not have occurred.',
   'Do not retry the tool call immediately.',
   'Use read-only inspection tools to verify the current state before deciding the next step.',
 ].join(' ');
+
+/** @deprecated Use UNSETTLED_TOOL_RESULT_DIRECTIVE. */
+export const INDETERMINATE_TOOL_RESULT_DIRECTIVE = UNSETTLED_TOOL_RESULT_DIRECTIVE;
 
 export function projectToolOperationsFromRuntimeEvents(
   events: readonly RuntimeEvent[],
@@ -476,19 +489,21 @@ function projectToolOperations(
     const call = callsByEventId.get(decision.callRuntimeEventId);
     if (!call) return [];
     const status: ToolOperationStatus =
-      decision.status === 'completed'
+      decision.disposition === 'completed'
         ? decision.responseIsError
           ? 'failed'
           : 'succeeded'
-        : decision.status === 'definitely_not_dispatched'
+        : decision.disposition === 'definitely_not_dispatched'
           ? 'not_dispatched'
-          : decision.status;
+          : decision.disposition;
     return [
       {
         toolCallId: decision.toolCallId,
         toolName: call.name,
         args: call.args,
         status,
+        recoveryReason: decision.reasonCode,
+        evidenceEventIds: decision.evidenceEventIds,
         callRuntimeEventId: decision.callRuntimeEventId,
         ...(decision.responseRuntimeEventId
           ? { responseRuntimeEventId: decision.responseRuntimeEventId }
@@ -505,12 +520,14 @@ export function buildResumePlanFromRuntimeEvents(
   events: readonly RuntimeEvent[],
   options: BuildResumePlanOptions = {},
 ): ResumePlan {
-  const recovery = resolveRuntimeRecovery(events);
+  const recovery = resolveRuntimeRecovery(events, { contracts: options.recoveryContracts });
   const operations = projectToolOperations(events, recovery);
   const sourceRuntimeEventHighWater = events.length;
   const diagnostics = collectResumeDiagnostics(events, operations, options, recovery);
   const rejectionReasons = deriveRejectionReasons(diagnostics);
-  const requiresVerification = operations.some((operation) => operation.status === 'indeterminate');
+  const requiresVerification = operations.some(
+    (operation) => operation.status === 'parked' || operation.status === 'reconcile_required',
+  );
   const disposition: ResumePlanDisposition =
     rejectionReasons.length === 0 && !requiresVerification ? 'safe_replay' : 'blocked';
 
@@ -521,7 +538,7 @@ export function buildResumePlanFromRuntimeEvents(
     rejectionReasons,
     requiresVerification,
     sourceRuntimeEventHighWater,
-    ...(requiresVerification ? { directive: INDETERMINATE_TOOL_RESULT_DIRECTIVE } : {}),
+    ...(requiresVerification ? { directive: UNSETTLED_TOOL_RESULT_DIRECTIVE } : {}),
     runtimeEvents: [...events],
     replayRuntimeEvents: buildResumeReplayRuntimeEvents(events),
   };
@@ -811,13 +828,20 @@ function collectResumeDiagnostics(
   }
 
   for (const operation of operations) {
-    if (operation.status === 'indeterminate') {
+    if (operation.status === 'parked' || operation.status === 'reconcile_required') {
       diagnostics.push({
-        code: 'pending_tool_result',
-        message: 'function_call has no matching committed function_response',
+        code: operation.status === 'parked' ? 'tool_recovery_parked' : 'pending_tool_result',
+        message:
+          operation.status === 'parked'
+            ? `tool recovery parked: ${operation.recoveryReason}`
+            : 'tool recovery requires reconciliation before continuation',
         eventId: operation.callRuntimeEventId,
         toolCallId: operation.toolCallId,
         toolName: operation.toolName,
+        detail: {
+          reasonCode: operation.recoveryReason,
+          evidenceEventIds: operation.evidenceEventIds,
+        },
       });
     } else if (operation.status === 'not_dispatched') {
       diagnostics.push({
@@ -862,14 +886,14 @@ function collectResumeDiagnostics(
 
   for (const decision of recovery.decisions) {
     if (
-      decision.status !== 'corruption' ||
+      decision.disposition !== 'corruption' ||
       decision.callRuntimeEventId ||
-      decision.reason === 'orphan_response'
+      decision.reasonCode === 'orphan_response'
     )
       continue;
     diagnostics.push({
       code: 'tool_recovery_corruption',
-      message: `tool recovery fact is corrupt: ${decision.reason}`,
+      message: `tool recovery fact is corrupt: ${decision.reasonCode}`,
       eventId: decision.dispatchRuntimeEventId ?? decision.responseRuntimeEventId,
       toolCallId: decision.toolCallId,
       ...(decision.toolName ? { toolName: decision.toolName } : {}),
@@ -926,6 +950,7 @@ function deriveRejectionReasons(
         reasons.add('runtime_fact_unsupported');
         break;
       case 'pending_tool_result':
+      case 'tool_recovery_parked':
       case 'tool_not_dispatched':
       case 'tool_recovery_corruption':
       case 'protocol_marker_invalid':

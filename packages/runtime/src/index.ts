@@ -1044,6 +1044,7 @@ export type {
 // runtime-resume.ts - Phase 0 replay projection + Phase 1 safe continuation gates.
 export {
   INDETERMINATE_TOOL_RESULT_DIRECTIVE,
+  UNSETTLED_TOOL_RESULT_DIRECTIVE,
   RUNTIME_RESUME_FAILPOINTS,
   RuntimeContinuationRevalidationError,
   RuntimeContinuationPlanner,
@@ -1077,11 +1078,29 @@ export type {
 
 export { resolveRuntimeRecovery } from './recovery-resolver.js';
 export type {
+  ResolveRuntimeRecoveryOptions,
+  RecoveryDecision,
+  RecoveryDisposition,
+  RecoveryReasonCode,
   RuntimeRecoveryResolution,
   ToolRecoveryDecision,
   ToolRecoveryDecisionReason,
   ToolRecoveryDecisionStatus,
 } from './recovery-resolver.js';
+
+export {
+  TOOL_RECOVERY_CONTRACT_MODES,
+  ToolRecoveryContractRegistry,
+  durableRecoveryModeForContract,
+} from './tool-recovery-contract.js';
+export type {
+  ToolRecoveryContract,
+  ToolRecoveryContractMode,
+  ToolRecoveryContractRegistration,
+  ToolRecoveryContractResolution,
+  ToolReconcileDecision,
+  UnsettledToolOperation,
+} from './tool-recovery-contract.js';
 
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';

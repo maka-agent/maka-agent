@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { resolveRuntimeRecovery } from '../recovery-resolver.js';
+import { ToolRecoveryContractRegistry } from '../tool-recovery-contract.js';
 
 describe('RecoveryResolver', () => {
   it('proves a new-protocol call without dispatch was never dispatched', () => {
@@ -14,16 +15,18 @@ describe('RecoveryResolver', () => {
       {
         toolCallId: 'call-1',
         toolName: 'Bash',
-        status: 'definitely_not_dispatched',
-        reason: 'new_protocol_before_dispatch',
+        disposition: 'definitely_not_dispatched',
+        reasonCode: 'new_protocol_before_dispatch',
         callRuntimeEventId: 'function-call-1',
+        automaticActionAllowed: true,
+        evidenceEventIds: ['function-call-1'],
       },
     ]);
     assert.equal(resolution.hasCorruption, false);
     assert.equal(resolution.requiresReconciliation, false);
   });
 
-  it('requires reconciliation after dispatch when no response was committed', () => {
+  it('parks a dispatched operation when the current runtime has no recovery contract', () => {
     const resolution = resolveRuntimeRecovery([
       initialEvent('t1_after_preflight_v1'),
       functionCallEvent(),
@@ -35,14 +38,111 @@ describe('RecoveryResolver', () => {
         toolCallId: 'call-1',
         toolName: 'Bash',
         operationId: 'operation-1',
-        status: 'indeterminate',
-        reason: 'dispatch_without_response',
+        disposition: 'parked',
+        reasonCode: 'recovery_contract_unavailable',
         callRuntimeEventId: 'function-call-1',
         dispatchRuntimeEventId: 'dispatch-1',
+        automaticActionAllowed: false,
+        evidenceEventIds: ['function-call-1', 'dispatch-1'],
       },
     ]);
     assert.equal(resolution.hasCorruption, false);
+    assert.equal(resolution.requiresReconciliation, false);
+  });
+
+  it('parks a dispatched manual-only operation without authorizing an automatic action', () => {
+    const contracts = new ToolRecoveryContractRegistry([
+      {
+        toolName: 'Bash',
+        contract: {
+          id: 'maka.tool.bash.manual',
+          version: 1,
+          mode: 'manual_only',
+        },
+      },
+    ]);
+    const resolution = resolveRuntimeRecovery(
+      [initialEvent('t1_after_preflight_v1'), functionCallEvent(), toolDispatchEvent()],
+      { contracts },
+    );
+
+    assert.equal(resolution.decisions[0]?.disposition, 'parked');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'manual_recovery_required');
+    assert.equal(resolution.decisions[0]?.recoveryContractId, 'maka.tool.bash.manual@1');
+    assert.equal(resolution.decisions[0]?.automaticActionAllowed, false);
+    assert.equal(resolution.requiresReconciliation, false);
+  });
+
+  it('requires reconciliation when a matching non-manual contract is available', () => {
+    const contracts = new ToolRecoveryContractRegistry([
+      {
+        toolName: 'Bash',
+        contract: {
+          id: 'maka.tool.bash.status',
+          version: 2,
+          mode: 'reconcile_then_decide',
+        },
+      },
+    ]);
+    const dispatch = toolDispatchEvent({ recoveryMode: 'reconcile' });
+
+    const resolution = resolveRuntimeRecovery(
+      [initialEvent('t1_after_preflight_v1'), functionCallEvent(), dispatch],
+      { contracts },
+    );
+
+    assert.equal(resolution.decisions[0]?.disposition, 'reconcile_required');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'recovery_contract_available');
+    assert.equal(resolution.decisions[0]?.recoveryContractId, 'maka.tool.bash.status@2');
+    assert.equal(resolution.decisions[0]?.automaticActionAllowed, true);
     assert.equal(resolution.requiresReconciliation, true);
+  });
+
+  it('returns the same decision and evidence for the same canonical facts', () => {
+    const contracts = new ToolRecoveryContractRegistry([
+      {
+        toolName: 'Write',
+        contract: {
+          id: 'maka.tool.write.reconcile',
+          version: 1,
+          mode: 'reconcile_then_decide',
+        },
+      },
+    ]);
+    const events = [
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+      toolDispatchEvent({ toolName: 'Write', recoveryMode: 'reconcile' }),
+    ];
+
+    const first = resolveRuntimeRecovery(events, { contracts });
+    const second = resolveRuntimeRecovery(events, { contracts });
+
+    assert.deepEqual(second, first);
+    assert.deepEqual(first.decisions[0]?.evidenceEventIds, ['function-call-1', 'dispatch-1']);
+  });
+
+  it('parks when the registered contract conflicts with the durable recovery mode', () => {
+    const contracts = new ToolRecoveryContractRegistry([
+      {
+        toolName: 'Bash',
+        contract: {
+          id: 'maka.tool.bash.status',
+          version: 1,
+          mode: 'reconcile_then_decide',
+        },
+      },
+    ]);
+    const resolution = resolveRuntimeRecovery(
+      [initialEvent('t1_after_preflight_v1'), functionCallEvent(), toolDispatchEvent()],
+      { contracts },
+    );
+
+    assert.equal(resolution.decisions[0]?.disposition, 'parked');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'recovery_contract_mismatch');
+    assert.equal(resolution.decisions[0]?.recoveryContractId, 'maka.tool.bash.status@1');
+    assert.equal(resolution.decisions[0]?.automaticActionAllowed, false);
+    assert.equal(resolution.requiresReconciliation, false);
   });
 
   it('treats a matching response without dispatch as a completed pre-T1 result', () => {
@@ -56,11 +156,13 @@ describe('RecoveryResolver', () => {
       {
         toolCallId: 'call-1',
         toolName: 'Bash',
-        status: 'completed',
-        reason: 'matching_response',
+        disposition: 'completed',
+        reasonCode: 'matching_response',
         callRuntimeEventId: 'function-call-1',
         responseRuntimeEventId: 'function-response-1',
         responseIsError: true,
+        automaticActionAllowed: true,
+        evidenceEventIds: ['function-call-1', 'function-response-1'],
       },
     ]);
     assert.equal(resolution.requiresReconciliation, false);
@@ -77,13 +179,65 @@ describe('RecoveryResolver', () => {
         toolCallId: 'call-1',
         toolName: 'Bash',
         operationId: 'operation-1',
-        status: 'corruption',
-        reason: 'orphan_dispatch',
+        disposition: 'corruption',
+        reasonCode: 'orphan_dispatch',
         dispatchRuntimeEventId: 'dispatch-1',
+        automaticActionAllowed: false,
+        evidenceEventIds: ['dispatch-1'],
       },
     ]);
     assert.equal(resolution.hasCorruption, true);
     assert.equal(resolution.requiresReconciliation, false);
+  });
+
+  it('classifies repeated canonical function calls for one provider id as corruption', () => {
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+      { ...functionCallEvent(), id: 'function-call-2' },
+    ]);
+
+    assert.equal(resolution.decisions.length, 1);
+    assert.equal(resolution.decisions[0]?.disposition, 'corruption');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'duplicate_call');
+    assert.equal(resolution.hasCorruption, true);
+  });
+
+  it('classifies a canonical call whose reference names another provider call as corruption', () => {
+    const call = functionCallEvent();
+    call.refs = { toolCallId: 'different-call' };
+
+    const resolution = resolveRuntimeRecovery([initialEvent('t1_after_preflight_v1'), call]);
+
+    assert.equal(resolution.decisions[0]?.disposition, 'corruption');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'identity_conflict');
+    assert.equal(resolution.decisions[0]?.automaticActionAllowed, false);
+    assert.equal(resolution.hasCorruption, true);
+  });
+
+  it('classifies one operation id claimed by different canonical calls as corruption', () => {
+    const first = functionCallEvent();
+    first.refs = { operationId: 'operation-1', toolCallId: 'call-1' };
+    const second = functionCallEvent('call-2', 'function-call-2');
+    second.refs = { operationId: 'operation-1', toolCallId: 'call-2' };
+
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      first,
+      second,
+    ]);
+
+    assert.deepEqual(
+      resolution.decisions.map(({ toolCallId, disposition, reasonCode }) => ({
+        toolCallId,
+        disposition,
+        reasonCode,
+      })),
+      [
+        { toolCallId: 'call-1', disposition: 'corruption', reasonCode: 'duplicate_operation_id' },
+        { toolCallId: 'call-2', disposition: 'corruption', reasonCode: 'duplicate_operation_id' },
+      ],
+    );
   });
 
   it('classifies a response without its canonical function call as corruption', () => {
@@ -96,10 +250,12 @@ describe('RecoveryResolver', () => {
       {
         toolCallId: 'call-1',
         toolName: 'Bash',
-        status: 'corruption',
-        reason: 'orphan_response',
+        disposition: 'corruption',
+        reasonCode: 'orphan_response',
         responseRuntimeEventId: 'function-response-1',
         responseIsError: false,
+        automaticActionAllowed: false,
+        evidenceEventIds: ['function-response-1'],
       },
     ]);
     assert.equal(resolution.hasCorruption, true);
@@ -117,12 +273,28 @@ describe('RecoveryResolver', () => {
         toolCallId: 'call-1',
         toolName: 'Bash',
         operationId: 'operation-1',
-        status: 'corruption',
-        reason: 'identity_conflict',
+        disposition: 'corruption',
+        reasonCode: 'identity_conflict',
         callRuntimeEventId: 'function-call-1',
         dispatchRuntimeEventId: 'dispatch-1',
+        automaticActionAllowed: false,
+        evidenceEventIds: ['function-call-1', 'dispatch-1'],
       },
     ]);
+    assert.equal(resolution.hasCorruption, true);
+  });
+
+  it('classifies a dispatch operation that conflicts with the canonical call ref as corruption', () => {
+    const call = functionCallEvent();
+    call.refs = { operationId: 'operation-from-call', toolCallId: 'call-1' };
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      call,
+      toolDispatchEvent(),
+    ]);
+
+    assert.equal(resolution.decisions[0]?.disposition, 'corruption');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'identity_conflict');
     assert.equal(resolution.hasCorruption, true);
   });
 
@@ -139,14 +311,43 @@ describe('RecoveryResolver', () => {
         toolCallId: 'call-1',
         toolName: 'Bash',
         operationId: 'operation-1',
-        status: 'corruption',
-        reason: 'duplicate_dispatch',
+        disposition: 'corruption',
+        reasonCode: 'duplicate_dispatch',
         callRuntimeEventId: 'function-call-1',
         dispatchRuntimeEventId: 'dispatch-1',
+        automaticActionAllowed: false,
+        evidenceEventIds: ['function-call-1', 'dispatch-1', 'dispatch-2'],
       },
     ]);
     assert.equal(resolution.hasCorruption, true);
     assert.equal(resolution.requiresReconciliation, false);
+  });
+
+  it('classifies one operation id dispatched for different tool calls as corruption', () => {
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+      functionCallEvent('call-2', 'function-call-2'),
+      toolDispatchEvent(),
+      toolDispatchEvent({
+        id: 'dispatch-2',
+        providerToolCallId: 'call-2',
+        operationId: 'operation-1',
+      }),
+    ]);
+
+    assert.deepEqual(
+      resolution.decisions.map(({ toolCallId, disposition, reasonCode }) => ({
+        toolCallId,
+        disposition,
+        reasonCode,
+      })),
+      [
+        { toolCallId: 'call-1', disposition: 'corruption', reasonCode: 'duplicate_operation_id' },
+        { toolCallId: 'call-2', disposition: 'corruption', reasonCode: 'duplicate_operation_id' },
+      ],
+    );
+    assert.equal(resolution.hasCorruption, true);
   });
 
   it('classifies repeated response for one operation as corruption', () => {
@@ -163,12 +364,19 @@ describe('RecoveryResolver', () => {
         toolCallId: 'call-1',
         toolName: 'Bash',
         operationId: 'operation-1',
-        status: 'corruption',
-        reason: 'duplicate_response',
+        disposition: 'corruption',
+        reasonCode: 'duplicate_response',
         callRuntimeEventId: 'function-call-1',
         dispatchRuntimeEventId: 'dispatch-1',
         responseRuntimeEventId: 'function-response-1',
         responseIsError: false,
+        automaticActionAllowed: false,
+        evidenceEventIds: [
+          'function-call-1',
+          'dispatch-1',
+          'function-response-1',
+          'function-response-2',
+        ],
       },
     ]);
     assert.equal(resolution.hasCorruption, true);
@@ -192,6 +400,25 @@ describe('RecoveryResolver', () => {
     ]);
     assert.equal(resolution.toolBoundaryProtocol, undefined);
     assert.equal(resolution.hasCorruption, true);
+  });
+
+  it('evaluates the protocol marker against the first non-partial canonical event', () => {
+    const partial = event({
+      id: 'stream-partial',
+      partial: true,
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: 'streaming' },
+    });
+    const resolution = resolveRuntimeRecovery([
+      partial,
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+    ]);
+
+    assert.equal(resolution.toolBoundaryProtocol, 't1_after_preflight_v1');
+    assert.deepEqual(resolution.issues, []);
+    assert.equal(resolution.decisions[0]?.disposition, 'definitely_not_dispatched');
   });
 
   it('reports an unknown runtime fact as unsupported without calling the ledger corrupt', () => {
@@ -235,10 +462,11 @@ describe('RecoveryResolver', () => {
         eventId: 'initial-1',
       },
     ]);
-    assert.equal(resolution.decisions[0]?.status, 'indeterminate');
-    assert.equal(resolution.decisions[0]?.reason, 'legacy_dispatch_unknown');
+    assert.equal(resolution.decisions[0]?.disposition, 'parked');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'legacy_dispatch_unknown');
+    assert.equal(resolution.decisions[0]?.automaticActionAllowed, false);
     assert.equal(resolution.hasCorruption, true);
-    assert.equal(resolution.requiresReconciliation, true);
+    assert.equal(resolution.requiresReconciliation, false);
   });
 
   it('classifies a response linked to a different operation as corruption', () => {
@@ -249,8 +477,8 @@ describe('RecoveryResolver', () => {
       functionResponseEvent(false, 'another-operation'),
     ]);
 
-    assert.equal(resolution.decisions[0]?.status, 'corruption');
-    assert.equal(resolution.decisions[0]?.reason, 'identity_conflict');
+    assert.equal(resolution.decisions[0]?.disposition, 'corruption');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'identity_conflict');
     assert.equal(resolution.decisions[0]?.responseRuntimeEventId, 'function-response-1');
     assert.equal(resolution.hasCorruption, true);
   });
@@ -266,29 +494,39 @@ function initialEvent(toolBoundary?: 't1_after_preflight_v1'): RuntimeEvent {
   });
 }
 
-function functionCallEvent(): RuntimeEvent {
+function functionCallEvent(toolCallId = 'call-1', eventId = 'function-call-1'): RuntimeEvent {
   return event({
-    id: 'function-call-1',
+    id: eventId,
     role: 'model',
     author: 'agent',
-    content: { kind: 'function_call', id: 'call-1', name: 'Bash', args: { command: 'do-it' } },
+    content: { kind: 'function_call', id: toolCallId, name: 'Bash', args: { command: 'do-it' } },
   });
 }
 
-function toolDispatchEvent(overrides: { toolName?: string } = {}): RuntimeEvent {
+function toolDispatchEvent(
+  overrides: {
+    toolName?: string;
+    recoveryMode?: 'replay_safe' | 'idempotent' | 'reconcile' | 'reattach' | 'never_auto_retry';
+    id?: string;
+    operationId?: string;
+    providerToolCallId?: string;
+  } = {},
+): RuntimeEvent {
+  const operationId = overrides.operationId ?? 'operation-1';
+  const providerToolCallId = overrides.providerToolCallId ?? 'call-1';
   return event({
-    id: 'dispatch-1',
+    id: overrides.id ?? 'dispatch-1',
     actions: {
       toolDispatch: {
         protocol: 't1_after_preflight_v1',
-        operationId: 'operation-1',
-        providerToolCallId: 'call-1',
+        operationId,
+        providerToolCallId,
         toolName: overrides.toolName ?? 'Bash',
         canonicalArgsHash: 'args-hash-1',
-        recoveryMode: 'never_auto_retry',
+        recoveryMode: overrides.recoveryMode ?? 'never_auto_retry',
       },
     },
-    refs: { operationId: 'operation-1', toolCallId: 'call-1' },
+    refs: { operationId, toolCallId: providerToolCallId },
   });
 }
 

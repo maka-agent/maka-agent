@@ -3,40 +3,60 @@ import {
   type RuntimeEvent,
   type ToolBoundaryProtocol,
 } from '@maka/core/runtime-event';
+import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 
-export type ToolRecoveryDecisionStatus =
+export type RecoveryDisposition =
   | 'completed'
   | 'definitely_not_dispatched'
-  | 'indeterminate'
+  | 'reconcile_required'
+  | 'parked'
   | 'corruption';
 
-export type ToolRecoveryDecisionReason =
+export type RecoveryReasonCode =
   | 'matching_response'
-  | 'dispatch_without_response'
+  | 'recovery_contract_available'
+  | 'recovery_contract_unavailable'
+  | 'recovery_contract_mismatch'
+  | 'manual_recovery_required'
   | 'new_protocol_before_dispatch'
   | 'legacy_dispatch_unknown'
   | 'orphan_dispatch'
   | 'orphan_response'
+  | 'duplicate_call'
   | 'duplicate_dispatch'
   | 'duplicate_response'
-  | 'identity_conflict'
-  | 'protocol_marker_invalid';
+  | 'duplicate_operation_id'
+  | 'identity_conflict';
 
-export interface ToolRecoveryDecision {
+export interface RecoveryDecision {
   toolCallId: string;
   toolName?: string;
   operationId?: string;
-  status: ToolRecoveryDecisionStatus;
-  reason: ToolRecoveryDecisionReason;
+  disposition: RecoveryDisposition;
+  reasonCode: RecoveryReasonCode;
   callRuntimeEventId?: string;
   dispatchRuntimeEventId?: string;
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
+  recoveryContractId?: string;
+  automaticActionAllowed: boolean;
+  evidenceEventIds: string[];
+}
+
+/** @deprecated Use RecoveryDisposition. */
+export type ToolRecoveryDecisionStatus = RecoveryDisposition;
+/** @deprecated Use RecoveryReasonCode. */
+export type ToolRecoveryDecisionReason = RecoveryReasonCode;
+/** @deprecated Use RecoveryDecision. */
+export type ToolRecoveryDecision = RecoveryDecision;
+
+export interface ResolveRuntimeRecoveryOptions {
+  contracts?: ToolRecoveryContractRegistry;
 }
 
 export interface RuntimeRecoveryResolution {
   toolBoundaryProtocol?: ToolBoundaryProtocol;
-  decisions: ToolRecoveryDecision[];
+  decisions: RecoveryDecision[];
   issues: Array<
     | {
         code: 'protocol_marker_invalid';
@@ -54,26 +74,31 @@ export interface RuntimeRecoveryResolution {
   requiresReconciliation: boolean;
 }
 
-export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): RuntimeRecoveryResolution {
-  const firstProtocol = events[0]?.actions?.runtimeProtocol;
+export function resolveRuntimeRecovery(
+  events: readonly RuntimeEvent[],
+  options: ResolveRuntimeRecoveryOptions = {},
+): RuntimeRecoveryResolution {
+  const canonicalEvents = events.filter((event) => !event.partial);
+  const firstCanonicalEvent = canonicalEvents[0];
+  const firstProtocol = firstCanonicalEvent?.actions?.runtimeProtocol;
   const toolBoundaryProtocol =
     firstProtocol?.toolBoundary === TOOL_BOUNDARY_PROTOCOL_V1
       ? TOOL_BOUNDARY_PROTOCOL_V1
       : undefined;
   const issues: RuntimeRecoveryResolution['issues'] = [];
-  if (firstProtocol !== undefined && toolBoundaryProtocol === undefined && events[0]) {
+  if (firstProtocol !== undefined && toolBoundaryProtocol === undefined && firstCanonicalEvent) {
     issues.push({
       code: 'protocol_marker_invalid' as const,
-      eventId: events[0].id,
+      eventId: firstCanonicalEvent.id,
     });
   }
   issues.push(
-    ...events
+    ...canonicalEvents
       .slice(1)
       .filter((event) => event.actions?.runtimeProtocol !== undefined)
       .map((event) => ({ code: 'protocol_marker_invalid' as const, eventId: event.id })),
   );
-  for (const event of events) {
+  for (const event of canonicalEvents) {
     const fact = event.actions?.runtimeFact;
     if (!fact) continue;
     // PR 0 introduces the compatibility envelope but intentionally registers
@@ -85,19 +110,50 @@ export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): Runtime
       version: fact.version,
     });
   }
-  const decisions: ToolRecoveryDecision[] = [];
-  const decisionsByToolCallId = new Map<string, ToolRecoveryDecision>();
+  const decisions: RecoveryDecision[] = [];
+  const decisionsByToolCallId = new Map<string, RecoveryDecision>();
   for (const event of events) {
     if (event.partial || event.content?.kind !== 'function_call') continue;
-    const decision: ToolRecoveryDecision = {
+    const existing = decisionsByToolCallId.get(event.content.id);
+    if (existing) {
+      existing.evidenceEventIds.push(event.id);
+      existing.disposition = 'corruption';
+      existing.reasonCode = 'duplicate_call';
+      existing.automaticActionAllowed = false;
+      continue;
+    }
+    const decision: RecoveryDecision = {
       toolCallId: event.content.id,
       toolName: event.content.name,
-      status: toolBoundaryProtocol ? 'definitely_not_dispatched' : 'indeterminate',
-      reason: toolBoundaryProtocol ? 'new_protocol_before_dispatch' : 'legacy_dispatch_unknown',
+      ...(event.refs?.operationId ? { operationId: event.refs.operationId } : {}),
+      disposition: toolBoundaryProtocol ? 'definitely_not_dispatched' : 'parked',
+      reasonCode: toolBoundaryProtocol ? 'new_protocol_before_dispatch' : 'legacy_dispatch_unknown',
       callRuntimeEventId: event.id,
+      automaticActionAllowed: toolBoundaryProtocol !== undefined,
+      evidenceEventIds: [event.id],
     };
+    if (event.refs?.toolCallId !== undefined && event.refs.toolCallId !== event.content.id) {
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'identity_conflict';
+      decision.automaticActionAllowed = false;
+    }
     decisions.push(decision);
     decisionsByToolCallId.set(decision.toolCallId, decision);
+  }
+  const decisionsByOperationId = new Map<string, RecoveryDecision>();
+  for (const decision of decisions) {
+    if (!decision.operationId) continue;
+    const existing = decisionsByOperationId.get(decision.operationId);
+    if (existing && existing !== decision) {
+      existing.disposition = 'corruption';
+      existing.reasonCode = 'duplicate_operation_id';
+      existing.automaticActionAllowed = false;
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'duplicate_operation_id';
+      decision.automaticActionAllowed = false;
+      continue;
+    }
+    decisionsByOperationId.set(decision.operationId, decision);
   }
   for (const event of events) {
     if (event.partial) continue;
@@ -109,30 +165,74 @@ export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): Runtime
         toolCallId: dispatch.providerToolCallId,
         toolName: dispatch.toolName,
         operationId: dispatch.operationId,
-        status: 'corruption',
-        reason: 'orphan_dispatch',
+        disposition: 'corruption',
+        reasonCode: 'orphan_dispatch',
         dispatchRuntimeEventId: event.id,
+        automaticActionAllowed: false,
+        evidenceEventIds: [event.id],
       });
       continue;
     }
     if (decision.dispatchRuntimeEventId !== undefined) {
-      decision.status = 'corruption';
-      decision.reason = 'duplicate_dispatch';
+      decision.evidenceEventIds.push(event.id);
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'duplicate_dispatch';
+      decision.automaticActionAllowed = false;
       continue;
     }
-    decision.operationId = dispatch.operationId;
+    const operationOwner = decisionsByOperationId.get(dispatch.operationId);
+    if (operationOwner && operationOwner !== decision) {
+      operationOwner.disposition = 'corruption';
+      operationOwner.reasonCode = 'duplicate_operation_id';
+      operationOwner.automaticActionAllowed = false;
+      decision.operationId = dispatch.operationId;
+      decision.dispatchRuntimeEventId = event.id;
+      decision.evidenceEventIds.push(event.id);
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'duplicate_operation_id';
+      decision.automaticActionAllowed = false;
+      continue;
+    }
+    decisionsByOperationId.set(dispatch.operationId, decision);
     decision.dispatchRuntimeEventId = event.id;
+    decision.evidenceEventIds.push(event.id);
+    decision.operationId ??= dispatch.operationId;
     if (
       decision.toolName !== dispatch.toolName ||
+      (decision.operationId !== undefined && decision.operationId !== dispatch.operationId) ||
       event.refs?.operationId !== dispatch.operationId ||
       event.refs?.toolCallId !== dispatch.providerToolCallId
     ) {
-      decision.status = 'corruption';
-      decision.reason = 'identity_conflict';
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'identity_conflict';
+      decision.automaticActionAllowed = false;
       continue;
     }
-    decision.status = 'indeterminate';
-    decision.reason = 'dispatch_without_response';
+    const contractResolution = options.contracts?.resolve(
+      dispatch.toolName,
+      dispatch.recoveryMode,
+    ) ?? { status: 'missing' as const };
+    if (contractResolution.status === 'missing') {
+      decision.disposition = 'parked';
+      decision.reasonCode = 'recovery_contract_unavailable';
+      decision.automaticActionAllowed = false;
+    } else if (contractResolution.status === 'incompatible') {
+      decision.disposition = 'parked';
+      decision.reasonCode = 'recovery_contract_mismatch';
+      decision.recoveryContractId = `${contractResolution.contract.id}@${contractResolution.contract.version}`;
+      decision.automaticActionAllowed = false;
+    } else {
+      decision.recoveryContractId = `${contractResolution.contract.id}@${contractResolution.contract.version}`;
+      if (contractResolution.contract.mode === 'manual_only') {
+        decision.disposition = 'parked';
+        decision.reasonCode = 'manual_recovery_required';
+        decision.automaticActionAllowed = false;
+      } else {
+        decision.disposition = 'reconcile_required';
+        decision.reasonCode = 'recovery_contract_available';
+        decision.automaticActionAllowed = true;
+      }
+    }
   }
   for (const event of events) {
     if (event.partial || event.content?.kind !== 'function_response') continue;
@@ -141,32 +241,39 @@ export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): Runtime
       decisions.push({
         toolCallId: event.content.id,
         toolName: event.content.name,
-        status: 'corruption',
-        reason: 'orphan_response',
+        disposition: 'corruption',
+        reasonCode: 'orphan_response',
         responseRuntimeEventId: event.id,
         responseIsError: event.content.isError === true,
+        automaticActionAllowed: false,
+        evidenceEventIds: [event.id],
       });
       continue;
     }
     if (decision.responseRuntimeEventId !== undefined) {
-      decision.status = 'corruption';
-      decision.reason = 'duplicate_response';
+      decision.evidenceEventIds.push(event.id);
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'duplicate_response';
+      decision.automaticActionAllowed = false;
       continue;
     }
     decision.responseRuntimeEventId = event.id;
     decision.responseIsError = event.content.isError === true;
-    if (decision.status === 'corruption') continue;
+    decision.evidenceEventIds.push(event.id);
+    if (decision.disposition === 'corruption') continue;
     if (
       decision.toolName !== event.content.name ||
       (decision.operationId !== undefined && event.refs?.operationId !== decision.operationId) ||
       (event.refs?.toolCallId !== undefined && event.refs.toolCallId !== decision.toolCallId)
     ) {
-      decision.status = 'corruption';
-      decision.reason = 'identity_conflict';
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'identity_conflict';
+      decision.automaticActionAllowed = false;
       continue;
     }
-    decision.status = 'completed';
-    decision.reason = 'matching_response';
+    decision.disposition = 'completed';
+    decision.reasonCode = 'matching_response';
+    decision.automaticActionAllowed = true;
   }
   return {
     ...(toolBoundaryProtocol ? { toolBoundaryProtocol } : {}),
@@ -174,8 +281,10 @@ export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): Runtime
     issues,
     hasCorruption:
       issues.some((issue) => issue.code === 'protocol_marker_invalid') ||
-      decisions.some((decision) => decision.status === 'corruption'),
+      decisions.some((decision) => decision.disposition === 'corruption'),
     hasUnsupportedFacts: issues.some((issue) => issue.code === 'runtime_fact_unsupported'),
-    requiresReconciliation: decisions.some((decision) => decision.status === 'indeterminate'),
+    requiresReconciliation: decisions.some(
+      (decision) => decision.disposition === 'reconcile_required',
+    ),
   };
 }

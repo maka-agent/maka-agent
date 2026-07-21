@@ -59,7 +59,7 @@ describe('runtime resume phase 0 projection', () => {
         {
           toolCallId: 'tool-2',
           toolName: 'Read',
-          status: 'indeterminate',
+          status: 'parked',
           callRuntimeEventId: 'call-2',
           responseRuntimeEventId: undefined,
         },
@@ -67,7 +67,7 @@ describe('runtime resume phase 0 projection', () => {
     );
   });
 
-  test('distinguishes committed failed results from indeterminate missing results', () => {
+  test('distinguishes committed failed results from fail-closed missing results', () => {
     const failed = buildResumePlanFromRuntimeEvents([
       callEvent('call-1', 'tool-1', 'Bash', { command: 'exit 1' }),
       responseEvent('result-1', 'tool-1', 'Bash', { exitCode: 1 }, true),
@@ -79,7 +79,7 @@ describe('runtime resume phase 0 projection', () => {
     assert.equal(failed.disposition, 'safe_replay');
     assert.equal(failed.operations[0]?.status, 'failed');
     assert.equal(indeterminate.disposition, 'blocked');
-    assert.equal(indeterminate.operations[0]?.status, 'indeterminate');
+    assert.equal(indeterminate.operations[0]?.status, 'parked');
     assert.equal(indeterminate.requiresVerification, true);
     assert.deepEqual(indeterminate.rejectionReasons, ['dangling_tool_state']);
     assert.equal(indeterminate.sourceRuntimeEventHighWater, 1);
