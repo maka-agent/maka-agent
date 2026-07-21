@@ -31,6 +31,8 @@ const HOST_BACKEND_ENV_KEYS = [
   'MAKA_OUTPUT_DIR',
   'MAKA_STORAGE_ROOT',
   'MAKA_REASONING_EFFORT',
+  'MAKA_STREAM_CONNECT_TIMEOUT_MS',
+  'MAKA_STREAM_IDLE_TIMEOUT_MS',
 ];
 export async function main(options = {}) {
   const env = process.env;

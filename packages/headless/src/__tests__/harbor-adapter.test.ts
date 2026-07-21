@@ -162,6 +162,8 @@ describe('Harbor adapter contract', () => {
           ...contextEnv,
           MAKA_OUTPUT_DIR: '/tmp/out',
           MAKA_STORAGE_ROOT: '/tmp/storage',
+          MAKA_STREAM_CONNECT_TIMEOUT_MS: '900000',
+          MAKA_STREAM_IDLE_TIMEOUT_MS: '900000',
         },
         'deepseek',
       );
@@ -171,6 +173,8 @@ describe('Harbor adapter contract', () => {
       }
       assert.equal(env.MAKA_OUTPUT_DIR, '/tmp/out');
       assert.equal(env.MAKA_STORAGE_ROOT, '/tmp/storage');
+      assert.equal(env.MAKA_STREAM_CONNECT_TIMEOUT_MS, '900000');
+      assert.equal(env.MAKA_STREAM_IDLE_TIMEOUT_MS, '900000');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
