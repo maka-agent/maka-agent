@@ -1114,6 +1114,9 @@ export type {
   ToolRecoveryDecisionFact,
 } from './tool-recovery-facts.js';
 
+export { commitToolRecoveryDecisionFact } from './tool-recovery-fact-writer.js';
+export type { CommitToolRecoveryDecisionFactInput } from './tool-recovery-fact-writer.js';
+
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
 // history-compact-summarizer.ts — replay-plan → ModelMessage[] projection
