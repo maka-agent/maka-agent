@@ -4,6 +4,10 @@ import {
   type ToolBoundaryProtocol,
 } from '@maka/core/runtime-event';
 import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
+import {
+  parseToolRecoveryFact,
+  type ToolRecoveryDecisionFact,
+} from './tool-recovery-facts.js';
 
 export type RecoveryDisposition =
   | 'completed'
@@ -69,6 +73,11 @@ export interface RuntimeRecoveryResolution {
         kind: string;
         version: number;
       }
+    | {
+        code: 'recovery_fact_corruption';
+        eventId: string;
+        reason: 'invalid_payload' | 'orphan_operation' | 'duplicate_decision' | 'invalid_evidence';
+      }
   >;
   hasCorruption: boolean;
   hasUnsupportedFacts: boolean;
@@ -87,6 +96,10 @@ export function resolveRuntimeRecovery(
       ? TOOL_BOUNDARY_PROTOCOL_V1
       : undefined;
   const issues: RuntimeRecoveryResolution['issues'] = [];
+  const recoveryDecisionFacts: Array<{
+    eventId: string;
+    fact: ToolRecoveryDecisionFact;
+  }> = [];
   if (firstProtocol !== undefined && toolBoundaryProtocol === undefined && firstCanonicalEvent) {
     issues.push({
       code: 'protocol_marker_invalid' as const,
@@ -102,8 +115,19 @@ export function resolveRuntimeRecovery(
   for (const event of canonicalEvents) {
     const fact = event.actions?.runtimeFact;
     if (!fact) continue;
-    // PR 0 introduces the compatibility envelope but intentionally registers
-    // no recovery handlers. Every fact therefore remains a fail-closed gate.
+    const parsed = parseToolRecoveryFact(fact);
+    if (parsed.status === 'recovery_decision') {
+      recoveryDecisionFacts.push({ eventId: event.id, fact: parsed.fact });
+      continue;
+    }
+    if (parsed.status === 'invalid') {
+      issues.push({
+        code: 'recovery_fact_corruption',
+        eventId: event.id,
+        reason: 'invalid_payload',
+      });
+      continue;
+    }
     issues.push({
       code: 'runtime_fact_unsupported',
       eventId: event.id,
@@ -278,12 +302,58 @@ export function resolveRuntimeRecovery(
     decision.reasonCode = 'matching_response';
     decision.automaticActionAllowed = true;
   }
+  const appliedRecoveryDecisions = new Set<string>();
+  const canonicalEventPositions = new Map(
+    canonicalEvents.map((event, index) => [event.id, index] as const),
+  );
+  for (const { eventId, fact } of recoveryDecisionFacts) {
+    const decision = decisionsByOperationId.get(fact.operationId);
+    if (!decision) {
+      issues.push({ code: 'recovery_fact_corruption', eventId, reason: 'orphan_operation' });
+      continue;
+    }
+    if (appliedRecoveryDecisions.has(fact.operationId)) {
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'duplicate_operation_id';
+      decision.automaticActionAllowed = false;
+      decision.evidenceEventIds.push(eventId);
+      issues.push({ code: 'recovery_fact_corruption', eventId, reason: 'duplicate_decision' });
+      continue;
+    }
+    const decisionPosition = canonicalEventPositions.get(eventId);
+    const uniqueEvidenceIds = new Set(fact.evidenceEventIds);
+    if (
+      decisionPosition === undefined ||
+      uniqueEvidenceIds.size !== fact.evidenceEventIds.length ||
+      fact.evidenceEventIds.some((evidenceEventId) => {
+        const evidencePosition = canonicalEventPositions.get(evidenceEventId);
+        return evidencePosition === undefined || evidencePosition >= decisionPosition;
+      })
+    ) {
+      decision.disposition = 'corruption';
+      decision.reasonCode = 'identity_conflict';
+      decision.automaticActionAllowed = false;
+      decision.evidenceEventIds.push(eventId);
+      issues.push({ code: 'recovery_fact_corruption', eventId, reason: 'invalid_evidence' });
+      continue;
+    }
+    appliedRecoveryDecisions.add(fact.operationId);
+    decision.disposition = fact.disposition;
+    decision.reasonCode = fact.reasonCode;
+    decision.recoveryContractId = fact.recoveryContractId;
+    decision.automaticActionAllowed =
+      fact.disposition !== 'parked' && fact.disposition !== 'corruption';
+    decision.evidenceEventIds = [...fact.evidenceEventIds, eventId];
+  }
   return {
     ...(toolBoundaryProtocol ? { toolBoundaryProtocol } : {}),
     decisions,
     issues,
     hasCorruption:
-      issues.some((issue) => issue.code === 'protocol_marker_invalid') ||
+      issues.some(
+        (issue) =>
+          issue.code === 'protocol_marker_invalid' || issue.code === 'recovery_fact_corruption',
+      ) ||
       decisions.some((decision) => decision.disposition === 'corruption'),
     hasUnsupportedFacts: issues.some((issue) => issue.code === 'runtime_fact_unsupported'),
     requiresReconciliation: decisions.some(

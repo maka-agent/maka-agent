@@ -449,6 +449,78 @@ describe('RecoveryResolver', () => {
     assert.equal(resolution.hasCorruption, false);
   });
 
+  it('uses a canonical recovery decision fact instead of treating it as unsupported', () => {
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+      toolDispatchEvent(),
+      event({
+        id: 'recovery-decision-1',
+        actions: {
+          runtimeFact: {
+            kind: 'maka.tool.recovery_decision',
+            version: 1,
+            legacyProjection: 'invisible',
+            payload: {
+              protocol: 'tool_recovery_v1',
+              operationId: 'operation-1',
+              disposition: 'parked',
+              reasonCode: 'manual_recovery_required',
+              evidenceEventIds: ['function-call-1', 'dispatch-1'],
+              recoveryContractId: 'maka.tool.bash.manual@1',
+            },
+          },
+        },
+      }),
+    ]);
+
+    assert.deepEqual(resolution.issues, []);
+    assert.equal(resolution.decisions[0]?.disposition, 'parked');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'manual_recovery_required');
+    assert.equal(resolution.decisions[0]?.recoveryContractId, 'maka.tool.bash.manual@1');
+    assert.deepEqual(resolution.decisions[0]?.evidenceEventIds, [
+      'function-call-1',
+      'dispatch-1',
+      'recovery-decision-1',
+    ]);
+  });
+
+  it('rejects a recovery decision that cites evidence from after the decision event', () => {
+    const recoveryDecision = event({
+      id: 'recovery-decision-1',
+      actions: {
+        runtimeFact: {
+          kind: 'maka.tool.recovery_decision',
+          version: 1,
+          legacyProjection: 'invisible',
+          payload: {
+            protocol: 'tool_recovery_v1',
+            operationId: 'operation-1',
+            disposition: 'parked',
+            reasonCode: 'manual_recovery_required',
+            evidenceEventIds: ['future-evidence'],
+          },
+        },
+      },
+    });
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+      toolDispatchEvent(),
+      recoveryDecision,
+      event({ id: 'future-evidence' }),
+    ]);
+
+    assert.equal(resolution.hasCorruption, true);
+    assert.deepEqual(resolution.issues, [
+      {
+        code: 'recovery_fact_corruption',
+        eventId: 'recovery-decision-1',
+        reason: 'invalid_evidence',
+      },
+    ]);
+  });
+
   it('rejects an unknown protocol marker on the first canonical event', () => {
     const resolution = resolveRuntimeRecovery([
       initialEvent('future_protocol' as 't1_after_preflight_v1'),

@@ -1102,6 +1102,18 @@ export type {
   UnsettledToolOperation,
 } from './tool-recovery-contract.js';
 
+export {
+  TOOL_RECOVERY_DECISION_FACT_KIND,
+  TOOL_RECOVERY_FACT_VERSION,
+  TOOL_RECONCILE_RESULT_FACT_KIND,
+  parseToolRecoveryFact,
+} from './tool-recovery-facts.js';
+export type {
+  ParsedToolRecoveryFact,
+  ToolReconcileResultFact,
+  ToolRecoveryDecisionFact,
+} from './tool-recovery-facts.js';
+
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
 // history-compact-summarizer.ts — replay-plan → ModelMessage[] projection

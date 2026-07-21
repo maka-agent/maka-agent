@@ -806,6 +806,36 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     );
   });
 
+  test('known tool recovery facts stay invisible without an unknown-fact diagnostic', () => {
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'tool-recovery-decision',
+          role: 'system',
+          author: 'system',
+          actions: {
+            runtimeFact: {
+              kind: 'maka.tool.recovery_decision',
+              version: 1,
+              legacyProjection: 'invisible',
+              payload: {
+                protocol: 'tool_recovery_v1',
+                operationId: 'operation-1',
+                disposition: 'parked',
+                reasonCode: 'manual_recovery_required',
+                evidenceEventIds: ['dispatch-1'],
+              },
+            },
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    expect(out.messages).toEqual([]);
+    expect(out.diagnostics).toEqual([]);
+  });
+
   test('projects visible content while diagnosing an unknown runtime fact on the same event', () => {
     const out = projectRuntimeEventsToStoredMessages(
       [

@@ -16,6 +16,7 @@ import {
   normalizeShellToolResultContent,
 } from '@maka/core';
 import { isArchivedToolResultPlaceholder } from './tool-result-archive.js';
+import { parseToolRecoveryFact } from './tool-recovery-facts.js';
 
 export type RuntimeEventReadModelDiagnosticCode =
   | 'partial_skipped'
@@ -182,13 +183,15 @@ export function projectRuntimeEventsToStoredMessages(
       // The envelope explicitly promises no legacy chat row, so older readers
       // can preserve session readability. Recovery remains fail-closed until a
       // handler recognizes this exact kind/version.
-      diagnostic(
-        state,
-        event,
-        'unknown_runtime_fact',
-        `runtime fact ${kind}@${version} is unknown and was omitted from the legacy read model`,
-        { kind, version },
-      );
+      if (parseToolRecoveryFact(event.actions.runtimeFact).status === 'unsupported') {
+        diagnostic(
+          state,
+          event,
+          'unknown_runtime_fact',
+          `runtime fact ${kind}@${version} is unknown and was omitted from the legacy read model`,
+          { kind, version },
+        );
+      }
       projected = true;
     }
 

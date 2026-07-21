@@ -917,6 +917,14 @@ function collectResumeDiagnostics(
           eventId: issue.eventId,
         });
         break;
+      case 'recovery_fact_corruption':
+        diagnostics.push({
+          code: 'tool_fact_corruption',
+          message: `canonical tool recovery fact is corrupt: ${issue.reason}`,
+          eventId: issue.eventId,
+          detail: { reason: issue.reason },
+        });
+        break;
       default:
         assertNever(issue);
     }
