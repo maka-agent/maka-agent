@@ -10,35 +10,23 @@ test('MCP module completes stdio add, discovery, disable, JSON import, and delet
   const screenshotPath = process.env.MAKA_MCP_E2E_SCREENSHOT;
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   const sidebar = page.getByRole('complementary', { name: '对话列表' });
-  const extensions = sidebar.getByRole('button', { name: '扩展', exact: true });
-  await expect(extensions).toHaveAttribute('aria-expanded', 'true');
+  await expect(sidebar.getByRole('button', { name: '扩展', exact: true })).toHaveCount(0);
   await expect(sidebar.getByRole('button', { name: '技能', exact: true })).toHaveCount(0);
-  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
-  await extensions.click();
-  await expect(extensions).toHaveAttribute('aria-expanded', 'false');
-  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeHidden();
-  if (screenshotPath) {
-    await extensions.hover();
-    await page.screenshot({ path: variantPath(screenshotPath, 'extensions-hover') });
-  }
-  await extensions.click();
-  await sidebar.getByRole('button', { name: 'MCP', exact: true }).click();
-  await expect(sidebar.getByRole('group', { name: '会话分组方式' })).toHaveCount(0);
-  await expect(sidebar.locator('.maka-session-list')).toBeVisible();
-  const mcp = page.getByRole('main', { name: 'MCP' });
+  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const settings = page.getByRole('main', { name: '设置内容' });
+  await settings.getByRole('button', { name: 'MCP', exact: true }).click();
+  const mcp = settings.locator('[data-module="mcp"]');
   await expect(mcp.getByRole('heading', { name: 'MCP' })).toBeVisible();
   if (screenshotPath) {
     await page.screenshot({ path: variantPath(screenshotPath, 'market') });
-    await page.getByRole('button', { name: '设置', exact: true }).click();
-    const settings = page.getByRole('main', { name: '设置内容' });
     await settings.getByRole('button', { name: '外观', exact: true }).click();
     await settings.getByRole('radio', { name: '深色 始终使用深色界面。' }).click();
-    await settings.getByRole('button', { name: '返回应用' }).click();
+    await settings.getByRole('button', { name: 'MCP', exact: true }).click();
     await page.screenshot({ path: variantPath(screenshotPath, 'dark-market') });
-    await page.getByRole('button', { name: '设置', exact: true }).click();
     await settings.getByRole('button', { name: '外观', exact: true }).click();
     await settings.getByRole('radio', { name: '浅色 始终使用浅色界面。' }).click();
-    await settings.getByRole('button', { name: '返回应用' }).click();
+    await settings.getByRole('button', { name: 'MCP', exact: true }).click();
     const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
     await page.setViewportSize({ width: 760, height: 700 });
     await page.screenshot({ path: variantPath(screenshotPath, 'narrow-market') });
