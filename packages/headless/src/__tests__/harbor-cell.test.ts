@@ -2082,7 +2082,8 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor persists provider captures and synthesis blocks under the run storage root', async () => {
-    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+    await withDirs(async (dirs) => {
+      const { workspaceDir, outputDir, storageRoot, synthesisCacheArtifactStore } = dirs;
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2107,6 +2108,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         workspaceDir,
         storageRoot,
+        synthesisCacheArtifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       };
@@ -2199,12 +2201,13 @@ describe('runHarborCell', () => {
       const synthesisResult = await backendInput.writeSynthesisCache(synthesisWrite);
       assert.equal(synthesisResult?.blocks.length, 1);
 
-      const records = await createArtifactStore(storageRoot).list('session-1');
+      const records = await synthesisCacheArtifactStore.list('session-1');
       assert.deepEqual(records.map((record) => record.source).sort(), [
         'provider_request_capture',
         'synthesis_cache_block',
       ]);
-      assert.deepEqual(await createArtifactStore(outputDir).list('session-1'), []);
+      const outputStorage = await openHeadlessStorageForWrite(outputDir);
+      assert.deepEqual(await outputStorage.synthesisCacheArtifactStore.list('session-1'), []);
     });
   });
 

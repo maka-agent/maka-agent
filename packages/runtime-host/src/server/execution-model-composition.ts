@@ -14,6 +14,7 @@ import {
   buildSubscriptionModelFetch,
   buildTaskLedgerTools,
   buildWorkspaceInstructionsPromptFragment,
+  createProviderRequestCaptureRecorder,
   createProxiedFetchTransport,
   getAIModel,
   isModelExplicitlyUnsupportedForChat,
@@ -41,7 +42,10 @@ import {
   filterModelVisibleTaskLedgerTasks,
   renderTaskLedgerPromptText,
 } from '@maka/core/task-ledger';
-import { createAttachmentByteReader } from '@maka/storage';
+import {
+  createAttachmentByteReader,
+  persistProviderRequestCaptureArtifact,
+} from '@maka/storage';
 import type { InteractiveArtifactStoreWriter } from '@maka/storage/artifact-stores';
 import {
   authenticateInteractiveTaskLedgerWriter,
@@ -231,6 +235,25 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         lookupPricing: pricing,
         recordLlmCall: (event) => recordLlmCall({ repo: telemetry, lookupPricing: pricing }, event),
         recordToolInvocation: (event) => recordToolInvocation({ repo: telemetry }, event),
+        ...(input.context.recordProviderRequestCapture
+          ? {
+              recordProviderRequestCapture: createProviderRequestCaptureRecorder({
+                persistArtifact: async (capture) => {
+                  const artifact = await persistProviderRequestCaptureArtifact(input.artifacts, {
+                    sessionId: input.context.sessionId,
+                    turnId: capture.turnId,
+                    captureId: capture.captureId,
+                    step: capture.step,
+                    serializedRequest: capture.serializedRequest,
+                    now: Date.now(),
+                  });
+                  return { artifactId: artifact.id };
+                },
+                recordLedger: input.context.recordProviderRequestCapture,
+              }),
+              recordProviderRequestAttempt: input.context.recordProviderRequestAttempt,
+            }
+          : {}),
         newId: randomUUID,
         now: Date.now,
       },

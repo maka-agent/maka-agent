@@ -1428,6 +1428,66 @@ test('runs a real Host ai-sdk Tool loop across Clients and refreshes committed p
           assert.ok(taskPage.tasks.some((task) => task.subject === taskSubject));
         }
 
+        const artifactPage = await observer.request('artifact.query', {
+          kind: 'list_start',
+          sessionId: fixture.sessionId,
+        });
+        assert.equal(artifactPage.kind, 'page');
+        if (artifactPage.kind !== 'page') return;
+        const requestCaptures = artifactPage.artifacts.filter(
+          (artifact) =>
+            artifact.turnId === firstTurnId && artifact.source === 'provider_request_capture',
+        );
+        assert.equal(requestCaptures.length, 2);
+        const capturePreview = await observer.request('artifact.query', {
+          kind: 'read_text',
+          sessionId: fixture.sessionId,
+          artifactId: requestCaptures[0]!.id,
+        });
+        assert.equal(capturePreview.kind, 'text');
+        if (capturePreview.kind === 'text') assert.equal(capturePreview.preview.ok, true);
+        if (capturePreview.kind !== 'text' || !capturePreview.preview.ok) return;
+        const capturedRequest = JSON.parse(capturePreview.preview.text) as {
+          prompt?: unknown;
+        };
+        assert.ok(Array.isArray(capturedRequest.prompt));
+        assert.ok(capturePreview.preview.text.includes(initialMarker));
+
+        const agentRunEvents = (await readFile(fixture.eventsPath(started.runId), 'utf8'))
+          .trimEnd()
+          .split('\n')
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+        const captureEvents = agentRunEvents.filter(
+          (event) => event.type === 'provider_request_captured',
+        );
+        const attemptEvents = agentRunEvents.filter(
+          (event) => event.type === 'provider_request_attempt_recorded',
+        );
+        assert.equal(captureEvents.length, 2);
+        assert.equal(attemptEvents.length, 2);
+        const traceId = (captureEvents[0]?.data as Record<string, unknown> | undefined)?.traceId;
+        assert.equal(typeof traceId, 'string');
+        assert.ok(
+          captureEvents.every(
+            (event) => (event.data as Record<string, unknown> | undefined)?.traceId === traceId,
+          ),
+        );
+        assert.ok(
+          attemptEvents.every(
+            (event) => (event.data as Record<string, unknown> | undefined)?.traceId === traceId,
+          ),
+        );
+        const sessionMessages = (await readFile(fixture.sessionPath(), 'utf8'))
+          .trimEnd()
+          .split('\n')
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+        assert.equal(
+          sessionMessages.find(
+            (message) => message.type === 'token_usage' && message.turnId === firstTurnId,
+          )?.providerRequestTraceId,
+          traceId,
+        );
+
         assert.equal(handlerErrors.length, 0);
         assert.equal(requests[0]?.method, 'POST');
         assert.equal(requests[0]?.path, '/v1/chat/completions');

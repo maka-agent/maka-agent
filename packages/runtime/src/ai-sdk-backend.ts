@@ -1087,7 +1087,10 @@ export class AiSdkBackend implements AgentBackend {
           turnId,
           now: this.now,
           newId: this.newId,
-          persistCapture: recordProviderRequestCapture!,
+          persistCapture: (capture) =>
+            this.runSuccessorEffect('artifact_persistence', () =>
+              recordProviderRequestCapture!(capture),
+            ),
           recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
         })
       : undefined;
