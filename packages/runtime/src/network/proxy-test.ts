@@ -5,7 +5,7 @@ import type {
   TestProxyInput,
   TestProxyResult,
 } from '@maka/core/settings/network-settings';
-import type { Dispatcher } from 'undici';
+import { fetch, type Dispatcher } from 'undici';
 
 const DEFAULT_PROBE_URL = 'https://icanhazip.com';
 const DEFAULT_TIMEOUT_MS = 8_000;
@@ -51,7 +51,6 @@ export async function testProxyConnection(
   const startedAt = Date.now();
 
   try {
-    // @ts-expect-error undici fetch accepts dispatcher.
     const request = fetch(probeUrl, { dispatcher, signal: controller.signal }).catch((error) => {
       if (timedOut) return new Promise<never>(() => {});
       throw error;
@@ -95,7 +94,6 @@ async function lookupCountry(
 ): Promise<string | undefined> {
   try {
     const response = await fetch(`https://api.country.is/${encodeURIComponent(ip)}`, {
-      // @ts-expect-error undici fetch accepts dispatcher.
       dispatcher,
       signal,
     });
