@@ -288,6 +288,10 @@ function envPathFrom(env, name, fallback) {
   return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
 }
 
+export function resolveHarnessAbJobsDir(runRoot, backfillUnscoredCells) {
+  return join(runRoot, backfillUnscoredCells ? 'backfill-jobs' : 'jobs');
+}
+
 function defaultMakaWorkspaceRoot() {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default');
@@ -664,7 +668,8 @@ async function runLocked({
     throw new Error('harness credential is empty');
   const controllerDir = join(runRoot, 'controller');
   const promptsDir = join(runRoot, 'prompts');
-  const jobsDir = join(runRoot, 'jobs');
+  const backfillUnscoredCells = process.env.MAKA_HARNESS_AB_BACKFILL_UNSCORED === '1';
+  const jobsDir = resolveHarnessAbJobsDir(runRoot, backfillUnscoredCells);
   await mkdir(controllerDir, { recursive: true });
   await mkdir(promptsDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
@@ -729,7 +734,7 @@ async function runLocked({
     ],
     pairConcurrency: manifest.maxConcurrency,
     armExecution: manifest.metadata.execution.armExecution,
-    backfillUnscoredCells: process.env.MAKA_HARNESS_AB_BACKFILL_UNSCORED === '1',
+    backfillUnscoredCells,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
   const report = buildHarnessAbReport(

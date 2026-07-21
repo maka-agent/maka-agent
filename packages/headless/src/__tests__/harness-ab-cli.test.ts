@@ -78,6 +78,15 @@ test('harness A/B uses one safe execution default and accepts per-run overrides'
   );
 });
 
+test('harness A/B keeps backfill artifacts separate from original jobs', async () => {
+  const { resolveHarnessAbJobsDir } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+
+  assert.equal(resolveHarnessAbJobsDir('/run', false), join('/run', 'jobs'));
+  assert.equal(resolveHarnessAbJobsDir('/run', true), join('/run', 'backfill-jobs'));
+});
+
 test('harness A/B resume subject fingerprint is restricted to the existing manifest', async () => {
   const { resolveHarnessAbSubjectFingerprint } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
