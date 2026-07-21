@@ -206,17 +206,23 @@
   padding-top: 0;
 }
 
-/* Docked-over-stream lift. Layout already keeps the composer in its own bottom
-   row; this only adds elevation so the card reads as lifted off the floor
-   rather than a flat band welded to the bottom edge.
-   Light mode: the card's own ring plus a restrained, foreground-derived drop
-   (warm shadow recipe — never pure black, per PR-BOX-SHADOW-CONVERGE-0).
-   The empty new-task surface keeps the flat resting card. */
+/* Docked resting card — hairline only, no wash (PR-COMPOSER-BAND-SEAM).
+   The docked composer rides the same pure-white content surface as the
+   transcript above it (`.composer` outer is transparent; the card fill is
+   `--agents-content-area-bg`, identical to the panel). The earlier
+   "docked-over-stream lift" added a two-layer foreground-derived drop
+   (`0 2px 6px` + `0 10px 22px`) UNDER the resting, unfocused card. Because
+   the card is ~measure-wide and nearly fills the dock, that soft grey drop
+   read as a light-grey band with a boundary line beneath the composer —
+   the "色差" the maintainer flagged — and it appeared only while the
+   composer was NOT focused (focus swaps in the accent ring below), which is
+   exactly the reported "sometimes". The band is not a separate layer, so
+   there is nothing to converge structurally: the fix is to drop the wash and
+   keep AT MOST the card's own hairline ring, so the dock converges cleanly
+   onto the white content surface. Dark mode already carries no resting drop
+   (the one-step tone lift below is its only cue). */
 .mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner:not(:focus-within) {
-  box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035)),
-    0 2px 6px -3px oklch(from var(--foreground) l c h / 0.06),
-    0 10px 22px -12px oklch(from var(--foreground) l c h / 0.05);
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
 }
 
 /* Dark mode: separate the card from the panel by ONE monotonic tone step and
@@ -225,8 +231,9 @@
    that is the "third layer". So the card sits one step lighter than the panel
    (0.24 → 0.29, matching a mainstream dark composer's fill/canvas ratio) and
    carries NO resting line: no drop (halo), no ring (double frame), no colored
-   border (peak). The panel↔card profile is a single step. (Light mode keeps
-   the soft drop above; there the white panel already separates by tone.) */
+   border (peak). The panel↔card profile is a single step. (Light mode carries
+   only the card's hairline ring above; there the white panel already
+   separates by tone.) */
 .dark .mainColumn:not([data-home-surface="true"]) .composer .maka-composer-inner {
   background-color: oklch(from var(--agents-content-area-bg) calc(l + 0.05) c h);
 }
