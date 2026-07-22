@@ -9,6 +9,7 @@ import type { Config, Task } from './contracts.js';
 import {
   type HarborCellExecutionIdentity,
   type HarborCellTokenSummary,
+  countRuntimeSteps,
   summarizeCellTokens,
   validateHarborCellExecutionIdentity,
   validateHarborCellOutput,
@@ -291,9 +292,10 @@ async function writeTaskRunCellArtifacts(input: {
     'runtime-events.jsonl',
   );
   const runtimeEventsJsonl = await readFile(runtimeEventsSourcePath, 'utf8');
+  const runtimeEvents = parseTaskRunRuntimeEvents(runtimeEventsJsonl);
   const runtimeEventsPath = join(input.options.cellArtifactDir, 'runtime-events.jsonl');
   await copyFile(runtimeEventsSourcePath, runtimeEventsPath);
-  const tokenSummary = summarizeTaskRunRuntimeEvents(runtimeEventsJsonl);
+  const tokenSummary = summarizeCellTokens(runtimeEvents);
 
   const promptHash = input.resultRecord.systemPromptHash;
   if (promptHash !== input.executionIdentity.systemPromptHash) {
@@ -308,7 +310,7 @@ async function writeTaskRunCellArtifacts(input: {
     executionIdentity: input.executionIdentity,
     ...(tokenSummary ? { tokenSummary } : {}),
     toolSummary: details.tools,
-    steps: details.steps ?? input.resultRecord.steps,
+    steps: countRuntimeSteps(runtimeEvents),
     durationMs: input.resultRecord.durationMs,
     startedAt: input.resultRecord.startedAt,
     finishedAt: input.resultRecord.finishedAt,
@@ -327,11 +329,14 @@ async function writeTaskRunCellArtifacts(input: {
 export function summarizeTaskRunRuntimeEvents(
   runtimeEventsJsonl: string,
 ): HarborCellTokenSummary | undefined {
-  const events = runtimeEventsJsonl
+  return summarizeCellTokens(parseTaskRunRuntimeEvents(runtimeEventsJsonl));
+}
+
+function parseTaskRunRuntimeEvents(runtimeEventsJsonl: string): RuntimeEvent[] {
+  return runtimeEventsJsonl
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as RuntimeEvent);
-  return summarizeCellTokens(events);
 }
 
 async function writeTaskRunExecutionIdentity(
