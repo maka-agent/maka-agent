@@ -147,6 +147,7 @@ export const test = base.extend<{
   window: Page;
   emptyWindow: Page;
   longTranscriptWindow: Page;
+  sidebarLongSessionsWindow: Page;
   permissionWindow: Page;
   staleSessionsWindow: Page;
   sessionWorkbarWindow: Page;
@@ -174,6 +175,19 @@ export const test = base.extend<{
   longTranscriptWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: '.maka-turn', e2eFixtureScenario: 'long-transcript', locale: 'zh' },
+      use,
+    );
+  },
+  // Long sidebar sessions: boots the e2e-fixture `sidebar-long-sessions`
+  // fixture, which seeds 60 active sessions and opens the newest one
+  // (`...-00`) with the sidebar expanded. Fixture mode seeds its own
+  // connections, so no connection is pre-staged here. Readiness = a session
+  // row on screen: the panel grid has mounted, the session list has loaded
+  // from IPC, and the footer sits below the constrained list row. Used by the
+  // sidebar-geometry spec.
+  sidebarLongSessionsWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '.maka-list-row', e2eFixtureScenario: 'sidebar-long-sessions', locale: 'zh' },
       use,
     );
   },
