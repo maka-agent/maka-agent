@@ -6,8 +6,8 @@ import { describe, test } from 'node:test';
 import type { Config } from '../contracts.js';
 import {
   hashSystemPrompt,
-  type HarborTaskRunInput,
-  type HarborTaskRunOutput,
+  type TaskRunInput,
+  type TaskRunOutput,
 } from '../fixed-prompt-controller.js';
 import {
   buildRuntimePolicyAbRunManifest,
@@ -211,7 +211,7 @@ describe('runRuntimePolicyAbComparison', () => {
     await withDir(async (dir) => {
       const promptPath = join(dir, 'system-prompt.md');
       await writeFile(promptPath, 'shared prompt\n', 'utf8');
-      const calls: HarborTaskRunInput[] = [];
+      const calls: TaskRunInput[] = [];
 
       const result = await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
@@ -403,7 +403,7 @@ describe('runRuntimePolicyAbComparison', () => {
         newId: idFactory(),
       };
       let calls = 0;
-      const harborRunner = async (input: HarborTaskRunInput) => {
+      const harborRunner = async (input: TaskRunInput) => {
         calls += 1;
         return harborOutput(input);
       };
@@ -422,7 +422,7 @@ describe('runRuntimePolicyAbComparison', () => {
   });
 });
 
-function harborOutput(input: HarborTaskRunInput): HarborTaskRunOutput {
+function harborOutput(input: TaskRunInput): TaskRunOutput {
   const pruneOn = input.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on';
   return {
     harbor: { reward: 1 },

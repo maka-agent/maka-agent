@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   runFixedPromptController,
   type FixedPromptTask,
-  type HarborTaskRunner,
+  type TaskRunner,
 } from './fixed-prompt-controller.js';
 import { renderAbComparisonMarkdown } from './ab-render.js';
 import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.js';
@@ -53,7 +53,7 @@ export interface RunRuntimePolicyAbComparisonInput {
   budgetMs?: number;
   nonInferiorityMargin?: number;
   sharedAgentEnv?: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>;
-  harborRunner: HarborTaskRunner;
+  harborRunner: TaskRunner;
   now?: () => number;
   newId?: () => string;
 }
@@ -155,7 +155,7 @@ export async function runRuntimePolicyAbComparisonUnlocked(
           ? { billingMode: input.executionProfile.billingMode }
           : {}),
         resumeFingerprint,
-        harborRunner: (runnerInput) => input.harborRunner({ ...runnerInput, agentEnv }),
+        taskRunner: (runnerInput) => input.harborRunner({ ...runnerInput, agentEnv }),
         ...(input.now ? { now: input.now } : {}),
         ...(input.newId ? { newId: input.newId } : {}),
       });

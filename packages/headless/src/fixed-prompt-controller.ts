@@ -87,13 +87,6 @@ export interface TaskRunner {
   (input: TaskRunInput): Promise<TaskRunOutput>;
 }
 
-/** @deprecated Harbor-named alias retained for existing call sites; use `TaskRunInput`. */
-export type HarborTaskRunInput = TaskRunInput;
-/** @deprecated Harbor-named alias retained for existing call sites; use `TaskRunOutput`. */
-export type HarborTaskRunOutput = TaskRunOutput;
-/** @deprecated Harbor-named alias retained for existing call sites; use `TaskRunner`. */
-export type HarborTaskRunner = TaskRunner;
-
 export interface FixedPromptBudgetExhaustedArtifactRefs {
   runtimeEventsPath?: string;
   traceEventsPath?: string;
@@ -394,7 +387,7 @@ export interface RunFixedPromptControllerInput {
   /** Refuse resume when a model attempt was durably admitted but no terminal
    * event exists, preserving single-sample benchmark semantics. */
   protectPassAtOne?: boolean;
-  harborRunner: TaskRunner;
+  taskRunner: TaskRunner;
   now?: () => number;
   newId?: () => string;
 }
@@ -605,7 +598,7 @@ export async function readFixedPromptWal(path: string): Promise<FixedPromptWalEv
 
 export async function readHarborTaskRunOutput(
   input: ReadHarborTaskRunOutputInput,
-): Promise<HarborTaskRunOutput> {
+): Promise<TaskRunOutput> {
   return {
     harbor: {
       reward: harborReward(await readJsonObject(input.harborResultPath)),
@@ -709,7 +702,7 @@ async function runTaskAndBuildEvent(input: {
     });
   }
   const runHarbor = () =>
-    input.input.harborRunner({
+    input.input.taskRunner({
       runId: input.input.runId,
       roundId: input.input.roundId,
       task: input.task,
@@ -805,7 +798,7 @@ async function runTaskAndBuildEvent(input: {
 }
 
 function taskEventFromOutput(input: {
-  output: HarborTaskRunOutput;
+  output: TaskRunOutput;
   expectedConfig: Config;
   expectedPromptHash: string;
   requireExecutionIdentity?: boolean;
@@ -864,7 +857,7 @@ function taskEventFromOutput(input: {
 }
 
 function taskCompletedEvent(input: {
-  output: HarborTaskRunOutput;
+  output: TaskRunOutput;
   taskId: string;
   runId: string;
   roundId: string;
@@ -947,7 +940,7 @@ function isUnscoredCellFailure(
 }
 
 function taskPlumbingFailedEvent(input: {
-  output: HarborTaskRunOutput;
+  output: TaskRunOutput;
   expectedPromptHash: string;
   resumeFingerprint?: string;
   taskId: string;
@@ -1004,7 +997,7 @@ function taskPlumbingFailedEvent(input: {
 }
 
 function classifyPlumbingFailure(
-  output: HarborTaskRunOutput,
+  output: TaskRunOutput,
   expectedPromptHash: string,
   expectedConfig: Config,
   requireExecutionIdentity: boolean,
@@ -1126,7 +1119,7 @@ function classifyExplicitIdentityMismatch(
 
 function taskInfraFailedEvent(input: {
   error: unknown;
-  output?: HarborTaskRunOutput;
+  output?: TaskRunOutput;
   errorClass?: FixedPromptTaskInfraFailedEvent['errorClass'];
   taskId: string;
   runId: string;

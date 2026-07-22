@@ -7,8 +7,8 @@ import type { Config } from '../contracts.js';
 import {
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
-  type HarborTaskRunInput,
-  type HarborTaskRunOutput,
+  type TaskRunInput,
+  type TaskRunOutput,
 } from '../fixed-prompt-controller.js';
 import { runRuntimePolicyAbLifecycle } from '../runtime-policy-ab-lifecycle.js';
 import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
@@ -62,7 +62,7 @@ test('same-run pilot checkpoint gates full execution and resumes completed state
         { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
       ] as const,
       executionProfile,
-      harborRunner: async (runInput: HarborTaskRunInput) => {
+      harborRunner: async (runInput: TaskRunInput) => {
         calls.push(runInput.roundId);
         return output(runInput, runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on');
       },
@@ -104,7 +104,7 @@ test('rebuilds a legacy terminal lifecycle summary from WAL before returning it'
         { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
       ] as const,
       executionProfile,
-      harborRunner: async (runInput: HarborTaskRunInput) => {
+      harborRunner: async (runInput: TaskRunInput) => {
         calls.push(runInput.roundId);
         return output(runInput, runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on');
       },
@@ -396,7 +396,7 @@ test('maps an invalid full summary to invalid lifecycle status', async () => {
   });
 });
 
-function output(input: HarborTaskRunInput, activated: boolean): HarborTaskRunOutput {
+function output(input: TaskRunInput, activated: boolean): TaskRunOutput {
   return {
     harbor: { reward: 1 },
     cell: {

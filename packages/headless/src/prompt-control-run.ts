@@ -5,8 +5,8 @@ import type { HarborCellTokenSummary } from './cell-output.js';
 import {
   hashSystemPrompt,
   type FixedPromptTask,
-  type HarborTaskRunInput,
-  type HarborTaskRunOutput,
+  type TaskRunInput,
+  type TaskRunOutput,
 } from './fixed-prompt-controller.js';
 import type { HarborTaskPricing } from './harbor-task-runner.js';
 import type { MetaAgent } from './prompt-candidate-loop.js';
@@ -156,11 +156,7 @@ export async function runPromptControlExperiment(
 }
 
 function createControlHarborRunner(eventsDir: string) {
-  return async ({
-    roundId,
-    task,
-    systemPrompt,
-  }: HarborTaskRunInput): Promise<HarborTaskRunOutput> => {
+  return async ({ roundId, task, systemPrompt }: TaskRunInput): Promise<TaskRunOutput> => {
     const hasRule = systemPrompt.includes(CONTROL_RULE_MARKER);
     const errorClass = hasRule ? undefined : `missing_${CONTROL_RULE_MARKER}`;
     const runtimeEventsPath = join(eventsDir, `${roundId}__${task.id}.jsonl`);

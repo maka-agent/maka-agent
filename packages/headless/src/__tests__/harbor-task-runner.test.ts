@@ -6,10 +6,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import type { HarborCellExecutionIdentity, HarborCellOutput } from '../cell-output.js';
-import {
-  FixedPromptBudgetExhaustedError,
-  type HarborTaskRunInput,
-} from '../fixed-prompt-controller.js';
+import { FixedPromptBudgetExhaustedError, type TaskRunInput } from '../fixed-prompt-controller.js';
 import {
   buildHarborJobConfig,
   createHarborOracleQualifier,
@@ -49,7 +46,7 @@ function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput
   };
 }
 
-function runInput(overrides: Partial<HarborTaskRunInput> = {}): HarborTaskRunInput {
+function runInput(overrides: Partial<TaskRunInput> = {}): TaskRunInput {
   return {
     runId: 'run-1',
     roundId: 'round-1',

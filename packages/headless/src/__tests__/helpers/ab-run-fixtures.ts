@@ -1,7 +1,7 @@
 import {
   FIXED_PROMPT_WAL_SCHEMA_VERSION,
   type FixedPromptTaskCompletedEvent,
-  type HarborTaskRunOutput,
+  type TaskRunOutput,
 } from '../../fixed-prompt-controller.js';
 import { tokenSummary } from './cell-output-fixtures.js';
 
@@ -10,7 +10,7 @@ export function harborOutput(input: {
   durationMs?: number;
   promptHash: string;
   reward?: number;
-}): HarborTaskRunOutput {
+}): TaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1 },
     cell: {

@@ -16,9 +16,9 @@ import {
   readHarborTaskRunOutput,
   runFixedPromptController,
   type FixedPromptWalEvent,
-  type HarborTaskRunInput,
-  type HarborTaskRunner,
-  type HarborTaskRunOutput,
+  type TaskRunInput,
+  type TaskRunner,
+  type TaskRunOutput,
 } from '../fixed-prompt-controller.js';
 
 const config: Config = {
@@ -44,7 +44,7 @@ describe('fixed prompt controller', () => {
         systemPromptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', verifier }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a', verifier }),
       });
 
       assert.equal(result.events[0]?.type, 'task_completed');
@@ -79,7 +79,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => output,
+        taskRunner: async () => output,
       });
 
       assert.equal(result.events[0]?.type, 'task_plumbing_failed');
@@ -110,7 +110,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-a', path: '/bench/task-a' },
           { id: 'task-b', path: '/bench/task-b' },
         ],
-        harborRunner: async ({ task }): Promise<HarborTaskRunOutput> => {
+        taskRunner: async ({ task }): Promise<TaskRunOutput> => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -147,7 +147,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -183,7 +183,7 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'matching.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'fingerprint-old',
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           matchingCalls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -203,7 +203,7 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'changed.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'fingerprint-new',
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           changedCalls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -233,7 +233,7 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'results-old.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'fingerprint-same',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('harbor run timed out after 600s');
         },
         now: () => 100,
@@ -250,7 +250,7 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'results-new.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'fingerprint-same',
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -312,7 +312,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'fingerprint-same',
         requireExecutionIdentity: true,
-        harborRunner: async () => {
+        taskRunner: async () => {
           calls += 1;
           return harborOutput({ taskId: 'task-a' });
         },
@@ -357,7 +357,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-a', path: '/bench/task-a' },
           { id: 'task-b', path: '/bench/task-b' },
         ],
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -380,7 +380,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-a', path: '/bench/task-a' },
           { id: 'task-b', path: '/bench/task-b' },
         ],
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           secondCalls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -458,7 +458,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -491,7 +491,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath,
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'unused' }),
+        taskRunner: async () => harborOutput({ taskId: 'unused' }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -521,7 +521,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw Object.assign(new Error('container crashed before result.json'), {
             artifactRefs: { providerTelemetryPath: '/logs/task-a/provider-request-telemetry.json' },
           });
@@ -559,7 +559,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         protectPassAtOne: true,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           const wal = await readFile(`${resultsJsonlPath}.attempts.jsonl`, 'utf8');
           assert.match(wal, /"type":"task_attempt_started"/);
           assert.doesNotMatch(wal, /"type":"task_completed"/);
@@ -603,7 +603,7 @@ describe('fixed prompt controller', () => {
             tasks: [{ id: 'task-a', path: '/bench/task-a' }],
             infraFailurePolicy: 'terminal',
             protectPassAtOne: true,
-            harborRunner: async ({ task }) => {
+            taskRunner: async ({ task }) => {
               harborCalls += 1;
               return harborOutput({ taskId: task.id });
             },
@@ -637,7 +637,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         protectPassAtOne: true,
-        harborRunner: async () => {
+        taskRunner: async () => {
           harborCalls += 1;
           throw new Error('result collection failed after candidate sampling');
         },
@@ -676,7 +676,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         infraFailurePolicy: 'terminal',
         protectPassAtOne: true,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           harborCalls += 1;
           return harborOutput({ taskId: task.id });
         },
@@ -706,7 +706,7 @@ describe('fixed prompt controller', () => {
         promptHash: hashSystemPrompt('fixed prompt\n'),
       });
       let harborCalls = 0;
-      const harborRunner: HarborTaskRunner = async ({ task }: HarborTaskRunInput) => {
+      const taskRunner: TaskRunner = async ({ task }: TaskRunInput) => {
         harborCalls += 1;
         return harborOutput({ taskId: task.id });
       };
@@ -720,7 +720,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         infraFailurePolicy: 'terminal',
         protectPassAtOne: true,
-        harborRunner,
+        taskRunner,
         now: () => 100,
         newId: idFactory(),
       });
@@ -752,7 +752,7 @@ describe('fixed prompt controller', () => {
         error: 'Harbor failed before the agent started',
       });
       let harborCalls = 0;
-      const harborRunner: HarborTaskRunner = async ({ task }: HarborTaskRunInput) => {
+      const taskRunner: TaskRunner = async ({ task }: TaskRunInput) => {
         harborCalls += 1;
         return harborOutput({ taskId: task.id });
       };
@@ -766,7 +766,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         infraFailurePolicy: 'terminal',
         protectPassAtOne: true,
-        harborRunner,
+        taskRunner,
         now: () => 100,
         newId: idFactory(),
       });
@@ -791,7 +791,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           attempts += 1;
           if (attempts === 1) throw new Error('transient container build hiccup');
           return harborOutput({ taskId: task.id });
@@ -824,7 +824,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           attempts += 1;
           throw new Error('container crashed both times');
         },
@@ -853,7 +853,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           attempts += 1;
           throw new FixedPromptBudgetExhaustedError('harbor run timed out after 600s');
         },
@@ -891,7 +891,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('timed out before cell output');
         },
         now: () => 100,
@@ -928,7 +928,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
             tokenSummary: retainedUsage,
           });
@@ -975,7 +975,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
             cellOutput: cell,
           });
@@ -1019,7 +1019,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
             cellOutput: cell,
           });
@@ -1069,7 +1069,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
             executionIdentity,
           });
@@ -1116,7 +1116,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
             cellOutput: cell,
           });
@@ -1160,7 +1160,7 @@ describe('fixed prompt controller', () => {
           tasks: [{ id: 'task-a', path: '/bench/task-a' }],
           requireExecutionIdentity: true,
           expectedPricingProfile: 'test-profile',
-          harborRunner: async () => {
+          taskRunner: async () => {
             throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
               cellOutput: cell,
             });
@@ -1204,7 +1204,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
             cellOutput: cell,
           });
@@ -1235,7 +1235,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results-old.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new FixedPromptBudgetExhaustedError('harbor run timed out after 600s');
         },
         now: () => 100,
@@ -1251,7 +1251,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results-new.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -1288,7 +1288,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-e', path: '/bench/task-e' },
         ],
         maxInfraFailureRate: 0.2,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           throw new Error(`container crashed for ${task.id}`);
         },
@@ -1330,7 +1330,7 @@ describe('fixed prompt controller', () => {
         ],
         maxConcurrency: 3,
         maxInfraFailureRate: 0.2,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           inFlight += 1;
           maxInFlight = Math.max(maxInFlight, inFlight);
@@ -1361,7 +1361,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           throw new Error('should not run');
         },
         now: () => 100,
@@ -1413,7 +1413,7 @@ describe('fixed prompt controller', () => {
             { id: 'task-a', path: '/bench/task-a' },
             { id: 'task-a', path: '/bench/task-a-copy' },
           ],
-          harborRunner: async ({ task }) => {
+          taskRunner: async ({ task }) => {
             calls.push(task.id);
             return harborOutput({ taskId: task.id });
           },
@@ -1458,7 +1458,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-e', path: '/bench/task-e' },
         ],
         maxInfraFailureRate: 0.2,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -1490,7 +1490,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-b', path: '/bench/task-b' },
         ],
         maxConcurrency: 1,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({
             taskId: task.id,
@@ -1530,7 +1530,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-c', path: '/bench/task-c' },
         ],
         costCeilingUsd: 0.03,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({
             taskId: task.id,
@@ -1577,7 +1577,7 @@ describe('fixed prompt controller', () => {
         ],
         maxConcurrency: 3,
         costCeilingUsd: 0.03,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           inFlight += 1;
           maxInFlight = Math.max(maxInFlight, inFlight);
@@ -1630,7 +1630,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-b', path: '/bench/task-b' },
         ],
         costCeilingUsd: 0.01,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           return harborOutput({ taskId: task.id });
         },
@@ -1666,7 +1666,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-c', path: '/bench/task-c' },
         ],
         maxConcurrency: 2,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           inFlight += 1;
           maxInFlight = Math.max(maxInFlight, inFlight);
           await delay(task.id === 'task-a' ? 20 : 0);
@@ -1713,7 +1713,7 @@ describe('fixed prompt controller', () => {
           { id: 'task-c', path: '/bench/task-c' },
         ],
         maxConcurrency: 2,
-        harborRunner: async ({ task }) => {
+        taskRunner: async ({ task }) => {
           calls.push(task.id);
           if (task.id === 'task-a') {
             await releaseA.promise;
@@ -1819,7 +1819,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({ taskId: 'task-a', contextBudgetPolicy, contextBudgetSummary }),
         now: () => 100,
         newId: idFactory(),
@@ -1864,7 +1864,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', continuationSummary }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a', continuationSummary }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1895,7 +1895,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath,
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', taskToolSummary }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a', taskToolSummary }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1922,7 +1922,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', reward: 0 }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a', reward: 0 }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -1948,7 +1948,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -1979,7 +1979,7 @@ describe('fixed prompt controller', () => {
         systemPromptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2014,7 +2014,7 @@ describe('fixed prompt controller', () => {
         systemPromptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2049,7 +2049,7 @@ describe('fixed prompt controller', () => {
         systemPromptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2085,7 +2085,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2117,7 +2117,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2153,7 +2153,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2183,7 +2183,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2212,7 +2212,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 0,
@@ -2243,7 +2243,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             tokenSummary: tokenSummary({ input: 2, output: 1, reasoning: 0, total: 3, costUsd: 0 }),
@@ -2274,7 +2274,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         billingMode: 'account-plan',
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             tokenSummary: tokenSummary({ input: 2, output: 1, reasoning: 0, total: 3, costUsd: 0 }),
@@ -2305,7 +2305,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             omitTokenSummary: true,
@@ -2342,7 +2342,7 @@ describe('fixed prompt controller', () => {
         requireExecutionIdentity: true,
         requireFinalUsage: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             omitTokenSummary: true,
@@ -2380,7 +2380,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
         expectedPricingProfile: 'test-profile',
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             status: 'failed',
@@ -2420,7 +2420,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', promptHash: 'sha256:wrong' }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a', promptHash: 'sha256:wrong' }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -2445,7 +2445,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             errorClass: 'network',
@@ -2478,7 +2478,7 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         requireExecutionIdentity: true,
-        harborRunner: async () => harborOutput({ taskId: 'task-a' }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a' }),
         now: () => 100,
         newId: idFactory(),
       });
@@ -2501,7 +2501,7 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             omitPromptHash: true,
@@ -2548,7 +2548,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'sha256:manifest',
         protectPassAtOne: true,
-        harborRunner: async () => {
+        taskRunner: async () => {
           harborCalls += 1;
           return harborOutput({ taskId: 'task-a' });
         },
@@ -2598,7 +2598,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         resumeFingerprint: 'sha256:manifest',
         protectPassAtOne: true,
-        harborRunner: async () => harborOutput({ taskId: 'task-a' }),
+        taskRunner: async () => harborOutput({ taskId: 'task-a' }),
       });
 
       assert.equal(result.events[0]?.type, 'task_completed');
@@ -2618,7 +2618,7 @@ describe('fixed prompt controller', () => {
         systemPromptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () =>
+        taskRunner: async () =>
           harborOutput({
             taskId: 'task-a',
             reward: 1,
@@ -2670,7 +2670,7 @@ describe('fixed prompt controller', () => {
         systemPromptPath,
         resultsJsonlPath,
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => {
+        taskRunner: async () => {
           harborCalls += 1;
           return harborOutput({ taskId: 'task-a' });
         },
@@ -2735,19 +2735,19 @@ function harborOutput(input: {
   reward?: number;
   promptHash?: string;
   omitPromptHash?: boolean;
-  tokenSummary?: HarborTaskRunOutput['cell']['tokenSummary'];
+  tokenSummary?: TaskRunOutput['cell']['tokenSummary'];
   omitTokenSummary?: boolean;
-  contextBudgetPolicy?: HarborTaskRunOutput['cell']['contextBudgetPolicy'];
-  contextBudgetSummary?: HarborTaskRunOutput['cell']['contextBudgetSummary'];
-  continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
-  taskToolSummary?: HarborTaskRunOutput['cell']['taskToolSummary'];
+  contextBudgetPolicy?: TaskRunOutput['cell']['contextBudgetPolicy'];
+  contextBudgetSummary?: TaskRunOutput['cell']['contextBudgetSummary'];
+  continuationSummary?: TaskRunOutput['cell']['continuationSummary'];
+  taskToolSummary?: TaskRunOutput['cell']['taskToolSummary'];
   errorClass?: string;
-  status?: HarborTaskRunOutput['cell']['status'];
-  executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
-  deadlineSettlement?: HarborTaskRunOutput['cell']['deadlineSettlement'];
-  verifier?: HarborTaskRunOutput['harbor']['verifier'];
+  status?: TaskRunOutput['cell']['status'];
+  executionIdentity?: TaskRunOutput['cell']['executionIdentity'];
+  deadlineSettlement?: TaskRunOutput['cell']['deadlineSettlement'];
+  verifier?: TaskRunOutput['harbor']['verifier'];
   providerTelemetryPath?: string;
-}): HarborTaskRunOutput {
+}): TaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1, ...(input.verifier ? { verifier: input.verifier } : {}) },
     cell: {

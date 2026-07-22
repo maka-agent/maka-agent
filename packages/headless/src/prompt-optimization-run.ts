@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { LlmConnection } from '@maka/core';
 import type { Config } from './contracts.js';
-import type { FixedPromptTask, HarborTaskRunner } from './fixed-prompt-controller.js';
+import type { FixedPromptTask, TaskRunner } from './fixed-prompt-controller.js';
 import {
   createHarborTaskRunner,
   modelIdForProvider,
@@ -226,7 +226,7 @@ export interface PromptOptimizationRunInput {
   maxStableTaskDurationMs?: number;
 
   // Test overrides — bypass the real Docker/network components.
-  harborRunner?: HarborTaskRunner;
+  harborRunner?: TaskRunner;
   metaAgent?: MetaAgent;
   now?: () => number;
   newId?: () => string;
@@ -301,7 +301,7 @@ export async function runPromptOptimizationRun(
       ...(input.agentEnv ? { agentEnv: input.agentEnv } : {}),
       ...(input.harborTimeoutMs !== undefined ? { harborTimeoutMs: input.harborTimeoutMs } : {}),
     });
-  const harborRunner: HarborTaskRunner = async (runInput) =>
+  const harborRunner: TaskRunner = async (runInput) =>
     baseHarborRunner({
       ...runInput,
       agentEnv: {

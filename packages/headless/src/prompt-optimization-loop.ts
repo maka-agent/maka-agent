@@ -13,7 +13,7 @@ import {
   type FixedPromptTask,
   type FixedPromptTaskCompletedEvent,
   type FixedPromptTaskWalEvent,
-  type HarborTaskRunner,
+  type TaskRunner,
   type PromptCandidateRewardHackScan,
   type RsiControllerAttributionEvent,
 } from './fixed-prompt-controller.js';
@@ -112,7 +112,7 @@ export interface PromptOptimizationLoopInput {
   heldOutArtifactPaths?: readonly string[];
 
   config: Config;
-  harborRunner: HarborTaskRunner;
+  harborRunner: TaskRunner;
   metaAgent: MetaAgent;
   git: PromptCandidateGit;
 
@@ -260,7 +260,7 @@ export async function runPromptOptimizationLoop(
       resultsJsonlPath: input.resultsJsonlPath,
       resultsTsvPath,
       tasks,
-      harborRunner: input.harborRunner,
+      taskRunner: input.harborRunner,
       ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
       ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
       ...(options?.protectPassAtOne ? { protectPassAtOne: true } : {}),

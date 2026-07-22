@@ -13,7 +13,7 @@ import type {
 import type {
   FixedPromptTask,
   FixedPromptTaskWalEvent,
-  HarborTaskRunner,
+  TaskRunner,
 } from './fixed-prompt-controller.js';
 
 export interface SummarizePromptAbComparisonInput {
@@ -41,7 +41,7 @@ export interface RunPromptAbComparisonInput {
   resumeFingerprint?: string;
   budgetMs?: number;
   nonInferiorityMargin?: number;
-  harborRunner: HarborTaskRunner;
+  harborRunner: TaskRunner;
   now?: () => number;
   newId?: () => string;
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { HarborCellOutput } from '../cell-output.js';
-import type { HarborTaskRunner } from '../fixed-prompt-controller.js';
+import type { TaskRunner } from '../fixed-prompt-controller.js';
 import { assertHarnessAbReportCompleted, buildHarnessAbReport } from '../harness-ab-report.js';
 import { runHarnessAbComparison } from '../harness-ab-run.js';
 import { HarborInfraError } from '../harbor-task-runner.js';
@@ -430,7 +430,7 @@ function harnessArm(id: 'maka' | 'opencode', calls: string[], beforeRun?: () => 
     llmConnectionSlug: 'zai-coding-plan',
     model: 'glm-5.2',
   };
-  const harborRunner: HarborTaskRunner = async ({ task, systemPrompt }) => {
+  const harborRunner: TaskRunner = async ({ task, systemPrompt }) => {
     await beforeRun?.();
     calls.push(`${task.id}:${id}`);
     const promptHash = hashHeadlessSystemPrompt(systemPrompt);

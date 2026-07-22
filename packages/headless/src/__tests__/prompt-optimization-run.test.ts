@@ -14,8 +14,8 @@ import {
   hashSystemPrompt,
   readFixedPromptWal,
   type FixedPromptTask,
-  type HarborTaskRunInput,
-  type HarborTaskRunOutput,
+  type TaskRunInput,
+  type TaskRunOutput,
 } from '../fixed-prompt-controller.js';
 import {
   buildPromptOptimizationTaskAgentEnv,
@@ -727,7 +727,7 @@ function makeRunTasks(prefix: string, count: number): FixedPromptTask[] {
 function fakeRunHarborRunner(
   eventsDir: string,
   rewardFor: (roundId: string, taskId: string) => number,
-): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
+): (input: TaskRunInput) => Promise<TaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
     const runtimeEventsPath = join(eventsDir, `${roundId}__${task.id}.jsonl`);
     await writeFile(

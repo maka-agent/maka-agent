@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   hashSystemPrompt,
-  type HarborTaskRunInput,
-  type HarborTaskRunOutput,
+  type TaskRunInput,
+  type TaskRunOutput,
 } from '../../fixed-prompt-controller.js';
 import {
   createCliPromptCandidateGit,
@@ -161,7 +161,7 @@ function fakeHarborRunner(
   verifierFailureSummaryFor?: (roundId: string, taskId: string) => string | undefined,
   onTaskRun?: (roundId: string, taskId: string) => void,
   runtimeEventCommandFor?: (roundId: string, taskId: string) => string | undefined,
-): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
+): (input: TaskRunInput) => Promise<TaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
     onTaskRun?.(roundId, task.id);
     if (shouldThrowInfra?.(roundId, task.id)) {

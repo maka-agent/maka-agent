@@ -8,7 +8,7 @@ import {
   readFixedPromptWal,
   runFixedPromptController,
   type FixedPromptTask,
-  type HarborTaskRunner,
+  type TaskRunner,
 } from './fixed-prompt-controller.js';
 import { HARNESS_AB_PAIR_CONCURRENCY, type HarnessAbArmId } from './harness-ab-manifest.js';
 
@@ -17,7 +17,7 @@ export interface HarnessAbRuntimeArm {
   config: Config;
   expectedPricingProfile: string;
   billingMode?: HarborBillingMode;
-  harborRunner: HarborTaskRunner;
+  harborRunner: TaskRunner;
 }
 
 export interface RunHarnessAbComparisonInput {
@@ -97,7 +97,7 @@ export async function runHarnessAbComparisonUnlocked(
         expectedPricingProfile: runtimeArm.expectedPricingProfile,
         ...(runtimeArm.billingMode ? { billingMode: runtimeArm.billingMode } : {}),
         resumeFingerprint: input.resumeFingerprint,
-        harborRunner: runtimeArm.harborRunner,
+        taskRunner: runtimeArm.harborRunner,
         ...(input.now ? { now: input.now } : {}),
         ...(input.newId ? { newId: input.newId } : {}),
       });
