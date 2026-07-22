@@ -30,6 +30,7 @@ coverage into a failure instead of a skip:
 
 from __future__ import annotations
 
+import functools
 import importlib
 import os
 import sys
@@ -71,6 +72,32 @@ def _pier_gate() -> bool:
             "MAKA_HARNESS_COMPAT_EXPECT=pier but pier is not importable"
         )
     return False
+
+
+def _isolated_maka_env(test):
+    """Run a test with all MAKA_* keys scrubbed from os.environ.
+
+    The adapters' _get_env falls back to os.environ, so an operator shell that
+    exported e.g. MAKA_PROVIDER_PROXY_URL or MAKA_HOST_NO_AUTH would flip these
+    contracts. MAKA_HARNESS_COMPAT_EXPECT is the runner's own control variable,
+    not adapter env, and stays visible.
+    """
+
+    @functools.wraps(test)
+    def wrapper():
+        saved = {
+            key: value
+            for key, value in os.environ.items()
+            if key.startswith("MAKA_") and key != "MAKA_HARNESS_COMPAT_EXPECT"
+        }
+        for key in saved:
+            del os.environ[key]
+        try:
+            return test()
+        finally:
+            os.environ.update(saved)
+
+    return wrapper
 
 
 def _fresh_adapters():
@@ -124,6 +151,7 @@ def _restore_modules(saved_pier) -> None:
     sys.modules.update(saved_pier)
 
 
+@_isolated_maka_env
 def test_pier_tree_selected_and_agent_info_is_pier_type():
     if not _pier_gate():
         return SKIPPED
@@ -138,6 +166,7 @@ def test_pier_tree_selected_and_agent_info_is_pier_type():
         assert agent.install_spec() is None
 
 
+@_isolated_maka_env
 def test_maka_agent_network_policy_under_pier():
     if not _pier_gate():
         return SKIPPED
@@ -157,17 +186,28 @@ def test_maka_agent_network_policy_under_pier():
     fake = maka_mod.MakaAgent(logs_dir=Path("/tmp"), backend="fake")
     assert fake.network_allowlist().domains == []
 
-    # backend=ai-sdk without host-side provider config would need in-container
-    # egress the empty allowlist forbids; fail at environment creation instead.
+    # task-run mode always runs the model on the host and only bridges tool
+    # commands into the container, so the empty allowlist is correct even
+    # without any MAKA_HOST_* configuration.
+    task_run = maka_mod.MakaAgent(
+        logs_dir=Path("/tmp"), extra_env={"MAKA_HARBOR_MODE": "task-run"}
+    )
+    assert task_run.network_allowlist().domains == []
+
+    # A cell-mode ai-sdk run without host-side provider config would need
+    # in-container egress the empty allowlist forbids; fail at environment
+    # creation instead.
     mismatched = maka_mod.MakaAgent(logs_dir=Path("/tmp"))
     _raises(
         mismatched.network_allowlist,
         RuntimeError,
         "host-side provider configuration",
         "backend=fake",
+        "task-run",
     )
 
 
+@_isolated_maka_env
 def test_kimi_agent_network_shape_under_pier():
     if not _pier_gate():
         return SKIPPED
@@ -206,6 +246,7 @@ def test_kimi_agent_network_shape_under_pier():
     _raises(ipv6.network_allowlist, ValueError, "IPv6")
 
 
+@_isolated_maka_env
 def test_harbor_tree_used_without_pier():
     saved_pier = _without_pier_modules()
     finder = _RaisingPierFinder(
@@ -237,6 +278,7 @@ def test_harbor_tree_used_without_pier():
         _restore_modules(saved_pier)
 
 
+@_isolated_maka_env
 def test_broken_pier_install_reraises():
     # A pier package that exists but fails its own import (here: a missing
     # dependency) must re-raise instead of silently selecting the compat
