@@ -57,7 +57,8 @@ import {
   renderHarnessAbReportCsv,
   renderHarnessAbReportMarkdown,
 } from '#harness-ab-report';
-import { buildSubjectFingerprint, buildToolchainFingerprint } from './run-prompt-ab.mjs';
+import { envPath as parseEnvPath } from '#headless-run-env';
+import { buildSubjectFingerprint, buildToolchainFingerprint } from '#experiment-fingerprint';
 
 const execFileAsync = promisify(execFile);
 
@@ -275,15 +276,8 @@ export function resolveHarnessCompetitorToolchain(runRoot, competitorProfile, en
   throw new Error(`unsupported harness competitor: ${competitorProfile.id}`);
 }
 
-function envPath(name, fallback) {
-  return envPathFrom(process.env, name, fallback);
-}
-
-function envPathFrom(env, name, fallback) {
-  const raw = env[name] || fallback;
-  if (!raw) throw new Error(`${name} is required`);
-  return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
-}
+const envPath = (name, fallback) => parseEnvPath(name, process.env[name], fallback);
+const envPathFrom = (env, name, fallback) => parseEnvPath(name, env[name], fallback);
 
 function defaultMakaWorkspaceRoot() {
   if (process.platform === 'darwin') {

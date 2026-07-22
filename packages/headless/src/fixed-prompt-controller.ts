@@ -56,7 +56,16 @@ export interface HarborVerifierOutcome {
   attempts: HarborVerifierAttempt[];
 }
 
-export interface HarborTaskRunOutput {
+/**
+ * The provider-neutral seam the fixed-prompt controller and A/B schedulers
+ * consume: run one task attempt and return its reward plus cell artifacts. The
+ * Harbor implementation (`createHarborTaskRunner`) is the first and, today, only
+ * implementation; a Pier implementation lands later under its own issue and
+ * satisfies the same interface. The output still carries a Harbor-shaped
+ * `harbor` field; generalizing that payload is deferred until a second
+ * implementation actually needs it.
+ */
+export interface TaskRunOutput {
   harbor: {
     reward: number;
     verifierFailureSummary?: string;
@@ -65,7 +74,7 @@ export interface HarborTaskRunOutput {
   cell: HarborTaskRunCellOutput;
 }
 
-export interface HarborTaskRunInput {
+export interface TaskRunInput {
   runId: string;
   roundId: string;
   task: FixedPromptTask;
@@ -74,9 +83,16 @@ export interface HarborTaskRunInput {
   agentEnv?: Record<string, string>;
 }
 
-export interface HarborTaskRunner {
-  (input: HarborTaskRunInput): Promise<HarborTaskRunOutput>;
+export interface TaskRunner {
+  (input: TaskRunInput): Promise<TaskRunOutput>;
 }
+
+/** @deprecated Harbor-named alias retained for existing call sites; use `TaskRunInput`. */
+export type HarborTaskRunInput = TaskRunInput;
+/** @deprecated Harbor-named alias retained for existing call sites; use `TaskRunOutput`. */
+export type HarborTaskRunOutput = TaskRunOutput;
+/** @deprecated Harbor-named alias retained for existing call sites; use `TaskRunner`. */
+export type HarborTaskRunner = TaskRunner;
 
 export interface FixedPromptBudgetExhaustedArtifactRefs {
   runtimeEventsPath?: string;
@@ -378,7 +394,7 @@ export interface RunFixedPromptControllerInput {
   /** Refuse resume when a model attempt was durably admitted but no terminal
    * event exists, preserving single-sample benchmark semantics. */
   protectPassAtOne?: boolean;
-  harborRunner: HarborTaskRunner;
+  harborRunner: TaskRunner;
   now?: () => number;
   newId?: () => string;
 }

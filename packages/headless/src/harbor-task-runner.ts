@@ -21,9 +21,9 @@ import {
 import {
   FixedPromptBudgetExhaustedError,
   type FixedPromptBudgetExhaustedError as FixedPromptBudgetExhaustedErrorType,
-  HarborTaskRunInput,
-  HarborTaskRunOutput,
-  HarborTaskRunner,
+  type TaskRunInput,
+  type TaskRunOutput,
+  type TaskRunner,
   type HarborVerifierAttempt,
   type HarborVerifierOutcome,
 } from './fixed-prompt-controller.js';
@@ -182,7 +182,7 @@ export interface HarborOracleQualifierOptions {
 }
 
 export type HarborOracleQualifier = (
-  task: HarborTaskRunInput['task'],
+  task: TaskRunInput['task'],
 ) => Promise<HarnessOracleTaskResult>;
 
 const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
@@ -200,7 +200,7 @@ const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
   'MAKA_TRIAL_PRICING_SOURCE',
 ]);
 
-export function createHarborTaskRunner(options: HarborTaskRunnerOptions): HarborTaskRunner {
+export function createHarborTaskRunner(options: HarborTaskRunnerOptions): TaskRunner {
   const runHarbor = options.runHarbor ?? defaultHarborProcessRunner;
   const harborBin = options.harborBin ?? 'harbor';
   // The bare local adapter import paths resolve only when the adapter
@@ -209,9 +209,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
   const pythonPath = [harborAdapterDir, process.env.PYTHONPATH].filter(Boolean).join(delimiter);
 
-  const runner: HarborTaskRunner = async (
-    input: HarborTaskRunInput,
-  ): Promise<HarborTaskRunOutput> => {
+  const runner: TaskRunner = async (input: TaskRunInput): Promise<TaskRunOutput> => {
     const jobsDir = join(
       options.jobsDir,
       sanitize(input.runId),
@@ -548,17 +546,14 @@ function assertVerifierRewardAgreement(
   }
 }
 
-function resolveHarborTimeoutMs(
-  options: HarborTaskRunnerOptions,
-  input: HarborTaskRunInput,
-): number {
+function resolveHarborTimeoutMs(options: HarborTaskRunnerOptions, input: TaskRunInput): number {
   if (options.harborTimeoutMs !== undefined) return options.harborTimeoutMs;
   return resolveNativeHarborTimeoutMs(options, input.task);
 }
 
 function resolveNativeHarborTimeoutMs(
   options: Pick<HarborTaskRunnerOptions, 'timeoutMultiplier'>,
-  task: HarborTaskRunInput['task'],
+  task: TaskRunInput['task'],
 ): number {
   const agentSec = task.metadata?.agentTimeoutSec ?? 0;
   const verifierSec = verifierPolicy(task).outerTimeoutSec;
@@ -814,7 +809,7 @@ function mergeAgentEnv(
 }
 
 export function buildHarborJobConfig(
-  input: HarborTaskRunInput,
+  input: TaskRunInput,
   options: HarborTaskRunnerOptions & { jobsDir: string; jobName: string },
 ): Record<string, unknown> {
   const attemptAgentEnv = mergeAgentEnv(options.agentEnv, input.agentEnv);
@@ -1010,7 +1005,7 @@ function harborVerifierConfig(verifier: ReturnType<typeof verifierPolicy>) {
   };
 }
 
-function verifierPolicy(task: HarborTaskRunInput['task']): {
+function verifierPolicy(task: TaskRunInput['task']): {
   attemptTimeoutSec: number;
   outerTimeoutSec: number;
 } {

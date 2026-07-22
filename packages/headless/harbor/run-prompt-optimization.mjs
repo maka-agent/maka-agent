@@ -22,7 +22,12 @@ import { availableParallelism, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
-import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
+import {
+  discoverCachedHarborTasks,
+  resolveFixedPromptRunRoot,
+  selectTasksByIds,
+} from '#fixed-prompt-task-source';
+import { DEEPSEEK_V4_FLASH_PRICING } from '#deepseek-pricing';
 import {
   buildRewardHackVerifierPatterns,
   runPromptOptimizationRun,
@@ -31,7 +36,9 @@ import {
 import { renderPromptStructuralSmokeMarkdown } from '#prompt-structural-smoke';
 import {
   envFinitePositiveNumber,
+  envIds as parseEnvIds,
   envNonNegativeInt,
+  envPath as parseEnvPath,
   envPositiveInt,
   envRatio,
   resolveMinStable,
@@ -50,38 +57,6 @@ import {
 } from '#prompt-optimization-manifest';
 import { resolvePromptOptimizationProfile } from '#prompt-optimization-profile';
 
-// DeepSeek per-1M USD pricing (0.145 USD/CNY). "input" is the cache-miss rate;
-// cache writes carry no separate charge, so cacheWriteUsdPer1M is 0. Vendor
-// pricing lives here in the runner, not in @maka/headless: it is run config, not
-// part of the package's generic public API.
-const DEEPSEEK_V4_FLASH_PRICING = {
-  inputUsdPer1M: 0.145,
-  outputUsdPer1M: 0.29,
-  cacheReadUsdPer1M: 0.0029,
-  cacheWriteUsdPer1M: 0,
-  source: 'deepseek-v4-flash',
-};
-
-// This object is plain JS (no HarborTaskPricing type-check) and is no longer
-// pinned by a unit test, so a mistyped field name would leave a rate `undefined`
-// and the runner would silently emit wrong/zero costUsd. Fail loud at startup —
-// before any Docker time — if a canonical rate field is missing or not a finite,
-// non-negative number. The field-name -> MAKA_TRIAL_* forwarding contract is
-// covered in harbor-task-runner.test.ts.
-for (const field of [
-  'inputUsdPer1M',
-  'outputUsdPer1M',
-  'cacheReadUsdPer1M',
-  'cacheWriteUsdPer1M',
-]) {
-  const rate = DEEPSEEK_V4_FLASH_PRICING[field];
-  if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0) {
-    throw new Error(
-      `DEEPSEEK_V4_FLASH_PRICING.${field} must be a finite, non-negative number (got ${JSON.stringify(rate)})`,
-    );
-  }
-}
-
 const PROGRAM = `You are improving ONE system prompt for autonomous Terminal-Bench coding agents.
 Given the current prompt, the latest held-in results, and recent failure digests,
 propose a single, conservative improvement that should raise the held-in pass rate
@@ -89,12 +64,7 @@ without overfitting. Do not reference specific task ids or expected outputs. Rep
 with exactly one JSON object {"systemPrompt": "...", "summary": "..."}.
 `;
 
-function envPath(name, fallback) {
-  const raw = process.env[name];
-  const value = raw && raw.length > 0 ? raw : fallback;
-  if (!value) throw new Error(`${name} is required`);
-  return value.startsWith('~') ? join(homedir(), value.slice(1)) : resolve(value);
-}
+const envPath = (name, fallback) => parseEnvPath(name, process.env[name], fallback);
 
 function defaultLocalEvalRoot(repoRoot) {
   const marker = '/.worktree/';
@@ -137,26 +107,7 @@ const envBool = (name, fallback) => {
 };
 
 // Comma-separated explicit task ids (controlled smokes). Empty -> undefined.
-function envIds(name) {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const ids = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  return ids.length > 0 ? ids : undefined;
-}
-
-// Pick tasks by explicit id, preserving the requested order; throw on a
-// duplicate (would double-weight a task) or any unknown id.
-function selectTasksByIds(allTasks, ids) {
-  const duplicates = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
-  if (duplicates.length > 0) throw new Error(`duplicate task id(s): ${duplicates.join(', ')}`);
-  const byId = new Map(allTasks.map((t) => [t.id, t]));
-  const missing = ids.filter((id) => !byId.has(id));
-  if (missing.length > 0) throw new Error(`unknown task id(s): ${missing.join(', ')}`);
-  return ids.map((id) => byId.get(id));
-}
+const envIds = (name) => parseEnvIds(process.env[name]);
 
 async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));

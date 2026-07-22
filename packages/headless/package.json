@@ -26,6 +26,8 @@
   "imports": {
     "#fixed-prompt-task-source": "./dist/fixed-prompt-task-source.js",
     "#headless-run-env": "./dist/headless-run-env.js",
+    "#experiment-fingerprint": "./dist/experiment-fingerprint.js",
+    "#deepseek-pricing": "./dist/deepseek-pricing.js",
     "#prompt-optimization-env": "./dist/prompt-optimization-env.js",
     "#prompt-optimization-bootstrap": "./dist/prompt-optimization-bootstrap.js",
     "#prompt-optimization-manifest": "./dist/prompt-optimization-manifest.js",

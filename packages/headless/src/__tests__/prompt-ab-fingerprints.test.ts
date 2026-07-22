@@ -2,14 +2,16 @@ import assert from 'node:assert/strict';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
+import {
+  buildSubjectFingerprint,
+  buildTaskSourceFingerprint,
+  buildToolchainFingerprint,
+} from '../experiment-fingerprint.js';
 import { sha256 } from './helpers/hash-fixture.js';
 import { withDir } from './helpers/temp-dir.js';
 
-const promptAbScriptUrl = new URL('../../harbor/run-prompt-ab.mjs', import.meta.url).href;
-
 describe('prompt A/B source fingerprints', () => {
   test('rejects dirty subject repos unless an explicit subject fingerprint is provided', async () => {
-    const { buildSubjectFingerprint } = await import(promptAbScriptUrl);
     const gitWithStatus =
       (status: string) =>
       async (_repoPath: string, args: readonly string[]): Promise<string> => {
@@ -38,8 +40,6 @@ describe('prompt A/B source fingerprints', () => {
   });
 
   test('builds a toolchain fingerprint from Node and Harbor identity unless explicit', async () => {
-    const { buildToolchainFingerprint } = await import(promptAbScriptUrl);
-
     await withDir(async (dir) => {
       await writeFile(
         join(dir, 'package-lock.json'),
@@ -81,7 +81,6 @@ describe('prompt A/B source fingerprints', () => {
   });
 
   test('requires an installed dependency lock unless the toolchain fingerprint is explicit', async () => {
-    const { buildToolchainFingerprint } = await import(promptAbScriptUrl);
     await withDir(async (dir) => {
       await writeFile(
         join(dir, 'package-lock.json'),
@@ -101,7 +100,6 @@ describe('prompt A/B source fingerprints', () => {
   });
 
   test('includes runtime dist artifacts in the subject fingerprint', async () => {
-    const { buildSubjectFingerprint } = await import(promptAbScriptUrl);
     await withDir(async (dir) => {
       const repo = join(dir, 'repo');
       const distFile = join(repo, 'packages/headless/dist/harbor-cell.js');
@@ -124,7 +122,6 @@ describe('prompt A/B source fingerprints', () => {
   });
 
   test('hashes non-task.toml files inside selected task directories', async () => {
-    const { buildTaskSourceFingerprint } = await import(promptAbScriptUrl);
     await withDir(async (dir) => {
       const tasksRoot = join(dir, 'tasks');
       const taskPath = join(tasksRoot, 'task-a');
@@ -143,7 +140,6 @@ describe('prompt A/B source fingerprints', () => {
   });
 
   test('rejects symlinks inside selected task directories', async () => {
-    const { buildTaskSourceFingerprint } = await import(promptAbScriptUrl);
     await withDir(async (dir) => {
       const tasksRoot = join(dir, 'tasks');
       const taskPath = join(tasksRoot, 'task-a');

@@ -9,14 +9,16 @@
 //   node packages/headless/harbor/run-prompt-ab.mjs
 
 import { createHash } from 'node:crypto';
-import { execFile as execFileCallback } from 'node:child_process';
-import { lstat, mkdir, readdir, readFile, readlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
-import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
+import {
+  discoverCachedHarborTasks,
+  resolveFixedPromptRunRoot,
+  selectTasksByIds,
+} from '#fixed-prompt-task-source';
 import {
   buildPromptAbRunManifest,
   ensurePromptAbRunManifest,
@@ -25,28 +27,24 @@ import {
   renderPromptAbComparisonMarkdown,
   runPromptAbComparison,
 } from '#prompt-ab-run';
-import { envRatio, envPositiveInt } from '#headless-run-env';
+import {
+  envIds as parseEnvIds,
+  envPath as parseEnvPath,
+  envPositiveInt,
+  envRatio,
+} from '#headless-run-env';
 import { createHarborTaskRunner } from '#harbor-task-runner';
+import {
+  buildSubjectFingerprint,
+  buildTaskSourceFingerprint,
+  buildToolchainFingerprint,
+} from '#experiment-fingerprint';
+import { DEEPSEEK_V4_FLASH_PRICING } from '#deepseek-pricing';
 
-const DEEPSEEK_V4_FLASH_PRICING = {
-  inputUsdPer1M: 0.145,
-  outputUsdPer1M: 0.29,
-  cacheReadUsdPer1M: 0.0029,
-  cacheWriteUsdPer1M: 0,
-  source: 'deepseek-v4-flash',
-};
-
-const execFile = promisify(execFileCallback);
-
-function envPath(name, fallback) {
-  const raw = process.env[name];
-  const value = raw && raw.length > 0 ? raw : fallback;
-  if (!value) throw new Error(`${name} is required`);
-  return value.startsWith('~') ? join(homedir(), value.slice(1)) : resolve(value);
-}
-
+const envPath = (name, fallback) => parseEnvPath(name, process.env[name], fallback);
 const envPosInt = (name, fallback) => envPositiveInt(name, process.env[name], fallback);
 const envRatioValue = (name, fallback) => envRatio(name, process.env[name], fallback);
+const envIds = (name) => parseEnvIds(process.env[name]);
 
 function rejectUnsupportedProviderEnv(env) {
   const raw = env.MAKA_PROMPT_AB_PROVIDER;
@@ -57,253 +55,12 @@ function rejectUnsupportedProviderEnv(env) {
   }
 }
 
-function envIds(name) {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const ids = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  return ids.length > 0 ? ids : undefined;
-}
-
 function promptIdFromPath(path) {
   return basename(path).replace(/\.[^.]+$/, '');
 }
 
-function selectTasksByIds(allTasks, ids) {
-  const duplicates = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
-  if (duplicates.length > 0) throw new Error(`duplicate task id(s): ${duplicates.join(', ')}`);
-  const byId = new Map(allTasks.map((task) => [task.id, task]));
-  const missing = ids.filter((id) => !byId.has(id));
-  if (missing.length > 0) throw new Error(`unknown task id(s): ${missing.join(', ')}`);
-  return ids.map((id) => byId.get(id));
-}
-
 function hashSystemPrompt(systemPrompt) {
   return `sha256:${createHash('sha256').update(systemPrompt).digest('hex')}`;
-}
-
-function hashBytes(bytes) {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-}
-
-function hashPayload(payload) {
-  return `sha256:${createHash('sha256').update(canonicalJson(payload)).digest('hex')}`;
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value)
-      .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function gitOutput(repoPath, args) {
-  const { stdout } = await execFile('git', ['-C', repoPath, ...args], {
-    encoding: 'utf8',
-    maxBuffer: 1024 * 1024,
-  });
-  return stdout.trimEnd();
-}
-
-function isSha256Fingerprint(value) {
-  return /^sha256:[a-f0-9]{64}$/.test(value);
-}
-
-async function toolOutput(command, args) {
-  const { stdout, stderr } = await execFile(command, args, {
-    encoding: 'utf8',
-    maxBuffer: 1024 * 1024,
-  });
-  return `${stdout}${stderr}`.trim();
-}
-
-async function buildInstalledDependencyFingerprint(repoPath) {
-  const packageLockPath = join(repoPath, 'package-lock.json');
-  const installedLockPath = join(repoPath, 'node_modules/.package-lock.json');
-  let packageLock;
-  let installedLock;
-  try {
-    [packageLock, installedLock] = await Promise.all([
-      readFile(packageLockPath),
-      readFile(installedLockPath),
-    ]);
-  } catch (error) {
-    throw new Error(
-      `prompt A/B toolchain fingerprint requires ${packageLockPath} and ${installedLockPath}. Run npm install in MAKA_PROMPT_AB_MAKA_REPO, or set MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT to an explicit sha256:<64 lowercase hex> dependency snapshot. Cause: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  return {
-    packageLockPath: resolve(packageLockPath),
-    packageLockHash: hashBytes(packageLock),
-    installedPackageLockPath: resolve(installedLockPath),
-    installedPackageLockHash: hashBytes(installedLock),
-  };
-}
-
-export async function buildToolchainFingerprint(
-  explicitToolchainFingerprint,
-  readToolOutput = toolOutput,
-  repoPath = resolve(fileURLToPath(new URL('../../..', import.meta.url))),
-) {
-  if (explicitToolchainFingerprint && explicitToolchainFingerprint.trim().length > 0) {
-    const value = explicitToolchainFingerprint.trim();
-    if (!isSha256Fingerprint(value)) {
-      throw new Error(
-        'MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint',
-      );
-    }
-    return value;
-  }
-  let harborVersion;
-  try {
-    harborVersion = await readToolOutput('harbor', ['--version']);
-  } catch (error) {
-    harborVersion = `unavailable:${error instanceof Error ? error.message : String(error)}`;
-  }
-  return hashPayload({
-    kind: 'prompt-ab-toolchain',
-    node: process.version,
-    harborVersion,
-    dependencyInstallFingerprint: await buildInstalledDependencyFingerprint(repoPath),
-  });
-}
-
-export async function buildSubjectFingerprint(
-  repoPath,
-  explicitSubjectFingerprint,
-  readGitOutput = gitOutput,
-) {
-  if (explicitSubjectFingerprint && explicitSubjectFingerprint.trim().length > 0) {
-    const value = explicitSubjectFingerprint.trim();
-    if (!isSha256Fingerprint(value)) {
-      throw new Error(
-        'MAKA_PROMPT_AB_EXPLICIT_SUBJECT_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint',
-      );
-    }
-    return hashPayload({
-      kind: 'prompt-ab-subject',
-      explicitSubjectFingerprint: value,
-    });
-  }
-  let gitRoot;
-  let head;
-  let status;
-  try {
-    [gitRoot, head, status] = await Promise.all([
-      readGitOutput(repoPath, ['rev-parse', '--show-toplevel']),
-      readGitOutput(repoPath, ['rev-parse', 'HEAD']),
-      readGitOutput(repoPath, ['status', '--porcelain=v1', '--untracked-files=normal']),
-    ]);
-  } catch (error) {
-    throw new Error(
-      `MAKA_PROMPT_AB_MAKA_REPO must be a git checkout or MAKA_PROMPT_AB_EXPLICIT_SUBJECT_FINGERPRINT must be set: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (status.length > 0) {
-    throw new Error(
-      `MAKA_PROMPT_AB_MAKA_REPO must be clean for resume-safe prompt A/B runs. Commit/stash the changes, or set MAKA_PROMPT_AB_EXPLICIT_SUBJECT_FINGERPRINT to an explicit content fingerprint. Dirty git status:\n${status}`,
-    );
-  }
-  return hashPayload({
-    kind: 'prompt-ab-subject',
-    path: resolve(repoPath),
-    gitRoot: resolve(gitRoot),
-    head,
-    dirty: false,
-    statusHash: hashPayload({ status }),
-    runtimeArtifactFingerprint: await buildRuntimeArtifactFingerprint(gitRoot),
-  });
-}
-
-async function buildRuntimeArtifactFingerprint(repoRoot) {
-  const artifactRoots = [
-    'packages/headless/dist',
-    'packages/core/dist',
-    'packages/runtime/dist',
-    'packages/storage/dist',
-  ];
-  return hashPayload({
-    kind: 'prompt-ab-runtime-artifacts',
-    artifacts: await Promise.all(
-      artifactRoots.map(async (artifactPath) => ({
-        path: artifactPath,
-        entries: await hashOptionalDirectory(join(repoRoot, artifactPath)),
-      })),
-    ),
-  });
-}
-
-export async function buildTaskSourceFingerprint(tasksRoot, tasks) {
-  const taskEntries = [];
-  for (const task of tasks) {
-    taskEntries.push({
-      id: task.id,
-      path: resolve(task.path),
-      entries: await hashTaskDirectory(task.path),
-    });
-  }
-  return hashPayload({
-    kind: 'prompt-ab-task-source',
-    tasksRoot: resolve(tasksRoot),
-    tasks: taskEntries,
-  });
-}
-
-async function hashTaskDirectory(taskPath) {
-  const root = resolve(taskPath);
-  return await hashDirectory(root);
-}
-
-async function hashOptionalDirectory(path) {
-  try {
-    return await hashDirectory(resolve(path));
-  } catch (error) {
-    if (isNotFound(error)) return [{ path: '.', type: 'missing' }];
-    throw error;
-  }
-}
-
-async function hashDirectory(root) {
-  const entries = [];
-  await walkTaskDirectory(root, root, entries);
-  return entries;
-}
-
-async function walkTaskDirectory(root, dir, entries) {
-  const children = await readdir(dir, { withFileTypes: true });
-  children.sort((a, b) => a.name.localeCompare(b.name));
-  for (const child of children) {
-    const path = join(dir, child.name);
-    const stats = await lstat(path);
-    const entryPath = relative(root, path).split('\\').join('/');
-    if (child.isDirectory()) {
-      entries.push({ path: entryPath, type: 'directory' });
-      await walkTaskDirectory(root, path, entries);
-    } else if (child.isSymbolicLink()) {
-      throw new Error(
-        `task source symlink is not supported in prompt A/B fingerprints: ${entryPath} -> ${await readlink(path)}`,
-      );
-    } else if (child.isFile()) {
-      entries.push({
-        path: entryPath,
-        type: 'file',
-        executable: (stats.mode & 0o111) !== 0,
-        hash: hashBytes(await readFile(path)),
-      });
-    } else {
-      entries.push({ path: entryPath, type: 'other' });
-    }
-  }
-}
-
-function isNotFound(error) {
-  return error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
 }
 
 async function main() {
@@ -397,7 +154,7 @@ async function main() {
     taskSourceFingerprint: await buildTaskSourceFingerprint(tasksRoot, evaluationTasks),
     toolchainFingerprint: await buildToolchainFingerprint(
       process.env.MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT,
-      toolOutput,
+      undefined,
       makaRepoPath,
     ),
     evaluationTaskIds: evaluationTasks.map((task) => task.id),

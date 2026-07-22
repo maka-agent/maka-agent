@@ -7,8 +7,13 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import { ensureAbRunManifest } from '#ab-manifest';
-import { discoverCachedHarborTasks, resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
+import {
+  discoverCachedHarborTasks,
+  resolveFixedPromptRunRoot,
+  selectTasksByIds,
+} from '#fixed-prompt-task-source';
 import { createHarborTaskRunner } from '#harbor-task-runner';
+import { envPath as parseEnvPath } from '#headless-run-env';
 import { providerCredentialEnv } from '#provider-env';
 import { runRuntimePolicyAbLifecycle } from '#runtime-policy-ab-lifecycle';
 import { parseRuntimePolicyAbExecutionProfile } from '#runtime-policy-ab-profile';
@@ -21,21 +26,11 @@ import {
   buildSubjectFingerprint,
   buildTaskSourceFingerprint,
   buildToolchainFingerprint,
-} from './run-prompt-ab.mjs';
+} from '#experiment-fingerprint';
 
-function envPath(name, fallback) {
-  const raw = process.env[name] || fallback;
-  if (!raw) throw new Error(`${name} is required`);
-  return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
-}
-
-function selectTasks(allTasks, taskIds, label) {
-  const byId = new Map(allTasks.map((task) => [task.id, task]));
-  const missing = taskIds.filter((id) => !byId.has(id));
-  if (missing.length > 0)
-    throw new Error(`${label} contains unknown task id(s): ${missing.join(', ')}`);
-  return taskIds.map((id) => byId.get(id));
-}
+const envPath = (name, fallback) => parseEnvPath(name, process.env[name], fallback);
+const selectTasks = (allTasks, taskIds, label) =>
+  selectTasksByIds(allTasks, taskIds, { label, rejectDuplicates: false });
 
 async function main() {
   const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
