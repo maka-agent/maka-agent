@@ -14,7 +14,12 @@ import {
   type TaskRunner,
 } from './fixed-prompt-controller.js';
 import { lenientPositiveIntEnv } from './headless-run-env.js';
-import { assertNoExperimentIdentityOverrides, modelIdForProvider } from './harbor-task-runner.js';
+import {
+  assertNoExperimentIdentityOverrides,
+  harborTraceMode,
+  modelIdForProvider,
+  readTimedOutTrialArtifacts,
+} from './harbor-task-runner.js';
 import {
   KIMI_CODE_TOOLCHAIN_CONTAINER_PATH,
   KIMI_CODE_TOOLCHAIN_FINGERPRINT,
@@ -298,10 +303,24 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
       const trialException = await readTrialException(join(trialDir, TRIAL_RESULT));
       if (trialException) {
         if (isBudgetExhaustedTrialException(trialException)) {
+          // Recover attested evidence (identity/usage/cell output) via the shared
+          // Harbor implementation so a budget-exhausted sample keeps its Pass@1
+          // eligibility instead of being excluded as missing_execution_identity.
+          const artifactRefs = await readTimedOutTrialArtifacts(
+            trialDir,
+            input.task.id,
+            agent,
+            harborTraceMode(attemptAgentEnv),
+          );
           throw new FixedPromptBudgetExhaustedError(
             `agent budget exhausted for task ${input.task.id}`,
             trialException,
-            providerTelemetry.length > 0 ? { providerTelemetryPath } : undefined,
+            artifactRefs || providerTelemetry.length > 0
+              ? {
+                  ...(artifactRefs ?? {}),
+                  ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
+                }
+              : undefined,
           );
         }
         throw new PierInfraError(

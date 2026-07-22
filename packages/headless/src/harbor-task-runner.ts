@@ -591,7 +591,9 @@ function hostTraceEventsPath(
   return existsSync(cellTracePath) ? cellTracePath : hostEventsPath;
 }
 
-function harborTraceMode(agentEnv: Record<string, string> | undefined): 'cell' | 'task-run' {
+/** Exported alongside readTimedOutTrialArtifacts: the Pier runner resolves the
+ * same MAKA_HARBOR_MODE contract when recovering timed-out trial artifacts. */
+export function harborTraceMode(agentEnv: Record<string, string> | undefined): 'cell' | 'task-run' {
   return agentEnv?.MAKA_HARBOR_MODE === 'task-run' ? 'task-run' : 'cell';
 }
 
@@ -611,7 +613,13 @@ function cellArtifactRefs(
   };
 }
 
-async function readTimedOutTrialArtifacts(
+/** Recover whatever attested evidence a timed-out/budget-exhausted trial left
+ * behind (cell output, execution identity, usage checkpoint) so the sample keeps
+ * its Pass@1 eligibility instead of being excluded as missing_execution_identity.
+ * Cross-runner benchmark invariant: the Pier runner reuses this exact
+ * implementation — both runners' trials are written by the same adapters into
+ * the same agent/ layout, so the recovery contract must not fork. */
+export async function readTimedOutTrialArtifacts(
   trialDir: string,
   taskId: string,
   agent: HarborTaskRunnerOptions['agent'],

@@ -48,6 +48,7 @@ interface FakeOptions {
   rewardJson?: boolean;
   verifierResultReward?: number;
   cell?: HarborCellOutput | null;
+  executionIdentity?: Record<string, unknown>;
   exceptionInfo?: { exception_type: string; exception_message: string };
   exitCode?: number;
   timedOut?: boolean;
@@ -91,6 +92,13 @@ function fakePier(opts: FakeOptions): PierProcessRunner {
       await writeFile(
         join(trialDir, 'agent', 'maka-cell-output.json'),
         JSON.stringify(opts.cell ?? cellOutput()),
+        'utf8',
+      );
+    }
+    if (opts.executionIdentity) {
+      await writeFile(
+        join(trialDir, 'agent', 'maka-cell-execution-identity.json'),
+        JSON.stringify(opts.executionIdentity),
         'utf8',
       );
     }
@@ -335,6 +343,42 @@ test('createPierTaskRunner reports a budget exhaustion as a benchmark outcome', 
       runner(runInput()),
       (error: Error) => error instanceof FixedPromptBudgetExhaustedError,
     );
+  });
+});
+
+test('createPierTaskRunner recovers execution identity from a budget-exhausted trial', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const identity = {
+      llmConnectionSlug: 'fake',
+      model: 'fake',
+      systemPromptMode: 'default',
+      systemPromptHash: 'sha256:abc',
+      pricingProfile: 'fake-structural',
+    };
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        runPier: fakePier({
+          cell: null,
+          executionIdentity: identity,
+          exceptionInfo: {
+            exception_type: 'AgentTimeoutError',
+            exception_message: 'Agent execution timed out after 600 seconds',
+          },
+        }),
+      }),
+    );
+    // The recovered identity keeps the sample Pass@1-eligible; a null
+    // artifactRefs would demote it to missing_execution_identity and silently
+    // shrink the benchmark denominator. Recovery is the shared Harbor
+    // implementation (readTimedOutTrialArtifacts), so both runners honor the
+    // same cross-runner contract by construction.
+    await assert.rejects(runner(runInput()), (error: Error) => {
+      assert.ok(error instanceof FixedPromptBudgetExhaustedError);
+      assert.deepEqual(error.artifactRefs?.executionIdentity, identity);
+      return true;
+    });
   });
 });
 
