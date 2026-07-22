@@ -58,6 +58,7 @@ import {
 } from './task-ledger-experiment.js';
 import {
   booleanEnv,
+  MAX_NODE_TIMER_MS,
   numericEnv,
   positiveIntEnv,
   type RunHarborCellEnv,
@@ -680,7 +681,11 @@ export function harborCellMaxStepsFromEnv(env: RunHarborCellEnv = process.env): 
 export function harborCellSoftTimeoutMsFromEnv(
   env: RunHarborCellEnv = process.env,
 ): number | undefined {
-  return positiveIntEnv(env.MAKA_CELL_SOFT_TIMEOUT_MS, 'MAKA_CELL_SOFT_TIMEOUT_MS');
+  const value = positiveIntEnv(env.MAKA_CELL_SOFT_TIMEOUT_MS, 'MAKA_CELL_SOFT_TIMEOUT_MS');
+  if (value !== undefined && value > MAX_NODE_TIMER_MS) {
+    throw new Error(`MAKA_CELL_SOFT_TIMEOUT_MS must not exceed ${MAX_NODE_TIMER_MS}`);
+  }
+  return value;
 }
 
 function isToolCallStepCap(invocation: InvocationResult): boolean {

@@ -433,6 +433,15 @@ describe('applyConnectionDefaults', () => {
 });
 
 describe('resolveHarborRunOptions backend guard', () => {
+  test('uses the strict cell soft-timeout parser in task-run mode', async () => {
+    await assert.rejects(
+      resolveHarborRunOptions(['--backend', 'fake', '--instruction', 'test'], {
+        MAKA_CELL_SOFT_TIMEOUT_MS: '1e3',
+      }),
+      /MAKA_CELL_SOFT_TIMEOUT_MS must be a positive integer/,
+    );
+  });
+
   test('explicit host authority overrides stale ambient provider authority', async () => {
     const opts = await resolveHarborRunOptions(
       ['--instruction', 'test', '--isolation', 'harbor-local'],

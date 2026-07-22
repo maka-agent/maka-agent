@@ -1966,6 +1966,14 @@ with tempfile.TemporaryDirectory() as tmp:
         "MAKA_CELL_TIMEOUT_SEC": "1800",
         "MAKA_CELL_SETTLEMENT_GRACE_SEC": "60",
     })._cell_soft_timeout_ms() == 1740000
+    try:
+        MakaAgent(Path(tmp), extra_env={
+            "MAKA_CELL_TIMEOUT_SEC": "2147514",
+        })._cell_soft_timeout_ms()
+    except RuntimeError as exc:
+        assert "Node timer limit" in str(exc), str(exc)
+    else:
+        raise AssertionError("expected an oversized soft timeout to raise")
 
     host_deadline_env = MakaAgent(Path(tmp), extra_env={
         "MAKA_BACKEND": "fake",

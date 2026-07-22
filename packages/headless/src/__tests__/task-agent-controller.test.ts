@@ -976,6 +976,27 @@ describe('runTaskOnce', () => {
     });
   });
 
+  test('rejects a benchmark deadline beyond the Node timer limit', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'oversized-benchmark-deadline',
+        instruction: 'must not start',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      await assert.rejects(
+        runTaskOnce(fakeConfig, task, {
+          storageRoot,
+          registerBackends: registerFakeBackend,
+          deadlineAtMs: 2_147_483_648,
+          now: () => 0,
+        }),
+        /deadlineAtMs exceeds the Node timer limit of 2147483647ms/,
+      );
+    });
+  });
+
   test('settles an active runtime at the benchmark soft deadline', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const task: Task = {

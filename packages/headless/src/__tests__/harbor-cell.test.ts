@@ -38,6 +38,7 @@ import {
   buildHarborCellAiSdkTools,
   buildHarborCellTaskLedgerExperimentPolicy,
   harborCellMaxStepsFromEnv,
+  harborCellSoftTimeoutMsFromEnv,
   createHarborCellLocalToolExecutor,
   createHarborHttpToolExecutor,
   HARBOR_CELL_CONTEXT_ENV_KEYS,
@@ -1754,6 +1755,13 @@ describe('runHarborCell', () => {
       /MAKA_MAX_STEPS must be a positive integer/,
     );
     assert.equal(harborCellMaxStepsFromEnv({}), undefined);
+  });
+
+  test('rejects a soft timeout above the Node timer limit', () => {
+    assert.throws(
+      () => harborCellSoftTimeoutMsFromEnv({ MAKA_CELL_SOFT_TIMEOUT_MS: '2147483648' }),
+      /MAKA_CELL_SOFT_TIMEOUT_MS must not exceed 2147483647/,
+    );
   });
 
   test('host-side Harbor cell config reads MAKA_ECONOMY_TASK_MODE', async () => {

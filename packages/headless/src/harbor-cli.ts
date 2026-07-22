@@ -19,6 +19,7 @@ import {
   buildHarborCellContextBudgetPolicySnapshot,
   createHarborCellLocalToolExecutor,
   createHarborHttpToolExecutor,
+  harborCellSoftTimeoutMsFromEnv,
   reasoningEffortFromEnv,
   runHarborCell,
   writeHarborCellArtifacts,
@@ -392,10 +393,7 @@ export async function resolveHarborRunOptions(
     valueOf(parsed, env, 'max-wall-time-sec', 'MAKA_MAX_WALL_TIME_SEC'),
     '--max-wall-time-sec',
   );
-  const softTimeoutMs = optionalPositiveInt(
-    env.MAKA_CELL_SOFT_TIMEOUT_MS,
-    'MAKA_CELL_SOFT_TIMEOUT_MS',
-  );
+  const softTimeoutMs = harborCellSoftTimeoutMsFromEnv(env);
   const config = buildConfig({
     parsed,
     env,

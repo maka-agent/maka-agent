@@ -32,6 +32,7 @@ import {
 } from './heavy-task-evidence.js';
 import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { resolveEconomyTaskMode } from './economy-task-policy.js';
+import { MAX_NODE_TIMER_MS } from './headless-run-env.js';
 import {
   createHeavyTaskProgressRecorder,
   HEAVY_TASK_PROGRESS_TOOL_NAMES,
@@ -1196,6 +1197,9 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
   };
   const remainingMs =
     input.deadlineAtMs === undefined ? undefined : Math.max(0, input.deadlineAtMs - input.now());
+  if (remainingMs !== undefined && remainingMs > MAX_NODE_TIMER_MS) {
+    throw new Error(`deadlineAtMs exceeds the Node timer limit of ${MAX_NODE_TIMER_MS}ms`);
+  }
   const dispatchAbortController = remainingMs === 0 ? new AbortController() : undefined;
   let settlementTimer: ReturnType<typeof setTimeout> | undefined;
   if (dispatchAbortController) {

@@ -12,6 +12,8 @@ import {
   assertRatio,
 } from './numeric-guards.js';
 
+export const MAX_NODE_TIMER_MS = 2_147_483_647;
+
 /** Parse a non-negative integer; throw on a non-integer or negative value. */
 export function envNonNegativeInt(name: string, raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw === '') return fallback;

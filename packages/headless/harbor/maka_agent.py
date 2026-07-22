@@ -102,6 +102,7 @@ def _host_node_process_env(cell_env: dict[str, str]) -> dict[str, str]:
 # agree on the upper bound for MAKA_CELL_TIMEOUT_SEC; an over-long digit string
 # is malformed, not a giant timeout.
 _MAX_SAFE_INTEGER = 9007199254740991
+_MAX_NODE_TIMER_MS = 2_147_483_647
 # ASCII decimal positive integer literal only; [0-9] (not \d) rejects Unicode
 # digits on both sides. Matches the TS host's lenientPositiveIntEnv.
 _POSITIVE_INT_RE = re.compile(r"[1-9][0-9]*")
@@ -344,7 +345,13 @@ class MakaAgent(BaseInstalledAgent):
             raise RuntimeError(
                 "MAKA_CELL_SETTLEMENT_GRACE_SEC must be smaller than MAKA_CELL_TIMEOUT_SEC"
             )
-        return (timeout_sec - grace_sec) * 1000
+        soft_timeout_ms = (timeout_sec - grace_sec) * 1000
+        if soft_timeout_ms > _MAX_NODE_TIMER_MS:
+            raise RuntimeError(
+                "MAKA_CELL_SOFT_TIMEOUT_MS exceeds the Node timer limit "
+                f"of {_MAX_NODE_TIMER_MS}ms"
+            )
+        return soft_timeout_ms
 
     def _host_side_llm_enabled(self) -> bool:
         return bool(
