@@ -390,6 +390,119 @@ const multiStepConversation: StoredMessage[] = [
   },
 ];
 
+// #1307: reasoning + tool calls between two answer texts fold into one
+// collapsed "Processing" block. Here a single reasoning/tool phase (two
+// think-then-call steps with no answer text between them, one failing tool)
+// collapses into one Processing summary — 思考 2 次 + tool counts + a red failed
+// count — followed by the assistant's answer text rendered in place.
+const processingConversation: StoredMessage[] = [
+  user('msg-user-processing', 'turn-processing', 13, '排查 stream-fade 的环边界，跑一下单测确认。'),
+  {
+    type: 'tool_call',
+    id: 'proc-read',
+    turnId: 'turn-processing',
+    ts: NOW - 12 * 60_000,
+    toolName: 'Read',
+    activityKind: 'read',
+    displayName: '读取 stream-fade.ts',
+    intent: '读取淡入环实现，确认窗口滑动与上限',
+    stepId: 'proc-a1',
+    args: { file_path: 'packages/ui/src/stream-fade.ts' },
+  },
+  {
+    type: 'tool_result',
+    id: 'proc-read-result',
+    turnId: 'turn-processing',
+    ts: NOW - 12 * 60_000 + 700,
+    toolUseId: 'proc-read',
+    isError: false,
+    durationMs: 620,
+    content: { kind: 'text', text: 'export function updateFadeRing(...) { /* prune + cap */ }' },
+  },
+  {
+    type: 'assistant',
+    id: 'proc-a1',
+    turnId: 'turn-processing',
+    ts: NOW - 11 * 60_000,
+    text: '',
+    thinking: { text: '先读实现，确认 boundary 取最老存活批次的 start，age 用 now 减去覆盖该 offset 的批次时间。' },
+    modelId: 'claude-sonnet-4-5',
+  },
+  {
+    type: 'tool_call',
+    id: 'proc-grep',
+    turnId: 'turn-processing',
+    ts: NOW - 11 * 60_000 + 400,
+    toolName: 'Grep',
+    activityKind: 'search',
+    displayName: '搜索 updateFadeRing 调用点',
+    intent: '搜索环更新的调用点，确认边界处理是否一致',
+    stepId: 'proc-a2',
+    args: { pattern: 'updateFadeRing' },
+  },
+  {
+    type: 'tool_result',
+    id: 'proc-grep-result',
+    turnId: 'turn-processing',
+    ts: NOW - 11 * 60_000 + 900,
+    toolUseId: 'proc-grep',
+    isError: false,
+    durationMs: 480,
+    content: { kind: 'text', text: 'packages/ui/src/stream-fade.ts:42\npackages/ui/src/chat-turn.tsx:910' },
+  },
+  {
+    type: 'tool_call',
+    id: 'proc-test',
+    turnId: 'turn-processing',
+    ts: NOW - 11 * 60_000 + 1_200,
+    toolName: 'Bash',
+    activityKind: 'command',
+    displayName: '运行 stream-fade 单测',
+    intent: '执行 node --test 跑淡入环单测',
+    stepId: 'proc-a2',
+    args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js' },
+  },
+  {
+    type: 'tool_result',
+    id: 'proc-test-result',
+    turnId: 'turn-processing',
+    ts: NOW - 10 * 60_000,
+    toolUseId: 'proc-test',
+    isError: true,
+    durationMs: 1_640,
+    content: {
+      kind: 'terminal',
+      cwd: '/workspace/maka-agent/apps/desktop',
+      cmd: 'node --test dist/main/__tests__/stream-fade.test.js',
+      status: 'failed',
+      exitCode: 1,
+      output: {
+        mode: 'pipes',
+        stdout: 'tests 13\npass 12\nfail 1\n',
+        stderr: 'not ok 7 - collapses the ring when a batch ages out\n',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
+      },
+    },
+  },
+  {
+    type: 'assistant',
+    id: 'proc-a2',
+    turnId: 'turn-processing',
+    ts: NOW - 10 * 60_000 + 500,
+    text: '',
+    thinking: { text: '调用点只有两处，边界一致；跑测试却挂了一个 age-out 用例，说明剪枝顺序还有问题。' },
+    modelId: 'claude-sonnet-4-5',
+  },
+  assistant(
+    'proc-a3',
+    'turn-processing',
+    9,
+    '有一个 age-out 用例失败，说明批次超窗剪枝在收缩路径上漏了一步。我先补上重置逻辑，再重跑这条单测。上面的 Processing 折叠里保留了完整的思考与工具时间线。',
+  ),
+];
+
 export const EmptyChat: Story = {
   render: () => (
     <ChatSurface
@@ -452,6 +565,16 @@ export const MultiStepReasoning: Story = {
     <ChatSurface
       chat={{
         messages: multiStepConversation,
+      }}
+    />
+  ),
+};
+
+export const Processing: Story = {
+  render: () => (
+    <ChatSurface
+      chat={{
+        messages: processingConversation,
       }}
     />
   ),

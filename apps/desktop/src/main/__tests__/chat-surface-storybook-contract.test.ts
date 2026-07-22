@@ -19,6 +19,7 @@ describe('chat surface Storybook contract', () => {
       'EmptyChat',
       'StreamingResponse',
       'WithToolActivity',
+      'Processing',
       'BranchedConversation',
       'ComposerPendingAndDisabled',
       'ImportActions',
