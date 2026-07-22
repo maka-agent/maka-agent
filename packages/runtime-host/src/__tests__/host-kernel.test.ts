@@ -713,6 +713,112 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 
+  test('forces an uncooperative command Host to exit before a successor acquires ownership', {
+    timeout: 10_000,
+  }, async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const child = paths.resources.trackChild(
+        fork(
+          new URL('./fixtures/uncooperative-host.js', import.meta.url),
+          [paths.root, capability.rootId, '2000'],
+          { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] },
+        ),
+      );
+      let transport: FramedTransport | undefined;
+      try {
+        const ready = await waitForUncooperativeHostMessage(child, 'ready');
+        transport = new FramedTransport(await openSocket(ready.endpoint));
+        await transport.write({
+          kind: 'hello',
+          clientInstanceId: 'bounded-shutdown-test',
+          surface: 'tui',
+          protocolMin: CURRENT_PROTOCOL.min,
+          protocolMax: CURRENT_PROTOCOL.max,
+        });
+        const handshake = decodeHostFrame(await transport.read(2_000));
+        assert.ok('kind' in handshake);
+        assert.equal(handshake.kind, 'accepted');
+
+        const blocked = waitForUncooperativeHostMessage(child, 'operation-blocked');
+        await transport.write({
+          requestId: 'blocked-turn-start',
+          operation: 'turn.start',
+          input: { sessionId: 'session', turnId: 'turn', text: 'block forever' },
+        });
+        await blocked;
+        const shutdownRequested = waitForUncooperativeHostMessage(child, 'shutdown-requested');
+        child.send({ type: 'shutdown' });
+        await shutdownRequested;
+
+        await transport.write({
+          requestId: 'post-drain-status',
+          operation: 'host.status',
+          input: {},
+        });
+        const rejectedOperation = decodeHostFrame(await transport.read(1_000));
+        assert.ok(!('kind' in rejectedOperation));
+        if (!('kind' in rejectedOperation)) {
+          assert.equal(rejectedOperation.requestId, 'post-drain-status');
+          assert.equal(rejectedOperation.operation, 'host.status');
+          assert.equal(rejectedOperation.ok, false);
+          if (!rejectedOperation.ok) assert.equal(rejectedOperation.error.code, 'host_draining');
+        }
+
+        const rejectedHandshakeTransport = new FramedTransport(await openSocket(ready.endpoint));
+        try {
+          await rejectedHandshakeTransport.write({
+            kind: 'hello',
+            clientInstanceId: 'post-drain-client',
+            surface: 'inspect',
+            protocolMin: CURRENT_PROTOCOL.min,
+            protocolMax: CURRENT_PROTOCOL.max,
+          });
+          assert.deepEqual(decodeHostFrame(await rejectedHandshakeTransport.read(1_000)), {
+            kind: 'draining',
+            hostEpoch: ready.hostEpoch,
+          });
+        } finally {
+          rejectedHandshakeTransport.destroy();
+        }
+
+        assert.equal(child.exitCode, null);
+        assert.equal(child.signalCode, null);
+        const contender = await tryAcquireInteractiveRootOwner(capability);
+        try {
+          assert.equal(contender, undefined);
+        } finally {
+          await contender?.close();
+        }
+        const exit = await withTimeout(
+          waitForChildExitResult(child),
+          5_000,
+          'uncooperative Runtime Host did not exit within its shutdown bound',
+        );
+        assert.deepEqual(exit, { code: 1, signal: null });
+
+        const successor = await startTestRuntimeHostCandidate(paths, {
+          rootPath: paths.root,
+          idleGraceMs: 10_000,
+        });
+        assert.equal(successor.kind, 'winner');
+        if (successor.kind !== 'winner') return;
+        assert.notEqual(successor.host.hostEpoch, ready.hostEpoch);
+        const connected = await retryConnect(paths, CURRENT_PROTOCOL);
+        assert.equal(connected.kind, 'connected');
+        if (connected.kind !== 'connected') return;
+        const status = await connected.connection.status();
+        assert.equal(status.hostEpoch, successor.host.hostEpoch);
+        await connected.connection.close();
+        await successor.host.close();
+      } finally {
+        transport?.destroy();
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        await withTimeout(waitForExit(child), 1_000, 'uncooperative Host cleanup did not exit');
+      }
+    });
+  });
+
   test('startup rejects invalid lifecycle durations and releases the owner lock', async () => {
     await withHostPaths(async (paths) => {
       await assert.rejects(
@@ -729,6 +835,16 @@ describe('non-serving Runtime Host kernel', () => {
             rootPath: paths.root,
             handshakeTimeoutMs: 0,
           }),
+        RangeError,
+      );
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = paths.resources.trackCloseable(
+        await tryAcquireInteractiveRootOwner(capability),
+      );
+      assert.ok(owner);
+      if (!owner) return;
+      await assert.rejects(
+        () => RuntimeHostKernel.start({ owner, shutdownGraceMs: 0 }),
         RangeError,
       );
       const retry = await startTestRuntimeHostCandidate(paths, {
@@ -1197,6 +1313,80 @@ function isElectronParentLaunch(
     Number.isSafeInteger(message.pid) &&
     (message.pid as number) > 0
   );
+}
+
+type UncooperativeHostMessage =
+  | { type: 'ready'; hostEpoch: string; endpoint: string }
+  | { type: 'operation-blocked' }
+  | { type: 'shutdown-requested' };
+
+function waitForUncooperativeHostMessage<T extends UncooperativeHostMessage['type']>(
+  child: ChildProcess,
+  type: T,
+): Promise<Extract<UncooperativeHostMessage, { type: T }>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`uncooperative Host did not report ${type}`));
+    }, 5_000);
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off('error', onError);
+      child.off('exit', onExit);
+      child.off('message', onMessage);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`uncooperative Host exited before ${type}: ${code ?? signal}`));
+    };
+    const onMessage = (message: unknown) => {
+      if (!isUncooperativeHostMessage(message) || message.type !== type) return;
+      cleanup();
+      resolve(message as Extract<UncooperativeHostMessage, { type: T }>);
+    };
+    child.once('error', onError);
+    child.once('exit', onExit);
+    child.on('message', onMessage);
+  });
+}
+
+function isUncooperativeHostMessage(value: unknown): value is UncooperativeHostMessage {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Record<string, unknown>;
+  if (message.type === 'operation-blocked' || message.type === 'shutdown-requested') return true;
+  return (
+    message.type === 'ready' &&
+    typeof message.hostEpoch === 'string' &&
+    typeof message.endpoint === 'string'
+  );
+}
+
+function waitForChildExitResult(
+  child: ChildProcess,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      resolve({ code, signal });
+    };
+    child.once('error', onError);
+    child.once('exit', onExit);
+  });
 }
 
 function waitForExit(child: ChildProcess): Promise<void> {

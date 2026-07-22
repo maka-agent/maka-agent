@@ -216,7 +216,8 @@ test('graceful Host shutdown stops and drains an active Turn before releasing ow
       text: FAKE_ASK_USER_QUESTION_PROMPT,
     });
 
-    await fixture.stopHost(host);
+    const exit = await fixture.stopHost(host);
+    assert.deepEqual(exit, { code: 0, signal: null });
     await client.closed;
 
     const successor = await fixture.startHost();
@@ -602,12 +603,19 @@ class ExecutionFixture {
     await owner?.close();
   }
 
-  async stopHost(host: ExecutionHostHandle): Promise<void> {
+  async stopHost(
+    host: ExecutionHostHandle,
+  ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
     if (host.child.exitCode === null && host.child.signalCode === null) {
       host.child.kill('SIGTERM');
     }
-    await withTimeout(waitForExit(host.child), PROCESS_TIMEOUT_MS, 'execution Host did not stop');
+    const exit = await withTimeout(
+      waitForExitResult(host.child),
+      PROCESS_TIMEOUT_MS,
+      'execution Host did not stop',
+    );
     this.#children.delete(host.child);
+    return exit;
   }
 
   async killHost(host: ExecutionHostHandle): Promise<void> {
@@ -886,6 +894,30 @@ function waitForExit(child: ChildProcess): Promise<void> {
   return new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', () => resolve());
+  });
+}
+
+function waitForExitResult(
+  child: ChildProcess,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      resolve({ code, signal });
+    };
+    child.once('error', onError);
+    child.once('exit', onExit);
   });
 }
 

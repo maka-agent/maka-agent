@@ -1,4 +1,5 @@
 import { startExecutionRuntimeHostCandidate } from '../../server/execution-candidate.js';
+import { runRuntimeHostProcessLifecycle } from '../../server/process-lifecycle.js';
 
 const [rootPath, expectedRootId, idleGraceRaw] = process.argv.slice(2);
 if (!rootPath || !expectedRootId || !/^[a-f0-9]{64}$/.test(expectedRootId)) {
@@ -22,17 +23,8 @@ process.send?.({
   endpoint: result.host.endpoint,
 });
 
-let closing = false;
-const close = () => {
-  if (closing) return;
-  closing = true;
-  void result.host.close();
-};
-process.once('SIGINT', close);
-process.once('SIGTERM', close);
-process.once('disconnect', close);
 try {
-  await result.host.closed;
+  await runRuntimeHostProcessLifecycle(result.host, { closeOnDisconnect: true });
 } catch {
   process.exitCode = 1;
 } finally {

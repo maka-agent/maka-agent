@@ -1,5 +1,6 @@
 export {
   RuntimeHostKernel,
+  RuntimeHostProcessTerminationRequiredError,
   type RuntimeHostComposition,
   type RuntimeHostCompositionContext,
   type RuntimeHostCompositionFactory,

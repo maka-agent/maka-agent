@@ -1,20 +1,13 @@
 #!/usr/bin/env node
 import { startRuntimeHostCandidate, type RuntimeHostCandidateOptions } from './server/candidate.js';
+import { runRuntimeHostProcessLifecycle } from './server/process-lifecycle.js';
 
 const options = parseArguments(process.argv.slice(2));
 const result = await startRuntimeHostCandidate(options);
 if (result.kind === 'loser') process.exit(2);
 
-let closing = false;
-const close = () => {
-  if (closing) return;
-  closing = true;
-  void result.host.close();
-};
-process.once('SIGINT', close);
-process.once('SIGTERM', close);
 try {
-  await result.host.closed;
+  await runRuntimeHostProcessLifecycle(result.host);
 } catch {
   process.exitCode = 1;
 }
