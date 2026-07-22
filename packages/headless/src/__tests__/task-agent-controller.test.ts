@@ -25,7 +25,7 @@ import { createRuntimeEventStore } from '@maka/storage';
 import type { Config, Task } from '../contracts.js';
 import type { HeadlessBackendContext } from '../isolation.js';
 import { commandResourceScope, hashNormalizedArgs } from '../permission-grants.js';
-import { runTaskOnce } from '../task-agent-controller.js';
+import { runTaskOnce, type RunTaskOnceResult } from '../task-agent-controller.js';
 import type { TaskPermissionGrant } from '../task-contracts.js';
 import { buildIsolatedHeadlessTools } from '../tools.js';
 
@@ -42,6 +42,12 @@ const registerFakeBackend = (registry: BackendRegistry): void => {
     (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
+
+function latestInvocation(result: RunTaskOnceResult) {
+  const invocation = result.invocations.at(-1);
+  assert.ok(invocation, 'task attempt must contain at least one invocation');
+  return invocation;
+}
 
 class ReportingBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
@@ -916,12 +922,12 @@ describe('runTaskOnce', () => {
         assert.deepEqual(tools.actualToolCallCounts, {});
         const runtimeLedger = await readRuntimeEventLedger(
           storageRoot,
-          result.invocation.sessionId,
-          result.invocation.runId,
+          latestInvocation(result).sessionId,
+          latestInvocation(result).runId,
         );
         const lineage = result.projection.attempts[0]?.executionLineage[0];
-        assert.equal(lineage?.execution?.invocationId, result.invocation.invocationId);
-        assert.equal(lineage?.execution?.agentRunId, result.invocation.runId);
+        assert.equal(lineage?.execution?.invocationId, latestInvocation(result).invocationId);
+        assert.equal(lineage?.execution?.agentRunId, latestInvocation(result).runId);
         assert.equal(lineage?.runtimeCoverage?.lowWater?.sequence, 0);
         assert.equal(lineage?.runtimeCoverage?.lowWater?.eventId, runtimeLedger[0]?.id);
         assert.equal(lineage?.runtimeCoverage?.highWater.sequence, runtimeLedger.length - 1);
@@ -929,10 +935,10 @@ describe('runTaskOnce', () => {
         assert.equal(lineage?.runtimeCoverage?.eventCount, runtimeLedger.length);
         const runHeader = await readAgentRunHeader(
           storageRoot,
-          result.invocation.sessionId,
-          result.invocation.runId,
+          latestInvocation(result).sessionId,
+          latestInvocation(result).runId,
         );
-        assert.equal(runHeader.invocationId, result.invocation.invocationId);
+        assert.equal(runHeader.invocationId, latestInvocation(result).invocationId);
       } finally {
         SessionManager.prototype.sendMessage = original;
       }
@@ -1163,7 +1169,6 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.resultRecord.passed, true);
       assert.equal(result.invocations.length, 2);
-      assert.equal(result.invocations.at(-1), result.invocation);
       assert.equal(result.projection.attempts[0]?.executionLineage.length, 2);
       assert.equal(
         new Set(
@@ -1482,8 +1487,8 @@ describe('runTaskOnce', () => {
       assert.equal(failed.projection.error?.class, 'backend_failed');
       const failedRuntimeEvents = await readRuntimeEventLedger(
         storageRoot,
-        failed.invocation.sessionId,
-        failed.invocation.runId,
+        latestInvocation(failed).sessionId,
+        latestInvocation(failed).runId,
       );
       assert.deepEqual(
         failedRuntimeEvents
@@ -1538,17 +1543,17 @@ describe('runTaskOnce', () => {
         runtimeEventStore,
       });
 
-      assert.equal(result.invocation.status, 'failed');
-      assert.equal(result.invocation.failure?.message, 'terminal append failed');
+      assert.equal(latestInvocation(result).status, 'failed');
+      assert.equal(latestInvocation(result).failure?.message, 'terminal append failed');
       const runtimeEvents = await runtimeEventStore.readRuntimeEvents(
-        result.invocation.sessionId,
-        result.invocation.runId,
+        latestInvocation(result).sessionId,
+        latestInvocation(result).runId,
       );
       assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
       const runHeader = await readAgentRunHeader(
         storageRoot,
-        result.invocation.sessionId,
-        result.invocation.runId,
+        latestInvocation(result).sessionId,
+        latestInvocation(result).runId,
       );
       assert.notEqual(runHeader.status, 'completed');
       assert.notEqual(runHeader.status, 'failed');
@@ -1590,8 +1595,8 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.permissionRequests[0]?.resourceScope.kind, 'command');
       const runtimeEvents = await readRuntimeEventLedger(
         storageRoot,
-        result.invocation.sessionId,
-        result.invocation.runId,
+        latestInvocation(result).sessionId,
+        latestInvocation(result).runId,
       );
       assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
       assert.ok(
@@ -1762,7 +1767,7 @@ describe('runTaskOnce', () => {
       assert.equal((feedback.details.isolation as { label?: string }).label, 'unit isolation');
       assert.equal(
         (feedback.details.runtimeRefs as { runId?: string }).runId,
-        result.invocation.runId,
+        latestInvocation(result).runId,
       );
       assert.ok(
         (feedback.details.runtimeRefs as { runtimeEventIds?: string[] }).runtimeEventIds?.includes(
@@ -1781,9 +1786,9 @@ describe('runTaskOnce', () => {
       const runtimeEventsPath = join(
         storageRoot,
         'sessions',
-        result.invocation.sessionId,
+        latestInvocation(result).sessionId,
         'runs',
-        result.invocation.runId,
+        latestInvocation(result).runId,
         'runtime-events.jsonl',
       );
       const runtimeEvents = await readFile(runtimeEventsPath, 'utf8');

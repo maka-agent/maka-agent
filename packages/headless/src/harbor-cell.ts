@@ -103,6 +103,7 @@ export type { RunHarborCellEnv } from './headless-run-env.js';
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
+export const HARBOR_CELL_TRACE_EVENTS_FILENAME = 'trace-events.jsonl';
 export const HARBOR_CELL_EXECUTION_IDENTITY_FILENAME = 'maka-cell-execution-identity.json';
 export const HARBOR_CELL_USAGE_CHECKPOINT_FILENAME = 'maka-cell-usage-checkpoint.json';
 
@@ -483,6 +484,35 @@ export async function writeHarborCellArtifacts(
   );
   await writeHarborCellArtifact(outputPath, `${JSON.stringify(output, null, 2)}\n`);
   return { output, outputPath, runtimeEventsPath };
+}
+
+export async function writeHarborTaskRunTrace(input: {
+  outputDir: string;
+  storageRoot: string;
+  invocations: readonly InvocationResult[];
+}): Promise<string> {
+  const chunks = await Promise.all(
+    input.invocations.map((invocation) =>
+      readFile(
+        join(
+          input.storageRoot,
+          'sessions',
+          invocation.sessionId,
+          'runs',
+          invocation.runId,
+          'events.jsonl',
+        ),
+        'utf8',
+      ),
+    ),
+  );
+  const nonEmptyChunks = chunks.map((chunk) => chunk.trimEnd()).filter(Boolean);
+  const traceEventsPath = join(input.outputDir, HARBOR_CELL_TRACE_EVENTS_FILENAME);
+  await writeHarborCellArtifact(
+    traceEventsPath,
+    nonEmptyChunks.length > 0 ? `${nonEmptyChunks.join('\n')}\n` : '',
+  );
+  return traceEventsPath;
 }
 
 export async function runHarborCellFromEnv(

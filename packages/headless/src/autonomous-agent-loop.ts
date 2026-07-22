@@ -255,7 +255,10 @@ export async function runAutonomousTask(
     latestResultRecord = attempt.resultRecord;
     runtimeStepsUsed += attempt.resultRecord.steps;
     if (options.replayPriorAttemptRuntimeContext) {
-      priorRuntimeContext = [...priorRuntimeContext, ...attempt.invocation.events];
+      priorRuntimeContext = [
+        ...priorRuntimeContext,
+        ...attempt.invocations.flatMap((invocation) => invocation.events),
+      ];
     }
 
     const afterAttemptBudget = budgetSnapshot(

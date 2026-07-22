@@ -23,6 +23,7 @@ import {
   runHarborCell,
   writeHarborCellArtifacts,
   writeHarborCellExecutionIdentity,
+  writeHarborTaskRunTrace,
   type RunHarborCellEnv,
   type RunHarborCellInput,
 } from './harbor-cell.js';
@@ -241,6 +242,11 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     promptHash: executionIdentity.systemPromptHash,
     ...(options.contextBudgetPolicy ? { contextBudgetPolicy: options.contextBudgetPolicy } : {}),
   });
+  const traceEventsPath = await writeHarborTaskRunTrace({
+    outputDir: options.cellArtifactDir,
+    storageRoot: options.storageRoot,
+    invocations,
+  });
   const taxonomy =
     latestScore?.taxonomy ??
     run.projection.result?.taxonomy ??
@@ -263,6 +269,7 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
       benchmarkFailureShouldThrow: benchmarkFailure.shouldThrow,
       outputPath: cellArtifacts.outputPath,
       runtimeEventsPath: cellArtifacts.runtimeEventsPath,
+      traceEventsPath,
       exportDir,
       files: exported.files,
       result: {

@@ -95,6 +95,7 @@ interface FakeOptions {
   trialResult?: Record<string, unknown>;
   makaTrace?: boolean;
   taskRunTrace?: boolean;
+  combinedTrace?: boolean;
   captured?: { config?: Record<string, unknown>; request?: HarborRunRequest };
 }
 
@@ -210,6 +211,13 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
         'utf8',
       );
     }
+    if (opts.combinedTrace) {
+      await writeFile(
+        join(trialDir, 'agent', 'trace-events.jsonl'),
+        '{"type":"first_invocation"}\n{"type":"second_invocation"}\n',
+        'utf8',
+      );
+    }
     return {
       exitCode: opts.exitCodeAfterArtifacts ?? 0,
       stdout: opts.exitCodeAfterArtifacts ? '' : 'ok',
@@ -292,6 +300,26 @@ describe('createHarborTaskRunner', () => {
       assert.equal(
         await readFile(output.cell.traceEventsPath ?? '', 'utf8'),
         '{"type":"task_run_tool_failed"}\n',
+      );
+    });
+  });
+
+  test('prefers the complete task-run trace over a last-invocation trace', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        provider: 'deepseek',
+        apiKeyFile: keyFile,
+        runHarbor: fakeRunner({ reward: '1\n', taskRunTrace: true, combinedTrace: true }),
+      });
+
+      const output = await runner(runInput());
+      assert.match(output.cell.traceEventsPath ?? '', /agent\/trace-events\.jsonl$/);
+      assert.equal(
+        await readFile(output.cell.traceEventsPath ?? '', 'utf8'),
+        '{"type":"first_invocation"}\n{"type":"second_invocation"}\n',
       );
     });
   });

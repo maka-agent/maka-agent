@@ -15,6 +15,7 @@ import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-ty
 import type { Config, Task } from '../contracts.js';
 import type { HeadlessBackendContext } from '../isolation.js';
 import { runAutonomousTask } from '../autonomous-agent-loop.js';
+import { countRuntimeSteps } from '../cell-output.js';
 
 const fakeConfig: Config = {
   id: 'fake-cfg',
@@ -118,12 +119,14 @@ class PromptCapturingProgressBackend implements AgentBackend {
     private readonly progress: HeadlessBackendContext['heavyTaskProgress'],
     private readonly evidence: HeadlessBackendContext['heavyTaskEvidence'],
     private readonly prompts: string[],
+    private readonly runtimeContextCounts?: number[],
   ) {
     this.sessionId = sessionId;
   }
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.prompts.push(input.text);
+    this.runtimeContextCounts?.push(input.runtimeContext?.length ?? 0);
     if (this.prompts.length === 1 && this.progress) {
       const toolCtx = {
         sessionId: this.sessionId,
@@ -177,7 +180,7 @@ class PromptCapturingProgressBackend implements AgentBackend {
 }
 
 const registerPromptCapturingProgressBackend =
-  (prompts: string[]) =>
+  (prompts: string[], runtimeContextCounts?: number[]) =>
   (registry: BackendRegistry, context: HeadlessBackendContext): void => {
     registry.register(
       'fake',
@@ -187,6 +190,7 @@ const registerPromptCapturingProgressBackend =
           context.heavyTaskProgress,
           context.heavyTaskEvidence,
           prompts,
+          runtimeContextCounts,
         ),
     );
   };
@@ -340,6 +344,33 @@ describe('runAutonomousTask', () => {
         (runtimeContextCounts[1] ?? 0) > 0,
         'expected second attempt to receive prior runtime events',
       );
+    });
+  });
+
+  test('replays every invocation from a heavy-task attempt and counts only runtime steps', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const prompts: string[] = [];
+      const runtimeContextCounts: number[] = [];
+      const task: Task = {
+        id: 'replay-heavy-attempt-trajectory',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f missing.txt', protectedPaths: [] },
+      };
+
+      const result = await runAutonomousTask({ ...fakeConfig, heavyTaskMode: true }, task, {
+        storageRoot,
+        registerBackends: registerPromptCapturingProgressBackend(prompts, runtimeContextCounts),
+        replayPriorAttemptRuntimeContext: true,
+        budget: { maxAttempts: 2 },
+        newId: idFactory(),
+      });
+
+      const firstAttempt = result.attempts[0]!;
+      assert.equal(firstAttempt.invocations.length, 2);
+      const firstTrajectory = firstAttempt.invocations.flatMap((invocation) => invocation.events);
+      assert.equal(runtimeContextCounts[2], firstTrajectory.length);
+      assert.equal(firstAttempt.resultRecord.steps, countRuntimeSteps(firstTrajectory));
     });
   });
 

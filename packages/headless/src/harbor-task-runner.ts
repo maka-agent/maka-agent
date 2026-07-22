@@ -66,6 +66,7 @@ const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_EXECUTION_IDENTITY = 'agent/maka-cell-execution-identity.json';
 const TRIAL_USAGE_CHECKPOINT = 'agent/maka-cell-usage-checkpoint.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
+const TRIAL_TASK_RUN_TRACE_EVENTS = 'agent/trace-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
 const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
 const TRIAL_VERIFIER_OUTCOME = 'verifier/maka-verifier-outcome.json';
@@ -568,6 +569,8 @@ function hostTraceEventsPath(
   hostEventsPath: string,
 ): string {
   if (agent !== undefined && agent !== 'maka') return hostEventsPath;
+  const combinedTracePath = join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS);
+  if (existsSync(combinedTracePath)) return combinedTracePath;
   const traceSuffix = [cell.runtimeRefs.sessionId, 'runs', cell.runtimeRefs.runId, 'events.jsonl'];
   const traceCandidates = [
     join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS_ROOT, ...traceSuffix),

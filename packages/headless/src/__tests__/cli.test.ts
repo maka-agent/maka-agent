@@ -367,6 +367,15 @@ describe('maka-headless CLI', () => {
 
       assert.equal(cell.steps, 2);
       assert.equal(completedModelSteps.length, 2);
+      const traceEvents = (await readFile(join(cellArtifactDir, 'trace-events.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.equal(
+        new Set(traceEvents.map((event) => event.runId).filter(Boolean)).size,
+        2,
+        'combined trace must retain both heavy-task runs',
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

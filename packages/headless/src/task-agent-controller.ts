@@ -21,7 +21,11 @@ import {
 import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
-import { summarizeCellTools, type HarborCellToolSummary } from './cell-output.js';
+import {
+  countRuntimeSteps,
+  summarizeCellTools,
+  type HarborCellToolSummary,
+} from './cell-output.js';
 import {
   createHeavyTaskEvidenceRecorder,
   renderHeavyTaskEvidenceForPrompt,
@@ -117,7 +121,6 @@ export interface RunTaskOnceResult {
   resultRecord: ResultRecord;
   projection: TaskRunProjection;
   invocations: readonly InvocationResult[];
-  invocation: InvocationResult;
 }
 
 export class TaskAgentController {
@@ -396,7 +399,6 @@ export async function runTaskOnce(
         resultRecord: permissionHandling.resultRecord,
         projection: await taskRunStore.project(taskRunId),
         invocations: [permissionHandling.invocation],
-        invocation: permissionHandling.invocation,
       };
     }
     let invocation = permissionHandling.invocation;
@@ -504,7 +506,6 @@ export async function runTaskOnce(
             resultRecord: repairPermissionHandling.resultRecord,
             projection: await taskRunStore.project(taskRunId),
             invocations: [...invocations, repairPermissionHandling.invocation],
-            invocation: repairPermissionHandling.invocation,
           };
         }
         invocation = repairPermissionHandling.invocation;
@@ -618,6 +619,7 @@ export async function runTaskOnce(
       startedAt,
       finishedAt,
       systemPrompt: prompt,
+      runtimeSteps: countRuntimeSteps(invocations.flatMap((candidate) => candidate.events)),
       runEvidence,
     });
     const taxonomy = finalScore.taxonomy;
@@ -707,7 +709,6 @@ export async function runTaskOnce(
       resultRecord,
       projection: await taskRunStore.project(taskRunId),
       invocations,
-      invocation,
     };
   } finally {
     await workspace.cleanup();
@@ -985,7 +986,7 @@ async function handlePermissionIntervention(
         runId: input.invocation.runId,
         startedAt: input.startedAt,
         finishedAt: requestedAt,
-        steps: input.invocation.events.length,
+        steps: countRuntimeSteps(input.invocation.events),
         errorClass: 'needs_approval',
         error: `task run needs approval for ${request.toolName}`,
         systemPrompt: input.systemPrompt,
@@ -1298,6 +1299,7 @@ function resultRecordFromInvocation(input: {
   scoreResultId: string;
   startedAt: number;
   finishedAt: number;
+  runtimeSteps: number;
   systemPrompt: Pick<ResolvedHeadlessSystemPrompt, 'mode' | 'systemPromptHash'>;
   runEvidence?: Pick<
     import('@maka/core').AgentRunHeader,
@@ -1332,7 +1334,7 @@ function resultRecordFromInvocation(input: {
     scoreResultId: input.scoreResultId,
     submittedSnapshotId: input.submittedSnapshotId,
     exitCode: input.verifierResult.exitCode ?? null,
-    steps: input.invocation.events.length,
+    steps: input.runtimeSteps,
     durationMs: input.finishedAt - input.startedAt,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
