@@ -321,6 +321,57 @@ describe('maka-headless CLI', () => {
     }
   });
 
+  test('harbor run task-run cell evidence covers every heavy-task invocation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-heavy-'));
+    try {
+      const fixture = join(dir, 'fixture');
+      const outDir = join(dir, 'out');
+      const cellArtifactDir = join(dir, 'cell-artifacts');
+      await mkdir(fixture, { recursive: true });
+      await writeFile(join(fixture, 'README.txt'), 'Harbor owns the task workspace.\n', 'utf8');
+
+      const result = await runCli(
+        [
+          'harbor',
+          'run',
+          '--backend',
+          'fake',
+          '--isolation',
+          'none',
+          '--instruction',
+          'solve it',
+          '--workdir',
+          fixture,
+          '--task-id',
+          'tb-heavy-trajectory',
+          '--task-run-id',
+          'harbor-heavy-trajectory',
+          '--out',
+          outDir,
+          '--heavy-task',
+        ],
+        { env: { MAKA_CELL_ARTIFACT_DIR: cellArtifactDir, MAKA_MODEL: 'fake-model' } },
+      );
+      assert.equal(result.code, 0, result.stderr);
+
+      const cell = validateHarborCellOutput(
+        JSON.parse(await readFile(join(cellArtifactDir, 'maka-cell-output.json'), 'utf8')),
+      );
+      const runtimeEvents = (await readFile(cell.runtimeEventsPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      const completedModelSteps = runtimeEvents.filter(
+        (event) => event.role === 'model' && event.partial !== true,
+      );
+
+      assert.equal(cell.steps, 2);
+      assert.equal(completedModelSteps.length, 2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('harbor run task-run honors an explicit benchmark dataset override', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
     try {

@@ -1162,6 +1162,8 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_finalize');
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.resultRecord.passed, true);
+      assert.equal(result.invocations.length, 2);
+      assert.equal(result.invocations.at(-1), result.invocation);
       assert.equal(result.projection.attempts[0]?.executionLineage.length, 2);
       assert.equal(
         new Set(

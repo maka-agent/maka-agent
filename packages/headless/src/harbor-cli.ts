@@ -1,18 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import type { BackendKind, ProviderType, RuntimeEvent } from '@maka/core';
-import { isThinkingLevel, PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
+import type { BackendKind, ProviderType } from '@maka/core';
+import { PROVIDER_DEFAULTS, normalizeProviderType } from '@maka/core';
 import type { Config, Task } from './contracts.js';
 import {
   type HarborCellExecutionIdentity,
-  type HarborCellTokenSummary,
-  countRuntimeSteps,
-  summarizeCellTokens,
+  combineInvocations,
   validateHarborCellExecutionIdentity,
-  validateHarborCellOutput,
 } from './cell-output.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
@@ -22,8 +19,11 @@ import {
   buildHarborCellContextBudgetPolicySnapshot,
   createHarborCellLocalToolExecutor,
   createHarborHttpToolExecutor,
+  reasoningEffortFromEnv,
   resolveHostProviderAuthorityEnv,
   runHarborCell,
+  writeHarborCellArtifacts,
+  writeHarborCellExecutionIdentity,
   type RunHarborCellEnv,
   type RunHarborCellInput,
 } from './harbor-cell.js';
@@ -232,11 +232,15 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     includeEvents: options.includeEvents,
   });
   const latestScore = run.projection.latestScoreResult;
-  const cellArtifacts = await writeTaskRunCellArtifacts({
-    options,
+  const invocations =
+    'attempts' in run ? run.attempts.flatMap((attempt) => attempt.invocations) : run.invocations;
+  const invocation = combineInvocations(invocations);
+  const cellArtifacts = await writeHarborCellArtifacts({
+    outputDir: options.cellArtifactDir,
     executionIdentity,
-    resultRecord: run.resultRecord,
-    scoreDetails: latestScore?.details,
+    invocation,
+    promptHash: executionIdentity.systemPromptHash,
+    ...(options.contextBudgetPolicy ? { contextBudgetPolicy: options.contextBudgetPolicy } : {}),
   });
   const taxonomy =
     latestScore?.taxonomy ??
@@ -273,73 +277,6 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
   return benchmarkFailure.shouldThrow ? 1 : 0;
 }
 
-async function writeTaskRunCellArtifacts(input: {
-  options: HarborRunOptions;
-  executionIdentity: HarborCellExecutionIdentity;
-  resultRecord: Awaited<ReturnType<typeof runTaskOnce>>['resultRecord'];
-  scoreDetails: Record<string, unknown> | undefined;
-}): Promise<{ outputPath: string; runtimeEventsPath: string }> {
-  const details = input.scoreDetails ?? {};
-  const runtimeRefs = recordValue(details.runtimeRefs);
-  if (!runtimeRefs) throw new Error('task-run result is missing runtime refs');
-  const sessionId = requiredString(runtimeRefs.sessionId, 'runtimeRefs.sessionId');
-  const runId = requiredString(runtimeRefs.runId, 'runtimeRefs.runId');
-  const runtimeEventsSourcePath = join(
-    input.options.storageRoot,
-    'sessions',
-    sessionId,
-    'runs',
-    runId,
-    'runtime-events.jsonl',
-  );
-  const runtimeEventsJsonl = await readFile(runtimeEventsSourcePath, 'utf8');
-  const runtimeEvents = parseTaskRunRuntimeEvents(runtimeEventsJsonl);
-  const runtimeEventsPath = join(input.options.cellArtifactDir, 'runtime-events.jsonl');
-  await copyFile(runtimeEventsSourcePath, runtimeEventsPath);
-  const tokenSummary = summarizeCellTokens(runtimeEvents);
-
-  const promptHash = input.resultRecord.systemPromptHash;
-  if (promptHash !== input.executionIdentity.systemPromptHash) {
-    throw new Error('task-run result prompt hash disagrees with durable execution identity');
-  }
-  const cell = validateHarborCellOutput({
-    schemaVersion: 1,
-    status: details.invocationStatus ?? input.resultRecord.status,
-    ...(details.runtimeFailureClass ? { errorClass: details.runtimeFailureClass } : {}),
-    runtimeEventsPath,
-    ...(promptHash ? { promptHash } : {}),
-    executionIdentity: input.executionIdentity,
-    ...(tokenSummary ? { tokenSummary } : {}),
-    toolSummary: details.tools,
-    steps: countRuntimeSteps(runtimeEvents),
-    durationMs: input.resultRecord.durationMs,
-    startedAt: input.resultRecord.startedAt,
-    finishedAt: input.resultRecord.finishedAt,
-    runtimeRefs: {
-      invocationId: runtimeRefs.invocationId,
-      sessionId,
-      runId,
-      turnId: runtimeRefs.turnId,
-    },
-  });
-  const outputPath = join(input.options.cellArtifactDir, 'maka-cell-output.json');
-  await writeFile(outputPath, `${JSON.stringify(cell, null, 2)}\n`, 'utf8');
-  return { outputPath, runtimeEventsPath };
-}
-
-export function summarizeTaskRunRuntimeEvents(
-  runtimeEventsJsonl: string,
-): HarborCellTokenSummary | undefined {
-  return summarizeCellTokens(parseTaskRunRuntimeEvents(runtimeEventsJsonl));
-}
-
-function parseTaskRunRuntimeEvents(runtimeEventsJsonl: string): RuntimeEvent[] {
-  return runtimeEventsJsonl
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as RuntimeEvent);
-}
-
 async function writeTaskRunExecutionIdentity(
   options: HarborRunOptions,
   task: Task,
@@ -354,27 +291,10 @@ async function writeTaskRunExecutionIdentity(
     ...(options.config.thinkingLevel ? { reasoningEffort: options.config.thinkingLevel } : {}),
     systemPromptMode: prompt.mode,
     systemPromptHash: prompt.systemPromptHash,
-    pricingProfile: options.env.MAKA_TRIAL_PRICING_SOURCE ?? 'runtime',
+    pricingProfile: options.env.MAKA_TRIAL_PRICING_SOURCE ?? 'unconfigured',
   });
-  await writeFile(
-    join(options.cellArtifactDir, 'maka-cell-execution-identity.json'),
-    `${JSON.stringify(executionIdentity, null, 2)}\n`,
-    'utf8',
-  );
+  await writeHarborCellExecutionIdentity(options.cellArtifactDir, executionIdentity);
   return executionIdentity;
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`task-run result is missing ${field}`);
-  }
-  return value;
 }
 
 export async function resolveHarborRunOptions(
@@ -599,12 +519,6 @@ function buildConfig(input: {
       ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } }
       : {}),
   };
-}
-
-function reasoningEffortFromEnv(value: string | undefined): Config['thinkingLevel'] {
-  if (value === undefined || value === '') return undefined;
-  if (!isThinkingLevel(value)) throw new Error(`unsupported MAKA_REASONING_EFFORT: ${value}`);
-  return value;
 }
 
 function buildBackendRegistration(input: {

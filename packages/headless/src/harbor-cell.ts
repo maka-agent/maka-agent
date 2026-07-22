@@ -33,9 +33,12 @@ import {
 import { registerFakeBackend } from './backends.js';
 import {
   buildHarborCellOutput,
+  combineInvocations,
   countRuntimeSteps,
   validateHarborCellOutput,
   type HarborCellContextBudgetPolicySnapshot,
+  type HarborCellDeadlineSettlement,
+  type HarborCellExecutionIdentity,
   type HarborCellOutput,
 } from './cell-output.js';
 import type { Config, Task } from './contracts.js';
@@ -154,6 +157,23 @@ export interface RunHarborCellResult {
   outputPath: string;
   runtimeEventsPath: string;
   settledByDeadline: boolean;
+}
+
+export interface WriteHarborCellArtifactsInput {
+  invocation: InvocationResult;
+  outputDir: string;
+  promptHash?: string;
+  executionIdentity?: HarborCellExecutionIdentity;
+  deadlineSettlement?: HarborCellDeadlineSettlement;
+  contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
+  continuationSummary?: HarborCellContinuationSummary;
+  taskToolSummaryEnabled?: boolean;
+}
+
+export interface WriteHarborCellArtifactsResult {
+  output: HarborCellOutput;
+  outputPath: string;
+  runtimeEventsPath: string;
 }
 
 export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT =
@@ -284,12 +304,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     systemPromptHash: prompt.systemPromptHash,
     pricingProfile: input.pricingProfile ?? 'unconfigured',
   };
-  await mkdir(input.outputDir, { recursive: true });
-  await writeFile(
-    join(input.outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME),
-    `${JSON.stringify(executionIdentity, null, 2)}\n`,
-    { encoding: 'utf8', flush: true },
-  );
+  await writeHarborCellExecutionIdentity(input.outputDir, executionIdentity);
 
   let invocation: InvocationResult | undefined;
   const manager = new SessionManager({
@@ -407,39 +422,66 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;
 
+  const artifacts = await writeHarborCellArtifacts({
+    invocation: combinedInvocation,
+    outputDir: input.outputDir,
+    executionIdentity,
+    ...(settledByDeadline
+      ? {
+          deadlineSettlement: {
+            source: 'benchmark.deadline' as const,
+            mode: 'immediate' as const,
+          },
+        }
+      : {}),
+    ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
+    ...(continuationSummary ? { continuationSummary } : {}),
+    ...(input.taskToolSummaryEnabled !== undefined
+      ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled }
+      : {}),
+  });
+
+  return {
+    invocation: combinedInvocation,
+    ...artifacts,
+    settledByDeadline,
+  };
+}
+
+export async function writeHarborCellExecutionIdentity(
+  outputDir: string,
+  executionIdentity: HarborCellExecutionIdentity,
+): Promise<void> {
+  await mkdir(outputDir, { recursive: true });
+  await writeHarborCellArtifact(
+    join(outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME),
+    `${JSON.stringify(executionIdentity, null, 2)}\n`,
+  );
+}
+
+export async function writeHarborCellArtifacts(
+  input: WriteHarborCellArtifactsInput,
+): Promise<WriteHarborCellArtifactsResult> {
   await mkdir(input.outputDir, { recursive: true });
   const runtimeEventsPath = join(input.outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME);
   const outputPath = join(input.outputDir, HARBOR_CELL_OUTPUT_FILENAME);
-  await writeHarborCellArtifact(runtimeEventsPath, runtimeEventsJsonl(combinedInvocation));
+  await writeHarborCellArtifact(runtimeEventsPath, runtimeEventsJsonl(input.invocation));
   const output = validateHarborCellOutput(
     buildHarborCellOutput({
-      invocation: combinedInvocation,
+      invocation: input.invocation,
       runtimeEventsPath,
-      executionIdentity,
-      ...(settledByDeadline
-        ? {
-            deadlineSettlement: {
-              source: 'benchmark.deadline' as const,
-              mode: 'immediate' as const,
-            },
-          }
-        : {}),
+      ...(input.promptHash ? { promptHash: input.promptHash } : {}),
+      ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
+      ...(input.deadlineSettlement ? { deadlineSettlement: input.deadlineSettlement } : {}),
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
-      ...(continuationSummary ? { continuationSummary } : {}),
+      ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
       ...(input.taskToolSummaryEnabled !== undefined
         ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled }
         : {}),
     }),
   );
   await writeHarborCellArtifact(outputPath, `${JSON.stringify(output, null, 2)}\n`);
-
-  return {
-    invocation: combinedInvocation,
-    output,
-    outputPath,
-    runtimeEventsPath,
-    settledByDeadline,
-  };
+  return { output, outputPath, runtimeEventsPath };
 }
 
 export async function runHarborCellFromEnv(
@@ -569,7 +611,7 @@ export async function runHarborCellFromEnv(
 export function reasoningEffortFromEnv(
   value: string | undefined,
 ): import('@maka/core').ThinkingLevel | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined || value === '') return undefined;
   if (!isThinkingLevel(value)) throw new Error(`unsupported MAKA_REASONING_EFFORT: ${value}`);
   return value;
 }
@@ -615,23 +657,6 @@ function isToolCallStepCap(invocation: InvocationResult): boolean {
     invocation.failure?.class === 'tool_step_cap_reached' ||
     invocation.failure?.class === 'incomplete_tool_calls'
   );
-}
-
-function combineInvocations(invocations: readonly InvocationResult[]): InvocationResult {
-  const first = invocations[0];
-  const last = invocations[invocations.length - 1];
-  if (!first || !last) throw new Error('cannot combine empty Harbor invocations');
-  return {
-    invocationId: last.invocationId,
-    sessionId: last.sessionId,
-    runId: last.runId,
-    turnId: last.turnId,
-    status: last.status,
-    ...(last.failure ? { failure: last.failure } : {}),
-    events: invocations.flatMap((candidate) => candidate.events),
-    startedAt: first.startedAt,
-    finishedAt: last.finishedAt,
-  };
 }
 
 function buildContinuationSummary(

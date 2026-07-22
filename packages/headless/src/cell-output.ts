@@ -128,6 +128,7 @@ export interface HarborCellOutput {
 export function buildHarborCellOutput(input: {
   invocation: InvocationResult;
   runtimeEventsPath: string;
+  promptHash?: string;
   executionIdentity?: HarborCellExecutionIdentity;
   deadlineSettlement?: HarborCellDeadlineSettlement;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
@@ -136,12 +137,13 @@ export function buildHarborCellOutput(input: {
 }): HarborCellOutput {
   const { invocation } = input;
   const tokenSummary = summarizeCellTokens(invocation.events);
+  const promptHash = input.promptHash ?? promptHashField(invocation.events).promptHash;
   return {
     schemaVersion: HARBOR_CELL_OUTPUT_SCHEMA_VERSION,
     status: invocation.status,
     ...(invocation.failure?.class ? { errorClass: invocation.failure.class } : {}),
     runtimeEventsPath: input.runtimeEventsPath,
-    ...promptHashField(invocation.events),
+    ...(promptHash ? { promptHash } : {}),
     ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
     ...(input.deadlineSettlement ? { deadlineSettlement: input.deadlineSettlement } : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
@@ -160,6 +162,23 @@ export function buildHarborCellOutput(input: {
       runId: invocation.runId,
       turnId: invocation.turnId,
     },
+  };
+}
+
+export function combineInvocations(invocations: readonly InvocationResult[]): InvocationResult {
+  const first = invocations[0];
+  const last = invocations[invocations.length - 1];
+  if (!first || !last) throw new Error('cannot combine empty Harbor invocations');
+  return {
+    invocationId: last.invocationId,
+    sessionId: last.sessionId,
+    runId: last.runId,
+    turnId: last.turnId,
+    status: last.status,
+    ...(last.failure ? { failure: last.failure } : {}),
+    events: invocations.flatMap((candidate) => candidate.events),
+    startedAt: first.startedAt,
+    finishedAt: last.finishedAt,
   };
 }
 

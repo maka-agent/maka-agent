@@ -116,6 +116,7 @@ export interface RunTaskOnceResult {
   attemptId: string;
   resultRecord: ResultRecord;
   projection: TaskRunProjection;
+  invocations: readonly InvocationResult[];
   invocation: InvocationResult;
 }
 
@@ -394,10 +395,12 @@ export async function runTaskOnce(
         attemptId,
         resultRecord: permissionHandling.resultRecord,
         projection: await taskRunStore.project(taskRunId),
+        invocations: [permissionHandling.invocation],
         invocation: permissionHandling.invocation,
       };
     }
     let invocation = permissionHandling.invocation;
+    const invocations = [invocation];
 
     let runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
@@ -500,10 +503,12 @@ export async function runTaskOnce(
             attemptId,
             resultRecord: repairPermissionHandling.resultRecord,
             projection: await taskRunStore.project(taskRunId),
+            invocations: [...invocations, repairPermissionHandling.invocation],
             invocation: repairPermissionHandling.invocation,
           };
         }
         invocation = repairPermissionHandling.invocation;
+        invocations.push(invocation);
         const repairSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
         await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, repairSummary);
         runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
@@ -701,6 +706,7 @@ export async function runTaskOnce(
       attemptId,
       resultRecord,
       projection: await taskRunStore.project(taskRunId),
+      invocations,
       invocation,
     };
   } finally {
