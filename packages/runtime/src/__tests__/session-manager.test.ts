@@ -5986,6 +5986,148 @@ describe('SessionManager permission mode updates', () => {
     expect(result.artifactIds).toEqual(['artifact-1']);
   });
 
+  test('resumeChildAgent replays durable child history into a fresh lineage run', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const childBackends: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      if (ctx.systemPrompt) childBackends.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_846),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const source = await manager.spawnChildAgent(session.id, {
+      turnId: 'child-source',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'ignored', systemPrompt: 'ignored' },
+      prompt: 'inspect runtime',
+    });
+    if (!source.runId) throw new Error('source child run was not recorded');
+
+    expect(await manager.prepareChildAgentResume(session.id, source.runId)).toEqual({
+      sourceRunId: source.runId,
+      agentId: LOCAL_READ_AGENT_ID,
+      agentName: LOCAL_READ_AGENT_DEFINITION.name,
+      profile: LOCAL_READ_AGENT_DEFINITION.profile,
+    });
+    const resumed = await manager.resumeChildAgent(session.id, {
+      turnId: 'child-resumed',
+      parentRunId: parentRun.runId,
+      sourceRunId: source.runId,
+      prompt: 'continue with tests',
+    });
+
+    expect(resumed.resumedFromRunId).toBe(source.runId);
+    const resumedHeader = await runStore.readRun(session.id, resumed.runId!);
+    expect(resumedHeader).toMatchObject({
+      parentRunId: parentRun.runId,
+      resumedFromRunId: source.runId,
+      agentId: LOCAL_READ_AGENT_ID,
+      agentName: LOCAL_READ_AGENT_DEFINITION.name,
+    });
+    const resumedInput = childBackends[1]?.sendInputs[0];
+    expect(resumedInput?.text).toBe('continue with tests');
+    expect(resumedInput?.runtimeContext?.some((event) => event.runId === source.runId)).toBe(true);
+    expect(
+      resumedInput?.runtimeContext?.some(
+        (event) =>
+          event.role === 'user' &&
+          event.content?.kind === 'text' &&
+          event.content.text === 'inspect runtime',
+      ),
+    ).toBe(true);
+    await expectRejects(
+      manager.prepareChildAgentResume(session.id, source.runId),
+      /already has a resume successor/,
+    );
+    expect(await manager.prepareChildAgentResume(session.id, resumed.runId!)).toMatchObject({
+      sourceRunId: resumed.runId,
+    });
+  });
+
+  test('prepareChildAgentResume rejects an indeterminate child tool boundary', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_847),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const child = makeRunHeader({
+      sessionId: session.id,
+      runId: 'unsafe-child',
+      turnId: 'unsafe-turn',
+      status: 'failed',
+      parentRunId: 'parent-run',
+      agentId: LOCAL_READ_AGENT_ID,
+      agentName: LOCAL_READ_AGENT_DEFINITION.name,
+      permissionMode: 'explore',
+      createdAt: 1,
+      updatedAt: 4,
+      completedAt: 4,
+    });
+    await seedRuntimeRun(runStore, child, [
+      runtimeEvent({
+        id: 'unsafe-user',
+        sessionId: session.id,
+        runId: child.runId,
+        turnId: child.turnId,
+        ts: 1,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'inspect' },
+      }),
+      runtimeEvent({
+        id: 'unsafe-call',
+        sessionId: session.id,
+        runId: child.runId,
+        turnId: child.turnId,
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'read-1', name: 'Read', args: { path: 'x' } },
+        refs: { toolCallId: 'read-1', stepId: 'step-1' },
+      }),
+      runtimeEvent({
+        id: 'unsafe-terminal',
+        sessionId: session.id,
+        runId: child.runId,
+        turnId: child.turnId,
+        ts: 4,
+        status: 'failed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await expectRejects(
+      manager.prepareChildAgentResume(session.id, child.runId),
+      /unmatched_tool_call/,
+    );
+  });
+
   test('the durable turn-ledger seam reaches parent runs but is withheld from child sessions', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

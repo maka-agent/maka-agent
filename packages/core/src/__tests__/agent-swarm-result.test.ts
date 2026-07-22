@@ -102,6 +102,7 @@ function agentSwarmResult(): Extract<ToolResultContent, { kind: 'agent_swarm' }>
         agentName: 'Local Read',
         turnId: 'turn-auth',
         runId: 'run-auth',
+        resumedFromRunId: 'run-auth-source',
         status: 'completed',
         summary: 'Auth boundaries are documented.',
         artifactIds: ['artifact-auth'],

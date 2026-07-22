@@ -471,6 +471,7 @@ function latestTurnState(
 function headerLineage(header: AgentRunHeader): AgentRunLineage {
   return {
     ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
+    ...(header.resumedFromRunId ? { resumedFromRunId: header.resumedFromRunId } : {}),
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
     ...(header.regeneratedFromTurnId

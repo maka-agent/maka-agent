@@ -783,6 +783,12 @@ export function buildAiSdkCellBackendRegistration(input: {
         spawnChildAgent: context.spawnChildAgent
           ? (childInput) => context.spawnChildAgent!(ctx.sessionId, childInput)
           : undefined,
+        prepareChildAgentResume: context.prepareChildAgentResume
+          ? (sourceRunId) => context.prepareChildAgentResume!(ctx.sessionId, sourceRunId)
+          : undefined,
+        resumeChildAgent: context.resumeChildAgent
+          ? (childInput) => context.resumeChildAgent!(ctx.sessionId, childInput)
+          : undefined,
         listChildAgents: context.listChildAgents
           ? () => context.listChildAgents!(ctx.sessionId)
           : undefined,

@@ -37,6 +37,7 @@ export interface AgentRunInspectIdentity {
   invocationId?: string;
   turnId: string;
   parentRunId?: string;
+  resumedFromRunId?: string;
   parentTurnId?: string;
   agentId?: string;
   status: AgentRunHeader['status'];
@@ -236,6 +237,7 @@ function inspectIdentity(header: AgentRunHeader): AgentRunInspectIdentity {
     ...(header.invocationId ? { invocationId: header.invocationId } : {}),
     turnId: header.turnId,
     ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
+    ...(header.resumedFromRunId ? { resumedFromRunId: header.resumedFromRunId } : {}),
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.agentId ? { agentId: header.agentId } : {}),
     status: header.status,

@@ -254,6 +254,9 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       agentTeam,
       toolAvailability: backendToolAvailability,
       spawnChildAgent: (input) => getRuntime().spawnChildAgent(ctx.sessionId, input),
+      prepareChildAgentResume: (sourceRunId) =>
+        getRuntime().prepareChildAgentResume(ctx.sessionId, sourceRunId),
+      resumeChildAgent: (input) => getRuntime().resumeChildAgent(ctx.sessionId, input),
       listChildAgents: () => getRuntime().listChildAgents(ctx.sessionId),
       readChildAgentOutput: (input) => getRuntime().readChildAgentOutput(ctx.sessionId, input),
       providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),

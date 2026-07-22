@@ -604,6 +604,9 @@ export async function createMakaCliRuntimeContext(
       ...(input.surface === 'tui'
         ? {
             spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
+            prepareChildAgentResume: (sourceRunId) =>
+              runtime.prepareChildAgentResume(ctx.sessionId, sourceRunId),
+            resumeChildAgent: (childInput) => runtime.resumeChildAgent(ctx.sessionId, childInput),
             listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
             readChildAgentOutput: (childInput) =>
               runtime.readChildAgentOutput(ctx.sessionId, childInput),

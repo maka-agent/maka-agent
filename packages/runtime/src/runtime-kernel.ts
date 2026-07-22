@@ -556,6 +556,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       turnId: input.turnId,
       text: input.prompt,
       parentRunId: input.parentRunId,
+      ...(input.resumedFromRunId ? { resumedFromRunId: input.resumedFromRunId } : {}),
       agentId: definition.id,
       agentName: definition.name,
     };

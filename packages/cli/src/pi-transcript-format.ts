@@ -101,6 +101,7 @@ export function formatToolResultContent(content: ToolResultContent): string {
                 item.profile,
                 item.durationMs !== undefined ? `${item.durationMs}ms` : '',
                 `${item.artifactIds.length} artifacts`,
+                item.resumedFromRunId ? `resumed from ${item.resumedFromRunId}` : '',
                 item.runId ? `run ${item.runId}` : '',
                 item.turnId ? `turn ${item.turnId}` : '',
                 item.failureClass ?? '',

@@ -22,6 +22,8 @@ export type {
   StrictRecoveryStores,
   BackendFactory,
   BackendFactoryContext,
+  PrepareChildAgentResumeResult,
+  ResumeChildAgentInput,
   SpawnChildAgentInput,
   SpawnChildAgentResult,
   AgentListItem,
@@ -492,6 +494,7 @@ export {
 export type {
   AgentSwarmExplicitItemInput,
   AgentSwarmExplicitToolInput,
+  AgentSwarmResumeToolInput,
   AgentSwarmTemplateToolInput,
   AgentSwarmToolInput,
   AgentSwarmToolResult,

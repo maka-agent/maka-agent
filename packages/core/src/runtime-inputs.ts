@@ -55,6 +55,8 @@ export interface UserMessageInput {
   turnOrchestration?: TurnOrchestration;
   attachments?: AttachmentRef[];
   parentRunId?: string;
+  /** Child AgentRun whose durable conversation this child continues. */
+  resumedFromRunId?: string;
   agentId?: string;
   agentName?: string;
   parentTurnId?: string;
@@ -81,6 +83,8 @@ export interface ChildAgentTurnInput {
   parentRunId: string;
   spec: AgentSpec;
   prompt: string;
+  /** Trusted, preflighted child AgentRun whose RuntimeEvent history is replayed. */
+  resumedFromRunId?: string;
 }
 
 export interface RegenerateTurnInput {

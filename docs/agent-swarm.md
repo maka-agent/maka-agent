@@ -20,7 +20,7 @@ It is intentionally a structured-concurrency convenience over existing child
 | One specialist result, or the next task depends on the previous result | `agent_spawn` sequentially | The dependency is explicit and each result can refine the next prompt. |
 | Several finite, independent items with one final synthesis | `agent_swarm` | Bounded worker-pool execution, stable ordered results, and isolated failures. |
 | Durable ownership, task claiming, or worker communication | Agent Team | Members have roles, mailbox collaboration, and Task Ledger coordination. |
-| DAG dependencies, retries, resume, dynamic expansion, or distributed execution | Rive | Workflow state and recovery need a durable orchestration authority. |
+| DAG dependencies, retry policies, arbitrary workflow resume, dynamic expansion, or distributed execution | Rive | Workflow state and recovery need a durable orchestration authority. |
 
 The main Agent should call Swarm deliberately. The runtime does not infer that a
 request is parallelizable and does not automatically fan work out.
@@ -31,13 +31,61 @@ One call accepts `1..32` items. Local concurrency defaults to `3` and is capped
 at `5`. The entire input is validated before any child starts. Results retain
 input order even when children finish out of order.
 
-The input has two mutually exclusive forms. Callers may provide the explicit
+New work has two mutually exclusive forms. Callers may provide the explicit
 structured items shown below, or use a homogeneous template batch with one
 shared `profile`, a `prompt_template` containing `{{item}}`, and string
 `items`. Template batches replace every placeholder occurrence, reject
 duplicate expanded tasks, generate stable ordered IDs (`item-1`, `item-2`,
 ...), and then enter the same preflight and execution path as explicit items.
 They are input shorthand, not a separate scheduler.
+
+Either form may also include `resume_run_ids`, a map from an existing child
+`runId` to the new prompt that should continue it. A call may contain only
+resumes. Resume entries count toward the same 32-item bound, are presented
+before new items in map insertion order, and use the same local and shared
+concurrency limits as newly spawned children.
+
+## Resuming child runs
+
+Resume creates a fresh child `AgentRun` whose durable lineage names the source
+in `resumedFromRunId`. It replays the complete RuntimeEvent history of that
+source and its resume ancestors, then sends the new prompt. It does not mutate
+or restart the original run, and it does not approximate continuation by
+concatenating a summary into a fresh prompt.
+
+The runtime preflights every resume entry before any resumed or new child
+starts. Resume fails closed unless all of these invariants hold:
+
+- the source and every resume ancestor are built-in child runs in this session;
+- every run has the same Agent profile and current backend, connection, model,
+  working directory, and child permission mode;
+- every RuntimeEvent ledger has a valid terminal fact and a user-anchored,
+  model-replayable history with no indeterminate tool boundary;
+- the immediate source does not already have a resume successor.
+
+Completed, failed, and cancelled child runs may be continued. Each source has
+at most one direct successor, while that successor may itself be resumed to
+form an auditable linear chain. The API deliberately uses `resume_run_ids`
+rather than `resume_agent_ids`: built-in `agentId`s identify reusable profiles
+such as `local-read`, while `runId`s identify the unique execution and history
+being continued.
+
+```ts
+agent_swarm({
+  resume_run_ids: {
+    "child-run-123": "Re-check the failing assertion and propose the smallest fix.",
+    "child-run-456": "Continue from your findings and inspect the UI projection."
+  },
+  items: [
+    {
+      item_id: "fresh-review",
+      profile: "local_read",
+      task: "Independently review the updated cancellation invariant."
+    }
+  ],
+  max_concurrency: 3
+})
+```
 
 Three separate concurrency boundaries remain observable:
 

@@ -103,6 +103,7 @@ import {
   type MakaTool,
   type MakaToolContext,
   type AgentTeamExecutionContext,
+  type ToolRuntimeInput,
   type ToolModelOutput,
 } from './tool-runtime.js';
 import type { RuntimeCommitSink } from './runtime-commit-sink.js';
@@ -541,6 +542,8 @@ export interface AiSdkBackendInput {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  prepareChildAgentResume?: ToolRuntimeInput['prepareChildAgentResume'];
+  resumeChildAgent?: ToolRuntimeInput['resumeChildAgent'];
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
     runId?: string;
@@ -757,6 +760,8 @@ export class AiSdkBackend implements AgentBackend {
       getCurrentOrchestration: () => this.currentOrchestration,
       permissionRules: input.permissionRules,
       spawnChildAgent: input.spawnChildAgent,
+      prepareChildAgentResume: input.prepareChildAgentResume,
+      resumeChildAgent: input.resumeChildAgent,
       listChildAgents: input.listChildAgents,
       readChildAgentOutput: input.readChildAgentOutput,
       getRunTrace: () => this.currentRunTrace,

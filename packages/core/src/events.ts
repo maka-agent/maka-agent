@@ -363,6 +363,7 @@ export type ToolResultContent =
         agentName?: string;
         turnId?: string;
         runId?: string;
+        resumedFromRunId?: string;
         status: 'completed' | 'failed' | 'cancelled';
         summary: string;
         artifactIds: readonly string[];

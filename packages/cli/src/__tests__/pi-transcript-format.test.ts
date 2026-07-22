@@ -16,6 +16,7 @@ test('formats an agent swarm with bounded child evidence references', () => {
         agentName: 'Local Read',
         turnId: 'turn-auth',
         runId: 'run-auth',
+        resumedFromRunId: 'run-auth-source',
         status: 'completed',
         summary: 'Auth boundaries are documented.',
         artifactIds: ['artifact-auth'],
@@ -39,11 +40,11 @@ test('formats an agent swarm with bounded child evidence references', () => {
     output,
     [
       'Agent swarm: partial · 2 items · 1 completed · 1 failed · 0 cancelled · 1 artifacts · 10ms',
-      'auth: completed · local_read · 1 artifacts · run run-auth · turn turn-auth\nAuth boundaries are documented.',
+      'auth: completed · local_read · 1 artifacts · resumed from run-auth-source · run run-auth · turn turn-auth\nAuth boundaries are documented.',
       'storage: failed · local_read · 0 artifacts\nStorage inspection failed.',
     ].join('\n\n'),
   );
-  assert.match(output, /run run-auth · turn turn-auth/);
+  assert.match(output, /resumed from run-auth-source · run run-auth · turn turn-auth/);
   assert.doesNotMatch(output, /artifact-auth|local-read/);
 });
 

@@ -82,6 +82,7 @@ export type AgentRunLineage = Partial<
   Pick<
     UserMessageInput,
     | 'parentRunId'
+    | 'resumedFromRunId'
     | 'parentTurnId'
     | 'retriedFromTurnId'
     | 'regeneratedFromTurnId'
@@ -206,6 +207,9 @@ export class AgentRun {
       );
     this.lineage = {
       ...(input.userInput.parentRunId ? { parentRunId: input.userInput.parentRunId } : {}),
+      ...(input.userInput.resumedFromRunId
+        ? { resumedFromRunId: input.userInput.resumedFromRunId }
+        : {}),
       ...(input.userInput.parentTurnId ? { parentTurnId: input.userInput.parentTurnId } : {}),
       ...(input.userInput.retriedFromTurnId
         ? { retriedFromTurnId: input.userInput.retriedFromTurnId }
@@ -962,6 +966,9 @@ export class AgentRun {
   }
 
   private async buildPriorRuntimeContext(): Promise<PriorRuntimeContext | undefined> {
+    if (this.lineage.resumedFromRunId) {
+      return await this.buildResumedChildRuntimeContext(this.lineage.resumedFromRunId);
+    }
     if (this.lineage.parentRunId) return undefined;
     if (
       !this.input.runStore ||
@@ -1040,6 +1047,89 @@ export class AgentRun {
     const runtimeReplayPlan = buildRuntimeEventModelReplayPlan(events);
     if (runtimeReplayPlan.items.length === 0) return undefined;
     return { events, runs: priorRuns };
+  }
+
+  private async buildResumedChildRuntimeContext(sourceRunId: string): Promise<PriorRuntimeContext> {
+    if (
+      !this.input.runStore ||
+      !this.input.runtimeEventStore ||
+      !this.runStoreAvailable ||
+      !this.runtimeEventStoreAvailable
+    ) {
+      throw new Error('Child AgentRun resume requires durable run and RuntimeEvent stores');
+    }
+
+    const sessionRuns = await this.input.runStore.listSessionRuns(this.sessionId);
+    const runsById = new Map(sessionRuns.map((run) => [run.runId, run]));
+    const reverseChain: AgentRunHeader[] = [];
+    const visited = new Set<string>();
+    let cursor: string | undefined = sourceRunId;
+    while (cursor) {
+      if (visited.has(cursor)) {
+        throw new Error(`Child AgentRun resume lineage contains a cycle at ${cursor}`);
+      }
+      visited.add(cursor);
+      const run = runsById.get(cursor);
+      if (!run) throw new Error(`Child AgentRun resume source ${cursor} was not found`);
+      if (!run.parentRunId || isSessionInlineRun(run)) {
+        throw new Error(`AgentRun ${cursor} is not a resumable child run`);
+      }
+      if (!run.agentId || run.agentId !== this.input.userInput.agentId) {
+        throw new Error(`Child AgentRun resume profile changed at ${cursor}`);
+      }
+      reverseChain.push(run);
+      cursor = run.resumedFromRunId;
+    }
+
+    const chain = reverseChain.reverse();
+    const effectiveRuns: AgentRunHeader[] = [];
+    const events: RuntimeEvent[] = [];
+    for (const run of chain) {
+      const loaded = await this.loadRequiredChildResumeContext(run);
+      effectiveRuns.push(loaded.run);
+      events.push(...loaded.events);
+    }
+
+    const replay = buildRuntimeEventModelReplayPlan(events);
+    const unsafe = replay.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === 'unmatched_tool_call' ||
+        diagnostic.code === 'unmatched_tool_result' ||
+        diagnostic.code === 'tool_id_mismatch' ||
+        diagnostic.code === 'unsupported_role' ||
+        diagnostic.code === 'unsupported_content',
+    );
+    if (unsafe) {
+      throw new Error(`Child AgentRun resume history is unsafe: ${unsafe.code}`);
+    }
+    const first = replay.items[0];
+    if (!first || first.kind !== 'text' || first.role !== 'user') {
+      throw new Error('Child AgentRun resume history has no user-anchored replay boundary');
+    }
+    return { events, runs: effectiveRuns };
+  }
+
+  private async loadRequiredChildResumeContext(
+    run: AgentRunHeader,
+  ): Promise<{ events: RuntimeEvent[]; run: AgentRunHeader }> {
+    let events = await this.input.runtimeEventStore!.readRuntimeEvents(this.sessionId, run.runId);
+    if (events.length === 0 || !events.some(isTerminalRuntimeEvent)) {
+      if (await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+        events = await this.input.runtimeEventStore!.readRuntimeEvents(this.sessionId, run.runId);
+      }
+    }
+    if (events.length === 0 || !events.some(isTerminalRuntimeEvent)) {
+      throw new Error(
+        `Child AgentRun resume source ${run.runId} has no terminal RuntimeEvent fact`,
+      );
+    }
+    const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+    if (!terminalFact) {
+      throw new Error(
+        `Child AgentRun resume source ${run.runId} has an invalid terminal RuntimeEvent fact`,
+      );
+    }
+    return { events, run: effectiveRunHeaderFromTerminalFact(run, terminalFact) };
   }
 
   private async readNonTerminalPriorRunWithTerminalFact(

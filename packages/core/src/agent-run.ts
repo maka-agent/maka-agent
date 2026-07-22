@@ -66,6 +66,8 @@ export interface AgentRunHeader {
   updatedAt: number;
   completedAt?: number;
   parentRunId?: string;
+  /** Immediate child AgentRun continued by this run. */
+  resumedFromRunId?: string;
   agentId?: string;
   agentName?: string;
   parentTurnId?: string;
@@ -170,6 +172,7 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'invocationId',
     'completedAt',
     'parentRunId',
+    'resumedFromRunId',
     'agentId',
     'agentName',
     'parentTurnId',
@@ -222,6 +225,7 @@ export function decodeAgentRunHeader(value: unknown): AgentRunHeader {
     (value.completedAt === undefined || isFiniteNumber(value.completedAt)) &&
     [
       value.parentRunId,
+      value.resumedFromRunId,
       value.agentId,
       value.agentName,
       value.parentTurnId,
