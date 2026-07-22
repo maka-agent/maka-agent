@@ -78,16 +78,8 @@ const PROVIDER_CREDENTIAL_ENV = {
   },
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;
 
-const PROVIDER_CREDENTIAL_SECRET_ENV_NAMES = new Set([
-  'MAKA_API_KEY',
-  'MAKA_HOST_API_KEY',
-  'MAKA_HOST_API_KEY_FILE',
-  ...(Object.values(PROVIDER_CREDENTIAL_ENV) as ProviderCredentialEnv[]).flatMap((definition) => [
-    ...definition.apiKeys,
-    ...definition.apiKeys.map((name) => `${name}_FILE`),
-    definition.apiKeyFile,
-  ]),
-]);
+const SENSITIVE_ENV_NAME =
+  /(?:^|_)(?:API_KEY|ACCESS_KEY|PRIVATE_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i;
 
 export function providerCredentialEnv(provider: string): ProviderCredentialEnv | undefined {
   return PROVIDER_CREDENTIAL_ENV[provider as keyof typeof PROVIDER_CREDENTIAL_ENV];
@@ -99,8 +91,8 @@ export function requireProviderCredentialEnv(provider: string): ProviderCredenti
   return definition;
 }
 
-export function isProviderCredentialSecretEnvName(name: string): boolean {
-  return PROVIDER_CREDENTIAL_SECRET_ENV_NAMES.has(name);
+export function isSensitiveEnvName(name: string): boolean {
+  return SENSITIVE_ENV_NAME.test(name);
 }
 
 export function providerBaseUrlFromEnv(

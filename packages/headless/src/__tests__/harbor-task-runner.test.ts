@@ -1998,6 +1998,24 @@ describe('buildHarborJobConfig', () => {
     );
   });
 
+  test('rejects secret-shaped env even when no provider registry entry owns it', () => {
+    assert.throws(
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          model: 'deepseek/deepseek-v4-flash',
+          provider: 'deepseek',
+          agentEnv: {
+            ACME_API_KEY: 'unregistered-secret',
+            GOOGLE_APPLICATION_CREDENTIALS: '/tmp/google-credentials.json',
+          },
+        }),
+      /agentEnv must not contain provider secrets: ACME_API_KEY, GOOGLE_APPLICATION_CREDENTIALS/,
+    );
+  });
+
   test('omits pricing env when no pricing is configured', () => {
     const config = buildHarborJobConfig(runInput(), {
       makaRepoPath: '/repo',

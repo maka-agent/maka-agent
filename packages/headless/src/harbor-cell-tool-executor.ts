@@ -9,7 +9,7 @@ import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
 import type { IsolatedCommandResult, IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
-import { isProviderCredentialSecretEnvName } from './provider-env.js';
+import { isSensitiveEnvName } from './provider-env.js';
 import {
   buildIsolatedHeadlessTools,
   FRAMED_FILE_TOOL_MAX_TRANSPORT_BYTES,
@@ -193,7 +193,7 @@ function childProcessEnv(env: RunHarborCellEnv): NodeJS.ProcessEnv {
     if (value !== undefined) childEnv[key] = value;
   }
   for (const key of Object.keys(childEnv)) {
-    if (isProviderCredentialSecretEnvName(key)) {
+    if (isSensitiveEnvName(key)) {
       delete childEnv[key];
     }
   }

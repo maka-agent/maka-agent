@@ -4734,17 +4734,21 @@ describe('createHarborCellLocalToolExecutor', () => {
     assert.equal(result.stdout, 'ok');
   });
 
-  test('scrubs provider API-key env so task commands cannot read the secret', async () => {
+  test('scrubs secret-shaped env so task commands cannot read unregistered credentials', async () => {
     const executor = createHarborCellLocalToolExecutor({
       DEEPSEEK_API_KEY_FILE: '/run/secrets/deepseek-key',
       DEEPSEEK_API_KEY: 'sk-should-not-leak',
+      ACME_API_KEY: 'unregistered-secret',
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/google-credentials.json',
+      MAX_TOKENS: '4096',
     });
     const result = await executor.exec({
-      command: 'printf "[%s][%s]" "${DEEPSEEK_API_KEY_FILE:-}" "${DEEPSEEK_API_KEY:-}"',
+      command:
+        'printf "[%s][%s][%s][%s][%s]" "${DEEPSEEK_API_KEY_FILE:-}" "${DEEPSEEK_API_KEY:-}" "${ACME_API_KEY:-}" "${GOOGLE_APPLICATION_CREDENTIALS:-}" "${MAX_TOKENS:-}"',
       cwd: process.cwd(),
     });
     assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout, '[][]');
+    assert.equal(result.stdout, '[][][][][4096]');
   });
 
   test('scrubs provider token env so task commands cannot read OAuth credentials', async () => {

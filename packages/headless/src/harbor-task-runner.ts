@@ -42,7 +42,7 @@ import {
   type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
 import {
-  isProviderCredentialSecretEnvName,
+  isSensitiveEnvName,
   providerBaseUrlFromEnv,
   providerCredentialEnv,
 } from './provider-env.js';
@@ -1200,7 +1200,7 @@ function taskAgentEnvWithoutProviderSecrets(
     )
       continue;
     if (key === 'MAKA_BASE_URL') continue;
-    if (isProviderCredentialSecretEnvName(key)) continue;
+    if (isSensitiveEnvName(key)) continue;
     result[key] = value;
   }
   return result;
@@ -1211,7 +1211,7 @@ function assertNoProviderSecretsInAgentEnv(
   allowedHostCredentialEnvNames: ReadonlySet<string> = new Set(),
 ): void {
   const forbidden = Object.keys(agentEnv ?? {}).filter(
-    (key) => isProviderCredentialSecretEnvName(key) && !allowedHostCredentialEnvNames.has(key),
+    (key) => isSensitiveEnvName(key) && !allowedHostCredentialEnvNames.has(key),
   );
   if (forbidden.length > 0) {
     throw new Error(`agentEnv must not contain provider secrets: ${forbidden.sort().join(', ')}`);
