@@ -442,6 +442,37 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /bridge-contract ok/);
   });
 
+  test('harness tree contract holds under the plain Harbor interpreter', (t: TestContext) => {
+    const python = harborPython();
+    if (!python) {
+      t.skip('Harbor 0.13.2 python is not available (CI has no harbor)');
+      return;
+    }
+    const result = spawnSync(python, [harnessCompatTestPath()], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /0 failed/);
+  });
+
+  test('harness tree contract holds under the Pier interpreter', (t: TestContext) => {
+    const python = pierPython();
+    if (!python) {
+      t.skip('Pier python is not available (no pier launcher or MAKA_PIER_PYTHON)');
+      return;
+    }
+    // The interpreter was verified to import pier, so expected-but-unavailable
+    // pier coverage inside the suite must fail rather than skip.
+    const result = spawnSync(python, [harnessCompatTestPath()], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, MAKA_HARNESS_COMPAT_EXPECT: 'pier' },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /0 skipped, 0 failed/);
+  });
+
   test('run-prompt-optimization.mjs wires the headless run API with a key file, not a raw key', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-prompt-optimization.mjs');
     assert.match(source, /runPromptOptimizationRun/);
@@ -1051,6 +1082,32 @@ function harborPython(): string | null {
   }
   for (const python of candidates) {
     const check = spawnSync(python, ['-c', 'import harbor'], { encoding: 'utf8' });
+    if (check.status === 0) return python;
+  }
+  return null;
+}
+
+function harnessCompatTestPath(): string {
+  return resolve(repoRoot, 'packages/headless/harbor/tests/test_harness_compat.py');
+}
+
+/* Resolve the Pier venv's python by env override or via the `pier` launcher on
+ * PATH, mirroring harborPython(). Pier is Datacurve's Harbor fork used for
+ * DeepSWE runs; it is optional on dev machines and absent in CI. */
+function pierPython(): string | null {
+  const candidates: string[] = [];
+  if (process.env.MAKA_PIER_PYTHON) candidates.push(process.env.MAKA_PIER_PYTHON);
+  const located = spawnSync('bash', ['-lc', 'command -v pier'], { encoding: 'utf8' });
+  if (located.status === 0 && located.stdout.trim()) {
+    try {
+      const binDir = dirname(realpathSync(located.stdout.trim()));
+      candidates.push(resolve(binDir, 'python'), resolve(binDir, 'python3'));
+    } catch {
+      // Unresolvable launcher — fall through to remaining candidates.
+    }
+  }
+  for (const python of candidates) {
+    const check = spawnSync(python, ['-c', 'import pier'], { encoding: 'utf8' });
     if (check.status === 0) return python;
   }
   return null;

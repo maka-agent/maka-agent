@@ -49,29 +49,49 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
     def name() -> str:
         return "kimi-code"
 
-    def install_spec(self):
+    def install_spec(self) -> None:
         # The Kimi Code toolchain is baked into the task image and only verified
         # (sha256 checksums + manifest fingerprint) in install(); there is
         # nothing to install at Pier build time. Pier declares this abstract on
         # BaseInstalledAgent; None keeps the runtime verify path unchanged.
         return None
 
-    def network_allowlist(self):
+    def network_allowlist(self) -> _NetworkAllowlist | None:
+        # Called only under Pier; plain Harbor never calls it and harness_compat
+        # exports NetworkAllowlist = None there.
         if _NetworkAllowlist is None:
             return None
         # The container runs the pre-baked Kimi Code CLI against
         # KIMI_MODEL_BASE_URL, which _runtime_env() sets to
         # MAKA_PROVIDER_PROXY_URL. The toolchain is verified offline (no install
         # download), so the only outbound host the container needs is that model
-        # endpoint. Derive its hostname the way Pier's builtin agents do
-        # (claude_code), defaulting to api.kimi.com for the
-        # https://api.kimi.com/coding/v1 base URL when the proxy URL is unset.
-        base_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
-        if base_url:
-            parsed = urlparse(base_url if "://" in base_url else f"https://{base_url}")
-            if parsed.hostname:
-                return _NetworkAllowlist(domains=[parsed.hostname])
-        return _NetworkAllowlist(domains=["api.kimi.com"])
+        # endpoint. A missing or malformed proxy URL fails here, at environment
+        # creation, with the same error _runtime_env() would raise later — no
+        # fallback domain, so a misconfigured trial never gets a spurious
+        # egress grant.
+        return _NetworkAllowlist(domains=[self._provider_proxy_host()])
+
+    def _provider_proxy_host(self) -> str:
+        """Hostname of MAKA_PROVIDER_PROXY_URL, shared by the Pier network
+        allowlist and the runtime env so both fail identically on a bad URL."""
+        proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
+        if not proxy_url:
+            raise ValueError("Kimi Code requires the host provider proxy")
+        try:
+            parsed = urlparse(proxy_url if "://" in proxy_url else f"https://{proxy_url}")
+            hostname = parsed.hostname
+        except ValueError as error:
+            raise ValueError("Kimi Code requires the host provider proxy") from error
+        if not hostname:
+            raise ValueError("Kimi Code requires the host provider proxy")
+        if ":" in hostname:
+            # Pier's NetworkAllowlist domain validator rejects ':' entries, so
+            # an IPv6 literal endpoint can never be allowlisted.
+            raise ValueError(
+                "Kimi Code provider proxy must use a DNS hostname or IPv4 "
+                "address; IPv6 literal endpoints are not supported"
+            )
+        return hostname
 
     def get_version_command(self) -> str | None:
         return (
@@ -152,9 +172,10 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
         self._write_cell_output()
 
     def _runtime_env(self) -> dict[str, str]:
+        self._provider_proxy_host()  # validates MAKA_PROVIDER_PROXY_URL
         proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
         proxy_token = self._get_env("MAKA_PROVIDER_PROXY_TOKEN")
-        if not proxy_url or not proxy_token:
+        if not proxy_token:
             raise ValueError("Kimi Code requires the host provider proxy")
         model = self._get_env("MAKA_MODEL") or self.model_name
         if not model:

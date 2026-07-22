@@ -8,13 +8,16 @@ validates against ``pier.models.trial.result.AgentInfo``, so an adapter built on
 the compat ``harbor.*`` tree fails Pier trial setup with a pydantic
 ValidationError before any container or model work.
 
-Selection rule: prefer Pier whenever ``import pier`` succeeds. The process that
-imports the adapters is always the harness runner itself, so pier importability
-identifies the runner exactly — the plain-Harbor uv tool venv cannot import
-``pier``, and inside Pier's venv the compat ``harbor.*`` tree is never the right
-choice. Only the top-level probe is guarded: a Pier install broken below the
-top-level package then fails loudly when a symbol resolves, instead of silently
-degrading to the wrong tree.
+Selection rule: prefer Pier whenever ``import pier`` succeeds. The plain-Harbor
+uv tool venv ships no pier distribution and always selects the harbor tree;
+Pier's venv imports pier and selects the pier tree, where the compat
+``harbor.*`` tree is never the right choice. The probe falls back to harbor
+only when the ``pier`` package itself is absent (ModuleNotFoundError naming
+``pier``); any other failure inside pier's own import — a broken install, a
+missing dependency — re-raises at the probe, and a pier tree broken below the
+top level fails when the first symbol resolves. Falling back in those cases
+would silently rebuild the adapters on the compat harbor tree, which Pier's
+``TrialResult`` rejects.
 
 Symbols resolve lazily (PEP 562) so each adapter's transitive import surface
 stays exactly the names it asks for; the harness-stub smoke tests in
@@ -31,8 +34,12 @@ try:
     import pier  # noqa: F401
 
     IS_PIER = True
-except ImportError:  # plain Harbor venv: no pier distribution
-    IS_PIER = False
+except ModuleNotFoundError as error:
+    if error.name != "pier":
+        # pier exists but one of its own imports failed. Falling back would
+        # silently select the compat harbor tree, so surface the real problem.
+        raise
+    IS_PIER = False  # plain Harbor venv: no pier distribution
 
 _TREE = "pier" if IS_PIER else "harbor"
 

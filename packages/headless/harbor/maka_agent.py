@@ -169,7 +169,7 @@ class MakaAgent(BaseInstalledAgent):
     def name() -> str:
         return "maka"
 
-    def install_spec(self):
+    def install_spec(self) -> None:
         # Maka installs at runtime inside install()/setup() (host-side Node, or
         # the in-container Node bootstrap), not via a Pier build-time install
         # spec. Pier declares this abstract on BaseInstalledAgent; returning
@@ -177,13 +177,25 @@ class MakaAgent(BaseInstalledAgent):
         # when no spec is preinstalled).
         return None
 
-    def network_allowlist(self):
-        # Host-side LLM mode makes every model call on the host and bridges tools
-        # into the container via environment.exec, so the container itself needs
-        # no outbound network. An empty allowlist keeps a non-internet Pier task
-        # fully offline. Called only under Pier; plain Harbor never calls it and
-        # harness_compat exports NetworkAllowlist = None there.
-        return _NetworkAllowlist() if _NetworkAllowlist is not None else None
+    def network_allowlist(self) -> _NetworkAllowlist | None:
+        # Called only under Pier; plain Harbor never calls it and harness_compat
+        # exports NetworkAllowlist = None there.
+        if _NetworkAllowlist is None:
+            return None
+        # An empty allowlist keeps a non-internet Pier task fully offline, which
+        # is only correct when the container makes no model calls: host-side LLM
+        # mode runs them on the host and bridges tools in via environment.exec,
+        # and backend=fake makes none at all. Any other configuration would hit
+        # opaque in-container network errors, so fail at environment creation
+        # with the fix spelled out.
+        if not self._host_side_llm_enabled() and self._harbor_backend() != "fake":
+            raise RuntimeError(
+                "MakaAgent under Pier keeps the task container offline; enable "
+                "host-side provider configuration (MAKA_HOST_API_KEY_FILE, "
+                "MAKA_HOST_API_KEY, or MAKA_HOST_NO_AUTH=true) or use "
+                "backend=fake"
+            )
+        return _NetworkAllowlist()
 
     def _harbor_mode(self) -> str:
         """cell (default) runs a RuntimeRunner cell; task-run runs the full
