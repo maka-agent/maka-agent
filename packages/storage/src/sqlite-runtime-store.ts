@@ -36,7 +36,9 @@ export type ToolJournalState =
 
 export type SqliteRuntimeStoreFailpoint =
   | 'after_runtime_event_insert'
-  | 'after_journal_event_insert';
+  | 'after_journal_event_insert'
+  | 'after_recovery_reconcile'
+  | 'after_recovery_outcome';
 
 export interface SqliteRuntimeStoreOptions {
   failpoint?: (point: SqliteRuntimeStoreFailpoint) => void;
@@ -65,6 +67,19 @@ export interface CommitToolRecoveryFactInput {
   operationId: string;
   journalEventId: string;
   state: 'reconcile_recorded' | 'recovery_decided';
+  runtimeEvent: RuntimeEvent;
+  committedAt: number;
+}
+
+export interface CommitToolRecoveryBundleInput {
+  operationId: string;
+  reconcile: CommitToolRecoveryBundleEntry;
+  outcome?: CommitToolRecoveryBundleEntry;
+  decision: CommitToolRecoveryBundleEntry;
+}
+
+export interface CommitToolRecoveryBundleEntry {
+  journalEventId: string;
   runtimeEvent: RuntimeEvent;
   committedAt: number;
 }
@@ -398,117 +413,30 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
 
   async commitToolOutcome(input: CommitToolOutcomeInput): Promise<ToolCommitResult> {
     assertOutcomeInput(input);
-    return this.transaction(() => {
-      const operation = this.readToolOperationSync(input.operationId);
-      if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
-      assertOutcomeIdentity(operation, input.runtimeEvent);
-      if (operation.resultEventId) {
-        if (operation.resultEventId !== input.runtimeEvent.id) {
-          throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
-        }
-        assertStoredRuntimeEventEquals(
-          input.runtimeEvent,
-          this.readRuntimeEventJson(input.runtimeEvent.id),
-        );
-        return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
-      }
-      const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
-      this.options.failpoint?.('after_runtime_event_insert');
-      this.db
-        .prepare(`
-        INSERT INTO tool_journal_events (
-          journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
-          runtime_event_id, canonical_args_hash, recovery_mode, committed_at
-        ) VALUES (?, ?, ?, ?, ?, 'outcome_committed', ?, ?, ?, ?)
-      `)
-        .run(
-          input.journalEventId,
-          input.operationId,
-          operation.invocationId,
-          operation.runId,
-          operation.turnId,
-          input.runtimeEvent.id,
-          operation.canonicalArgsHash,
-          operation.recoveryMode,
-          input.committedAt,
-        );
-      this.options.failpoint?.('after_journal_event_insert');
-      const updated = this.db
-        .prepare(`
-        UPDATE tool_operations
-        SET current_state = 'outcome_committed', result_event_id = ?, version = version + 1
-        WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL
-      `)
-        .run(input.runtimeEvent.id, input.operationId);
-      if (updated.changes !== 1) {
-        throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
-      }
-      return { created: true, runtimeEventSeq };
-    });
+    return this.transaction(() => this.commitToolOutcomeSync(input));
   }
 
   async commitToolRecoveryFact(input: CommitToolRecoveryFactInput): Promise<ToolCommitResult> {
-    const runtimeFact = assertToolRecoveryFactInput(input);
-    return this.transaction(() => {
-      const operation = this.readToolOperationSync(input.operationId);
-      if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
-      if (
-        input.state === 'reconcile_recorded' &&
-        (operation.currentState !== 'prepared' || operation.resultEventId)
-      ) {
-        throw new Error(`Tool operation ${input.operationId} is already settled`);
+    return this.transaction(() => this.commitToolRecoveryFactSync(input));
+  }
+
+  async commitToolRecoveryBundle(input: CommitToolRecoveryBundleInput): Promise<void> {
+    this.transaction(() => {
+      this.commitToolRecoveryFactSync({
+        operationId: input.operationId,
+        state: 'reconcile_recorded',
+        ...input.reconcile,
+      });
+      this.options.failpoint?.('after_recovery_reconcile');
+      if (input.outcome) {
+        this.commitToolOutcomeSync({ operationId: input.operationId, ...input.outcome });
+        this.options.failpoint?.('after_recovery_outcome');
       }
-      const existing = this.db
-        .prepare(`
-        SELECT runtime_event_id FROM tool_journal_events
-        WHERE operation_id = ? AND state = ?
-      `)
-        .get(input.operationId, input.state) as { runtime_event_id: string | null } | undefined;
-      if (existing) {
-        if (existing.runtime_event_id !== input.runtimeEvent.id) {
-          throw new Error(`Tool recovery fact conflict for ${input.operationId}`);
-        }
-        assertStoredRuntimeEventEquals(
-          input.runtimeEvent,
-          this.readRuntimeEventJson(input.runtimeEvent.id),
-        );
-        return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
-      }
-      const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
-      this.options.failpoint?.('after_runtime_event_insert');
-      this.db
-        .prepare(`
-        INSERT INTO tool_journal_events (
-          journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
-          runtime_event_id, canonical_args_hash, recovery_mode, metadata_json, committed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-        .run(
-          input.journalEventId,
-          input.operationId,
-          input.runtimeEvent.invocationId,
-          input.runtimeEvent.runId,
-          input.runtimeEvent.turnId,
-          input.state,
-          input.runtimeEvent.id,
-          operation.canonicalArgsHash,
-          operation.recoveryMode,
-          JSON.stringify(runtimeFact),
-          input.committedAt,
-        );
-      this.options.failpoint?.('after_journal_event_insert');
-      const updated = this.db
-        .prepare(
-          input.state === 'reconcile_recorded'
-            ? `UPDATE tool_operations SET version = version + 1
-               WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL`
-            : 'UPDATE tool_operations SET version = version + 1 WHERE operation_id = ?',
-        )
-        .run(input.operationId);
-      if (updated.changes !== 1) {
-        throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
-      }
-      return { created: true, runtimeEventSeq };
+      this.commitToolRecoveryFactSync({
+        operationId: input.operationId,
+        state: 'recovery_decided',
+        ...input.decision,
+      });
     });
   }
 
@@ -747,6 +675,117 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
       }
       return { operations: dispatches.length, journalEvents };
     });
+  }
+
+  private commitToolOutcomeSync(input: CommitToolOutcomeInput): ToolCommitResult {
+    const operation = this.readToolOperationSync(input.operationId);
+    if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
+    assertOutcomeIdentity(operation, input.runtimeEvent);
+    if (operation.resultEventId) {
+      if (operation.resultEventId !== input.runtimeEvent.id) {
+        throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
+      }
+      assertStoredRuntimeEventEquals(
+        input.runtimeEvent,
+        this.readRuntimeEventJson(input.runtimeEvent.id),
+      );
+      return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
+    }
+    const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
+    this.options.failpoint?.('after_runtime_event_insert');
+    this.db
+      .prepare(`
+      INSERT INTO tool_journal_events (
+        journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
+        runtime_event_id, canonical_args_hash, recovery_mode, committed_at
+      ) VALUES (?, ?, ?, ?, ?, 'outcome_committed', ?, ?, ?, ?)
+    `)
+      .run(
+        input.journalEventId,
+        input.operationId,
+        operation.invocationId,
+        operation.runId,
+        operation.turnId,
+        input.runtimeEvent.id,
+        operation.canonicalArgsHash,
+        operation.recoveryMode,
+        input.committedAt,
+      );
+    this.options.failpoint?.('after_journal_event_insert');
+    const updated = this.db
+      .prepare(`
+      UPDATE tool_operations
+      SET current_state = 'outcome_committed', result_event_id = ?, version = version + 1
+      WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL
+    `)
+      .run(input.runtimeEvent.id, input.operationId);
+    if (updated.changes !== 1) {
+      throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
+    }
+    return { created: true, runtimeEventSeq };
+  }
+
+  private commitToolRecoveryFactSync(input: CommitToolRecoveryFactInput): ToolCommitResult {
+    const runtimeFact = assertToolRecoveryFactInput(input);
+    const operation = this.readToolOperationSync(input.operationId);
+    if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
+    if (
+      input.state === 'reconcile_recorded' &&
+      (operation.currentState !== 'prepared' || operation.resultEventId)
+    ) {
+      throw new Error(`Tool operation ${input.operationId} is already settled`);
+    }
+    const existing = this.db
+      .prepare(`
+      SELECT runtime_event_id FROM tool_journal_events
+      WHERE operation_id = ? AND state = ?
+    `)
+      .get(input.operationId, input.state) as { runtime_event_id: string | null } | undefined;
+    if (existing) {
+      if (existing.runtime_event_id !== input.runtimeEvent.id) {
+        throw new Error(`Tool recovery fact conflict for ${input.operationId}`);
+      }
+      assertStoredRuntimeEventEquals(
+        input.runtimeEvent,
+        this.readRuntimeEventJson(input.runtimeEvent.id),
+      );
+      return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
+    }
+    const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
+    this.options.failpoint?.('after_runtime_event_insert');
+    this.db
+      .prepare(`
+      INSERT INTO tool_journal_events (
+        journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
+        runtime_event_id, canonical_args_hash, recovery_mode, metadata_json, committed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+      .run(
+        input.journalEventId,
+        input.operationId,
+        input.runtimeEvent.invocationId,
+        input.runtimeEvent.runId,
+        input.runtimeEvent.turnId,
+        input.state,
+        input.runtimeEvent.id,
+        operation.canonicalArgsHash,
+        operation.recoveryMode,
+        JSON.stringify(runtimeFact),
+        input.committedAt,
+      );
+    this.options.failpoint?.('after_journal_event_insert');
+    const updated = this.db
+      .prepare(
+        input.state === 'reconcile_recorded'
+          ? `UPDATE tool_operations SET version = version + 1
+             WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL`
+          : 'UPDATE tool_operations SET version = version + 1 WHERE operation_id = ?',
+      )
+      .run(input.operationId);
+    if (updated.changes !== 1) {
+      throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
+    }
+    return { created: true, runtimeEventSeq };
   }
 
   private transaction<T>(operation: () => T): T {

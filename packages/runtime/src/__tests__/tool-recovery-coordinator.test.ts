@@ -273,12 +273,15 @@ function fakeStore(
   commits: ToolRecoveryFactCommitInput[],
   outcomes: RuntimeEvent[],
 ): RuntimeEventStore & {
-  commitToolRecoveryFact(input: ToolRecoveryFactCommitInput): Promise<unknown>;
-  commitToolOutcome(input: {
+  commitToolRecoveryBundle(input: {
     operationId: string;
-    journalEventId: string;
-    runtimeEvent: RuntimeEvent;
-    committedAt: number;
+    reconcile: Omit<ToolRecoveryFactCommitInput, 'operationId' | 'state'>;
+    outcome?: {
+      journalEventId: string;
+      runtimeEvent: RuntimeEvent;
+      committedAt: number;
+    };
+    decision: Omit<ToolRecoveryFactCommitInput, 'operationId' | 'state'>;
   }): Promise<unknown>;
 } {
   return {
@@ -287,13 +290,18 @@ function fakeStore(
     ensureTerminalRuntimeEventDurable: async () => {},
     readRuntimeEvents: async () => [],
     readSessionRuntimeEvents: async () => [],
-    commitToolRecoveryFact: async (input) => {
-      commits.push(input);
-      return { created: true, runtimeEventSeq: commits.length };
-    },
-    commitToolOutcome: async (input) => {
-      outcomes.push(input.runtimeEvent);
-      return { created: true, runtimeEventSeq: commits.length + outcomes.length };
+    commitToolRecoveryBundle: async (input) => {
+      commits.push({
+        operationId: input.operationId,
+        state: 'reconcile_recorded',
+        ...input.reconcile,
+      });
+      if (input.outcome) outcomes.push(input.outcome.runtimeEvent);
+      commits.push({
+        operationId: input.operationId,
+        state: 'recovery_decided',
+        ...input.decision,
+      });
     },
   };
 }

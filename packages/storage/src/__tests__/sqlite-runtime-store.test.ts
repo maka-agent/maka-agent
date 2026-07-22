@@ -447,6 +447,76 @@ describe('SqliteRuntimeStore', () => {
     });
   });
 
+  it('rolls back the entire recovery bundle when interrupted after its synthesized outcome', async () => {
+    await withStore(async (store, _dbPath, setFailpoint) => {
+      await commitPrepared(store);
+      const reconcile = toolRecoveryFactEvent({
+        id: 'reconcile-bundle-event-1',
+        ts: 20,
+        kind: 'maka.tool.reconcile_result',
+        payload: {
+          protocol: 'tool_reconcile_v1',
+          operationId: 'operation-1',
+          result: 'applied',
+          observationDigest: 'sha256:observation-1',
+          observedAt: '2026-07-21T00:00:00.000Z',
+          nextAction: 'synthesize_response',
+        },
+      });
+      const outcome = functionResponseEvent({ id: 'recovered-bundle-response-1', ts: 21 });
+      const decision = toolRecoveryFactEvent({
+        id: 'recovery-bundle-decision-1',
+        ts: 22,
+        kind: 'maka.tool.recovery_decision',
+        payload: {
+          protocol: 'tool_recovery_v1',
+          operationId: 'operation-1',
+          disposition: 'completed',
+          reasonCode: 'reconcile_applied',
+          evidenceEventIds: [
+            'call-event-1',
+            'dispatch-event-1',
+            'reconcile-bundle-event-1',
+            'recovered-bundle-response-1',
+          ],
+        },
+      });
+      setFailpoint('after_recovery_outcome');
+
+      await assert.rejects(
+        store.commitToolRecoveryBundle({
+          operationId: 'operation-1',
+          reconcile: {
+            journalEventId: 'journal-reconcile-bundle-1',
+            runtimeEvent: reconcile,
+            committedAt: 20,
+          },
+          outcome: {
+            journalEventId: 'journal-outcome-bundle-1',
+            runtimeEvent: outcome,
+            committedAt: 21,
+          },
+          decision: {
+            journalEventId: 'journal-decision-bundle-1',
+            runtimeEvent: decision,
+            committedAt: 22,
+          },
+        }),
+        /sqlite runtime failpoint: after_recovery_outcome/,
+      );
+
+      assert.deepEqual(
+        (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
+        ['call-event-1', 'dispatch-event-1'],
+      );
+      assert.deepEqual(
+        (await store.readToolJournal('operation-1')).map((event) => event.state),
+        ['prepared'],
+      );
+      assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'prepared');
+    });
+  });
+
   it('coalesces stream chunks outside the immutable high-water ledger', async () => {
     await withStore(async (store) => {
       for (const [index, text] of ['hel', 'lo', '!'].entries()) {

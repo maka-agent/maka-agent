@@ -8,8 +8,8 @@ import {
   type UnsettledToolOperation,
 } from './tool-recovery-contract.js';
 import {
-  commitToolReconcileResultFact,
-  commitToolRecoveryDecisionFact,
+  createToolReconcileResultFactEvent,
+  createToolRecoveryDecisionFactEvent,
 } from './tool-recovery-fact-writer.js';
 import type { ToolReconcileResultFact } from './tool-recovery-facts.js';
 
@@ -27,13 +27,19 @@ export interface ReconcileUnsettledToolOperationInput {
   now(): number;
 }
 
-interface ToolRecoveryOutcomeCommitStore extends RuntimeEventStore {
-  commitToolOutcome(input: {
+export interface ToolRecoveryExecutionStore extends RuntimeEventStore {
+  commitToolRecoveryBundle(input: {
     operationId: string;
-    journalEventId: string;
-    runtimeEvent: RuntimeEvent;
-    committedAt: number;
+    reconcile: ToolRecoveryBundleEntry;
+    outcome?: ToolRecoveryBundleEntry;
+    decision: ToolRecoveryBundleEntry;
   }): Promise<unknown>;
+}
+
+export interface ToolRecoveryBundleEntry {
+  journalEventId: string;
+  runtimeEvent: RuntimeEvent;
+  committedAt: number;
 }
 
 export type ReconcileUnsettledToolOperationResult =
@@ -94,25 +100,21 @@ export async function reconcileUnsettledToolOperation(
     stableHash(observation),
     input.now(),
   );
-  let outcomeStore: ToolRecoveryOutcomeCommitStore | undefined;
-  if (reconcileFact.nextAction === 'synthesize_response') {
-    if (!isToolRecoveryOutcomeCommitStore(input.runtimeEventStore)) {
-      return blockedDiagnostic(
-        'restricted_verification_violation',
-        'runtime recovery cannot atomically commit a synthesized tool response',
-        operation,
-      );
-    }
-    outcomeStore = input.runtimeEventStore;
+  if (!isToolRecoveryExecutionStore(input.runtimeEventStore)) {
+    return blockedDiagnostic(
+      'restricted_verification_violation',
+      'runtime recovery cannot atomically commit its canonical facts',
+      operation,
+    );
   }
-  const reconcileEvent = await commitToolReconcileResultFact({
-    runtimeEventStore: input.runtimeEventStore,
+  const reconcileEvent = createToolReconcileResultFactEvent({
     ...input.runtimeIdentity,
     eventId: input.newId(),
     ts: input.now(),
     fact: reconcileFact,
   });
   const decisionEvidenceEventIds = [...operation.evidenceEventIds, reconcileEvent.id];
+  let outcomeEntry: ToolRecoveryBundleEntry | undefined;
   if (reconcileFact.nextAction === 'synthesize_response') {
     const outcomeTs = input.now();
     const outcomeEvent: RuntimeEvent = {
@@ -135,12 +137,11 @@ export async function reconcileUnsettledToolOperation(
       actions: { stateDelta: { toolOutcomeOrigin: 'runtime_recovery' } },
       refs: { operationId: operation.operationId, toolCallId: operation.toolCallId },
     };
-    await outcomeStore!.commitToolOutcome({
-      operationId: operation.operationId,
+    outcomeEntry = {
       journalEventId: `${outcomeEvent.id}_journal`,
       runtimeEvent: outcomeEvent,
       committedAt: outcomeTs,
-    });
+    };
     decisionEvidenceEventIds.push(outcomeEvent.id);
   }
   const disposition: RecoveryDisposition =
@@ -150,8 +151,7 @@ export async function reconcileUnsettledToolOperation(
         ? 'completed'
         : 'reconcile_required';
   const reasonCode = recoveryReasonForReconcileResult(reconcileFact.result);
-  const decisionEvent = await commitToolRecoveryDecisionFact({
-    runtimeEventStore: input.runtimeEventStore,
+  const decisionEvent = createToolRecoveryDecisionFactEvent({
     ...input.runtimeIdentity,
     eventId: input.newId(),
     ts: input.now(),
@@ -162,6 +162,20 @@ export async function reconcileUnsettledToolOperation(
       reasonCode,
       evidenceEventIds: decisionEvidenceEventIds,
       recoveryContractId: `${contract.id}@${contract.version}`,
+    },
+  });
+  await input.runtimeEventStore.commitToolRecoveryBundle({
+    operationId: operation.operationId,
+    reconcile: {
+      journalEventId: `${reconcileEvent.id}_journal`,
+      runtimeEvent: reconcileEvent,
+      committedAt: reconcileEvent.ts,
+    },
+    ...(outcomeEntry ? { outcome: outcomeEntry } : {}),
+    decision: {
+      journalEventId: `${decisionEvent.id}_journal`,
+      runtimeEvent: decisionEvent,
+      committedAt: decisionEvent.ts,
     },
   });
   return { status: 'reconciled', reconcileEvent, decisionEvent };
@@ -235,11 +249,11 @@ function blockedDiagnostic(
   };
 }
 
-function isToolRecoveryOutcomeCommitStore(
+function isToolRecoveryExecutionStore(
   store: RuntimeEventStore,
-): store is ToolRecoveryOutcomeCommitStore {
+): store is ToolRecoveryExecutionStore {
   return (
-    'commitToolOutcome' in store &&
-    typeof (store as { commitToolOutcome?: unknown }).commitToolOutcome === 'function'
+    'commitToolRecoveryBundle' in store &&
+    typeof (store as { commitToolRecoveryBundle?: unknown }).commitToolRecoveryBundle === 'function'
   );
 }
