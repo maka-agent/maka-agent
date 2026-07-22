@@ -1100,6 +1100,7 @@ function AppShellContent({
     if (
       revisionSend &&
       revision &&
+      skillIds.length === 0 &&
       text.trim() === revision.originalText.trim() &&
       pendingAttachments.length === 0
     ) {
@@ -1113,7 +1114,7 @@ function AppShellContent({
         toastApi.info(actionCopy.revisionUnavailableTitle, actionCopy.revisionAttachmentsUnsupported);
         return false;
       }
-      if (text.trim() === '/compact' || swarmCommand) {
+      if ((skillIds.length === 0 && text.trim() === '/compact') || swarmCommand) {
         toastApi.info(actionCopy.revisionUnavailableTitle, actionCopy.revisionCommandUnsupported);
         return false;
       }

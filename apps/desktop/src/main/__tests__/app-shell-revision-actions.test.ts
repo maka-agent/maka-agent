@@ -98,6 +98,7 @@ function createHarness(options: {
         setText: (text: string) => { composerCalls.push(text); },
         appendText: () => undefined,
         getText: () => options.previousComposerText ?? 'Previous draft',
+        setSkills: () => undefined,
         clearDraft: (key: string) => { composerCalls.push(`<clear:${key}>`); },
         setDraft: (key: string, text: string) => { composerCalls.push(`<draft:${key}:${text}>`); },
         focus: () => { composerCalls.push('<focus>'); },
