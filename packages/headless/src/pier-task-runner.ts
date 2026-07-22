@@ -311,10 +311,14 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
         );
       }
     };
-    // Only the Kimi arm competes for a fixed port; the Maka arm binds ephemeral
-    // (or no proxy at all) and needs no serialization.
+    // Only the Kimi arm on a FIXED port competes for the bind; the Maka arm
+    // (ephemeral or no proxy) and an explicit port 0 (OS-assigned, used by
+    // tests) cannot collide and need no serialization.
+    const kimiProxyPort = options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT;
     const result =
-      agent === 'kimi-code' ? await withProxyPortLock(launchAttempt) : await launchAttempt();
+      agent === 'kimi-code' && kimiProxyPort !== 0
+        ? await withProxyPortLock(launchAttempt)
+        : await launchAttempt();
 
     try {
       if (result.timedOut) {
