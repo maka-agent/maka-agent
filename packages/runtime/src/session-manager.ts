@@ -1107,6 +1107,9 @@ export class SessionManager {
       sessionId,
       input.sourceRunId,
     );
+    // TODO(Phase 3): have RuntimeContinuationPlanner return its recovery projection so the
+    // initial safety plan and this eligibility check share one resolver pass. The resolver
+    // pass after durable recovery writes is intentionally retained as authoritative replan.
     const recoveryPlan = buildResumePlanFromRuntimeEvents(recoveryEvents, {
       ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
     });
@@ -1164,6 +1167,8 @@ export class SessionManager {
   ): Promise<SafeBoundaryContinuationPlan['diagnostics'][number] | undefined> {
     const identity = runtimeEvents[0];
     if (!identity) return undefined;
+    // Deliberately serial: each operation may append canonical facts that the next operation
+    // must observe in ledger order, and SqliteRuntimeStore is the single canonical writer.
     for (const operation of operations) {
       if (
         operation.status !== 'reconcile_required' ||

@@ -48,7 +48,12 @@ export interface RecoveryDecision {
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
   recoveryContractId?: string;
-  /** Whether recovery may take its next action without human confirmation. */
+  /**
+   * Whether recovery may take the decision's next action without human confirmation.
+   * This covers read-only observation, a contract-authorized retry/reattach, or a
+   * synthesized response. Completed operations are true because no recovery action
+   * remains; definitely-not-dispatched operations are true because execution is safe.
+   */
   automaticActionAllowed: boolean;
   evidenceEventIds: string[];
 }
