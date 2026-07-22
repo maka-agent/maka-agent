@@ -4,7 +4,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { startProviderAuthProxy, summarizeProviderTelemetry } from '../provider-auth-proxy.js';
+import {
+  listenProviderAuthProxyServer,
+  startProviderAuthProxy,
+  summarizeProviderTelemetry,
+} from '../provider-auth-proxy.js';
 
 test('provider auth proxy keeps the provider key host-side', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-'));
@@ -654,5 +658,19 @@ test('provider auth proxy reports a clear error when a fixed port is unavailable
   } finally {
     await new Promise<void>((resolve) => occupied.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('proxy listen removes its bind-error listener so later socket errors stay loud', async () => {
+  const server = createServer();
+  await listenProviderAuthProxyServer(server, 0);
+  try {
+    // once()/off() must reference the same named handler. With the anonymous
+    // wrapper regression, a listener remains registered after listen and a
+    // post-listen server error would reject the already-settled bind promise —
+    // silently swallowed instead of crashing loudly like on main.
+    assert.equal(server.listenerCount('error'), 0);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

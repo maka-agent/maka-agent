@@ -1,6 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type Server as HttpServer,
+  type ServerResponse,
+} from 'node:http';
 import type { Socket } from 'node:net';
 
 export interface ProviderAuthProxy {
@@ -208,16 +213,7 @@ export async function startProviderAuthProxy(
     sockets.add(socket);
     socket.once('close', () => sockets.delete(socket));
   });
-  const listenPort = input.port ?? 0;
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', (error) => {
-      reject(listenPort === 0 ? error : bindError(error, listenPort));
-    });
-    server.listen(listenPort, '0.0.0.0', () => {
-      server.off('error', reject);
-      resolve();
-    });
-  });
+  await listenProviderAuthProxyServer(server, input.port ?? 0);
   const address = server.address();
   if (!address || typeof address === 'string') {
     server.close();
@@ -626,6 +622,27 @@ function authorized(
   const presented = Buffer.from(value);
   const expected = Buffer.from(token);
   return presented.length === expected.length && timingSafeEqual(presented, expected);
+}
+
+/** Bind the proxy server, translating fixed-port failures via `bindError`.
+ * Exported only for the listener-pairing regression test: `once`/`off` must
+ * reference the SAME named handler so a successful listen removes it — a
+ * post-listen server socket error must then stay loud (uncaughtException),
+ * not be swallowed as a rejection of the already-settled bind promise. */
+export async function listenProviderAuthProxyServer(
+  server: HttpServer,
+  listenPort: number,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onBindError = (error: unknown) => {
+      reject(listenPort === 0 ? error : bindError(error, listenPort));
+    };
+    server.once('error', onBindError);
+    server.listen(listenPort, '0.0.0.0', () => {
+      server.off('error', onBindError);
+      resolve();
+    });
+  });
 }
 
 function bindError(error: unknown, port: number): Error {
