@@ -37,7 +37,7 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
-export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 1 as const;
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 2 as const;
 
 export interface RootTurnAdmissionInput {
   text: string;
@@ -49,6 +49,7 @@ export interface RootTurnAdmission {
   turnId: string;
   runId: string;
   userMessageId: string;
+  previousRootTurnId: string | null;
   normalizedInput: RootTurnAdmissionInput;
   admittedAt: number;
 }
@@ -58,6 +59,7 @@ export interface AdmitRootTurnInput {
   turnId: string;
   proposedRunId: string;
   proposedUserMessageId: string;
+  previousRootTurnId: string | null;
   normalizedInput: RootTurnAdmissionInput;
   admittedAt: number;
 }
@@ -153,6 +155,12 @@ class FileAgentRunStore implements DurableAgentRunStore {
     assertSafeId(input.turnId, 'Invalid turn id');
     assertSafeId(input.proposedRunId, 'Invalid run id');
     assertSafeId(input.proposedUserMessageId, 'Invalid user message id');
+    if (input.previousRootTurnId !== null) {
+      assertSafeId(input.previousRootTurnId, 'Invalid previous root turn id');
+      if (input.previousRootTurnId === input.turnId) {
+        throw new Error('Root turn admission cannot reference itself');
+      }
+    }
     const normalizedInput = normalizeRootTurnAdmissionInput(input.normalizedInput);
     if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
       throw new Error('Invalid root turn admission timestamp');
@@ -163,6 +171,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       turnId: input.turnId,
       runId: input.proposedRunId,
       userMessageId: input.proposedUserMessageId,
+      previousRootTurnId: input.previousRootTurnId,
       normalizedInput,
       admittedAt: input.admittedAt,
     };
@@ -176,7 +185,8 @@ class FileAgentRunStore implements DurableAgentRunStore {
     if (created) return { kind: 'admitted', admission };
     const existing = await this.readRootTurnAdmission(input.sessionId, input.turnId);
     if (!existing) throw new Error(`Root turn admission disappeared: ${input.turnId}`);
-    return existing.normalizedInput.text === normalizedInput.text
+    return existing.previousRootTurnId === input.previousRootTurnId &&
+      existing.normalizedInput.text === normalizedInput.text
       ? { kind: 'existing', admission: existing }
       : { kind: 'conflict', admission: existing };
   }
@@ -226,9 +236,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       throw new Error(`Invalid root turn admission entry: ${entry.name}`);
     }
     if (removedStagingFile) await syncDirectory(admissionsRoot);
-    return admissions.sort(
-      (a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId),
-    );
+    return orderRootTurnAdmissionChain(sessionId, admissions);
   }
 
   async updateRun(
@@ -1231,6 +1239,10 @@ function normalizeRootTurnAdmission(
     isSafeId(record.runId) &&
     typeof record.userMessageId === 'string' &&
     isSafeId(record.userMessageId) &&
+    (record.previousRootTurnId === null ||
+      (typeof record.previousRootTurnId === 'string' &&
+        isSafeId(record.previousRootTurnId) &&
+        record.previousRootTurnId !== turnId)) &&
     Number.isSafeInteger(record.admittedAt) &&
     (record.admittedAt as number) >= 0 &&
     hasExactKeys(record, [
@@ -1239,6 +1251,7 @@ function normalizeRootTurnAdmission(
       'turnId',
       'runId',
       'userMessageId',
+      'previousRootTurnId',
       'normalizedInput',
       'admittedAt',
     ]);
@@ -1251,9 +1264,56 @@ function normalizeRootTurnAdmission(
     turnId,
     runId: record.runId as string,
     userMessageId: record.userMessageId as string,
+    previousRootTurnId: record.previousRootTurnId as string | null,
     normalizedInput: normalizeRootTurnAdmissionInput(record.normalizedInput),
     admittedAt: record.admittedAt as number,
   };
+}
+
+function orderRootTurnAdmissionChain(
+  sessionId: string,
+  admissions: readonly RootTurnAdmission[],
+): RootTurnAdmission[] {
+  if (admissions.length === 0) return [];
+  const byTurnId = new Map(admissions.map((admission) => [admission.turnId, admission]));
+  if (byTurnId.size !== admissions.length) {
+    throw new Error(`Session ${sessionId} has duplicate root turn admissions`);
+  }
+  for (const admission of admissions) {
+    const predecessor = admission.previousRootTurnId;
+    if (predecessor !== null && !byTurnId.has(predecessor)) {
+      throw new Error(
+        `Root turn admission ${admission.turnId} has missing predecessor ${predecessor}`,
+      );
+    }
+  }
+  const roots = admissions.filter((admission) => admission.previousRootTurnId === null);
+  if (roots.length !== 1) {
+    throw new Error(`Session ${sessionId} must have exactly one root turn admission root`);
+  }
+  const childByTurnId = new Map<string, RootTurnAdmission>();
+  for (const admission of admissions) {
+    const predecessor = admission.previousRootTurnId;
+    if (predecessor === null) continue;
+    const existing = childByTurnId.get(predecessor);
+    if (existing) {
+      throw new Error(
+        `Root turn admission ${predecessor} branches to ${existing.turnId} and ${admission.turnId}`,
+      );
+    }
+    childByTurnId.set(predecessor, admission);
+  }
+
+  const ordered: RootTurnAdmission[] = [];
+  let current: RootTurnAdmission | undefined = roots[0];
+  while (current) {
+    ordered.push(current);
+    current = childByTurnId.get(current.turnId);
+  }
+  if (ordered.length !== admissions.length) {
+    throw new Error(`Session ${sessionId} root turn admissions do not form one linear chain`);
+  }
+  return ordered;
 }
 
 function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput {

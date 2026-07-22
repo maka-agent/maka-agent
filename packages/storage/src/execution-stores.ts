@@ -33,8 +33,11 @@ const executionStoresWriterKinds = new WeakMap<object, StorageRootKind>();
 const executionStoresReaderKinds = new WeakMap<object, StorageRootKind>();
 
 export type {
+  AdmitRootTurnInput,
+  AdmitRootTurnResult,
   RootTurnAdmission,
   RootTurnAdmissionInput,
+  RootTurnAdmissionStore,
 } from './agent-run-store.js';
 
 export type ExecutionSessionWriter = SessionStore;
