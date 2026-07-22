@@ -79,6 +79,29 @@ test('shared settings input owns its desktop focus chrome', async ({ window: pag
   expect(focusShadow).not.toContain('inset');
 });
 
+test('open gateway metric values stay contained for long addresses', async ({ window: page }) => {
+  await page.setViewportSize({ width: 900, height: 820 });
+  await page.getByRole('button', { name: '展开侧边栏' }).click();
+  await page.getByRole('button', { name: '设置' }).click();
+
+  const settings = page.getByRole('main', { name: '设置内容' });
+  await settings.getByRole('button', { name: '开放网关' }).click();
+  await expect(settings.getByRole('heading', { name: '开放网关' })).toBeVisible();
+
+  const addressValue = settings
+    .locator('[data-slot="stat-tile-value"]')
+    .filter({ hasText: 'http://127.0.0.1:3939' });
+  await expect(addressValue).toBeVisible();
+  await expect(addressValue).toHaveCSS('overflow-wrap', 'anywhere');
+  await expect.poll(
+    () =>
+      addressValue.evaluate((element) => ({
+        contained: element.scrollWidth <= element.clientWidth,
+        value: element.textContent,
+      })),
+  ).toEqual({ contained: true, value: 'http://127.0.0.1:3939' });
+});
+
 test('remote access opens a channel detail from the overview and returns', async ({ window: page }) => {
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   await page.getByRole('button', { name: '设置' }).click();

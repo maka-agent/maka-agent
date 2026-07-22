@@ -83,7 +83,7 @@ export function StatTile({
     >
       <span
         className={cn(
-          'font-semibold leading-tight text-foreground [font-variant-numeric:tabular-nums]',
+          'block max-w-full min-w-0 whitespace-normal font-semibold leading-tight text-foreground [font-variant-numeric:tabular-nums] [overflow-wrap:anywhere]',
           emphasis === 'outline' ? 'text-[length:var(--font-size-stat)]' : 'text-[length:var(--font-size-ui)]',
           TONE_VALUE_CLASS[effectiveTone],
         )}
