@@ -630,7 +630,7 @@ class MakaAgent(BaseInstalledAgent):
             },
         )
 
-        timeout_sec = int(env.get("MAKA_HARBOR_AGENT_TIMEOUT_SEC", "1800"))
+        timeout_sec = self._cell_timeout_sec()
         proc: asyncio.subprocess.Process | None = None
         async with _ToolExecutorServer(self, environment) as executor:
             env["MAKA_HARBOR_TOOL_EXECUTOR_URL"] = executor.url
@@ -1420,7 +1420,6 @@ def _runner_env_summary(env: dict[str, str]) -> dict[str, str]:
         "MAKA_CONTEXT_ACTIVE_FULL_COMPACT_ARCHIVE_REQUIRED",
         "MAKA_CONTEXT_ACTIVE_FULL_COMPACT_HIGH_WATER_NAME",
         "MAKA_CONTEXT_ARCHIVE_RETRIEVAL",
-        "MAKA_HARBOR_AGENT_TIMEOUT_SEC",
         "MAKA_HARBOR_MAX_ATTEMPTS",
         "MAKA_AUTONOMOUS_MAX_ATTEMPTS",
         "MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS",

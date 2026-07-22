@@ -44,7 +44,7 @@ Options:
   --job-name NAME             Harbor job name (default: generated with timestamp)
   --model MODEL               Override model. For Maka this sets MAKA_MODEL; for OpenCode it sets model_name.
   --steps N                   Override MAKA_MAX_STEPS for Maka profiles
-  --agent-timeout-sec N       Override MAKA_HARBOR_AGENT_TIMEOUT_SEC for Maka profiles
+  --agent-timeout-sec N       Override MAKA_CELL_TIMEOUT_SEC for Maka profiles
   --dataset NAME              Override dataset name (default: terminal-bench-sample)
   --dataset-version VERSION   Override dataset version (default: 2.0)
   --dry-run                   Generate and print config path/command without running Harbor

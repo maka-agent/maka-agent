@@ -173,7 +173,7 @@ export function buildSmokeJobConfig(input: {
   }
 
   if (overrides.maxSteps) agentEnv.MAKA_MAX_STEPS = overrides.maxSteps;
-  if (overrides.agentTimeoutSec) agentEnv.MAKA_HARBOR_AGENT_TIMEOUT_SEC = overrides.agentTimeoutSec;
+  if (overrides.agentTimeoutSec) agentEnv.MAKA_CELL_TIMEOUT_SEC = overrides.agentTimeoutSec;
   if (profileName.startsWith('maka-') && !agentEnv.MAKA_BENCHMARK_DATASET) {
     agentEnv.MAKA_BENCHMARK_DATASET = overrides.benchmarkDataset || datasetName;
   }

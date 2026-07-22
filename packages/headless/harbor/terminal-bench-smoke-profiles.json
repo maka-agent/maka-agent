@@ -27,7 +27,7 @@
           "MAKA_HARBOR_AUTONOMOUS": "0",
           "MAKA_MODEL": "deepseek-v4-pro",
           "MAKA_MAX_STEPS": "80",
-          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "3600"
+          "MAKA_CELL_TIMEOUT_SEC": "3600"
         }
       }
     },
@@ -43,7 +43,7 @@
           "MAKA_HEAVY_TASK_MODE": "1",
           "MAKA_MODEL": "deepseek-v4-pro",
           "MAKA_MAX_STEPS": "100",
-          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "7200"
+          "MAKA_CELL_TIMEOUT_SEC": "7200"
         }
       }
     },
@@ -73,7 +73,7 @@
           "MAKA_MODEL": "deepseek-v4-pro",
           "MAKA_MAX_STEPS": "100",
           "MAKA_AUTONOMOUS_MAX_ATTEMPTS": "3",
-          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "7200"
+          "MAKA_CELL_TIMEOUT_SEC": "7200"
         }
       }
     },
@@ -91,7 +91,7 @@
           "MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS": "150",
           "MAKA_MODEL": "deepseek-v4-pro",
           "MAKA_MAX_STEPS": "50",
-          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "3600"
+          "MAKA_CELL_TIMEOUT_SEC": "3600"
         }
       }
     },
@@ -110,7 +110,7 @@
           "MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE": "off",
           "MAKA_MODEL": "deepseek-v4-pro",
           "MAKA_MAX_STEPS": "50",
-          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "3600"
+          "MAKA_CELL_TIMEOUT_SEC": "3600"
         }
       }
     },
@@ -129,7 +129,7 @@
           "MAKA_CONTEXT_ARCHIVE_RETRIEVAL": "on",
           "MAKA_MODEL": "deepseek-v4-pro",
           "MAKA_MAX_STEPS": "50",
-          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "3600"
+          "MAKA_CELL_TIMEOUT_SEC": "3600"
         }
       }
     },

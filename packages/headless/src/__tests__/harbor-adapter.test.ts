@@ -2060,13 +2060,16 @@ with tempfile.TemporaryDirectory() as tmp:
         task_run_agent = MakaAgent(Path(tmp), extra_env={
             "MAKA_BACKEND": "fake",
             "MAKA_HARBOR_MODE": "task-run",
+            "MAKA_CELL_TIMEOUT_SEC": "7200",
         })
         task_run_context = AgentContext()
+        task_run_timeouts = []
 
         async def resolve_task_workdir(environment):
             return ("/app", [])
 
         async def communicate_task_run(**kwargs):
+            task_run_timeouts.append(kwargs["timeout_sec"])
             return (b'{"status":"completed","benchmarkFailureShouldThrow":false}\n', b"")
 
         task_run_agent._resolve_task_workdir = resolve_task_workdir
@@ -2080,6 +2083,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         task_run_env = captured_host_process["kwargs"]["env"]
         assert "MAKA_MAX_STEPS" not in task_run_env, task_run_env.get("MAKA_MAX_STEPS")
+        assert task_run_timeouts[-1] == 7200, task_run_timeouts
 
         capped_task_run_agent = MakaAgent(Path(tmp), extra_env={
             "MAKA_BACKEND": "fake",

@@ -63,7 +63,8 @@ describe('harbor smoke config generation', () => {
     assert.equal(env.MAKA_HEAVY_TASK_MODE, '1');
     assert.equal(env.MAKA_HARBOR_USE_TASK_RUN, '1');
     assert.equal(env.MAKA_MAX_STEPS, '100');
-    assert.equal(env.MAKA_HARBOR_AGENT_TIMEOUT_SEC, '7200');
+    assert.equal(env.MAKA_CELL_TIMEOUT_SEC, '7200');
+    assert.equal(env.MAKA_HARBOR_AGENT_TIMEOUT_SEC, undefined);
     assert.equal(config.agent_timeout_multiplier, 8);
   });
 
