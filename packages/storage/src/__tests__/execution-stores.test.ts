@@ -15,18 +15,123 @@ import { describe, test } from 'node:test';
 import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
 import { createAgentRunStore } from '../agent-run-store.js';
 import {
+  authenticateExecutionStoresReader,
+  authenticateExecutionStoresWriter,
+  openHeadlessExecutionStoresForRead,
+  openHeadlessExecutionStoresForWrite,
   openInteractiveExecutionStoresForRead,
   openInteractiveExecutionStoresForWrite,
 } from '../execution-stores.js';
 import {
+  createHeadlessRootLease,
   resolveStorageRoot,
   StorageRootAuthorityError,
   tryAcquireInteractiveRootOwner,
   tryAcquireInteractiveRootReader,
+  type StorageRootLease,
 } from '../root-authority.js';
 import { createSessionStore } from '../session-store.js';
 
-describe('interactive execution stores', () => {
+describe('execution stores', () => {
+  test('binds Headless execution readers and writers to Headless leases', async () => {
+    await withRoot(async ({ base, root }) => {
+      const capability = await resolveStorageRoot({
+        path: root,
+        kind: 'headless',
+      });
+      const writer = await openHeadlessExecutionStoresForWrite(
+        createHeadlessRootLease(capability, 'write'),
+      );
+      assert.equal(writer.kind, 'headless');
+      const session = await writer.sessionStore.create(sessionInput(root));
+      await writer.sessionStore.appendMessage(session.id, {
+        type: 'user',
+        id: 'message-1',
+        turnId: 'turn-1',
+        ts: 10,
+        text: 'hello',
+      });
+
+      const reader = await openHeadlessExecutionStoresForRead(
+        createHeadlessRootLease(capability, 'read'),
+      );
+      assert.equal(reader.kind, 'headless');
+      assert.equal((await reader.sessionStore.list()).length, 1);
+      assert.equal((await reader.sessionStore.readMessages(session.id))[0]?.id, 'message-1');
+
+      const interactive = await resolveStorageRoot({
+        path: join(base, 'interactive'),
+        kind: 'interactive',
+      });
+      const owner = await tryAcquireInteractiveRootOwner(interactive);
+      assert.ok(owner);
+      if (!owner) return;
+      try {
+        await assert.rejects(
+          () =>
+            openHeadlessExecutionStoresForWrite(
+              owner.lease as unknown as StorageRootLease<'headless', 'write'>,
+            ),
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+        );
+      } finally {
+        await owner.close();
+      }
+    });
+  });
+
+  test('freezes and authenticates execution store facades', async () => {
+    await withRoot(async ({ base, root }) => {
+      const capability = await resolveStorageRoot({
+        path: root,
+        kind: 'headless',
+      });
+      const writer = await openHeadlessExecutionStoresForWrite(
+        createHeadlessRootLease(capability, 'write'),
+      );
+      const session = await writer.sessionStore.create(sessionInput(root));
+      const reader = await openHeadlessExecutionStoresForRead(
+        createHeadlessRootLease(capability, 'read'),
+      );
+      const rawLocalStore = createSessionStore(root);
+
+      assert.equal(Reflect.set(reader, 'sessionStore', rawLocalStore), false);
+      assert.equal(
+        Reflect.set(
+          reader.sessionStore,
+          'readHeader',
+          rawLocalStore.readHeader.bind(rawLocalStore),
+        ),
+        false,
+      );
+      await reader.sessionStore.readHeader(session.id);
+      assert.equal((await rawLocalStore.readHeaderSnapshot(session.id)).connectionLocked, false);
+
+      const otherRoot = join(base, 'other-headless');
+      await resolveStorageRoot({ path: otherRoot, kind: 'headless' });
+      const rawOtherStore = createSessionStore(otherRoot);
+      assert.equal(Reflect.set(writer, 'sessionStore', rawOtherStore), false);
+      assert.equal(
+        Reflect.set(writer.sessionStore, 'create', rawOtherStore.create.bind(rawOtherStore)),
+        false,
+      );
+
+      const copiedReader = { ...reader, sessionStore: rawLocalStore };
+      assert.throws(
+        () => authenticateExecutionStoresReader(copiedReader, 'headless'),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+      const copiedWriter = { ...writer, sessionStore: rawOtherStore };
+      assert.throws(
+        () => authenticateExecutionStoresWriter(copiedWriter, 'headless'),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+    });
+  });
+
   test('commits root-turn admission before Run creation and retains its original identity', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -38,6 +143,7 @@ describe('interactive execution stores', () => {
       if (!owner) return;
       try {
         const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+        assert.equal(stores.kind, 'interactive');
         const session = await stores.sessionStore.create(sessionInput(root));
         const first = await stores.agentRunStore.admitRootTurn({
           sessionId: session.id,

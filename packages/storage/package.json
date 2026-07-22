@@ -8,7 +8,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./execution-stores": "./dist/execution-stores.js",
-    "./root-authority": "./dist/root-authority.js"
+    "./root-authority": "./dist/root-authority.js",
+    "./write-queue": "./dist/write-queue.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",

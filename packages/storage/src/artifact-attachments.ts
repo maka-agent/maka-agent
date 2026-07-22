@@ -8,7 +8,7 @@ import {
 import type { ArtifactStore } from './artifact-store.js';
 
 export function createAttachmentByteReader(input: {
-  artifactStore: ArtifactStore;
+  artifactStore: Pick<ArtifactStore, 'get' | 'readBinary'>;
   sessionId: string;
   maxBytes?: number;
 }): AttachmentByteReader {
@@ -26,7 +26,7 @@ export function createAttachmentByteReader(input: {
   };
 }
 
-export function createReadImageSnapshotter(artifactStore: ArtifactStore) {
+export function createReadImageSnapshotter(artifactStore: Pick<ArtifactStore, 'create'>) {
   return async (input: {
     sessionId: string;
     turnId: string;

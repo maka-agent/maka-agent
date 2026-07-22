@@ -12,7 +12,7 @@ export interface PersistProviderRequestCaptureArtifactInput {
 }
 
 export function persistProviderRequestCaptureArtifact(
-  store: ArtifactStore,
+  store: Pick<ArtifactStore, 'create'>,
   input: PersistProviderRequestCaptureArtifactInput,
 ): Promise<ArtifactRecord> {
   return store.create({
