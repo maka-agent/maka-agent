@@ -14,11 +14,7 @@
  * projection, or ledger logic lives here. Those arrive in later nodes.
  */
 
-import {
-  normalizeMessageContent,
-  type MessageContent,
-  type QuoteRef,
-} from './events.js';
+import { normalizeMessageContent, type MessageContent, type QuoteRef } from './events.js';
 import type { PermissionRequestPayload, PermissionResponse } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {

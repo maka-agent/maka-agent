@@ -1159,10 +1159,7 @@ function projectAgentSpawnReview(args: Record<string, CanonicalToolValue>): Publ
 
 function projectAgentSwarmReview(args: Record<string, CanonicalToolValue>): PublicToolAgentReview {
   requireFields(args, ['items', 'max_concurrency'], ['resume_run_ids']);
-  if (
-    !Array.isArray(args.items) ||
-    args.items.length > AGENT_SWARM_MAX_ITEMS
-  ) {
+  if (!Array.isArray(args.items) || args.items.length > AGENT_SWARM_MAX_ITEMS) {
     throw new InteractionPermissionProjectionError();
   }
 

@@ -292,7 +292,8 @@ export class AiSdkCompaction {
             : {}),
         },
       };
-    } catch {
+    } catch (error) {
+      if (this.input.isFatalArtifactError?.(error)) throw error;
       return {
         policy,
         diagnosticPatch: {
@@ -375,7 +376,9 @@ export class AiSdkCompaction {
           : {}),
       };
     } catch (error) {
-      if (isRuntimeLifecycleAdmissionOrFatal(error)) throw error;
+      if (isRuntimeLifecycleAdmissionOrFatal(error) || this.input.isFatalArtifactError?.(error)) {
+        throw error;
+      }
       return {
         synthesisCacheEnabled: true,
         synthesisCacheMode: 'read_write',

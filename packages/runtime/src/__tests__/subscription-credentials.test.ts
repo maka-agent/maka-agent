@@ -44,8 +44,7 @@ describe('OAuth subscription token serialization', () => {
       access_token: 'access',
     } satisfies OAuthSubscriptionTokens;
 
-    const expected =
-      `{"access_token":"access","refresh_token":"refresh","expires_at":123000,"scope":"scope","device_id":"${deviceId}","account_id":"account"}`;
+    const expected = `{"access_token":"access","refresh_token":"refresh","expires_at":123000,"scope":"scope","device_id":"${deviceId}","account_id":"account"}`;
     assert.equal(serializeOAuthSubscriptionTokens(first), expected);
     assert.equal(serializeOAuthSubscriptionTokens(second), expected);
     assert.deepEqual(parseOAuthSubscriptionTokens(expected), first);
@@ -89,7 +88,12 @@ describe('OAuth subscription token serialization', () => {
       () => serializeOAuthSubscriptionTokens({ ...base, expires_at: Number.NaN }),
       OAuthTokenEndpointError,
     );
-    for (const invalidDeviceId of ['a'.repeat(63), 'a'.repeat(65), 'A'.repeat(64), 'g'.repeat(64)]) {
+    for (const invalidDeviceId of [
+      'a'.repeat(63),
+      'a'.repeat(65),
+      'A'.repeat(64),
+      'g'.repeat(64),
+    ]) {
       assert.throws(
         () => serializeOAuthSubscriptionTokens({ ...base, device_id: invalidDeviceId }),
         OAuthTokenEndpointError,

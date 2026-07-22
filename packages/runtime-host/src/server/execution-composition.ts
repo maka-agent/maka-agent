@@ -400,7 +400,7 @@ export async function createExecutionRuntimeHostComposition(
     observe(memoryDrain);
     return memoryDrain;
   };
-  const beginRuntimeDrain = () => {
+  const beginDomainDrain = () => {
     oauth.beginDrain();
     goalEvaluator.beginDrain();
     goals.beginDrain();
@@ -412,7 +412,11 @@ export async function createExecutionRuntimeHostComposition(
     messageCoordinator.beginDrain();
     interaction.beginDrain();
     resources.beginDrain();
-    runtimeDrain ??= manager.beginRuntimeDrain();
+  };
+  const beginRuntimeDrain = () => {
+    if (runtimeDrain) return runtimeDrain;
+    beginDomainDrain();
+    runtimeDrain = manager.beginRuntimeDrain();
     observe(runtimeDrain.ownerIsolationDrain);
     observe(runtimeDrain.reclaimDrain);
     return runtimeDrain;
@@ -533,18 +537,11 @@ export async function createExecutionRuntimeHostComposition(
     nativeProvider,
     onConnectionSettled: (connectionId) => resources.releaseConnection(connectionId),
     beginDrain: () => {
-      oauth.beginDrain();
-      goalEvaluator.beginDrain();
-      goals.beginDrain();
-      automation.beginDrain();
-      beginArtifactDrain();
-      beginMemoryDrain();
-      beginUsageDrain();
-      skills.beginDrain();
-      messageCoordinator.beginDrain();
-      interaction.beginDrain();
-      resources.beginDrain();
-      if (!failStopDisposition) beginRuntimeDrain();
+      if (failStopDisposition) {
+        beginDomainDrain();
+        return;
+      }
+      beginRuntimeDrain();
     },
     recover: async () => {
       await rootCoordinator.prepareRecovery();

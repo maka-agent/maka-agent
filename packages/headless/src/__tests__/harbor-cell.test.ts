@@ -10,6 +10,7 @@ import type {
   BackendStopMode,
   PermissionDecision,
 } from '@maka/core/backend-types';
+import { StorageRootAuthorityError } from '@maka/storage/root-authority';
 import {
   BackendRegistry,
   EMBEDDED_RUNTIME_EXECUTION,
@@ -1954,7 +1955,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor ai-sdk backend registration exposes native file tools to the provider schema', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -1979,7 +1980,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2019,7 +2020,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor Read persists an isolated screenshot for the provider image input', async () => {
-    await withDirs(async ({ workspaceDir, storageRoot }) => {
+    await withDirs(async ({ workspaceDir, storageRoot, artifactStore }) => {
       const pngBytes = Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
         'base64',
@@ -2044,6 +2045,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'inspect screen', workspaceDir },
         storageRoot,
         workspaceDir,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2082,8 +2084,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor persists provider captures and synthesis blocks under the run storage root', async () => {
-    await withDirs(async (dirs) => {
-      const { workspaceDir, outputDir, storageRoot, synthesisCacheArtifactStore } = dirs;
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2108,7 +2109,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         workspaceDir,
         storageRoot,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       };
@@ -2122,13 +2123,22 @@ describe('runHarborCell', () => {
         backend as unknown as {
           input: Pick<
             AiSdkBackendInput,
-            'loadSynthesisCache' | 'writeSynthesisCache' | 'recordProviderRequestCapture'
+            | 'loadSynthesisCache'
+            | 'writeSynthesisCache'
+            | 'recordProviderRequestCapture'
+            | 'isFatalArtifactError'
           >;
         }
       ).input;
       assert.ok(backendInput.loadSynthesisCache);
       assert.ok(backendInput.writeSynthesisCache);
       assert.ok(backendInput.recordProviderRequestCapture);
+      assert.equal(
+        backendInput.isFatalArtifactError?.(
+          new StorageRootAuthorityError('invalid_lease', 'lease changed'),
+        ),
+        true,
+      );
 
       await backendInput.loadSynthesisCache({ sessionId: 'session-1' });
       const capture: ProviderRequestCaptureRecord = {
@@ -2201,18 +2211,18 @@ describe('runHarborCell', () => {
       const synthesisResult = await backendInput.writeSynthesisCache(synthesisWrite);
       assert.equal(synthesisResult?.blocks.length, 1);
 
-      const records = await synthesisCacheArtifactStore.list('session-1');
+      const records = await artifactStore.list('session-1');
       assert.deepEqual(records.map((record) => record.source).sort(), [
         'provider_request_capture',
         'synthesis_cache_block',
       ]);
       const outputStorage = await openHeadlessStorageForWrite(outputDir);
-      assert.deepEqual(await outputStorage.synthesisCacheArtifactStore.list('session-1'), []);
+      assert.deepEqual(await outputStorage.artifactStore.list('session-1'), []);
     });
   });
 
   test('Harbor ai-sdk backend uses the discovered GitHub Copilot wire', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2235,7 +2245,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2290,7 +2300,7 @@ describe('runHarborCell', () => {
       /unsupported Harbor context env key: MAKA_CONTEXT_TASK_TOOL_SHAPE/,
     );
 
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const offRegistry = new BackendRegistry();
       const offRegister = buildAiSdkCellBackendRegistration({
         provider: 'openai',
@@ -2310,7 +2320,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2344,7 +2354,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2402,7 +2412,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor ai-sdk backend passes an explicit system prompt through unchanged', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2425,7 +2435,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2441,7 +2451,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor ai-sdk backend honors MAKA_TRIAL_* pricing override', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2466,7 +2476,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2488,7 +2498,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor ai-sdk backend wires env-driven tool-result archive pruning', async () => {
-    await withDirs(async ({ workspaceDir, outputDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, outputDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2526,7 +2536,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2603,7 +2613,7 @@ describe('runHarborCell', () => {
   // archive reader are wired alongside it. The #340-era arms enabled retrieval
   // without stale prune and it never fired; this contract pins the live shape.
   test('Harbor eager archive-retrieval arm gets a placeholder producer and archive reader by default', async () => {
-    await withDirs(async ({ workspaceDir, outputDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, outputDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2627,7 +2637,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2651,7 +2661,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor ai-sdk backend leaves context budget policy off when explicitly disabled', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2676,7 +2686,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -2695,7 +2705,7 @@ describe('runHarborCell', () => {
 
   test('Harbor context budget env rejects explicit malformed positive integers', async () => {
     for (const raw of ['abc', '0', '-1', '1x']) {
-      await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+      await withDirs(async ({ workspaceDir, artifactStore }) => {
         const registry = new BackendRegistry();
         const toolExecutor = fakeToolExecutor();
 
@@ -2722,7 +2732,7 @@ describe('runHarborCell', () => {
               task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
               storageRoot: workspaceDir,
               workspaceDir,
-              synthesisCacheArtifactStore,
+              artifactStore,
               realBackendIsolation: {
                 kind: 'external',
                 label: 'Harbor task container',
@@ -2775,7 +2785,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor context budget env rejects explicit malformed archive retrieval mode', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
 
@@ -2801,7 +2811,7 @@ describe('runHarborCell', () => {
           task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
           storageRoot: workspaceDir,
           workspaceDir,
-          synthesisCacheArtifactStore,
+          artifactStore,
           realBackendIsolation: {
             kind: 'external',
             label: 'Harbor task container',
@@ -2814,7 +2824,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor context budget env keeps unset or blank archive retrieval knobs unspecified', async () => {
-    await withDirs(async ({ workspaceDir, synthesisCacheArtifactStore }) => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
       const registry = new BackendRegistry();
       const toolExecutor = fakeToolExecutor();
       const register = buildAiSdkCellBackendRegistration({
@@ -2841,7 +2851,7 @@ describe('runHarborCell', () => {
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
         storageRoot: workspaceDir,
         workspaceDir,
-        synthesisCacheArtifactStore,
+        artifactStore,
         realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
         toolExecutor,
       });
@@ -4849,7 +4859,7 @@ async function withDirs<T>(
     workspaceDir: string;
     outputDir: string;
     storageRoot: string;
-    synthesisCacheArtifactStore: HeadlessBackendContext['synthesisCacheArtifactStore'];
+    artifactStore: HeadlessBackendContext['artifactStore'];
   }) => Promise<T>,
 ): Promise<T> {
   const workspaceDir = await mkdtemp(join(tmpdir(), 'maka-cell-ws-'));
@@ -4861,7 +4871,7 @@ async function withDirs<T>(
       workspaceDir,
       outputDir,
       storageRoot,
-      synthesisCacheArtifactStore: storage.synthesisCacheArtifactStore,
+      artifactStore: storage.artifactStore,
     });
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });

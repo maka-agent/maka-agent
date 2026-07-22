@@ -35,6 +35,7 @@ import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import { MAX_NODE_TIMER_MS } from './headless-run-env.js';
 import {
   authenticateHeadlessStorageWriter,
+  isStorageRootAuthorityError,
   openHeadlessStorageForWrite,
   type HeadlessStorageWriter,
 } from './headless-storage.js';
@@ -308,7 +309,7 @@ export async function runTaskOnceWithStorage(
       task,
       storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
-      synthesisCacheArtifactStore: storage.synthesisCacheArtifactStore,
+      artifactStore: storage.artifactStore,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
       ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
@@ -635,9 +636,10 @@ export async function runTaskOnceWithStorage(
     });
     const finishedAt = now();
     const scoreResultId = newId();
-    const runEvidence = await agentRunStore
-      .readRun(header.id, invocation.runId)
-      .catch(() => undefined);
+    const runEvidence = await agentRunStore.readRun(header.id, invocation.runId).catch((error) => {
+      if (isStorageRootAuthorityError(error)) throw error;
+      return undefined;
+    });
     const invocationResultRecord = resultRecordFromInvocation({
       config,
       task,
@@ -1387,7 +1389,10 @@ async function turnHasRetainedOutput(
   sessionId: string,
   turnId: string,
 ): Promise<boolean> {
-  const messages = await store.readMessages(sessionId).catch((): StoredMessage[] => []);
+  const messages = await store.readMessages(sessionId).catch((error): StoredMessage[] => {
+    if (isStorageRootAuthorityError(error)) throw error;
+    return [];
+  });
   return messages.some(
     (message) =>
       (message.type === 'assistant' &&

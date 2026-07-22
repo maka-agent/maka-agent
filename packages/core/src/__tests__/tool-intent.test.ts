@@ -421,7 +421,10 @@ describe('closed public tool reviews', () => {
       writeBack: ['summary'],
       isolation: ['same_workspace'],
     });
-    assert.deepEqual(decodePublicToolIntentReview(JSON.parse(JSON.stringify(mixedReview))), mixedReview);
+    assert.deepEqual(
+      decodePublicToolIntentReview(JSON.parse(JSON.stringify(mixedReview))),
+      mixedReview,
+    );
     assert.doesNotMatch(
       JSON.stringify({ resumeOnlyReview, mixedReview }),
       /private-run|private task|private-new-item/,

@@ -1,5 +1,4 @@
-import { createArtifactStore } from '@maka/storage';
-import type { SynthesisCacheArtifactStore } from '@maka/runtime';
+import { createArtifactStore, type ArtifactStore } from '@maka/storage';
 import {
   authenticateExecutionStoresReader,
   authenticateExecutionStoresWriter,
@@ -30,11 +29,15 @@ const headlessStorageReaderBrand: unique symbol = Symbol('HeadlessStorageReader'
 const headlessStorageWriters = new WeakSet<object>();
 const headlessStorageReaders = new WeakSet<object>();
 
+export type HeadlessArtifactStore = Readonly<
+  Pick<ArtifactStore, 'create' | 'list' | 'readText' | 'readDurableAttachmentBinary'>
+>;
+
 export interface HeadlessStorageWriter {
   readonly [headlessStorageWriterBrand]: true;
   readonly taskRunStore: Readonly<TaskRunWriter>;
   readonly executionStores: ExecutionStoresWriter<'headless'>;
-  readonly synthesisCacheArtifactStore: Readonly<SynthesisCacheArtifactStore>;
+  readonly artifactStore: HeadlessArtifactStore;
 }
 
 export interface HeadlessStorageReader {
@@ -57,7 +60,7 @@ export async function openHeadlessStorageForWrite(
     [headlessStorageWriterBrand]: true,
     taskRunStore,
     executionStores,
-    synthesisCacheArtifactStore: leaseBoundSynthesisCacheArtifactStore(lease),
+    artifactStore: leaseBoundArtifactStore(lease),
   };
   Object.freeze(storage);
   headlessStorageWriters.add(storage);
@@ -127,16 +130,17 @@ function requireHeadlessCapability(
   return capability;
 }
 
-function leaseBoundSynthesisCacheArtifactStore(
+function leaseBoundArtifactStore(
   lease: StorageRootLease<'headless', 'write'>,
-): SynthesisCacheArtifactStore {
+): HeadlessArtifactStore {
   const store = createArtifactStore(lease.canonicalPath);
   const run = <T>(operation: () => Promise<T>) =>
     runWithStorageRootLease(lease, 'headless', 'write', operation);
-  const facade: SynthesisCacheArtifactStore = {
+  const facade: HeadlessArtifactStore = {
     create: (input) => run(() => store.create(input)),
     list: (sessionId, options) => run(() => store.list(sessionId, options)),
     readText: (artifactId, options) => run(() => store.readText(artifactId, options)),
+    readDurableAttachmentBinary: (input) => run(() => store.readDurableAttachmentBinary(input)),
   };
   return Object.freeze(facade);
 }

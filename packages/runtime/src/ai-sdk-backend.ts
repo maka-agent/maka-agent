@@ -625,6 +625,8 @@ export interface AiSdkBackendInput {
   loadSynthesisCache?: SynthesisCacheLoader;
   /** Optional best-effort source-bearing synthesis cache writer. */
   writeSynthesisCache?: SynthesisCacheWriter;
+  /** Identifies synthesis-cache or attachment artifact callback failures that must escape. */
+  isFatalArtifactError?: (error: unknown) => boolean;
   /** Optional best-effort source-bearing history compact block loader. */
   loadHistoryCompact?: HistoryCompactLoader;
   /** Optional best-effort source-bearing history compact block writer/summarizer. */
@@ -2070,6 +2072,7 @@ export class AiSdkBackend implements AgentBackend {
           stopReason,
         } satisfies CompleteEvent);
       } catch (err) {
+        if (this.input.isFatalArtifactError?.(err)) throw err;
         const interactionFailure = this.interactionFailure;
         const terminalError = canonicalToolInteractionFailure(err) ?? err;
         const admissionRejection = isRuntimeLifecycleAdmission(terminalError);
@@ -3189,7 +3192,8 @@ export class AiSdkBackend implements AgentBackend {
     let read: Awaited<ReturnType<AttachmentByteReader>>;
     try {
       read = await this.input.readAttachmentBytes(output.ref);
-    } catch {
+    } catch (error) {
+      if (this.input.isFatalArtifactError?.(error)) throw error;
       return toolResultText('Image could not be loaded from artifact storage: read_failed.');
     }
     if (!read.ok) {
@@ -3352,9 +3356,7 @@ export class AiSdkBackend implements AgentBackend {
         // enters the injection set and is acked; otherwise a byte-read failure
         // could nack content the ledger already owns.
         const providerContent = await this.appendImageParts(
-          buildSteeringEnvelope(
-            formatTextWithInlineRefs(lease.content.text, lease.content),
-          ),
+          buildSteeringEnvelope(formatTextWithInlineRefs(lease.content.text, lease.content)),
           lease.content.attachments,
           `steering:${eventId}`,
         );

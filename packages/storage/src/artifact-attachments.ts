@@ -27,7 +27,7 @@ export function createAttachmentByteReader(input: {
   };
 }
 
-export function createReadImageSnapshotter(artifactStore: ArtifactStore) {
+export function createReadImageSnapshotter(artifactStore: Pick<ArtifactStore, 'create'>) {
   return async (input: {
     sessionId: string;
     turnId: string;

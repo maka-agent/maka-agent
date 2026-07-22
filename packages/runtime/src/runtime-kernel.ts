@@ -832,8 +832,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
                 agentTeam,
               ),
             ),
-          registerRun: (active, activeRun) =>
-            this.registerChildRun(activeKey, active, activeRun),
+          registerRun: (active, activeRun) => this.registerChildRun(activeKey, active, activeRun),
           unregisterRun: (active, activeRun) =>
             this.unregisterChildRun(activeKey, active, activeRun),
           updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
@@ -844,13 +843,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
       // A provider retry replays the source ledger without recording a second
       // user prompt and without turning the child into a session continuation.
-      yield* this.runAgentContinuation(
-        continuation,
-        run,
-        execution,
-        false,
-        options.onRunStarted,
-      );
+      yield* this.runAgentContinuation(continuation, run, execution, false, options.onRunStarted);
     } finally {
       execution.release();
     }

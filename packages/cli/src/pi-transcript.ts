@@ -1554,12 +1554,8 @@ function projectToolReviewForTranscript(review: PublicToolIntentReview | undefin
             `concurrency ${review.concurrency}`,
             ...(review.resumeCount > 0 ? [`resumed ${review.resumeCount}`] : []),
             ...(review.profiles.length > 0 ? [`profiles ${review.profiles.join(', ')}`] : []),
-            ...(review.writeBack.length > 0
-              ? [`write-back ${review.writeBack.join(', ')}`]
-              : []),
-            ...(review.isolation.length > 0
-              ? [`isolation ${review.isolation.join(', ')}`]
-              : []),
+            ...(review.writeBack.length > 0 ? [`write-back ${review.writeBack.join(', ')}`] : []),
+            ...(review.isolation.length > 0 ? [`isolation ${review.isolation.join(', ')}`] : []),
           ].join(' · ');
         default: {
           const exhaustive: never = review;
@@ -1845,12 +1841,8 @@ function permissionToolReviewSummary(review: PublicToolIntentReview): string {
             `concurrency ${review.concurrency}`,
             ...(review.resumeCount > 0 ? [`resumed ${review.resumeCount}`] : []),
             ...(review.profiles.length > 0 ? [`profiles ${review.profiles.join(', ')}`] : []),
-            ...(review.writeBack.length > 0
-              ? [`write-back ${review.writeBack.join(', ')}`]
-              : []),
-            ...(review.isolation.length > 0
-              ? [`isolation ${review.isolation.join(', ')}`]
-              : []),
+            ...(review.writeBack.length > 0 ? [`write-back ${review.writeBack.join(', ')}`] : []),
+            ...(review.isolation.length > 0 ? [`isolation ${review.isolation.join(', ')}`] : []),
           ].join(' · ');
         default: {
           const exhaustive: never = review;

@@ -136,7 +136,7 @@ export async function runExperimentWithStorage(
       storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
       ...sessionCapabilities.capabilities,
-      synthesisCacheArtifactStore: storage.synthesisCacheArtifactStore,
+      artifactStore: storage.artifactStore,
       ...(backendNeedsIsolation(config.backend)
         ? {
             realBackendIsolation: deps.realBackendIsolation,
@@ -146,10 +146,11 @@ export async function runExperimentWithStorage(
     });
 
     let invocation: InvocationResult | undefined;
+    const runStore = storage.executionStores.agentRunStore;
     const manager = new SessionManager({
       execution: EMBEDDED_RUNTIME_EXECUTION,
       store: storage.executionStores.sessionStore,
-      runStore: storage.executionStores.agentRunStore,
+      runStore,
       runtimeEventStore: storage.executionStores.runtimeEventStore,
       backends,
       ...(deps.realBackendIsolation?.toolExecutor
@@ -231,7 +232,7 @@ export async function runExperimentWithStorage(
       });
       const finishedAt = now();
       const runEvidence = invocation
-        ? await runStore.readRun(session.id, invocation.runId).catch(() => undefined)
+        ? await runStore.readRun(session.id, invocation.runId)
         : undefined;
 
       return {

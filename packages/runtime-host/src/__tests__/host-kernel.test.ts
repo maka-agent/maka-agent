@@ -1469,11 +1469,27 @@ describe('non-serving Runtime Host kernel', () => {
         model: 'fake-model',
         permissionMode: 'ask',
       });
+      const answerRefreshEntered = deferred<void>();
+      const releaseAnswerRefresh = deferred<void>();
+      let holdAnswerRefresh = false;
       const host = paths.resources.trackCloseable(
         await RuntimeHostKernel.start({
           owner,
           idleGraceMs: 10_000,
-          compositionFactory: createExecutionRuntimeHostComposition,
+          compositionFactory: async (context) => {
+            const composition = await createExecutionRuntimeHostComposition(context);
+            const continuity = composition.continuity;
+            assert.ok(continuity instanceof SessionContinuityCoordinator);
+            const refreshCanonical = continuity.refreshCanonical.bind(continuity);
+            continuity.refreshCanonical = async (sessionId, admission) => {
+              if (holdAnswerRefresh && admission) {
+                answerRefreshEntered.resolve();
+                await releaseAnswerRefresh.promise;
+              }
+              await refreshCanonical(sessionId, admission);
+            };
+            return composition;
+          },
         }),
       );
       const connected = await connectRuntimeHost({
@@ -1507,6 +1523,7 @@ describe('non-serving Runtime Host kernel', () => {
           if (!pending && Date.now() >= pendingDeadline) {
             throw new Error('FakeBackend did not persist a pending Interaction');
           }
+          if (!pending) await sleep(10);
         }
         assert.equal(pending.runId, started.runId);
         interactionId = pending.requestId;
@@ -1516,11 +1533,11 @@ describe('non-serving Runtime Host kernel', () => {
         });
         assert.equal(admitted.status, 'pending');
 
-        await writeFile(invalidInteractionArtifact, 'invalid canonical artifact', 'utf8');
         const closedOutcome = host.closed.then(
           () => ({ status: 'fulfilled' as const }),
           (error: unknown) => ({ status: 'rejected' as const, error }),
         );
+        holdAnswerRefresh = true;
         const answerOutcome = connected.connection
           .request('interaction.answer', {
             interactionId,
@@ -1530,6 +1547,13 @@ describe('non-serving Runtime Host kernel', () => {
             () => ({ status: 'fulfilled' as const }),
             (error: unknown) => ({ status: 'rejected' as const, error }),
           );
+        await withTimeout(
+          answerRefreshEntered.promise,
+          5_000,
+          'Interaction answer did not reach its post-commit canonical refresh',
+        );
+        await writeFile(invalidInteractionArtifact, 'invalid canonical artifact', 'utf8');
+        releaseAnswerRefresh.resolve();
         const [attempt, closed] = await Promise.all([
           withTimeout(
             answerOutcome,
@@ -1577,6 +1601,7 @@ describe('non-serving Runtime Host kernel', () => {
             error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
         );
       } finally {
+        releaseAnswerRefresh.resolve();
         await connected.connection.close().catch(() => undefined);
         await rm(invalidInteractionArtifact, { force: true });
       }

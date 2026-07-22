@@ -34,6 +34,7 @@ import {
   type AiSdkBackendInput,
   type RunTraceEvent,
 } from '../ai-sdk-backend.js';
+import type { AiSdkCompaction } from '../ai-sdk-compaction.js';
 import type { MakaTool } from '../tool-runtime.js';
 import { LOAD_TOOLS_NAME } from '../tool-availability.js';
 import { PermissionEngine } from '../permission-engine.js';
@@ -2215,6 +2216,19 @@ describe('AiSdkBackend model history', () => {
     assert.doesNotMatch(JSON.stringify(prompt), /private disk detail/);
   });
 
+  test('rethrows fatal artifact errors from replayed images through send', async () => {
+    const fatalError = new Error('fatal artifact authority failure');
+    const backend = imageReplayBackend(completionModel(), {
+      supportsVision: true,
+      readAttachmentBytes: async () => {
+        throw fatalError;
+      },
+      isFatalArtifactError: (error) => error === fatalError,
+    });
+
+    await assert.rejects(drain(backend.send(imageReplayInput())), (error) => error === fatalError);
+  });
+
   test('replays interleaved parallel RuntimeEvent tool calls as one provider tool-call block', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
@@ -3206,6 +3220,70 @@ describe('AiSdkBackend model history', () => {
     );
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksSelected, 1);
+  });
+
+  test('keeps ordinary synthesis load and write failures best-effort', async () => {
+    const compaction = synthesisCompaction({
+      loadSynthesisCache: async () => {
+        throw new Error('ordinary artifact read failure');
+      },
+      writeSynthesisCache: async () => {
+        throw new Error('ordinary artifact write failure');
+      },
+      isFatalArtifactError: () => false,
+    });
+
+    const loadResult = await compaction.loadSynthesisCacheBlocks({
+      synthesisCache: { enabled: true },
+    });
+    const writeResult = await compaction.writeSynthesisCacheBlocks({
+      turnId: 'turn-1',
+      query: 'query',
+      hydratedRuntimeEvents: [],
+      retrievedArchiveRefs: [],
+      archiveRetrievalMode: 'history_search_gated',
+      contextBudget: { synthesisCache: { enabled: true, mode: 'read_write' } },
+    });
+
+    assert.equal(loadResult.diagnosticPatch?.synthesisCacheLoadFailures, 1);
+    assert.equal(writeResult.synthesisCacheWriteFailures, 1);
+  });
+
+  test('rethrows fatal artifact errors from synthesis loads', async () => {
+    const fatalError = new Error('fatal synthesis load');
+    const compaction = synthesisCompaction({
+      loadSynthesisCache: async () => {
+        throw fatalError;
+      },
+      isFatalArtifactError: (error) => error === fatalError,
+    });
+
+    await assert.rejects(
+      compaction.loadSynthesisCacheBlocks({ synthesisCache: { enabled: true } }),
+      (error) => error === fatalError,
+    );
+  });
+
+  test('rethrows fatal artifact errors from synthesis writes', async () => {
+    const fatalError = new Error('fatal synthesis write');
+    const compaction = synthesisCompaction({
+      writeSynthesisCache: async () => {
+        throw fatalError;
+      },
+      isFatalArtifactError: (error) => error === fatalError,
+    });
+
+    await assert.rejects(
+      compaction.writeSynthesisCacheBlocks({
+        turnId: 'turn-1',
+        query: 'query',
+        hydratedRuntimeEvents: [],
+        retrievedArchiveRefs: [],
+        archiveRetrievalMode: 'history_search_gated',
+        contextBudget: { synthesisCache: { enabled: true, mode: 'read_write' } },
+      }),
+      (error) => error === fatalError,
+    );
   });
 
   test('writes synthesis cache after successful gated archive retrieval without injecting it into the same request', async () => {
@@ -11989,7 +12067,8 @@ function emptyUsage() {
 
 function imageReplayBackend(
   model: MockLanguageModelV4,
-  options: { supportsVision: boolean; readAttachmentBytes: AttachmentByteReader },
+  options: Pick<AiSdkBackendInput, 'supportsVision' | 'readAttachmentBytes'> &
+    Partial<Pick<AiSdkBackendInput, 'isFatalArtifactError'>>,
 ): AiSdkBackend {
   return new AiSdkBackend({
     execution: EMBEDDED_RUNTIME_EXECUTION,
@@ -12006,6 +12085,32 @@ function imageReplayBackend(
     now: monotonicClock(),
     ...options,
   });
+}
+
+function synthesisCompaction(
+  options: Pick<AiSdkBackendInput, 'isFatalArtifactError'> &
+    Partial<Pick<AiSdkBackendInput, 'loadSynthesisCache' | 'writeSynthesisCache'>>,
+): Pick<AiSdkCompaction, 'loadSynthesisCacheBlocks' | 'writeSynthesisCacheBlocks'> {
+  const backend = new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
+    sessionId: 'session-1',
+    header: header(),
+    appendMessage: async () => {},
+    connection: connection(),
+    apiKey: 'sk-test',
+    modelId: 'mock-model-id',
+    permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+    modelFactory: () => completionModel(),
+    tools: [],
+    newId: idGenerator(),
+    now: monotonicClock(),
+    ...options,
+  });
+  return (
+    backend as unknown as {
+      compaction: Pick<AiSdkCompaction, 'loadSynthesisCacheBlocks' | 'writeSynthesisCacheBlocks'>;
+    }
+  ).compaction;
 }
 
 function imageReplayInput(): BackendSendInput {

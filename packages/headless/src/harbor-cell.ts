@@ -44,6 +44,7 @@ import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import {
   authenticateHeadlessStorageWriter,
+  isStorageRootAuthorityError,
   openHeadlessStorageForWrite,
   type HeadlessStorageWriter,
 } from './headless-storage.js';
@@ -302,7 +303,7 @@ export async function runHarborCellWithStorage(
     storageRoot: input.storageRoot,
     workspaceDir: input.cwd,
     ...sessionCapabilities.capabilities,
-    synthesisCacheArtifactStore: storage.synthesisCacheArtifactStore,
+    artifactStore: storage.artifactStore,
     ...(backendNeedsIsolation(input.config.backend)
       ? {
           realBackendIsolation: input.realBackendIsolation,
@@ -411,6 +412,7 @@ export async function runHarborCellWithStorage(
       nextText = continuationPolicy.prompt;
     }
   } catch (error) {
+    if (isStorageRootAuthorityError(error)) throw error;
     sendMessageError = error;
   } finally {
     if (settlementTimer) clearTimeout(settlementTimer);
@@ -431,7 +433,10 @@ export async function runHarborCellWithStorage(
   }
   const combinedInvocation = combineInvocations(invocations);
   const terminalRun = deadlineReached
-    ? await agentRunStore.readRun(session.id, combinedInvocation.runId).catch(() => undefined)
+    ? await agentRunStore.readRun(session.id, combinedInvocation.runId).catch((error) => {
+        if (isStorageRootAuthorityError(error)) throw error;
+        return undefined;
+      })
     : undefined;
   const settledByDeadline =
     terminalRun?.status === 'cancelled' && terminalRun.abortSource === 'benchmark.deadline';
@@ -821,8 +826,8 @@ export function buildAiSdkCellBackendRegistration(input: {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
     }
-    // Both artifact consumers share the same lease-bound store and metadata index.
-    const artifactStore = context.synthesisCacheArtifactStore;
+    // Artifact consumers share the same lease-bound store and metadata index.
+    const artifactStore = context.artifactStore;
     const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
       artifactStore,
       synthesisCacheEnabled,
@@ -887,6 +892,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           artifactStore,
           sessionId: ctx.sessionId,
         }),
+        isFatalArtifactError: isStorageRootAuthorityError,
         ...(streamConnectTimeoutMs !== undefined ? { streamConnectTimeoutMs } : {}),
         ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
         systemPrompt: context.config.systemPrompt,
