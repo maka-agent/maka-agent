@@ -811,63 +811,86 @@ test('createPierTaskRunner wires the Kimi arm through the host proxy on a Squid-
   });
 });
 
-async function runConcurrentKimiAttempts(providerProxyPort: number): Promise<number> {
+/** One SEPARATE runner instance per port entry, one concurrent attempt each —
+ * the lock's owner must be the shared host port, not a runner closure, or an
+ * A/B with two Kimi arms in one process EADDRINUSEs. */
+async function runConcurrentKimiAttempts(ports: readonly number[]): Promise<number> {
   return await withDirs(async ({ jobsDir, repo }) => {
     let inFlight = 0;
     let maxInFlight = 0;
     const inner = fakePier({ reward: 0 });
-    const runner = createPierTaskRunner(
-      baseOptions({
-        jobsDir,
-        makaRepoPath: repo,
-        agent: 'kimi-code',
-        backend: 'ai-sdk',
-        provider: 'kimi-coding-plan',
-        model: 'k3',
-        baseUrl: 'https://api.kimi.com/coding/v1',
-        kimiCodeToolchainPath: repo,
-        resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
-        providerProxyPort,
-        runPier: async (request) => {
-          inFlight += 1;
-          maxInFlight = Math.max(maxInFlight, inFlight);
-          await new Promise((resolve) => setTimeout(resolve, 25));
-          try {
-            return await inner(request);
-          } finally {
-            inFlight -= 1;
-          }
-        },
-      }),
+    const runners = ports.map((providerProxyPort) =>
+      createPierTaskRunner(
+        baseOptions({
+          jobsDir,
+          makaRepoPath: repo,
+          agent: 'kimi-code',
+          backend: 'ai-sdk',
+          provider: 'kimi-coding-plan',
+          model: 'k3',
+          baseUrl: 'https://api.kimi.com/coding/v1',
+          kimiCodeToolchainPath: repo,
+          resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
+          providerProxyPort,
+          runPier: async (request) => {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            try {
+              return await inner(request);
+            } finally {
+              inFlight -= 1;
+            }
+          },
+        }),
+      ),
     );
-    const [first, second] = await Promise.all([
-      runner(runInput({ task: { id: 't1', path: '/tasks/dasel-html-document-format' } })),
-      runner(runInput({ task: { id: 't2', path: '/tasks/dasel-html-document-format' } })),
-    ]);
-    assert.equal(first.harbor.reward, 0);
-    assert.equal(second.harbor.reward, 0);
+    const outputs = await Promise.all(
+      runners.map((runner, index) =>
+        runner(runInput({ task: { id: `t${index}`, path: '/tasks/dasel-html-document-format' } })),
+      ),
+    );
+    for (const output of outputs) assert.equal(output.harbor.reward, 0);
     return maxInFlight;
   });
 }
 
-test('createPierTaskRunner serializes concurrent Kimi attempts holding a fixed proxy port', async () => {
+/** Grab currently-free ports from the OS (all probes held open together so the
+ * ports are distinct) so tests bind real listeners without privileges for 443. */
+async function grabFreePorts(count: number): Promise<number[]> {
+  const probes = Array.from({ length: count }, () => createServer());
+  const ports = await Promise.all(
+    probes.map(
+      (probe) =>
+        new Promise<number>((resolve) => {
+          probe.listen(0, () => resolve((probe.address() as AddressInfo).port));
+        }),
+    ),
+  );
+  await Promise.all(probes.map((probe) => new Promise((resolve) => probe.close(resolve))));
+  return ports;
+}
+
+test('createPierTaskRunner serializes concurrent Kimi attempts across runners on one fixed port', async () => {
   // A fixed port (like the default 443) admits exactly one bind: a second
-  // concurrent attempt would be a guaranteed EADDRINUSE, so the runner must
-  // hold the port one attempt at a time while both attempts still complete.
-  // Grab a currently-free port from the OS so the test binds a real listener
-  // without needing privileges for 443.
-  const probe = createServer();
-  const fixedPort = await new Promise<number>((resolve) => {
-    probe.listen(0, () => resolve((probe.address() as AddressInfo).port));
-  });
-  await new Promise((resolve) => probe.close(resolve));
-  assert.equal(await runConcurrentKimiAttempts(fixedPort), 1);
+  // concurrent attempt — even from a DIFFERENT runner instance in the same
+  // process — would be a guaranteed EADDRINUSE, so the port is held one
+  // attempt at a time while both attempts still complete.
+  const [fixedPort] = await grabFreePorts(1);
+  assert.equal(await runConcurrentKimiAttempts([fixedPort!, fixedPort!]), 1);
 });
 
 test('createPierTaskRunner lets ephemeral-port Kimi attempts run concurrently', async () => {
   // Port 0 asks the OS for a fresh port per bind — no collision is possible,
   // so the serialization lock must not throttle throughput.
-  assert.equal(await runConcurrentKimiAttempts(0), 2);
+  assert.equal(await runConcurrentKimiAttempts([0, 0]), 2);
+});
+
+test('createPierTaskRunner lets Kimi attempts on distinct fixed ports run concurrently', async () => {
+  // The lock is per port, not global: distinct fixed ports cannot collide.
+  const [portA, portB] = await grabFreePorts(2);
+  assert.notEqual(portA, portB);
+  assert.equal(await runConcurrentKimiAttempts([portA!, portB!]), 2);
 });
 
 test('createPierTaskRunner keeps the real key host-side via a file path for the Maka arm', async () => {

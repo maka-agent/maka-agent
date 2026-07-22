@@ -59,6 +59,28 @@ const PROVIDER_REQUEST_TELEMETRY = 'provider-request-telemetry.json';
  * the conventional TLS port. */
 export const PIER_PROVIDER_PROXY_DEFAULT_PORT = 443;
 
+/** The Kimi arm binds ONE fixed proxy port per attempt, and Pier's Squid egress
+ * leaves only two usable destination ports (80/443), so concurrent attempts on
+ * the same port must hold it one at a time — a second concurrent bind is a
+ * guaranteed EADDRINUSE. The lock's owner is the shared host PORT, not a runner
+ * instance: two runners in one process (e.g. an A/B with two Kimi arms) compete
+ * for the same bind. Hence a module-level per-port queue; cross-PROCESS
+ * collisions remain the operator's scheduling concern. Serializing the
+ * proxy-holding section (instead of sharing one proxy) keeps usage/telemetry
+ * attribution per attempt. A pool over both Squid-legal ports is deferred until
+ * concurrency actually needs it. */
+const proxyPortQueues = new Map<number, Promise<unknown>>();
+
+function withProxyPortLock<T>(port: number, fn: () => Promise<T>): Promise<T> {
+  const queue = proxyPortQueues.get(port) ?? Promise.resolve();
+  const run = queue.then(fn);
+  proxyPortQueues.set(
+    port,
+    run.catch(() => {}),
+  );
+  return run;
+}
+
 /** A Pier-side failure (build/docker/timeout/missing artifact) — NOT a benchmark
  * result. The fixed-prompt controller turns a thrown error into an infra_failed
  * event, excluding it from scoring instead of recording reward 0.
@@ -181,19 +203,6 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
   // cwd is not enough. Prepend it, keeping any inherited PYTHONPATH.
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
   const pythonPath = [harborAdapterDir, process.env.PYTHONPATH].filter(Boolean).join(delimiter);
-
-  // The Kimi arm binds ONE fixed proxy port per runner, and Pier's Squid egress
-  // leaves only two usable destination ports (80/443), so concurrent attempts on
-  // the same runner must hold the port one at a time — a second concurrent bind
-  // is a guaranteed EADDRINUSE. Serializing the proxy-holding section (instead of
-  // sharing one proxy) keeps usage/telemetry attribution per attempt. A pool over
-  // both Squid-legal ports is deferred until concurrency actually needs it.
-  let proxyPortQueue: Promise<unknown> = Promise.resolve();
-  const withProxyPortLock = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = proxyPortQueue.then(fn);
-    proxyPortQueue = run.catch(() => {});
-    return run;
-  };
 
   const runner: TaskRunner = async (input: TaskRunInput): Promise<TaskRunOutput> => {
     const agent = options.agent ?? 'maka';
@@ -320,7 +329,7 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
     const kimiProxyPort = options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT;
     const result =
       agent === 'kimi-code' && kimiProxyPort !== 0
-        ? await withProxyPortLock(launchAttempt)
+        ? await withProxyPortLock(kimiProxyPort, launchAttempt)
         : await launchAttempt();
 
     try {
