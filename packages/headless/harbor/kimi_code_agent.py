@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shlex
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -66,32 +67,52 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
         # MAKA_PROVIDER_PROXY_URL. The toolchain is verified offline (no install
         # download), so the only outbound host the container needs is that model
         # endpoint. A missing or malformed proxy URL fails here, at environment
-        # creation, with the same error _runtime_env() would raise later — no
-        # fallback domain, so a misconfigured trial never gets a spurious
-        # egress grant.
-        return _NetworkAllowlist(domains=[self._provider_proxy_host()])
+        # creation — no fallback domain, so a misconfigured trial never gets a
+        # spurious egress grant.
+        hostname, port = self._provider_proxy_endpoint()
+        if port not in (None, 80, 443):
+            # Pier's egress proxy for allow_internet=false tasks is Squid with
+            # `acl Safe_ports port 80 443` + `http_access deny !Safe_ports`
+            # (pier/environments/agent_setup.py), so any other destination port
+            # is denied even when the domain is allowlisted. Warn instead of
+            # raising: the adapter cannot see the task's allow_internet, and on
+            # internet-enabled tasks the allowlist is ignored and this port is
+            # legal.
+            print(
+                f"WARNING: Kimi Code provider proxy port {port} is unreachable "
+                "under Pier non-internet tasks: the Squid egress proxy only "
+                "allows destination ports 80 and 443. Bind the provider proxy "
+                "to 80/443 or use an internet-enabled task.",
+                file=sys.stderr,
+            )
+        return _NetworkAllowlist(domains=[hostname])
 
-    def _provider_proxy_host(self) -> str:
-        """Hostname of MAKA_PROVIDER_PROXY_URL, shared by the Pier network
-        allowlist and the runtime env so both fail identically on a bad URL."""
+    def _provider_proxy_endpoint(self) -> tuple[str, int | None]:
+        """Hostname and port of MAKA_PROVIDER_PROXY_URL for the Pier allowlist.
+
+        Pier-only validation, called from network_allowlist() after its plain-
+        Harbor early return: Pier's NetworkAllowlist domain validator rejects
+        ':' entries, so an IPv6 literal endpoint can never be allowlisted.
+        Plain Harbor forwards the URL opaquely in _runtime_env() and must not
+        have its input domain narrowed by this Pier constraint.
+        """
         proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
         if not proxy_url:
             raise ValueError("Kimi Code requires the host provider proxy")
         try:
             parsed = urlparse(proxy_url if "://" in proxy_url else f"https://{proxy_url}")
             hostname = parsed.hostname
+            port = parsed.port
         except ValueError as error:
             raise ValueError("Kimi Code requires the host provider proxy") from error
         if not hostname:
             raise ValueError("Kimi Code requires the host provider proxy")
         if ":" in hostname:
-            # Pier's NetworkAllowlist domain validator rejects ':' entries, so
-            # an IPv6 literal endpoint can never be allowlisted.
             raise ValueError(
                 "Kimi Code provider proxy must use a DNS hostname or IPv4 "
                 "address; IPv6 literal endpoints are not supported"
             )
-        return hostname
+        return hostname, port
 
     def get_version_command(self) -> str | None:
         return (
@@ -172,10 +193,12 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
         self._write_cell_output()
 
     def _runtime_env(self) -> dict[str, str]:
-        self._provider_proxy_host()  # validates MAKA_PROVIDER_PROXY_URL
+        # The proxy URL is forwarded opaquely (IPv6 included) — endpoint-shape
+        # validation is a Pier allowlist constraint and lives in
+        # network_allowlist(), not in this plain-Harbor code path.
         proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
         proxy_token = self._get_env("MAKA_PROVIDER_PROXY_TOKEN")
-        if not proxy_token:
+        if not proxy_url or not proxy_token:
             raise ValueError("Kimi Code requires the host provider proxy")
         model = self._get_env("MAKA_MODEL") or self.model_name
         if not model:

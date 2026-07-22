@@ -30,8 +30,10 @@ coverage into a failure instead of a skip:
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import importlib
+import io
 import os
 import sys
 from pathlib import Path
@@ -213,20 +215,33 @@ def test_kimi_agent_network_shape_under_pier():
         return SKIPPED
     _, kimi_mod = _fresh_adapters()
 
+    # Portless HTTPS endpoint (default 443): allowlisted without any warning.
     configured = kimi_mod.MakaKimiCodeAgent(
         logs_dir=Path("/tmp"),
         extra_env={"MAKA_PROVIDER_PROXY_URL": "https://api.kimi.com/coding/v1"},
     )
-    allow = configured.network_allowlist()
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        allow = configured.network_allowlist()
     assert isinstance(allow, NetworkAllowlist)
     assert allow.domains == ["api.kimi.com"]
+    assert stderr.getvalue() == ""
 
+    # NetworkAllowlist carries domains only, but Pier's Squid egress proxy for
+    # allow_internet=false tasks additionally restricts destination ports to
+    # 80/443 (Safe_ports acl in pier/environments/agent_setup.py). A proxy on
+    # any other port is silently unreachable in offline tasks, so the adapter
+    # must warn on stderr while still allowlisting the host (internet tasks
+    # ignore the allowlist and the port is legal there).
     proxied = kimi_mod.MakaKimiCodeAgent(
         logs_dir=Path("/tmp"),
         extra_env={"MAKA_PROVIDER_PROXY_URL": "https://proxy.internal:8443/v1"},
     )
-    # Domain only: host is extracted, port/path/scheme are dropped.
-    assert proxied.network_allowlist().domains == ["proxy.internal"]
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        proxied_allow = proxied.network_allowlist()
+    assert proxied_allow.domains == ["proxy.internal"]
+    assert "ports 80 and 443" in stderr.getvalue(), stderr.getvalue()
 
     # No fallback domain: a missing proxy URL fails at allowlist time with the
     # same error _runtime_env raises, instead of granting spurious egress.
@@ -244,6 +259,24 @@ def test_kimi_agent_network_shape_under_pier():
         extra_env={"MAKA_PROVIDER_PROXY_URL": "https://[2001:db8::1]:8443/v1"},
     )
     _raises(ipv6.network_allowlist, ValueError, "IPv6")
+
+
+@_isolated_maka_env
+def test_kimi_runtime_env_forwards_ipv6_proxy_url():
+    # Runs under BOTH trees (no pier gate): _runtime_env keeps main's plain-
+    # Harbor contract and forwards the proxy URL opaquely, IPv6 included; the
+    # IPv6 rejection is a Pier NetworkAllowlist constraint and lives only in
+    # the network_allowlist() path.
+    _, kimi_mod = _fresh_adapters()
+    agent = kimi_mod.MakaKimiCodeAgent(
+        logs_dir=Path("/tmp"),
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://[::1]:43210/v1",
+            "MAKA_PROVIDER_PROXY_TOKEN": "test-token",
+            "MAKA_MODEL": "k3",
+        },
+    )
+    assert agent._runtime_env()["KIMI_MODEL_BASE_URL"] == "http://[::1]:43210/v1"
 
 
 @_isolated_maka_env
