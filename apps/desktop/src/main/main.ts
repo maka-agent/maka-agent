@@ -234,6 +234,7 @@ const credentialStore = createFileCredentialStore(workspaceRoot);
 // and lives in a separate module not statically imported here.
 const claudeSubscription = new ClaudeSubscriptionService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 // PR-MODEL-OAUTH-ALL-0: Codex / Cursor / Antigravity subscription
@@ -243,6 +244,7 @@ const claudeSubscription = new ClaudeSubscriptionService({
 // until the Google client_id question is resolved.
 const openAiCodex = new OpenAiCodexService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 const githubCopilotSubscription = new GitHubCopilotSubscriptionService({ credentialStore });
@@ -297,10 +299,12 @@ function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {
 }
 const cursorSubscription = new CursorSubscriptionService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 const antigravitySubscription = new AntigravitySubscriptionService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 

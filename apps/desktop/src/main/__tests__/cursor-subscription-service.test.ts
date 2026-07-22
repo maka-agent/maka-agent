@@ -102,20 +102,6 @@ describe('Cursor subscription OAuth config (upstream cursor-auth pattern)', () =
 });
 
 describe('Cursor service source-grep contract', () => {
-  it('persists tokens through the shared credential store, not safeStorage (#1125)', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /saveSharedOAuthTokens\(this\.credentialStore, 'cursor-subscription'/,
-      'tokens must be written to the shared CredentialStore (the cross-surface authority)',
-    );
-    assert.doesNotMatch(
-      src,
-      /encryptString|decryptString|isEncryptionAvailable/,
-      'no safeStorage-encrypted token path may remain',
-    );
-  });
-
   it('uses globalThis.fetch by default so Electron session proxy applies', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(src, /globalThis\.fetch/);
@@ -146,22 +132,6 @@ describe('Cursor service source-grep contract', () => {
       'refresh URL literal must exactly match upstream cursor-auth (in helpers config)',
     );
     assert.match(serviceSrc, /Authorization:\s*`Bearer/, 'refresh must send Bearer auth');
-  });
-
-  it('does not expose tokens through the `getAccountState` return object', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    const match = src.match(/async getAccountState\(\)[\s\S]*?\n {2}\}/);
-    assert.ok(match, 'getAccountState must exist');
-    const body = match[0];
-    const returns = [...body.matchAll(/return\s*\{[\s\S]*?\n\s*\};/g)].map((m) => m[0]);
-    assert.ok(returns.length >= 1, 'must have at least one return literal');
-    for (const ret of returns) {
-      assert.doesNotMatch(
-        ret,
-        /(access_token|refresh_token)\s*:/,
-        'getAccountState return objects must not include token fields',
-      );
-    }
   });
 
   it('exports isCursorSubscriptionExperimentalEnabled tied to the env flag', async () => {

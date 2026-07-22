@@ -23,7 +23,6 @@
  *   - PKCE state matched with constant-time equality (G-X1).
  */
 
-import { shell } from 'electron';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -163,6 +162,8 @@ const nodeSha256: Sha256Digest = {
 export interface ClaudeSubscriptionServiceDeps {
   /** Absolute path to userData dir; e.g. app.getPath('userData'). */
   userDataDir: string;
+  /** Opens the provider authorization URL in the system browser. */
+  openExternal: (url: string) => Promise<void>;
   /** Function returning current epoch ms. Injectable for tests. */
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
@@ -178,6 +179,7 @@ export class ClaudeSubscriptionService {
    *  credential survives anywhere". */
   private readonly legacyTokenFilePath: string;
   private readonly deviceIdFilePath: string;
+  private readonly openExternal: (url: string) => Promise<void>;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
   private readonly credentialStore: SharedOAuthCredentialStore;
@@ -197,6 +199,7 @@ export class ClaudeSubscriptionService {
   constructor(deps: ClaudeSubscriptionServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.claude_subscription_token');
     this.deviceIdFilePath = join(deps.userDataDir, '.claude_subscription_device_id');
+    this.openExternal = deps.openExternal;
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
     this.credentialStore = deps.credentialStore;
@@ -281,7 +284,7 @@ export class ClaudeSubscriptionService {
       return { ok: false, reason: 'authorization_expired', message: '授权请求已过期，请重新点击“登录订阅”。' };
     }
     try {
-      await shell.openExternal(pending.url);
+      await this.openExternal(pending.url);
       this.authorizing = true;
       return { ok: true };
     } catch (err) {

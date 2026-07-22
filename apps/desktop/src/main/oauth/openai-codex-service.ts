@@ -22,7 +22,6 @@
  * endpoint constants pinned to that file's values.
  */
 
-import { shell } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -114,6 +113,8 @@ interface PendingAuthorization {
 export interface OpenAiCodexServiceDeps {
   /** Absolute path to userData dir; e.g. app.getPath('userData'). */
   userDataDir: string;
+  /** Opens the provider authorization URL in the system browser. */
+  openExternal: (url: string) => Promise<void>;
   /** Function returning current epoch ms. Injectable for tests. */
   now?: () => number;
   /** Fetch implementation. Defaults to Maka's active-proxy-aware fetch. */
@@ -127,6 +128,7 @@ export class OpenAiCodexService {
    *  anymore; unlinked on logout in case the startup import could not
    *  run, so logout still means "no credential survives anywhere". */
   private readonly legacyTokenFilePath: string;
+  private readonly openExternal: (url: string) => Promise<void>;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
   private readonly credentialStore: SharedOAuthCredentialStore;
@@ -140,6 +142,7 @@ export class OpenAiCodexService {
 
   constructor(deps: OpenAiCodexServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.codex_subscription_token');
+    this.openExternal = deps.openExternal;
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (proxiedFetch as unknown as typeof fetch);
     this.credentialStore = deps.credentialStore;
@@ -222,7 +225,7 @@ export class OpenAiCodexService {
       return { ok: false, reason: 'authorization_expired', message: '授权请求已过期，请重新点击“登录 Codex”。' };
     }
     try {
-      await shell.openExternal(pending.url);
+      await this.openExternal(pending.url);
       this.authorizing = true;
       return { ok: true };
     } catch (err) {
@@ -671,9 +674,8 @@ export interface CodexAccountStateSnapshot {
 }
 
 // =============================================================
-// Re-exports for the IPC handler + tests. The pure helpers live
-// in `openai-codex-helpers.ts` so they can be unit-tested
-// without dragging in the electron ESM module.
+// Re-exports for the IPC handler + focused protocol tests. The pure
+// helpers keep URL, PKCE, and claim logic independent of service state.
 // =============================================================
 export { buildCodexAuthorizationUrl, extractAccountClaims, pkceChallengeFromVerifier };
 

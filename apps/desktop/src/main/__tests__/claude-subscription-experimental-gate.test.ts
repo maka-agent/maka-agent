@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
 import { CATALOG_PROVIDER_TYPES } from '@maka/core';
+import { ClaudeSubscriptionService } from '../oauth/claude-subscription-service.js';
 import { readProviderSettingsCombinedSource } from './provider-contract-source-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
@@ -185,17 +186,27 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
   });
 
   it('service openAuthorizationUrl looks up URL from pending map (kenji 1da909d5)', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /async openAuthorizationUrl\(authRequestId:\s*string\)/,
-      'service openAuthorizationUrl must take authRequestId — never accept an arbitrary URL from the renderer',
-    );
-    assert.match(
-      src,
-      /shell\.openExternal\(pending\.url\)/,
-      'service must open pending.url (main-generated), not a renderer-provided URL',
-    );
+    const openedUrls: string[] = [];
+    const service = new ClaudeSubscriptionService({
+      userDataDir: '/unused',
+      openExternal: async (url) => {
+        openedUrls.push(url);
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => undefined,
+        deleteSecret: async () => undefined,
+      },
+    });
+
+    assert.equal((await service.openAuthorizationUrl('https://attacker.example')).ok, false);
+    assert.deepEqual(openedUrls, []);
+
+    const authorization = await service.getAuthorizationUrl();
+    assert.deepEqual(Object.keys(authorization).sort(), ['authRequestId', 'stateHint']);
+    assert.deepEqual(await service.openAuthorizationUrl(authorization.authRequestId), { ok: true });
+    assert.equal(openedUrls.length, 1);
+    assert.equal(new URL(openedUrls[0]!).origin, 'https://claude.com');
   });
 
   it('AuthorizationUrlPayload has NO url field — renderer never holds the URL (kenji 027c93c0)', async () => {
@@ -243,29 +254,6 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
       src,
       /登录暂不可用|配额暂不可用|配额接口暂时无法访问/,
       'subscription account copy should avoid generic unavailable/demo-stage wording',
-    );
-  });
-
-  it('service getAuthorizationUrl return statement does not include url key', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    // Find the getAuthorizationUrl method and check the return
-    // expression's keys. The method must return only
-    // { stateHint, authRequestId }; a `url` key would put the URL
-    // back into the IPC payload.
-    const start = src.indexOf('async getAuthorizationUrl');
-    assert.notEqual(start, -1, 'getAuthorizationUrl method must exist');
-    const end = src.indexOf('async openAuthorizationUrl', start);
-    assert.notEqual(end, -1, 'openAuthorizationUrl must follow getAuthorizationUrl');
-    const slice = src.slice(start, end);
-    // Look for a `return { ...url... }` pattern. The pending map
-    // assignment with `url,` shorthand is fine; only the RETURN
-    // statement matters.
-    const returnMatch = slice.match(/return\s*\{[^}]*\}/);
-    assert.ok(returnMatch, 'getAuthorizationUrl must have a return statement with object literal');
-    assert.doesNotMatch(
-      returnMatch[0]!,
-      /\burl\b/,
-      'getAuthorizationUrl return statement must NOT include url — pending.url stays in the service',
     );
   });
 

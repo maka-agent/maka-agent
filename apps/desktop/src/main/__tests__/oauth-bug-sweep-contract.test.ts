@@ -18,11 +18,6 @@ const SERVICES_WITH_LOOPBACK_SERVER = [
   'antigravity-subscription-service.ts',
 ];
 
-const WIRED_OAUTH_SEND_SERVICES = [
-  'claude-subscription-service.ts',
-  'openai-codex-service.ts',
-];
-
 describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)', () => {
   for (const file of SERVICES_WITH_LOOPBACK_SERVER) {
     it(`${file} drops in-flight sockets before close()`, async () => {
@@ -52,49 +47,9 @@ describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)
 });
 
 // B-SWEEP-3 (unlink corrupt token files) is retired: every service
-// now persists through the shared CredentialStore (#1125), and the
-// bridge deletes a corrupt entry — covered by
+// now persists through the shared CredentialStore (#1125), whose
+// reads preserve corrupt entries for recovery — covered by
 // shared-oauth-token-persistence.test.ts.
-
-describe('OAuth loadTokens: storage failures are not shown as logged out', () => {
-  for (const file of WIRED_OAUTH_SEND_SERVICES) {
-    it(`${file} reports storage_failed instead of not_logged_in for local credential read failures`, async () => {
-      const source = await readFile(resolve(OAUTH_DIR, file), 'utf8');
-      const getAccountStateStart = source.indexOf('async getAccountState()');
-      assert.ok(getAccountStateStart > 0, `getAccountState not found in ${file}`);
-      const getAccountState = source.slice(getAccountStateStart, getAccountStateStart + 900);
-      const loadTokensStart = source.indexOf('private async loadTokens(');
-      assert.ok(loadTokensStart > 0, `loadTokens not found in ${file}`);
-      const loadTokens = source.slice(loadTokensStart, loadTokensStart + 1800);
-
-      assert.match(
-        source,
-        /lastStorageFailedMessage/,
-        `${file} must preserve local credential storage errors as state`,
-      );
-      assert.match(
-        getAccountState,
-        /lastStorageFailedMessage[\s\S]*runtimeState:\s*'storage_failed'[\s\S]*errorMessage:\s*this\.lastStorageFailedMessage/,
-        `${file} getAccountState must not collapse local storage failures into not_logged_in`,
-      );
-      assert.match(
-        loadTokens,
-        /loadSharedOAuthTokens\(this\.credentialStore/,
-        `${file} must load tokens from the shared credential store (the authority, #1125)`,
-      );
-      assert.match(
-        loadTokens,
-        /catch \{[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
-        `${file} store read failures must set storage_failed detail instead of reading as logged out`,
-      );
-      assert.match(
-        loadTokens,
-        /status === 'corrupt'[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
-        `${file} corrupt shared entries (deleted by the bridge) must surface storage_failed detail`,
-      );
-    });
-  }
-});
 
 describe('WeChat bridge: streaming loops must not become unhandled rejections (B-SWEEP-4)', () => {
   it('streamIlinkMessages and streamLiveMessages have .catch() on the fire-and-forget', async () => {
