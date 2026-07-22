@@ -34,7 +34,7 @@ interface ServiceCase {
   slug: string;
   legacyFile: string;
   initialTokens: Record<string, unknown>;
-  refresh?: {
+  refresh: {
     accessToken: string;
     response: Record<string, unknown>;
   };
@@ -194,35 +194,41 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
     });
 
     const refresh = serviceCase.refresh;
-    if (!refresh) continue;
 
-    it(`${serviceCase.name} refreshes and exposes the new access token from the shared credential`, async () => {
-      const userDataDir = await makeUserDataDir();
-      const credentials = createMemoryCredentialStore();
-      credentials.set(
-        serviceCase.slug,
-        'oauth_token',
-        JSON.stringify({ ...serviceCase.initialTokens, expires_at: NOW - 1 }),
-      );
-      let fetchCalls = 0;
-      const service = serviceCase.create({
-        userDataDir,
-        credentialStore: credentials.store,
-        fetchFn: async () => {
-          fetchCalls += 1;
-          return Response.json(refresh.response);
-        },
+    for (const entryPoint of ['explicit', 'automatic'] as const) {
+      it(`${serviceCase.name} refreshes an expired credential through ${entryPoint} refresh`, async () => {
+        const userDataDir = await makeUserDataDir();
+        const credentials = createMemoryCredentialStore();
+        credentials.set(
+          serviceCase.slug,
+          'oauth_token',
+          JSON.stringify({ ...serviceCase.initialTokens, expires_at: NOW - 1 }),
+        );
+        let fetchCalls = 0;
+        const service = serviceCase.create({
+          userDataDir,
+          credentialStore: credentials.store,
+          fetchFn: async () => {
+            fetchCalls += 1;
+            return Response.json(refresh.response);
+          },
+        });
+
+        const result = entryPoint === 'explicit'
+          ? await service.refreshTokens()
+          : await service.getAccessTokenInternal();
+
+        if (entryPoint === 'explicit') assert.deepEqual(result, { ok: true });
+        else assert.equal(result, refresh.accessToken);
+        assert.equal(fetchCalls, 1);
+        const persisted = JSON.parse(
+          credentials.get(serviceCase.slug, 'oauth_token') ?? 'null',
+        ) as { access_token?: string };
+        assert.equal(persisted.access_token, refresh.accessToken);
+        assert.equal(await service.getAccessTokenInternal(), refresh.accessToken);
+        assert.equal(fetchCalls, 1, 'a fresh shared token must not trigger a second refresh');
       });
-
-      assert.deepEqual(await service.refreshTokens(), { ok: true });
-      assert.equal(fetchCalls, 1);
-      const persisted = JSON.parse(
-        credentials.get(serviceCase.slug, 'oauth_token') ?? 'null',
-      ) as { access_token?: string };
-      assert.equal(persisted.access_token, refresh.accessToken);
-      assert.equal(await service.getAccessTokenInternal(), refresh.accessToken);
-      assert.equal(fetchCalls, 1, 'a fresh shared token must not trigger a second refresh');
-    });
+    }
 
     for (const entryPoint of ['explicit', 'automatic'] as const) {
       it(`${serviceCase.name} keeps a credential replaced during ${entryPoint} refresh`, async () => {
@@ -257,9 +263,12 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
           ? await service.refreshTokens()
           : await service.getAccessTokenInternal();
 
-        if (entryPoint === 'explicit') assert.deepEqual(result, { ok: true });
-        else assert.equal(result, winner.access_token);
-        assert.equal(fetchCalls, 1);
+        if (entryPoint === 'explicit') {
+          assert.deepEqual(result, { ok: true });
+          assert.equal(fetchCalls, 1);
+        } else {
+          assert.equal(result, winner.access_token);
+        }
         assert.deepEqual(
           JSON.parse(credentials.get(serviceCase.slug, 'oauth_token') ?? 'null'),
           winner,
