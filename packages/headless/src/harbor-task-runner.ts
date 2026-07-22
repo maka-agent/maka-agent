@@ -1273,7 +1273,9 @@ export function assertNoExperimentIdentityOverrides(
   }
 }
 
-function providerRequiresSecret(provider: string | undefined): boolean {
+/** Shared across runners: registry-driven check whether a provider needs a
+ * real credential (keyless providers like ollama/lm-studio run MAKA_HOST_NO_AUTH). */
+export function providerRequiresSecret(provider: string | undefined): boolean {
   const providerType = (provider ?? 'deepseek') as ProviderType;
   const definition = PROVIDER_DEFAULTS[providerType];
   if (!definition) throw new Error(`unsupported MAKA_PROVIDER: ${provider ?? ''}`);

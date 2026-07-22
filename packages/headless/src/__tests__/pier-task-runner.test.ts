@@ -39,7 +39,7 @@ test('defaultPierProcessRunner terminates with SIGTERM first so pier can tear do
   // its finally-based docker teardown; a straight SIGKILL would leak the trial
   // containers and orphan a host cell. The trap stands in for that handler.
   const result = await defaultPierProcessRunner(
-    terminationRequest('trap \'echo got-term; exit 0\' TERM; echo ready; sleep 30 & wait', 5_000),
+    terminationRequest("trap 'echo got-term; exit 0' TERM; echo ready; sleep 30 & wait", 5_000),
   );
   assert.equal(result.timedOut, true);
   assert.match(result.stdout, /got-term/);
@@ -334,10 +334,7 @@ test('createPierTaskRunner derives the wall-clock watchdog from the task-native 
         task: { id: 'dasel', path: '/tasks/dasel-html-document-format', metadata: deepSweMetadata },
       }),
     );
-    assert.equal(
-      captured.request?.timeoutMs,
-      (2 * 1800 + 5400 + 2 * 1800) * 1_000 + 15 * 60_000,
-    );
+    assert.equal(captured.request?.timeoutMs, (2 * 1800 + 5400 + 2 * 1800) * 1_000 + 15 * 60_000);
     assert.ok((captured.request?.timeoutMs ?? 0) >= 12_600_000);
 
     // Without task metadata the 45-minute floor holds.
@@ -724,5 +721,49 @@ test('createPierTaskRunner keeps the real key host-side via a file path for the 
     assert.ok(captured.request?.args.includes(`MAKA_HOST_API_KEY_FILE=${keyFile}`));
     assert.ok(!captured.request?.args.some((arg) => arg.includes('sk-real')));
     assert.ok(captured.request?.args.includes('MAKA_HOST_BASE_URL=https://api.kimi.com/coding/v1'));
+  });
+});
+
+test('createPierTaskRunner runs keyless providers as a host cell with MAKA_HOST_NO_AUTH', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'maka',
+        backend: 'ai-sdk',
+        provider: 'ollama',
+        model: 'qwen3:32b',
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    await runner(runInput());
+    // Mirrors the Harbor runner: authKind 'none' providers need no key file and
+    // run on the host with an explicit no-auth marker instead of silently
+    // falling back to the in-container cell.
+    assert.ok(captured.request?.args.includes('MAKA_HOST_NO_AUTH=true'));
+    assert.ok(captured.request?.args.includes(`MAKA_HOST_REPO_ROOT=${repo}`));
+    assert.ok(!captured.request?.args.some((arg) => arg.startsWith('MAKA_HOST_API_KEY_FILE=')));
+  });
+});
+
+test('createPierTaskRunner keeps the fake backend on the in-container cell with no MAKA_HOST_*', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'maka',
+        provider: 'ollama',
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    await runner(runInput());
+    // backend 'fake' is the zero-cost structural path (bind-mounted repo,
+    // in-container cell); host-runtime wiring must not leak into it even for
+    // keyless providers.
+    assert.ok(!captured.request?.args.some((arg) => arg.startsWith('MAKA_HOST_')));
   });
 });

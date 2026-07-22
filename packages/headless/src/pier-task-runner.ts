@@ -22,6 +22,7 @@ import {
   modelIdForProvider,
   providerProxyAuthMode,
   providerProxyUsageProtocol,
+  providerRequiresSecret,
   providerTokenSummary,
   readTimedOutTrialArtifacts,
   resolveNativeTrialTimeoutMs,
@@ -550,11 +551,30 @@ async function pierProviderRuntime(
   const usesProxy = agent === 'kimi-code' || options.useProviderProxy === true;
 
   if (!usesProxy) {
-    // Maka arm, direct host-side key file: the host cell reads the real key from
-    // the file path. The path (not the key) rides `--ae`; the container stays
-    // offline and never sees a key. No proxy, so no token metering.
     if (agent !== 'maka') return null;
-    if (!options.apiKeyFile) return null;
+    // The fake backend runs the inert in-container cell with no host-side
+    // provider runtime at all — the zero-cost structural path the live e2e
+    // evidence depends on. Never wire MAKA_HOST_* for it.
+    if (options.backend === 'fake') return null;
+    if (!options.apiKeyFile) {
+      // Mirror the Harbor runner's predicate: a keyless-ready provider
+      // (registry authKind 'none' — ollama, lm-studio, localai) runs the host
+      // cell with MAKA_HOST_NO_AUTH; a secret-requiring provider without a key
+      // stays unconfigured so the adapter fails loud at environment creation
+      // instead of the cell dialing the API with an empty credential.
+      if (providerRequiresSecret(provider)) return null;
+      return {
+        envFile: {},
+        agentEnv: {
+          MAKA_HOST_REPO_ROOT: options.makaRepoPath,
+          MAKA_HOST_NO_AUTH: 'true',
+          ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+        },
+      };
+    }
+    // Direct host-side key file: the host cell reads the real key from the
+    // file path. The path (not the key) rides `--ae`; the container stays
+    // offline and never sees a key. No proxy, so no token metering.
     return {
       envFile: {},
       agentEnv: {
