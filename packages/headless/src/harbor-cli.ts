@@ -145,6 +145,7 @@ async function runHarborCellMode(options: HarborRunOptions): Promise<number> {
     outputDir: options.outDir,
     storageRoot: options.storageRoot,
     ...(options.contextBudgetPolicy ? { contextBudgetPolicy: options.contextBudgetPolicy } : {}),
+    ...(options.softTimeoutMs !== undefined ? { settleAfterMs: options.softTimeoutMs } : {}),
     ...(options.registerBackends ? { registerBackends: options.registerBackends } : {}),
     ...(options.realBackendIsolation ? { realBackendIsolation: options.realBackendIsolation } : {}),
     now: options.now,

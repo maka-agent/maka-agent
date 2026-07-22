@@ -227,6 +227,54 @@ describe('maka-headless CLI', () => {
     }
   });
 
+  test('harbor run cell forwards its soft timeout to execution', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
+    try {
+      const fixture = join(dir, 'fixture');
+      const outDir = join(dir, 'out');
+      const storageRoot = join(dir, 'storage');
+      await mkdir(fixture, { recursive: true });
+
+      const result = await runCli(
+        [
+          'harbor',
+          'run',
+          '--mode',
+          'cell',
+          '--backend',
+          'fake',
+          '--isolation',
+          'none',
+          '--instruction',
+          'keep working',
+          '--workdir',
+          fixture,
+          '--out',
+          outDir,
+          '--storage-root',
+          storageRoot,
+        ],
+        {
+          env: {
+            MAKA_MODEL: 'fake-model',
+            MAKA_CELL_SOFT_TIMEOUT_MS: '50',
+          },
+        },
+      );
+
+      assert.equal(result.code, 1, result.stderr);
+      const cell = validateHarborCellOutput(
+        JSON.parse(await readFile(join(outDir, 'maka-cell-output.json'), 'utf8')),
+      );
+      assert.deepEqual(cell.deadlineSettlement, {
+        source: 'benchmark.deadline',
+        mode: 'immediate',
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('harbor run task-run writes external Harbor verifier export without fake verifier authority', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
     try {
