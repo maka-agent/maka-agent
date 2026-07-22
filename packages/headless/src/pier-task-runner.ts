@@ -754,19 +754,25 @@ async function readOptionalPierReward(trialDir: string, taskId: string): Promise
   return null;
 }
 
-/** A negative reward is DeepSWE's verifier CRASH sentinel, never a grade: every
- * task's tests/test.sh traps EXIT with `echo -1 > reward.txt` when the verifier
- * died before writing any reward file, grader.py documents that path as "an
- * infrastructure error" and real rewards as binary 0/1, and pier's verifier
- * parses reward.txt verbatim into verifier_result.rewards.reward. Recording it
- * as a scored failure would poison the benchmark denominator. */
+/** DeepSWE's grading contract is BINARY: grader.py documents the main reward
+ * as exactly 0 or 1 ("reward binary 0/1"). -1 is the verifier CRASH sentinel —
+ * every task's tests/test.sh traps EXIT with `echo -1 > reward.txt` when the
+ * verifier died before writing any reward file, grader.py documents that path
+ * as "an infrastructure error", and pier's verifier parses reward.txt verbatim
+ * into verifier_result.rewards.reward. Any other value (0.5, 2, ...) can only
+ * come from corrupt or non-contract verifier output. Recording either as a
+ * grade would poison the benchmark: a sentinel as a scored failure, a
+ * fractional value as a pass (`reward > 0`). */
 function assertGradedPierReward(reward: number, taskId: string): number {
+  if (reward === 0 || reward === 1) return reward;
   if (reward < 0) {
     throw new PierInfraError(
       `verifier crashed for task ${taskId}: reward ${reward} is the DeepSWE test.sh crash sentinel, not a grade`,
     );
   }
-  return reward;
+  throw new PierInfraError(
+    `verifier reward ${reward} for task ${taskId} violates the DeepSWE binary 0/1 contract (grader.py); treating as infra, not a grade`,
+  );
 }
 
 async function readPierReward(

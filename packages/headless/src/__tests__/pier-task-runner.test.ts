@@ -691,6 +691,24 @@ test('createPierTaskRunner classifies the reward.json crash sentinel as infra', 
   });
 });
 
+test('createPierTaskRunner rejects non-binary rewards as infra', async () => {
+  // grader.py: the main reward is binary 0/1 (113/113 DeepSWE tasks); 0.5 or 2
+  // can only come from corrupt or non-contract verifier output, and 0.5 would
+  // otherwise score as a PASS through `reward > 0`.
+  for (const reward of [0.5, 2]) {
+    await withDirs(async ({ jobsDir, repo }) => {
+      const runner = createPierTaskRunner(
+        baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward }) }),
+      );
+      await assert.rejects(runner(runInput()), (error: Error) => {
+        assert.ok(error instanceof PierInfraError);
+        assert.match(error.message, /binary 0\/1 contract/);
+        return true;
+      });
+    });
+  }
+});
+
 test('createPierTaskRunner classifies the verifier_result crash sentinel as infra', async () => {
   // The sentinel arrives via reward.txt -> pier's verifier parse ->
   // verifier_result.rewards.reward; there is no reward.json in that path.
