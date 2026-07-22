@@ -2046,6 +2046,7 @@ with tempfile.TemporaryDirectory() as tmp:
             self.reclaim_scoped_processes = True
 
     class FakeHostProcess:
+        pid = 123
         returncode = 0
 
         async def communicate(self):
@@ -2094,6 +2095,50 @@ with tempfile.TemporaryDirectory() as tmp:
         })
         host_process_environment = types.SimpleNamespace(root_commands=[], agent_commands=[])
         asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
+        host_cell_process = dict(captured_host_process)
+
+        task_run_agent = MakaAgent(Path(tmp), extra_env={
+            "MAKA_BACKEND": "fake",
+            "MAKA_HARBOR_MODE": "task-run",
+        })
+        task_run_context = AgentContext()
+
+        async def resolve_task_workdir(environment):
+            return ("/app", [])
+
+        async def communicate_task_run(**kwargs):
+            return (b'{"status":"completed","benchmarkFailureShouldThrow":false}\n', b"")
+
+        task_run_agent._resolve_task_workdir = resolve_task_workdir
+        task_run_agent._communicate_streaming = communicate_task_run
+        asyncio.run(
+            task_run_agent._run_task_run_host(
+                "finish the task",
+                host_process_environment,
+                task_run_context,
+            )
+        )
+        task_run_env = captured_host_process["kwargs"]["env"]
+        assert "MAKA_MAX_STEPS" not in task_run_env, task_run_env.get("MAKA_MAX_STEPS")
+
+        capped_task_run_agent = MakaAgent(Path(tmp), extra_env={
+            "MAKA_BACKEND": "fake",
+            "MAKA_HARBOR_MODE": "task-run",
+            "MAKA_MAX_STEPS": "64",
+        })
+        capped_task_run_agent._resolve_task_workdir = resolve_task_workdir
+        capped_task_run_agent._communicate_streaming = communicate_task_run
+        asyncio.run(
+            capped_task_run_agent._run_task_run_host(
+                "finish the task",
+                host_process_environment,
+                AgentContext(),
+            )
+        )
+        capped_task_run_env = captured_host_process["kwargs"]["env"]
+        assert capped_task_run_env["MAKA_MAX_STEPS"] == "64", capped_task_run_env.get("MAKA_MAX_STEPS")
+        captured_host_process.clear()
+        captured_host_process.update(host_cell_process)
 
         class DeadlineSettledHostProcess(FakeHostProcess):
             returncode = 124
