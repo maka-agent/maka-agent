@@ -12,6 +12,7 @@ import {
   runFixedPromptController,
   type TaskRunInput,
 } from '../fixed-prompt-controller.js';
+import { findTrialDir } from '../harbor-task-runner.js';
 import {
   buildPierRunArgs,
   createPierTaskRunner,
@@ -55,6 +56,35 @@ test('defaultPierProcessRunner escalates to SIGKILL after the grace', async () =
   );
   assert.equal(result.timedOut, true);
   assert.equal(result.signal, 'SIGKILL');
+});
+
+test('shared findTrialDir honors the exception_stats trial-name hint with pier diagnostics', async () => {
+  // The pier runner reuses harbor's trial-dir discovery, which must keep the
+  // exception_stats branch: an errored trial appears only there, and the
+  // directory-name fallback cannot disambiguate a stale sibling dir.
+  const jobDir = await mkdtemp(join(tmpdir(), 'pier-findtrial-'));
+  try {
+    await mkdir(join(jobDir, 'stale-dir'));
+    await mkdir(join(jobDir, 'errored-trial'));
+    await writeFile(
+      join(jobDir, 'result.json'),
+      JSON.stringify({
+        stats: {
+          evals: { e1: { exception_stats: { NonZeroAgentExitCodeError: ['errored-trial'] } } },
+        },
+      }),
+      'utf8',
+    );
+    const found = await findTrialDir(jobDir, 'unmatched-task', 'pier', PierInfraError);
+    assert.equal(found, join(jobDir, 'errored-trial'));
+    await assert.rejects(
+      findTrialDir(join(jobDir, 'missing'), 'unmatched-task', 'pier', PierInfraError),
+      (error: unknown) =>
+        error instanceof PierInfraError && /pier produced no job output/.test(error.message),
+    );
+  } finally {
+    await rm(jobDir, { recursive: true, force: true });
+  }
 });
 
 function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput {

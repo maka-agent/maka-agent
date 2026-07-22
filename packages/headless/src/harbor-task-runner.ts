@@ -94,6 +94,17 @@ export class HarborInfraError extends Error {
   }
 }
 
+/** Constructor shape shared by HarborInfraError and PierInfraError. The shared
+ * trial-mapping helpers below take this so they throw the calling runner's own
+ * error type — the controller classifies by behavior, never identity, but
+ * diagnostics must keep naming the failing harness. */
+export type InfraErrorCtor = new (
+  message: string,
+  detail?: string,
+  kind?: 'infra_failed' | 'timed_out',
+  artifactRefs?: { providerTelemetryPath?: string },
+) => HarborInfraError;
+
 export interface HarborTaskPricing {
   inputUsdPer1M: number;
   outputUsdPer1M: number;
@@ -409,27 +420,32 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): TaskRu
   return runner;
 }
 
-function providerTelemetryArtifactRefs(
+/** Shared across runners: attach the provider-request telemetry artifact to a
+ * thrown outcome so infra failures keep their billing/usage evidence. */
+export function providerTelemetryArtifactRefs(
   telemetry: readonly ProviderRequestTelemetry[],
   providerTelemetryPath: string,
 ): { providerTelemetryPath: string } | undefined {
   return telemetry.length > 0 ? { providerTelemetryPath } : undefined;
 }
 
-function withProviderTelemetryArtifact(
+/** Shared across runners: enriches only the calling runner's own infra error
+ * type, so a foreign error passes through untouched. */
+export function withProviderTelemetryArtifact(
   error: unknown,
   telemetry: readonly ProviderRequestTelemetry[],
   providerTelemetryPath: string,
+  infraError: InfraErrorCtor = HarborInfraError,
 ): unknown {
   const artifactRefs = providerTelemetryArtifactRefs(telemetry, providerTelemetryPath);
   if (
-    !(error instanceof HarborInfraError) ||
+    !(error instanceof infraError) ||
     !artifactRefs ||
     error.artifactRefs?.providerTelemetryPath
   ) {
     return error;
   }
-  const enriched = new HarborInfraError(error.message, error.detail, error.kind, artifactRefs);
+  const enriched = new infraError(error.message, error.detail, error.kind, artifactRefs);
   enriched.stack = error.stack;
   return enriched;
 }
@@ -1282,12 +1298,21 @@ export function providerRequiresSecret(provider: string | undefined): boolean {
   return providerAuthRequiresSecret(providerType);
 }
 
-async function findTrialDir(jobDir: string, taskName: string): Promise<string> {
+/** Shared across runners: Harbor and Pier lay out job output the same way
+ * (result.json reward_stats/exception_stats trial-name hint, then a
+ * task-name-prefixed directory fallback), so trial-dir discovery must not fork.
+ * `harness`/`infraError` keep the thrown diagnostics naming the calling runner. */
+export async function findTrialDir(
+  jobDir: string,
+  taskName: string,
+  harness = 'harbor',
+  infraError: InfraErrorCtor = HarborInfraError,
+): Promise<string> {
   let entries;
   try {
     entries = await readdir(jobDir, { withFileTypes: true });
   } catch (error) {
-    throw new HarborInfraError(`harbor produced no job output at ${jobDir}`, errorText(error));
+    throw new infraError(`${harness} produced no job output at ${jobDir}`, errorText(error));
   }
   const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
   const resultTrialName = await readResultTrialName(join(jobDir, 'result.json'));
@@ -1297,8 +1322,8 @@ async function findTrialDir(jobDir: string, taskName: string): Promise<string> {
   const match =
     dirs.find((name) => name === taskName || name.startsWith(`${taskName}__`)) ?? dirs[0];
   if (!match) {
-    throw new HarborInfraError(
-      `harbor produced no trial directory under ${jobDir} for task ${taskName}`,
+    throw new infraError(
+      `${harness} produced no trial directory under ${jobDir} for task ${taskName}`,
     );
   }
   return join(jobDir, match);
@@ -1378,7 +1403,12 @@ async function readReward(rewardPath: string, resultPath: string, taskId: string
   return reward;
 }
 
-async function readTrialException(resultPath: string): Promise<string | null> {
+/** Shared across runners: both harnesses record how the agent phase ended in
+ * the trial result's `exception_info`, in the same shape. */
+export async function readTrialException(
+  resultPath: string,
+  fallbackType = 'HarborTrialError',
+): Promise<string | null> {
   let raw: string;
   try {
     raw = await readFile(resultPath, 'utf8');
@@ -1395,9 +1425,7 @@ async function readTrialException(resultPath: string): Promise<string | null> {
   const exceptionInfo = isRecord(parsed.exception_info) ? parsed.exception_info : null;
   if (!exceptionInfo) return null;
   const type =
-    typeof exceptionInfo.exception_type === 'string'
-      ? exceptionInfo.exception_type
-      : 'HarborTrialError';
+    typeof exceptionInfo.exception_type === 'string' ? exceptionInfo.exception_type : fallbackType;
   const message =
     typeof exceptionInfo.exception_message === 'string' ? exceptionInfo.exception_message : '';
   return message ? `${type}: ${message}` : type;
@@ -1411,32 +1439,29 @@ export function isBudgetExhaustedTrialException(message: string): boolean {
   );
 }
 
-async function readCellOutput(cellOutputPath: string, taskId: string): Promise<HarborCellOutput> {
+/** Shared across runners: the same adapters write the same maka-cell-output.json
+ * contract into both harnesses' trial layouts. */
+export async function readCellOutput(
+  cellOutputPath: string,
+  taskId: string,
+  infraError: InfraErrorCtor = HarborInfraError,
+): Promise<HarborCellOutput> {
   let raw: string;
   try {
     raw = await readFile(cellOutputPath, 'utf8');
   } catch (error) {
-    throw new HarborInfraError(
-      `maka cell did not write output for task ${taskId}`,
-      errorText(error),
-    );
+    throw new infraError(`maka cell did not write output for task ${taskId}`, errorText(error));
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new HarborInfraError(
-      `maka cell output is not valid JSON for task ${taskId}`,
-      errorText(error),
-    );
+    throw new infraError(`maka cell output is not valid JSON for task ${taskId}`, errorText(error));
   }
   try {
     return validateHarborCellOutput(parsed);
   } catch (error) {
-    throw new HarborInfraError(
-      `maka cell output is malformed for task ${taskId}`,
-      errorText(error),
-    );
+    throw new infraError(`maka cell output is malformed for task ${taskId}`, errorText(error));
   }
 }
 

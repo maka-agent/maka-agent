@@ -1,10 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
-import { validateHarborCellOutput, type HarborCellOutput } from './cell-output.js';
 import {
   FixedPromptBudgetExhaustedError,
   type HarborVerifierOutcome,
@@ -15,6 +14,7 @@ import {
 import {
   assertNoExperimentIdentityOverrides,
   assertNoProviderSecretsInAgentEnv,
+  findTrialDir,
   harborTraceMode,
   isBudgetExhaustedError,
   isBudgetExhaustedTrialException,
@@ -23,9 +23,13 @@ import {
   providerProxyAuthMode,
   providerProxyUsageProtocol,
   providerRequiresSecret,
+  providerTelemetryArtifactRefs,
   providerTokenSummary,
+  readCellOutput,
   readTimedOutTrialArtifacts,
+  readTrialException,
   resolveNativeTrialTimeoutMs,
+  withProviderTelemetryArtifact,
   type HarborTaskPricing,
 } from './harbor-task-runner.js';
 import { lenientPositiveIntEnv } from './headless-run-env.js';
@@ -330,7 +334,7 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
       }
       let trialDir: string;
       try {
-        trialDir = await findTrialDir(jobDir, basename(input.task.path));
+        trialDir = await findTrialDir(jobDir, basename(input.task.path), 'pier', PierInfraError);
       } catch (error) {
         if (result.exitCode === 0) throw error;
         throw new PierInfraError(
@@ -347,7 +351,10 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
       // cell output are both present, score the trial on its actual reward;
       // only an ungraded budget exhaustion is a budget_exhausted outcome, and
       // any other exception is infra.
-      const trialException = await readTrialException(join(trialDir, TRIAL_RESULT));
+      const trialException = await readTrialException(
+        join(trialDir, TRIAL_RESULT),
+        'PierTrialError',
+      );
       let completeTimedOutTrial = false;
       if (trialException) {
         if (!isBudgetExhaustedTrialException(trialException)) {
@@ -391,7 +398,11 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
       }
 
       const reward = await readPierReward(trialDir, input.task.id);
-      const rawCell = await readCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), input.task.id);
+      const rawCell = await readCellOutput(
+        join(trialDir, TRIAL_CELL_OUTPUT),
+        input.task.id,
+        PierInfraError,
+      );
       const cell =
         rawCell.tokenSummary || !providerUsage || !options.pricing
           ? rawCell
@@ -418,7 +429,12 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
         },
       };
     } catch (error) {
-      throw withProviderTelemetryArtifact(error, providerTelemetry, providerTelemetryPath);
+      throw withProviderTelemetryArtifact(
+        error,
+        providerTelemetry,
+        providerTelemetryPath,
+        PierInfraError,
+      );
     }
   };
   return runner;
@@ -735,104 +751,6 @@ async function readPierReward(trialDir: string, taskId: string): Promise<number>
   return reward;
 }
 
-async function readCellOutput(cellOutputPath: string, taskId: string): Promise<HarborCellOutput> {
-  let raw: string;
-  try {
-    raw = await readFile(cellOutputPath, 'utf8');
-  } catch (error) {
-    throw new PierInfraError(`maka cell did not write output for task ${taskId}`, errorText(error));
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new PierInfraError(
-      `maka cell output is not valid JSON for task ${taskId}`,
-      errorText(error),
-    );
-  }
-  try {
-    return validateHarborCellOutput(parsed);
-  } catch (error) {
-    throw new PierInfraError(`maka cell output is malformed for task ${taskId}`, errorText(error));
-  }
-}
-
-async function findTrialDir(jobDir: string, taskName: string): Promise<string> {
-  let entries;
-  try {
-    entries = await readdir(jobDir, { withFileTypes: true });
-  } catch (error) {
-    throw new PierInfraError(`pier produced no job output at ${jobDir}`, errorText(error));
-  }
-  const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  const resultTrialName = await readResultTrialName(join(jobDir, TRIAL_RESULT));
-  if (resultTrialName && dirs.includes(resultTrialName)) return join(jobDir, resultTrialName);
-  const match =
-    dirs.find((name) => name === taskName || name.startsWith(`${taskName}__`)) ?? dirs[0];
-  if (!match) {
-    throw new PierInfraError(
-      `pier produced no trial directory under ${jobDir} for task ${taskName}`,
-    );
-  }
-  return join(jobDir, match);
-}
-
-async function readResultTrialName(resultPath: string): Promise<string | null> {
-  const parsed = await readOptionalJson(resultPath);
-  if (!parsed || !isRecord(parsed.stats) || !isRecord(parsed.stats.evals)) return null;
-  for (const evalResult of Object.values(parsed.stats.evals)) {
-    if (!isRecord(evalResult)) continue;
-    const rewardStats = isRecord(evalResult.reward_stats) ? evalResult.reward_stats : null;
-    const rewards =
-      rewardStats && isRecord(rewardStats.reward) ? Object.values(rewardStats.reward) : [];
-    for (const trialNames of rewards) {
-      const trialName = firstString(trialNames);
-      if (trialName) return trialName;
-    }
-  }
-  return null;
-}
-
-async function readTrialException(resultPath: string): Promise<string | null> {
-  const parsed = await readOptionalJson(resultPath);
-  if (!parsed) return null;
-  const exceptionInfo = isRecord(parsed.exception_info) ? parsed.exception_info : null;
-  if (!exceptionInfo) return null;
-  const type =
-    typeof exceptionInfo.exception_type === 'string'
-      ? exceptionInfo.exception_type
-      : 'PierTrialError';
-  const message =
-    typeof exceptionInfo.exception_message === 'string' ? exceptionInfo.exception_message : '';
-  return message ? `${type}: ${message}` : type;
-}
-
-function providerTelemetryArtifactRefs(
-  telemetry: readonly ProviderRequestTelemetry[],
-  providerTelemetryPath: string,
-): { providerTelemetryPath: string } | undefined {
-  return telemetry.length > 0 ? { providerTelemetryPath } : undefined;
-}
-
-function withProviderTelemetryArtifact(
-  error: unknown,
-  telemetry: readonly ProviderRequestTelemetry[],
-  providerTelemetryPath: string,
-): unknown {
-  const artifactRefs = providerTelemetryArtifactRefs(telemetry, providerTelemetryPath);
-  if (
-    !(error instanceof PierInfraError) ||
-    !artifactRefs ||
-    error.artifactRefs?.providerTelemetryPath
-  ) {
-    return error;
-  }
-  const enriched = new PierInfraError(error.message, error.detail, error.kind, artifactRefs);
-  enriched.stack = error.stack;
-  return enriched;
-}
-
 /** Grace between SIGTERM and SIGKILL when the watchdog fires. Pier's SIGTERM
  * handler (pier/cli/jobs.py:771 -> :148 raises KeyboardInterrupt) unwinds its
  * Python finally chain, which owns docker compose teardown — containers need
@@ -935,15 +853,6 @@ async function readOptionalJson(path: string): Promise<Record<string, unknown> |
   } catch {
     return null;
   }
-}
-
-function firstString(value: unknown): string | null {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) {
-    const first = value.find((item): item is string => typeof item === 'string');
-    return first ?? null;
-  }
-  return null;
 }
 
 function sanitize(value: string): string {
