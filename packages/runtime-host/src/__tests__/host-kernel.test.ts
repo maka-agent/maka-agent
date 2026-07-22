@@ -137,6 +137,8 @@ describe('non-serving Runtime Host kernel', () => {
               'turn.message.submit': unavailable,
               'queue.retract': unavailable,
               'turn.interrupt': unavailable,
+              'subscription.open': unavailable,
+              'subscription.close': unavailable,
             },
             async recover() {},
             async close() {},

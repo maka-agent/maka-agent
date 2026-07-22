@@ -6,6 +6,7 @@ import {
   decodeHostFrame,
   decodeHostRegistration,
   decodeSessionMessageQueueProjection,
+  decodeSessionContinuitySnapshot,
   encodeProtocolFrame,
   HOST_OPERATION_SPECS,
   MESSAGE_OPERATION_RESULT_MAX_BYTES,
@@ -14,6 +15,10 @@ import {
   ProtocolFrameDecoder,
   RUNTIME_HOST_MAX_FRAME_BYTES,
   RUNTIME_HOST_PROTOCOL_VERSION,
+  SESSION_CONTINUITY_SCHEMA_VERSION,
+  SESSION_CONTINUITY_SNAPSHOT_MAX_BYTES,
+  SESSION_LIVE_DELTA_MAX_BYTES,
+  SESSION_TOOL_NAME_MAX_BYTES,
   TURN_MESSAGE_CONTENT_MAX_BYTES,
   TURN_MESSAGE_TEXT_MAX_BYTES,
   RuntimeHostProtocolError,
@@ -54,10 +59,231 @@ describe('Runtime Host bootstrap protocol', () => {
         ]),
       ),
       {
-        'turn.message.submit': { mode: 'command', availability: 'ready', errors },
+        'turn.message.submit': {
+          mode: 'command',
+          availability: 'ready',
+          errors,
+        },
         'queue.retract': { mode: 'command', availability: 'ready', errors },
         'turn.interrupt': { mode: 'control', availability: 'ready', errors },
       },
+    );
+  });
+
+  test('keeps subscription operations closed, ready-only, and queue Epoch correlated', () => {
+    assert.equal(SESSION_CONTINUITY_SCHEMA_VERSION, 1);
+    assert.deepEqual(
+      Object.fromEntries(
+        (['subscription.open', 'subscription.close'] as const).map((operation) => [
+          operation,
+          {
+            mode: HOST_OPERATION_SPECS[operation].mode,
+            availability: HOST_OPERATION_SPECS[operation].availability,
+            errors: HOST_OPERATION_SPECS[operation].errors,
+          },
+        ]),
+      ),
+      {
+        'subscription.open': {
+          mode: 'control',
+          availability: 'ready',
+          errors: [
+            'host_not_ready',
+            'host_draining',
+            'operation_unavailable',
+            'not_found',
+            'operation_conflict',
+            'internal_failure',
+          ],
+        },
+        'subscription.close': {
+          mode: 'control',
+          availability: 'ready',
+          errors: [
+            'host_not_ready',
+            'host_draining',
+            'operation_unavailable',
+            'not_found',
+            'internal_failure',
+          ],
+        },
+      },
+    );
+    const opened = {
+      requestId: 'open-1',
+      operation: 'subscription.open',
+      ok: true,
+      result: {
+        hostEpoch: 'epoch-1',
+        subscriptionId: 'subscription-1',
+        nextSequence: 1,
+        snapshot: continuitySnapshot('epoch-1'),
+      },
+    };
+    assert.deepEqual(decodeHostFrame(opened), opened);
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...opened,
+          result: { ...opened.result, snapshot: continuitySnapshot('epoch-2') },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeSessionContinuitySnapshot({
+          ...continuitySnapshot('epoch-1'),
+          interactions: [],
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('decodes only privacy-normalized bounded subscription live frames', () => {
+    const envelope = {
+      kind: 'subscription.session_event' as const,
+      hostEpoch: 'epoch-1',
+      subscriptionId: 'subscription-1',
+      sequence: 1,
+      sessionId: 'session-1',
+      runId: 'run-1',
+    };
+    const identity = {
+      id: 'event-1',
+      turnId: 'turn-1',
+      ts: 1,
+      toolUseId: 'tool-1',
+    };
+    for (const event of [
+      {
+        ...identity,
+        type: 'tool_start',
+        toolName: 'read',
+        displayName: 'Read file',
+      },
+      {
+        ...identity,
+        type: 'tool_output_delta',
+        seq: 0,
+        stream: 'stdout',
+        chunk: 'visible output',
+        redacted: false,
+        createdAt: 2,
+      },
+      { ...identity, type: 'tool_progress', chunk: 'working' },
+      { ...identity, type: 'tool_result', status: 'completed', durationMs: 3 },
+    ]) {
+      assert.doesNotThrow(() => decodeHostFrame({ ...envelope, event }));
+    }
+    for (const event of [
+      {
+        ...identity,
+        type: 'tool_start',
+        toolName: 'read',
+        args: { path: '/private' },
+      },
+      {
+        ...identity,
+        type: 'tool_result',
+        status: 'errored',
+        result: { secret: true },
+      },
+      {
+        ...identity,
+        type: 'tool_result',
+        status: 'errored',
+        error: 'raw provider error',
+      },
+    ]) {
+      assert.throws(() => decodeHostFrame({ ...envelope, event }), isInvalidFrame);
+    }
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          kind: 'subscription.session_delta',
+          hostEpoch: 'epoch-1',
+          subscriptionId: 'subscription-1',
+          sequence: 1,
+          sessionId: 'session-1',
+          delta: {
+            kind: 'thinking',
+            turnId: 'turn-1',
+            runId: 'run-1',
+            messageId: 'message-1',
+            text: 'private reasoning',
+            signature: 'provider-signature',
+          },
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('enforces UTF-8 snapshot, live field, and whole-frame byte bounds', () => {
+    const snapshot = continuitySnapshot('epoch-1');
+    assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) < SESSION_CONTINUITY_SNAPSHOT_MAX_BYTES);
+    assert.throws(
+      () =>
+        decodeSessionContinuitySnapshot({
+          ...snapshot,
+          padding: 'x'.repeat(SESSION_CONTINUITY_SNAPSHOT_MAX_BYTES),
+        }),
+      isInvalidFrame,
+    );
+    const frame = {
+      kind: 'subscription.session_delta' as const,
+      hostEpoch: 'epoch-1',
+      subscriptionId: 'subscription-1',
+      sequence: 1,
+      sessionId: 'session-1',
+      delta: {
+        kind: 'text' as const,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: 'message-1',
+        text: '界'.repeat(Math.floor(SESSION_LIVE_DELTA_MAX_BYTES / 3) + 1),
+      },
+    };
+    assert.throws(() => decodeHostFrame(frame), isInvalidFrame);
+    const eventEnvelope = {
+      kind: 'subscription.session_event',
+      hostEpoch: 'epoch-1',
+      subscriptionId: 'subscription-1',
+      sequence: 1,
+      sessionId: 'session-1',
+      runId: 'run-1',
+    };
+    const eventIdentity = { id: 'event-1', turnId: 'turn-1', ts: 1, toolUseId: 'tool-1' };
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...eventEnvelope,
+          event: {
+            ...eventIdentity,
+            type: 'tool_start',
+            toolName: '界'.repeat(Math.floor(SESSION_TOOL_NAME_MAX_BYTES / 3) + 1),
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...eventEnvelope,
+          event: {
+            ...eventIdentity,
+            type: 'tool_progress',
+            chunk: '界'.repeat(Math.floor(SESSION_LIVE_DELTA_MAX_BYTES / 3) + 1),
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          ...frame,
+          privatePadding: 'x'.repeat(RUNTIME_HOST_MAX_FRAME_BYTES),
+        }),
+      isInvalidFrame,
     );
   });
 
@@ -126,14 +352,23 @@ describe('Runtime Host bootstrap protocol', () => {
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeHostRegistration({ ...registration, protocolMax: Number.MAX_SAFE_INTEGER + 1 }),
+      () =>
+        decodeHostRegistration({
+          ...registration,
+          protocolMax: Number.MAX_SAFE_INTEGER + 1,
+        }),
       isInvalidFrame,
     );
   });
 
   test('keeps the operation registry closed at request and response boundaries', () => {
     assert.throws(
-      () => decodeClientFrame({ requestId: 'request-1', operation: 'store.read', input: {} }),
+      () =>
+        decodeClientFrame({
+          requestId: 'request-1',
+          operation: 'store.read',
+          input: {},
+        }),
       isInvalidFrame,
     );
     assert.throws(
@@ -141,7 +376,11 @@ describe('Runtime Host bootstrap protocol', () => {
         decodeClientFrame({
           requestId: 'request-2',
           operation: 'turn.query',
-          input: { sessionId: 'session-1', turnId: 'turn-1', path: '/tmp/private' },
+          input: {
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            path: '/tmp/private',
+          },
         }),
       isInvalidFrame,
     );
@@ -183,7 +422,11 @@ describe('Runtime Host bootstrap protocol', () => {
     const retract = {
       requestId: 'retract-request-1',
       operation: 'queue.retract' as const,
-      input: { originHostEpoch: 'epoch-1', sessionId: 'session-1', retractId: 'retract-1' },
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        retractId: 'retract-1',
+      },
     };
     const interrupt = {
       requestId: 'interrupt-request-1',
@@ -201,11 +444,18 @@ describe('Runtime Host bootstrap protocol', () => {
     assert.deepEqual(decodeClientFrame(interrupt), interrupt);
     assert.throws(
       () =>
-        decodeClientFrame({ ...submit, input: { ...submit.input, originHostEpoch: undefined } }),
+        decodeClientFrame({
+          ...submit,
+          input: { ...submit.input, originHostEpoch: undefined },
+        }),
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeClientFrame({ ...retract, input: { ...retract.input, generation: 1 } }),
+      () =>
+        decodeClientFrame({
+          ...retract,
+          input: { ...retract.input, generation: 1 },
+        }),
       isInvalidFrame,
     );
     assert.throws(
@@ -233,14 +483,21 @@ describe('Runtime Host bootstrap protocol', () => {
   });
 
   test('uses canonical MessageContent for turn start and submit', () => {
-    const attachment = attachmentRef({ kind: 'workspace_file', relativePath: 'src/a.ts' });
+    const attachment = attachmentRef({
+      kind: 'workspace_file',
+      relativePath: 'src/a.ts',
+    });
     const start = decodeClientFrame({
       requestId: 'start-request-1',
       operation: 'turn.start',
       input: {
         sessionId: 'session-1',
         turnId: 'turn-1',
-        content: { text: 'model text', displayText: 'model text', attachments: [attachment] },
+        content: {
+          text: 'model text',
+          displayText: 'model text',
+          attachments: [attachment],
+        },
       },
     });
     assert.deepEqual(start, {
@@ -295,7 +552,10 @@ describe('Runtime Host bootstrap protocol', () => {
       submit({
         text: 'valid',
         attachments: Array.from({ length: MAX_ATTACHMENT_COUNT }, (_, index) =>
-          attachmentRef({ kind: 'workspace_file', relativePath: `${index}.ts` }),
+          attachmentRef({
+            kind: 'workspace_file',
+            relativePath: `${index}.ts`,
+          }),
         ),
       }),
     );
@@ -304,21 +564,37 @@ describe('Runtime Host bootstrap protocol', () => {
         submit({
           text: 'valid',
           attachments: Array.from({ length: MAX_ATTACHMENT_COUNT + 1 }, (_, index) =>
-            attachmentRef({ kind: 'workspace_file', relativePath: `${index}.ts` }),
+            attachmentRef({
+              kind: 'workspace_file',
+              relativePath: `${index}.ts`,
+            }),
           ),
         }),
       isInvalidFrame,
     );
     for (const attachment of [
-      { ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }), bytes: -1 },
+      {
+        ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }),
+        bytes: -1,
+      },
       {
         ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }),
         bytes: MAX_ATTACHMENT_BYTES + 1,
       },
-      { ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }), name: '' },
-      { ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }), mimeType: '' },
+      {
+        ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }),
+        name: '',
+      },
+      {
+        ...attachmentRef({ kind: 'workspace_file', relativePath: 'a.ts' }),
+        mimeType: '',
+      },
       attachmentRef({ kind: 'workspace_file', relativePath: 'a'.repeat(4097) }),
-      attachmentRef({ kind: 'session_file', sessionId: 'bad/id', relativePath: 'a.ts' }),
+      attachmentRef({
+        kind: 'session_file',
+        sessionId: 'bad/id',
+        relativePath: 'a.ts',
+      }),
       attachmentRef({ kind: 'workspace_file', relativePath: '../secret' }),
       attachmentRef({ kind: 'workspace_file', relativePath: 'src//a.ts' }),
       attachmentRef({ kind: 'external_file', absolutePath: 'relative/a.ts' }),
@@ -326,7 +602,11 @@ describe('Runtime Host bootstrap protocol', () => {
       assert.throws(() => submit({ text: 'valid', attachments: [attachment] }), isInvalidFrame);
     }
     assert.throws(
-      () => submit({ text: 'a'.repeat(TURN_MESSAGE_CONTENT_MAX_BYTES), displayText: 'also large' }),
+      () =>
+        submit({
+          text: 'a'.repeat(TURN_MESSAGE_CONTENT_MAX_BYTES),
+          displayText: 'also large',
+        }),
       isInvalidFrame,
     );
   });
@@ -352,7 +632,9 @@ describe('Runtime Host bootstrap protocol', () => {
           operation: 'turn.message.submit',
           input: {
             ...input,
-            content: { text: '界'.repeat(Math.floor(TURN_MESSAGE_TEXT_MAX_BYTES / 3) + 1) },
+            content: {
+              text: '界'.repeat(Math.floor(TURN_MESSAGE_TEXT_MAX_BYTES / 3) + 1),
+            },
           },
         }),
       isInvalidFrame,
@@ -380,7 +662,11 @@ describe('Runtime Host bootstrap protocol', () => {
           requestId: 'submit-response',
           operation: 'turn.message.submit',
           ok: true,
-          result: { disposition: 'turn_started', turnId: 'turn-2', queueRevision: 4 },
+          result: {
+            disposition: 'turn_started',
+            turnId: 'turn-2',
+            queueRevision: 4,
+          },
         }),
       isInvalidFrame,
     );
@@ -429,7 +715,11 @@ describe('Runtime Host bootstrap protocol', () => {
         queueRevision: 7,
         steering: [queuedMessage(), inFlightMessage()],
         followup: [
-          { ...queuedMessage('later', 'next_turn'), entryId: 'entry-3', messageId: 'm-3' },
+          {
+            ...queuedMessage('later', 'next_turn'),
+            entryId: 'entry-3',
+            messageId: 'm-3',
+          },
         ],
       }),
       {
@@ -437,7 +727,11 @@ describe('Runtime Host bootstrap protocol', () => {
         queueRevision: 7,
         steering: [queuedMessage(), inFlightMessage()],
         followup: [
-          { ...queuedMessage('later', 'next_turn'), entryId: 'entry-3', messageId: 'm-3' },
+          {
+            ...queuedMessage('later', 'next_turn'),
+            entryId: 'entry-3',
+            messageId: 'm-3',
+          },
         ],
       },
     );
@@ -558,5 +852,37 @@ function attachmentRef(
     | { kind: 'workspace_file'; relativePath: string }
     | { kind: 'external_file'; absolutePath: string },
 ) {
-  return { kind: 'code' as const, name: 'a.ts', mimeType: 'text/typescript', bytes: 10, ref };
+  return {
+    kind: 'code' as const,
+    name: 'a.ts',
+    mimeType: 'text/typescript',
+    bytes: 10,
+    ref,
+  };
+}
+
+function continuitySnapshot(hostEpoch: string) {
+  return {
+    schemaVersion: 1 as const,
+    session: {
+      sessionId: 'session-1',
+      status: 'running' as const,
+      createdAt: 1,
+      lastUsedAt: 2,
+      isArchived: false,
+    },
+    projectionRevision: 1,
+    rootTurn: {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      status: 'running' as const,
+    },
+    queue: {
+      hostEpoch,
+      queueRevision: 1,
+      steering: [],
+      followup: [],
+    },
+  };
 }

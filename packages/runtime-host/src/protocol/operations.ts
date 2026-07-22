@@ -9,13 +9,11 @@ import {
   type OperationSpec,
 } from './operation-spec.js';
 import { TURN_OPERATION_SPECS } from './turn.js';
+import { SESSION_CONTINUITY_OPERATION_SPECS } from './session-continuity.js';
 
 export type { HostLifecycleState, HostStatusInput, HostStatusResult } from './host-status.js';
 export type { HostOperationError, HostOperationErrorCode } from './operation-spec.js';
-export {
-  TURN_MESSAGE_CONTENT_MAX_BYTES,
-  TURN_MESSAGE_TEXT_MAX_BYTES,
-} from './turn.js';
+export { TURN_MESSAGE_CONTENT_MAX_BYTES, TURN_MESSAGE_TEXT_MAX_BYTES } from './turn.js';
 export type {
   InFlightMessageSnapshot,
   MessagePlacement,
@@ -44,9 +42,14 @@ const HOST_AND_TURN_OPERATION_SPECS = composeOperationSpecMaps(
   TURN_OPERATION_SPECS,
 );
 
-export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_TURN_AND_MESSAGE_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_AND_TURN_OPERATION_SPECS,
   MESSAGE_OPERATION_SPECS,
+);
+
+export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TURN_AND_MESSAGE_OPERATION_SPECS,
+  SESSION_CONTINUITY_OPERATION_SPECS,
 );
 
 export type OperationSpecMap = typeof HOST_OPERATION_SPECS;

@@ -39,8 +39,16 @@ export type MessageOperationKey = Extract<
   OperationKey,
   'turn.message.submit' | 'queue.retract' | 'turn.interrupt'
 >;
+export type SessionContinuityOperationKey = Extract<
+  OperationKey,
+  'subscription.open' | 'subscription.close'
+>;
 export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
 export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
+export type SessionContinuityOperationHandlerMap = Pick<
+  OperationHandlerMap,
+  SessionContinuityOperationKey
+>;
 export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
 
 export function composeOperationHandlers(

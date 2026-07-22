@@ -53,6 +53,14 @@ const host = await RuntimeHostKernel.start({
         ok: false,
         error: { code: 'operation_unavailable', message: 'Operation unavailable in test Host' },
       }),
+      'subscription.open': async () => ({
+        ok: false,
+        error: { code: 'operation_unavailable', message: 'Operation unavailable in test Host' },
+      }),
+      'subscription.close': async () => ({
+        ok: false,
+        error: { code: 'operation_unavailable', message: 'Operation unavailable in test Host' },
+      }),
     },
     async recover() {},
     async close() {},

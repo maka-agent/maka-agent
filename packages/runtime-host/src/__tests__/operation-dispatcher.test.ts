@@ -167,6 +167,8 @@ function validHandlers(): OperationHandlerMap {
     'turn.message.submit': unavailable,
     'queue.retract': unavailable,
     'turn.interrupt': unavailable,
+    'subscription.open': unavailable,
+    'subscription.close': unavailable,
   };
 }
 
