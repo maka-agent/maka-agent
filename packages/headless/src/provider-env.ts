@@ -79,7 +79,7 @@ const PROVIDER_CREDENTIAL_ENV = {
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;
 
 const SENSITIVE_ENV_NAME =
-  /(?:^|_)(?:API_KEY|ACCESS_KEY|PRIVATE_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i;
+  /(?:^|_)(?:API_KEY|ACCESS_KEY|PRIVATE_KEY|TOKEN|SECRET|CREDENTIALS?)(?:_|$)|PASSWORD$/i;
 
 export function providerCredentialEnv(provider: string): ProviderCredentialEnv | undefined {
   return PROVIDER_CREDENTIAL_ENV[provider as keyof typeof PROVIDER_CREDENTIAL_ENV];

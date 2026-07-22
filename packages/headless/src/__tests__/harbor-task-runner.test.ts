@@ -2035,9 +2035,10 @@ describe('buildHarborJobConfig', () => {
           agentEnv: {
             ACME_API_KEY: 'unregistered-secret',
             GOOGLE_APPLICATION_CREDENTIALS: '/tmp/google-credentials.json',
+            PGPASSWORD: 'postgres-secret',
           },
         }),
-      /agentEnv must not contain provider secrets: ACME_API_KEY, GOOGLE_APPLICATION_CREDENTIALS/,
+      /agentEnv must not contain provider secrets: ACME_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, PGPASSWORD/,
     );
   });
 
