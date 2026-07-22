@@ -31,6 +31,14 @@ One call accepts `1..32` items. Local concurrency defaults to `3` and is capped
 at `5`. The entire input is validated before any child starts. Results retain
 input order even when children finish out of order.
 
+The input has two mutually exclusive forms. Callers may provide the explicit
+structured items shown below, or use a homogeneous template batch with one
+shared `profile`, a `prompt_template` containing `{{item}}`, and string
+`items`. Template batches replace every placeholder occurrence, reject
+duplicate expanded tasks, generate stable ordered IDs (`item-1`, `item-2`,
+...), and then enter the same preflight and execution path as explicit items.
+They are input shorthand, not a separate scheduler.
+
 Three separate concurrency boundaries remain observable:
 
 1. **Subagent tool admission** limits how many subagent tool calls the model may
@@ -96,6 +104,17 @@ agent_swarm({
       task: "Review regression coverage and identify missing cases."
     }
   ],
+  max_concurrency: 3
+})
+```
+
+The same read-only batch can use Kimi-compatible single-placeholder expansion:
+
+```ts
+agent_swarm({
+  prompt_template: "Review {{item}} and report concrete file or symbol evidence.",
+  profile: "local_read",
+  items: ["runtime concurrency and cancellation", "UI and CLI presentation", "regression coverage"],
   max_concurrency: 3
 })
 ```
