@@ -961,8 +961,18 @@ describe('runTaskOnce', () => {
 
       assert.equal(counters.sendCalls, 0);
       assert.equal(result.settledByDeadline, true);
-      assert.equal(latestInvocation(result).status, 'failed');
-      assert.equal(latestInvocation(result).failure?.class, 'aborted');
+      const invocation = latestInvocation(result);
+      assert.equal(invocation.status, 'failed');
+      assert.equal(invocation.failure?.class, 'aborted');
+      const runtimeEvents = await readRuntimeEventLedger(
+        storageRoot,
+        invocation.sessionId,
+        invocation.runId,
+      );
+      const terminal = runtimeEvents.at(-1);
+      assert.equal(terminal?.status, 'aborted');
+      assert.equal(terminal?.actions?.endInvocation, true);
+      assert.equal(terminal?.actions?.stateDelta?.abortSource, 'benchmark.deadline');
     });
   });
 
