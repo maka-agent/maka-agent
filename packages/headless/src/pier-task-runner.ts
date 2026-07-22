@@ -711,9 +711,9 @@ async function readVerifierDurationMs(resultPath: string): Promise<number> {
 /** The trial's graded reward, or null when the trial was never graded. Prefers
  * the DeepSWE task verifier's reward.json, falling back to the trial result's
  * verifier_result.rewards.reward (same value, present on a completed trial).
- * Unlike the Maka oracle verifier, Pier tasks write no reward.txt and no
- * structured maka-verifier-outcome.json. A corrupt reward.json is infra, not
- * "ungraded" — the grading authority existed and cannot be read. */
+ * Unlike the Maka oracle verifier, Pier tasks write no structured
+ * maka-verifier-outcome.json. A corrupt reward.json is infra, not "ungraded" —
+ * the grading authority existed and cannot be read. */
 async function readOptionalPierReward(trialDir: string, taskId: string): Promise<number | null> {
   const rewardJson = await readOptionalText(join(trialDir, TRIAL_REWARD_JSON));
   if (rewardJson) {
@@ -727,7 +727,7 @@ async function readOptionalPierReward(trialDir: string, taskId: string): Promise
       );
     }
     if (isRecord(parsed) && typeof parsed.reward === 'number' && Number.isFinite(parsed.reward)) {
-      return parsed.reward;
+      return assertGradedPierReward(parsed.reward, taskId);
     }
   }
   const result = await readOptionalJson(join(trialDir, TRIAL_RESULT));
@@ -735,9 +735,24 @@ async function readOptionalPierReward(trialDir: string, taskId: string): Promise
   const rewards =
     verifierResult && isRecord(verifierResult.rewards) ? verifierResult.rewards : undefined;
   if (rewards && typeof rewards.reward === 'number' && Number.isFinite(rewards.reward)) {
-    return rewards.reward;
+    return assertGradedPierReward(rewards.reward, taskId);
   }
   return null;
+}
+
+/** A negative reward is DeepSWE's verifier CRASH sentinel, never a grade: every
+ * task's tests/test.sh traps EXIT with `echo -1 > reward.txt` when the verifier
+ * died before writing any reward file, grader.py documents that path as "an
+ * infrastructure error" and real rewards as binary 0/1, and pier's verifier
+ * parses reward.txt verbatim into verifier_result.rewards.reward. Recording it
+ * as a scored failure would poison the benchmark denominator. */
+function assertGradedPierReward(reward: number, taskId: string): number {
+  if (reward < 0) {
+    throw new PierInfraError(
+      `verifier crashed for task ${taskId}: reward ${reward} is the DeepSWE test.sh crash sentinel, not a grade`,
+    );
+  }
+  return reward;
 }
 
 async function readPierReward(

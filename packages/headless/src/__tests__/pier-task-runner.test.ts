@@ -626,6 +626,37 @@ test('createPierTaskRunner treats an ungraded non-budget trial exception as infr
   });
 });
 
+test('createPierTaskRunner classifies the reward.json crash sentinel as infra', async () => {
+  // DeepSWE test.sh traps a verifier crash by writing reward -1 when no reward
+  // file exists; grader.py documents real rewards as binary 0/1. A sentinel
+  // must never be recorded as a scored failed sample.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward: -1 }) }),
+    );
+    await assert.rejects(runner(runInput()), (error: Error) => {
+      assert.ok(error instanceof PierInfraError);
+      assert.match(error.message, /crash sentinel/);
+      return true;
+    });
+  });
+});
+
+test('createPierTaskRunner classifies the verifier_result crash sentinel as infra', async () => {
+  // The sentinel arrives via reward.txt -> pier's verifier parse ->
+  // verifier_result.rewards.reward; there is no reward.json in that path.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ verifierResultReward: -1 }) }),
+    );
+    await assert.rejects(runner(runInput()), (error: Error) => {
+      assert.ok(error instanceof PierInfraError);
+      assert.match(error.message, /crash sentinel/);
+      return true;
+    });
+  });
+});
+
 test('createPierTaskRunner rejects provider secrets in agentEnv', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(
