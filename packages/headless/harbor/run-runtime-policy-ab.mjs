@@ -60,6 +60,8 @@ async function main() {
     subjectFingerprint: await buildSubjectFingerprint(
       makaRepoPath,
       process.env.MAKA_RUNTIME_AB_EXPLICIT_SUBJECT_FINGERPRINT,
+      undefined,
+      'MAKA_RUNTIME_AB',
     ),
     taskSourceFingerprint: await buildTaskSourceFingerprint(tasksRoot, [
       ...pilotTasks,
@@ -69,6 +71,7 @@ async function main() {
       process.env.MAKA_RUNTIME_AB_TOOLCHAIN_FINGERPRINT,
       undefined,
       makaRepoPath,
+      'MAKA_RUNTIME_AB',
     ),
     evaluationTaskIds: evaluationTasks.map((task) => task.id),
     pilotTaskIds: pilotTasks.map((task) => task.id),

@@ -550,11 +550,14 @@ async function runLocked({
   const subjectFingerprint = await buildSubjectFingerprint(
     makaRepoPath,
     process.env.MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT,
+    undefined,
+    'MAKA_HARNESS_AB',
   );
   const hostToolchainFingerprint = await buildToolchainFingerprint(
     process.env.MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT,
     undefined,
     makaRepoPath,
+    'MAKA_HARNESS_AB',
   );
   const [verifierImplementationSource, composeImplementationSource] = await Promise.all([
     readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),

@@ -66,7 +66,10 @@ async function toolOutput(command: string, args: readonly string[]): Promise<str
   return `${stdout}${stderr}`.trim();
 }
 
-async function buildInstalledDependencyFingerprint(repoPath: string): Promise<{
+async function buildInstalledDependencyFingerprint(
+  repoPath: string,
+  envPrefix: string,
+): Promise<{
   packageLockPath: string;
   packageLockHash: string;
   installedPackageLockPath: string;
@@ -83,7 +86,7 @@ async function buildInstalledDependencyFingerprint(repoPath: string): Promise<{
     ]);
   } catch (error) {
     throw new Error(
-      `prompt A/B toolchain fingerprint requires ${packageLockPath} and ${installedLockPath}. Run npm install in MAKA_PROMPT_AB_MAKA_REPO, or set MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT to an explicit sha256:<64 lowercase hex> dependency snapshot. Cause: ${error instanceof Error ? error.message : String(error)}`,
+      `A/B toolchain fingerprint requires ${packageLockPath} and ${installedLockPath}. Run npm install in ${envPrefix}_MAKA_REPO, or set ${envPrefix}_TOOLCHAIN_FINGERPRINT to an explicit sha256:<64 lowercase hex> dependency snapshot. Cause: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   return {
@@ -98,12 +101,13 @@ export async function buildToolchainFingerprint(
   explicitToolchainFingerprint: string | undefined,
   readToolOutput: ReadToolOutput = toolOutput,
   repoPath: string = resolve(fileURLToPath(new URL('../../..', import.meta.url))),
+  envPrefix = 'MAKA_PROMPT_AB',
 ): Promise<string> {
   if (explicitToolchainFingerprint && explicitToolchainFingerprint.trim().length > 0) {
     const value = explicitToolchainFingerprint.trim();
     if (!isSha256Fingerprint(value)) {
       throw new Error(
-        'MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint',
+        `${envPrefix}_TOOLCHAIN_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint`,
       );
     }
     return value;
@@ -118,7 +122,7 @@ export async function buildToolchainFingerprint(
     kind: 'prompt-ab-toolchain',
     node: process.version,
     harborVersion,
-    dependencyInstallFingerprint: await buildInstalledDependencyFingerprint(repoPath),
+    dependencyInstallFingerprint: await buildInstalledDependencyFingerprint(repoPath, envPrefix),
   });
 }
 
@@ -126,12 +130,13 @@ export async function buildSubjectFingerprint(
   repoPath: string,
   explicitSubjectFingerprint: string | undefined,
   readGitOutput: ReadGitOutput = gitOutput,
+  envPrefix = 'MAKA_PROMPT_AB',
 ): Promise<string> {
   if (explicitSubjectFingerprint && explicitSubjectFingerprint.trim().length > 0) {
     const value = explicitSubjectFingerprint.trim();
     if (!isSha256Fingerprint(value)) {
       throw new Error(
-        'MAKA_PROMPT_AB_EXPLICIT_SUBJECT_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint',
+        `${envPrefix}_EXPLICIT_SUBJECT_FINGERPRINT must be a sha256:<64 lowercase hex> content fingerprint`,
       );
     }
     return hashPayload({
@@ -150,12 +155,12 @@ export async function buildSubjectFingerprint(
     ]);
   } catch (error) {
     throw new Error(
-      `MAKA_PROMPT_AB_MAKA_REPO must be a git checkout or MAKA_PROMPT_AB_EXPLICIT_SUBJECT_FINGERPRINT must be set: ${error instanceof Error ? error.message : String(error)}`,
+      `${envPrefix}_MAKA_REPO must be a git checkout or ${envPrefix}_EXPLICIT_SUBJECT_FINGERPRINT must be set: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   if (status.length > 0) {
     throw new Error(
-      `MAKA_PROMPT_AB_MAKA_REPO must be clean for resume-safe prompt A/B runs. Commit/stash the changes, or set MAKA_PROMPT_AB_EXPLICIT_SUBJECT_FINGERPRINT to an explicit content fingerprint. Dirty git status:\n${status}`,
+      `${envPrefix}_MAKA_REPO must be clean for resume-safe A/B runs. Commit/stash the changes, or set ${envPrefix}_EXPLICIT_SUBJECT_FINGERPRINT to an explicit content fingerprint. Dirty git status:\n${status}`,
     );
   }
   return hashPayload({
