@@ -11,6 +11,7 @@ import {
   hashSystemPrompt,
   runFixedPromptController,
   type TaskRunInput,
+  type TaskRunOutput,
 } from '../fixed-prompt-controller.js';
 import { findTrialDir } from '../harbor-task-runner.js';
 import {
@@ -559,6 +560,90 @@ test('pier-graded failed cells stay scored through the fixed-prompt controller',
       assert.equal(event.scored, true);
       assert.equal(event.eligible, true);
       assert.equal(event.errorClass, 'max_tokens');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+test('pier and harbor outputs drive identical controller events for an infra-failed graded cell', async () => {
+  // Cross-runner parity lock for the scoring semantics INHERITED from the
+  // fixed-prompt controller (predating this PR): a CLI-crash cell
+  // (errorClass=infra_failed) with pier grade reward=0 is excluded via
+  // isProviderInfraFailure (scored=false), while reward=1 scores through
+  // structuredVerifierPassed. Whether that asymmetry is desirable is a
+  // controller question out of this PR's scope; the runner invariant is that
+  // Pier and Harbor produce controller-identical events for the same trial
+  // shape, so neither side can drift unilaterally.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-pier-parity-'));
+    try {
+      const systemPrompt = 'CANDIDATE PROMPT\n';
+      const systemPromptPath = join(dir, 'prompt.txt');
+      await writeFile(systemPromptPath, systemPrompt, 'utf8');
+      const promptHash = hashSystemPrompt(systemPrompt);
+      for (const reward of [0, 1]) {
+        const cell = cellOutput({
+          status: 'failed',
+          errorClass: 'infra_failed',
+          promptHash,
+          executionIdentity: {
+            llmConnectionSlug: 'fake',
+            model: 'fake',
+            systemPromptMode: 'default',
+            systemPromptHash: promptHash,
+            pricingProfile: 'fake-structural',
+          },
+        });
+        const pierRunner = createPierTaskRunner(
+          baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward, cell }) }),
+        );
+        const pierOutput = await pierRunner(
+          runInput({
+            config: { id: 'cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake' },
+          }),
+        );
+        // The canonical Harbor-shaped output for the same trial: same graded
+        // reward, same structured verifier outcome, same cell artifacts.
+        const harborOutput: TaskRunOutput = {
+          harbor: {
+            reward,
+            verifier: {
+              outcome: reward > 0 ? 'passed' : 'failed',
+              attempts: [
+                {
+                  attempt: 1,
+                  classification: reward > 0 ? 'passed' : 'failed',
+                  durationMs: 0,
+                  reward,
+                },
+              ],
+            },
+          },
+          cell: pierOutput.cell,
+        };
+        const normalizedEvents: Array<Record<string, unknown>> = [];
+        for (const [flavor, output] of [
+          ['pier', pierOutput],
+          ['harbor', harborOutput],
+        ] as const) {
+          const result = await runFixedPromptController({
+            runId: 'run-1',
+            roundId: 'round-1',
+            config: { id: 'cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake' },
+            systemPromptPath,
+            resultsJsonlPath: join(dir, `results-${flavor}-${reward}.jsonl`),
+            tasks: [{ id: 'dasel', path: '/tasks/dasel-html-document-format' }],
+            taskRunner: () => Promise.resolve(output),
+          });
+          const event = { ...(result.events[0] as unknown as Record<string, unknown>) };
+          for (const volatile of ['id', 'ts', 'startedAt', 'finishedAt', 'durationMs']) {
+            delete event[volatile];
+          }
+          normalizedEvents.push(event);
+        }
+        assert.deepEqual(normalizedEvents[0], normalizedEvents[1]);
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

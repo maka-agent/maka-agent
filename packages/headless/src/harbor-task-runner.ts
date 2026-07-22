@@ -94,16 +94,24 @@ export class HarborInfraError extends Error {
   }
 }
 
+/** Structural shape shared by HarborInfraError and PierInfraError — PierInfraError
+ * is deliberately NOT a subclass (the controller classifies by behavior, never
+ * identity), so the shared helpers are typed against the structure, not the class. */
+export interface InfraErrorLike extends Error {
+  readonly detail?: string;
+  readonly kind: 'infra_failed' | 'timed_out';
+  readonly artifactRefs?: { providerTelemetryPath?: string };
+}
+
 /** Constructor shape shared by HarborInfraError and PierInfraError. The shared
  * trial-mapping helpers below take this so they throw the calling runner's own
- * error type — the controller classifies by behavior, never identity, but
- * diagnostics must keep naming the failing harness. */
+ * error type — diagnostics must keep naming the failing harness. */
 export type InfraErrorCtor = new (
   message: string,
   detail?: string,
   kind?: 'infra_failed' | 'timed_out',
   artifactRefs?: { providerTelemetryPath?: string },
-) => HarborInfraError;
+) => InfraErrorLike;
 
 export interface HarborTaskPricing {
   inputUsdPer1M: number;
