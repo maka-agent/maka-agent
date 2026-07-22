@@ -629,7 +629,7 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 
-  test('shutdown cuts off a status response blocked by a non-reading Client', {
+  test('a non-reading Client overload is isolated to its connection', {
     skip: process.platform === 'win32',
   }, async () => {
     await withHostPaths(async (paths) => {
@@ -650,34 +650,32 @@ describe('non-serving Runtime Host kernel', () => {
       assert.equal(observer.kind, 'connected');
       if (observer.kind !== 'connected') return;
       try {
-        let blockedResponseObserved = false;
-        for (let index = 0; index < 10_000 && !nonReadingSocket.destroyed; index += 1) {
-          nonReadingSocket.write(
-            `${JSON.stringify({
-              requestId: `non-reading-${index}`,
+        const nonReadingClosed = new Promise<void>((resolve) => {
+          nonReadingSocket.once('close', () => resolve());
+        });
+        for (let index = 0; index < 10_000 && !nonReadingSocket.destroyed; index += 8) {
+          const batch = Array.from({ length: 8 }, (_, offset) =>
+            JSON.stringify({
+              requestId: `non-reading-${index + offset}`,
               operation: 'host.status',
               input: {},
-            })}\n`,
-          );
-          const status = await observer.connection.status(2_000);
-          if (status.activeOperations <= 1) continue;
-          await sleep(10);
-          if ((await observer.connection.status(2_000)).activeOperations > 1) {
-            blockedResponseObserved = true;
-            break;
-          }
+            }),
+          ).join('\n');
+          nonReadingSocket.write(`${batch}\n`);
+          await new Promise<void>((resolve) => setImmediate(resolve));
         }
-        assert.equal(
-          blockedResponseObserved,
-          true,
-          'failed to create real socket write backpressure',
+        await withTimeout(
+          nonReadingClosed,
+          2_000,
+          'Runtime Host did not evict the overloaded non-reading Client',
         );
+        assert.equal((await observer.connection.status(2_000)).state, 'ready');
 
         await observer.connection.close();
         await withTimeout(
           candidate.host.close(),
           2_500,
-          'Host shutdown did not cut off a blocked response',
+          'Host shutdown remained blocked after eviction',
         );
         const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
         const owner = await retryOwner(capability, paths);

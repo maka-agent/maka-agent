@@ -22,9 +22,10 @@ import {
 } from '../protocol/index.js';
 import { FramedTransport } from '../transport/framed-transport.js';
 import {
-  dispatchOperation,
-  operationFailureResponse,
-  type ConnectionContext,
+  RuntimeHostConnectionSession,
+  type ConnectionOperationLease,
+} from './connection-session.js';
+import {
   type DomainOperationHandlerMap,
   type OperationResidency,
   type OperationHandlerMap,
@@ -62,14 +63,6 @@ export interface RuntimeHostKernelOptions {
   idleGraceMs?: number;
   handshakeTimeoutMs?: number;
   compositionFactory?: RuntimeHostCompositionFactory;
-}
-
-type AcceptedConnectionContext = Omit<ConnectionContext, 'acquireResidency'>;
-
-interface OperationLease {
-  acquireResidency(): RuntimeHostResidency;
-  seal(): void;
-  finish(): void;
 }
 
 export class RuntimeHostKernel {
@@ -193,61 +186,41 @@ export class RuntimeHostKernel {
 
   async #serveConnection(transport: FramedTransport): Promise<void> {
     let connectionAccepted = false;
+    let connectionReleased = false;
+    const releaseConnection = () => {
+      if (!connectionAccepted || connectionReleased) return;
+      connectionReleased = true;
+      this.#releaseConnection(transport);
+    };
     try {
       const frame = decodeClientFrame(await transport.read(this.#handshakeTimeoutMs));
       if (!('kind' in frame) || frame.kind !== 'hello') {
         throw new Error('First Runtime Host frame must be a hello');
       }
       const result = await this.#admitHandshake(frame, transport);
+      connectionAccepted = result.kind === 'accepted';
       await transport.write(result);
       if (result.kind !== 'accepted') {
         transport.destroyAfterFlush();
         return;
       }
-      connectionAccepted = true;
-      await this.#serveAcceptedConnection(transport, {
-        hostEpoch: this.hostEpoch,
-        connectionId: result.connectionId,
-        surface: frame.surface,
-        principal: 'local_os_user',
+      const session = new RuntimeHostConnectionSession({
+        transport,
+        connection: {
+          hostEpoch: this.hostEpoch,
+          connectionId: result.connectionId,
+          surface: frame.surface,
+          principal: 'local_os_user',
+        },
+        resolveHandlers: () => this.#operationHandlers,
+        beginOperation: (request) => this.#beginOperation(request),
+        onTeardown: releaseConnection,
       });
+      await session.run();
     } catch {
       transport.destroy();
     } finally {
-      if (connectionAccepted) this.#releaseConnection(transport);
-    }
-  }
-
-  async #serveAcceptedConnection(
-    transport: FramedTransport,
-    connection: AcceptedConnectionContext,
-  ): Promise<void> {
-    while (true) {
-      const frame = decodeClientFrame(await transport.read(0));
-      if ('kind' in frame) throw new Error('Unexpected handshake frame after acceptance');
-      const admission = await this.#beginOperation(frame);
-      if (typeof admission === 'string') {
-        await transport.write(
-          operationFailureResponse(
-            frame,
-            admission,
-            admission === 'host_draining'
-              ? 'Runtime Host is draining'
-              : 'Runtime Host is not ready',
-          ),
-        );
-        continue;
-      }
-      try {
-        const response = await dispatchOperation(frame, this.#operationHandlers, {
-          ...connection,
-          acquireResidency: () => admission.acquireResidency(),
-        });
-        admission.seal();
-        await transport.write(response);
-      } finally {
-        admission.finish();
-      }
+      releaseConnection();
     }
   }
 
@@ -292,7 +265,9 @@ export class RuntimeHostKernel {
     this.#settleLifecycleAfterWork();
   }
 
-  async #beginOperation(frame: RequestFrame): Promise<OperationLease | HostOperationErrorCode> {
+  async #beginOperation(
+    frame: RequestFrame,
+  ): Promise<ConnectionOperationLease | HostOperationErrorCode> {
     if (!(await this.#hasLiveOwnerOrDrain()) || this.#state === 'draining') return 'host_draining';
     if (this.#shutdownRequested && HOST_OPERATION_SPECS[frame.operation].mode === 'command') {
       return 'host_draining';

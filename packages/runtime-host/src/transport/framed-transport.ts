@@ -2,12 +2,20 @@ import type { Socket } from 'node:net';
 import {
   encodeProtocolFrame,
   ProtocolFrameDecoder,
+  RUNTIME_HOST_MAX_FRAME_BYTES,
   RuntimeHostProtocolError,
   type ClientFrame,
   type HostFrame,
 } from '../protocol/index.js';
 
-const MAX_QUEUED_FRAMES = 32;
+const MAX_QUEUED_FRAMES = 64;
+const MAX_QUEUED_BYTES = 2 * 1024 * 1024;
+const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+
+interface QueuedFrame {
+  value: unknown;
+  encodedBytes: number;
+}
 
 interface ReadWaiter {
   resolve(value: unknown): void;
@@ -29,9 +37,14 @@ export class RuntimeHostTransportError extends Error {
 export class FramedTransport {
   readonly closed: Promise<void>;
   readonly #decoder = new ProtocolFrameDecoder();
-  readonly #queue: unknown[] = [];
+  readonly #queue: QueuedFrame[] = [];
+  #queuedBytes = 0;
+  #buffered = Buffer.alloc(0);
   #waiter: ReadWaiter | undefined;
   #failure: Error | undefined;
+  #ended = false;
+  #decoderEnded = false;
+  #paused = false;
   #resolveClosed!: () => void;
 
   constructor(readonly socket: Socket) {
@@ -42,11 +55,8 @@ export class FramedTransport {
       this.#receive(typeof chunk === 'string' ? Buffer.from(chunk) : chunk),
     );
     socket.once('end', () => {
-      try {
-        this.#decoder.end();
-      } catch (error) {
-        this.#fail(asError(error));
-      }
+      this.#ended = true;
+      this.#drainInbound();
     });
     socket.once('error', (error) => this.#fail(error));
     socket.once('close', () => {
@@ -56,7 +66,12 @@ export class FramedTransport {
   }
 
   async read(timeoutMs: number): Promise<unknown> {
-    if (this.#queue.length > 0) return this.#queue.shift();
+    const queued = this.#queue.shift();
+    if (queued) {
+      this.#queuedBytes -= queued.encodedBytes;
+      this.#drainInbound();
+      return queued.value;
+    }
     if (this.#failure) throw this.#failure;
     if (this.#waiter) {
       throw new RuntimeHostTransportError(
@@ -78,12 +93,16 @@ export class FramedTransport {
         }, timeoutMs);
       }
       this.#waiter = waiter;
+      this.#drainInbound();
     });
   }
 
   write(frame: ClientFrame | HostFrame): Promise<void> {
+    return this.writeEncoded(encodeProtocolFrame(frame));
+  }
+
+  writeEncoded(encoded: Uint8Array): Promise<void> {
     if (this.#failure) return Promise.reject(this.#failure);
-    const encoded = encodeProtocolFrame(frame);
     return new Promise((resolve, reject) => {
       this.socket.write(encoded, (error) => {
         if (error) reject(error);
@@ -102,34 +121,98 @@ export class FramedTransport {
 
   #receive(chunk: Buffer): void {
     if (this.#failure) return;
-    let frames: unknown[];
+    if (this.#buffered.byteLength + chunk.byteLength > MAX_BUFFERED_BYTES) {
+      this.#failInboundOverflow();
+      return;
+    }
+    this.#buffered =
+      this.#buffered.byteLength === 0 ? Buffer.from(chunk) : Buffer.concat([this.#buffered, chunk]);
+    this.#drainInbound();
+  }
+
+  #drainInbound(): void {
+    if (this.#failure) return;
     try {
-      frames = this.#decoder.push(chunk);
+      while (true) {
+        const newline = this.#buffered.indexOf(0x0a);
+        if (newline === -1) {
+          if (this.#buffered.byteLength > RUNTIME_HOST_MAX_FRAME_BYTES) {
+            throw new RuntimeHostProtocolError(
+              'frame_too_large',
+              'Runtime Host frame exceeds the byte limit',
+            );
+          }
+          break;
+        }
+        const encodedBytes = newline + 1;
+        if (
+          !this.#waiter &&
+          (this.#queue.length >= MAX_QUEUED_FRAMES ||
+            this.#queuedBytes + encodedBytes > MAX_QUEUED_BYTES)
+        ) {
+          break;
+        }
+        const encoded = this.#buffered.subarray(0, encodedBytes);
+        this.#buffered = this.#buffered.subarray(encodedBytes);
+        const frames = this.#decoder.push(encoded);
+        if (frames.length !== 1) {
+          throw new Error('Runtime Host decoder did not produce one complete frame');
+        }
+        this.#deliver(frames[0], encodedBytes);
+      }
+      if (this.#ended && !this.#decoderEnded && this.#buffered.indexOf(0x0a) === -1) {
+        if (this.#buffered.byteLength !== 0) {
+          this.#decoder.push(this.#buffered);
+          this.#buffered = Buffer.alloc(0);
+        }
+        this.#decoder.end();
+        this.#decoderEnded = true;
+      }
     } catch (error) {
       this.#fail(asError(error));
       this.socket.destroy();
       return;
     }
-    for (const frame of frames) {
-      if (this.#waiter) {
-        const waiter = this.#waiter;
-        this.#waiter = undefined;
-        if (waiter.timer) clearTimeout(waiter.timer);
-        waiter.resolve(frame);
-      } else {
-        this.#queue.push(frame);
-        if (this.#queue.length > MAX_QUEUED_FRAMES) {
-          this.#fail(
-            new RuntimeHostTransportError(
-              'inbound_queue_full',
-              'Runtime Host inbound frame queue is full',
-            ),
-          );
-          this.socket.destroy();
-          return;
-        }
-      }
+    this.#updateReadFlow();
+  }
+
+  #deliver(frame: unknown, encodedBytes: number): void {
+    if (this.#waiter) {
+      const waiter = this.#waiter;
+      this.#waiter = undefined;
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.resolve(frame);
+    } else {
+      this.#queue.push({ value: frame, encodedBytes });
+      this.#queuedBytes += encodedBytes;
     }
+  }
+
+  #updateReadFlow(): void {
+    const nextNewline = this.#buffered.indexOf(0x0a);
+    const nextFrameBytes = nextNewline === -1 ? undefined : nextNewline + 1;
+    const blocked =
+      this.#queue.length >= MAX_QUEUED_FRAMES ||
+      (nextFrameBytes !== undefined && this.#queuedBytes + nextFrameBytes > MAX_QUEUED_BYTES);
+    if (blocked && !this.#paused) {
+      this.#paused = true;
+      this.socket.pause();
+      return;
+    }
+    if (!blocked && this.#paused && !this.#ended) {
+      this.#paused = false;
+      this.socket.resume();
+    }
+  }
+
+  #failInboundOverflow(): void {
+    this.#fail(
+      new RuntimeHostTransportError(
+        'inbound_queue_full',
+        'Runtime Host inbound byte buffer is full',
+      ),
+    );
+    this.socket.destroy();
   }
 
   #fail(error: Error): void {

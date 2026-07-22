@@ -1,0 +1,133 @@
+import assert from 'node:assert/strict';
+import { connect, createServer, type Server, type Socket } from 'node:net';
+import { test } from 'node:test';
+import { RUNTIME_HOST_MAX_FRAME_BYTES, RuntimeHostProtocolError } from '../protocol/index.js';
+import { FramedTransport } from '../transport/framed-transport.js';
+
+test('drains a paused frame burst before reporting a terminal partial frame', async () => {
+  await withSocketPair(async (transport, peer) => {
+    const frames = Array.from({ length: 96 }, (_, index) => ({ index }));
+    const ended = endSocket(
+      peer,
+      Buffer.from(`${frames.map((frame) => JSON.stringify(frame)).join('\n')}\n{"partial":`),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    for (const expected of frames) {
+      assert.deepEqual(await transport.read(2_000), expected);
+    }
+    await assert.rejects(
+      transport.read(2_000),
+      (error: unknown) =>
+        error instanceof RuntimeHostProtocolError && error.code === 'invalid_frame',
+    );
+    await ended;
+    await transport.closed;
+  });
+});
+
+test('applies byte backpressure without dropping large valid frames', async () => {
+  await withSocketPair(async (transport, peer) => {
+    const payload = 'x'.repeat(60 * 1024);
+    const frames = Array.from({ length: 40 }, (_, index) => ({ index, payload }));
+    const sent = writeSocket(
+      peer,
+      Buffer.from(`${frames.map((frame) => JSON.stringify(frame)).join('\n')}\n`),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    for (const expected of frames) {
+      assert.deepEqual(await transport.read(5_000), expected);
+    }
+    await sent;
+    await writeSocket(peer, Buffer.from(`${JSON.stringify({ resumed: true })}\n`));
+    assert.deepEqual(await transport.read(2_000), { resumed: true });
+  });
+});
+
+test('fails closed on an oversized unterminated frame over a real socket', async () => {
+  await withSocketPair(async (transport, peer) => {
+    const read = transport.read(1_000);
+    peer.write(Buffer.alloc(RUNTIME_HOST_MAX_FRAME_BYTES + 1, 0x61));
+    await assert.rejects(
+      read,
+      (error: unknown) =>
+        error instanceof RuntimeHostProtocolError && error.code === 'frame_too_large',
+    );
+    await transport.closed;
+  });
+});
+
+async function withSocketPair(
+  run: (transport: FramedTransport, peer: Socket) => Promise<void>,
+): Promise<void> {
+  const accepted = deferred<Socket>();
+  const server = createServer(accepted.resolve);
+  await listen(server);
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const socket = connect(address.port, '127.0.0.1');
+  await onceConnected(socket);
+  const peer = await accepted.promise;
+  const transport = new FramedTransport(socket);
+  try {
+    await run(transport, peer);
+  } finally {
+    transport.destroy();
+    peer.destroy();
+    await transport.closed;
+    await closeServer(server);
+  }
+}
+
+function writeSocket(socket: Socket, bytes: Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.write(bytes, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function endSocket(socket: Socket, bytes: Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    socket.once('error', onError);
+    socket.end(bytes, () => {
+      socket.off('error', onError);
+      resolve();
+    });
+  });
+}
+
+function listen(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+}
+
+function onceConnected(socket: Socket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T | PromiseLike<T>): void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
