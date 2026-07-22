@@ -238,6 +238,18 @@ export {
   type ExternalHarborBenchmarkFailureInput,
   type ExternalHarborBenchmarkFailureKind,
 } from './harbor-failure-policy.js';
+export {
+  buildPierRunArgs,
+  createPierTaskRunner,
+  PierInfraError,
+  PIER_PROVIDER_PROXY_DEFAULT_PORT,
+  type BuildPierRunArgsInput,
+  type PierProcessRunner,
+  type PierRunRequest,
+  type PierRunResult,
+  type PierTaskPricing,
+  type PierTaskRunnerOptions,
+} from './pier-task-runner.js';
 export type {
   BuildMakaAheTargetSnapshotOptions,
   MakaAheRunEvidence,
