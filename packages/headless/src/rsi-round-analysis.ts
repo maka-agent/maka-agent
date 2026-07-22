@@ -473,8 +473,12 @@ function toolFailureDigest(
   event: unknown,
   callsById: ReadonlyMap<string, { name: string; argsPreview: string }>,
 ): Omit<RsiToolFailureCluster, 'count' | 'taskIds'> | undefined {
-  if (!isRecord(event) || event.type !== 'tool_failed' || !isRecord(event.data)) return undefined;
+  if (!isRecord(event) || !isRecord(event.data)) return undefined;
   const data = event.data;
+  const isFailedEvent = event.type === 'tool_failed';
+  const isFailedCompletion =
+    event.type === 'tool_completed' && (data.status === 'error' || data.status === 'aborted');
+  if (!isFailedEvent && !isFailedCompletion) return undefined;
   if (typeof data.toolName !== 'string') return undefined;
   const call = typeof data.toolUseId === 'string' ? callsById.get(data.toolUseId) : undefined;
   return {

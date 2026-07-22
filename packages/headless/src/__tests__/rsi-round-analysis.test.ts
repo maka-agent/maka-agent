@@ -180,6 +180,41 @@ describe('RSI round analysis', () => {
     });
   });
 
+  test('aggregates error and aborted tool completions but ignores successful completions', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime.jsonl');
+      const traceEventsPath = join(dir, 'trace.jsonl');
+
+      await writeJsonl(runtimeEventsPath, [
+        functionCall('call-error', 'Bash', { command: 'exit 1' }),
+        functionCall('call-aborted', 'Bash', { command: 'sleep 10' }),
+        functionCall('call-success', 'Bash', { command: 'true' }),
+      ]);
+      await writeJsonl(traceEventsPath, [
+        toolCompleted('call-error', 'Bash', 'error'),
+        toolCompleted('call-aborted', 'Bash', 'aborted'),
+        toolCompleted('call-success', 'Bash', 'success'),
+      ]);
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['task-a'],
+        lastKeptEvents: [],
+        candidateEvents: [
+          completed({ taskId: 'task-a', passed: false, runtimeEventsPath, traceEventsPath }),
+        ],
+      });
+
+      assert.deepEqual(analysis.toolFailureClusters, [
+        {
+          name: 'Bash',
+          argsPreview: 'command',
+          count: 2,
+          taskIds: ['task-a'],
+        },
+      ]);
+    });
+  });
+
   test('does not expose tool failure clusters as evidence for tasks with pass fail transitions', async () => {
     await withDir(async (dir) => {
       const taskARuntime = join(dir, 'task-a-runtime.jsonl');
@@ -697,6 +732,10 @@ function functionCall(id: string, name: string, args: Record<string, unknown>): 
 
 function toolFailed(toolUseId: string, toolName: string, errorClass: string): unknown {
   return { type: 'tool_failed', data: { toolUseId, toolName, errorClass } };
+}
+
+function toolCompleted(toolUseId: string, toolName: string, status: string): unknown {
+  return { type: 'tool_completed', data: { toolUseId, toolName, status } };
 }
 
 async function writeJsonl(path: string, events: readonly unknown[]): Promise<void> {
