@@ -46,6 +46,7 @@ import { HostMemoryCoordinator } from './memory-coordinator.js';
 import { createHostNativeBrowserInvocationProvider } from './native-browser-provider.js';
 import { createHostNativeComputerUseInvocationProvider } from './native-computer-use-provider.js';
 import { HostNativeProviderCoordinator } from './native-provider-coordinator.js';
+import { HostOAuthCoordinator } from './oauth-coordinator.js';
 import { combineDomainOperationHandlers } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
 import {
@@ -111,6 +112,16 @@ export async function createExecutionRuntimeHostComposition(
     context.hostEpoch,
     context.acquireResidency,
   );
+  const oauth = new HostOAuthCoordinator({
+    runtimePolicy: runtimePolicyStores,
+    nativeProvider,
+    acquireResidency: context.acquireResidency,
+    invalidateBackends: refreshBackends,
+    onFatal: (error) =>
+      failStopHandoff(
+        new RuntimeInteractionFailStopError('Runtime Host OAuth entered fail-stop', error),
+      ),
+  });
   const sandboxManager = createBuiltinSandboxManager();
   const filesystemWorkerLaunchSpecProvider =
     process.platform === 'darwin'
@@ -249,7 +260,7 @@ export async function createExecutionRuntimeHostComposition(
       sandboxDiagnosticsProvider,
       runtimeTools: [...runtimeTools, ...requireGoalCoordinator(goals).tools],
       runtimeCommitSink: stores.runtimeEventStore,
-      onCredentialRefreshed: refreshBackends,
+      oauth,
     }),
   );
   manager = new SessionManager({
@@ -289,12 +300,7 @@ export async function createExecutionRuntimeHostComposition(
   const goalEvaluator = createHostGoalEvaluator({
     sessions: stores.sessionStore,
     runtimePolicy: runtimePolicyStores,
-    onCredentialRefreshed: refreshBackends,
-    acquireResidency: context.acquireResidency,
-    onFatal: (error) =>
-      failStopHandoff(
-        new RuntimeInteractionFailStopError('Runtime Host Goal evaluator entered fail-stop', error),
-      ),
+    oauth,
   });
   goals = new HostGoalCoordinator({
     root: rootCoordinator,
@@ -380,6 +386,7 @@ export async function createExecutionRuntimeHostComposition(
     return memoryDrain;
   };
   const beginRuntimeDrain = () => {
+    oauth.beginDrain();
     goalEvaluator.beginDrain();
     goals.beginDrain();
     automation.beginDrain();
@@ -398,7 +405,7 @@ export async function createExecutionRuntimeHostComposition(
   failStopHandoff = (error) => {
     if (failStopDisposition) return;
     const handoffFailures: unknown[] = [];
-    let goalEvaluatorFailStop = {
+    let oauthFailStop = {
       ownerIsolationBarrier: Promise.resolve(),
       reclaimAfterOwnerIsolation: () => {},
     };
@@ -406,7 +413,7 @@ export async function createExecutionRuntimeHostComposition(
     let reclaimGoals = () => {};
     let reclaimAutomation = () => {};
     try {
-      goalEvaluatorFailStop = goalEvaluator.prepareFailStop();
+      oauthFailStop = oauth.prepareFailStop();
     } catch (handoffFailure) {
       handoffFailures.push(handoffFailure);
     }
@@ -471,13 +478,13 @@ export async function createExecutionRuntimeHostComposition(
       cause,
       ownerIsolationBarrier: settleOwnerIsolationBarriers(
         runtimeOwnerIsolationBarrier,
-        goalEvaluatorFailStop.ownerIsolationBarrier,
+        oauthFailStop.ownerIsolationBarrier,
       ),
       reclaimAfterOwnerIsolation: () => {
         if (reclaimed) return;
         reclaimed = true;
         interaction.reclaimAfterOwnerIsolation();
-        goalEvaluatorFailStop.reclaimAfterOwnerIsolation();
+        oauthFailStop.reclaimAfterOwnerIsolation();
         reclaimGoals();
         reclaimAutomation();
         reclaimMessages();
@@ -504,11 +511,13 @@ export async function createExecutionRuntimeHostComposition(
       usagePricing.handlers,
       resources.handlers,
       nativeProvider.handlers,
+      oauth.handlers,
     ),
     continuity,
     nativeProvider,
     onConnectionSettled: (connectionId) => resources.releaseConnection(connectionId),
     beginDrain: () => {
+      oauth.beginDrain();
       goalEvaluator.beginDrain();
       goals.beginDrain();
       automation.beginDrain();
@@ -542,6 +551,7 @@ export async function createExecutionRuntimeHostComposition(
       const drain = beginRuntimeDrain();
       closeTask ??= closeComposition(
         rootCoordinator,
+        oauth,
         goalEvaluator,
         goals,
         automation,
@@ -609,6 +619,7 @@ export function createHostFilesystemWorkerLaunchSpecProvider(
 
 async function closeComposition(
   coordinator: RootTurnCoordinator,
+  oauth: HostOAuthCoordinator,
   goalEvaluator: ReturnType<typeof createHostGoalEvaluator>,
   goals: HostGoalCoordinator,
   automation: HostAutomationCoordinator,
@@ -631,6 +642,7 @@ async function closeComposition(
 
   const normalClose = closeNormally(
     coordinator,
+    oauth,
     goalEvaluator,
     goals,
     automation,
@@ -667,6 +679,7 @@ async function closeComposition(
 
 async function closeNormally(
   coordinator: RootTurnCoordinator,
+  oauth: HostOAuthCoordinator,
   goalEvaluator: ReturnType<typeof createHostGoalEvaluator>,
   goals: HostGoalCoordinator,
   automation: HostAutomationCoordinator,
@@ -684,6 +697,7 @@ async function closeNormally(
   try {
     const outcomes = await Promise.allSettled([
       coordinator.close(),
+      oauth.close(),
       goalEvaluator.close(),
       goals.close(),
       automation.close(),

@@ -9,6 +9,7 @@
     "./client": "./dist/client/index.js",
     "./native-provider/browser": "./dist/native-provider/browser.js",
     "./native-provider/computer-use": "./dist/native-provider/computer-use.js",
+    "./native-provider/oauth-presentation": "./dist/native-provider/oauth-presentation.js",
     "./server": "./dist/server/index.js"
   },
   "scripts": {

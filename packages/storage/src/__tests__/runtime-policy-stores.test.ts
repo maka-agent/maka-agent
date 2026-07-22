@@ -267,6 +267,17 @@ describe('runtime policy stores', () => {
         kind: 'provider_action_unavailable',
         availability: 'preview_only',
       });
+      assert.deepEqual(await stores.operations.beginInteractiveOAuthLogin(disabled.connectionId), {
+        kind: 'connection_disabled',
+      });
+      assert.deepEqual(await stores.operations.beginInteractiveOAuthLogin(required.connectionId), {
+        kind: 'provider_action_unavailable',
+        availability: 'hidden',
+      });
+      assert.deepEqual(await stores.operations.beginInteractiveOAuthLogin(preview.connectionId), {
+        kind: 'provider_action_unavailable',
+        availability: 'preview_only',
+      });
 
       const missingRequired = await stores.operations.beginModelFetch(required.connectionId);
       assert.equal(missingRequired.kind, 'credential_not_configured');
@@ -347,6 +358,333 @@ describe('runtime policy stores', () => {
       ]);
       assert.equal(publicViews.includes(apiSecret), false);
       assert.equal(publicViews.includes(proxySecret), false);
+    });
+  });
+
+  test('captures login proxy material while committing only the OAuth credential basis', async () => {
+    await withInteractiveOwner(async ({ stores }) => {
+      const connection = await createConnection(
+        stores,
+        0,
+        connectionDraft('claude-login', 'claude-subscription', 'Claude login'),
+      );
+      const proxyConfiguration = await stores.runtimePolicy.mutate(
+        networkProxyMutation(0, { host: 'oauth-login-proxy.internal' }),
+      );
+      assert.equal(proxyConfiguration.kind, 'committed');
+      if (proxyConfiguration.kind !== 'committed') return;
+      const proxySecret = 'oauth-login-proxy-secret';
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: proxyCredential(),
+            expected: null,
+            secret: proxySecret,
+          })
+        ).kind,
+        'committed',
+      );
+      const proxyStatus = await getCredentialStatus(stores.credentialVault, proxyCredential());
+      const first = await beginReadyInteractiveOAuthLogin(stores, connection.connectionId);
+      assert.equal(first.expectedCredentialBasis, null);
+      assert.equal(first.catalogConnection.providerType, 'claude-subscription');
+      assert.deepEqual(first.networkProxy, proxyConfiguration.snapshot.policy.networkProxy);
+      assert.deepEqual(first.secretMaterial, {
+        networkProxy: { ...credentialBasis(proxyStatus), secret: proxySecret },
+      });
+
+      const changedProxy = await stores.runtimePolicy.mutate(
+        networkProxyMutation(proxyConfiguration.snapshot.revision, {
+          enabled: false,
+          host: 'changed-after-login-admission.internal',
+        }),
+      );
+      assert.equal(changedProxy.kind, 'committed');
+      assert.equal(first.networkProxy.host, 'oauth-login-proxy.internal');
+      assert.equal(first.secretMaterial.networkProxy?.secret, proxySecret);
+
+      const committed = await stores.operations.completeInteractiveOAuthLogin(first.ticket, {
+        secret: 'oauth-login-v1',
+      });
+      assert.equal(committed.kind, 'committed');
+      assert.equal(JSON.stringify(committed).includes('oauth-login-v1'), false);
+
+      const relogin = await beginReadyInteractiveOAuthLogin(stores, connection.connectionId);
+      assert.ok(relogin.expectedCredentialBasis);
+      const configured = await getCredentialStatus(
+        stores.credentialVault,
+        connectionCredential(connection, 'oauth_token'),
+      );
+      assert.deepEqual(relogin.expectedCredentialBasis, credentialBasis(configured));
+      assert.equal(JSON.stringify(relogin).includes('oauth-login-v1'), false);
+      assert.deepEqual(relogin.secretMaterial, {});
+      assert.equal(relogin.networkProxy.enabled, false);
+      assert.equal(relogin.networkProxy.host, 'changed-after-login-admission.internal');
+
+      assert.equal(
+        (
+          await stores.operations.completeInteractiveOAuthLogin(relogin.ticket, {
+            secret: 'oauth-login-v2',
+          })
+        ).kind,
+        'committed',
+      );
+      const refresh = await beginReadyOAuthRefresh(stores, connection.connectionId);
+      assert.equal(refresh.secretMaterial.connection.secret, 'oauth-login-v2');
+      assert.equal(
+        refresh.secretMaterial.connection.credentialId,
+        relogin.expectedCredentialBasis?.credentialId,
+      );
+    });
+  });
+
+  test('fences interactive OAuth login on catalog and credential basis changes', async () => {
+    await withInteractiveOwner(async ({ stores }) => {
+      const updatedConnection = await createConnection(
+        stores,
+        0,
+        connectionDraft('updated-login', 'claude-subscription', 'Updated login'),
+      );
+      const updateTicket = await beginReadyInteractiveOAuthLogin(
+        stores,
+        updatedConnection.connectionId,
+      );
+      const updated = await stores.connectionCatalog.update({
+        expected: connectionBasis(updatedConnection),
+        changes: {
+          name: 'Updated while login was pending',
+          enabled: false,
+          enabledModelIds: ['claude-updated'],
+        },
+      });
+      assert.equal(updated.kind, 'committed');
+      assert.deepEqual(
+        await stores.operations.completeInteractiveOAuthLogin(updateTicket.ticket, {
+          secret: 'must-not-cross-connection-revision',
+        }),
+        { kind: 'stale', changed: ['connection'] },
+      );
+      const updatedStatus = await getCredentialStatus(
+        stores.credentialVault,
+        connectionCredential(updatedConnection, 'oauth_token'),
+      );
+      assert.equal(updatedStatus.configured, false);
+
+      const removedConnection = await createConnection(
+        stores,
+        (await stores.connectionCatalog.getSnapshot()).revision,
+        connectionDraft('recreated-login', 'openai-codex', 'Removed login'),
+      );
+      const removeTicket = await beginReadyInteractiveOAuthLogin(
+        stores,
+        removedConnection.connectionId,
+      );
+      const removed = await stores.connectionCatalog.remove({
+        expected: connectionBasis(removedConnection),
+      });
+      assert.equal(removed.kind, 'committed');
+      if (removed.kind !== 'committed') return;
+      const recreated = await createConnection(
+        stores,
+        removed.snapshot.revision,
+        connectionDraft('recreated-login', 'claude-subscription', 'Recreated login'),
+      );
+      assert.notEqual(recreated.connectionId, removedConnection.connectionId);
+      assert.deepEqual(
+        await stores.operations.completeInteractiveOAuthLogin(removeTicket.ticket, {
+          secret: 'must-not-cross-remove-recreate',
+        }),
+        { kind: 'stale', changed: ['connection'] },
+      );
+      assert.deepEqual(
+        await stores.credentialVault.getStatus(
+          connectionCredential(removedConnection, 'oauth_token'),
+        ),
+        { kind: 'connection_not_found' },
+      );
+      assert.equal(
+        (
+          await getCredentialStatus(
+            stores.credentialVault,
+            connectionCredential(recreated, 'oauth_token'),
+          )
+        ).configured,
+        false,
+      );
+
+      const concurrent = await createConnection(
+        stores,
+        (await stores.connectionCatalog.getSnapshot()).revision,
+        connectionDraft('concurrent-login', 'openai-codex', 'Concurrent login'),
+      );
+      const staleAbsent = await beginReadyInteractiveOAuthLogin(stores, concurrent.connectionId);
+      const absentWinner = await beginReadyInteractiveOAuthLogin(stores, concurrent.connectionId);
+      assert.equal(
+        (
+          await stores.operations.completeInteractiveOAuthLogin(absentWinner.ticket, {
+            secret: 'concurrent-winner',
+          })
+        ).kind,
+        'committed',
+      );
+      const concurrentStatus = await getCredentialStatus(
+        stores.credentialVault,
+        connectionCredential(concurrent, 'oauth_token'),
+      );
+      const concurrentWinnerBasis = credentialBasis(concurrentStatus);
+      assert.deepEqual(
+        await stores.operations.completeInteractiveOAuthLogin(staleAbsent.ticket, {
+          secret: 'must-not-overwrite-concurrent-winner',
+        }),
+        { kind: 'stale', changed: ['credential'] },
+      );
+      assert.deepEqual(
+        credentialBasis(
+          await getCredentialStatus(
+            stores.credentialVault,
+            connectionCredential(concurrent, 'oauth_token'),
+          ),
+        ),
+        concurrentWinnerBasis,
+      );
+      assert.equal(
+        (await beginReadyOAuthRefresh(stores, concurrent.connectionId)).secretMaterial.connection
+          .secret,
+        'concurrent-winner',
+      );
+
+      const staleConfigured = await beginReadyInteractiveOAuthLogin(
+        stores,
+        concurrent.connectionId,
+      );
+      assert.ok(staleConfigured.expectedCredentialBasis);
+      assert.equal(
+        (
+          await stores.credentialVault.delete({
+            expected: staleConfigured.expectedCredentialBasis!,
+          })
+        ).kind,
+        'committed',
+      );
+      const recreateWinner = await beginReadyInteractiveOAuthLogin(stores, concurrent.connectionId);
+      assert.equal(
+        (
+          await stores.operations.completeInteractiveOAuthLogin(recreateWinner.ticket, {
+            secret: 'delete-recreate-winner',
+          })
+        ).kind,
+        'committed',
+      );
+      const recreatedStatus = await getCredentialStatus(
+        stores.credentialVault,
+        connectionCredential(concurrent, 'oauth_token'),
+      );
+      const recreatedWinnerBasis = credentialBasis(recreatedStatus);
+      assert.notEqual(recreatedWinnerBasis.credentialId, concurrentWinnerBasis.credentialId);
+      assert.deepEqual(
+        await stores.operations.completeInteractiveOAuthLogin(staleConfigured.ticket, {
+          secret: 'must-not-cross-credential-delete-recreate',
+        }),
+        { kind: 'stale', changed: ['credential'] },
+      );
+      assert.deepEqual(
+        credentialBasis(
+          await getCredentialStatus(
+            stores.credentialVault,
+            connectionCredential(concurrent, 'oauth_token'),
+          ),
+        ),
+        recreatedWinnerBasis,
+      );
+      assert.equal(
+        (await beginReadyOAuthRefresh(stores, concurrent.connectionId)).secretMaterial.connection
+          .secret,
+        'delete-recreate-winner',
+      );
+    });
+  });
+
+  test('allows only Copilot OAuth tokens through the public credential setter', async () => {
+    await withInteractiveOwner(async ({ stores }) => {
+      const claude = await createConnection(
+        stores,
+        0,
+        connectionDraft('public-claude', 'claude-subscription', 'Public Claude'),
+      );
+      const codex = await createConnection(
+        stores,
+        1,
+        connectionDraft('public-codex', 'openai-codex', 'Public Codex'),
+      );
+      const copilot = await createConnection(
+        stores,
+        2,
+        connectionDraft('public-copilot', 'github-copilot', 'Public Copilot'),
+      );
+      const preview = await createConnection(
+        stores,
+        3,
+        connectionDraft('public-preview', 'gemini-cli', 'Public preview'),
+      );
+      const apiKey = await createConnection(
+        stores,
+        4,
+        connectionDraft('public-api-key', 'openai', 'Public API key'),
+      );
+
+      for (const connection of [claude, codex, preview]) {
+        await assert.rejects(
+          () =>
+            stores.credentialVault.set({
+              locator: connectionCredential(connection, 'oauth_token'),
+              expected: null,
+              secret: 'public-oauth-must-be-rejected',
+            }),
+          isStoreError('invalid_credential_input'),
+        );
+        assert.equal(
+          (
+            await getCredentialStatus(
+              stores.credentialVault,
+              connectionCredential(connection, 'oauth_token'),
+            )
+          ).configured,
+          false,
+        );
+      }
+      assert.deepEqual(await stores.operations.beginInteractiveOAuthLogin(copilot.connectionId), {
+        kind: 'provider_action_unavailable',
+        availability: 'hidden',
+      });
+      assert.equal(
+        (
+          await stores.credentialVault.set({
+            locator: connectionCredential(copilot, 'oauth_token'),
+            expected: null,
+            secret: 'copilot-import',
+          })
+        ).kind,
+        'committed',
+      );
+      for (const input of [
+        {
+          locator: connectionCredential(apiKey, 'api_key'),
+          expected: null,
+          secret: 'api-key-input',
+        },
+        {
+          locator: {
+            scope: 'web_search' as const,
+            provider: 'tavily' as const,
+            kind: 'api_key' as const,
+          },
+          expected: null,
+          secret: 'web-search-input',
+        },
+        { locator: proxyCredential(), expected: null, secret: 'proxy-input' },
+      ]) {
+        assert.equal((await stores.credentialVault.set(input)).kind, 'committed');
+      }
     });
   });
 
@@ -1322,6 +1660,13 @@ async function beginReadyOAuthRefresh(stores: Writer, connectionId: string) {
   const result = await stores.operations.beginStoredOAuthRefresh(connectionId);
   assert.equal(result.kind, 'ready');
   if (result.kind !== 'ready') throw new Error('OAuth refresh was not ready');
+  return result;
+}
+
+async function beginReadyInteractiveOAuthLogin(stores: Writer, connectionId: string) {
+  const result = await stores.operations.beginInteractiveOAuthLogin(connectionId);
+  assert.equal(result.kind, 'ready');
+  if (result.kind !== 'ready') throw new Error('interactive OAuth login was not ready');
   return result;
 }
 

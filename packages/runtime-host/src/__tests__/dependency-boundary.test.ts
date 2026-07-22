@@ -25,6 +25,7 @@ const allowedHostExternalImports = new Set([
 const allowedServerExternalImports = new Set([
   ...allowedHostExternalImports,
   '@maka/core/agent-run',
+  '@maka/core',
   '@maka/core/automation',
   '@maka/core/artifacts',
   '@maka/core/backend-types',
@@ -58,6 +59,7 @@ const allowedServerExternalImports = new Set([
   'ai',
   'node:async_hooks',
   'node:fs',
+  'node:http',
   'node:os',
 ]);
 const allowedExternalImports = {
@@ -88,6 +90,12 @@ const allowedNativeComputerUseExternalImports = new Set([
   '@maka/runtime',
   'node:crypto',
 ]);
+const nativeOAuthPresentationEntrypoint = 'native-provider/oauth-presentation';
+const nativeOAuthPresentationSourcePath = join(
+  sourceRoot,
+  'native-provider',
+  'oauth-presentation.ts',
+);
 
 async function dependencyScannerFixture(target: string): Promise<void> {
   await import(`node:url`);
@@ -254,6 +262,45 @@ test('the public native Browser leaf stays within its exact adapter boundary', a
           : topLevelArea === 'protocol'
             ? allowedExternalImports.protocol
             : allowedHostExternalImports;
+      if (!allowedImports.has(specifier)) violations.push(`${path}: ${specifier}`);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test('the public native OAuth presentation leaf stays within its exact adapter boundary', async () => {
+  const publicEntrypoints = await readPublicEntrypoints();
+  const entrypoint = publicEntrypoints.get(nativeOAuthPresentationEntrypoint);
+  assert.ok(entrypoint, `missing public ${nativeOAuthPresentationEntrypoint} entrypoint`);
+  assert.equal(entrypoint, nativeOAuthPresentationSourcePath);
+  const violations: string[] = [];
+  for (const path of reachableModules(entrypoint, publicEntrypoints)) {
+    const localPath = relative(sourceRoot, path);
+    const topLevelArea = localPath.split(sep)[0];
+    if (localPath === 'candidate-main.ts' || topLevelArea === 'server') {
+      violations.push(`${nativeOAuthPresentationEntrypoint} reaches ${localPath}`);
+    }
+    for (const specifier of moduleSpecifiers(path)) {
+      const target = sourcePathForLocalSpecifier(path, specifier, publicEntrypoints);
+      if (target) {
+        if (!isInside(sourceRoot, target)) {
+          violations.push(`${path}: ${specifier}`);
+          continue;
+        }
+        if (path === entrypoint) {
+          const targetArea = relative(sourceRoot, target).split(sep)[0];
+          if (targetArea !== 'client' && targetArea !== 'protocol') {
+            violations.push(`${path}: ${specifier}`);
+          }
+        }
+        continue;
+      }
+      if (isStorageWriterDependency(specifier)) {
+        violations.push(`${localPath}: ${specifier}`);
+        continue;
+      }
+      const allowedImports =
+        topLevelArea === 'protocol' ? allowedExternalImports.protocol : allowedHostExternalImports;
       if (!allowedImports.has(specifier)) violations.push(`${path}: ${specifier}`);
     }
   }
@@ -464,6 +511,7 @@ async function readPublicEntrypoints(): Promise<Map<string, string>> {
     'server',
     nativeBrowserEntrypoint,
     nativeComputerUseEntrypoint,
+    nativeOAuthPresentationEntrypoint,
   ]) {
     const target = manifest.exports?.[`./${area}`];
     if (typeof target !== 'string') throw new Error(`missing ${packageName}/${area} export`);

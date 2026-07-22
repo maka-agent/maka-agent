@@ -78,33 +78,9 @@ export class CredentialVaultDocumentOwner {
         previous ? credentialBasis(previous) : null,
       );
     }
-    if (index < 0 && current.entries.length >= MAX_VAULT_ENTRIES) {
-      throw codecError('invalid_credential_input', 'Credential vault entry limit has been reached');
-    }
-    const entry: CredentialVaultEntry = previous
-      ? {
-          ...previous,
-          revision: nextRevision(previous.revision),
-          secret: input.secret,
-          updatedAt: Date.now(),
-        }
-      : {
-          locator: input.locator,
-          credentialId: randomUUID(),
-          revision: 1,
-          secret: input.secret,
-          updatedAt: Date.now(),
-        };
-    const entries = [...current.entries];
-    if (index < 0) entries.push(entry);
-    else entries[index] = entry;
-    const next = {
-      schemaVersion: SCHEMA_VERSION,
-      revision: nextRevision(current.revision),
-      entries,
-    };
-    await this.write(root, next);
-    return committed(next);
+    return committed(
+      await this.writeSet(root, current, input.locator, index, previous, input.secret),
+    );
   }
 
   async delete(root: string, rawInput: DeleteCredentialInput): Promise<CredentialMutationResult> {
@@ -169,6 +145,62 @@ export class CredentialVaultDocumentOwner {
     };
     await this.write(root, next);
     return vaultSnapshot(next);
+  }
+
+  async writeOAuthLogin(
+    root: string,
+    current: CredentialVaultDocument,
+    locator: Extract<CredentialLocator, { scope: 'connection' }> & { kind: 'oauth_token' },
+    expected: CredentialVersionBasis | null,
+    rawSecret: unknown,
+  ): Promise<CredentialVaultSnapshot> {
+    const secret = parseSecret(rawSecret, 'OAuth login credential secret');
+    const index = findCredentialIndex(current, locator);
+    const previous = index < 0 ? undefined : current.entries[index];
+    const basisMatches = expected
+      ? sameCredentialBasis(previous, expected)
+      : previous === undefined;
+    if (!basisMatches) {
+      throw codecError('invalid_document', 'Coordinator admitted a stale OAuth login');
+    }
+    return vaultSnapshot(await this.writeSet(root, current, locator, index, previous, secret));
+  }
+
+  private async writeSet(
+    root: string,
+    current: CredentialVaultDocument,
+    locator: CredentialLocator,
+    index: number,
+    previous: CredentialVaultEntry | undefined,
+    secret: string,
+  ): Promise<CredentialVaultDocument> {
+    if (index < 0 && current.entries.length >= MAX_VAULT_ENTRIES) {
+      throw codecError('invalid_credential_input', 'Credential vault entry limit has been reached');
+    }
+    const entry: CredentialVaultEntry = previous
+      ? {
+          ...previous,
+          revision: nextRevision(previous.revision),
+          secret,
+          updatedAt: Date.now(),
+        }
+      : {
+          locator,
+          credentialId: randomUUID(),
+          revision: 1,
+          secret,
+          updatedAt: Date.now(),
+        };
+    const entries = [...current.entries];
+    if (index < 0) entries.push(entry);
+    else entries[index] = entry;
+    const next = {
+      schemaVersion: SCHEMA_VERSION,
+      revision: nextRevision(current.revision),
+      entries,
+    };
+    await this.write(root, next);
+    return next;
   }
 
   private async write(root: string, document: CredentialVaultDocument): Promise<void> {

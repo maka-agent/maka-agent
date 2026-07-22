@@ -46,12 +46,37 @@ export interface StoredOAuthRefreshTicket {
   readonly [operationTicketBrand]: 'stored_oauth_refresh';
 }
 
+export interface InteractiveOAuthLoginTicket {
+  readonly [operationTicketBrand]: 'interactive_oauth_login';
+}
+
 export type ModelFetchResult = ConnectionModelDiscoveryResult;
 export type ConnectionTestResult = ConnectionTestSummary;
 
 export interface StoredOAuthRefreshResult {
   readonly secret: string;
 }
+
+export interface InteractiveOAuthLoginResult {
+  readonly secret: string;
+}
+
+export type BeginInteractiveOAuthLoginResult =
+  | { readonly kind: 'connection_not_found' }
+  | { readonly kind: 'connection_disabled' }
+  | {
+      readonly kind: 'provider_action_unavailable';
+      readonly availability: UnavailableProviderActionAvailability;
+    }
+  | { readonly kind: 'credential_not_configured'; readonly status: CredentialStatus }
+  | {
+      readonly kind: 'ready';
+      readonly ticket: InteractiveOAuthLoginTicket;
+      readonly catalogConnection: ConnectionCatalogEntry;
+      readonly expectedCredentialBasis: CredentialVersionBasis | null;
+      readonly secretMaterial: Pick<RuntimePolicyOperationSecretMaterial, 'networkProxy'>;
+      readonly networkProxy: RuntimePolicy['networkProxy'];
+    };
 
 export type BeginModelFetchResult =
   | { readonly kind: 'connection_not_found' }
@@ -128,6 +153,13 @@ export type StoredOAuthRefreshCompletionResult =
   | { readonly kind: 'committed'; readonly snapshot: CredentialVaultSnapshot }
   | { readonly kind: 'stale'; readonly changed: readonly CompletionChangedDomain[] };
 
+export type InteractiveOAuthLoginCompletionResult =
+  | { readonly kind: 'committed'; readonly snapshot: CredentialVaultSnapshot }
+  | {
+      readonly kind: 'stale';
+      readonly changed: readonly Extract<CompletionChangedDomain, 'connection' | 'credential'>[];
+    };
+
 export interface RuntimePolicyOperationCoordinator {
   resolveExecutionConnection(connectionSlug: string): Promise<ResolveExecutionConnectionResult>;
   beginModelFetch(connectionId: string): Promise<BeginModelFetchResult>;
@@ -145,6 +177,13 @@ export interface RuntimePolicyOperationCoordinator {
     ticket: StoredOAuthRefreshTicket,
     result: StoredOAuthRefreshResult,
   ): Promise<StoredOAuthRefreshCompletionResult>;
+  beginInteractiveOAuthLogin(
+    catalogConnectionId: string,
+  ): Promise<BeginInteractiveOAuthLoginResult>;
+  completeInteractiveOAuthLogin(
+    ticket: InteractiveOAuthLoginTicket,
+    result: InteractiveOAuthLoginResult,
+  ): Promise<InteractiveOAuthLoginCompletionResult>;
 }
 
 export function connectionCredentialLocator(

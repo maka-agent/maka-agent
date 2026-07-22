@@ -736,6 +736,21 @@ export type {
   ResolveAndPersistOAuthSubscriptionTokensInput,
   ResolveOAuthSubscriptionAccessTokenInput,
 } from './subscription-credentials.js';
+export {
+  OAUTH_LOGIN_PROVIDER_CONFIG,
+  OAuthTokenEndpointError,
+  buildOAuthLoginAuthorization,
+  exchangeOAuthAuthorizationCode,
+  isDeterministicOAuthCredentialRejection,
+} from './oauth-login.js';
+export type {
+  ExchangeOAuthAuthorizationCodeInput,
+  OAuthLoginAuthorization,
+  OAuthLoginAuthorizationInput,
+  OAuthLoginPresentationKind,
+  OAuthLoginProvider,
+  OAuthTokenEndpointErrorCategory,
+} from './oauth-login.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';
 export type { SubscriptionModelFetchInput } from './subscription-model-fetch.js';
 export { extractCodexAccountId, openAiCodexHeaders } from './subscription-auth.js';

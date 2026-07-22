@@ -7,8 +7,8 @@ import { stableLocalMemoryEntryId } from '@maka/core/local-memory';
 import {
   buildBuiltinTools,
   evaluateGoal,
-  GoalEvaluatorFatalError,
   parseOAuthSubscriptionTokens,
+  type OAuthSubscriptionTokens,
 } from '@maka/runtime';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveMemoryStoreForWrite } from '@maka/storage/memory-store';
@@ -16,12 +16,15 @@ import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtim
 import { resolveStorageRoot, tryAcquireInteractiveRootOwner } from '@maka/storage/root-authority';
 import { openInteractiveTaskLedgerStoreForWrite } from '@maka/storage/task-ledger-store';
 import {
+  buildHostModelFetch,
   createHostExecutionModelComposition,
   createHostGoalEvaluator,
 } from '../server/execution-model-composition.js';
 import { HostGoalCoordinator } from '../server/goal-coordinator.js';
 import { RuntimeHostKernel } from '../server/host-kernel.js';
 import { HostMemoryCoordinator } from '../server/memory-coordinator.js';
+import { HostNativeProviderCoordinator } from '../server/native-provider-coordinator.js';
+import { HostOAuthCoordinator, HostOAuthFatalError } from '../server/oauth-coordinator.js';
 import { createUnavailableDomainOperationHandlers } from '../server/operation-dispatcher.js';
 import { HostSkillCatalogCoordinator } from '../server/skill-catalog-coordinator.js';
 import { HostSkillCatalogFilesystem } from '../server/skill-catalog-filesystem.js';
@@ -29,16 +32,67 @@ import { HostSkillCatalogFilesystem } from '../server/skill-catalog-filesystem.j
 const SESSION_ID = 'model-composition-session';
 const NOW = 1_700_000_000_000;
 
+test('Host Claude model fetch cloaks by default and honors the explicit environment opt-out', async () => {
+  const original = process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK;
+  const requests: Array<{ headers: Headers; body: string }> = [];
+  const target = {
+    connection: {
+      slug: 'claude-test',
+      providerType: 'claude-subscription' as const,
+      defaultModel: 'claude-sonnet-4-5',
+      models: [],
+    },
+    model: 'claude-sonnet-4-5',
+    apiKey: 'access-token',
+    networkProxy: {
+      enabled: false,
+      protocol: 'http' as const,
+      host: '',
+      port: 8080,
+      authEnabled: false,
+      username: '',
+      bypassList: [],
+      autoBypassDomains: [],
+    },
+    claude: { deviceId: '12'.repeat(32), accountUuid: 'account-uuid' },
+  };
+  const fetchFn: typeof fetch = async (_url, init) => {
+    requests.push({ headers: new Headers(init?.headers), body: String(init?.body ?? '') });
+    return Response.json({ ok: true });
+  };
+
+  try {
+    delete process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK;
+    const cloaked = buildHostModelFetch(target, 'session-id', fetchFn);
+    await cloaked('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(requests[0]?.headers.get('X-Claude-Code-Session-Id'), 'session-id');
+    assert.equal(
+      JSON.parse(JSON.parse(requests[0]?.body ?? '{}').metadata.user_id).device_id,
+      '12'.repeat(32),
+    );
+
+    process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK = '0';
+    const uncloaked = buildHostModelFetch(target, 'session-id', fetchFn);
+    const rawBody = JSON.stringify({ messages: [] });
+    await uncloaked('https://api.anthropic.com/v1/messages', { method: 'POST', body: rawBody });
+    assert.equal(requests[1]?.body, rawBody);
+    assert.equal(requests[1]?.headers.get('X-Claude-Code-Session-Id'), null);
+  } finally {
+    if (original === undefined) delete process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK;
+    else process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK = original;
+  }
+});
+
 test('Goal post-cut work commits before fail-stop owner isolation and releases residency after it', async () => {
   const fixture = await createGoalOAuthFixture();
-  const refresh = deferred<{
-    access_token: string;
-    refresh_token: string;
-    expires_at: number;
-  }>();
+  const refresh = deferred<OAuthSubscriptionTokens>();
   const invalidationEntered = deferred<void>();
   const releaseInvalidation = deferred<void>();
   let evaluator!: ReturnType<typeof createHostGoalEvaluator>;
+  let oauth!: HostOAuthCoordinator;
   let requestFailStop!: Parameters<
     NonNullable<Parameters<typeof RuntimeHostKernel.start>[0]['compositionFactory']>
   >[0]['requestFailStop'];
@@ -50,9 +104,13 @@ test('Goal post-cut work commits before fail-stop owner isolation and releases r
       idleGraceMs: 10_000,
       compositionFactory: async (context) => {
         requestFailStop = context.requestFailStop;
-        evaluator = createHostGoalEvaluator({
-          sessions: fixture.executionStores.sessionStore,
+        const nativeProvider = new HostNativeProviderCoordinator(
+          context.hostEpoch,
+          context.acquireResidency,
+        );
+        oauth = new HostOAuthCoordinator({
           runtimePolicy: fixture.policyStores,
+          nativeProvider,
           acquireResidency: () => {
             const residency = context.acquireResidency();
             return {
@@ -62,23 +120,32 @@ test('Goal post-cut work commits before fail-stop owner isolation and releases r
               },
             };
           },
-          onCredentialRefreshed: async () => {
+          invalidateBackends: async () => {
             invalidationEntered.resolve();
             await releaseInvalidation.promise;
           },
           onFatal: (error) =>
             assert.fail(`successful post-cut work became fatal: ${error.message}`),
-          refreshOAuthTokens: () => {
+          refreshTokens: () => {
             fixture.refreshBegan.resolve();
             return refresh.promise;
           },
         });
+        evaluator = createHostGoalEvaluator({
+          sessions: fixture.executionStores.sessionStore,
+          runtimePolicy: fixture.policyStores,
+          oauth,
+        });
         return {
           handlers: createUnavailableDomainOperationHandlers(),
-          beginDrain: () => evaluator.beginDrain(),
+          nativeProvider,
+          beginDrain: () => {
+            oauth.beginDrain();
+            evaluator.beginDrain();
+          },
           recover: async () => undefined,
           close: async () => {
-            await evaluator.close();
+            await Promise.all([oauth.close(), evaluator.close()]);
             return { kind: 'clean' };
           },
         };
@@ -88,7 +155,7 @@ test('Goal post-cut work commits before fail-stop owner isolation and releases r
     const evaluation = evaluator.evaluate('prompt', fixture.sessionId, controller.signal);
     await fixture.refreshBegan.promise;
     controller.abort(new Error('Goal evaluator timed out'));
-    const failStop = evaluator.prepareFailStop();
+    const failStop = oauth.prepareFailStop();
     requestFailStop({ kind: 'fail_stop', cause: isolationCause, ...failStop });
 
     assert.equal(fixture.owner.closed, false);
@@ -97,6 +164,8 @@ test('Goal post-cut work commits before fail-stop owner isolation and releases r
       access_token: 'new-access',
       refresh_token: 'new-refresh',
       expires_at: Date.now() + 60_000,
+      account_uuid: 'goal-account',
+      device_id: '34'.repeat(32),
     });
     await invalidationEntered.promise;
     const resolved = await fixture.policyStores.operations.resolveExecutionConnection('goal-oauth');
@@ -131,10 +200,12 @@ test('Goal post-cut failure fail-stops the Host after evaluateGoal already timed
   const fixture = await createGoalOAuthFixture();
   const refreshFailure = new Error('remote OAuth refresh failed');
   const releaseRefreshFailure = deferred<void>();
-  let callbackFatal: GoalEvaluatorFatalError | undefined;
+  let callbackFatal: HostOAuthFatalError | undefined;
   let evaluator!: ReturnType<typeof createHostGoalEvaluator>;
+  let oauth!: HostOAuthCoordinator;
   let goals!: HostGoalCoordinator;
   let rootAdmissions = 0;
+  let refreshCalls = 0;
   const continuationEvaluated = deferred<void>();
   const admissionFenceEntered = deferred<void>();
   let continuationVerdict = '';
@@ -143,12 +214,17 @@ test('Goal post-cut failure fail-stops the Host after evaluateGoal already timed
       owner: fixture.owner,
       idleGraceMs: 10_000,
       compositionFactory: async (context) => {
-        evaluator = createHostGoalEvaluator({
-          sessions: fixture.executionStores.sessionStore,
+        const nativeProvider = new HostNativeProviderCoordinator(
+          context.hostEpoch,
+          context.acquireResidency,
+        );
+        oauth = new HostOAuthCoordinator({
           runtimePolicy: fixture.policyStores,
+          nativeProvider,
           acquireResidency: context.acquireResidency,
-          onCredentialRefreshed: async () => undefined,
-          refreshOAuthTokens: async () => {
+          invalidateBackends: async () => undefined,
+          refreshTokens: async () => {
+            refreshCalls += 1;
             fixture.refreshBegan.resolve();
             await releaseRefreshFailure.promise;
             throw refreshFailure;
@@ -156,9 +232,14 @@ test('Goal post-cut failure fail-stops the Host after evaluateGoal already timed
           onFatal: (fatal) => {
             callbackFatal = fatal;
             goals.beginDrain();
-            const failStop = evaluator.prepareFailStop();
+            const failStop = oauth.prepareFailStop();
             context.requestFailStop({ kind: 'fail_stop', cause: fatal, ...failStop });
           },
+        });
+        evaluator = createHostGoalEvaluator({
+          sessions: fixture.executionStores.sessionStore,
+          runtimePolicy: fixture.policyStores,
+          oauth,
         });
         goals = new HostGoalCoordinator({
           root: {
@@ -181,13 +262,15 @@ test('Goal post-cut failure fail-stops the Host after evaluateGoal already timed
         });
         return {
           handlers: createUnavailableDomainOperationHandlers(),
+          nativeProvider,
           beginDrain: () => {
             goals.beginDrain();
             evaluator.beginDrain();
+            oauth.beginDrain();
           },
           recover: async () => undefined,
           close: async () => {
-            await Promise.all([goals.close(), evaluator.close()]);
+            await Promise.all([goals.close(), evaluator.close(), oauth.close()]);
             return { kind: 'clean' };
           },
         };
@@ -213,12 +296,13 @@ test('Goal post-cut failure fail-stops the Host after evaluateGoal already timed
       fixture.sessionId,
     );
     await fixture.refreshBegan.promise;
+    assert.equal(refreshCalls, 1);
     assert.ok(triggerEvaluatorTimeout);
     triggerEvaluatorTimeout();
     const timedOut = await verdict;
     assert.equal(timedOut.evaluatorFailed, true);
     assert.match(timedOut.reason, /timed out/);
-    assert.equal(callbackFatal, undefined);
+    assert.equal(refreshCalls, 1);
     continuationVerdict = JSON.stringify({
       met: timedOut.met,
       impossible: timedOut.impossible,
@@ -251,6 +335,65 @@ test('Goal post-cut failure fail-stops the Host after evaluateGoal already timed
     assert.equal(rootAdmissions, 0);
   } finally {
     releaseRefreshFailure.resolve();
+    await fixture.owner.close().catch(() => undefined);
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('Goal continuation fence ignores an unrelated ordinary OAuth refresh', {
+  timeout: 2_000,
+}, async () => {
+  const fixture = await createGoalOAuthFixture();
+  const releaseRefresh = deferred<void>();
+  const nativeProvider = new HostNativeProviderCoordinator('goal-fence-epoch', () => ({
+    release() {},
+  }));
+  const oauth = new HostOAuthCoordinator({
+    runtimePolicy: fixture.policyStores,
+    nativeProvider,
+    acquireResidency: () => ({ release() {} }),
+    invalidateBackends: async () => undefined,
+    onFatal: (error) => assert.fail(error.message),
+    refreshTokens: async () => {
+      fixture.refreshBegan.resolve();
+      await releaseRefresh.promise;
+      return {
+        access_token: 'manual-access',
+        refresh_token: 'manual-refresh',
+        expires_at: Date.now() + 60_000,
+      };
+    },
+  });
+  const evaluator = createHostGoalEvaluator({
+    sessions: fixture.executionStores.sessionStore,
+    runtimePolicy: fixture.policyStores,
+    oauth,
+  });
+  try {
+    const connection = (await fixture.policyStores.connectionCatalog.getSnapshot()).connections[0];
+    assert.ok(connection);
+    const refreshing = oauth.handlers['oauth.credential.refresh'](
+      { connectionId: connection.connectionId },
+      {
+        hostEpoch: 'goal-fence-epoch',
+        connectionId: 'ordinary-client',
+        surface: 'desktop',
+        principal: 'local_os_user',
+        acquireResidency: () => ({ release() {} }),
+      },
+    );
+    await fixture.refreshBegan.promise;
+
+    await evaluator.whenCurrentPostCutEffectsSettled();
+
+    releaseRefresh.resolve();
+    assert.deepEqual(await refreshing, { ok: true, result: { kind: 'refreshed' } });
+  } finally {
+    releaseRefresh.resolve();
+    evaluator.beginDrain();
+    oauth.beginDrain();
+    nativeProvider.beginDrain();
+    await Promise.allSettled([evaluator.close(), oauth.close(), nativeProvider.close()]);
     await fixture.owner.close().catch(() => undefined);
     await rm(fixture.base, { recursive: true, force: true });
   }
@@ -465,17 +608,16 @@ async function createGoalOAuthFixture() {
     const connection = created.snapshot.connections[0];
     assert.ok(connection);
     if (!connection) throw new Error('Goal OAuth connection is missing');
-    const credential = await policyStores.credentialVault.set({
-      locator: {
-        scope: 'connection',
-        connectionId: connection.connectionId,
-        kind: 'oauth_token',
-      },
-      expected: null,
+    const login = await policyStores.operations.beginInteractiveOAuthLogin(connection.connectionId);
+    assert.equal(login.kind, 'ready');
+    if (login.kind !== 'ready') throw new Error('Goal OAuth login was not admitted');
+    const credential = await policyStores.operations.completeInteractiveOAuthLogin(login.ticket, {
       secret: JSON.stringify({
         access_token: 'old-access',
         refresh_token: 'old-refresh',
         expires_at: 1,
+        account_uuid: 'goal-account',
+        device_id: '34'.repeat(32),
       }),
     });
     assert.equal(credential.kind, 'committed');

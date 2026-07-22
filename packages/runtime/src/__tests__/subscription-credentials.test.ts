@@ -7,12 +7,100 @@ import { describe, test } from 'node:test';
 import { createFileCredentialStore } from '@maka/storage';
 
 import {
+  OAUTH_LOGIN_MAX_RESPONSE_BYTES,
+  OAUTH_LOGIN_MAX_TOKEN_CHARS,
+  OAuthTokenEndpointError,
+  isDeterministicOAuthCredentialRejection,
+} from '../oauth-login.js';
+import {
   createGitHubCopilotAccountTokens,
   parseOAuthSubscriptionTokens,
   refreshAndPersistOAuthSubscriptionTokens,
+  refreshOAuthSubscriptionTokens,
   resolveAndPersistOAuthSubscriptionTokens,
   resolveOAuthSubscriptionTokens,
+  serializeOAuthSubscriptionTokens,
+  type OAuthSubscriptionTokens,
 } from '../subscription-credentials.js';
+
+describe('OAuth subscription token serialization', () => {
+  const deviceId = 'ab'.repeat(32);
+
+  test('uses one fixed field order regardless of input insertion order', () => {
+    const first: OAuthSubscriptionTokens = {
+      access_token: 'access',
+      refresh_token: 'refresh',
+      expires_at: 123_000,
+      scope: 'scope',
+      device_id: deviceId,
+      account_id: 'account',
+    };
+    const second = {
+      account_id: 'account',
+      scope: 'scope',
+      device_id: deviceId,
+      expires_at: 123_000,
+      refresh_token: 'refresh',
+      access_token: 'access',
+    } satisfies OAuthSubscriptionTokens;
+
+    const expected =
+      `{"access_token":"access","refresh_token":"refresh","expires_at":123000,"scope":"scope","device_id":"${deviceId}","account_id":"account"}`;
+    assert.equal(serializeOAuthSubscriptionTokens(first), expected);
+    assert.equal(serializeOAuthSubscriptionTokens(second), expected);
+    assert.deepEqual(parseOAuthSubscriptionTokens(expected), first);
+  });
+
+  test('rejects runtime-only fields and invalid bounded values', () => {
+    const base: OAuthSubscriptionTokens = {
+      access_token: 'access',
+      refresh_token: 'refresh',
+      expires_at: 123_000,
+    };
+    assert.throws(
+      () =>
+        serializeOAuthSubscriptionTokens({
+          ...base,
+          runtimeOwner: 'desktop',
+        } as OAuthSubscriptionTokens),
+      OAuthTokenEndpointError,
+    );
+    assert.throws(
+      () =>
+        serializeOAuthSubscriptionTokens({
+          ...base,
+          id_token: 'x'.repeat(OAUTH_LOGIN_MAX_TOKEN_CHARS + 1),
+        }),
+      OAuthTokenEndpointError,
+    );
+    assert.throws(
+      () =>
+        serializeOAuthSubscriptionTokens({
+          ...base,
+          access_token: 'x'.repeat(OAUTH_LOGIN_MAX_TOKEN_CHARS + 1),
+        }),
+      OAuthTokenEndpointError,
+    );
+    assert.throws(
+      () => serializeOAuthSubscriptionTokens({ ...base, scope: '' }),
+      OAuthTokenEndpointError,
+    );
+    assert.throws(
+      () => serializeOAuthSubscriptionTokens({ ...base, expires_at: Number.NaN }),
+      OAuthTokenEndpointError,
+    );
+    for (const invalidDeviceId of ['a'.repeat(63), 'a'.repeat(65), 'A'.repeat(64), 'g'.repeat(64)]) {
+      assert.throws(
+        () => serializeOAuthSubscriptionTokens({ ...base, device_id: invalidDeviceId }),
+        OAuthTokenEndpointError,
+      );
+      assert.equal(
+        parseOAuthSubscriptionTokens(JSON.stringify({ ...base, device_id: invalidDeviceId })),
+        null,
+      );
+    }
+  });
+});
 
 describe('GitHub Copilot subscription credentials', () => {
   test('preserves the account-scoped API endpoint in the existing OAuth token record', () => {
@@ -76,10 +164,146 @@ describe('OAuth refresh response validation', () => {
     access_token: 'old-access',
     refresh_token: 'old-refresh',
     expires_at: 1_000, // already past `now` below → refresh path runs
+    device_id: 'cd'.repeat(32),
   });
 
   const okResponse = (body: unknown): Response =>
-    ({ ok: true, status: 200, json: async () => body }) as unknown as Response;
+    new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+
+  test('preserves deterministic invalid_token classification for Host CAS handling', async () => {
+    const writes: string[] = [];
+    const result = await refreshAndPersistOAuthSubscriptionTokens({
+      providerType: 'openai-codex',
+      slug: 'openai-codex',
+      credentialStore: {
+        getSecret: async () => nearExpiryStored,
+        setSecret: async (_slug, _kind, value) => {
+          writes.push(value);
+        },
+      },
+      fetchFn: async () =>
+        new Response(JSON.stringify({ error: 'invalid_token' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+
+    assert.equal(result.outcome, 'refresh-failed');
+    assert.ok(result.outcome === 'refresh-failed');
+    assert.ok(result.error instanceof OAuthTokenEndpointError);
+    assert.equal(result.error.category, 'invalid_token');
+    assert.equal(result.error.status, 401);
+    assert.equal(isDeterministicOAuthCredentialRejection(result.error), true);
+    assert.deepEqual(writes, []);
+  });
+
+  test('settles a stalled response body at the internal deadline without awaiting cancellation', {
+    timeout: 1_000,
+  }, async () => {
+    let cancelCalls = 0;
+    let markCancelStarted!: () => void;
+    const cancelStarted = new Promise<void>((resolve) => {
+      markCancelStarted = resolve;
+    });
+    const stream = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelCalls += 1;
+        markCancelStarted();
+        return new Promise<void>(() => undefined);
+      },
+    });
+
+    await assert.rejects(
+      refreshOAuthSubscriptionTokens({
+        providerType: 'claude-subscription',
+        tokens: {
+          access_token: 'old-access',
+          refresh_token: 'old-refresh',
+          expires_at: 1_000,
+        },
+        fetchFn: async () => new Response(stream),
+        timeoutMs: 5,
+      }),
+      (error) => {
+        assert.ok(error instanceof OAuthTokenEndpointError);
+        assert.equal(error.category, 'outcome_unknown');
+        assert.equal(error.status, 200);
+        return true;
+      },
+    );
+    await cancelStarted;
+    assert.equal(cancelCalls, 1);
+  });
+
+  test('an oversized response body fails closed before a Store write', async () => {
+    const writes: string[] = [];
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(OAUTH_LOGIN_MAX_RESPONSE_BYTES + 1));
+      },
+    });
+    const result = await refreshAndPersistOAuthSubscriptionTokens({
+      providerType: 'openai-codex',
+      slug: 'openai-codex',
+      credentialStore: {
+        getSecret: async () => nearExpiryStored,
+        setSecret: async (_slug, _kind, value) => {
+          writes.push(value);
+        },
+      },
+      fetchFn: async () => new Response(stream),
+    });
+
+    assert.equal(result.outcome, 'refresh-failed');
+    assert.ok(result.outcome === 'refresh-failed');
+    assert.ok(result.error instanceof OAuthTokenEndpointError);
+    assert.equal(result.error.category, 'response_too_large');
+    assert.equal(result.error.status, 200);
+    assert.deepEqual(writes, []);
+  });
+
+  test('malformed optional fields and unknown fields fail closed before Store writes', async () => {
+    const cases = [
+      {
+        providerType: 'claude-subscription' as const,
+        body: { access_token: 'new-access', expires_in: 3600, token_type: 42 },
+      },
+      {
+        providerType: 'claude-subscription' as const,
+        body: { access_token: 'new-access', expires_in: 3600, account: { uuid: 42 } },
+      },
+      {
+        providerType: 'openai-codex' as const,
+        body: { access_token: 'new-access', expires_in: 3600, id_token: 42 },
+      },
+      {
+        providerType: 'openai-codex' as const,
+        body: { access_token: 'new-access', expires_in: 3600, unexpected: true },
+      },
+    ];
+
+    for (const fixture of cases) {
+      const writes: string[] = [];
+      const result = await refreshAndPersistOAuthSubscriptionTokens({
+        providerType: fixture.providerType,
+        slug: fixture.providerType,
+        credentialStore: {
+          getSecret: async () => nearExpiryStored,
+          setSecret: async (_slug, _kind, value) => {
+            writes.push(value);
+          },
+        },
+        fetchFn: async () => okResponse(fixture.body),
+      });
+
+      assert.equal(result.outcome, 'refresh-failed');
+      assert.ok(result.outcome === 'refresh-failed');
+      assert.ok(result.error instanceof OAuthTokenEndpointError);
+      assert.equal(result.error.category, 'invalid_response');
+      assert.equal(result.error.status, 200);
+      assert.deepEqual(writes, []);
+    }
+  });
 
   for (const [name, body] of [
     ['empty object', {}],
@@ -87,6 +311,10 @@ describe('OAuth refresh response validation', () => {
     ['missing expiry', { access_token: 'new-access' }],
     ['non-numeric expiry', { access_token: 'new-access', expires_in: 'soon' }],
     ['non-positive expiry', { access_token: 'new-access', expires_in: 0 }],
+    [
+      'empty rotated refresh token',
+      { access_token: 'new-access', refresh_token: '', expires_in: 3600 },
+    ],
   ] as const) {
     test(`a 200 refresh with ${name} never replaces the stored token`, async () => {
       const writes: string[] = [];
@@ -112,7 +340,7 @@ describe('OAuth refresh response validation', () => {
     });
   }
 
-  test('a rotated refresh token that is an empty string keeps the previous refresh token', async () => {
+  test('a valid Claude response may omit rotation and preserves validated metadata', async () => {
     const writes: string[] = [];
     const tokens = await resolveOAuthSubscriptionTokens({
       providerType: 'claude-subscription',
@@ -125,12 +353,57 @@ describe('OAuth refresh response validation', () => {
       },
       now: () => 10_000_000,
       fetchFn: async () =>
-        okResponse({ access_token: 'new-access', refresh_token: '', expires_in: 3600 }),
+        okResponse({
+          access_token: 'new-access',
+          expires_in: 3600,
+          token_type: 'Bearer',
+          scope: 'user:sessions:claude_code',
+          account: { uuid: 'account-uuid' },
+        }),
     });
 
     assert.equal(tokens?.access_token, 'new-access');
     assert.equal(tokens?.refresh_token, 'old-refresh');
+    assert.equal(tokens?.token_type, 'Bearer');
+    assert.equal(tokens?.scope, 'user:sessions:claude_code');
+    assert.equal(tokens?.account_uuid, 'account-uuid');
+    assert.equal(tokens?.device_id, 'cd'.repeat(32));
     assert.equal(writes.length, 1);
+    assert.deepEqual(parseOAuthSubscriptionTokens(writes[0] ?? ''), tokens);
+  });
+
+  test('a valid Codex response preserves account metadata and accepts bounded optional fields', async () => {
+    const tokens = await refreshOAuthSubscriptionTokens({
+      providerType: 'openai-codex',
+      tokens: {
+        access_token: 'old-access',
+        refresh_token: 'old-refresh',
+        expires_at: 1_000,
+        account_id: 'account-id',
+        token_type: 'Old-Type',
+        scope: 'old-scope',
+      },
+      now: () => 10_000_000,
+      fetchFn: async () =>
+        okResponse({
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
+          id_token: 'new-id-token',
+          expires_in: 3600,
+          token_type: 'Bearer',
+          scope: 'openid profile',
+        }),
+    });
+
+    assert.deepEqual(tokens, {
+      access_token: 'new-access',
+      refresh_token: 'new-refresh',
+      expires_at: 13_600_000,
+      id_token: 'new-id-token',
+      token_type: 'Bearer',
+      scope: 'openid profile',
+      account_id: 'account-id',
+    });
   });
 });
 
@@ -160,6 +433,37 @@ describe('OAuth refresh persistence transaction', () => {
     assert.equal(refreshCalls, 0, 'a refresh must not rotate tokens that cannot be persisted');
   });
 
+  test('strict serialization failures are refresh-failed and never reach Store', async () => {
+    const stored = JSON.stringify({
+      access_token: 'old-access',
+      refresh_token: 'old-refresh',
+      expires_at: 1_000,
+    });
+    const writes: string[] = [];
+    const result = await refreshAndPersistOAuthSubscriptionTokens({
+      slug: 'claude-subscription',
+      credentialStore: {
+        getSecret: async () => stored,
+        setSecret: async (_slug, _kind, value) => {
+          writes.push(value);
+        },
+      },
+      refreshTokens: async () =>
+        ({
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
+          expires_at: 20_000_000,
+          runtimeOwner: 'host',
+        }) as OAuthSubscriptionTokens,
+    });
+
+    assert.equal(result.outcome, 'refresh-failed');
+    assert.ok(result.outcome === 'refresh-failed');
+    assert.ok(result.error instanceof OAuthTokenEndpointError);
+    assert.equal(result.error.category, 'invalid_response');
+    assert.deepEqual(writes, []);
+  });
+
   test('resolve accepts a store whose only write capability is compare-and-set', async () => {
     const stored = JSON.stringify({
       access_token: 'old-access',
@@ -180,15 +484,13 @@ describe('OAuth refresh persistence transaction', () => {
       },
       now: () => 10_000_000,
       fetchFn: async () =>
-        ({
-          ok: true,
-          status: 200,
-          json: async () => ({
+        new Response(
+          JSON.stringify({
             access_token: 'new-access',
             refresh_token: 'new-refresh',
             expires_in: 3600,
           }),
-        }) as unknown as Response,
+        ),
     });
 
     assert.equal(tokens?.access_token, 'new-access');
@@ -228,15 +530,13 @@ describe('OAuth refresh persistence transaction', () => {
       now: () => 10_000_000,
       fetchFn: async () => {
         current = winner;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
+        return new Response(
+          JSON.stringify({
             access_token: 'redundant-access',
             refresh_token: 'redundant-refresh',
             expires_in: 3600,
           }),
-        } as unknown as Response;
+        );
       },
     });
 
@@ -328,15 +628,15 @@ describe('OAuth refresh persistence transaction', () => {
 
       await refreshStarted;
       await logoutStore.deleteSecret('claude-subscription', 'oauth_token');
-      releaseRefresh({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          access_token: 'new-access',
-          refresh_token: 'new-refresh',
-          expires_in: 3600,
-        }),
-      } as unknown as Response);
+      releaseRefresh(
+        new Response(
+          JSON.stringify({
+            access_token: 'new-access',
+            refresh_token: 'new-refresh',
+            expires_in: 3600,
+          }),
+        ),
+      );
 
       assert.equal(await resolving, null);
       assert.equal(await logoutStore.getSecret('claude-subscription', 'oauth_token'), null);

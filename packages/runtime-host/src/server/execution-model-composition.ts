@@ -18,19 +18,14 @@ import {
   createProviderRequestCaptureRecorder,
   createProxiedFetchTransport,
   getAIModel,
-  GoalEvaluatorFatalError,
   isModelExplicitlyUnsupportedForChat,
   isOAuthSubscriptionProvider,
   loadHistoryCompactBlocksFromArtifacts,
-  parseOAuthSubscriptionTokens,
   recordLlmCall,
   recordToolInvocation,
-  refreshOAuthSubscriptionTokens,
   resolveProjectGitInfo,
   resolveSelectedModelContextWindow,
-  serializeOAuthSubscriptionTokens,
   SKILL_TOOL_NAME,
-  TOKEN_REFRESH_SKEW_MS,
   type AutomationToolService,
   type BackendFactoryContext,
   type GoalEvaluatorDeps,
@@ -61,8 +56,8 @@ import type {
   RuntimePolicyStoresWriter,
 } from '@maka/storage/runtime-policy-stores';
 import type { InteractiveUsageStoresWriter } from '@maka/storage/usage-stores';
-import type { RuntimeHostResidency } from './host-kernel.js';
 import type { HostMemoryCoordinator } from './memory-coordinator.js';
+import type { HostOAuthCoordinator } from './oauth-coordinator.js';
 import type { HostSkillCatalogCoordinator } from './skill-catalog-coordinator.js';
 
 export interface HostModelPromptContext {
@@ -154,7 +149,7 @@ export interface HostAiSdkBackendInput {
   readonly sandboxDiagnosticsProvider: SandboxDiagnosticsProvider;
   readonly runtimeTools: readonly MakaTool[];
   readonly runtimeCommitSink: RuntimeCommitSink;
-  readonly onCredentialRefreshed: () => Promise<void>;
+  readonly oauth: HostOAuthCoordinator;
 }
 
 /** Builds the one Host-owned real model backend from canonical root state. */
@@ -162,10 +157,7 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
   const target = await resolveExecutionTarget({
     header: input.context.header,
     runtimePolicyOperations: input.runtimePolicy.operations,
-    onCredentialRefreshed: input.onCredentialRefreshed,
-    onFatal: (fatal) => {
-      throw fatal.fatalCause;
-    },
+    oauth: input.oauth,
   });
   const sandboxDiagnosticsSnapshot = await input.sandboxDiagnosticsProvider.resolve({
     mode: input.context.header.permissionMode,
@@ -293,29 +285,22 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
 export interface HostGoalEvaluatorInput {
   readonly sessions: Pick<ExecutionSessionWriter, 'readHeader'>;
   readonly runtimePolicy: RuntimePolicyStoresWriter;
-  readonly onCredentialRefreshed: () => Promise<void>;
-  readonly acquireResidency: () => RuntimeHostResidency;
-  readonly onFatal: (error: GoalEvaluatorFatalError) => void;
-  readonly refreshOAuthTokens?: typeof refreshOAuthSubscriptionTokens;
-}
-
-interface HostGoalEvaluatorFailStop {
-  readonly ownerIsolationBarrier: Promise<void>;
-  readonly reclaimAfterOwnerIsolation: () => void;
+  readonly oauth: HostOAuthCoordinator;
 }
 
 export interface HostGoalEvaluator extends GoalEvaluatorDeps {
   whenCurrentPostCutEffectsSettled(): Promise<void>;
   beginDrain(): void;
   close(): Promise<void>;
-  prepareFailStop(): HostGoalEvaluatorFailStop;
 }
 
 /** Builds the Host-owned Goal judge against each Session's canonical model selection. */
 export function createHostGoalEvaluator(input: HostGoalEvaluatorInput): HostGoalEvaluator {
-  const lifecycle = new HostGoalEvaluatorLifecycleOwner(input.acquireResidency);
+  let admissionClosed = false;
+  const targetResolutions = new Set<Promise<ResolvedExecutionTarget>>();
   return {
     async evaluate(prompt: string, sessionId: string, signal?: AbortSignal): Promise<string> {
+      if (admissionClosed) throw new Error('Runtime Host Goal evaluator admission is closed');
       throwIfGoalEvaluationAborted(signal);
       const header = await input.sessions.readHeader(sessionId);
       throwIfGoalEvaluationAborted(signal);
@@ -323,15 +308,17 @@ export function createHostGoalEvaluator(input: HostGoalEvaluatorInput): HostGoal
         throw new Error('Runtime Host cannot evaluate a Goal for an archived Session');
       }
       throwIfGoalEvaluationAborted(signal);
-      const target = await resolveExecutionTarget({
+      const targetResolution = resolveExecutionTarget({
         header,
         runtimePolicyOperations: input.runtimePolicy.operations,
-        onCredentialRefreshed: input.onCredentialRefreshed,
-        admitRefreshEffect: () => lifecycle.admit(),
-        onFatal: input.onFatal,
-        refreshOAuthTokens: input.refreshOAuthTokens,
+        oauth: input.oauth,
         signal,
       });
+      targetResolutions.add(targetResolution);
+      void targetResolution
+        .finally(() => targetResolutions.delete(targetResolution))
+        .catch(() => undefined);
+      const target = await targetResolution;
       throwIfGoalEvaluationAborted(signal);
       const modelTransport = createProxiedFetchTransport(
         toProxySettings(target.networkProxy, target.proxySecret),
@@ -366,99 +353,16 @@ export function createHostGoalEvaluator(input: HostGoalEvaluatorInput): HostGoal
         await modelTransport.close();
       }
     },
-    whenCurrentPostCutEffectsSettled: () => lifecycle.whenCurrentEffectsSettled(),
-    beginDrain: () => lifecycle.beginDrain(),
-    close: () => lifecycle.close(),
-    prepareFailStop: () => lifecycle.prepareFailStop(),
+    whenCurrentPostCutEffectsSettled: async () => {
+      await Promise.allSettled([...targetResolutions]);
+    },
+    beginDrain: () => {
+      admissionClosed = true;
+    },
+    close: async () => {
+      admissionClosed = true;
+    },
   };
-}
-
-interface HostGoalRefreshEffect {
-  settle(): void;
-}
-
-interface HostGoalRefreshEffectState {
-  readonly residency: RuntimeHostResidency;
-  readonly settlement: Promise<void>;
-  readonly resolveSettlement: () => void;
-  settled: boolean;
-}
-
-class HostGoalEvaluatorLifecycleOwner {
-  readonly #active = new Set<HostGoalRefreshEffectState>();
-  readonly #failStopResidencies = new Set<RuntimeHostResidency>();
-  #admissionClosed = false;
-  #closeTask: Promise<void> | undefined;
-  #failStop: HostGoalEvaluatorFailStop | undefined;
-
-  constructor(private readonly acquireResidency: () => RuntimeHostResidency) {}
-
-  admit(): HostGoalRefreshEffect {
-    if (this.#admissionClosed) throw goalEvaluatorDrainingError();
-    const residency = this.acquireResidency();
-    let resolveSettlement!: () => void;
-    const settlement = new Promise<void>((resolve) => {
-      resolveSettlement = resolve;
-    });
-    const state: HostGoalRefreshEffectState = {
-      residency,
-      settlement,
-      resolveSettlement,
-      settled: false,
-    };
-    this.#active.add(state);
-    return { settle: () => this.#settle(state) };
-  }
-
-  whenCurrentEffectsSettled(): Promise<void> {
-    const current = [...this.#active];
-    return current.length === 0
-      ? Promise.resolve()
-      : Promise.all(current.map((state) => state.settlement)).then(() => undefined);
-  }
-
-  beginDrain(): void {
-    this.#admissionClosed = true;
-  }
-
-  close(): Promise<void> {
-    this.#closeTask ??= this.#closeOnce();
-    return this.#closeTask;
-  }
-
-  prepareFailStop(): HostGoalEvaluatorFailStop {
-    if (this.#failStop) return this.#failStop;
-    this.beginDrain();
-    for (const state of this.#active) this.#failStopResidencies.add(state.residency);
-    let reclaimed = false;
-    this.#failStop = Object.freeze({
-      ownerIsolationBarrier: this.whenCurrentEffectsSettled(),
-      reclaimAfterOwnerIsolation: () => {
-        if (reclaimed) return;
-        reclaimed = true;
-        for (const residency of this.#failStopResidencies) residency.release();
-        this.#failStopResidencies.clear();
-      },
-    });
-    return this.#failStop;
-  }
-
-  async #closeOnce(): Promise<void> {
-    this.beginDrain();
-    await this.whenCurrentEffectsSettled();
-  }
-
-  #settle(state: HostGoalRefreshEffectState): void {
-    if (state.settled) return;
-    state.settled = true;
-    if (!this.#active.delete(state)) return;
-    if (!this.#failStop) state.residency.release();
-    state.resolveSettlement();
-  }
-}
-
-function goalEvaluatorDrainingError(): Error {
-  return new Error('Runtime Host Goal evaluator refresh admission is closed');
 }
 
 class HostAiSdkBackend extends AiSdkBackend {
@@ -484,15 +388,16 @@ interface ResolvedExecutionTarget {
   readonly apiKey: string;
   readonly networkProxy: RuntimePolicy['networkProxy'];
   readonly proxySecret?: string;
+  readonly claude?: {
+    readonly deviceId: string;
+    readonly accountUuid: string;
+  };
 }
 
 interface ResolveExecutionTargetInput {
   readonly header: Pick<SessionHeader, 'llmConnectionSlug' | 'model'>;
   readonly runtimePolicyOperations: RuntimePolicyStoresWriter['operations'];
-  readonly onCredentialRefreshed: () => Promise<void>;
-  readonly admitRefreshEffect?: () => HostGoalRefreshEffect;
-  readonly onFatal: (error: GoalEvaluatorFatalError) => void;
-  readonly refreshOAuthTokens?: typeof refreshOAuthSubscriptionTokens;
+  readonly oauth: HostOAuthCoordinator;
   readonly signal?: AbortSignal;
 }
 
@@ -536,73 +441,23 @@ async function resolveExecutionTarget(
     };
   }
 
-  let tokens = parseOAuthSubscriptionTokens(rawSecret);
   let networkProxy = resolved.networkProxy;
   let proxySecret = resolved.secretMaterial.networkProxy?.secret;
-  if (!tokens) throw new Error('Runtime Host stored OAuth credential is invalid');
-  if (tokens.expires_at - Date.now() <= TOKEN_REFRESH_SKEW_MS) {
-    throwIfGoalEvaluationAborted(input.signal);
-    const refresh = await input.runtimePolicyOperations.beginStoredOAuthRefresh(
-      resolved.connection.connectionId,
-    );
-    throwIfGoalEvaluationAborted(input.signal);
-    if (refresh.kind !== 'ready') {
-      throw new Error(`Runtime Host OAuth credential cannot refresh: ${refresh.kind}`);
-    }
-    const current = parseOAuthSubscriptionTokens(refresh.secretMaterial.connection.secret);
-    if (!current) throw new Error('Runtime Host stored OAuth credential is invalid');
-    // This is the final cancellation cut. Admission atomically acquires Host
-    // residency; once admitted, refresh, commit, and invalidation must finish.
-    throwIfGoalEvaluationAborted(input.signal);
-    const effect = input.admitRefreshEffect?.();
-    try {
-      try {
-        const refreshTransport = createProxiedFetchTransport(
-          toProxySettings(refresh.networkProxy, refresh.secretMaterial.networkProxy?.secret),
-        );
-        let refreshTransportCloseFailure: { readonly error: unknown } | undefined;
-        try {
-          tokens = await (input.refreshOAuthTokens ?? refreshOAuthSubscriptionTokens)({
-            providerType: connection.providerType,
-            tokens: current,
-            fetchFn: refreshTransport.fetch,
-          });
-        } finally {
-          try {
-            await refreshTransport.close();
-          } catch (error) {
-            refreshTransportCloseFailure = { error };
-          }
-        }
-        // Once admitted, Store completion is not cancellable. The outer evaluator
-        // waits only its cleanup grace while this residency blocks idle shutdown.
-        const completion = await input.runtimePolicyOperations.completeStoredOAuthRefresh(
-          refresh.ticket,
-          { secret: serializeOAuthSubscriptionTokens(tokens) },
-        );
-        if (completion.kind !== 'committed') {
-          throw new Error(`Runtime Host OAuth refresh did not commit: ${completion.kind}`);
-        }
-        await input.onCredentialRefreshed();
-        if (refreshTransportCloseFailure) throw refreshTransportCloseFailure.error;
-        networkProxy = refresh.networkProxy;
-        proxySecret = refresh.secretMaterial.networkProxy?.secret;
-      } catch (error) {
-        const fatal = new GoalEvaluatorFatalError(
-          'Runtime Host Goal OAuth refresh entered fail-stop',
-          error,
-        );
-        input.onFatal(fatal);
-        throw fatal;
-      }
-      const abortReason = input.signal?.aborted
-        ? (input.signal.reason ?? new Error('Runtime Host Goal evaluation aborted'))
-        : undefined;
-      if (abortReason !== undefined) throw abortReason;
-    } finally {
-      effect?.settle();
-    }
-  }
+  const credential = await input.oauth.resolveExecutionCredential({
+    connectionId: resolved.connection.connectionId,
+    provider: connection.providerType,
+    secret: rawSecret,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+  const tokens = credential.tokens;
+  if (credential.networkProxy) networkProxy = credential.networkProxy;
+  if (credential.proxySecret !== undefined) proxySecret = credential.proxySecret;
+  throwIfGoalEvaluationAborted(input.signal);
+
+  const claude =
+    connection.providerType === 'claude-subscription'
+      ? requireClaudeExecutionMetadata(tokens)
+      : undefined;
 
   return {
     connection: tokens.base_url ? { ...connection, baseUrl: tokens.base_url } : connection,
@@ -610,29 +465,56 @@ async function resolveExecutionTarget(
     apiKey: tokens.access_token,
     networkProxy,
     ...(proxySecret === undefined ? {} : { proxySecret }),
+    ...(claude ? { claude } : {}),
   };
+}
+
+function requireClaudeExecutionMetadata(tokens: {
+  readonly device_id?: string;
+  readonly account_uuid?: string;
+}): NonNullable<ResolvedExecutionTarget['claude']> {
+  if (!tokens.device_id || !tokens.account_uuid) {
+    throw new Error('Runtime Host Claude OAuth credential is missing cloak metadata');
+  }
+  return { deviceId: tokens.device_id, accountUuid: tokens.account_uuid };
 }
 
 function throwIfGoalEvaluationAborted(signal: AbortSignal | undefined): void {
   signal?.throwIfAborted();
 }
 
-function buildHostModelFetch(
+export function buildHostModelFetch(
   target: ResolvedExecutionTarget,
   sessionId: string,
   fetchFn: typeof globalThis.fetch,
 ): typeof globalThis.fetch {
+  const claude =
+    target.connection.providerType === 'claude-subscription'
+      ? requireResolvedClaudeMetadata(target.claude)
+      : undefined;
   return (
     buildSubscriptionModelFetch({
       connection: target.connection,
       sessionId,
       modelId: target.model,
       fetchFn,
-      ...(target.connection.providerType === 'claude-subscription'
-        ? { claude: { cloakEnabled: false, deviceId: '', accountUuid: '' } }
+      ...(claude
+        ? {
+            claude: {
+              cloakEnabled: process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK !== '0',
+              ...claude,
+            },
+          }
         : {}),
     }) ?? fetchFn
   );
+}
+
+function requireResolvedClaudeMetadata(
+  claude: ResolvedExecutionTarget['claude'],
+): NonNullable<ResolvedExecutionTarget['claude']> {
+  if (!claude) throw new Error('Runtime Host Claude execution target is missing cloak metadata');
+  return claude;
 }
 
 function toProxySettings(

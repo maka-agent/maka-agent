@@ -8,6 +8,7 @@ import { INTERACTION_OPERATION_SPECS } from './interaction.js';
 import { MESSAGE_OPERATION_SPECS } from './message.js';
 import { MEMORY_OPERATION_SPECS } from './memory.js';
 import { NATIVE_PROVIDER_OPERATION_SPECS } from './native-provider.js';
+import { OAUTH_OPERATION_SPECS } from './oauth.js';
 import {
   composeOperationSpecMaps,
   type HostOperationError,
@@ -37,6 +38,16 @@ export {
   MEMORY_TITLE_MAX_BYTES,
 } from './memory.js';
 
+export type {
+  OAuthCredentialRefreshInput,
+  OAuthCredentialRefreshResult,
+  OAuthLoginAttemptInput,
+  OAuthLoginFailureCode,
+  OAuthLoginPhase,
+  OAuthLoginProjection,
+  OAuthLoginProvider,
+  OAuthLoginStartInput,
+} from './oauth.js';
 export type {
   GoalClearInput,
   GoalClearResult,
@@ -374,8 +385,13 @@ const HOST_GOAL_AND_NATIVE_PROVIDER_OPERATION_SPECS = composeOperationSpecMaps(
   NATIVE_PROVIDER_OPERATION_SPECS,
 );
 
-const HOST_GOAL_NATIVE_PROVIDER_AND_RESOURCE_OPERATION_SPECS = composeOperationSpecMaps(
+const HOST_GOAL_NATIVE_PROVIDER_AND_OAUTH_OPERATION_SPECS = composeOperationSpecMaps(
   HOST_GOAL_AND_NATIVE_PROVIDER_OPERATION_SPECS,
+  OAUTH_OPERATION_SPECS,
+);
+
+const HOST_GOAL_NATIVE_PROVIDER_AND_RESOURCE_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_GOAL_NATIVE_PROVIDER_AND_OAUTH_OPERATION_SPECS,
   RUNTIME_RESOURCE_OPERATION_SPECS,
 );
 

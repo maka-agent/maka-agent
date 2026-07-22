@@ -23,8 +23,29 @@ import {
   type NativeProviderComputerUseResultPayload,
   type NativeProviderComputerUseSubcall,
 } from './native-provider-computer-use.js';
+import {
+  decodeNativeProviderOAuthPresentationResultPayload,
+  decodeNativeProviderOAuthPresentationSubcall,
+  type NativeProviderOAuthPresentationResultPayload,
+  type NativeProviderOAuthPresentationSubcall,
+} from './native-provider-oauth-presentation.js';
 
-export const NATIVE_PROVIDER_CAPABILITIES = ['computer_use', 'browser'] as const;
+export {
+  decodeNativeProviderOAuthPresentationResultPayload,
+  decodeNativeProviderOAuthPresentationSubcall,
+  NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_PASTE_PAYLOAD_UTF8_BYTES,
+  NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_STATE_HINT_UTF8_BYTES,
+  NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_URL_CHARS,
+  type NativeProviderOAuthPresentationContext,
+  type NativeProviderOAuthPresentationResultPayload,
+  type NativeProviderOAuthPresentationSubcall,
+} from './native-provider-oauth-presentation.js';
+
+export const NATIVE_PROVIDER_CAPABILITIES = [
+  'computer_use',
+  'browser',
+  'oauth_presentation',
+] as const;
 export const NATIVE_PROVIDER_MAX_CAPABILITIES = NATIVE_PROVIDER_CAPABILITIES.length;
 export const NATIVE_PROVIDER_MAX_PENDING_INVOCATIONS = 8;
 export const NATIVE_PROVIDER_MAX_SUBCALLS_PER_INVOCATION = 64;
@@ -43,10 +64,14 @@ const REGISTRATION_ERRORS = [
 
 export type NativeProviderCapability = (typeof NATIVE_PROVIDER_CAPABILITIES)[number];
 export type NativeProviderFailureCode = (typeof NATIVE_PROVIDER_FAILURE_CODES)[number];
-export type NativeProviderSubcall = NativeProviderComputerUseSubcall | NativeProviderBrowserSubcall;
+export type NativeProviderSubcall =
+  | NativeProviderComputerUseSubcall
+  | NativeProviderBrowserSubcall
+  | NativeProviderOAuthPresentationSubcall;
 export type NativeProviderResultPayload =
   | NativeProviderComputerUseResultPayload
-  | NativeProviderBrowserResultPayload;
+  | NativeProviderBrowserResultPayload
+  | NativeProviderOAuthPresentationResultPayload;
 
 export interface NativeProviderRegisterInput {
   readonly capabilities: readonly NativeProviderCapability[];
@@ -85,9 +110,16 @@ export interface NativeProviderBrowserSubcallFrame extends NativeProviderSubcall
   readonly subcall: NativeProviderBrowserSubcall;
 }
 
+export interface NativeProviderOAuthPresentationSubcallFrame extends NativeProviderSubcallIdentity {
+  readonly kind: 'native.provider.subcall';
+  readonly capability: 'oauth_presentation';
+  readonly subcall: NativeProviderOAuthPresentationSubcall;
+}
+
 export type NativeProviderSubcallFrame =
   | NativeProviderComputerUseSubcallFrame
-  | NativeProviderBrowserSubcallFrame;
+  | NativeProviderBrowserSubcallFrame
+  | NativeProviderOAuthPresentationSubcallFrame;
 
 export interface NativeProviderCancelFrame extends NativeProviderSubcallIdentity {
   readonly kind: 'native.provider.cancel';
@@ -128,9 +160,14 @@ export type NativeProviderBrowserResultOutcome =
   | { readonly ok: true; readonly result: NativeProviderBrowserResultPayload }
   | { readonly ok: false; readonly error: { readonly code: NativeProviderFailureCode } };
 
+export type NativeProviderOAuthPresentationResultOutcome =
+  | { readonly ok: true; readonly result: NativeProviderOAuthPresentationResultPayload }
+  | { readonly ok: false; readonly error: { readonly code: NativeProviderFailureCode } };
+
 export type NativeProviderResultOutcome =
   | NativeProviderComputerUseResultOutcome
-  | NativeProviderBrowserResultOutcome;
+  | NativeProviderBrowserResultOutcome
+  | NativeProviderOAuthPresentationResultOutcome;
 
 export type NativeProviderComputerUseResultFrame = NativeProviderSubcallIdentity &
   Readonly<{ kind: 'native.provider.result'; capability: 'computer_use' }> &
@@ -140,9 +177,14 @@ export type NativeProviderBrowserResultFrame = NativeProviderSubcallIdentity &
   Readonly<{ kind: 'native.provider.result'; capability: 'browser' }> &
   NativeProviderBrowserResultOutcome;
 
+export type NativeProviderOAuthPresentationResultFrame = NativeProviderSubcallIdentity &
+  Readonly<{ kind: 'native.provider.result'; capability: 'oauth_presentation' }> &
+  NativeProviderOAuthPresentationResultOutcome;
+
 export type NativeProviderResultFrame =
   | NativeProviderComputerUseResultFrame
-  | NativeProviderBrowserResultFrame;
+  | NativeProviderBrowserResultFrame
+  | NativeProviderOAuthPresentationResultFrame;
 
 export type NativeProviderResultEnvelopeFrame = NativeProviderSubcallIdentity &
   Readonly<{ kind: 'native.provider.result'; capability: NativeProviderCapability }> &
@@ -316,6 +358,16 @@ export function decodeNativeProviderSubcallFrame(value: unknown): NativeProvider
           'native Provider subcall payload',
         ),
       };
+    case 'oauth_presentation':
+      return {
+        kind: 'native.provider.subcall',
+        ...decodeSubcallIdentity(frame),
+        capability,
+        subcall: boundedInlinePayload(
+          decodeNativeProviderOAuthPresentationSubcall(frame.subcall),
+          'native Provider subcall payload',
+        ),
+      };
   }
 }
 
@@ -450,6 +502,8 @@ export function decodeNativeProviderResultFrame(value: unknown): NativeProviderR
         return { ...result, capability };
       case 'browser':
         return { ...result, capability };
+      case 'oauth_presentation':
+        return { ...result, capability };
     }
   }
   if (frame.ok !== true) throw invalidProtocolFrame('Invalid Native Provider result outcome');
@@ -482,6 +536,13 @@ export function decodeNativeProviderResultFrame(value: unknown): NativeProviderR
     case 'browser': {
       const result = boundedInlinePayload(
         decodeNativeProviderBrowserResultPayload(success.result),
+        'native Provider result payload',
+      );
+      return { kind: 'native.provider.result', ...identity, capability, ok: true, result };
+    }
+    case 'oauth_presentation': {
+      const result = boundedInlinePayload(
+        decodeNativeProviderOAuthPresentationResultPayload(success.result),
         'native Provider result payload',
       );
       return { kind: 'native.provider.result', ...identity, capability, ok: true, result };
@@ -560,6 +621,9 @@ export function nativeProviderResultAttachmentRefs(
     case 'type':
     case 'wait':
     case 'extract':
+      return [];
+    case 'open_external':
+    case 'request_authorization_code':
       return [];
   }
 }

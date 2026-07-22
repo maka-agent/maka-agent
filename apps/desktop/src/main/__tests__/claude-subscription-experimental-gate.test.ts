@@ -20,6 +20,7 @@ import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
 import { CATALOG_PROVIDER_TYPES } from '@maka/core';
 import { ClaudeSubscriptionService } from '../oauth/claude-subscription-service.js';
+import { buildOAuthLoginAuthorization } from '@maka/runtime';
 import { readProviderSettingsCombinedSource } from './provider-contract-source-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
@@ -281,21 +282,24 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
 });
 
 describe('Claude OAuth authorize URL compatibility', () => {
-  it('uses the upstream shape: code=true and state equals PKCE verifier', async () => {
-    const [service, core] = await Promise.all([
-      readFile(SERVICE_SOURCE, 'utf8'),
-      readFile(CORE_TYPES_SOURCE, 'utf8'),
-    ]);
+  it('uses independent high-entropy verifier and state values', () => {
+    const verifier = 'v'.repeat(43);
+    const state = 's'.repeat(43);
+    const authorization = buildOAuthLoginAuthorization({
+      provider: 'claude-subscription',
+      verifier,
+      state,
+    });
+    const url = new URL(authorization.authorizationUrl);
+
+    assert.equal(authorization.presentation, 'paste-code');
+    assert.equal(url.searchParams.get('state'), state);
+    assert.notEqual(url.searchParams.get('state'), verifier);
     assert.match(
-      core,
-      /url\.searchParams\.set\('code',\s*'true'\)/,
-      'Claude authorize URL must include code=true like the upstream Claude Code OAuth flow',
+      url.searchParams.get('code_challenge') ?? '',
+      /^[A-Za-z0-9_-]{43}$/,
     );
-    assert.match(
-      service,
-      /const verifier = base64urlEncode\(randomBytes\(PKCE_VERIFIER_LENGTH_BYTES\)\);\s*[\s\S]*?const state = verifier;/,
-      'Claude authorize state must equal the PKCE verifier; Anthropic rejects the shorter unrelated state with Invalid request format',
-    );
+    assert.equal(url.searchParams.get('code'), 'true');
   });
 });
 

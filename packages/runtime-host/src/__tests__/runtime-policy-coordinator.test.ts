@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import type {
   ConnectionCatalogEntryDraft,
   ConnectionCatalogSnapshot,
@@ -27,38 +27,107 @@ const context: ConnectionContext = {
 };
 
 test('projects runtime policy CAS results without returning the committed snapshot', async () => {
-  await withCoordinator(async ({ coordinator }) => {
-    const initial = await coordinator.handlers['runtime.policy.query']({}, context);
-    assert.equal(initial.ok, true);
-    if (!initial.ok) return;
+  let invalidations = 0;
+  await withCoordinator(
+    async ({ coordinator }) => {
+      const initial = await coordinator.handlers['runtime.policy.query']({}, context);
+      assert.equal(initial.ok, true);
+      if (!initial.ok) return;
 
-    const committed = await coordinator.handlers['runtime.policy.mutate'](
-      {
-        expectedRevision: initial.result.revision,
-        operation: {
-          kind: 'set_personalization',
-          value: { displayName: 'Runtime Host', assistantTone: 'precise' },
+      const committed = await coordinator.handlers['runtime.policy.mutate'](
+        {
+          expectedRevision: initial.result.revision,
+          operation: {
+            kind: 'set_personalization',
+            value: { displayName: 'Runtime Host', assistantTone: 'precise' },
+          },
         },
-      },
-      context,
-    );
-    assert.deepEqual(committed, { ok: true, result: { kind: 'committed', revision: 1 } });
+        context,
+      );
+      assert.deepEqual(committed, { ok: true, result: { kind: 'committed', revision: 1 } });
 
-    const conflict = await coordinator.handlers['runtime.policy.mutate'](
-      {
-        expectedRevision: initial.result.revision,
-        operation: {
-          kind: 'set_memory',
-          value: { enabled: false, agentReadEnabled: false },
+      const conflict = await coordinator.handlers['runtime.policy.mutate'](
+        {
+          expectedRevision: initial.result.revision,
+          operation: {
+            kind: 'set_memory',
+            value: { enabled: false, agentReadEnabled: false },
+          },
         },
-      },
-      context,
-    );
-    assert.deepEqual(conflict, {
-      ok: true,
-      result: { kind: 'revision_conflict', expectedRevision: 0, actualRevision: 1 },
-    });
-  });
+        context,
+      );
+      assert.deepEqual(conflict, {
+        ok: true,
+        result: { kind: 'revision_conflict', expectedRevision: 0, actualRevision: 1 },
+      });
+      assert.equal(invalidations, 1);
+    },
+    async () => {
+      invalidations += 1;
+    },
+  );
+});
+
+test('invalidates once when a real published policy mutation loses its commit reply', {
+  skip: process.platform === 'win32',
+}, async () => {
+  let invalidations = 0;
+  await withCoordinator(
+    async ({ coordinator, stores, root }) => {
+      const probe = await open(root, 'r');
+      const fileHandlePrototype = Object.getPrototypeOf(probe) as {
+        sync: typeof probe.sync;
+      };
+      const originalSync = fileHandlePrototype.sync;
+      await probe.close();
+      let syncCalls = 0;
+      const syncMock = mock.method(
+        fileHandlePrototype,
+        'sync',
+        async function (this: typeof probe) {
+          syncCalls += 1;
+          if (syncCalls === 2) throw new Error('injected directory sync reply loss');
+          return originalSync.call(this);
+        },
+      );
+
+      const outcome = await (async () => {
+        try {
+          return await coordinator.handlers['runtime.policy.mutate'](
+            {
+              expectedRevision: 0,
+              operation: {
+                kind: 'set_personalization',
+                value: { displayName: 'Published', assistantTone: 'unknown-reply' },
+              },
+            },
+            context,
+          );
+        } finally {
+          syncMock.mock.restore();
+        }
+      })();
+
+      assert.deepEqual(outcome, {
+        ok: false,
+        error: {
+          code: 'commit_outcome_unknown',
+          message: 'Runtime policy commit outcome is unknown',
+        },
+      });
+      assert.equal(syncCalls, 2);
+      assert.equal(invalidations, 1);
+      const published = await stores.runtimePolicy.getSnapshot();
+      assert.equal(published.revision, 1);
+      assert.deepEqual(published.policy.personalization, {
+        displayName: 'Published',
+        assistantTone: 'unknown-reply',
+      });
+    },
+    async () => {
+      invalidations += 1;
+    },
+  );
 });
 
 test('credential control-plane results never retain or expose secret material', async () => {
@@ -356,6 +425,7 @@ async function withCoordinator(
     stores: Stores;
     root: string;
   }) => Promise<void>,
+  onCommittedMutation: () => Promise<void> = async () => {},
 ): Promise<void> {
   const base = await mkdtemp(join(tmpdir(), 'maka-runtime-policy-host-'));
   const root = join(base, 'interactive');
@@ -368,7 +438,11 @@ async function withCoordinator(
   if (!owner) return;
   try {
     const stores = await openInteractiveRuntimePolicyStoresForWrite(owner.lease);
-    await run({ coordinator: new HostRuntimePolicyCoordinator(stores), stores, root });
+    await run({
+      coordinator: new HostRuntimePolicyCoordinator(stores, onCommittedMutation),
+      stores,
+      root,
+    });
   } finally {
     await owner.close();
     await rm(base, { recursive: true, force: true });

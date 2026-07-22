@@ -57,6 +57,68 @@ test('derives advertised capabilities and rejects empty or duplicate implementat
   );
 });
 
+test('host-operation invocations drain without creating fake Turn cleanup', async () => {
+  const provider = createNativeCapabilityProvider([
+    {
+      capability: 'oauth_presentation',
+      handle: async (frame) => ({
+        ok: true,
+        complete: () =>
+          frame.subcall.kind === 'open_external'
+            ? { kind: 'open_external', opened: true }
+            : { kind: 'request_authorization_code', payload: 'code#state' },
+      }),
+    },
+  ]);
+  const frames: NativeProviderClientFrame[] = [];
+  const attachment = await provider.attach({
+    hostEpoch: 'epoch-oauth',
+    send: async (frame) => {
+      frames.push(frame);
+    },
+    fail: (error) => assert.fail(error.message),
+  });
+  attachment.bindRegistration('registration-oauth');
+  const owner = { ownerId: 'oauth-login', attemptId: 'attempt-1' } as const;
+  const first = {
+    kind: 'native.provider.subcall' as const,
+    hostEpoch: 'epoch-oauth',
+    operationId: 'operation-oauth',
+    subcallId: 'subcall-oauth-1',
+    ordinal: 1,
+    bindingId: 'binding-oauth',
+    capability: 'oauth_presentation' as const,
+    subcall: {
+      kind: 'open_external' as const,
+      input: { url: 'https://example.test/authorize' },
+      context: owner,
+    },
+  };
+  attachment.acceptSubcall(first);
+  assert.equal((await waitForResult(frames, first.subcallId)).ok, true);
+  attachment.acceptRelease(releaseFrame('epoch-oauth', 'operation-oauth', 'binding-oauth'));
+
+  assert.throws(
+    () =>
+      attachment.acceptTurnRelease(
+        turnReleaseFrame(
+          'epoch-oauth',
+          'registration-oauth',
+          'release-oauth',
+          'fake-session',
+          'fake-turn',
+        ),
+      ),
+    /unseen Turn state/,
+  );
+  attachment.sealAdmission();
+  await attachment.drained;
+  assert.equal(
+    frames.some((frame) => frame.kind === 'native.provider.turn_released'),
+    false,
+  );
+});
+
 test('fans in cleanup for exactly the capabilities used by each Turn', async () => {
   const fanInComputerCleanup = deferred<void>();
   const fanInBrowserCleanup = deferred<void>();

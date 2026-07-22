@@ -4,6 +4,7 @@ import {
   decodeClientFrame,
   decodeHostFrame,
   decodeNativeProviderClientFrame,
+  decodeNativeProviderHostFrame,
   encodeProtocolFrame,
   HOST_OPERATION_SPECS,
   NATIVE_PROVIDER_BROWSER_MAX_ADDRESS_INPUT_CHARS,
@@ -26,6 +27,9 @@ import {
   NATIVE_PROVIDER_MAX_SUBCALLS_PER_INVOCATION,
   NATIVE_PROVIDER_MAX_WINDOWS,
   NATIVE_PROVIDER_MAX_WINDOWS_PER_APP,
+  NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_PASTE_PAYLOAD_UTF8_BYTES,
+  NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_STATE_HINT_UTF8_BYTES,
+  NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_URL_CHARS,
   RuntimeHostProtocolError,
   type BrowserSnapshotElement,
   type ClientFrame,
@@ -343,6 +347,117 @@ describe('Native Provider protocol', () => {
     for (const invalid of [{ ...release, subcallId: 'not-allowed' }]) {
       assert.throws(() => decodeHostFrame(invalid), isInvalidFrame);
     }
+  });
+
+  test('keeps OAuth presentation to exact HTTPS open and bounded paste-code calls', () => {
+    const oauthContext = { ownerId: 'oauth-login', attemptId: 'attempt-1' } as const;
+    const subcalls = [
+      {
+        kind: 'open_external',
+        input: { url: 'https://console.anthropic.com/oauth/authorize?state=opaque' },
+        context: oauthContext,
+      },
+      {
+        kind: 'request_authorization_code',
+        input: {
+          url: 'https://console.anthropic.com/oauth/authorize?state=opaque',
+          stateHint: 'abcd1234',
+        },
+        context: oauthContext,
+      },
+    ] as const;
+    for (const [index, subcall] of subcalls.entries()) {
+      const frame = {
+        kind: 'native.provider.subcall' as const,
+        ...subcallIdentity,
+        subcallId: `oauth-subcall-${index + 1}`,
+        ordinal: index + 1,
+        capability: 'oauth_presentation' as const,
+        subcall,
+      };
+      assert.deepEqual(decodeHostFrame(frame), frame);
+    }
+
+    const normalized = decodeNativeProviderHostFrame({
+      kind: 'native.provider.subcall',
+      ...subcallIdentity,
+      capability: 'oauth_presentation',
+      subcall: {
+        kind: 'open_external',
+        input: { url: 'https://EXAMPLE.test:443/oauth/../authorize?q=hello world' },
+        context: oauthContext,
+      },
+    });
+    assert.equal(normalized.kind, 'native.provider.subcall');
+    if (normalized.kind !== 'native.provider.subcall') assert.fail('Expected Native Provider call');
+    assert.equal(normalized.capability, 'oauth_presentation');
+    if (normalized.capability !== 'oauth_presentation') {
+      assert.fail('Expected OAuth presentation call');
+    }
+    assert.equal(normalized.subcall.input.url, 'https://example.test/authorize?q=hello%20world');
+
+    const results = [
+      { kind: 'open_external', opened: true },
+      { kind: 'request_authorization_code', payload: 'authorization-code#state' },
+    ] as const;
+    for (const result of results) {
+      const frame = {
+        kind: 'native.provider.result' as const,
+        ...subcallIdentity,
+        capability: 'oauth_presentation' as const,
+        ok: true as const,
+        result,
+      };
+      assert.deepEqual(decodeNativeProviderClientFrame(frame), frame);
+    }
+
+    const request = subcalls[1];
+    for (const invalid of [
+      { ...request, input: { ...request.input, url: 'http://example.test/oauth' } },
+      { ...request, input: { ...request.input, url: 'https://user:secret@example.test/oauth' } },
+      {
+        ...request,
+        input: {
+          ...request.input,
+          url: `https://example.test/${'a'.repeat(NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_URL_CHARS)}`,
+        },
+      },
+      {
+        ...request,
+        input: {
+          ...request.input,
+          stateHint: 'a'.repeat(NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_STATE_HINT_UTF8_BYTES + 1),
+        },
+      },
+      { ...request, verifier: 'must-stay-in-host' },
+    ]) {
+      assert.throws(
+        () =>
+          decodeHostFrame({
+            kind: 'native.provider.subcall',
+            ...subcallIdentity,
+            capability: 'oauth_presentation',
+            subcall: invalid,
+          }),
+        isInvalidFrame,
+      );
+    }
+    assert.throws(
+      () =>
+        decodeNativeProviderClientFrame({
+          kind: 'native.provider.result',
+          ...subcallIdentity,
+          capability: 'oauth_presentation',
+          ok: true,
+          result: {
+            kind: 'request_authorization_code',
+            payload: 'a'.repeat(
+              NATIVE_PROVIDER_OAUTH_PRESENTATION_MAX_PASTE_PAYLOAD_UTF8_BYTES + 1,
+            ),
+          },
+        }),
+      isInvalidFrame,
+    );
   });
 
   test('decodes acknowledged attachment-scoped Turn release with exact identity', () => {

@@ -61,11 +61,18 @@ export type NativeCapabilityHandler<C extends NativeCapability> = (
   context: NativeCapabilityHandlerContext,
 ) => Promise<NativeCapabilityHandlerOutcome<C>>;
 
-export interface NativeCapabilityImplementation<C extends NativeCapability> {
+interface NativeCapabilityImplementationBase<C extends NativeCapability> {
   readonly capability: C;
   readonly handle: NativeCapabilityHandler<C>;
-  readonly releaseTurnState: (input: TurnStateIdentity) => void | Promise<void>;
 }
+
+export type NativeCapabilityImplementation<C extends NativeCapability> =
+  NativeCapabilityImplementationBase<C> &
+    (C extends 'oauth_presentation'
+      ? { readonly releaseTurnState?: never }
+      : {
+          readonly releaseTurnState: (input: TurnStateIdentity) => void | Promise<void>;
+        });
 
 type NativeCapabilityImplementationUnion = {
   [C in NativeCapability]: NativeCapabilityImplementation<C>;
@@ -98,9 +105,7 @@ interface Invocation {
   readonly operationId: string;
   readonly bindingId: string;
   readonly capability: NativeCapability;
-  readonly sessionId: string;
-  readonly turnId: string;
-  readonly toolCallId: string;
+  readonly owner: InvocationOwner;
   nextOrdinal: number;
   active?: {
     readonly subcallId: string;
@@ -110,6 +115,15 @@ interface Invocation {
     readonly resolveSettled: () => void;
   };
 }
+
+type InvocationOwner =
+  | {
+      readonly kind: 'turn';
+      readonly sessionId: string;
+      readonly turnId: string;
+      readonly toolCallId: string;
+    }
+  | { readonly kind: 'host_operation'; readonly ownerId: string; readonly attemptId: string };
 
 export interface TurnStateIdentity {
   readonly sessionId: string;
@@ -255,9 +269,10 @@ export class ClientNativeProviderAttachment {
       throw new Error('Runtime Host called an unregistered Native Provider capability');
     }
     let invocation = this.#invocations.get(frame.operationId);
-    const context = frame.subcall.context;
-    const stateKey = turnStateKey(context.sessionId, context.turnId);
-    if (this.#turnCleanups.has(stateKey)) {
+    const owner = invocationOwner(frame);
+    const releasingTurnKey =
+      owner.kind === 'turn' ? turnStateKey(owner.sessionId, owner.turnId) : undefined;
+    if (releasingTurnKey !== undefined && this.#turnCleanups.has(releasingTurnKey)) {
       throw new Error('Native Provider subcall arrived while its Turn state is releasing');
     }
     if (!invocation) {
@@ -270,9 +285,7 @@ export class ClientNativeProviderAttachment {
         operationId: frame.operationId,
         bindingId: frame.bindingId,
         capability: frame.capability,
-        sessionId: context.sessionId,
-        turnId: context.turnId,
-        toolCallId: context.toolCallId,
+        owner,
         nextOrdinal: 1,
       };
       this.#invocations.set(frame.operationId, invocation);
@@ -280,9 +293,7 @@ export class ClientNativeProviderAttachment {
     if (
       invocation.bindingId !== frame.bindingId ||
       invocation.capability !== frame.capability ||
-      invocation.sessionId !== context.sessionId ||
-      invocation.turnId !== context.turnId ||
-      invocation.toolCallId !== context.toolCallId
+      !sameInvocationOwner(invocation.owner, owner)
     ) {
       throw new Error('Runtime Host changed Native Provider invocation identity');
     }
@@ -301,16 +312,19 @@ export class ClientNativeProviderAttachment {
       ...settlement(),
     };
     invocation.active = active;
-    let turnState = this.#seenTurns.get(stateKey);
-    if (!turnState) {
-      turnState = {
-        sessionId: context.sessionId,
-        turnId: context.turnId,
-        usedCapabilities: new Set(),
-      };
-      this.#seenTurns.set(stateKey, turnState);
+    if (owner.kind === 'turn') {
+      const stateKey = turnStateKey(owner.sessionId, owner.turnId);
+      let turnState = this.#seenTurns.get(stateKey);
+      if (!turnState) {
+        turnState = {
+          sessionId: owner.sessionId,
+          turnId: owner.turnId,
+          usedCapabilities: new Set(),
+        };
+        this.#seenTurns.set(stateKey, turnState);
+      }
+      turnState.usedCapabilities.add(frame.capability);
     }
-    turnState.usedCapabilities.add(frame.capability);
     setImmediate(() => void this.#run(frame, invocation!, active));
   }
 
@@ -395,7 +409,12 @@ export class ClientNativeProviderAttachment {
   async #waitForTurnHandlers(sessionId: string, turnId: string): Promise<void> {
     for (;;) {
       const active = [...this.#invocations.values()]
-        .filter((invocation) => invocation.sessionId === sessionId && invocation.turnId === turnId)
+        .filter(
+          (invocation) =>
+            invocation.owner.kind === 'turn' &&
+            invocation.owner.sessionId === sessionId &&
+            invocation.owner.turnId === turnId,
+        )
         .flatMap((invocation) => (invocation.active ? [invocation.active.settled] : []));
       if (active.length === 0) return;
       await Promise.all(active);
@@ -422,7 +441,13 @@ export class ClientNativeProviderAttachment {
     capability: NativeCapability,
     identity: TurnStateIdentity,
   ): void | Promise<void> {
-    return this.#implementation(capability).releaseTurnState(identity);
+    const implementation = this.#implementations.find(
+      (candidate) => candidate.capability === capability,
+    );
+    if (!implementation || implementation.capability === 'oauth_presentation') {
+      throw new Error('Host operation capability cannot own Turn state');
+    }
+    return implementation.releaseTurnState(identity);
   }
 
   async #run(
@@ -617,6 +642,36 @@ function turnReleaseIdentity(frame: NativeProviderTurnReleaseFrame) {
 
 function turnStateKey(sessionId: string, turnId: string): string {
   return `${sessionId}\u0000${turnId}`;
+}
+
+function invocationOwner(frame: NativeProviderSubcallFrame): InvocationOwner {
+  if (frame.capability === 'oauth_presentation') {
+    return {
+      kind: 'host_operation',
+      ownerId: frame.subcall.context.ownerId,
+      attemptId: frame.subcall.context.attemptId,
+    };
+  }
+  return {
+    kind: 'turn',
+    sessionId: frame.subcall.context.sessionId,
+    turnId: frame.subcall.context.turnId,
+    toolCallId: frame.subcall.context.toolCallId,
+  };
+}
+
+function sameInvocationOwner(left: InvocationOwner, right: InvocationOwner): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'host_operation' && right.kind === 'host_operation') {
+    return left.ownerId === right.ownerId && left.attemptId === right.attemptId;
+  }
+  return (
+    left.kind === 'turn' &&
+    right.kind === 'turn' &&
+    left.sessionId === right.sessionId &&
+    left.turnId === right.turnId &&
+    left.toolCallId === right.toolCallId
+  );
 }
 
 function requireMatchingAttachment(

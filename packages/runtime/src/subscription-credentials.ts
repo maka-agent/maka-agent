@@ -1,5 +1,12 @@
 import type { ProviderType } from '@maka/core/llm-connections';
 import { TOKEN_REFRESH_SKEW_MS } from '@maka/core';
+import {
+  OAUTH_LOGIN_MAX_TOKEN_CHARS,
+  OAUTH_LOGIN_PROVIDER_CONFIG,
+  OAuthTokenEndpointError,
+  decodeOAuthRefreshTokenPayload,
+  requestOAuthTokenEndpointJson,
+} from './oauth-login.js';
 
 export type OAuthSubscriptionProvider = Extract<
   ProviderType,
@@ -13,6 +20,7 @@ export interface OAuthSubscriptionTokens {
   token_type?: string;
   scope?: string;
   account_uuid?: string;
+  device_id?: string;
   id_token?: string;
   account_id?: string;
   base_url?: string;
@@ -30,30 +38,103 @@ export function isOAuthSubscriptionProvider(
 
 export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionTokens | null {
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.access_token !== 'string' || record.access_token.length === 0) return null;
-    if (typeof record.refresh_token !== 'string' || record.refresh_token.length === 0) return null;
-    if (typeof record.expires_at !== 'number' || !Number.isFinite(record.expires_at)) return null;
-    return {
-      access_token: record.access_token,
-      refresh_token: record.refresh_token,
-      expires_at: record.expires_at,
-      ...(typeof record.token_type === 'string' ? { token_type: record.token_type } : {}),
-      ...(typeof record.scope === 'string' ? { scope: record.scope } : {}),
-      ...(typeof record.account_uuid === 'string' ? { account_uuid: record.account_uuid } : {}),
-      ...(typeof record.id_token === 'string' ? { id_token: record.id_token } : {}),
-      ...(typeof record.account_id === 'string' ? { account_id: record.account_id } : {}),
-      ...(typeof record.base_url === 'string' ? { base_url: record.base_url } : {}),
-    };
+    return projectOAuthSubscriptionTokens(JSON.parse(raw) as unknown);
   } catch {
     return null;
   }
 }
 
 export function serializeOAuthSubscriptionTokens(tokens: OAuthSubscriptionTokens): string {
-  return JSON.stringify(tokens);
+  return JSON.stringify(projectOAuthSubscriptionTokens(tokens));
+}
+
+const OAUTH_SUBSCRIPTION_TOKEN_KEYS = new Set<keyof OAuthSubscriptionTokens>([
+  'access_token',
+  'refresh_token',
+  'expires_at',
+  'token_type',
+  'scope',
+  'account_uuid',
+  'device_id',
+  'id_token',
+  'account_id',
+  'base_url',
+]);
+
+function projectOAuthSubscriptionTokens(value: unknown): OAuthSubscriptionTokens {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new OAuthTokenEndpointError('invalid_response');
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  if (
+    ownKeys.some(
+      (key) =>
+        typeof key !== 'string' ||
+        !OAUTH_SUBSCRIPTION_TOKEN_KEYS.has(key as keyof OAuthSubscriptionTokens),
+    )
+  ) {
+    throw new OAuthTokenEndpointError('invalid_response');
+  }
+  const record: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of ownKeys as string[]) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !('value' in descriptor)) {
+      throw new OAuthTokenEndpointError('invalid_response');
+    }
+    record[key] = descriptor.value;
+  }
+  const accessToken = requireStoredToken(record.access_token);
+  const refreshToken = requireStoredToken(record.refresh_token);
+  const expiresAt = record.expires_at;
+  if (typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || expiresAt <= 0) {
+    throw new OAuthTokenEndpointError('invalid_response');
+  }
+  const tokenType = optionalStoredString(record.token_type, 256);
+  const scope = optionalStoredString(record.scope, 4 * 1024);
+  const accountUuid = optionalStoredString(record.account_uuid, 1024);
+  const deviceId = optionalDeviceId(record.device_id);
+  const idToken = optionalStoredString(record.id_token, OAUTH_LOGIN_MAX_TOKEN_CHARS);
+  const accountId = optionalStoredString(record.account_id, 1024);
+  const baseUrl = optionalStoredString(record.base_url, 8 * 1024);
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+    ...(tokenType !== undefined ? { token_type: tokenType } : {}),
+    ...(scope !== undefined ? { scope } : {}),
+    ...(accountUuid !== undefined ? { account_uuid: accountUuid } : {}),
+    ...(deviceId !== undefined ? { device_id: deviceId } : {}),
+    ...(idToken !== undefined ? { id_token: idToken } : {}),
+    ...(accountId !== undefined ? { account_id: accountId } : {}),
+    ...(baseUrl !== undefined ? { base_url: baseUrl } : {}),
+  };
+}
+
+function optionalDeviceId(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) {
+    throw new OAuthTokenEndpointError('invalid_response');
+  }
+  return value;
+}
+
+function requireStoredToken(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > OAUTH_LOGIN_MAX_TOKEN_CHARS
+  ) {
+    throw new OAuthTokenEndpointError('invalid_response');
+  }
+  return value;
+}
+
+function optionalStoredString(value: unknown, maxChars: number): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxChars) {
+    throw new OAuthTokenEndpointError('invalid_response');
+  }
+  return value;
 }
 
 export function extractOAuthSubscriptionAccessToken(raw: string): string | null {
@@ -77,6 +158,7 @@ export interface ResolveOAuthSubscriptionAccessTokenInput {
   credentialStore: OAuthSubscriptionCredentialStore;
   now?: () => number;
   fetchFn?: typeof fetch;
+  timeoutMs?: number;
 }
 
 export type OAuthSubscriptionRefreshAndPersistOutcome =
@@ -96,23 +178,20 @@ export type RefreshAndPersistOAuthSubscriptionTokensInput = {
   now?: () => number;
   fetchFn?: typeof fetch;
 } & (
-  | { providerType: OAuthSubscriptionProvider; refreshTokens?: never }
+  | {
+      providerType: OAuthSubscriptionProvider;
+      refreshTokens?: never;
+      timeoutMs?: number;
+    }
   | {
       providerType?: never;
       refreshTokens: (tokens: OAuthSubscriptionTokens) => Promise<OAuthSubscriptionTokens>;
+      timeoutMs?: never;
     }
 );
 
 export type ResolveAndPersistOAuthSubscriptionTokensInput =
   RefreshAndPersistOAuthSubscriptionTokensInput & { refreshSkewMs?: number };
-
-const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
-const CLAUDE_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
-const CLAUDE_TOKEN_USER_AGENT = 'claude-cli/2.1.153 (external, cli)';
-
-const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const CODEX_TOKEN_ENDPOINT = 'https://auth.openai.com/oauth/token';
-const CODEX_TOKEN_USER_AGENT = 'maka-desktop/0.1.0 (oauth-subscription)';
 
 export async function resolveOAuthSubscriptionAccessToken(
   input: ResolveOAuthSubscriptionAccessTokenInput,
@@ -182,6 +261,7 @@ async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
   }
 
   let refreshed: OAuthSubscriptionTokens;
+  let serialized: string;
   try {
     refreshed = input.refreshTokens
       ? await input.refreshTokens(tokens)
@@ -190,12 +270,13 @@ async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
           tokens,
           now: input.now,
           fetchFn: input.fetchFn,
+          timeoutMs: input.timeoutMs,
         });
+    serialized = serializeOAuthSubscriptionTokens(refreshed);
   } catch (error) {
     return { outcome: 'refresh-failed', error };
   }
 
-  const serialized = serializeOAuthSubscriptionTokens(refreshed);
   try {
     if (input.credentialStore.compareAndSetSecret) {
       const committed = await input.credentialStore.compareAndSetSecret(
@@ -233,14 +314,15 @@ export async function refreshOAuthSubscriptionTokens(input: {
   tokens: OAuthSubscriptionTokens;
   now?: () => number;
   fetchFn?: typeof fetch;
+  timeoutMs?: number;
 }): Promise<OAuthSubscriptionTokens> {
   const now = input.now ?? (() => Date.now());
   const fetchFn = input.fetchFn ?? fetch;
   switch (input.providerType) {
     case 'claude-subscription':
-      return refreshClaudeSubscriptionTokens(input.tokens, now, fetchFn);
+      return refreshClaudeSubscriptionTokens(input.tokens, now, fetchFn, input.timeoutMs);
     case 'openai-codex':
-      return refreshOpenAiCodexTokens(input.tokens, now, fetchFn);
+      return refreshOpenAiCodexTokens(input.tokens, now, fetchFn, input.timeoutMs);
     case 'github-copilot':
       return input.tokens;
   }
@@ -269,103 +351,74 @@ export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
   return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
 }
 
-/**
- * Guard a refresh response before it may replace the stored authority:
- * a 200 with a missing/empty access token or a non-positive expiry must
- * surface as a refresh failure, never overwrite a still-working record
- * with garbage. Returns the validated required fields.
- */
-function requireRefreshedTokenFields(
-  provider: string,
-  payload: { access_token?: unknown; expires_in?: unknown },
-): { accessToken: string; expiresInMs: number } {
-  const accessToken = payload.access_token;
-  const expiresIn = payload.expires_in;
-  if (
-    typeof accessToken !== 'string' ||
-    accessToken.length === 0 ||
-    typeof expiresIn !== 'number' ||
-    !Number.isFinite(expiresIn) ||
-    expiresIn <= 0
-  ) {
-    throw new Error(`${provider} OAuth token refresh returned an invalid token payload.`);
-  }
-  return { accessToken, expiresInMs: 1000 * expiresIn };
-}
-
-/** A rotated refresh token must be a non-empty string; otherwise keep the previous one. */
-function nextRefreshToken(candidate: unknown, previous: string): string {
-  return typeof candidate === 'string' && candidate.length > 0 ? candidate : previous;
-}
-
 async function refreshClaudeSubscriptionTokens(
   tokens: OAuthSubscriptionTokens,
   now: () => number,
   fetchFn: typeof fetch,
+  timeoutMs?: number,
 ): Promise<OAuthSubscriptionTokens> {
-  const response = await fetchFn(CLAUDE_TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': CLAUDE_TOKEN_USER_AGENT,
+  const config = OAUTH_LOGIN_PROVIDER_CONFIG['claude-subscription'];
+  const { payload, status } = await requestOAuthTokenEndpointJson({
+    endpoint: config.tokenEndpoint,
+    fetchFn,
+    timeoutMs,
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': config.tokenUserAgent,
+      },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refresh_token,
+        client_id: config.clientId,
+      }),
     },
-    body: JSON.stringify({
-      grant_type: 'refresh_token',
-      refresh_token: tokens.refresh_token,
-      client_id: CLAUDE_CLIENT_ID,
-    }),
   });
-  if (!response.ok) throw new Error(`Claude OAuth token refresh failed (${response.status}).`);
-  const payload = (await response.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-    token_type?: string;
-    scope?: string;
-    account?: { uuid?: string };
-  };
-  const { accessToken, expiresInMs } = requireRefreshedTokenFields('Claude', payload);
-  return {
-    access_token: accessToken,
-    refresh_token: nextRefreshToken(payload.refresh_token, tokens.refresh_token),
-    expires_at: now() + expiresInMs,
-    token_type: payload.token_type ?? tokens.token_type,
-    scope: payload.scope ?? tokens.scope,
-    account_uuid: payload.account?.uuid ?? tokens.account_uuid,
-  };
+  return decodeRefreshedOAuthTokens('claude-subscription', payload, status, tokens, now);
 }
 
 async function refreshOpenAiCodexTokens(
   tokens: OAuthSubscriptionTokens,
   now: () => number,
   fetchFn: typeof fetch,
+  timeoutMs?: number,
 ): Promise<OAuthSubscriptionTokens> {
+  const config = OAUTH_LOGIN_PROVIDER_CONFIG['openai-codex'];
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
-    client_id: CODEX_CLIENT_ID,
+    client_id: config.clientId,
     refresh_token: tokens.refresh_token,
   });
-  const response = await fetchFn(CODEX_TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': CODEX_TOKEN_USER_AGENT,
+  const { payload, status } = await requestOAuthTokenEndpointJson({
+    endpoint: config.tokenEndpoint,
+    fetchFn,
+    timeoutMs,
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': config.tokenUserAgent,
+      },
+      body: body.toString(),
     },
-    body: body.toString(),
   });
-  if (!response.ok) throw new Error(`Codex OAuth token refresh failed (${response.status}).`);
-  const payload = (await response.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-    id_token?: string;
-    expires_in?: number;
-  };
-  const { accessToken, expiresInMs } = requireRefreshedTokenFields('Codex', payload);
-  return {
-    access_token: accessToken,
-    refresh_token: nextRefreshToken(payload.refresh_token, tokens.refresh_token),
-    id_token: payload.id_token ?? tokens.id_token,
-    expires_at: now() + expiresInMs,
-    account_id: tokens.account_id,
-  };
+  return decodeRefreshedOAuthTokens('openai-codex', payload, status, tokens, now);
+}
+
+function decodeRefreshedOAuthTokens(
+  provider: 'claude-subscription' | 'openai-codex',
+  payload: unknown,
+  status: number,
+  previous: OAuthSubscriptionTokens,
+  now: () => number,
+): OAuthSubscriptionTokens {
+  try {
+    return decodeOAuthRefreshTokenPayload(provider, payload, previous, now());
+  } catch (error) {
+    throw new OAuthTokenEndpointError(
+      error instanceof OAuthTokenEndpointError ? error.category : 'invalid_response',
+      status,
+    );
+  }
 }

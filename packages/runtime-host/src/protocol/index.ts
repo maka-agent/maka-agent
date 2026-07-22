@@ -31,6 +31,7 @@ export * from './message.js';
 export * from './native-provider.js';
 export * from './native-provider-browser.js';
 export * from './native-provider-computer-use.js';
+export * from './oauth.js';
 export * from './operations.js';
 export * from './runtime-resource.js';
 export * from './session-continuity.js';

@@ -94,6 +94,104 @@ test('acquisition freezes one registration and affinity cannot migrate', async (
   await coordinator.close();
 });
 
+test('OAuth host operations stay on the initiating connection without fake Turn ownership', async () => {
+  const coordinator = createCoordinator();
+  const initiating = attach(coordinator, 'initiating');
+  const other = attach(coordinator, 'other');
+  await registerCapability(coordinator, 'initiating', 'oauth_presentation');
+  await registerCapability(coordinator, 'other', 'oauth_presentation');
+  const acquisition = coordinator.acquireHostOperationInvocation({
+    operationId: 'oauth-operation',
+    ownerId: 'oauth-login',
+    attemptId: 'attempt-1',
+    initiatingClientConnectionId: 'initiating',
+    capability: 'oauth_presentation',
+  });
+  if (!acquisition.ok) assert.fail(acquisition.message);
+  const invocation = acquisition.invocation;
+  const mismatchedOwner = await invocation.call({
+    subcall: {
+      kind: 'request_authorization_code',
+      input: { url: 'https://example.test/authorize', stateHint: 'abcd1234' },
+      context: { ownerId: 'oauth-login', attemptId: 'different-attempt' },
+    },
+    signal: signal(),
+  });
+  assert.equal(mismatchedOwner.ok, false);
+  if (!mismatchedOwner.ok) assert.equal(mismatchedOwner.error.code, 'operation_failed');
+  assert.equal(initiating.sent.length, 0);
+  const pending = invocation.call({
+    subcall: {
+      kind: 'request_authorization_code',
+      input: { url: 'https://example.test/authorize', stateHint: 'abcd1234' },
+      context: { ownerId: 'oauth-login', attemptId: 'attempt-1' },
+    },
+    signal: signal(),
+  });
+  const call = requireSubcall(initiating.sent[0]);
+  assert.equal(call.capability, 'oauth_presentation');
+  assert.equal(call.ordinal, 1);
+  assert.deepEqual(other.sent, []);
+  initiating.attachment.accept(
+    decodeProviderInbound({
+      kind: 'native.provider.result',
+      ...identity(call),
+      capability: 'oauth_presentation',
+      ok: true,
+      result: { kind: 'request_authorization_code', payload: 'code#state' },
+    }),
+  );
+  const outcome = await pending;
+  assert.equal(outcome.ok, true);
+  if (outcome.ok) {
+    assert.deepEqual(outcome.result, {
+      kind: 'request_authorization_code',
+      payload: 'code#state',
+    });
+  }
+  invocation.release();
+  assert.equal(initiating.sent.at(-1)?.kind, 'native.provider.release');
+
+  const beforeTurnRelease = initiating.sent.length;
+  await coordinator.releaseTurnState({ sessionId: 'not-an-owner', turnId: 'not-a-turn' });
+  assert.equal(initiating.sent.length, beforeTurnRelease);
+
+  const detachedAcquisition = coordinator.acquireHostOperationInvocation({
+    operationId: 'oauth-detach',
+    ownerId: 'oauth-login',
+    attemptId: 'attempt-2',
+    initiatingClientConnectionId: 'initiating',
+    capability: 'oauth_presentation',
+  });
+  if (!detachedAcquisition.ok) assert.fail(detachedAcquisition.message);
+  const detachedPending = detachedAcquisition.invocation.call({
+    subcall: {
+      kind: 'open_external',
+      input: { url: 'https://example.test/authorize' },
+      context: { ownerId: 'oauth-login', attemptId: 'attempt-2' },
+    },
+    signal: signal(),
+  });
+  initiating.attachment.close();
+  const detached = await detachedPending;
+  assert.equal(detached.ok, false);
+  if (!detached.ok) assert.equal(detached.error.code, 'outcome_unknown');
+  assert.deepEqual(other.sent, []);
+
+  coordinator.beginDrain();
+  const draining = coordinator.acquireHostOperationInvocation({
+    operationId: 'oauth-after-drain',
+    ownerId: 'oauth-login',
+    attemptId: 'attempt-3',
+    initiatingClientConnectionId: 'other',
+    capability: 'oauth_presentation',
+  });
+  assert.equal(draining.ok, false);
+  if (!draining.ok) assert.equal(draining.error, 'capability_unavailable');
+  other.attachment.close();
+  await coordinator.close();
+});
+
 test('subcalls are serial and successful admissions receive increasing ordinals', async () => {
   const coordinator = createCoordinator();
   const provider = attach(coordinator, 'provider');
@@ -764,7 +862,7 @@ async function register(
 async function registerCapability(
   coordinator: HostNativeProviderCoordinator,
   connectionId: string,
-  capability: 'computer_use' | 'browser',
+  capability: 'computer_use' | 'browser' | 'oauth_presentation',
 ): Promise<string> {
   const outcome = await coordinator.handlers['native.provider.register'](
     { capabilities: [capability] },

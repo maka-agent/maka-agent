@@ -23,7 +23,7 @@
  *   - PKCE state matched with constant-time equality (G-X1).
  */
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
@@ -32,18 +32,20 @@ import {
   QUOTA_CACHE_TTL_MS,
   TOKEN_REFRESH_SKEW_MS,
   base64urlEncode,
-  buildClaudeAuthorizationUrl,
   constantTimeStringEqual,
   parsePastedAuthorization,
   type AuthorizationUrlPayload,
   type QuotaSnapshot,
-  type Sha256Digest,
   type SubscriptionAccountProfile,
   type SubscriptionAccountState,
   type SubscriptionActionFailureReason,
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
+  OAUTH_LOGIN_PROVIDER_CONFIG,
+  OAuthTokenEndpointError,
+  buildOAuthLoginAuthorization,
+  exchangeOAuthAuthorizationCode,
   refreshAndPersistOAuthSubscriptionTokens,
   resolveAndPersistOAuthSubscriptionTokens,
   type OAuthSubscriptionRefreshAndPersistOutcome,
@@ -55,20 +57,8 @@ import {
   type SharedOAuthCredentialStore,
 } from './shared-credential-bridge.js';
 
-// =============================================================
-// Endpoints + client id — mirror Claude Code's current OAuth
-// login flow. Verified against the installed Claude Code 2.1.153
-// binary constants (`CLAUDE_AI_AUTHORIZE_URL`, `TOKEN_URL`) after
-// the older Claude.ai / console.anthropic.com OAuth route started
-// rejecting new auth attempts.
-// =============================================================
-const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
-const CLAUDE_AUTHORIZE_ENDPOINT = 'https://claude.com/cai/oauth/authorize';
-const CLAUDE_REDIRECT_URI = 'https://platform.claude.com/oauth/code/callback';
-const CLAUDE_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
 const CLAUDE_USAGE_ENDPOINT = 'https://api.anthropic.com/api/oauth/usage';
 const CLAUDE_PROFILE_ENDPOINT = 'https://api.anthropic.com/api/oauth/profile';
-const CLAUDE_SCOPE = 'user:sessions:claude_code user:mcp_servers user:file_upload';
 
 // Anthropic's OAuth token endpoint rejects requests whose
 // User-Agent does not match the `claude-cli/X.Y.Z (external, cli)`
@@ -80,8 +70,7 @@ const CLAUDE_SCOPE = 'user:sessions:claude_code user:mcp_servers user:file_uploa
 // now defaults on for the visible OAuth model path. WAWQAQ
 // already accepted the ToS implication of the OAuth flow at all
 // (msg `fd421634`, baked into `isSubscriptionExperimentalEnabled`).
-export const CLAUDE_SUBSCRIPTION_PRODUCT_VERSION = '2.1.153';
-const OAUTH_USER_AGENT = `claude-cli/${CLAUDE_SUBSCRIPTION_PRODUCT_VERSION} (external, cli)`;
+const OAUTH_USER_AGENT = OAUTH_LOGIN_PROVIDER_CONFIG['claude-subscription'].tokenUserAgent;
 
 // =============================================================
 // Token storage — shared CredentialStore (workspace
@@ -108,9 +97,9 @@ interface PersistedTokens {
   access_token: string;
   refresh_token: string;
   expires_at: number;
-  token_type: string;
-  scope: string;
-  account_uuid: string;
+  token_type?: string;
+  scope?: string;
+  account_uuid?: string;
   /* eslint-enable */
 }
 
@@ -131,29 +120,6 @@ interface PendingAuthorization {
    */
   url: string;
 }
-
-class ClaudeTokenExchangeError extends Error {
-  // PR-CLAUDE-OAUTH-TOKEN-EXCHANGE-BODY-0: also carry Anthropic's
-  // response body so the user can see WHY the exchange failed
-  // (`invalid_grant: code already used`, `expired_token`, etc.)
-  // instead of the catch-all "授权码已过期、已使用或与本次登录不匹配"
-  // fallback. The body is best-effort: if reading it throws, we keep
-  // the original status-only error semantics.
-  constructor(readonly status: number, readonly body?: string) {
-    super(`Claude OAuth token endpoint returned ${status}.${body ? ` ${body}` : ''}`);
-    this.name = 'ClaudeTokenExchangeError';
-  }
-}
-
-// =============================================================
-// Node SHA-256 implementation, injected into core's pure helpers.
-// =============================================================
-
-const nodeSha256: Sha256Digest = {
-  digest(input: string): Uint8Array {
-    return new Uint8Array(createHash('sha256').update(input, 'utf8').digest());
-  },
-};
 
 // =============================================================
 // Service class.
@@ -232,23 +198,13 @@ export class ClaudeSubscriptionService {
     // legitimate reason for multiple concurrent pendings.
     this.pending.clear();
     const verifier = base64urlEncode(randomBytes(PKCE_VERIFIER_LENGTH_BYTES));
-    // Upstream Claude Code uses the PKCE verifier as the OAuth state
-    // value. Anthropic's authorize page rejects shorter, unrelated
-    // state strings with "Invalid request format", so keep this flow
-    // source-compatible while still validating the pasted state strictly.
-    const state = verifier;
+    const state = base64urlEncode(randomBytes(PKCE_VERIFIER_LENGTH_BYTES));
     const authRequestId = randomUUID();
-    const url = buildClaudeAuthorizationUrl(
-      {
-        clientId: CLAUDE_CLIENT_ID,
-        authorizeEndpoint: CLAUDE_AUTHORIZE_ENDPOINT,
-        redirectUri: CLAUDE_REDIRECT_URI,
-        scope: CLAUDE_SCOPE,
-      },
+    const { authorizationUrl: url } = buildOAuthLoginAuthorization({
+      provider: 'claude-subscription',
       verifier,
       state,
-      nodeSha256,
-    );
+    });
     this.pending.set(authRequestId, {
       verifier,
       state,
@@ -295,13 +251,9 @@ export class ClaudeSubscriptionService {
   /**
    * Validate the pasted code, then exchange for tokens.
    *
-   * Upstream Claude Code uses the PKCE verifier itself as OAuth state.
-   * That means the pasted `code#state` contains the verifier needed
-   * for token exchange. We still validate against pending state when
-   * pending exists, but if the in-memory pending map was lost
-   * (renderer reload, modal unmount, main-process restart) we can
-   * recover from the pasted state instead of forcing the user into a
-   * dead "authorization_pending" path.
+   * The verifier and state are independent and both remain main-process
+   * authority. A lost pending attempt cannot be reconstructed from the
+   * pasted payload; the user must start a fresh authorization instead.
    */
   async completeAuthorization(
     authRequestId: string,
@@ -316,21 +268,22 @@ export class ClaudeSubscriptionService {
       };
     }
     const pending = this.pending.get(authRequestId);
-    const pendingExpired = pending ? this.now() - pending.createdAt > PENDING_AUTHORIZATION_TTL_MS : false;
-    if (pending && !constantTimeStringEqual(parsed.state, pending.state)) {
-      if (pendingExpired) this.pending.delete(authRequestId);
-      return { ok: false, reason: 'invalid_paste_code', message: '授权码 state 校验失败，请重新登录。' };
-    }
-    if (pendingExpired) this.pending.delete(authRequestId);
-    const recoverFromPastedState = !pending || pendingExpired;
-    if (recoverFromPastedState && !looksLikeClaudePkceVerifier(parsed.state)) {
+    if (!pending) {
       this.authorizing = false;
       return { ok: false, reason: 'authorization_pending', message: '请重新点击“登录订阅”获取新的授权码。' };
     }
-    const verifier = recoverFromPastedState ? parsed.state : pending!.verifier;
+    const pendingExpired = this.now() - pending.createdAt > PENDING_AUTHORIZATION_TTL_MS;
+    if (pendingExpired) {
+      this.pending.delete(authRequestId);
+      this.authorizing = false;
+      return { ok: false, reason: 'authorization_expired', message: '授权请求已过期，请重新点击“登录订阅”。' };
+    }
+    if (!constantTimeStringEqual(parsed.state, pending.state)) {
+      return { ok: false, reason: 'invalid_paste_code', message: '授权码 state 校验失败，请重新登录。' };
+    }
 
     try {
-      const tokens = await this.exchangeCodeForTokens(parsed.code, verifier, parsed.state);
+      const tokens = await this.exchangeCodeForTokens(parsed.code, pending.verifier, parsed.state);
       // Storage failures are not exchange failures: the one-time code
       // was consumed successfully, so tell the user to fix the store
       // instead of implying the code was bad.
@@ -390,9 +343,9 @@ export class ClaudeSubscriptionService {
       // The cached profile is only valid for the account the shared
       // store currently holds — another surface may have re-logged in
       // with a different account since the profile was fetched.
-      profile: this.cachedProfile?.accountUuid === tokens.account_uuid
+      profile: this.cachedProfile?.accountUuid === (tokens.account_uuid ?? '')
         ? this.cachedProfile
-        : { accountUuid: tokens.account_uuid },
+        : { accountUuid: tokens.account_uuid ?? '' },
       quota: this.cachedQuota ?? undefined,
       errorMessage: this.errorForState(runtimeState),
     };
@@ -618,47 +571,22 @@ export class ClaudeSubscriptionService {
   }
 
   private async exchangeCodeForTokens(code: string, verifier: string, state: string): Promise<PersistedTokens> {
-    const response = await this.fetchFn(CLAUDE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': OAUTH_USER_AGENT,
-      },
-      body: JSON.stringify({
-        code,
-        state,
-        grant_type: 'authorization_code',
-        client_id: CLAUDE_CLIENT_ID,
-        redirect_uri: CLAUDE_REDIRECT_URI,
-        code_verifier: verifier,
-      }),
+    const tokens = await exchangeOAuthAuthorizationCode({
+      provider: 'claude-subscription',
+      code,
+      verifier,
+      state,
+      signal: new AbortController().signal,
+      fetchFn: this.fetchFn,
+      now: this.now,
     });
-    if (!response.ok) {
-      // Read the body (best-effort, never throw) so the user can
-      // see Anthropic's actual reject reason — `invalid_grant: code
-      // already used`, `expired_token`, etc. Without this Maka has
-      // been falling back to a generic "授权码已过期、已使用或与本次
-      // 登录不匹配" message that hides whether the failure is on
-      // Anthropic's side, the user's side, or our request shape.
-      const raw = await response.text().catch(() => '');
-      const compact = raw.replace(/\s+/g, ' ').slice(0, 280);
-      throw new ClaudeTokenExchangeError(response.status, compact || undefined);
-    }
-    const payload = (await response.json()) as {
-      access_token: string;
-      refresh_token: string;
-      expires_in: number;
-      token_type: string;
-      scope: string;
-      account?: { uuid?: string };
-    };
     return {
-      access_token: payload.access_token,
-      refresh_token: payload.refresh_token,
-      expires_at: this.now() + 1000 * payload.expires_in,
-      token_type: payload.token_type,
-      scope: payload.scope,
-      account_uuid: payload.account?.uuid ?? '',
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expires_at,
+      ...(tokens.token_type !== undefined ? { token_type: tokens.token_type } : {}),
+      ...(tokens.scope !== undefined ? { scope: tokens.scope } : {}),
+      ...(tokens.account_uuid !== undefined ? { account_uuid: tokens.account_uuid } : {}),
     };
   }
 
@@ -700,9 +628,9 @@ export class ClaudeSubscriptionService {
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       expires_at: tokens.expires_at,
-      token_type: tokens.token_type ?? 'Bearer',
-      scope: tokens.scope ?? '',
-      account_uuid: tokens.account_uuid ?? '',
+      ...(tokens.token_type !== undefined ? { token_type: tokens.token_type } : {}),
+      ...(tokens.scope !== undefined ? { scope: tokens.scope } : {}),
+      ...(tokens.account_uuid !== undefined ? { account_uuid: tokens.account_uuid } : {}),
     };
   }
 
@@ -737,19 +665,14 @@ export class ClaudeSubscriptionService {
     err: unknown,
     fallbackMessage = '操作失败。',
   ): SubscriptionActionResult {
-    if (err instanceof ClaudeTokenExchangeError) {
+    if (err instanceof OAuthTokenEndpointError) {
       if (err.status === 429) {
         return { ok: false, reason: fallbackReason, message: 'Claude OAuth 请求过于频繁，请稍后重新登录。' };
       }
-      if (err.status >= 500) {
+      if (err.status !== undefined && err.status >= 500) {
         return { ok: false, reason: fallbackReason, message: 'Claude OAuth 服务暂时不可用，请稍后重新登录。' };
       }
-      // 4xx: append Anthropic's actual reject reason when we have it
-      // so the user sees `invalid_grant` / `expired_token` / etc.
-      // and can tell whether the code was already used vs the
-      // request shape is still wrong.
-      const detail = err.body ? ` Anthropic 返回 ${err.status}: ${err.body}` : '';
-      return { ok: false, reason: fallbackReason, message: `${fallbackMessage}${detail}` };
+      return { ok: false, reason: fallbackReason, message: fallbackMessage };
     }
     const message = err instanceof Error ? err.message : '操作失败。';
     return { ok: false, reason: fallbackReason, message };
@@ -795,10 +718,6 @@ export class ClaudeSubscriptionService {
  */
 export function isCloakEnabled(): boolean {
   return process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK !== '0';
-}
-
-function looksLikeClaudePkceVerifier(value: string): boolean {
-  return /^[A-Za-z0-9_-]{43,128}$/.test(value);
 }
 
 /**

@@ -268,6 +268,7 @@ export class HostRuntimePolicyCoordinator {
           if (mode !== 'mutation') {
             throw invariantFailure('A read operation reported an unknown commit outcome');
           }
+          await this.#onCommittedMutation();
           return {
             ok: false,
             error: {

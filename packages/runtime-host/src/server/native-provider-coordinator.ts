@@ -18,6 +18,7 @@ import {
   decodeNativeProviderHostFrame,
   decodeNativeProviderBrowserResultPayload,
   decodeNativeProviderComputerUseResultPayload,
+  decodeNativeProviderOAuthPresentationResultPayload,
   nativeProviderComputerUseResultAttachmentRefs,
   NATIVE_PROVIDER_ATTACHMENT_CHUNK_BYTES,
   NATIVE_PROVIDER_MAX_ATTACHMENT_BYTES,
@@ -115,6 +116,13 @@ export interface HostNativeProviderService {
     readonly capability: NativeProviderCapability;
     readonly affinity?: HostNativeProviderAffinity;
   }): HostNativeProviderInvocationAcquisition;
+  acquireHostOperationInvocation(input: {
+    readonly operationId: string;
+    readonly ownerId: string;
+    readonly attemptId: string;
+    readonly initiatingClientConnectionId: string;
+    readonly capability: 'oauth_presentation';
+  }): HostNativeProviderInvocationAcquisition;
   releaseTurnState(input: { readonly sessionId: string; readonly turnId: string }): Promise<void>;
   attachConnection(
     connectionId: string,
@@ -174,9 +182,7 @@ interface ActiveSubcall {
 
 interface InvocationState {
   readonly operationId: string;
-  readonly sessionId: string;
-  readonly turnId: string;
-  readonly toolCallId: string;
+  readonly owner: InvocationOwner;
   readonly binding: Readonly<FrozenBinding>;
   readonly registration: RegistrationState;
   readonly connection: ConnectionState;
@@ -188,6 +194,15 @@ interface InvocationState {
   finished: boolean;
   providerStateOwned: boolean;
 }
+
+type InvocationOwner =
+  | {
+      readonly kind: 'turn';
+      readonly sessionId: string;
+      readonly turnId: string;
+      readonly toolCallId: string;
+    }
+  | { readonly kind: 'host_operation'; readonly ownerId: string; readonly attemptId: string };
 
 interface TurnReleaseWaiter {
   readonly hostEpoch: string;
@@ -268,13 +283,61 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
     readonly capability: NativeProviderCapability;
     readonly affinity?: HostNativeProviderAffinity;
   }): HostNativeProviderInvocationAcquisition {
+    return this.#acquireInvocation({
+      operationId: input.operationId,
+      owner: {
+        kind: 'turn',
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        toolCallId: input.toolCallId,
+      },
+      capability: input.capability,
+      ...(input.affinity === undefined ? {} : { affinity: input.affinity }),
+    });
+  }
+
+  acquireHostOperationInvocation(input: {
+    readonly operationId: string;
+    readonly ownerId: string;
+    readonly attemptId: string;
+    readonly initiatingClientConnectionId: string;
+    readonly capability: 'oauth_presentation';
+  }): HostNativeProviderInvocationAcquisition {
+    return this.#acquireInvocation({
+      operationId: input.operationId,
+      owner: {
+        kind: 'host_operation',
+        ownerId: input.ownerId,
+        attemptId: input.attemptId,
+      },
+      capability: input.capability,
+      initiatingClientConnectionId: input.initiatingClientConnectionId,
+    });
+  }
+
+  #acquireInvocation(input: {
+    readonly operationId: string;
+    readonly owner: InvocationOwner;
+    readonly capability: NativeProviderCapability;
+    readonly affinity?: HostNativeProviderAffinity;
+    readonly initiatingClientConnectionId?: string;
+  }): HostNativeProviderInvocationAcquisition {
+    if ((input.owner.kind === 'host_operation') !== (input.capability === 'oauth_presentation')) {
+      return acquisitionFailure(
+        'service_mismatch',
+        'Native Provider capability does not match its invocation owner',
+      );
+    }
     if (!this.#admissionOpen || this.#closed) {
       return acquisitionFailure(
         'capability_unavailable',
         'Native Provider invocation admission is closed',
       );
     }
-    if (this.#turnFences.has(turnStateKey(input.sessionId, input.turnId))) {
+    if (
+      input.owner.kind === 'turn' &&
+      this.#turnFences.has(turnStateKey(input.owner.sessionId, input.owner.turnId))
+    ) {
       return acquisitionFailure(
         'capability_unavailable',
         'Native Provider Turn state is being released',
@@ -291,7 +354,27 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
     }
 
     let registration: RegistrationState | undefined;
-    if (input.affinity !== undefined) {
+    if (input.initiatingClientConnectionId !== undefined) {
+      const connection = this.#connections.get(input.initiatingClientConnectionId);
+      const eligible = connection?.attached
+        ? [...connection.registrationIds]
+            .map((registrationId) => this.#registrations.get(registrationId))
+            .filter(
+              (candidate): candidate is RegistrationState =>
+                candidate?.active === true && candidate.capabilities.has(input.capability),
+            )
+        : [];
+      if (eligible.length === 0) {
+        return acquisitionFailure(
+          'capability_unavailable',
+          'Initiating Client has no OAuth presentation capability',
+        );
+      }
+      if (eligible.length > 1) {
+        throw new Error('Native Provider connection registration invariant failed');
+      }
+      registration = eligible[0];
+    } else if (input.affinity !== undefined) {
       const candidate = this.#registrations.get(input.affinity);
       if (
         !candidate?.active ||
@@ -336,9 +419,7 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
     });
     const invocation: InvocationState = {
       operationId: input.operationId,
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-      toolCallId: input.toolCallId,
+      owner: Object.freeze(input.owner),
       binding,
       registration,
       connection: registration.connection,
@@ -381,7 +462,9 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
       if (
         [...this.#invocations.values()].some(
           (invocation) =>
-            invocation.sessionId === input.sessionId && invocation.turnId === input.turnId,
+            invocation.owner.kind === 'turn' &&
+            invocation.owner.sessionId === input.sessionId &&
+            invocation.owner.turnId === input.turnId,
         )
       ) {
         throw new Error(`Native Provider Turn still has an invocation: ${input.turnId}`);
@@ -421,11 +504,9 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
         subcallFailure('capability_lost', 'Native Provider invocation has been released'),
       );
     }
-    const context = input.subcall.context;
     if (
-      context.sessionId !== invocation.sessionId ||
-      context.turnId !== invocation.turnId ||
-      context.toolCallId !== invocation.toolCallId
+      !subcallMatchesCapability(input.subcall, invocation.binding.capability) ||
+      !subcallMatchesOwner(input.subcall, invocation.owner)
     ) {
       return Promise.resolve(
         subcallFailure(
@@ -434,7 +515,6 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
         ),
       );
     }
-    const stateKey = turnStateKey(invocation.sessionId, invocation.turnId);
     if (invocation.active) {
       return Promise.resolve(
         subcallFailure('operation_failed', 'Native Provider subcalls must be strictly serial'),
@@ -495,7 +575,11 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
         active.enqueueInProgress = false;
         if (!invocation.providerStateOwned && invocation.connection.attached) {
           invocation.providerStateOwned = true;
-          invocation.registration.ownedTurns.add(stateKey);
+          if (invocation.owner.kind === 'turn') {
+            invocation.registration.ownedTurns.add(
+              turnStateKey(invocation.owner.sessionId, invocation.owner.turnId),
+            );
+          }
         }
         void receipt.flushed.catch(() => this.#closeConnection(invocation.connection));
       } catch {
@@ -697,6 +781,10 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
     active: ActiveSubcall,
     frame: NativeProviderChunkFrame,
   ): void {
+    if (invocation.binding.capability === 'oauth_presentation') {
+      this.#violate(connection);
+      return;
+    }
     let attachment = active.attachments.get(frame.attachmentId);
     if (!attachment) {
       if (active.attachments.size >= NATIVE_PROVIDER_MAX_ATTACHMENTS_PER_RESULT) {
@@ -755,6 +843,10 @@ export class HostNativeProviderCoordinator implements HostNativeProviderService 
       }
       case 'browser':
         result = decodeNativeProviderBrowserResultPayload(frame.result);
+        refs = [];
+        break;
+      case 'oauth_presentation':
+        result = decodeNativeProviderOAuthPresentationResultPayload(frame.result);
         refs = [];
         break;
     }
@@ -1005,4 +1097,54 @@ function subcallFailure(
 
 function turnStateKey(sessionId: string, turnId: string): string {
   return `${sessionId}\u0000${turnId}`;
+}
+
+function subcallMatchesCapability(
+  subcall: NativeProviderSubcall,
+  capability: NativeProviderCapability,
+): boolean {
+  switch (subcall.kind) {
+    case 'open_external':
+    case 'request_authorization_code':
+      return capability === 'oauth_presentation';
+    case 'navigate':
+    case 'snapshot':
+    case 'click':
+    case 'type':
+    case 'wait':
+    case 'extract':
+      return capability === 'browser';
+    case 'preflight':
+    case 'listApps':
+    case 'observeApp':
+    case 'runSemantic':
+    case 'captureObservation':
+    case 'run':
+      return capability === 'computer_use';
+  }
+}
+
+function subcallMatchesOwner(subcall: NativeProviderSubcall, owner: InvocationOwner): boolean {
+  if (owner.kind === 'host_operation') {
+    return (
+      isOAuthPresentationSubcall(subcall) &&
+      subcall.context.ownerId === owner.ownerId &&
+      subcall.context.attemptId === owner.attemptId
+    );
+  }
+  return (
+    !isOAuthPresentationSubcall(subcall) &&
+    subcall.context.sessionId === owner.sessionId &&
+    subcall.context.turnId === owner.turnId &&
+    subcall.context.toolCallId === owner.toolCallId
+  );
+}
+
+function isOAuthPresentationSubcall(
+  subcall: NativeProviderSubcall,
+): subcall is Extract<
+  NativeProviderSubcall,
+  { readonly kind: 'open_external' | 'request_authorization_code' }
+> {
+  return subcall.kind === 'open_external' || subcall.kind === 'request_authorization_code';
 }

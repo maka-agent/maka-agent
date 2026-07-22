@@ -6,6 +6,8 @@ export type HostOperationErrorCode =
   | 'host_not_ready'
   | 'host_draining'
   | 'operation_unavailable'
+  | 'authorization_in_progress'
+  | 'capability_unavailable'
   | 'invalid_request'
   | 'persistence_failed'
   | 'commit_outcome_unknown'

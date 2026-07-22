@@ -50,6 +50,7 @@ export type ArtifactOperationKey = Extract<OperationKey, `artifact.${string}`>;
 export type MemoryOperationKey = Extract<OperationKey, `memory.${string}`>;
 export type AutomationOperationKey = Extract<OperationKey, `automation.${string}`>;
 export type GoalOperationKey = Extract<OperationKey, `goal.${string}`>;
+export type OAuthOperationKey = Extract<OperationKey, `oauth.${string}`>;
 export type RuntimeResourceOperationKey = Extract<
   OperationKey,
   `resource.${string}` | `pty.${string}`
@@ -70,6 +71,7 @@ export type ArtifactOperationHandlerMap = Pick<OperationHandlerMap, ArtifactOper
 export type MemoryOperationHandlerMap = Pick<OperationHandlerMap, MemoryOperationKey>;
 export type AutomationOperationHandlerMap = Pick<OperationHandlerMap, AutomationOperationKey>;
 export type GoalOperationHandlerMap = Pick<OperationHandlerMap, GoalOperationKey>;
+export type OAuthOperationHandlerMap = Pick<OperationHandlerMap, OAuthOperationKey>;
 export type RuntimeResourceOperationHandlerMap = Pick<
   OperationHandlerMap,
   RuntimeResourceOperationKey

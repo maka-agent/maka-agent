@@ -32,6 +32,7 @@ export {
 } from './runtime-policy/errors.js';
 export type {
   BeginConnectionTestResult,
+  BeginInteractiveOAuthLoginResult,
   BeginModelFetchResult,
   BeginStoredOAuthRefreshResult,
   CompletionChangedDomain,
@@ -39,6 +40,9 @@ export type {
   ConnectionTestResult,
   ConnectionTestTicket,
   CredentialStatusQueryResult,
+  InteractiveOAuthLoginCompletionResult,
+  InteractiveOAuthLoginResult,
+  InteractiveOAuthLoginTicket,
   ModelFetchCompletionResult,
   ModelFetchResult,
   ModelFetchTicket,
@@ -210,6 +214,10 @@ function createWriterFacade(coordinator: RuntimePolicyCoordinator): RuntimePolic
       beginStoredOAuthRefresh: (connectionId) => coordinator.beginStoredOAuthRefresh(connectionId),
       completeStoredOAuthRefresh: (ticket, result) =>
         coordinator.completeStoredOAuthRefresh(ticket, result),
+      beginInteractiveOAuthLogin: (catalogConnectionId) =>
+        coordinator.beginInteractiveOAuthLogin(catalogConnectionId),
+      completeInteractiveOAuthLogin: (ticket, result) =>
+        coordinator.completeInteractiveOAuthLogin(ticket, result),
     },
   };
   freezeFacade(stores);
