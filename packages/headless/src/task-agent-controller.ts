@@ -528,45 +528,47 @@ export async function runTaskOnce(
         await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, repairSummary);
         runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
 
-        let boundedProjection = await taskRunStore.project(taskRunId);
-        const repairWorkspaceObservation = await appendHeavyTaskWorkspaceObservation({
-          taskRunStore,
-          taskRunId,
-          projection: boundedProjection,
-          executor: deps.realBackendIsolation?.toolExecutor,
-          cwd: agentWorkspaceDir,
-          now,
-          newId,
-        });
-        await appendHeavyTaskSelfCheckEvidenceLinks({
-          store: taskRunStore,
-          runtimeEventStore,
-          taskRunId,
-          attemptId,
-          invocation,
-          workspaceObservation: repairWorkspaceObservation,
-          now,
-          newId,
-        });
-        boundedProjection = await taskRunStore.project(taskRunId);
-        const boundedDecision = evaluateHeavyTaskSelfCheckGate({
-          task,
-          heavyTaskMode,
-          projection: boundedProjection,
-          repairAttemptsUsed: 1,
-          maxRepairAttempts: 1,
-        });
-        await appendTaskEvent(taskRunStore, taskRunId, {
-          type: 'heavy_task_self_check_gate_recorded',
-          id: newId(),
-          taskRunId,
-          ts: now(),
-          gate: heavyTaskSelfCheckGateStateFromDecision({
-            decision: boundedDecision,
-            attempt: 1,
-            maxAttempts: 1,
-          }),
-        });
+        if (!settledByDeadline) {
+          let boundedProjection = await taskRunStore.project(taskRunId);
+          const repairWorkspaceObservation = await appendHeavyTaskWorkspaceObservation({
+            taskRunStore,
+            taskRunId,
+            projection: boundedProjection,
+            executor: deps.realBackendIsolation?.toolExecutor,
+            cwd: agentWorkspaceDir,
+            now,
+            newId,
+          });
+          await appendHeavyTaskSelfCheckEvidenceLinks({
+            store: taskRunStore,
+            runtimeEventStore,
+            taskRunId,
+            attemptId,
+            invocation,
+            workspaceObservation: repairWorkspaceObservation,
+            now,
+            newId,
+          });
+          boundedProjection = await taskRunStore.project(taskRunId);
+          const boundedDecision = evaluateHeavyTaskSelfCheckGate({
+            task,
+            heavyTaskMode,
+            projection: boundedProjection,
+            repairAttemptsUsed: 1,
+            maxRepairAttempts: 1,
+          });
+          await appendTaskEvent(taskRunStore, taskRunId, {
+            type: 'heavy_task_self_check_gate_recorded',
+            id: newId(),
+            taskRunId,
+            ts: now(),
+            gate: heavyTaskSelfCheckGateStateFromDecision({
+              decision: boundedDecision,
+              attempt: 1,
+              maxAttempts: 1,
+            }),
+          });
+        }
       }
     }
 
@@ -621,7 +623,7 @@ export async function runTaskOnce(
     const runEvidence = await agentRunStore
       .readRun(header.id, invocation.runId)
       .catch(() => undefined);
-    const resultRecord = resultRecordFromInvocation({
+    const invocationResultRecord = resultRecordFromInvocation({
       config,
       task,
       sessionId: header.id,
@@ -636,7 +638,18 @@ export async function runTaskOnce(
       runtimeSteps: countRuntimeSteps(invocations.flatMap((candidate) => candidate.events)),
       runEvidence,
     });
-    const taxonomy = finalScore.taxonomy;
+    const resultRecord: ResultRecord = settledByDeadline
+      ? {
+          ...invocationResultRecord,
+          status: 'failed',
+          runnerCompleted: false,
+          error: 'benchmark deadline reached during attempt',
+          errorClass: 'budget_exhausted',
+        }
+      : invocationResultRecord;
+    const taxonomy: AutonomousResultTaxonomy = settledByDeadline
+      ? 'budget_exhausted'
+      : finalScore.taxonomy;
     const scoreResult: ScoreResult = {
       id: scoreResultId,
       taskRunId,
@@ -647,7 +660,11 @@ export async function runTaskOnce(
       eligible: finalScore.eligible,
       ...(finalScore.score !== undefined ? { score: finalScore.score } : {}),
       ...(finalScore.maxScore !== undefined ? { maxScore: finalScore.maxScore } : {}),
-      ...(finalScore.errorClass ? { errorClass: finalScore.errorClass } : {}),
+      ...(settledByDeadline
+        ? { errorClass: 'budget_exhausted' }
+        : finalScore.errorClass
+          ? { errorClass: finalScore.errorClass }
+          : {}),
       ...(finalScore.excludedReason ? { excludedReason: finalScore.excludedReason } : {}),
       taxonomy,
       ...(verifierResult.authority ? { authority: verifierResult.authority } : {}),
@@ -1179,9 +1196,12 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
   };
   const remainingMs =
     input.deadlineAtMs === undefined ? undefined : Math.max(0, input.deadlineAtMs - input.now());
+  const dispatchAbortController = remainingMs === 0 ? new AbortController() : undefined;
   let settlementTimer: ReturnType<typeof setTimeout> | undefined;
-  if (remainingMs === 0) settle();
-  else if (remainingMs !== undefined) settlementTimer = setTimeout(settle, remainingMs);
+  if (dispatchAbortController) {
+    dispatchAbortController.abort();
+    settle();
+  } else if (remainingMs !== undefined) settlementTimer = setTimeout(settle, remainingMs);
   let invocation: InvocationResult;
   try {
     invocation = await runner.run({
@@ -1196,12 +1216,16 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
       initialRuntimeEvent: begin.initialRuntimeEvent,
       source: 'test',
       lineage: input.run.lineage,
+      ...(dispatchAbortController ? { abortSignal: dispatchAbortController.signal } : {}),
     });
   } finally {
     if (settlementTimer) clearTimeout(settlementTimer);
   }
   await settlementAttempt;
   if (settlementError) throw settlementError;
+  if (dispatchAbortController && invocation.events.length === 0) {
+    invocation = { ...invocation, events: [begin.initialRuntimeEvent] };
+  }
   await input.run.finalize();
   return { invocation, settledByDeadline };
 }

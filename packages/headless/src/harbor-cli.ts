@@ -260,14 +260,16 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     storageRoot: options.storageRoot,
     invocations,
   });
-  const taxonomy = settledByDeadline
-    ? 'budget_exhausted'
-    : (latestScore?.taxonomy ??
-      run.projection.result?.taxonomy ??
-      taxonomyFromResultRecord(run.resultRecord));
+  const taxonomy =
+    run.projection.status === 'budget_exhausted'
+      ? 'budget_exhausted'
+      : (latestScore?.taxonomy ??
+        run.projection.result?.taxonomy ??
+        taxonomyFromResultRecord(run.resultRecord));
   const benchmarkFailure = classifyExternalHarborBenchmarkFailure({
-    status: settledByDeadline ? 'budget_exhausted' : run.resultRecord.status,
-    errorClass: settledByDeadline ? 'budget_exhausted' : run.resultRecord.errorClass,
+    status:
+      run.projection.status === 'budget_exhausted' ? 'budget_exhausted' : run.resultRecord.status,
+    errorClass: run.resultRecord.errorClass,
     error: run.resultRecord.error,
     taxonomy,
   });
@@ -275,7 +277,7 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     `${JSON.stringify({
       mode: 'task-run',
       taskRunId: run.taskRunId,
-      status: settledByDeadline ? 'budget_exhausted' : run.projection.status,
+      status: run.projection.status,
       settledByDeadline,
       taxonomy,
       scored: latestScore?.scored ?? run.resultRecord.scored ?? false,

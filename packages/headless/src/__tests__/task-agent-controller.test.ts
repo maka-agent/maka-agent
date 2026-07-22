@@ -152,6 +152,55 @@ class DeadlineBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class ResettingDeadlineBackend implements AgentBackend {
+  readonly kind: BackendKind = 'fake';
+
+  constructor(
+    readonly sessionId: string,
+    private readonly counters: { sendCalls: number },
+  ) {}
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.counters.sendCalls += 1;
+    yield {
+      type: 'complete',
+      id: 'resetting-deadline-complete',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class DeadlineRepairBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+
+  constructor(
+    readonly sessionId: string,
+    private readonly state: { now: number; prompts: string[] },
+  ) {}
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.state.prompts.push(input.text);
+    if (this.state.prompts.length === 1) this.state.now = 100;
+    yield {
+      type: 'complete',
+      id: `deadline-repair-complete-${this.state.prompts.length}`,
+      turnId: input.turnId,
+      ts: this.state.now,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 const registerDeadlineBackend = (registry: BackendRegistry): void => {
   registry.register('fake', (ctx) => new DeadlineBackend(ctx.sessionId));
 };
@@ -864,6 +913,31 @@ async function readAgentRunHeader(
 }
 
 describe('runTaskOnce', () => {
+  test('does not dispatch a runtime attempt after the benchmark deadline', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const counters = { sendCalls: 0 };
+      const task: Task = {
+        id: 'expired-benchmark-deadline',
+        instruction: 'must not start',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(fakeConfig, task, {
+        storageRoot,
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) => new ResettingDeadlineBackend(ctx.sessionId, counters));
+        },
+        deadlineAtMs: Date.now() - 1,
+      });
+
+      assert.equal(counters.sendCalls, 0);
+      assert.equal(result.settledByDeadline, true);
+      assert.equal(latestInvocation(result).status, 'failed');
+      assert.equal(latestInvocation(result).failure?.class, 'aborted');
+    });
+  });
+
   test('settles an active runtime at the benchmark soft deadline', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const task: Task = {
@@ -880,6 +954,8 @@ describe('runTaskOnce', () => {
       });
 
       assert.equal(result.settledByDeadline, true);
+      assert.equal(result.projection.status, 'budget_exhausted');
+      assert.equal(result.projection.events.at(-1)?.type, 'task_run_budget_exhausted');
       const runHeader = await readAgentRunHeader(
         storageRoot,
         latestInvocation(result).sessionId,
@@ -887,6 +963,46 @@ describe('runTaskOnce', () => {
       );
       assert.equal(runHeader.status, 'cancelled');
       assert.equal(runHeader.abortSource, 'benchmark.deadline');
+    });
+  });
+
+  test('skips optional heavy-task work after a repair settles at the deadline', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const state = { now: 0, prompts: [] as string[] };
+      const config: Config = { ...fakeConfig, backend: 'ai-sdk', heavyTaskMode: true };
+      const task: Task = {
+        id: 'repair-deadline',
+        instruction: 'complete the heavy task',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(config, task, {
+        storageRoot,
+        now: () => state.now,
+        registerBackends: (registry) => {
+          registry.register('ai-sdk', (ctx) => new DeadlineRepairBackend(ctx.sessionId, state));
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+        deadlineAtMs: 50,
+      });
+
+      assert.equal(state.prompts.length, 1);
+      assert.equal(result.settledByDeadline, true);
+      assert.equal(
+        result.projection.events.filter(
+          (event) => event.type === 'heavy_task_self_check_gate_recorded',
+        ).length,
+        1,
+      );
     });
   });
 
