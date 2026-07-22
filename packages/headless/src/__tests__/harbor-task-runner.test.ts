@@ -289,6 +289,7 @@ describe('createHarborTaskRunner', () => {
         model: 'deepseek/deepseek-v4-flash',
         provider: 'deepseek',
         apiKeyFile: keyFile,
+        agentEnv: { MAKA_HARBOR_MODE: 'task-run' },
         runHarbor: fakeRunner({ reward: '1\n', makaTrace: false, taskRunTrace: true }),
       });
 
@@ -312,6 +313,7 @@ describe('createHarborTaskRunner', () => {
         model: 'deepseek/deepseek-v4-flash',
         provider: 'deepseek',
         apiKeyFile: keyFile,
+        agentEnv: { MAKA_HARBOR_MODE: 'task-run' },
         runHarbor: fakeRunner({ reward: '1\n', taskRunTrace: true, combinedTrace: true }),
       });
 
@@ -320,6 +322,29 @@ describe('createHarborTaskRunner', () => {
       assert.equal(
         await readFile(output.cell.traceEventsPath ?? '', 'utf8'),
         '{"type":"first_invocation"}\n{"type":"second_invocation"}\n',
+      );
+    });
+  });
+
+  test('cell mode ignores stale task-run traces', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        provider: 'deepseek',
+        apiKeyFile: keyFile,
+        runHarbor: fakeRunner({ reward: '1\n', taskRunTrace: true, combinedTrace: true }),
+      });
+
+      const output = await runner(runInput());
+      assert.match(
+        output.cell.traceEventsPath ?? '',
+        /agent\/maka-storage\/sessions\/sess\/runs\/run\/events\.jsonl$/,
+      );
+      assert.equal(
+        await readFile(output.cell.traceEventsPath ?? '', 'utf8'),
+        '{"type":"tool_failed"}\n',
       );
     });
   });

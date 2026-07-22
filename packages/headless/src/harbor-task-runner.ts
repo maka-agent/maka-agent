@@ -335,6 +335,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
             trialDir,
             input.task.id,
             runnerOptions.agent,
+            harborTraceMode(runnerOptions.agentEnv),
           );
           throw new FixedPromptBudgetExhaustedError(
             `agent budget exhausted for task ${input.task.id}`,
@@ -394,7 +395,13 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
           ...cell,
           ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
           runtimeEventsPath: hostEventsPath,
-          traceEventsPath: hostTraceEventsPath(runnerOptions.agent, trialDir, cell, hostEventsPath),
+          traceEventsPath: hostTraceEventsPath(
+            runnerOptions.agent,
+            harborTraceMode(runnerOptions.agentEnv),
+            trialDir,
+            cell,
+            hostEventsPath,
+          ),
         },
       };
     } catch (error) {
@@ -572,19 +579,25 @@ async function readOptionalCellOutput(
 
 function hostTraceEventsPath(
   agent: HarborTaskRunnerOptions['agent'],
+  mode: 'cell' | 'task-run',
   trialDir: string,
   cell: HarborCellOutput,
   hostEventsPath: string,
 ): string {
   if (agent !== undefined && agent !== 'maka') return hostEventsPath;
-  const combinedTracePath = join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS);
-  if (existsSync(combinedTracePath)) return combinedTracePath;
   const traceSuffix = [cell.runtimeRefs.sessionId, 'runs', cell.runtimeRefs.runId, 'events.jsonl'];
-  const traceCandidates = [
-    join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS_ROOT, ...traceSuffix),
-    join(trialDir, TRIAL_LEGACY_TRACE_EVENTS_ROOT, ...traceSuffix),
-  ];
-  return traceCandidates.find((path) => existsSync(path)) ?? hostEventsPath;
+  if (mode === 'task-run') {
+    const combinedTracePath = join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS);
+    if (existsSync(combinedTracePath)) return combinedTracePath;
+    const taskRunTracePath = join(trialDir, TRIAL_TASK_RUN_TRACE_EVENTS_ROOT, ...traceSuffix);
+    return existsSync(taskRunTracePath) ? taskRunTracePath : hostEventsPath;
+  }
+  const cellTracePath = join(trialDir, TRIAL_LEGACY_TRACE_EVENTS_ROOT, ...traceSuffix);
+  return existsSync(cellTracePath) ? cellTracePath : hostEventsPath;
+}
+
+function harborTraceMode(agentEnv: Record<string, string> | undefined): 'cell' | 'task-run' {
+  return agentEnv?.MAKA_HARBOR_MODE === 'task-run' ? 'task-run' : 'cell';
 }
 
 function cellArtifactRefs(
@@ -592,8 +605,9 @@ function cellArtifactRefs(
   hostEventsPath: string,
   trialDir: string,
   agent: HarborTaskRunnerOptions['agent'],
+  mode: 'cell' | 'task-run',
 ) {
-  const traceEventsPath = hostTraceEventsPath(agent, trialDir, cell, hostEventsPath);
+  const traceEventsPath = hostTraceEventsPath(agent, mode, trialDir, cell, hostEventsPath);
   return {
     runtimeEventsPath: hostEventsPath,
     traceEventsPath,
@@ -606,9 +620,11 @@ async function readTimedOutTrialArtifacts(
   trialDir: string,
   taskId: string,
   agent: HarborTaskRunnerOptions['agent'],
+  mode: 'cell' | 'task-run',
 ) {
   const cell = await readOptionalCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), taskId);
-  if (cell) return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir, agent);
+  if (cell)
+    return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir, agent, mode);
   const [executionIdentity, tokenSummary] = await Promise.all([
     readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY)),
     readOptionalTokenSummary(join(trialDir, TRIAL_USAGE_CHECKPOINT)),
