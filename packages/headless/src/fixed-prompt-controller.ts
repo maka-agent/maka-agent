@@ -61,12 +61,11 @@ export interface HarborVerifierOutcome {
 
 /**
  * The provider-neutral seam the fixed-prompt controller and A/B schedulers
- * consume: run one task attempt and return its reward plus cell artifacts. The
- * Harbor implementation (`createHarborTaskRunner`) is the first and, today, only
- * implementation; a Pier implementation lands later under its own issue and
- * satisfies the same interface. The output still carries a Harbor-shaped
- * `harbor` field; generalizing that payload is deferred until a second
- * implementation actually needs it.
+ * consume: run one task attempt and return its reward plus cell artifacts. Two
+ * implementations exist: `createHarborTaskRunner` (Harbor) and
+ * `createPierTaskRunner` (Pier, for DeepSWE). The output still carries a
+ * Harbor-shaped `harbor` field; both harnesses map into it, and generalizing
+ * that payload is deferred until an implementation cannot.
  */
 export interface TaskRunOutput {
   harbor: {

@@ -662,20 +662,26 @@ async function writeEnvFile(path: string, env: Record<string, string>): Promise<
   await chmod(path, 0o600);
 }
 
+/** Pier's agent_setup phase budget (pier/trial/trial.py:176
+ * `_AGENT_SETUP_TIMEOUT_SEC = 360.0`); like the other phases it is scaled by
+ * the timeout multiplier (pier/trial/execution.py:129-143). */
+const PIER_AGENT_SETUP_TIMEOUT_SEC = 360;
+
 /** Pier's maximum legitimate trial lifecycle in task-native seconds. Owns the
  * COMPLETE pier phase-and-retry model in one place — never patch phases in
- * piecemeal. Pier runs environment build, then the agent once, then the
- * verifier, and retries two of those phases once on their timeout errors
- * (tenacity `stop_after_attempt(2)`: `start_environment` in
+ * piecemeal. Pier runs environment build, then agent setup, then the agent
+ * once, then the verifier, and retries two of those phases once on their
+ * timeout errors (tenacity `stop_after_attempt(2)`: `start_environment` in
  * pier/trial/execution.py:208 on EnvironmentStartTimeoutError, and
  * `_verify_with_retry` in pier/trial/trial.py:333 on VerifierTimeoutError), so
- * the legitimate ceiling is 2 x build + agent + 2 x verifier. For DeepSWE
- * (build 1800s, agent 5400s, verifier 1800s) that is 12600s — a derivation
- * missing any phase or retry would let the watchdog kill legitimate trials as
- * infra. */
+ * the legitimate ceiling is 2 x build + setup + agent + 2 x verifier. For
+ * DeepSWE (build 1800s, setup 360s, agent 5400s, verifier 1800s) that is
+ * 12960s — a derivation missing any phase or retry would let the watchdog
+ * kill legitimate trials as infra. */
 function pierMaxTrialPhasesSec(metadata: TaskRunInput['task']['metadata']): number {
   return (
     2 * (metadata?.buildTimeoutSec ?? 0) +
+    PIER_AGENT_SETUP_TIMEOUT_SEC +
     (metadata?.agentTimeoutSec ?? 0) +
     2 * (metadata?.verifierTimeoutSec ?? 0)
   );

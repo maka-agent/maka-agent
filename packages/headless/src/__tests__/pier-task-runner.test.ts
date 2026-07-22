@@ -349,12 +349,15 @@ test('createPierTaskRunner derives the wall-clock watchdog from the task-native 
       baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward: 0, captured }) }),
     );
     // DeepSWE-shaped budget (113/113 tasks): build 1800s + agent 5400s +
-    // verifier 1800s, and pier retries build and verification once each on
-    // their timeout errors (tenacity stop_after_attempt(2) in
-    // pier/trial/execution.py:208 and pier/trial/trial.py:333). The watchdog
-    // must cover the complete legitimate lifecycle 2xbuild + agent +
-    // 2xverifier = 12600s, or cold builds and verifier retries get killed as
-    // infra. Contract: derived value covers that ceiling plus grace.
+    // verifier 1800s, plus pier's fixed agent_setup phase (360s,
+    // pier/trial/trial.py:176, multiplier-scaled per
+    // pier/trial/execution.py:129-143), and pier retries build and
+    // verification once each on their timeout errors (tenacity
+    // stop_after_attempt(2) in pier/trial/execution.py:208 and
+    // pier/trial/trial.py:333). The watchdog must cover the complete
+    // legitimate lifecycle 2xbuild + setup + agent + 2xverifier = 12960s, or
+    // cold builds, slow setups, and verifier retries get killed as infra.
+    // Contract: derived value covers that ceiling plus grace.
     const deepSweMetadata = {
       agentTimeoutSec: 5400,
       verifierTimeoutSec: 1800,
@@ -365,8 +368,11 @@ test('createPierTaskRunner derives the wall-clock watchdog from the task-native 
         task: { id: 'dasel', path: '/tasks/dasel-html-document-format', metadata: deepSweMetadata },
       }),
     );
-    assert.equal(captured.request?.timeoutMs, (2 * 1800 + 5400 + 2 * 1800) * 1_000 + 15 * 60_000);
-    assert.ok((captured.request?.timeoutMs ?? 0) >= 12_600_000);
+    assert.equal(
+      captured.request?.timeoutMs,
+      (2 * 1800 + 360 + 5400 + 2 * 1800) * 1_000 + 15 * 60_000,
+    );
+    assert.ok((captured.request?.timeoutMs ?? 0) >= 12_960_000);
 
     // Without task metadata the 45-minute floor holds.
     await runner(runInput());
