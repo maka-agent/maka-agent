@@ -504,6 +504,31 @@ describe('runAutonomousTask', () => {
     });
   });
 
+  test('a benchmark deadline cannot park for budget extension', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'benchmark-deadline-park',
+        instruction: 'must not start',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runAutonomousTask(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerFakeBackend,
+        budget: { maxAttempts: 2 },
+        interventionPolicy: { mode: 'park', allowBudgetExtensionRequests: true },
+        deadlineAtMs: Date.now() - 1,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.attempts.at(-1)?.settledByDeadline, true);
+      assert.equal(result.projection.status, 'budget_exhausted');
+      assert.equal(result.projection.events.at(-1)?.type, 'task_run_budget_exhausted');
+      assert.equal(result.projection.parked, undefined);
+    });
+  });
+
   test('maxWallTimeMs admits the first attempt but prevents another one', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const task: Task = {

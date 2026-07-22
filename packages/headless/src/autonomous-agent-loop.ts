@@ -277,7 +277,6 @@ export async function runAutonomousTask(
         newId,
         afterAttemptBudget,
         'benchmark deadline reached during attempt',
-        options.interventionPolicy,
       );
       return {
         taskRunId,
