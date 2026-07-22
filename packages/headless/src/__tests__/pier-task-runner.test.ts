@@ -424,7 +424,12 @@ test('createPierTaskRunner rejects experiment identity and pricing overrides in 
     ];
     for (const env of overrides) {
       const runner = createPierTaskRunner(
-        baseOptions({ jobsDir, makaRepoPath: repo, agentEnv: env, runPier: fakePier({ reward: 0 }) }),
+        baseOptions({
+          jobsDir,
+          makaRepoPath: repo,
+          agentEnv: env,
+          runPier: fakePier({ reward: 0 }),
+        }),
       );
       await assert.rejects(runner(runInput()), /must not override experiment identity/);
     }
@@ -481,6 +486,48 @@ test('createPierTaskRunner wires the Kimi arm through the host proxy on a Squid-
     const mountsFlag = captured.request?.args.indexOf('--mounts-json') ?? -1;
     const mounts = JSON.parse(captured.request!.args[mountsFlag + 1]!) as Array<{ target: string }>;
     assert.ok(mounts.some((mount) => mount.target === '/opt/maka-kimi-code-toolchain'));
+  });
+});
+
+test('createPierTaskRunner serializes concurrent Kimi attempts holding the fixed proxy port', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const inner = fakePier({ reward: 0 });
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'kimi-code',
+        backend: 'ai-sdk',
+        provider: 'kimi-coding-plan',
+        model: 'k3',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        kimiCodeToolchainPath: repo,
+        resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
+        providerProxyPort: 0,
+        runPier: async (request) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          try {
+            return await inner(request);
+          } finally {
+            inFlight -= 1;
+          }
+        },
+      }),
+    );
+    // The default Kimi port is fixed (443): a second concurrent bind would be a
+    // guaranteed EADDRINUSE, so the runner must hold the port one attempt at a
+    // time while both attempts still complete.
+    const [first, second] = await Promise.all([
+      runner(runInput({ task: { id: 't1', path: '/tasks/dasel-html-document-format' } })),
+      runner(runInput({ task: { id: 't2', path: '/tasks/dasel-html-document-format' } })),
+    ]);
+    assert.equal(first.harbor.reward, 0);
+    assert.equal(second.harbor.reward, 0);
+    assert.equal(maxInFlight, 1);
   });
 });
 

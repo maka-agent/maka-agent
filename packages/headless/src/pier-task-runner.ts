@@ -170,6 +170,19 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
   const harborAdapterDir = join(options.makaRepoPath, 'packages', 'headless', 'harbor');
   const pythonPath = [harborAdapterDir, process.env.PYTHONPATH].filter(Boolean).join(delimiter);
 
+  // The Kimi arm binds ONE fixed proxy port per runner, and Pier's Squid egress
+  // leaves only two usable destination ports (80/443), so concurrent attempts on
+  // the same runner must hold the port one at a time — a second concurrent bind
+  // is a guaranteed EADDRINUSE. Serializing the proxy-holding section (instead of
+  // sharing one proxy) keeps usage/telemetry attribution per attempt. A pool over
+  // both Squid-legal ports is deferred until concurrency actually needs it.
+  let proxyPortQueue: Promise<unknown> = Promise.resolve();
+  const withProxyPortLock = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = proxyPortQueue.then(fn);
+    proxyPortQueue = run.catch(() => {});
+    return run;
+  };
+
   const runner: TaskRunner = async (input: TaskRunInput): Promise<TaskRunOutput> => {
     const agent = options.agent ?? 'maka';
     const jobsDir = join(
@@ -194,93 +207,97 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
     const providerTelemetryPath = join(jobsDir, PROVIDER_REQUEST_TELEMETRY);
     let providerUsage: ProviderTokenUsage | null = null;
     let providerTelemetry: ProviderRequestTelemetry[] = [];
-    let result: PierRunResult;
     const envFilePath = join(jobsDir, 'pier-agent.env');
-    // Setup errors here are configuration faults, not infra flakes: validate the
-    // mount set and start the proxy BEFORE the launch try so they surface with
-    // their own message (and never leak a listening socket behind a wrapped error).
+    // Config errors fail fast before the proxy exists (and outside the port lock).
     const mounts = buildPierMounts(options, agent);
-    const providerRuntime = await pierProviderRuntime(options, agent);
-    const envFileEntries = providerRuntime?.envFile ?? {};
-    const usesEnvFile = Object.keys(envFileEntries).length > 0;
-    try {
-      // Everything from here until runPier returns lives under one finally that
-      // closes the proxy: a failure in this window (env-file write, arg
-      // assembly) must not leak the listening socket. Bind errors themselves
-      // happen above, before the proxy exists, and still surface raw.
+    const launchAttempt = async (): Promise<PierRunResult> => {
+      // Proxy bind errors surface raw, before the launch try, with their own
+      // message — they are configuration faults, not infra flakes.
+      const providerRuntime = await pierProviderRuntime(options, agent);
+      const envFileEntries = providerRuntime?.envFile ?? {};
+      const usesEnvFile = Object.keys(envFileEntries).length > 0;
       try {
-        const aeEnv = buildPierAgentEnv(input, options, agent, providerRuntime?.agentEnv ?? {});
-        const processEnv: Record<string, string> = {
-          PYTHONPATH: pythonPath,
-          // MAKA_BACKEND is a CliFlag whose env_fallback reads os.environ only, so
-          // `--ae MAKA_BACKEND=` is silently ignored — it must ride the pier process
-          // env. The Kimi adapter ignores it.
-          MAKA_BACKEND: options.backend ?? 'ai-sdk',
-          // Byte-safe channel for the prompt: pier's --ae parser strips leading and
-          // trailing whitespace from values (pier/cli/utils.py key.strip() /
-          // value.strip()), which would drop the prompt's trailing newline and break
-          // the execution-identity hash round-trip on every task. Both adapters fall
-          // back to os.environ (CliFlag env_fallback for Maka, _get_env for Kimi) and
-          // forward the exact bytes into the cell, so the value rides the pier
-          // process env verbatim — and must never also appear in --ae, where the
-          // stripped extra_env copy would take precedence in _get_env.
-          MAKA_SYSTEM_PROMPT: input.systemPrompt,
-        };
-        if (usesEnvFile) await writeEnvFile(envFilePath, envFileEntries);
-        const args = buildPierRunArgs({
-          agent,
-          // Provider-local bare id (same normalization contract as the Harbor
-          // runner): the adapter's model_name takes precedence over MAKA_MODEL, so
-          // a provider-prefixed `-m` would leak the prefixed id into the cell.
-          model: modelIdForProvider(options.model, options.provider ?? 'deepseek'),
-          taskPath: input.task.path,
-          jobsDir,
-          jobName,
-          environment: options.environment ?? 'docker',
-          timeoutMultiplier: options.timeoutMultiplier ?? 1,
-          mounts,
-          agentEnv: aeEnv,
-          ...(usesEnvFile ? { envFile: envFilePath } : {}),
-        });
-        result = await runPier({
-          pierBin,
-          jobName,
-          jobsDir,
-          args,
-          cwd: harborAdapterDir,
-          timeoutMs: options.pierTimeoutMs ?? DEFAULT_PIER_TIMEOUT_MS,
-          env: processEnv,
-        });
-      } finally {
-        await providerRuntime?.close?.();
-        if (usesEnvFile) await rm(envFilePath, { force: true });
-        providerUsage = providerRuntime?.usage?.() ?? null;
-        providerTelemetry = providerRuntime?.telemetry?.() ?? [];
-        if (providerTelemetry.length > 0) {
-          await writeFile(
-            providerTelemetryPath,
-            `${JSON.stringify(
-              {
-                schemaVersion: 1,
-                summary: summarizeProviderTelemetry(providerTelemetry),
-                requests: providerTelemetry,
-              },
-              null,
-              2,
-            )}\n`,
-            'utf8',
-          );
+        // Everything from here until runPier returns lives under one finally that
+        // closes the proxy: a failure in this window (env-file write, arg
+        // assembly) must not leak the listening socket.
+        try {
+          const aeEnv = buildPierAgentEnv(input, options, agent, providerRuntime?.agentEnv ?? {});
+          const processEnv: Record<string, string> = {
+            PYTHONPATH: pythonPath,
+            // MAKA_BACKEND is a CliFlag whose env_fallback reads os.environ only, so
+            // `--ae MAKA_BACKEND=` is silently ignored — it must ride the pier process
+            // env. The Kimi adapter ignores it.
+            MAKA_BACKEND: options.backend ?? 'ai-sdk',
+            // Byte-safe channel for the prompt: pier's --ae parser strips leading and
+            // trailing whitespace from values (pier/cli/utils.py key.strip() /
+            // value.strip()), which would drop the prompt's trailing newline and break
+            // the execution-identity hash round-trip on every task. Both adapters fall
+            // back to os.environ (CliFlag env_fallback for Maka, _get_env for Kimi) and
+            // forward the exact bytes into the cell, so the value rides the pier
+            // process env verbatim — and must never also appear in --ae, where the
+            // stripped extra_env copy would take precedence in _get_env.
+            MAKA_SYSTEM_PROMPT: input.systemPrompt,
+          };
+          if (usesEnvFile) await writeEnvFile(envFilePath, envFileEntries);
+          const args = buildPierRunArgs({
+            agent,
+            // Provider-local bare id (same normalization contract as the Harbor
+            // runner): the adapter's model_name takes precedence over MAKA_MODEL, so
+            // a provider-prefixed `-m` would leak the prefixed id into the cell.
+            model: modelIdForProvider(options.model, options.provider ?? 'deepseek'),
+            taskPath: input.task.path,
+            jobsDir,
+            jobName,
+            environment: options.environment ?? 'docker',
+            timeoutMultiplier: options.timeoutMultiplier ?? 1,
+            mounts,
+            agentEnv: aeEnv,
+            ...(usesEnvFile ? { envFile: envFilePath } : {}),
+          });
+          return await runPier({
+            pierBin,
+            jobName,
+            jobsDir,
+            args,
+            cwd: harborAdapterDir,
+            timeoutMs: options.pierTimeoutMs ?? DEFAULT_PIER_TIMEOUT_MS,
+            env: processEnv,
+          });
+        } finally {
+          await providerRuntime?.close?.();
+          if (usesEnvFile) await rm(envFilePath, { force: true });
+          providerUsage = providerRuntime?.usage?.() ?? null;
+          providerTelemetry = providerRuntime?.telemetry?.() ?? [];
+          if (providerTelemetry.length > 0) {
+            await writeFile(
+              providerTelemetryPath,
+              `${JSON.stringify(
+                {
+                  schemaVersion: 1,
+                  summary: summarizeProviderTelemetry(providerTelemetry),
+                  requests: providerTelemetry,
+                },
+                null,
+                2,
+              )}\n`,
+              'utf8',
+            );
+          }
         }
+      } catch (error) {
+        if (isBudgetExhaustedError(error)) throw error;
+        throw new PierInfraError(
+          `pier run failed to launch for task ${input.task.id}`,
+          errorText(error),
+          'infra_failed',
+          providerTelemetryArtifactRefs(providerTelemetry, providerTelemetryPath),
+        );
       }
-    } catch (error) {
-      if (isBudgetExhaustedError(error)) throw error;
-      throw new PierInfraError(
-        `pier run failed to launch for task ${input.task.id}`,
-        errorText(error),
-        'infra_failed',
-        providerTelemetryArtifactRefs(providerTelemetry, providerTelemetryPath),
-      );
-    }
+    };
+    // Only the Kimi arm competes for a fixed port; the Maka arm binds ephemeral
+    // (or no proxy at all) and needs no serialization.
+    const result =
+      agent === 'kimi-code' ? await withProxyPortLock(launchAttempt) : await launchAttempt();
 
     try {
       if (result.timedOut) {
