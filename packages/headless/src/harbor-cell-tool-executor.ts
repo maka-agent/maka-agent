@@ -187,21 +187,13 @@ function requiredHarborEnv(env: RunHarborCellEnv, name: string): string {
   return value;
 }
 
-/** Provider secrets the LLM backend already captured; task tool subprocesses must
- * never see them, or a candidate prompt could `cat $..._API_KEY_FILE` and exfiltrate. */
-const HOST_PROVIDER_SECRET_ENV_NAMES = new Set([
-  'MAKA_API_KEY',
-  'MAKA_HOST_API_KEY',
-  'MAKA_HOST_API_KEY_FILE',
-]);
-
 function childProcessEnv(env: RunHarborCellEnv): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = { ...process.env };
   for (const [key, value] of Object.entries(env)) {
     if (value !== undefined) childEnv[key] = value;
   }
   for (const key of Object.keys(childEnv)) {
-    if (HOST_PROVIDER_SECRET_ENV_NAMES.has(key) || isProviderCredentialSecretEnvName(key)) {
+    if (isProviderCredentialSecretEnvName(key)) {
       delete childEnv[key];
     }
   }

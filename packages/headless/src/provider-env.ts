@@ -78,13 +78,16 @@ const PROVIDER_CREDENTIAL_ENV = {
   },
 } satisfies Partial<Record<ProviderType, ProviderCredentialEnv>>;
 
-const PROVIDER_CREDENTIAL_SECRET_ENV_NAMES = new Set(
-  (Object.values(PROVIDER_CREDENTIAL_ENV) as ProviderCredentialEnv[]).flatMap((definition) => [
+const PROVIDER_CREDENTIAL_SECRET_ENV_NAMES = new Set([
+  'MAKA_API_KEY',
+  'MAKA_HOST_API_KEY',
+  'MAKA_HOST_API_KEY_FILE',
+  ...(Object.values(PROVIDER_CREDENTIAL_ENV) as ProviderCredentialEnv[]).flatMap((definition) => [
     ...definition.apiKeys,
     ...definition.apiKeys.map((name) => `${name}_FILE`),
     definition.apiKeyFile,
   ]),
-);
+]);
 
 export function providerCredentialEnv(provider: string): ProviderCredentialEnv | undefined {
   return PROVIDER_CREDENTIAL_ENV[provider as keyof typeof PROVIDER_CREDENTIAL_ENV];

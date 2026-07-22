@@ -1976,6 +1976,28 @@ describe('buildHarborJobConfig', () => {
     );
   });
 
+  test('rejects token-shaped provider secrets from an unrelated provider', () => {
+    assert.throws(
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          model: 'deepseek/deepseek-v4-flash',
+          provider: 'deepseek',
+          agentEnv: {
+            MAKA_API_KEY: 'generic-secret',
+            MAKA_HOST_API_KEY: 'host-secret',
+            MAKA_HOST_API_KEY_FILE: '/tmp/host-secret',
+            OPENAI_CODEX_OAUTH_TOKEN: 'codex-secret',
+            GH_TOKEN: 'github-secret',
+            HF_TOKEN: 'huggingface-secret',
+          },
+        }),
+      /agentEnv must not contain provider secrets: GH_TOKEN, HF_TOKEN, MAKA_API_KEY, MAKA_HOST_API_KEY, MAKA_HOST_API_KEY_FILE, OPENAI_CODEX_OAUTH_TOKEN/,
+    );
+  });
+
   test('omits pricing env when no pricing is configured', () => {
     const config = buildHarborJobConfig(runInput(), {
       makaRepoPath: '/repo',

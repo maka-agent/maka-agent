@@ -41,7 +41,11 @@ import {
   type ProviderUpstreamCredentialResolver,
   type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
-import { providerBaseUrlFromEnv, providerCredentialEnv } from './provider-env.js';
+import {
+  isProviderCredentialSecretEnvName,
+  providerBaseUrlFromEnv,
+  providerCredentialEnv,
+} from './provider-env.js';
 import { lenientPositiveIntEnv } from './headless-run-env.js';
 import {
   OPENCODE_TOOLCHAIN_CONTAINER_PATH,
@@ -225,7 +229,11 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       ...options,
       agentEnv: mergeAgentEnv(options.agentEnv, input.agentEnv),
     };
-    assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
+    const allowedHostCredentialEnvNames =
+      runnerOptions.provider === 'github-copilot'
+        ? new Set(providerCredentialEnv('github-copilot')?.apiKeys ?? [])
+        : undefined;
+    assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv, allowedHostCredentialEnvNames);
     const hasHostProviderRuntime =
       runnerOptions.apiKeyFile !== undefined ||
       runnerOptions.resolveProviderCredential !== undefined ||
@@ -1192,14 +1200,19 @@ function taskAgentEnvWithoutProviderSecrets(
     )
       continue;
     if (key === 'MAKA_BASE_URL') continue;
-    if (/_API_KEY(_FILE)?$/.test(key)) continue;
+    if (isProviderCredentialSecretEnvName(key)) continue;
     result[key] = value;
   }
   return result;
 }
 
-function assertNoProviderSecretsInAgentEnv(agentEnv: Record<string, string> | undefined): void {
-  const forbidden = Object.keys(agentEnv ?? {}).filter((key) => /_API_KEY(_FILE)?$/.test(key));
+function assertNoProviderSecretsInAgentEnv(
+  agentEnv: Record<string, string> | undefined,
+  allowedHostCredentialEnvNames: ReadonlySet<string> = new Set(),
+): void {
+  const forbidden = Object.keys(agentEnv ?? {}).filter(
+    (key) => isProviderCredentialSecretEnvName(key) && !allowedHostCredentialEnvNames.has(key),
+  );
   if (forbidden.length > 0) {
     throw new Error(`agentEnv must not contain provider secrets: ${forbidden.sort().join(', ')}`);
   }
