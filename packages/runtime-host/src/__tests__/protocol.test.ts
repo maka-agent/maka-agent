@@ -8,6 +8,8 @@ import {
   RUNTIME_HOST_MAX_FRAME_BYTES,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
+import { HOST_STATUS_OPERATION_SPECS } from '../protocol/host-status.js';
+import { composeOperationSpecMaps } from '../protocol/operation-spec.js';
 
 describe('Runtime Host bootstrap protocol', () => {
   test('selects the highest mutually supported protocol and rejects a gap', () => {
@@ -63,6 +65,28 @@ describe('Runtime Host bootstrap protocol', () => {
           error: { code: 'session_busy', message: 'busy' },
         }),
       isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'request-unknown-field',
+          operation: 'host.status',
+          ok: false,
+          error: { code: 'host_draining', message: 'draining' },
+          trace: 'private',
+        }),
+      isInvalidFrame,
+    );
+  });
+
+  test('rejects duplicate operation keys while composing domain registries', () => {
+    const composeUnchecked = composeOperationSpecMaps as (
+      left: typeof HOST_STATUS_OPERATION_SPECS,
+      right: typeof HOST_STATUS_OPERATION_SPECS,
+    ) => unknown;
+    assert.throws(
+      () => composeUnchecked(HOST_STATUS_OPERATION_SPECS, HOST_STATUS_OPERATION_SPECS),
+      /Duplicate Runtime Host operation key: host\.status/,
     );
   });
 

@@ -131,6 +131,54 @@ test('two Clients share one execution after the starting Client disconnects', as
   });
 });
 
+test('concurrent root admission for one Session has a single winner', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const turnIds = [randomUUID(), randomUUID()] as const;
+
+    const outcomes = await Promise.allSettled([
+      first.startTurn({
+        sessionId: fixture.sessionId,
+        turnId: turnIds[0],
+        text: FAKE_ASK_USER_QUESTION_PROMPT,
+      }),
+      second.startTurn({
+        sessionId: fixture.sessionId,
+        turnId: turnIds[1],
+        text: FAKE_ASK_USER_QUESTION_PROMPT,
+      }),
+    ]);
+    const winners = outcomes.filter(
+      (outcome): outcome is PromiseFulfilledResult<TurnSnapshot> => outcome.status === 'fulfilled',
+    );
+    const rejected = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    assert.equal(winners.length, 1);
+    assert.equal(rejected.length, 1);
+    assert.ok(rejected[0]?.reason instanceof RuntimeHostOperationError);
+    assert.equal(rejected[0]?.reason.code, 'session_busy');
+
+    const winner = winners[0]?.value;
+    assert.ok(winner);
+    await first.stopTurn({
+      sessionId: fixture.sessionId,
+      turnId: winner.turnId,
+      runId: winner.runId,
+    });
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 1);
+    assert.equal(chain[0]?.turnId, winner.turnId);
+    assert.equal(chain[0]?.previousRootTurnId, null);
+  });
+});
+
 test('an archived Session rejects a new Turn before durable admission', async () => {
   await withExecutionRoot(async (fixture) => {
     await fixture.archiveSession();
@@ -472,12 +520,34 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const terminal = await waitForTerminalTurn(observer, fixture.sessionId, turnId);
     assert.equal(terminal.status, 'completed');
     await observer.close();
-    await fixture.stopHost(host);
+
+    await fixture.killHost(host);
+    const successorHost = await fixture.startHost();
+    const successorClient = await connectClient(fixture.root, 'run');
+    assert.deepEqual(
+      await successorClient.startTurn({ sessionId: fixture.sessionId, turnId, text }),
+      terminal,
+    );
+    const successorTurnId = randomUUID();
+    await successorClient.startTurn({
+      sessionId: fixture.sessionId,
+      turnId: successorTurnId,
+      text: 'successor must extend the recovered durable tip',
+    });
+    await waitForTerminalTurn(successorClient, fixture.sessionId, successorTurnId);
+    await successorClient.close();
+    await fixture.stopHost(successorHost);
 
     const ledger = await fixture.readTurn(turnId);
     assert.equal(ledger.runs.length, 1);
     assert.equal(ledger.userMessages.length, 1);
     assert.equal(ledger.terminalEvents.length, 1);
+    const chain = await fixture.readAdmissionChain();
+    assert.deepEqual(
+      chain.map((admission) => admission.turnId),
+      [turnId, successorTurnId],
+    );
+    assert.equal(chain[1]?.previousRootTurnId, turnId);
   });
 });
 
@@ -555,6 +625,7 @@ class ExecutionFixture {
         turnId,
         proposedRunId: randomUUID(),
         proposedUserMessageId: randomUUID(),
+        previousRootTurnId: null,
         normalizedInput: { text },
         admittedAt,
       });
@@ -662,6 +733,18 @@ class ExecutionFixture {
       };
     } finally {
       await reader.close();
+    }
+  }
+
+  async readAdmissionChain() {
+    const owner = await tryAcquireInteractiveRootOwner(this.capability);
+    assert.ok(owner);
+    if (!owner) throw new Error('Unable to acquire execution root for admission inspection');
+    try {
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      return stores.agentRunStore.listRootTurnAdmissionsForRecovery(this.sessionId);
+    } finally {
+      await owner.close();
     }
   }
 

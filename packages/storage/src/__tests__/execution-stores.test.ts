@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
-import { createAgentRunStore } from '../agent-run-store.js';
+import { createAgentRunStore, ROOT_TURN_ADMISSION_SCHEMA_VERSION } from '../agent-run-store.js';
 import {
   authenticateExecutionStoresReader,
   authenticateExecutionStoresWriter,
@@ -150,6 +150,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 10,
         });
@@ -161,6 +162,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 20,
         });
@@ -175,11 +177,24 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: null,
           normalizedInput: { text: 'changed' },
           admittedAt: 30,
         });
         assert.equal(conflict.kind, 'conflict');
         assert.equal(conflict.admission.runId, 'run-1');
+
+        const lineageConflict = await stores.agentRunStore.admitRootTurn({
+          sessionId: session.id,
+          turnId: 'turn-1',
+          proposedRunId: 'run-never-used',
+          proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: 'different-predecessor',
+          normalizedInput: { text: 'hello' },
+          admittedAt: 40,
+        });
+        assert.equal(lineageConflict.kind, 'conflict');
+        assert.equal(lineageConflict.admission.previousRootTurnId, null);
 
         const header = runHeader(session.id, first.admission.runId);
         await stores.agentRunStore.createRun(header);
@@ -225,6 +240,7 @@ describe('execution stores', () => {
         turnId: 'turn-1',
         proposedRunId: 'run-1',
         proposedUserMessageId: 'message-1',
+        previousRootTurnId: null,
         normalizedInput: { text: 'hello' },
         admittedAt: 9,
       });
@@ -432,6 +448,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 10,
         });
@@ -458,6 +475,86 @@ describe('execution stores', () => {
     });
   });
 
+  test('strict recovery orders same-millisecond admissions by predecessor lineage', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      await store.admitRootTurn({
+        sessionId: 'session',
+        turnId: 'z-root',
+        proposedRunId: 'run-root',
+        proposedUserMessageId: 'message-root',
+        previousRootTurnId: null,
+        normalizedInput: { text: 'root' },
+        admittedAt: 100,
+      });
+      await store.admitRootTurn({
+        sessionId: 'session',
+        turnId: 'a-successor',
+        proposedRunId: 'run-successor',
+        proposedUserMessageId: 'message-successor',
+        previousRootTurnId: 'z-root',
+        normalizedInput: { text: 'successor' },
+        admittedAt: 100,
+      });
+
+      const chain = await store.listRootTurnAdmissionsForRecovery('session');
+      assert.deepEqual(
+        chain.map((admission) => admission.turnId),
+        ['z-root', 'a-successor'],
+      );
+    });
+  });
+
+  test('strict recovery rejects malformed predecessor graphs', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      const admissionsRoot = join(root, 'sessions', 'session', 'turn-admissions');
+      const install = async (
+        records: readonly ReturnType<typeof rootAdmissionRecord>[],
+      ): Promise<void> => {
+        await rm(admissionsRoot, { recursive: true, force: true });
+        await mkdir(admissionsRoot, { recursive: true });
+        await Promise.all(
+          records.map((record) =>
+            writeFile(
+              join(admissionsRoot, `${record.turnId}.json`),
+              `${JSON.stringify(record)}\n`,
+              'utf8',
+            ),
+          ),
+        );
+      };
+
+      await install([rootAdmissionRecord('root', null), rootAdmissionRecord('missing', 'absent')]);
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery('session'),
+        /missing predecessor/,
+      );
+
+      await install([rootAdmissionRecord('root-a', null), rootAdmissionRecord('root-b', null)]);
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery('session'),
+        /exactly one root/,
+      );
+
+      await install([
+        rootAdmissionRecord('root', null),
+        rootAdmissionRecord('left', 'root'),
+        rootAdmissionRecord('right', 'root'),
+      ]);
+      await assert.rejects(() => store.listRootTurnAdmissionsForRecovery('session'), /branches/);
+
+      await install([
+        rootAdmissionRecord('cycle-a', 'cycle-b'),
+        rootAdmissionRecord('cycle-b', 'cycle-a'),
+      ]);
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery('session'),
+        /exactly one root/,
+      );
+    });
+  });
+
   test('strict recovery enumeration fails on malformed durable entities', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -475,6 +572,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 10,
         });
@@ -507,6 +605,19 @@ describe('execution stores', () => {
     });
   });
 });
+
+function rootAdmissionRecord(turnId: string, previousRootTurnId: string | null) {
+  return {
+    schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+    sessionId: 'session',
+    turnId,
+    runId: `run-${turnId}`,
+    userMessageId: `message-${turnId}`,
+    previousRootTurnId,
+    normalizedInput: { text: turnId },
+    admittedAt: 100,
+  };
+}
 
 async function withRoot(
   run: (paths: { base: string; root: string }) => Promise<void>,

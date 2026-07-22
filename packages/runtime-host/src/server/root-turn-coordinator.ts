@@ -16,6 +16,8 @@ import type {
 } from '../protocol/index.js';
 import type { RuntimeHostResidency } from './host-kernel.js';
 import type { ConnectionContext, DomainOperationHandlerMap } from './operation-dispatcher.js';
+import { RootAdmissionOwner } from './root-admission-owner.js';
+import { SessionAdmissionGate } from './session-admission-gate.js';
 
 interface ActiveRootTurn {
   turnId: string;
@@ -53,13 +55,14 @@ export class RootTurnCoordinator {
   };
 
   readonly #activeBySession = new Map<string, ActiveRootTurn>();
-  readonly #sessionGateTails = new Map<string, Promise<void>>();
   readonly #recoveryAdmissionsBySession = new Map<string, readonly RootTurnAdmission[]>();
   private readonly stores: ExecutionStoresWriter<'interactive'>;
 
   constructor(
     private readonly manager: SessionManager,
     stores: ExecutionStoresWriter<'interactive'>,
+    private readonly sessionAdmission: SessionAdmissionGate,
+    private readonly rootAdmissionOwner: RootAdmissionOwner,
     private readonly acquireRecoveryResidency: () => RuntimeHostResidency,
     private readonly requestHostDrain: () => void,
   ) {
@@ -70,9 +73,7 @@ export class RootTurnCoordinator {
     const sessions = await this.stores.sessionStore.listForRecovery();
     const plans: RecoverySessionPlan[] = [];
     for (const session of sessions) {
-      const admissions = await this.stores.agentRunStore.listRootTurnAdmissionsForRecovery(
-        session.id,
-      );
+      const admissions = await this.rootAdmissionOwner.recoverSession(session.id);
       const messages = await this.stores.sessionStore.readMessagesForRecovery(session.id);
       const runs = await this.stores.agentRunStore.listSessionRunsForRecovery(session.id);
       const runsById = new Map(runs.map((run) => [run.runId, run]));
@@ -180,7 +181,7 @@ export class RootTurnCoordinator {
         turnId: admission.turnId,
         text: admission.normalizedInput.text,
       };
-      const disposition = await this.withSessionGate(sessionId, () =>
+      const disposition = await this.sessionAdmission.run(sessionId, () =>
         this.prepareAdmittedTurn(input, admission, this.acquireRecoveryResidency),
       );
       const outcome = await this.resolveStartDisposition(input, disposition);
@@ -211,12 +212,13 @@ export class RootTurnCoordinator {
 
   private startTurn(input: TurnStartInput, context: ConnectionContext): Promise<TurnStartOutcome> {
     return this.runCommand(async () => {
-      const disposition = await this.withSessionGate(input.sessionId, async () => {
+      const disposition = await this.sessionAdmission.run(input.sessionId, async () => {
         const existing = await this.stores.agentRunStore.readRootTurnAdmission(
           input.sessionId,
           input.turnId,
         );
         if (existing) {
+          this.rootAdmissionOwner.assertKnownAdmission(existing);
           if (existing.normalizedInput.text !== input.text) {
             return completedStart(
               operationConflict('Turn identity was already admitted with a different payload'),
@@ -240,7 +242,7 @@ export class RootTurnCoordinator {
           return completedStart(sessionBusy('Session already has an active root Turn'));
         }
 
-        const admission = await this.stores.agentRunStore.admitRootTurn({
+        const admission = await this.rootAdmissionOwner.admitRootTurn({
           sessionId: input.sessionId,
           turnId: input.turnId,
           proposedRunId: randomUUID(),
@@ -260,12 +262,13 @@ export class RootTurnCoordinator {
   }
 
   private queryTurn(input: TurnQueryInput): Promise<OperationOutcome<'turn.query'>> {
-    return this.withSessionGate(input.sessionId, async () => {
+    return this.sessionAdmission.run(input.sessionId, async () => {
       const admission = await this.stores.agentRunStore.readRootTurnAdmission(
         input.sessionId,
         input.turnId,
       );
       if (!admission) return notFound('Turn was not admitted');
+      this.rootAdmissionOwner.assertKnownAdmission(admission);
       return {
         ok: true,
         result: await this.readCanonicalSnapshot(input.sessionId, input.turnId, admission.runId),
@@ -275,12 +278,13 @@ export class RootTurnCoordinator {
 
   private stopTurn(input: TurnStopInput): Promise<OperationOutcome<'turn.stop'>> {
     return this.runCommand(() =>
-      this.withSessionGate(input.sessionId, async () => {
+      this.sessionAdmission.run(input.sessionId, async () => {
         const admission = await this.stores.agentRunStore.readRootTurnAdmission(
           input.sessionId,
           input.turnId,
         );
         if (!admission) return notFound('Turn was not admitted');
+        this.rootAdmissionOwner.assertKnownAdmission(admission);
         if (admission.runId !== input.runId) {
           return operationConflict('Run identity does not match the admitted Turn');
         }
@@ -500,25 +504,6 @@ export class RootTurnCoordinator {
     } catch (error) {
       if (isMissingFile(error)) return undefined;
       throw error;
-    }
-  }
-
-  private async withSessionGate<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.#sessionGateTails.get(sessionId) ?? Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.then(() => current);
-    this.#sessionGateTails.set(sessionId, tail);
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-      if (this.#sessionGateTails.get(sessionId) === tail) {
-        this.#sessionGateTails.delete(sessionId);
-      }
     }
   }
 
