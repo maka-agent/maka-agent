@@ -293,7 +293,7 @@ class MakaAgent(BaseInstalledAgent):
     _DEFAULT_CELL_TIMEOUT_SEC = 900
     _DEFAULT_CELL_SETTLEMENT_GRACE_SEC = 30
 
-    def _cell_timeout_sec(self) -> int:
+    def _cell_timeout_sec(self, env: dict[str, str] | None = None) -> int:
         """Wall-clock budget for the in-container cell. A hard-coded value turns
         slow-but-healthy tasks into infra failures, so the operator can raise it
         via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default.
@@ -305,7 +305,11 @@ class MakaAgent(BaseInstalledAgent):
         strings are valid: "1e3", "1.0", "+1800", "01800", "1٢", and over-long
         digit strings all fall back to the default.
         """
-        raw = self._get_env("MAKA_CELL_TIMEOUT_SEC")
+        raw = (
+            env.get("MAKA_CELL_TIMEOUT_SEC")
+            if env is not None
+            else self._get_env("MAKA_CELL_TIMEOUT_SEC")
+        )
         if not raw:
             return self._DEFAULT_CELL_TIMEOUT_SEC
         stripped = raw.strip()
@@ -319,8 +323,12 @@ class MakaAgent(BaseInstalledAgent):
             return self._DEFAULT_CELL_TIMEOUT_SEC
         return value if value <= _MAX_SAFE_INTEGER else self._DEFAULT_CELL_TIMEOUT_SEC
 
-    def _cell_settlement_grace_sec(self) -> int:
-        raw = self._get_env("MAKA_CELL_SETTLEMENT_GRACE_SEC")
+    def _cell_settlement_grace_sec(self, env: dict[str, str] | None = None) -> int:
+        raw = (
+            env.get("MAKA_CELL_SETTLEMENT_GRACE_SEC")
+            if env is not None
+            else self._get_env("MAKA_CELL_SETTLEMENT_GRACE_SEC")
+        )
         if not raw:
             return self._DEFAULT_CELL_SETTLEMENT_GRACE_SEC
         try:
@@ -329,9 +337,9 @@ class MakaAgent(BaseInstalledAgent):
             return self._DEFAULT_CELL_SETTLEMENT_GRACE_SEC
         return value if value > 0 else self._DEFAULT_CELL_SETTLEMENT_GRACE_SEC
 
-    def _cell_soft_timeout_ms(self) -> int:
-        timeout_sec = self._cell_timeout_sec()
-        grace_sec = self._cell_settlement_grace_sec()
+    def _cell_soft_timeout_ms(self, env: dict[str, str] | None = None) -> int:
+        timeout_sec = self._cell_timeout_sec(env)
+        grace_sec = self._cell_settlement_grace_sec(env)
         if grace_sec >= timeout_sec:
             raise RuntimeError(
                 "MAKA_CELL_SETTLEMENT_GRACE_SEC must be smaller than MAKA_CELL_TIMEOUT_SEC"
@@ -612,6 +620,7 @@ class MakaAgent(BaseInstalledAgent):
         # MAKA_TASK_RUN_OUT_DIR; re-apply now that the out dir is finalized.
         env.setdefault("MAKA_OUTPUT_DIR", str(task_run_out_dir))
         env.setdefault("MAKA_STORAGE_ROOT", str(task_run_out_dir / "runs"))
+        env["MAKA_CELL_SOFT_TIMEOUT_MS"] = str(self._cell_soft_timeout_ms(env))
 
         task_workdir, workdir_probe = await self._resolve_task_workdir(environment)
 
@@ -638,7 +647,7 @@ class MakaAgent(BaseInstalledAgent):
             },
         )
 
-        timeout_sec = self._cell_timeout_sec()
+        timeout_sec = self._cell_timeout_sec(env)
         proc: asyncio.subprocess.Process | None = None
         async with _ToolExecutorServer(self, environment) as executor:
             env["MAKA_HARBOR_TOOL_EXECUTOR_URL"] = executor.url
@@ -737,7 +746,13 @@ class MakaAgent(BaseInstalledAgent):
         self._write_status(
             status_path,
             {
-                "status": "completed" if proc.returncode == 0 else "failed",
+                "status": (
+                    "completed"
+                    if proc.returncode == 0
+                    else "budget_exhausted"
+                    if proc.returncode == 124
+                    else "failed"
+                ),
                 "startedAt": started_at,
                 "finishedAt": _utc_now(),
                 "runnerPid": proc.pid,
@@ -787,7 +802,9 @@ class MakaAgent(BaseInstalledAgent):
             context.n_cache_tokens = _int_or_none(usage.get("cacheHitInput"))
             context.n_output_tokens = _int_or_none(usage.get("output"))
 
-        if proc.returncode != 0:
+        if proc.returncode != 0 and not (
+            proc.returncode == 124 and parsed.get("settledByDeadline") is True
+        ):
             raise RuntimeError(f"Maka Harbor task-run failed; see {stderr_path}")
 
     async def _resolve_task_workdir(
@@ -1432,6 +1449,9 @@ def _runner_env_summary(env: dict[str, str]) -> dict[str, str]:
         "MAKA_AUTONOMOUS_MAX_ATTEMPTS",
         "MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS",
         "MAKA_AUTONOMOUS_MAX_WALL_TIME_MS",
+        "MAKA_CELL_TIMEOUT_SEC",
+        "MAKA_CELL_SOFT_TIMEOUT_MS",
+        "MAKA_CELL_SETTLEMENT_GRACE_SEC",
     ]
     return {key: env[key] for key in allowed_keys if key in env}
 

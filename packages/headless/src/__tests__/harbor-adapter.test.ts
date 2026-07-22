@@ -2150,6 +2150,28 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "MAKA_MAX_STEPS" not in task_run_env, task_run_env.get("MAKA_MAX_STEPS")
         assert task_run_timeouts[-1] == 7200, task_run_timeouts
 
+        runner_env_path = Path(tmp) / "task-run.env"
+        runner_env_path.write_text("MAKA_CELL_TIMEOUT_SEC=4321\n", encoding="utf-8")
+        original_runner_env = maka_agent_mod._DEFAULT_RUNNER_ENV
+        maka_agent_mod._DEFAULT_RUNNER_ENV = runner_env_path
+        try:
+            env_file_task_run_agent = MakaAgent(Path(tmp), extra_env={
+                "MAKA_BACKEND": "fake",
+                "MAKA_HARBOR_MODE": "task-run",
+            })
+            env_file_task_run_agent._resolve_task_workdir = resolve_task_workdir
+            env_file_task_run_agent._communicate_streaming = communicate_task_run
+            asyncio.run(
+                env_file_task_run_agent._run_task_run_host(
+                    "finish the task",
+                    host_process_environment,
+                    AgentContext(),
+                )
+            )
+        finally:
+            maka_agent_mod._DEFAULT_RUNNER_ENV = original_runner_env
+        assert task_run_timeouts[-1] == 4321, task_run_timeouts
+
         capped_task_run_agent = MakaAgent(Path(tmp), extra_env={
             "MAKA_BACKEND": "fake",
             "MAKA_HARBOR_MODE": "task-run",
@@ -2166,6 +2188,40 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         capped_task_run_env = captured_host_process["kwargs"]["env"]
         assert capped_task_run_env["MAKA_MAX_STEPS"] == "64", capped_task_run_env.get("MAKA_MAX_STEPS")
+
+        class DeadlineSettledTaskRunProcess(FakeHostProcess):
+            returncode = 124
+
+        async def fake_task_run_deadline_subprocess_exec(*args, **kwargs):
+            captured_host_process["args"] = args
+            captured_host_process["kwargs"] = kwargs
+            return DeadlineSettledTaskRunProcess()
+
+        async def communicate_task_run_deadline(**kwargs):
+            return (
+                b'{"status":"budget_exhausted","settledByDeadline":true,"benchmarkFailureShouldThrow":false}\n',
+                b"",
+            )
+
+        asyncio.create_subprocess_exec = fake_task_run_deadline_subprocess_exec
+        deadline_task_run_agent = MakaAgent(Path(tmp), extra_env={
+            "MAKA_BACKEND": "fake",
+            "MAKA_HARBOR_MODE": "task-run",
+            "MAKA_CELL_TIMEOUT_SEC": "60",
+            "MAKA_CELL_SETTLEMENT_GRACE_SEC": "10",
+        })
+        deadline_task_run_agent._resolve_task_workdir = resolve_task_workdir
+        deadline_task_run_agent._communicate_streaming = communicate_task_run_deadline
+        asyncio.run(
+            deadline_task_run_agent._run_task_run_host(
+                "finish the task",
+                host_process_environment,
+                AgentContext(),
+            )
+        )
+        assert captured_host_process["kwargs"]["env"]["MAKA_CELL_SOFT_TIMEOUT_MS"] == "50000"
+        assert FakeToolExecutor.instances[-1].reclaim_scoped_processes
+
         captured_host_process.clear()
         captured_host_process.update(host_cell_process)
 

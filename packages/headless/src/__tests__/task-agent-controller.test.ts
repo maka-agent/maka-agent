@@ -121,6 +121,41 @@ class ReportingBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class DeadlineBackend implements AgentBackend {
+  readonly kind: BackendKind = 'fake';
+  readonly sessionId: string;
+  private release!: () => void;
+  private readonly stopped = new Promise<void>((resolve) => {
+    this.release = resolve;
+  });
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.stopped;
+    yield {
+      type: 'complete',
+      id: 'deadline-complete',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: 'user_stop',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.release();
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerDeadlineBackend = (registry: BackendRegistry): void => {
+  registry.register('fake', (ctx) => new DeadlineBackend(ctx.sessionId));
+};
+
 const registerReportingBackend = (registry: BackendRegistry): void => {
   registry.register(
     'ai-sdk',
@@ -829,6 +864,32 @@ async function readAgentRunHeader(
 }
 
 describe('runTaskOnce', () => {
+  test('settles an active runtime at the benchmark soft deadline', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'benchmark-deadline',
+        instruction: 'wait forever',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerDeadlineBackend,
+        deadlineAtMs: Date.now() + 25,
+      });
+
+      assert.equal(result.settledByDeadline, true);
+      const runHeader = await readAgentRunHeader(
+        storageRoot,
+        latestInvocation(result).sessionId,
+        latestInvocation(result).runId,
+      );
+      assert.equal(runHeader.status, 'cancelled');
+      assert.equal(runHeader.abortSource, 'benchmark.deadline');
+    });
+  });
+
   test('injects the default headless system prompt before registering a backend', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const task: Task = {

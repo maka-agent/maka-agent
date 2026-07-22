@@ -268,6 +268,23 @@ export async function runAutonomousTask(
       startedAt,
       now(),
     );
+    if (attempt.settledByDeadline) {
+      await appendBudgetTerminal(
+        taskRunStore,
+        taskRunId,
+        now,
+        newId,
+        afterAttemptBudget,
+        'benchmark deadline reached during attempt',
+        options.interventionPolicy,
+      );
+      return {
+        taskRunId,
+        attempts,
+        projection: await taskRunStore.project(taskRunId),
+        resultRecord: attempt.resultRecord,
+      };
+    }
     const selfCheck = isWallTimeExhausted(afterAttemptBudget)
       ? undefined
       : await maybeRecordSelfCheck(

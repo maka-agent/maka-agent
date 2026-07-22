@@ -69,6 +69,7 @@ interface HarborRunOptions {
   maxAttempts: number;
   maxRuntimeSteps?: number;
   maxWallTimeMs?: number;
+  softTimeoutMs?: number;
   replayPriorAttemptRuntimeContext: boolean;
   now: () => number;
   newId: () => string;
@@ -181,6 +182,9 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     ...(options.realBackendIsolation ? { realBackendIsolation: options.realBackendIsolation } : {}),
     now: options.now,
     newId: options.newId,
+    ...(options.softTimeoutMs !== undefined
+      ? { deadlineAtMs: options.now() + options.softTimeoutMs }
+      : {}),
   };
   const run = options.autonomous
     ? await runAutonomousTask(options.config, task, {
@@ -235,11 +239,20 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
   const invocations =
     'attempts' in run ? run.attempts.flatMap((attempt) => attempt.invocations) : run.invocations;
   const invocation = combineInvocations(invocations);
+  const settledByDeadline =
+    'attempts' in run
+      ? run.attempts.some((attempt) => attempt.settledByDeadline)
+      : run.settledByDeadline;
   const cellArtifacts = await writeHarborCellArtifacts({
     outputDir: options.cellArtifactDir,
     executionIdentity,
     invocation,
     promptHash: executionIdentity.systemPromptHash,
+    ...(settledByDeadline
+      ? {
+          deadlineSettlement: { source: 'benchmark.deadline' as const, mode: 'immediate' as const },
+        }
+      : {}),
     ...(options.contextBudgetPolicy ? { contextBudgetPolicy: options.contextBudgetPolicy } : {}),
   });
   const traceEventsPath = await writeHarborTaskRunTrace({
@@ -247,13 +260,14 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     storageRoot: options.storageRoot,
     invocations,
   });
-  const taxonomy =
-    latestScore?.taxonomy ??
-    run.projection.result?.taxonomy ??
-    taxonomyFromResultRecord(run.resultRecord);
+  const taxonomy = settledByDeadline
+    ? 'budget_exhausted'
+    : (latestScore?.taxonomy ??
+      run.projection.result?.taxonomy ??
+      taxonomyFromResultRecord(run.resultRecord));
   const benchmarkFailure = classifyExternalHarborBenchmarkFailure({
-    status: run.resultRecord.status,
-    errorClass: run.resultRecord.errorClass,
+    status: settledByDeadline ? 'budget_exhausted' : run.resultRecord.status,
+    errorClass: settledByDeadline ? 'budget_exhausted' : run.resultRecord.errorClass,
     error: run.resultRecord.error,
     taxonomy,
   });
@@ -261,7 +275,8 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
     `${JSON.stringify({
       mode: 'task-run',
       taskRunId: run.taskRunId,
-      status: run.projection.status,
+      status: settledByDeadline ? 'budget_exhausted' : run.projection.status,
+      settledByDeadline,
       taxonomy,
       scored: latestScore?.scored ?? run.resultRecord.scored ?? false,
       authoritative: latestScore?.authority?.authoritative ?? false,
@@ -273,14 +288,14 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
       exportDir,
       files: exported.files,
       result: {
-        status: run.resultRecord.status,
+        status: settledByDeadline ? 'budget_exhausted' : run.resultRecord.status,
         passed: run.resultRecord.passed,
         errorClass: run.resultRecord.errorClass,
       },
       runtimeRefs: latestScore?.details?.runtimeRefs,
     })}\n`,
   );
-  return benchmarkFailure.shouldThrow ? 1 : 0;
+  return settledByDeadline ? 124 : benchmarkFailure.shouldThrow ? 1 : 0;
 }
 
 async function writeTaskRunExecutionIdentity(
@@ -360,6 +375,10 @@ export async function resolveHarborRunOptions(
     valueOf(parsed, env, 'max-wall-time-sec', 'MAKA_MAX_WALL_TIME_SEC'),
     '--max-wall-time-sec',
   );
+  const softTimeoutMs = optionalPositiveInt(
+    env.MAKA_CELL_SOFT_TIMEOUT_MS,
+    'MAKA_CELL_SOFT_TIMEOUT_MS',
+  );
   const config = buildConfig({
     parsed,
     env,
@@ -393,6 +412,7 @@ export async function resolveHarborRunOptions(
     ),
     ...(maxRuntimeSteps !== undefined ? { maxRuntimeSteps } : {}),
     ...(maxWallTimeSec !== undefined ? { maxWallTimeMs: maxWallTimeSec * 1000 } : {}),
+    ...(softTimeoutMs !== undefined ? { softTimeoutMs } : {}),
     replayPriorAttemptRuntimeContext:
       parsed.bools['replay-prior-attempt-runtime-context'] ||
       truthyEnv(env.MAKA_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT),

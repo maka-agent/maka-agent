@@ -113,6 +113,8 @@ export interface RunTaskOnceDeps extends RunExperimentDeps {
   permissionMode?: 'execute';
   interventionPolicy?: TaskInterventionPolicy;
   permissionGrants?: readonly TaskPermissionGrant[];
+  /** Absolute wall-clock deadline for settling the active runtime before its outer watchdog. */
+  deadlineAtMs?: number;
 }
 
 export interface RunTaskOnceResult {
@@ -121,6 +123,7 @@ export interface RunTaskOnceResult {
   resultRecord: ResultRecord;
   projection: TaskRunProjection;
   invocations: readonly InvocationResult[];
+  settledByDeadline: boolean;
 }
 
 export class TaskAgentController {
@@ -355,8 +358,9 @@ export async function runTaskOnce(
     });
 
     let runtimeInvocation: InvocationResult;
+    let settledByDeadline = false;
     try {
-      runtimeInvocation = await runRuntimeAttempt({
+      const runtimeAttempt = await runRuntimeAttempt({
         run,
         header,
         instruction,
@@ -364,7 +368,11 @@ export async function runTaskOnce(
         requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
         now,
         newId,
+        settleByDeadline: active.settleByDeadline,
+        ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
       });
+      runtimeInvocation = runtimeAttempt.invocation;
+      settledByDeadline = runtimeAttempt.settledByDeadline;
     } finally {
       await active.dispose();
     }
@@ -399,6 +407,7 @@ export async function runTaskOnce(
         resultRecord: permissionHandling.resultRecord,
         projection: await taskRunStore.project(taskRunId),
         invocations: [permissionHandling.invocation],
+        settledByDeadline,
       };
     }
     let invocation = permissionHandling.invocation;
@@ -406,7 +415,7 @@ export async function runTaskOnce(
 
     let runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
-    if (heavyTaskMode.enabled) {
+    if (heavyTaskMode.enabled && !settledByDeadline) {
       let gateProjection = await taskRunStore.project(taskRunId);
       const workspaceObservation = await appendHeavyTaskWorkspaceObservation({
         taskRunStore,
@@ -463,7 +472,7 @@ export async function runTaskOnce(
         repairActive.bindRun(repairRun);
         let repairInvocation: InvocationResult;
         try {
-          repairInvocation = await runRuntimeAttempt({
+          const repairRuntimeAttempt = await runRuntimeAttempt({
             run: repairRun,
             header,
             instruction: gateDecision.prompt,
@@ -471,7 +480,11 @@ export async function runTaskOnce(
             requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
             now,
             newId,
+            settleByDeadline: repairActive.settleByDeadline,
+            ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
           });
+          repairInvocation = repairRuntimeAttempt.invocation;
+          settledByDeadline ||= repairRuntimeAttempt.settledByDeadline;
         } finally {
           await repairActive.dispose();
         }
@@ -506,6 +519,7 @@ export async function runTaskOnce(
             resultRecord: repairPermissionHandling.resultRecord,
             projection: await taskRunStore.project(taskRunId),
             invocations: [...invocations, repairPermissionHandling.invocation],
+            settledByDeadline,
           };
         }
         invocation = repairPermissionHandling.invocation;
@@ -709,6 +723,7 @@ export async function runTaskOnce(
       resultRecord,
       projection: await taskRunStore.project(taskRunId),
       invocations,
+      settledByDeadline,
     };
   } finally {
     await workspace.cleanup();
@@ -1107,9 +1122,14 @@ interface RunRuntimeAttemptInput {
   requireTerminalRuntimeEventWrite: boolean;
   now: () => number;
   newId: () => string;
+  deadlineAtMs?: number;
+  settleByDeadline(): Promise<boolean>;
 }
 
-async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<InvocationResult> {
+async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
+  invocation: InvocationResult;
+  settledByDeadline: boolean;
+}> {
   let begin;
   try {
     begin = await input.run.begin();
@@ -1144,21 +1164,46 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<Invocat
     ...(begin.backendInput.runtimeContext ?? []),
   ];
 
-  const invocation = await runner.run({
-    sessionId: input.header.id,
-    invocationId: begin.initialRuntimeEvent.invocationId,
-    runId: input.run.runId,
-    turnId: input.run.turnId,
-    text: input.instruction,
-    context: begin.backendInput.context,
-    ...(runtimeContext.length > 0 ? { runtimeContext } : {}),
-    ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
-    initialRuntimeEvent: begin.initialRuntimeEvent,
-    source: 'test',
-    lineage: input.run.lineage,
-  });
+  let settledByDeadline = false;
+  let settlementError: unknown;
+  let settlementAttempt: Promise<void> | undefined;
+  const settle = () => {
+    settlementAttempt = input
+      .settleByDeadline()
+      .then((settled) => {
+        settledByDeadline = settled;
+      })
+      .catch((error) => {
+        settlementError = error;
+      });
+  };
+  const remainingMs =
+    input.deadlineAtMs === undefined ? undefined : Math.max(0, input.deadlineAtMs - input.now());
+  let settlementTimer: ReturnType<typeof setTimeout> | undefined;
+  if (remainingMs === 0) settle();
+  else if (remainingMs !== undefined) settlementTimer = setTimeout(settle, remainingMs);
+  let invocation: InvocationResult;
+  try {
+    invocation = await runner.run({
+      sessionId: input.header.id,
+      invocationId: begin.initialRuntimeEvent.invocationId,
+      runId: input.run.runId,
+      turnId: input.run.turnId,
+      text: input.instruction,
+      context: begin.backendInput.context,
+      ...(runtimeContext.length > 0 ? { runtimeContext } : {}),
+      ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+      initialRuntimeEvent: begin.initialRuntimeEvent,
+      source: 'test',
+      lineage: input.run.lineage,
+    });
+  } finally {
+    if (settlementTimer) clearTimeout(settlementTimer);
+  }
+  await settlementAttempt;
+  if (settlementError) throw settlementError;
   await input.run.finalize();
-  return invocation;
+  return { invocation, settledByDeadline };
 }
 
 type AgentRunHooks = ConstructorParameters<typeof AgentRun>[0]['hooks'];
@@ -1171,6 +1216,7 @@ function createSingleRunActiveSession(
 ): {
   hooks: AgentRunHooks;
   bindRun(run: AgentRun): void;
+  settleByDeadline(): Promise<boolean>;
   dispose(): Promise<void>;
 } {
   let boundRun: AgentRun | undefined;
@@ -1180,6 +1226,19 @@ function createSingleRunActiveSession(
   };
   return {
     bindRun,
+    settleByDeadline: async () => {
+      if (!active) return false;
+      const stoppedRuns = [...active.activeRuns.values()].filter((run) =>
+        run.stop('benchmark_deadline'),
+      );
+      if (stoppedRuns.length === 0) return false;
+      try {
+        await active.backend.stop('user_stop', 'immediate');
+      } finally {
+        for (const run of stoppedRuns) run.completeStop();
+      }
+      return true;
+    },
     hooks: {
       ensureActive: async (sessionId, header) => {
         if (active) {
