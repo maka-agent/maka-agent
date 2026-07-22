@@ -1060,6 +1060,7 @@ export type {
   ResumePlanDiagnostic,
   ResumePlanDiagnosticCode,
   ResumePlanDisposition,
+  RecoveredOperationSummary,
   ResumeRejectionReason,
   RuntimeResumeCommittedPrefix,
   RuntimeResumeFailpointId,

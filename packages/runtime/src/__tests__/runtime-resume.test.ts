@@ -379,6 +379,8 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
 
     assert.equal(plan.disposition, 'continue');
     assert.deepEqual(plan.rejectionReasons, []);
+    assert.equal(plan.recoveryProjection?.disposition, 'safe_replay');
+    assert.equal(plan.recoveryProjection?.sourceRuntimeEventHighWater, events.length);
     assert.deepEqual(plan.continuation, {
       sessionId: 'session-1',
       invocationId: 'invocation-2',

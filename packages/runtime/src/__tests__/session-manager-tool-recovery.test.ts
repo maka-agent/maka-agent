@@ -21,6 +21,14 @@ describe('SessionManager Phase 3A production recovery', () => {
         const plan = await fx.plan();
 
         assert.equal(plan.disposition, 'continue');
+        assert.deepEqual(plan.recoveredOperations, [
+          {
+            operationId: 'operation-after-model-text-txt',
+            toolCallId: 'call-1',
+            toolName: 'Write',
+            nextAction: 'synthesize_response',
+          },
+        ]);
         assert.equal(fx.observationCount('after-model-text.txt'), 1);
         assert.deepEqual(await fx.journalStates('after-model-text.txt'), [
           'prepared',
@@ -40,6 +48,7 @@ describe('SessionManager Phase 3A production recovery', () => {
         const plan = await fx.plan();
 
         assert.equal(plan.disposition, 'park');
+        assert.equal(plan.recoveredOperations, undefined);
         assert.ok(plan.diagnostics.some(({ code }) => code === 'provider_resume_head_unsupported'));
         assert.equal(fx.observationCount('unsafe-head.txt'), 0);
         assert.deepEqual(await fx.journalStates('unsafe-head.txt'), ['prepared']);
@@ -55,6 +64,7 @@ describe('SessionManager Phase 3A production recovery', () => {
         const plan = await fx.plan();
 
         assert.equal(plan.disposition, 'park');
+        assert.deepEqual(plan.recoveredOperations, []);
         assert.ok(plan.diagnostics.some(({ code }) => code === 'tool_recovery_observation_failed'));
         assert.deepEqual(await fx.journalStates('blocked.txt'), ['prepared']);
       },
@@ -71,6 +81,8 @@ describe('SessionManager Phase 3A production recovery', () => {
         const plan = await fx.plan();
 
         assert.equal(plan.disposition, 'park');
+        assert.equal(plan.recoveredOperations?.length, 1);
+        assert.equal(plan.recoveredOperations?.[0]?.nextAction, 'synthesize_response');
         assert.deepEqual(await fx.journalStates('applied.txt'), [
           'prepared',
           'reconcile_recorded',
@@ -88,6 +100,7 @@ describe('SessionManager Phase 3A production recovery', () => {
       const second = await fx.plan();
 
       assert.equal(first.disposition, 'park');
+      assert.equal(first.recoveredOperations?.[0]?.nextAction, 'retry_allowed');
       assert.equal(second.disposition, 'park');
       assert.equal(fx.observationCount('missing.txt'), 1);
       assert.deepEqual(await fx.journalStates('missing.txt'), [

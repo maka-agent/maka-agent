@@ -297,7 +297,18 @@ export interface SafeBoundaryContinuationPlan {
   disposition: 'continue' | 'park';
   rejectionReasons: ResumeRejectionReason[];
   diagnostics: ResumePlanDiagnostic[];
+  /** Initial pure recovery projection, reusable by the authoritative recovery coordinator. */
+  recoveryProjection?: ResumePlan;
+  /** Compact host-facing summary; canonical evidence remains in RuntimeEvent facts. */
+  recoveredOperations?: RecoveredOperationSummary[];
   continuation?: RuntimeContinuation;
+}
+
+export interface RecoveredOperationSummary {
+  operationId: string;
+  toolCallId: string;
+  toolName: string;
+  nextAction: 'synthesize_response' | 'retry_allowed' | 'reattach' | 'park';
 }
 
 export interface RuntimeContinuationPlannerInput {
@@ -766,6 +777,7 @@ export function buildSafeBoundaryContinuationPlan(
       disposition: 'park',
       rejectionReasons: [...replayPlan.rejectionReasons, ...phaseOneRejectionReasons],
       diagnostics: [...replayPlan.diagnostics, ...phaseOneDiagnostics],
+      recoveryProjection: replayPlan,
     };
   }
 
@@ -773,6 +785,7 @@ export function buildSafeBoundaryContinuationPlan(
     disposition: 'continue',
     rejectionReasons: [],
     diagnostics: phaseOneDiagnostics,
+    recoveryProjection: replayPlan,
     continuation: {
       sessionId: source.sessionId,
       ...facts.continuationIdentity,

@@ -125,6 +125,7 @@ import {
   type RuntimeContinuationSafetyObservation,
   type SafeBoundaryContinuationPlan,
   type ToolOperation,
+  type RecoveredOperationSummary,
 } from './runtime-resume.js';
 import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 import {
@@ -1103,29 +1104,30 @@ export class SessionManager {
         : {}),
     };
     let plan = await this.buildSafeBoundaryContinuationPlan(sessionId, planInput);
-    const recoveryEvents = await this.deps.runtimeEventStore!.readRuntimeEvents(
-      sessionId,
-      input.sourceRunId,
-    );
-    // TODO(Phase 3): have RuntimeContinuationPlanner return its recovery projection so the
-    // initial safety plan and this eligibility check share one resolver pass. The resolver
-    // pass after durable recovery writes is intentionally retained as authoritative replan.
-    const recoveryPlan = buildResumePlanFromRuntimeEvents(recoveryEvents, {
-      ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
-    });
+    let recoveryPlan = plan.recoveryProjection;
+    if (!recoveryPlan) {
+      const recoveryEvents = await this.deps.runtimeEventStore!.readRuntimeEvents(
+        sessionId,
+        input.sourceRunId,
+      );
+      recoveryPlan = buildResumePlanFromRuntimeEvents(recoveryEvents, {
+        ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
+      });
+    }
     if (this.canAttemptToolRecovery(plan, recoveryPlan.operations)) {
-      const recoveryDiagnostic = await this.reconcileToolOperations(
+      const recovery = await this.reconcileToolOperations(
         recoveryPlan.operations,
         recoveryPlan.runtimeEvents,
         sourceRun.cwd,
       );
-      if (recoveryDiagnostic) {
+      if (recovery.diagnostic) {
         plan = {
           ...plan,
-          diagnostics: [...plan.diagnostics, recoveryDiagnostic],
+          diagnostics: [...plan.diagnostics, recovery.diagnostic],
           rejectionReasons: plan.rejectionReasons.includes('dangling_tool_state')
             ? plan.rejectionReasons
             : [...plan.rejectionReasons, 'dangling_tool_state'],
+          recoveredOperations: recovery.recoveredOperations,
         };
       } else {
         const recoveredEvents = await this.deps.runtimeEventStore!.readRuntimeEvents(
@@ -1136,6 +1138,7 @@ export class SessionManager {
           ...planInput,
           expectedRuntimeEventHighWater: recoveredEvents.length,
         });
+        plan = { ...plan, recoveredOperations: recovery.recoveredOperations };
       }
     }
     this.recordContinuationPlan(sessionId, input.sourceRunId, plan);
@@ -1174,9 +1177,13 @@ export class SessionManager {
     operations: readonly ToolOperation[],
     runtimeEvents: readonly RuntimeEvent[],
     workspaceCwd: string,
-  ): Promise<SafeBoundaryContinuationPlan['diagnostics'][number] | undefined> {
+  ): Promise<{
+    diagnostic?: SafeBoundaryContinuationPlan['diagnostics'][number];
+    recoveredOperations: RecoveredOperationSummary[];
+  }> {
     const identity = runtimeEvents[0];
-    if (!identity) return undefined;
+    if (!identity) return { recoveredOperations: [] };
+    const recoveredOperations: RecoveredOperationSummary[] = [];
     // Deliberately serial: each operation may append canonical facts that the next operation
     // must observe in ledger order, and SqliteRuntimeStore is the single canonical writer.
     for (const operation of operations) {
@@ -1210,9 +1217,17 @@ export class SessionManager {
         newId: this.deps.newId,
         now: this.deps.now,
       });
-      if (result.status === 'blocked') return result.diagnostic;
+      if (result.status === 'blocked') {
+        return { diagnostic: result.diagnostic, recoveredOperations };
+      }
+      recoveredOperations.push({
+        operationId: operation.operationId!,
+        toolCallId: operation.toolCallId,
+        toolName: operation.toolName,
+        nextAction: result.nextAction,
+      });
     }
-    return undefined;
+    return { recoveredOperations };
   }
 
   async planLatestAuthoritativeSafeBoundaryContinuation(

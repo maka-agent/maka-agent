@@ -47,6 +47,7 @@ export type ReconcileUnsettledToolOperationResult =
       status: 'reconciled';
       reconcileEvent: RuntimeEvent;
       decisionEvent: RuntimeEvent;
+      nextAction: ToolReconcileResultFact['nextAction'];
     }
   | { status: 'blocked'; diagnostic: ResumePlanDiagnostic };
 
@@ -184,7 +185,12 @@ export async function reconcileUnsettledToolOperation(
       committedAt: decisionEvent.ts,
     },
   });
-  return { status: 'reconciled', reconcileEvent, decisionEvent };
+  return {
+    status: 'reconciled',
+    reconcileEvent,
+    decisionEvent,
+    nextAction: reconcileFact.nextAction,
+  };
 }
 
 function normalizeReconcileDecision(
