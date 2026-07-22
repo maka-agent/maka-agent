@@ -413,7 +413,7 @@ export async function runTaskOnce(
     let invocation = permissionHandling.invocation;
     const invocations = [invocation];
 
-    let runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
+    let runtimeSummary = summarizeRuntime([invocation], deps.realBackendIsolation);
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
     if (heavyTaskMode.enabled && !settledByDeadline) {
       let gateProjection = await taskRunStore.project(taskRunId);
@@ -524,9 +524,9 @@ export async function runTaskOnce(
         }
         invocation = repairPermissionHandling.invocation;
         invocations.push(invocation);
-        const repairSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
+        const repairSummary = summarizeRuntime([invocation], deps.realBackendIsolation);
         await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, repairSummary);
-        runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
+        runtimeSummary = summarizeRuntime(invocations, deps.realBackendIsolation);
 
         if (!settledByDeadline) {
           let boundedProjection = await taskRunStore.project(taskRunId);
@@ -1480,46 +1480,33 @@ interface RuntimeSummary {
 }
 
 function summarizeRuntime(
-  invocation: InvocationResult,
+  invocations: readonly InvocationResult[],
   isolation: RunExperimentDeps['realBackendIsolation'],
 ): RuntimeSummary {
+  const invocation = invocations.at(-1);
+  if (!invocation) throw new Error('runtime summary requires at least one invocation');
+  const events = invocations.flatMap((candidate) => candidate.events);
+  const previousTurns = invocations.slice(0, -1).map((candidate) => ({
+    invocationId: candidate.invocationId,
+    runId: candidate.runId,
+    turnId: candidate.turnId,
+    runtimeEventIds: candidate.events.map((event) => event.id),
+  }));
   return {
     runtimeRefs: {
       invocationId: invocation.invocationId,
       sessionId: invocation.sessionId,
       runId: invocation.runId,
       turnId: invocation.turnId,
-      runtimeEventIds: invocation.events.map((event) => event.id),
+      runtimeEventIds: events.map((event) => event.id),
+      ...(previousTurns.length > 0 ? { previousTurns } : {}),
     },
-    artifactRefs: collectArtifactRefs(invocation.events),
+    artifactRefs: collectArtifactRefs(events),
     isolation: isolation
       ? { kind: isolation.kind, label: isolation.label }
       : { kind: 'inert_fake_backend' },
-    budget: summarizeBudget(invocation),
-    tools: summarizeCellTools(invocation.events),
-  };
-}
-
-function mergeRuntimeSummaries(first: RuntimeSummary, second: RuntimeSummary): RuntimeSummary {
-  return {
-    ...second,
-    runtimeRefs: {
-      ...second.runtimeRefs,
-      runtimeEventIds: uniqueStrings([
-        ...first.runtimeRefs.runtimeEventIds,
-        ...second.runtimeRefs.runtimeEventIds,
-      ]),
-      previousTurns: [
-        ...(first.runtimeRefs.previousTurns ?? []),
-        {
-          invocationId: first.runtimeRefs.invocationId,
-          runId: first.runtimeRefs.runId,
-          turnId: first.runtimeRefs.turnId,
-          runtimeEventIds: first.runtimeRefs.runtimeEventIds,
-        },
-      ],
-    },
-    artifactRefs: [...first.artifactRefs, ...second.artifactRefs],
+    budget: summarizeBudget(invocations),
+    tools: summarizeCellTools(events),
   };
 }
 
@@ -1571,7 +1558,7 @@ function collectArtifactRefs(events: readonly RuntimeEvent[]): Array<Record<stri
   return refs;
 }
 
-function summarizeBudget(invocation: InvocationResult): Record<string, unknown> {
+function summarizeBudget(invocations: readonly InvocationResult[]): Record<string, unknown> {
   const totals = {
     input: 0,
     output: 0,
@@ -1581,7 +1568,8 @@ function summarizeBudget(invocation: InvocationResult): Record<string, unknown> 
   };
   const contextBudget: unknown[] = [];
   const rawFinishReasons: string[] = [];
-  for (const event of invocation.events) {
+  const latestFailureClass = invocations.at(-1)?.failure?.class;
+  for (const event of invocations.flatMap((invocation) => invocation.events)) {
     const usage = event.actions?.tokenUsage;
     if (!usage) continue;
     totals.input += usage.input ?? 0;
@@ -1596,7 +1584,7 @@ function summarizeBudget(invocation: InvocationResult): Record<string, unknown> 
     totals,
     ...(contextBudget.length > 0 ? { contextBudget } : {}),
     ...(rawFinishReasons.length > 0 ? { rawFinishReasons } : {}),
-    ...(invocation.failure?.class ? { failureClass: invocation.failure.class } : {}),
+    ...(latestFailureClass ? { failureClass: latestFailureClass } : {}),
   };
 }
 
@@ -1717,10 +1705,6 @@ function errorMessageFromTaxonomy(taxonomy: AutonomousResultTaxonomy): string {
 
 function appendTaskEvent(store: TaskRunStore, taskRunId: string, event: TaskEvent): Promise<void> {
   return store.appendEvent(taskRunId, event);
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-  return [...new Set(values)];
 }
 
 function isPermissionHandoffTerminal(event: {

@@ -680,6 +680,34 @@ class GateRepairBackend implements AgentBackend {
         toolCtx,
       );
     }
+    const toolUseId = `gate-tool-${turnNumber}`;
+    yield {
+      type: 'tool_start',
+      id: `gate-tool-start-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      toolUseId,
+      toolName: turnNumber === 1 ? 'initial_tool' : 'repair_tool',
+      args: {},
+    };
+    yield {
+      type: 'tool_result',
+      id: `gate-tool-result-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      toolUseId,
+      isError: false,
+      content: { kind: 'text', text: 'ok' },
+    };
+    yield {
+      type: 'token_usage',
+      id: `gate-usage-${turnNumber}`,
+      turnId: input.turnId,
+      ts,
+      input: turnNumber * 10,
+      output: turnNumber,
+      total: turnNumber * 11,
+    };
     yield {
       type: 'text_complete',
       id: `gate-text-${turnNumber}`,
@@ -1346,6 +1374,21 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.resultRecord.passed, true);
       assert.equal(result.invocations.length, 2);
+      const budget = result.projection.latestScoreResult?.details?.budget as
+        | { totals?: { input?: number; output?: number; total?: number } }
+        | undefined;
+      assert.deepEqual(budget?.totals, {
+        input: 30,
+        output: 3,
+        reasoning: 0,
+        total: 33,
+        costUsd: 0,
+      });
+      const tools = result.projection.latestScoreResult?.details?.tools as
+        | { actualToolCalls?: number; actualToolNames?: string[] }
+        | undefined;
+      assert.equal(tools?.actualToolCalls, 2);
+      assert.deepEqual(tools?.actualToolNames, ['initial_tool', 'repair_tool']);
       assert.equal(result.projection.attempts[0]?.executionLineage.length, 2);
       assert.equal(
         new Set(
