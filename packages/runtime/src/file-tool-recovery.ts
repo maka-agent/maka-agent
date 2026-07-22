@@ -71,6 +71,7 @@ export function createWriteEditRecoveryContractRegistry(
 
 type FileToolObservation =
   | { status: 'invalid_args' }
+  | { status: 'checkpoint_missing' }
   | ({ path: string } & ReadOnlyFileObservation);
 
 export interface WriteEditRecoveryContracts {
@@ -101,7 +102,13 @@ export function createWriteEditRecoveryContracts(
       id: 'maka.tool.edit.reconcile',
       version: 1,
       mode: 'reconcile_then_decide',
-      observe: (operation) => observeFileTarget(observer, operation, parseEditArgs),
+      // Edit cannot be reconciled safely from old_string/new_string occurrence
+      // counts. Until the durable dispatch carries a prepared before/after file
+      // checkpoint, do not inspect the live file and do not infer an outcome.
+      observe: async (operation) =>
+        parseEditArgs(operation.args)
+          ? { status: 'checkpoint_missing' }
+          : { status: 'invalid_args' },
       decide: ({ operation, observation }) => decideEdit(operation, observation),
     },
   };
@@ -132,6 +139,9 @@ function decideWrite(
       nextAction: 'retry_allowed',
     };
   }
+  if (observation.status === 'checkpoint_missing') {
+    return parked('write_checkpoint_evidence_missing');
+  }
   if (observation.status === 'unreadable') return parked('write_target_unreadable');
   if (observation.content === args.content) {
     return {
@@ -155,37 +165,7 @@ function decideEdit(
 ): ToolReconcileDecision {
   const args = parseEditArgs(operation.args);
   if (!args || observation.status === 'invalid_args') return parked('edit_arguments_invalid');
-  if (observation.status !== 'text') {
-    return parked(
-      observation.status === 'missing' ? 'edit_target_missing' : 'edit_target_unreadable',
-    );
-  }
-  const oldMatches = countOccurrences(observation.content, args.oldString);
-  const newMatches = countOccurrences(observation.content, args.newString);
-  if (
-    (args.oldString === args.newString && oldMatches === 1) ||
-    (oldMatches === 0 && (args.newString.length === 0 || newMatches === 1))
-  ) {
-    return {
-      result: 'applied',
-      reasonCode: 'edit_postcondition_matches',
-      nextAction: 'synthesize_response',
-      synthesizedResult: {
-        ok: true,
-        path: args.path,
-        replacements: 1,
-        recovered: true,
-      },
-    };
-  }
-  if (oldMatches === 1 && (args.newString.length === 0 || newMatches === 0)) {
-    return {
-      result: 'not_applied',
-      reasonCode: 'edit_precondition_matches',
-      nextAction: 'retry_allowed',
-    };
-  }
-  return parked('edit_state_ambiguous');
+  return parked('edit_checkpoint_evidence_missing');
 }
 
 function parked(reasonCode: string): ToolReconcileDecision {
@@ -214,19 +194,6 @@ function parseEditArgs(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function countOccurrences(content: string, needle: string): number {
-  if (needle.length === 0) return 0;
-  let count = 0;
-  let cursor = 0;
-  while (cursor <= content.length - needle.length) {
-    const found = content.indexOf(needle, cursor);
-    if (found < 0) break;
-    count += 1;
-    cursor = found + needle.length;
-  }
-  return count;
 }
 
 function isPathWithin(root: string, candidate: string): boolean {

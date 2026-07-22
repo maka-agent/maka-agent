@@ -60,7 +60,7 @@ describe('Write/Edit read-only recovery contracts', () => {
     });
   });
 
-  it('classifies Edit postcondition, precondition, and ambiguous drift', async () => {
+  it('parks Edit observations that lack durable before/after checkpoint evidence', async () => {
     const operation = editOperation();
     const decide = async (content: string) => {
       const contract = createWriteEditRecoveryContracts({
@@ -70,27 +70,35 @@ describe('Write/Edit read-only recovery contracts', () => {
       return contract.decide?.({ operation, observation });
     };
 
-    assert.deepEqual(await decide('before NEW after'), {
-      result: 'applied',
-      reasonCode: 'edit_postcondition_matches',
-      nextAction: 'synthesize_response',
-      synthesizedResult: {
-        ok: true,
-        path: 'notes.txt',
-        replacements: 1,
-        recovered: true,
-      },
-    });
-    assert.deepEqual(await decide('before OLD after'), {
-      result: 'not_applied',
-      reasonCode: 'edit_precondition_matches',
-      nextAction: 'retry_allowed',
-    });
-    assert.deepEqual(await decide('OLD and NEW are both present'), {
+    const parkedWithoutCheckpoint = {
       result: 'conflict',
-      reasonCode: 'edit_state_ambiguous',
+      reasonCode: 'edit_checkpoint_evidence_missing',
+      nextAction: 'park',
+    } as const;
+    assert.deepEqual(await decide('before NEW after'), parkedWithoutCheckpoint);
+    assert.deepEqual(await decide('before OLD after'), parkedWithoutCheckpoint);
+    assert.deepEqual(await decide('OLD and NEW are both present'), parkedWithoutCheckpoint);
+  });
+
+  it('does not treat substring counts as proof that an interrupted Edit was applied', async () => {
+    const operation = editOperation();
+    let reads = 0;
+    const contract = createWriteEditRecoveryContracts({
+      // This satisfies the old heuristic (OLD absent, NEW present once), but it
+      // is not the complete post-image prepared from the durable before state.
+      readText: async () => {
+        reads += 1;
+        return { status: 'text', content: 'unrelated replacement containing NEW' };
+      },
+    }).Edit;
+    const observation = await contract.observe?.(operation);
+
+    assert.deepEqual(contract.decide?.({ operation, observation }), {
+      result: 'conflict',
+      reasonCode: 'edit_checkpoint_evidence_missing',
       nextAction: 'park',
     });
+    assert.equal(reads, 0);
   });
 
   it('parks unreadable targets and malformed durable arguments', async () => {
