@@ -236,6 +236,28 @@ test('createPierTaskRunner maps a completed fake trial to reward and host cell p
   });
 });
 
+test('createPierTaskRunner passes the provider-local bare model id to pier -m', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        model: 'deepseek/deepseek-v4-flash',
+        provider: 'deepseek',
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    await runner(runInput());
+    // The adapter's model_name outranks MAKA_MODEL, so a prefixed -m would leak
+    // the provider-prefixed id into the cell. Same contract as modelIdForProvider
+    // in the Harbor runner.
+    const modelFlag = captured.request?.args.indexOf('-m') ?? -1;
+    assert.equal(captured.request?.args[modelFlag + 1], 'deepseek-v4-flash');
+    assert.ok(captured.request?.args.includes('MAKA_MODEL=deepseek-v4-flash'));
+  });
+});
+
 test('createPierTaskRunner falls back to the trial verifier_result reward', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(

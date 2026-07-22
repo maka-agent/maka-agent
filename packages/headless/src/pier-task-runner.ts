@@ -216,7 +216,10 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
       if (usesEnvFile) await writeEnvFile(envFilePath, envFileEntries);
       const args = buildPierRunArgs({
         agent,
-        model: options.model,
+        // Provider-local bare id (same normalization contract as the Harbor
+        // runner): the adapter's model_name takes precedence over MAKA_MODEL, so
+        // a provider-prefixed `-m` would leak the prefixed id into the cell.
+        model: modelIdForProvider(options.model, options.provider ?? 'deepseek'),
         taskPath: input.task.path,
         jobsDir,
         jobName,
