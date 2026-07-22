@@ -136,6 +136,75 @@ describe('Maka session driver', () => {
     ]);
   });
 
+  test('uses an updated orchestration mode for a new session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await driver.setOrchestrationMode?.('swarm');
+    await collectPrompt(driver, 'analyze in parallel');
+
+    assert.equal(driver.getOrchestrationMode?.(), 'swarm');
+    assert.equal(runtime.created[0]?.orchestrationMode, 'swarm');
+  });
+
+  test('updates orchestration mode on an active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collectPrompt(driver, 'start');
+    await driver.setOrchestrationMode?.('swarm');
+    await driver.setOrchestrationMode?.('default');
+
+    assert.deepEqual(runtime.orchestrationModes, [
+      { sessionId: 'session-1', mode: 'swarm' },
+      { sessionId: 'session-1', mode: 'default' },
+    ]);
+    assert.equal(driver.getOrchestrationMode?.(), 'default');
+  });
+
+  test('passes a one-turn swarm override as trusted metadata without changing visible text', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+
+    await collect(
+      (
+        await driver.preparePrompt('inspect runtime, UI, and tests', {
+          turnOrchestration: { mode: 'swarm', source: 'slash_command' },
+        })
+      ).events,
+    );
+    await collectPrompt(driver, 'summarize normally');
+
+    assert.deepEqual(
+      runtime.sent.map(({ input }) => input),
+      [
+        {
+          turnId: 'turn-1',
+          text: 'inspect runtime, UI, and tests',
+          turnOrchestration: { mode: 'swarm', source: 'slash_command' },
+        },
+        { turnId: 'turn-2', text: 'summarize normally' },
+      ],
+    );
+    assert.equal(driver.getOrchestrationMode?.(), 'default');
+  });
+
   test('uses an updated model for a new session', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -380,6 +449,7 @@ describe('Maka session driver', () => {
           connectionLocked: false,
           model: 'claude-opus-4-1',
           permissionMode: 'execute',
+          orchestrationMode: 'swarm',
         },
       ];
       runtime.sessionMessages.set('session-2', [
@@ -401,8 +471,13 @@ describe('Maka session driver', () => {
         summary.messages.map((message) => message.id),
         ['user-1', 'assistant-1'],
       );
-      assert.deepEqual(runtime.created, []);
+      assert.equal(runtime.created.length, 0);
       assert.equal(runtime.sent[0]?.sessionId, 'session-2');
+      assert.equal(driver.getOrchestrationMode?.(), 'swarm');
+
+      driver.startNewSession();
+      await collectPrompt(driver, 'new session keeps swarm');
+      assert.equal(runtime.created[0]?.orchestrationMode, 'swarm');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -805,7 +880,9 @@ describe('Maka session driver', () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-rewind-cwd-'));
     try {
       const runtime = new RecordingRuntime();
-      runtime.sessionSummaries = [sessionSummary({ id: 'session-1', cwd: repo })];
+      runtime.sessionSummaries = [
+        sessionSummary({ id: 'session-1', cwd: repo, orchestrationMode: 'swarm' }),
+      ];
       runtime.sessionMessages.set('session-1', [
         storedUserMessage('user-1', 'turn-1', 'first question'),
         storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
@@ -830,6 +907,7 @@ describe('Maka session driver', () => {
       assert.equal(result.summary.id, 'session-1-branch');
       assert.equal(result.prompt, 'second question\nwith detail');
       assert.equal(driver.getSessionId(), 'session-1-branch');
+      assert.equal(driver.getOrchestrationMode?.(), 'swarm');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -940,6 +1018,10 @@ class RecordingRuntime {
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly userQuestionResponses: Array<{ sessionId: string; response: UserQuestionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
+  readonly orchestrationModes: Array<{
+    sessionId: string;
+    mode: import('@maka/core/orchestration').OrchestrationMode;
+  }> = [];
   readonly sessionUpdates: Array<{
     sessionId: string;
     patch: {
@@ -1099,6 +1181,17 @@ class RecordingRuntime {
       connectionLocked: false,
       model: 'claude-sonnet-4-5',
       permissionMode: mode,
+    };
+  }
+
+  async setOrchestrationMode(
+    sessionId: string,
+    mode: import('@maka/core/orchestration').OrchestrationMode,
+  ): Promise<SessionSummary> {
+    this.orchestrationModes.push({ sessionId, mode });
+    return {
+      ...sessionSummary({ id: sessionId }),
+      orchestrationMode: mode,
     };
   }
 

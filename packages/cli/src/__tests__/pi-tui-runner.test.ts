@@ -11,6 +11,7 @@ import {
   SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
   type PermissionMode,
   type PermissionResponse,
+  type OrchestrationMode,
   type QueueEnqueueOutcome,
   type SessionEvent,
   type SessionSummary,
@@ -4201,17 +4202,18 @@ describe('Maka Pi TUI runner', () => {
 
     // The input surface did not shift while filtering.
     assert.deepEqual(afterRows, beforeRows);
-    // The 's' filter matches three commands — /session, /setup, /skill — bottom-
+    // The 's' filter matches four commands — /session, /setup, /skill, /swarm — bottom-
     // aligned immediately above the editor's top border. Scope to the overlay so
     // the empty-session home's /session /model /setup hints don't collide (#1098).
-    assert.equal(afterSuggestions.length, 3);
+    assert.equal(afterSuggestions.length, 4);
     assert.deepEqual(
       afterSuggestions.map((line) => line.match(/\/\w+/)?.[0]),
-      ['/session', '/setup', '/skill'],
+      ['/session', '/setup', '/skill', '/swarm'],
     );
-    assert.ok(afterLines[afterRows[0] - 1]!.includes('/skill'));
-    assert.ok(afterLines[afterRows[0] - 2]!.includes('/setup'));
-    assert.ok(afterLines[afterRows[0] - 3]!.includes('/session'));
+    assert.ok(afterLines[afterRows[0] - 1]!.includes('/swarm'));
+    assert.ok(afterLines[afterRows[0] - 2]!.includes('/skill'));
+    assert.ok(afterLines[afterRows[0] - 3]!.includes('/setup'));
+    assert.ok(afterLines[afterRows[0] - 4]!.includes('/session'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -4259,12 +4261,14 @@ describe('Maka Pi TUI runner', () => {
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
     const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
     const afterSetupRow = afterLines.findIndex((line) => line.includes('/setup'));
+    const afterSwarmRow = afterLines.findIndex((line) => line.includes('/swarm'));
 
     assert.deepEqual(afterRows, beforeRows);
     assert.equal(afterRows[1], terminal.rows - 2);
-    assert.equal(afterSkillRow, afterRows[0] - 1);
-    assert.equal(afterSetupRow, afterRows[0] - 2);
-    assert.equal(afterSessionRow, afterRows[0] - 3);
+    assert.equal(afterSwarmRow, afterRows[0] - 1);
+    assert.equal(afterSkillRow, afterRows[0] - 2);
+    assert.equal(afterSetupRow, afterRows[0] - 3);
+    assert.equal(afterSessionRow, afterRows[0] - 4);
 
     exitMaka(terminal);
     await Promise.race([
@@ -4564,6 +4568,143 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
+  });
+
+  test('shows, enables, and disables persistent Swarm Mode without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/swarm');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Swarm Mode is off'));
+
+    terminal.input('/swarm on');
+    terminal.input('\r');
+    await waitFor(() => driver.orchestrationModes.length === 1);
+    await waitFor(() => terminal.output().includes('Swarm Mode enabled'));
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('swarm'));
+
+    terminal.input('/swarm status');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Swarm Mode is on'));
+
+    terminal.input('/swarm off');
+    terminal.input('\r');
+    await waitFor(() => driver.orchestrationModes.length === 2);
+    await waitFor(() => terminal.output().includes('Swarm Mode disabled'));
+
+    assert.deepEqual(driver.orchestrationModes, ['swarm', 'default']);
+    assert.deepEqual(driver.prompts, []);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('runs /swarm <task> as one trusted swarm turn with clean transcript text', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/swarm inspect runtime, UI, and tests');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    await waitFor(() => terminal.output().includes('Using Swarm Mode for this turn only'));
+
+    assert.deepEqual(driver.displayPrompts, ['inspect runtime, UI, and tests']);
+    assert.deepEqual(driver.prompts, ['inspect runtime, UI, and tests']);
+    assert.deepEqual(driver.turnOrchestrations, [{ mode: 'swarm', source: 'slash_command' }]);
+    assert.deepEqual(driver.orchestrationModes, []);
+    const screen = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(screen.includes('inspect runtime, UI, and tests'));
+    assert.equal(screen.includes('/swarm inspect runtime, UI, and tests'), false);
+
+    terminal.input('follow up normally');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 2);
+    assert.deepEqual(driver.turnOrchestrations, [
+      { mode: 'swarm', source: 'slash_command' },
+      undefined,
+    ]);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('rejects Swarm commands during a running turn instead of steering them', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('keep working');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('/swarm on');
+    terminal.input('\r');
+    await waitFor(() =>
+      terminal.output().includes('Cannot change or start Swarm Mode while a turn is running.'),
+    );
+    assert.deepEqual(driver.steered, []);
+
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('cancelling a one-shot Swarm turn leaves the persistent mode off', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/swarm investigate broadly');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+    assert.deepEqual(driver.turnOrchestrations, [{ mode: 'swarm', source: 'slash_command' }]);
+
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    terminal.input('/swarm status');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Swarm Mode is off'));
+
+    exitMaka(terminal);
+    await run;
   });
 
   test('handles /thinking high without sending a prompt', async () => {
@@ -8316,7 +8457,9 @@ describe('Maka Pi TUI runner', () => {
 
   test('resumes a session at startup via resumeSessionId', async () => {
     const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/repo')]);
+    const driver = new SlashCommandDriver([
+      { ...fakeSessionSummary('session-2', '/repo'), orchestrationMode: 'swarm' },
+    ]);
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -8333,6 +8476,11 @@ describe('Maka Pi TUI runner', () => {
 
     assert.deepEqual(driver.sessionIds, ['session-2']);
     assert.deepEqual(driver.prompts, []);
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('swarm'));
+
+    terminal.input('/swarm status');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Swarm Mode is on for this session.'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -8723,6 +8871,7 @@ class SteeringTurnDriver implements MakaSessionDriver {
   stopCalls = 0;
   readonly steered: string[] = [];
   readonly queuedMessages: string[] = [];
+  readonly turnOrchestrations: Array<MakaPreparePromptOptions['turnOrchestration']> = [];
   retractCalls = 0;
   private steering: string[] = [];
   private followup: string[] = [];
@@ -8740,6 +8889,7 @@ class SteeringTurnDriver implements MakaSessionDriver {
     options: MakaPreparePromptOptions = {},
   ): Promise<MakaPreparedSessionTurn> {
     const turnId = options.turnId ?? 'turn-1';
+    this.turnOrchestrations.push(options.turnOrchestration);
     return Promise.resolve({
       sessionId: this.getSessionId(),
       turnId,
@@ -9599,12 +9749,15 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly modelConnections: Array<string | undefined> = [];
   readonly permissionModes: PermissionMode[] = [];
   readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
+  readonly orchestrationModes: OrchestrationMode[] = [];
+  readonly turnOrchestrations: Array<MakaPreparePromptOptions['turnOrchestration']> = [];
   readonly sessionIds: string[] = [];
   readonly renames: string[] = [];
   readonly moves: string[] = [];
   startNewSessionCalls = 0;
   resumeCalls = 0;
   protected sessionId = 'session-1';
+  protected orchestrationMode: OrchestrationMode = 'default';
 
   constructor(
     private readonly sessions: SessionSummary[] = [fakeSessionSummary('session-2', '/repo')],
@@ -9623,6 +9776,7 @@ class SlashCommandDriver implements MakaSessionDriver {
     const modelText = options.modelText ?? prompt;
     this.displayPrompts.push(prompt);
     this.prompts.push(modelText);
+    this.turnOrchestrations.push(options.turnOrchestration);
     return Promise.resolve({
       sessionId: this.sessionId,
       turnId,
@@ -9700,11 +9854,16 @@ class SlashCommandDriver implements MakaSessionDriver {
   async setThinkingLevel(level: ThinkingLevel | undefined): Promise<void> {
     this.thinkingLevelUpdates.push(level);
   }
+  async setOrchestrationMode(mode: OrchestrationMode): Promise<void> {
+    this.orchestrationModes.push(mode);
+    this.orchestrationMode = mode;
+  }
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     this.sessionIds.push(sessionId);
     this.sessionId = sessionId;
     const summary = this.sessions.find((session) => session.id === sessionId);
     const nextSummary = summary ?? fakeSessionSummary(sessionId);
+    this.orchestrationMode = nextSummary.orchestrationMode ?? 'default';
     return switchResult(nextSummary, [...(this.sessionMessages.get(nextSummary.id) ?? [])]);
   }
   async listRewindTargets(): Promise<RewindTarget[]> {
@@ -9719,6 +9878,9 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
   getSessionId(): string | null {
     return this.sessionId;
+  }
+  getOrchestrationMode(): OrchestrationMode {
+    return this.orchestrationMode;
   }
 }
 

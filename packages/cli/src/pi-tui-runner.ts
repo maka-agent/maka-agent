@@ -20,6 +20,7 @@ import {
   type ThinkingLevel,
 } from '@maka/core/model-thinking';
 import { type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
+import type { OrchestrationMode } from '@maka/core/orchestration';
 import {
   ShellRunUpdateBuffer,
   mergeShellRunUpdate,
@@ -51,6 +52,7 @@ import {
 } from '@maka/runtime';
 import { MakaSkillHighlightEditor } from './skill-highlight-editor.js';
 import { parseSkillInvocationTokens, stripSkillInvocationTokens } from './skill-token.js';
+import { parseSwarmCommand, type ParsedSwarmCommand } from './swarm-command.js';
 import type { CliGoalTurnHost } from './cli-goal-continuation.js';
 import {
   inspectSessionResumeAvailability,
@@ -194,6 +196,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let providerType = input.providerType;
   let modelContextWindow = input.modelContextWindow;
   let permissionMode = input.permissionMode;
+  let orchestrationMode = input.driver.getOrchestrationMode?.() ?? 'default';
   let thinkingLevel: ThinkingLevel | undefined = undefined;
   let thinkingLevels: readonly ThinkingLevel[] = providerType
     ? thinkingVariantsForModel(providerType, input.model)
@@ -261,6 +264,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model,
     connectionSlug,
     permissionMode,
+    orchestrationMode,
     thinkingLevel,
     thinkingLevels,
     sessionId: input.driver.getSessionId(),
@@ -731,7 +735,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // to (not including) this very submission.
     const idleMs = Date.now() - lastActivityAt;
     editor.addToHistory(prompt);
-    if (handleSlashCommand(prompt)) return;
+    if (handleSlashCommand(prompt, idleMs)) return;
     // First-run has no connection, so the wizard is the only surface. This is
     // the single choke point for idle submits (Enter, Alt+Enter, steer
     // fallback): reopen the wizard instead of opening a turn against a
@@ -946,6 +950,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // input routing): check it before handing off to steering.
       if (isExitPrompt(prompt)) {
         beginGracefulClose();
+        return;
+      }
+      const swarmCommand = parseSwarmCommand(prompt);
+      if (swarmCommand) {
+        editor.addToHistory(prompt);
+        if (swarmCommand.kind === 'status') {
+          showSwarmStatus();
+        } else {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Cannot change or start Swarm Mode while a turn is running.',
+          });
+          requestRender();
+        }
         return;
       }
       steerRunningTurn(prompt);
@@ -1201,6 +1220,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       modelContextWindow = undefined;
     }
     permissionMode = summary.permissionMode;
+    orchestrationMode = summary.orchestrationMode ?? 'default';
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     refreshEditorCwd?.(cwd);
@@ -1387,7 +1407,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (!providerType || !wizard) return;
     if (apiKey.startsWith('/')) {
       closeWizard();
-      handleSlashCommand(apiKey);
+      handleSlashCommand(apiKey, 0);
       return;
     }
     if (!input.onboarding) {
@@ -1984,6 +2004,61 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const showSwarmStatus = () => {
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text:
+        orchestrationMode === 'swarm'
+          ? 'Swarm Mode is on for this session.'
+          : 'Swarm Mode is off. The main agent may still use agent_swarm opportunistically.',
+    });
+    requestRender();
+  };
+
+  const setSwarmMode = async (mode: OrchestrationMode) => {
+    if (!input.driver.setOrchestrationMode) {
+      throw new Error('Swarm Mode is unavailable on this session driver.');
+    }
+    await input.driver.setOrchestrationMode(mode);
+    orchestrationMode = mode;
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: mode === 'swarm' ? 'Swarm Mode enabled for this session.' : 'Swarm Mode disabled.',
+    });
+    requestRender();
+  };
+
+  const runSwarmCommand = (command: ParsedSwarmCommand, idleMs: number) => {
+    if (command.kind === 'status') {
+      showSwarmStatus();
+      return;
+    }
+    if (command.kind === 'set_mode') {
+      void runControl(() => setSwarmMode(command.mode));
+      return;
+    }
+    if (input.firstRun) {
+      void showSetupWizard();
+      return;
+    }
+    lastActivityAt = Date.now();
+    promptSeq += 1;
+    maybeTriggerAutoRecap(idleMs);
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: 'Using Swarm Mode for this turn only.',
+    });
+    void runAgentTurn({
+      kind: 'external',
+      prompt: command.task,
+      sessionId: input.driver.getSessionId(),
+      turnOrchestration: { mode: 'swarm', source: 'slash_command' },
+    });
+  };
+
   const moveSession = async (targetCwd: string): Promise<void> => {
     if (!input.driver.moveSession) {
       state.entries.push({
@@ -2301,9 +2376,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         void runControl(() => switchSession(sessionId));
       },
     },
+    {
+      name: 'swarm',
+      description: 'Show, enable, disable, or run one Swarm turn',
+      run: (_parts: string[], rawTail: string | undefined, context: { idleMs: number }) => {
+        const parsed = parseSwarmCommand(`/swarm${rawTail ? ` ${rawTail}` : ''}`);
+        if (parsed) runSwarmCommand(parsed, context.idleMs);
+      },
+    },
   ].sort((left, right) => left.name.localeCompare(right.name));
 
-  const handleSlashCommand = (prompt: string): boolean => {
+  const handleSlashCommand = (prompt: string, idleMs: number): boolean => {
     const trimmed = prompt.trim();
     const commandToken = trimmed.split(/\s+/, 1)[0] ?? '';
     const command = slashCommands.find(
@@ -2313,7 +2396,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     );
     if (!command) return false;
     const rawTail = trimmed.slice(commandToken.length).trimStart();
-    command.run(trimmed.split(/\s+/), rawTail);
+    command.run(trimmed.split(/\s+/), rawTail, { idleMs });
     return true;
   };
 
