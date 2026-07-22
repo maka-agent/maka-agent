@@ -126,6 +126,7 @@ class MakaAgent(BaseInstalledAgent):
     _RUN_LOG_FILENAME = "maka-run.log"
     _CELL_OUTPUT_FILENAME = "maka-cell-output.json"
     _CELL_USAGE_CHECKPOINT_FILENAME = "maka-cell-usage-checkpoint.json"
+    _RUNTIME_EVENTS_FILENAME = "runtime-events.jsonl"
 
     CLI_FLAGS = [
         CliFlag(
@@ -557,6 +558,17 @@ class MakaAgent(BaseInstalledAgent):
             await environment.download_file(remote.as_posix(), local)
         except Exception as exc:  # noqa: BLE001 - best-effort metadata hydration.
             self.logger.debug("Could not download Maka cell output %s: %s", remote, exc)
+        # The cell output's runtimeEventsPath contract points at this file. Under
+        # Harbor the agent log dir is bind-mounted, so it is already host-side and
+        # is skipped; under Pier a --mounts-json run replaces the default log
+        # mounts, so without this download the path would dangle.
+        events_remote = EnvironmentPaths.agent_dir / self._RUNTIME_EVENTS_FILENAME
+        events_local = self.logs_dir / self._RUNTIME_EVENTS_FILENAME
+        if not events_local.exists():
+            try:
+                await environment.download_file(events_remote.as_posix(), events_local)
+            except Exception as exc:  # noqa: BLE001 - best-effort metadata hydration.
+                self.logger.debug("Could not download Maka runtime events %s: %s", events_remote, exc)
 
     def _read_cell_output(self, *, required: bool) -> dict[str, Any] | None:
         output_path = self.logs_dir / self._CELL_OUTPUT_FILENAME

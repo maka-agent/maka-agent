@@ -1862,6 +1862,33 @@ with tempfile.TemporaryDirectory() as tmp:
     assert hydrated_deadline_output["tokenSummary"] == deadline_usage, hydrated_deadline_output
     assert json.loads(deadline_output_path.read_text(encoding="utf-8"))["tokenSummary"] == deadline_usage
 
+    class DownloadEnvironment:
+        def __init__(self):
+            self.downloads = []
+
+        async def download_file(self, remote, local):
+            self.downloads.append(remote)
+            Path(local).write_text("{}", encoding="utf-8")
+
+    # Pier (--mounts-json replaces the default log mounts): nothing is host-side
+    # yet, so the adapter must download runtime-events.jsonl alongside the cell
+    # output or the cell output's runtimeEventsPath dangles.
+    with tempfile.TemporaryDirectory() as pier_logs:
+        pier_environment = DownloadEnvironment()
+        asyncio.run(MakaAgent(Path(pier_logs))._download_cell_output(pier_environment))
+        assert "/logs/agent/maka-cell-output.json" in pier_environment.downloads, pier_environment.downloads
+        assert "/logs/agent/runtime-events.jsonl" in pier_environment.downloads, pier_environment.downloads
+
+    # Harbor (agent log dir bind-mounted): runtime-events.jsonl already exists
+    # host-side, so the adapter must not race the mount with a re-download; the
+    # cell output download itself stays unchanged.
+    with tempfile.TemporaryDirectory() as harbor_logs:
+        (Path(harbor_logs) / "runtime-events.jsonl").write_text("", encoding="utf-8")
+        mounted_environment = DownloadEnvironment()
+        asyncio.run(MakaAgent(Path(harbor_logs))._download_cell_output(mounted_environment))
+        assert "/logs/agent/maka-cell-output.json" in mounted_environment.downloads, mounted_environment.downloads
+        assert "/logs/agent/runtime-events.jsonl" not in mounted_environment.downloads, mounted_environment.downloads
+
     context = AgentContext()
     agent._apply_cell_output(context, {
         "status": "completed",
