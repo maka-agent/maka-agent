@@ -19,6 +19,7 @@ import {
   harborTraceMode,
   modelIdForProvider,
   readTimedOutTrialArtifacts,
+  resolveNativeTrialTimeoutMs,
 } from './harbor-task-runner.js';
 import {
   KIMI_CODE_TOOLCHAIN_CONTAINER_PATH,
@@ -118,7 +119,10 @@ export interface PierTaskRunnerOptions {
   environment?: string;
   timeoutMultiplier?: number;
   /** Wall-clock ceiling for a single `pier run`; a hung Docker/Pier would
-   * otherwise stall the unattended loop forever. Defaults to 45 minutes. */
+   * otherwise stall the unattended loop forever. Defaults to the task-native
+   * budget: (agentTimeoutSec + verifierTimeoutSec) x timeoutMultiplier plus
+   * setup/teardown grace, floored at 45 minutes (shared derivation with the
+   * Harbor runner — DeepSWE tasks alone run 5400s agent + 1800s verifier). */
   pierTimeoutMs?: number;
   /** Injectable Pier process runner (default: execFile the pier binary). */
   runPier?: PierProcessRunner;
@@ -148,8 +152,6 @@ export interface PierRunResult {
 }
 
 export type PierProcessRunner = (request: PierRunRequest) => Promise<PierRunResult>;
-
-const DEFAULT_PIER_TIMEOUT_MS = 45 * 60_000;
 
 interface PierProviderRuntime {
   /** Proxy-minted secret env delivered via `--env-file` (kept off argv). */
@@ -260,7 +262,16 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
             jobsDir,
             args,
             cwd: harborAdapterDir,
-            timeoutMs: options.pierTimeoutMs ?? DEFAULT_PIER_TIMEOUT_MS,
+            // Task-aware watchdog (shared Harbor derivation): a fixed 45-minute
+            // default would systematically undercut DeepSWE's native budget of
+            // 5400s agent + 1800s verifier per trial.
+            timeoutMs:
+              options.pierTimeoutMs ??
+              resolveNativeTrialTimeoutMs({
+                agentTimeoutSec: input.task.metadata?.agentTimeoutSec ?? 0,
+                verifierTimeoutSec: input.task.metadata?.verifierTimeoutSec ?? 0,
+                timeoutMultiplier: options.timeoutMultiplier ?? 1,
+              }),
             env: processEnv,
           });
         } finally {

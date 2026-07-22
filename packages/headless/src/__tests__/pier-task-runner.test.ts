@@ -266,6 +266,52 @@ test('createPierTaskRunner passes the provider-local bare model id to pier -m', 
   });
 });
 
+test('createPierTaskRunner derives the wall-clock watchdog from the task-native budget', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward: 0, captured }) }),
+    );
+    // DeepSWE-shaped budget: 5400s agent + 1800s verifier. A fixed 45-minute
+    // watchdog would kill every trial mid-flight; the shared Harbor derivation
+    // yields native phases + 15min setup/teardown grace.
+    await runner(
+      runInput({
+        task: {
+          id: 'dasel',
+          path: '/tasks/dasel-html-document-format',
+          metadata: { agentTimeoutSec: 5400, verifierTimeoutSec: 1800 },
+        },
+      }),
+    );
+    assert.equal(captured.request?.timeoutMs, (5400 + 1800) * 1_000 + 15 * 60_000);
+
+    // Without task metadata the 45-minute floor holds.
+    await runner(runInput());
+    assert.equal(captured.request?.timeoutMs, 45 * 60_000);
+
+    // An explicit pierTimeoutMs still wins.
+    const explicit = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        pierTimeoutMs: 1_234,
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    await explicit(
+      runInput({
+        task: {
+          id: 'dasel',
+          path: '/tasks/dasel-html-document-format',
+          metadata: { agentTimeoutSec: 5400, verifierTimeoutSec: 1800 },
+        },
+      }),
+    );
+    assert.equal(captured.request?.timeoutMs, 1_234);
+  });
+});
+
 test('createPierTaskRunner falls back to the trial verifier_result reward', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(
