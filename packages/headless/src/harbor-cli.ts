@@ -238,28 +238,38 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
   const latestScore = run.projection.latestScoreResult;
   const invocations =
     'attempts' in run ? run.attempts.flatMap((attempt) => attempt.invocations) : run.invocations;
-  const invocation = combineInvocations(invocations);
+  const invocation = invocations.length > 0 ? combineInvocations(invocations) : undefined;
   const settledByDeadline =
     'attempts' in run
       ? run.attempts.some((attempt) => attempt.settledByDeadline)
       : run.settledByDeadline;
-  const cellArtifacts = await writeHarborCellArtifacts({
-    outputDir: options.cellArtifactDir,
-    executionIdentity,
-    invocation,
-    promptHash: executionIdentity.systemPromptHash,
-    ...(settledByDeadline
-      ? {
-          deadlineSettlement: { source: 'benchmark.deadline' as const, mode: 'immediate' as const },
-        }
-      : {}),
-    ...(options.contextBudgetPolicy ? { contextBudgetPolicy: options.contextBudgetPolicy } : {}),
-  });
-  const traceEventsPath = await writeHarborTaskRunTrace({
-    outputDir: options.cellArtifactDir,
-    storageRoot: options.storageRoot,
-    invocations,
-  });
+  const cellArtifacts = invocation
+    ? await writeHarborCellArtifacts({
+        outputDir: options.cellArtifactDir,
+        executionIdentity,
+        invocation,
+        promptHash: executionIdentity.systemPromptHash,
+        ...(settledByDeadline
+          ? {
+              deadlineSettlement: {
+                source: 'benchmark.deadline' as const,
+                mode: 'immediate' as const,
+              },
+            }
+          : {}),
+        ...(options.contextBudgetPolicy
+          ? { contextBudgetPolicy: options.contextBudgetPolicy }
+          : {}),
+      })
+    : undefined;
+  const traceEventsPath =
+    invocations.length > 0
+      ? await writeHarborTaskRunTrace({
+          outputDir: options.cellArtifactDir,
+          storageRoot: options.storageRoot,
+          invocations,
+        })
+      : undefined;
   const taxonomy =
     run.projection.status === 'budget_exhausted'
       ? 'budget_exhausted'
@@ -284,13 +294,17 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
       authoritative: latestScore?.authority?.authoritative ?? false,
       benchmarkFailureKind: benchmarkFailure.kind,
       benchmarkFailureShouldThrow: benchmarkFailure.shouldThrow,
-      outputPath: cellArtifacts.outputPath,
-      runtimeEventsPath: cellArtifacts.runtimeEventsPath,
-      traceEventsPath,
+      ...(cellArtifacts
+        ? {
+            outputPath: cellArtifacts.outputPath,
+            runtimeEventsPath: cellArtifacts.runtimeEventsPath,
+          }
+        : {}),
+      ...(traceEventsPath ? { traceEventsPath } : {}),
       exportDir,
       files: exported.files,
       result: {
-        status: settledByDeadline ? 'budget_exhausted' : run.resultRecord.status,
+        status: run.resultRecord.status,
         passed: run.resultRecord.passed,
         errorClass: run.resultRecord.errorClass,
       },
