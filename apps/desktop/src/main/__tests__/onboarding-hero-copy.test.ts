@@ -438,12 +438,12 @@ describe('OnboardingHero Quick Chat draft lifecycle', () => {
 
     assert.match(
       propsBlock,
-      /onQuickChatSubmit: \(prompt: string, mode\?: QuickChatMode\) => boolean \| Promise<boolean>/,
+      /onQuickChatSubmit: \([\s\S]*prompt: string,[\s\S]*mode\?: QuickChatMode,[\s\S]*skillIds\?: readonly string\[\],[\s\S]*\) => boolean \| Promise<boolean>/,
       'Quick Chat submit prop must report success/failure to the presentational hero',
     );
     assert.match(
       readyBlock,
-      /const submit = useCallback\(async \(\) => \{[\s\S]*?const submitted = await props\.onQuickChatSubmit\(draft, draftMode\);[\s\S]*?if \(!submitted\) return;[\s\S]*?setDraft\(''\);[\s\S]*?setDraftMode\(undefined\);/,
+      /const submit = useCallback\(async \(\) => \{[\s\S]*?const skillIds = skillDraft\.skills\.map[\s\S]*?props\.onQuickChatSubmit\(draft, draftMode, skillIds\);[\s\S]*?if \(!submitted\) return;[\s\S]*?setDraft\(''\);[\s\S]*?setDraftMode\(undefined\);[\s\S]*?skillDraft\.clear/,
       'ReadyEmptyHero must clear the draft only after the parent reports a successful session creation',
     );
   });
@@ -451,7 +451,9 @@ describe('OnboardingHero Quick Chat draft lifecycle', () => {
   it('locally gates first-run quick chat submit before parent pending re-renders', async () => {
     const source = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
     const readyBlock = source.match(/function ReadyEmptyHero[\s\S]*?interface SetupHeroProps/)?.[0] ?? '';
-    const submitBlock = readyBlock.match(/const submit = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[draft, draftMode, props\]\);/)?.[0] ?? '';
+    const submitBlock = readyBlock.match(
+      /const submit = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[draft, draftMode, props, skillDraft\.skills\]\);/,
+    )?.[0] ?? '';
 
     assert.match(readyBlock, /const \[submitPending, setSubmitPending\] = useState\(false\)/);
     assert.match(readyBlock, /const submitPendingRef = useRef\(false\)/);
@@ -464,12 +466,29 @@ describe('OnboardingHero Quick Chat draft lifecycle', () => {
     assert.match(readyBlock, /const quickChatBusy = props\.quickChatPending \|\| submitPending/);
     assert.match(
       submitBlock,
-      /if \(props\.quickChatPending \|\| submitPendingRef\.current\) return;[\s\S]*submitPendingRef\.current = true;[\s\S]*setSubmitPending\(true\);[\s\S]*await props\.onQuickChatSubmit\(draft, draftMode\)[\s\S]*if \(!readyHeroMountedRef\.current\) return;[\s\S]*submitPendingRef\.current = false;[\s\S]*if \(readyHeroMountedRef\.current\) setSubmitPending\(false\);/,
+      /if \(props\.quickChatPending \|\| submitPendingRef\.current\) return;[\s\S]*submitPendingRef\.current = true;[\s\S]*setSubmitPending\(true\);[\s\S]*await props\.onQuickChatSubmit\(draft, draftMode, skillIds\)[\s\S]*if \(!readyHeroMountedRef\.current\) return;[\s\S]*submitPendingRef\.current = false;[\s\S]*if \(readyHeroMountedRef\.current\) setSubmitPending\(false\);/,
       'ReadyEmptyHero must synchronously drop duplicate Enter/click submits while the parent pending prop is still one render behind',
     );
     assert.match(source, /disabled=\{quickChatBusy\}/);
     assert.match(source, /aria-busy=\{quickChatBusy \? 'true' : undefined\}/);
     assert.match(source, /quickChatBusy \? copy\.submitPendingLabel : copy\.submitIdleLabel/);
+  });
+
+  it('wires structured Skill selection into the first-run Quick Chat input', async () => {
+    const source = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+    const readyBlock = source.match(/function ReadyEmptyHero[\s\S]*?interface SetupHeroProps/)?.[0] ?? '';
+
+    assert.match(readyBlock, /useComposerSkillDraft\('onboarding-quick-chat'\)/);
+    assert.match(readyBlock, /useMentionPopup\(\{[\s\S]*mentionSkills: props\.mentionSkills/);
+    assert.match(readyBlock, /<ComposerMentionPopup[\s\S]*onSelect=\{selectMention\}/);
+    assert.match(readyBlock, /aria-expanded=\{mentionPopupOpen \? true : undefined\}/);
+    assert.match(readyBlock, /skillDraft\.removeLast\(\)/);
+    assert.match(
+      readyBlock,
+      /\}, \[draft, draftMode, props, skillDraft\.skills\]\);/,
+      'chip-only edits must refresh submit so removed Skills cannot be sent from a stale callback',
+    );
+    assert.match(readyBlock, /className="maka-composer-skill-chip"/);
   });
 
   it('clears first-run drag highlight when files leave the window', async () => {

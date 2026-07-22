@@ -151,11 +151,24 @@ const makaBridge = {
             type: 'send';
             turnId: string;
             text: string;
+            skillIds?: string[];
             attachmentItems?: RendererIngestInput[];
             turnOrchestration?: TurnOrchestration;
             quotes?: QuoteRef[];
           },
-    ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
+    ): Promise<
+      | {
+          ok: true;
+          turnId: string;
+          attachments: AttachmentRef[];
+          skillInvocation: import('@maka/runtime').SkillInvocationResult;
+        }
+      | {
+          ok: false;
+          reason: 'skill_invocation_failed';
+          skillInvocation: import('@maka/runtime').SkillInvocationResult;
+        }
+    > {
       if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {
         const encoded = await encodeIngestItems(command.attachmentItems as RendererIngestInput[]);
         return ipcRenderer.invoke('sessions:send', sessionId, { ...command, attachmentItems: encoded });
@@ -396,7 +409,7 @@ const makaBridge = {
      * connection/model overrides at this stage (PR110c/d will add
      * model picker UI).
      */
-    start(input?: { prompt?: string; mode?: QuickChatMode }): Promise<QuickChatResult> {
+    start(input?: { prompt?: string; mode?: QuickChatMode; skillIds?: string[] }): Promise<QuickChatResult> {
       return ipcRenderer.invoke('quickChat:start', input);
     },
   },
@@ -1044,6 +1057,9 @@ const makaBridge = {
   skills: {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
+    },
+    listInvocable(sessionId?: string): Promise<import('@maka/runtime').InvocableSkillEntry[]> {
+      return ipcRenderer.invoke('skills:listInvocable', sessionId);
     },
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]> {

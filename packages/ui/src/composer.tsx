@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import { ArrowUp, Blocks, Paperclip, Pencil, Plus } from './icons.js';
+import { ArrowUp, Blocks, Paperclip, Pencil, Plus, X } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
@@ -19,6 +19,7 @@ import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js'
 import { appendPromptContextDraft, isReferenceSizedPaste } from './composer-helpers.js';
 import { useComposerDraft } from './use-composer-draft.js';
 import { useComposerHistory } from './use-composer-history.js';
+import { useComposerSkillDraft } from './use-composer-skill-draft.js';
 import {
   createChatInputActionOwner,
   fileTransferContainsFiles,
@@ -63,6 +64,8 @@ export interface ComposerHandle {
   setDraft(draftKey: string, text: string): void;
   /** Move focus to the textarea without changing its content. */
   focus(): void;
+  /** Fixture/integration seam for the same structured selection state used by `/`. */
+  setSkills(skills: ReadonlyArray<{ id: string; name: string }>): void;
 }
 
 type ComposerImportActionId = 'pick' | 'attach';
@@ -97,7 +100,10 @@ export const Composer = forwardRef<
     stopPending?: boolean;
     /** Runtime-only key used to keep unsent drafts isolated per session. */
     draftKey?: string;
-    onSend(text: string): boolean | void | Promise<boolean | void>;
+    onSend(
+      text: string,
+      skillIds: readonly string[],
+    ): boolean | void | Promise<boolean | void>;
     onStop(): void | Promise<void>;
     onPickAttachments?(): void | Promise<void>;
     onAttachFilePaths?(files: File[]): void | Promise<void>;
@@ -207,13 +213,11 @@ export const Composer = forwardRef<
     swarmModeDisabledReason?: string;
     onSwarmModeChange?(active: boolean): void | Promise<void>;
     /**
-     * Composer mention popups (v1 plain-text tokens; see
-     * docs/archive/composer-mentions-spec-2026-07-14.md). Both are optional and the
-     * whole feature no-ops when absent (SSR contracts render Composer with
-     * minimal props):
+     * Composer mention popups. Both are optional and the whole feature no-ops
+     * when absent (SSR contracts render Composer with minimal props):
      *   - `mentionSkills` powers the `/` popup — pass only ENABLED skills; the
-     *     composer filters them client-side by the typed query and inserts the
-     *     house `使用 <name> 技能：` convention (human-in-the-loop, never auto-send).
+     *     composer filters them client-side by id/name and creates a structured
+     *     Skill Chip (human-in-the-loop, never auto-send).
      *   - `onSearchMentionFiles` powers the `@` popup — the composer debounces
      *     the query, and selecting a file inserts `@<relativePath> `.
      */
@@ -250,6 +254,7 @@ export const Composer = forwardRef<
     autoResize,
     saveCurrentDraft,
   });
+  const skillDraft = useComposerSkillDraft(props.draftKey);
   // Mention popup state (@ file / skill) lives in useMentionPopup (issue
   // #1044); the identifiers below keep their names so the keydown routing
   // (arrows / Enter / Tab / Esc, pinned by the composer-mention contract)
@@ -272,6 +277,7 @@ export const Composer = forwardRef<
     saveCurrentDraft,
     autoResize,
     resetPromptHistoryNavigation,
+    onSelectSkill: (skill) => skillDraft.add(skill),
   });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   const locale = useUiLocale();
@@ -345,6 +351,10 @@ export const Composer = forwardRef<
       focus() {
         textareaRef.current?.focus();
       },
+      setSkills(skills) {
+        skillDraft.clear(skillDraft.activeDraftKey());
+        for (const skill of skills) skillDraft.add(skill);
+      },
     }),
     [],
   );
@@ -354,13 +364,15 @@ export const Composer = forwardRef<
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
-    if (!text) return;
+    const skillIds = skillDraft.skills.map((skill) => skill.id);
+    if (!text && skillIds.length === 0) return;
     const submittedDraftKey = activeDraftKey();
+    const submittedSkillDraftKey = skillDraft.activeDraftKey();
     sendPendingRef.current = true;
     setSendPending(true);
     let sent: boolean | void;
     try {
-      sent = await props.onSend(text);
+      sent = await props.onSend(text, skillIds);
     } finally {
       sendPendingRef.current = false;
       if (composerMountedRef.current) setSendPending(false);
@@ -369,12 +381,14 @@ export const Composer = forwardRef<
     if (sent === false) return;
     // Save to both local ref and global persistence so the history
     // survives page reloads and is shared across all input surfaces.
-    rememberSentEntry(text);
+    if (text) rememberSentEntry(text);
     clearDraft(submittedDraftKey);
     // The owner may have changed while onSend awaited (new-session creation,
     // revision branch, or user navigation). Never erase a foreign draft.
     if (activeDraftKey() !== submittedDraftKey) return;
     saveCurrentDraft('');
+    skillDraft.clear(submittedSkillDraftKey);
+    skillDraft.clear(skillDraft.activeDraftKey());
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
     // manually so the composer snaps back to its single-row footprint.
@@ -432,6 +446,15 @@ export const Composer = forwardRef<
         closeMention();
         return;
       }
+    }
+    if (
+      event.key === 'Backspace' &&
+      event.currentTarget.selectionStart === 0 &&
+      event.currentTarget.selectionEnd === 0 &&
+      skillDraft.removeLast()
+    ) {
+      event.preventDefault();
+      return;
     }
     // Esc while a drag-active highlight is showing should clear it
     // immediately. The existing useEffect listens for blur/dragend/drop
@@ -560,7 +583,12 @@ export const Composer = forwardRef<
 
   const importActionBusy = pendingImportAction !== null;
   const noModelConnection = props.noModelConnection === true;
-  const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText || noModelConnection;
+  const sendDisabled =
+    props.disabled ||
+    sendPending ||
+    importActionBusy ||
+    (!hasDraftText && skillDraft.skills.length === 0) ||
+    noModelConnection;
   // The disabled Send is explanatory only in the no-model dead-end; other
   // disabled reasons (empty draft, in-flight import) keep the neutral label.
   const sendTitle = noModelConnection && !props.disabled ? copy.noModelSendTitle : copy.sendLabel;
@@ -650,6 +678,32 @@ export const Composer = forwardRef<
               />
             ))}
           </div>
+        ) : null}
+        {skillDraft.skills.length > 0 ? (
+          <ul
+            className="maka-composer-skill-chips"
+            aria-label={copy.selectedSkillsAriaLabel}
+          >
+            {skillDraft.skills.map((skill) => (
+              <li className="maka-composer-skill-chip" key={skill.id}>
+                <span>{skill.name}</span>
+                <UiButton
+                  type="button"
+                  variant="quiet"
+                  size="icon"
+                  shape="pill"
+                  className="maka-composer-skill-chip-remove"
+                  aria-label={copy.removeSkillAriaLabel(skill.name)}
+                  onClick={() => {
+                    skillDraft.remove(skill.id);
+                    window.requestAnimationFrame(() => textareaRef.current?.focus());
+                  }}
+                >
+                  <X size={12} aria-hidden="true" />
+                </UiButton>
+              </li>
+            ))}
+          </ul>
         ) : null}
         <UiTextarea
           ref={textareaRef}

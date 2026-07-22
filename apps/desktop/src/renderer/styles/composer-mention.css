@@ -83,3 +83,25 @@
   color: var(--muted-foreground);
   text-align: center;
 }
+
+.maka-composer-skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: var(--space-2) var(--space-3) 0;
+  list-style: none;
+}
+
+.maka-composer-skill-chip {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: var(--space-1);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--state-selected-bg);
+  padding-left: var(--space-2-5);
+  color: var(--foreground);
+  font-size: var(--font-size-caption);
+}

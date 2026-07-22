@@ -32,7 +32,12 @@ interface ChatMessageSurfaceProps extends Omit<
   isOnboardingLoading: boolean;
   onOpenSettings: (section?: SettingsSection) => void;
   onBrowseProviders: () => void;
-  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
+  onQuickChatSubmit: (
+    prompt: string,
+    mode?: QuickChatMode,
+    skillIds?: readonly string[],
+  ) => boolean | Promise<boolean>;
+  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
   quickChatPending?: boolean;
   connections: LlmConnection[];
   onRefreshConnections: () => Promise<void> | void;
@@ -50,6 +55,7 @@ export function ChatMessageSurface({
   onOpenSettings,
   onBrowseProviders,
   onQuickChatSubmit,
+  mentionSkills,
   quickChatPending,
   connections,
   onRefreshConnections,
@@ -75,6 +81,7 @@ export function ChatMessageSurface({
         onOpenSettings={onOpenSettings}
         onBrowseProviders={onBrowseProviders}
         onQuickChatSubmit={onQuickChatSubmit}
+        mentionSkills={mentionSkills}
         quickChatPending={quickChatPending}
         connections={connections}
         onRefreshConnections={onRefreshConnections}

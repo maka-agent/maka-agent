@@ -21,6 +21,7 @@ interface NormalizedSendSessionCommand {
   type: 'send';
   turnId?: string;
   text: string;
+  skillIds?: string[];
   attachmentItems?: unknown;
   turnOrchestration?: TurnOrchestration;
   quotes?: QuoteRef[];
@@ -108,10 +109,14 @@ export function normalizeReviseBeforeTurnInput(input: unknown): ReviseBeforeTurn
 export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessionCommand | undefined {
   const value = requireObject(input, 'Invalid session command');
   if (value.type !== 'send') return undefined;
+  const text = normalizeSendText(value.text);
+  const skillIds = normalizeSessionSkillIds(value.skillIds);
+  if (!text.trim() && skillIds.length === 0) throw new Error('Invalid send text');
   return {
     type: 'send',
     ...normalizeOptionalSendTurnId(value.turnId),
-    text: normalizeRequiredString(value.text, 'Invalid send text', MAX_SESSION_SEND_TEXT_LENGTH),
+    text,
+    ...(skillIds.length > 0 ? { skillIds } : {}),
     ...(value.attachmentItems !== undefined ? { attachmentItems: value.attachmentItems } : {}),
     ...(value.turnOrchestration !== undefined
       ? { turnOrchestration: normalizeTurnOrchestration(value.turnOrchestration) }
@@ -154,6 +159,31 @@ function normalizeOptionalQuotes(input: unknown): { quotes?: QuoteRef[] } {
     };
   });
   return quotes.length > 0 ? { quotes } : {};
+}
+
+function normalizeSendText(input: unknown): string {
+  if (typeof input !== 'string' || input.length > MAX_SESSION_SEND_TEXT_LENGTH) {
+    throw new Error('Invalid send text');
+  }
+  return input;
+}
+
+export function normalizeSessionSkillIds(input: unknown): string[] {
+  if (input === undefined) return [];
+  if (
+    !Array.isArray(input) ||
+    input.length > 50 ||
+    input.some(
+      (id) =>
+        typeof id !== 'string' ||
+        id.length === 0 ||
+        id.length > 120 ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id),
+    )
+  ) {
+    throw new Error('Invalid send skillIds');
+  }
+  return [...input];
 }
 
 export function normalizeStopSessionInput(input: unknown): NormalizedStopSessionInput {

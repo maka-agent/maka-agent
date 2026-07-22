@@ -1292,10 +1292,19 @@ export {
   listInvocableSkills,
   resolveSkillInvocations,
   composeSkillInvocationMessage,
+  parseSkillInvocationTokens,
+  prepareSkillInvocationMessage,
+  SKILL_INVOCATION_TOKEN_SOURCE,
+  stripSkillInvocationTokens,
 } from './skill-invocation.js';
 export type {
   InvocableSkillEntry,
+  PreparedSkillInvocationMessage,
+  SkillInvocationFailure,
+  SkillInvocationFailureReason,
   SkillInvocationResolution,
+  SkillInvocationResult,
+  SkillInvocationToken,
 } from './skill-invocation.js';
 export {
   isPathInside,

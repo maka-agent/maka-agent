@@ -23,7 +23,7 @@ import type {
 } from '@maka/core';
 import type { ProviderType } from '@maka/core/llm-connections';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { SessionManager } from '@maka/runtime';
+import type { PreparedSkillInvocationMessage, SessionManager } from '@maka/runtime';
 import type { createArtifactStore, createSessionStore } from '@maka/storage';
 import type { ConnectionStore, SettingsStore } from '@maka/storage';
 import { runThreadSearch } from './search/thread-search.js';
@@ -48,6 +48,7 @@ import type { AttachmentApprovalRegistry } from './attachment-approval.js';
 import type { createMainWindowController } from './main-window.js';
 import { handleBranchFromTurn } from './session-branch.js';
 import { handleReviseBeforeTurn } from './session-revision.js';
+import { prepareSessionSendSkillPlan } from './session-send-skill-plan.js';
 
 type SessionStore = ReturnType<typeof createSessionStore>;
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
@@ -83,6 +84,11 @@ export interface SessionsIpcDeps {
     extra?: Pick<SessionChangedEvent, 'connectionSlug' | 'modelId'>,
   ) => void;
   ensureSessionCanSend: (sessionId: string) => Promise<void>;
+  prepareSkillInvocation?: (
+    sessionId: string,
+    text: string,
+    skillIds?: readonly string[],
+  ) => Promise<PreparedSkillInvocationMessage>;
   invalidateSessionBindings?: (sessionId: string) => void;
   clearSkillHost?: (sessionId: string) => void;
   ensureSessionWorkspaceAvailable: (sessionId: string) => Promise<void>;
@@ -181,6 +187,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     e2eFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
+    prepareSkillInvocation,
     invalidateSessionBindings,
     clearSkillHost,
     ensureSessionWorkspaceAvailable,
@@ -326,22 +333,43 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
-    const { turnId, attachments } = await resolveSessionSend({
-      sessionId,
-      senderId: event.sender.id,
-      command: sendCommand,
-      ensureCanSend: ensureSessionCanSend,
-      readHeader: (id) => store.readHeader(id),
-      approvals: attachmentApprovals,
-      stat: async (path) => ({ size: (await stat(path)).size }),
-      artifactStore,
-      resizeImage: resizeImageForAttachment,
+    const sendPlan = await prepareSessionSendSkillPlan({
+      prepare: () =>
+        prepareSkillInvocation
+          ? prepareSkillInvocation(sessionId, sendCommand.text, sendCommand.skillIds)
+          : Promise.resolve({
+              disposition: 'passthrough' as const,
+              sendText: sendCommand.text,
+              skillInvocation: { loaded: [], failed: [] },
+            }),
+      resolveSend: () =>
+        resolveSessionSend({
+          sessionId,
+          senderId: event.sender.id,
+          command: sendCommand,
+          ensureCanSend: ensureSessionCanSend,
+          readHeader: (id) => store.readHeader(id),
+          approvals: attachmentApprovals,
+          stat: async (path) => ({ size: (await stat(path)).size }),
+          artifactStore,
+          resizeImage: resizeImageForAttachment,
+        }),
     });
+    if (!sendPlan.ok) return sendPlan;
+    const skillInvocation = sendPlan.preparation;
+    const { turnId, attachments } = sendPlan.resolved;
+    const displayText =
+      sendCommand.text.trim().length > 0
+        ? sendCommand.text
+        : skillInvocation.skillInvocation.loaded
+            .map((skill) => `/skill:${skill.id}`)
+            .join(' ');
     const iterator = runtime.sendMessage(
       sessionId,
       {
         turnId,
-        text: sendCommand.text,
+        text: skillInvocation.sendText,
+        ...(skillInvocation.disposition === 'ready' ? { displayText } : {}),
         ...(sendCommand.turnOrchestration
           ? { turnOrchestration: sendCommand.turnOrchestration }
           : {}),
@@ -357,7 +385,12 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       },
     );
     void streamEvents(sessionId, iterator, { turnId, goalBoundary: 'external' });
-    return { turnId, attachments };
+    return {
+      ok: true as const,
+      turnId,
+      attachments,
+      skillInvocation: skillInvocation.skillInvocation,
+    };
   });
   ipcMain.handle(
     'attachments:pickFiles',

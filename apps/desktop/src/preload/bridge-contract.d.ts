@@ -87,7 +87,7 @@ import type {
   McpServerStatus,
   McpTestResult,
 } from '@maka/core/mcp';
-import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
+import type { BotStatus, SkillInvocationResult, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type {
@@ -123,9 +123,10 @@ export type ExpertTeamStartResult =
   | { ok: false; reason: 'send_failed'; message: string };
 
 export type QuickChatResult =
-  | { ok: true; sessionId: string }
+  | { ok: true; sessionId: string; skillInvocation?: SkillInvocationResult }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
   | { ok: false; reason: 'workspace_unavailable' }
+  | { ok: false; reason: 'skill_invocation_failed'; skillInvocation: SkillInvocationResult }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export interface OnboardingSnapshot {
@@ -194,11 +195,24 @@ export interface MakaBridge {
             type: 'send';
             turnId: string;
             text: string;
+            skillIds?: string[];
             attachmentItems?: RendererIngestInput[];
             turnOrchestration?: TurnOrchestration;
             quotes?: import('@maka/core').QuoteRef[];
           },
-    ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
+    ): Promise<
+      | {
+          ok: true;
+          turnId: string;
+          attachments: import('@maka/core').AttachmentRef[];
+          skillInvocation: import('@maka/runtime').SkillInvocationResult;
+        }
+      | {
+          ok: false;
+          reason: 'skill_invocation_failed';
+          skillInvocation: import('@maka/runtime').SkillInvocationResult;
+        }
+    >;
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
     readMessages(sessionId: string): Promise<StoredMessage[]>;
     listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -324,7 +338,7 @@ export interface MakaBridge {
     clearMilestone(id: OnboardingMilestoneId): Promise<OnboardingSnapshot>;
   };
   quickChat: {
-    start(input?: { prompt?: string; mode?: QuickChatMode }): Promise<QuickChatResult>;
+    start(input?: { prompt?: string; mode?: QuickChatMode; skillIds?: string[] }): Promise<QuickChatResult>;
   };
   expertTeam: {
     list(): Promise<{ teams: ExpertTeamSummary[] }>;
@@ -659,6 +673,7 @@ export interface MakaBridge {
   };
   skills: {
     list(): Promise<SkillEntry[]>;
+    listInvocable(sessionId?: string): Promise<import('@maka/runtime').InvocableSkillEntry[]>;
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]>;
       install(id: string): Promise<

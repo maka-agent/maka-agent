@@ -17,10 +17,13 @@
  */
 
 import { useEffect, useId, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
-import { detectMentionTrigger, mentionQueryMatches, type MentionTrigger } from './chat-input-behavior.js';
+import {
+  detectMentionTrigger,
+  mentionQueryMatches,
+  skillMentionQuery,
+  type MentionTrigger,
+} from './chat-input-behavior.js';
 import type { MentionItem } from './composer-mention-popup.js';
-import { useUiLocale } from './locale-context.js';
-import { getSharedUiCopy } from './shared-ui-copy.js';
 
 export interface ComposerMentionApi {
   /** The active trigger + query + trigger-char index; null when closed. */
@@ -60,8 +63,9 @@ export function useMentionPopup(input: {
   autoResize(): void;
   /** Inserting a mention is an edit: history navigation restarts. */
   resetPromptHistoryNavigation(): void;
+  /** Structured Skill selection; unlike file mentions it is not serialized into text. */
+  onSelectSkill?(skill: { id: string; name: string }): void;
 }): ComposerMentionApi {
-  const copy = getSharedUiCopy(useUiLocale());
   // Mention popup state (@ file / skill). `mention` holds the active trigger +
   // query + trigger-char index; items/loading/activeIndex drive the popup. The
   // whole block stays inert unless the matching provider prop is present, so
@@ -125,11 +129,21 @@ export function useMentionPopup(input: {
     if (!el || !current) return;
     const item = mentionItems[index];
     if (!item) return;
-    const insertion = item.type === 'file'
-      ? `@${item.relativePath} `
-      : copy.mention.skillInsertion(item.name);
     const value = el.value;
     const caret = el.selectionEnd ?? value.length;
+    if (item.type === 'skill') {
+      const nextValue = `${value.slice(0, current.start)}${value.slice(caret)}`;
+      input.resetPromptHistoryNavigation();
+      el.value = nextValue;
+      el.setSelectionRange(current.start, current.start);
+      closeMention();
+      input.onSelectSkill?.({ id: item.id, name: item.name });
+      input.saveCurrentDraft(nextValue);
+      input.autoResize();
+      el.focus();
+      return;
+    }
+    const insertion = `@${item.relativePath} `;
     // Replace [start, caret): the trigger char (at `start`) through the caret,
     // i.e. the `@query` / `/query` the user typed, with the plain-text token.
     const nextValue = value.slice(0, current.start) + insertion + value.slice(caret);
@@ -154,8 +168,11 @@ export function useMentionPopup(input: {
     }
     if (mention.trigger === '/') {
       const skills = input.mentionSkills ?? [];
+      const query = skillMentionQuery(mention.query);
       const items: MentionItem[] = skills
-        .filter((skill) => mentionQueryMatches(mention.query, `${skill.name} ${skill.description ?? ''}`))
+        .filter((skill) =>
+          mentionQueryMatches(query, `${skill.id} ${skill.name} ${skill.description ?? ''}`),
+        )
         .slice(0, 50)
         .map((skill) => ({ type: 'skill', id: skill.id, name: skill.name, description: skill.description }));
       setMentionItems(items);

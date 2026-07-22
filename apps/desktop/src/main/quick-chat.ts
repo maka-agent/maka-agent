@@ -18,6 +18,8 @@
 
 import type { OnboardingState, QuickChatMode, SessionSummary } from '@maka/core';
 import { generalizedErrorMessageChinese, normalizeQuickChatMode } from '@maka/core';
+import type { PreparedSkillInvocationMessage, SkillInvocationResult } from '@maka/runtime';
+import { normalizeSessionSkillIds } from './permission-response-guard.js';
 import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
 
 /**
@@ -32,9 +34,10 @@ import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
  * needs a scroll anchor — not before.
  */
 export type QuickChatResult =
-  | { ok: true; sessionId: string }
+  | { ok: true; sessionId: string; skillInvocation?: SkillInvocationResult }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
   | { ok: false; reason: 'workspace_unavailable' }
+  | { ok: false; reason: 'skill_invocation_failed'; skillInvocation: SkillInvocationResult }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export interface QuickChatDeps {
@@ -63,27 +66,40 @@ export interface QuickChatDeps {
    * Pre-flight gate identical to the existing `sessions:send` path.
    */
   ensureCanSend(sessionId: string): Promise<void>;
+  /** Resolve structured ids and direct `/skill:<id>` tokens for this session. */
+  prepareSkillInvocation(
+    sessionId: string,
+    text: string,
+    skillIds: readonly string[],
+  ): Promise<PreparedSkillInvocationMessage>;
+  /** Remove a brand-new session when invocation fails before any turn starts. */
+  removeSession(sessionId: string): Promise<void>;
   /**
    * Send the first user message via the existing send path. The
    * implementation is expected to fire-and-stream — the handler does
    * not need any return value from this call. Returning `void` makes
    * it obvious that PR110b does not own a turn/message anchor.
    */
-  sendFirstMessage(sessionId: string, text: string): Promise<void>;
+  sendFirstMessage(sessionId: string, text: string, displayText?: string): Promise<void>;
 }
 
 export async function handleQuickChatStart(
   rawInput: unknown,
   deps: QuickChatDeps,
 ): Promise<QuickChatResult> {
-  // PR110b: strict input shape. Anything besides `{ prompt?: string }`
-  // is silently ignored so the readiness gate stays authoritative.
+  // Keep the Quick Chat IPC boundary as strict as sessions:send for the
+  // structured Skill ids, while ignoring unrelated legacy fields.
   const promptRaw =
     rawInput && typeof rawInput === 'object' && 'prompt' in rawInput
       ? (rawInput as { prompt?: unknown }).prompt
       : undefined;
   const prompt = typeof promptRaw === 'string' ? promptRaw : '';
   const trimmed = prompt.trim();
+  const skillIds = normalizeSessionSkillIds(
+    rawInput && typeof rawInput === 'object' && 'skillIds' in rawInput
+      ? (rawInput as { skillIds?: unknown }).skillIds
+      : undefined,
+  );
   const mode = normalizeQuickChatMode(
     rawInput && typeof rawInput === 'object' && 'mode' in rawInput
       ? (rawInput as { mode?: unknown }).mode
@@ -103,7 +119,6 @@ export async function handleQuickChatStart(
       defaultModel: state.defaultModel,
       mode,
     });
-    deps.emitCreated(session.id);
   } catch (error) {
     if (isSessionWorkspaceUnavailableError(error)) {
       return { ok: false, reason: 'workspace_unavailable' };
@@ -115,17 +130,57 @@ export async function handleQuickChatStart(
     };
   }
 
-  // Empty / whitespace prompt: only open the session; do not call
-  // send and do not write an empty user message.
-  if (!trimmed) {
+  // Empty / whitespace prompt with no explicit Skill: only open the session;
+  // do not call send and do not write an empty user message.
+  if (!trimmed && skillIds.length === 0) {
+    deps.emitCreated(session.id);
     return { ok: true, sessionId: session.id };
   }
 
+  let sessionEmitted = false;
+  let cleanupAttempted = false;
   try {
+    const preparation = await deps.prepareSkillInvocation(session.id, trimmed, skillIds);
+    if (preparation.disposition === 'blocked') {
+      cleanupAttempted = true;
+      await deps.removeSession(session.id);
+      return {
+        ok: false,
+        reason: 'skill_invocation_failed',
+        skillInvocation: preparation.skillInvocation,
+      };
+    }
+    deps.emitCreated(session.id);
+    sessionEmitted = true;
     await deps.ensureCanSend(session.id);
-    await deps.sendFirstMessage(session.id, trimmed);
-    return { ok: true, sessionId: session.id };
+    const displayText =
+      trimmed.length > 0
+        ? trimmed
+        : preparation.skillInvocation.loaded.map((skill) => `/skill:${skill.id}`).join(' ');
+    await deps.sendFirstMessage(
+      session.id,
+      preparation.sendText,
+      preparation.disposition === 'ready' ? displayText : undefined,
+    );
+    return {
+      ok: true,
+      sessionId: session.id,
+      ...(preparation.disposition === 'ready'
+        ? { skillInvocation: preparation.skillInvocation }
+        : {}),
+    };
   } catch (error) {
+    if (!sessionEmitted && !cleanupAttempted) {
+      // Preparation happens after the temporary session is created but before
+      // it is announced. Do not leave an invisible empty session behind when
+      // discovery or project-context resolution fails unexpectedly.
+      try {
+        await deps.removeSession(session.id);
+      } catch {
+        // Preserve the original failure; the renderer refresh below will make
+        // any session that could not be removed visible and recoverable.
+      }
+    }
     if (isSessionWorkspaceUnavailableError(error)) {
       return { ok: false, reason: 'workspace_unavailable' };
     }

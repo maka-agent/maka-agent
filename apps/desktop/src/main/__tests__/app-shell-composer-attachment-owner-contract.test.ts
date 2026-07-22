@@ -28,7 +28,9 @@ describe('AppShell composer attachment ownership', () => {
       readFile(resolve(RENDERER_ROOT, 'use-app-shell-composer-attachments.ts'), 'utf8'),
     ]);
 
-    assert.match(shell, /const ok = await send\(text, pending, \{[^}]*quotes/);
+    assert.match(shell, /const ok = await send\(text, pending, \{/);
+    assert.match(shell, /\.\.\.\(skillIds\.length > 0 \? \{ skillIds \} : \{\}\)/);
+    assert.match(shell, /\.\.\.\(quotes \? \{ quotes \} : \{\}\)/);
     assert.match(
       shell,
       /const sessionId = activeIdRef\.current;[\s\S]*window\.maka\.sessions\.compact\(sessionId\)/,

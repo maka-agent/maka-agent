@@ -14,10 +14,10 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 describe('/compact routing contract', () => {
   it('renderer intercepts exact /compact and routes to sessions.compact, never send', async () => {
     const shell = await readRendererShellSource('app-shell.tsx');
-    const send = shell.match(/async function sendWithAttachments\(text: string\): Promise<boolean \| void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const send = shell.match(/async function sendWithAttachments\([\s\S]*?\): Promise<boolean \| void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    // exact /compact (after trim) is the only trigger
-    assert.match(send, /if \(text\.trim\(\) === '\/compact'\) \{/);
+    // exact /compact (after trim) with no structured Skill invocation is the only trigger
+    assert.match(send, /if \(skillIds\.length === 0 && text\.trim\(\) === '\/compact'\) \{/);
     // routes to compact only when an active session exists — the no-active-session guard
     assert.match(send, /const sessionId = activeIdRef\.current;/);
     assert.match(send, /if \(!sessionId\) return true;/);
@@ -30,7 +30,9 @@ describe('/compact routing contract', () => {
     // returns early so /compact never falls through to the normal send path
     assert.match(send, /return true;/);
     // non-compact text still goes through the normal send path
-    assert.match(send, /const ok = await send\(text, pending, \{[^}]*quotes/);
+    assert.match(send, /const ok = await send\(text, pending, \{/);
+    assert.match(send, /\.\.\.\(skillIds\.length > 0 \? \{ skillIds \} : \{\}\)/);
+    assert.match(send, /\.\.\.\(quotes \? \{ quotes \} : \{\}\)/);
   });
 
   it('main sessions:compact IPC drives runtime.compactSession via streamEvents', async () => {

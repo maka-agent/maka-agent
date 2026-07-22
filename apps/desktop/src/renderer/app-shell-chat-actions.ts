@@ -26,6 +26,10 @@ import {
   isSessionWorkspaceUnavailableError,
   showSessionWorkspaceUnavailableToast,
 } from './session-workspace-errors.js';
+import {
+  showSkillInvocationFeedback,
+  skillInvocationDisplayText,
+} from './skill-invocation-feedback.js';
 
 export type PendingAttachment = {
   displayName: string;
@@ -67,6 +71,7 @@ type PendingNewChatThinkingLevel = ThinkingLevel | null;
 
 type ToastApi = {
   error(title: string, description?: string): void;
+  info(title: string, description?: string): void;
 };
 
 export interface RefreshMessagesOptions {
@@ -113,7 +118,11 @@ export interface AppShellChatActions {
   send(
     text: string,
     pending?: readonly PendingAttachment[],
-    options?: { turnOrchestration?: TurnOrchestration; quotes?: readonly QuoteRef[] },
+    options?: {
+      skillIds?: readonly string[];
+      turnOrchestration?: TurnOrchestration;
+      quotes?: readonly QuoteRef[];
+    },
   ): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   respondToUserQuestion(response: UserQuestionResponse): Promise<void>;
@@ -273,10 +282,12 @@ export function createAppShellChatActions(deps: {
     text: string,
     pending?: readonly PendingAttachment[],
     options: {
+      skillIds?: readonly string[];
       turnOrchestration?: TurnOrchestration;
       quotes?: readonly QuoteRef[];
     } = {},
   ): Promise<boolean> {
+    const skillIds = options.skillIds;
     const quotes = options.quotes;
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
@@ -312,16 +323,37 @@ export function createAppShellChatActions(deps: {
           turnId,
           text,
           ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
+          ...(skillIds && skillIds.length > 0 ? { skillIds: [...skillIds] } : {}),
           ...(attachmentItems ? { attachmentItems } : {}),
           ...(quotes && quotes.length > 0 ? { quotes: [...quotes] } : {}),
         });
+        if (!sendResult.ok) {
+          if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
+            showSkillInvocationFeedback(uiLocale, toastApi, sendResult.skillInvocation);
+          }
+          disarmTurnActive(session.id, turnId);
+          restoreOptimisticStatus?.();
+          restoreOptimisticStatus = undefined;
+          await window.maka.sessions.remove(session.id);
+          await refreshSessions();
+          return false;
+        }
+        if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
+          showSkillInvocationFeedback(uiLocale, toastApi, sendResult.skillInvocation);
+        }
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
-          showOptimisticUserMessage(session.id, turnId, text, sendResult.attachments, {
-            replaceCurrentMessages: true,
-            ...(quotes && quotes.length > 0 ? { quotes } : {}),
-          });
+          showOptimisticUserMessage(
+            session.id,
+            turnId,
+            skillInvocationDisplayText(text, sendResult.skillInvocation),
+            sendResult.attachments,
+            {
+              replaceCurrentMessages: true,
+              ...(quotes && quotes.length > 0 ? { quotes } : {}),
+            },
+          );
         }
         if (activeIdRef.current === session.id) {
           await refreshMessagesUntilTurn(session.id, turnId);
@@ -340,12 +372,29 @@ export function createAppShellChatActions(deps: {
         turnId,
         text,
         ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
+        ...(skillIds && skillIds.length > 0 ? { skillIds: [...skillIds] } : {}),
         ...(attachmentItems ? { attachmentItems } : {}),
         ...(quotes && quotes.length > 0 ? { quotes: [...quotes] } : {}),
       });
-      showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments, {
-        ...(quotes && quotes.length > 0 ? { quotes } : {}),
-      });
+      if (!sendResult.ok) {
+        if (activeIdRef.current === sessionId) {
+          showSkillInvocationFeedback(uiLocale, toastApi, sendResult.skillInvocation);
+        }
+        disarmTurnActive(sessionId, turnId);
+        restoreOptimisticStatus?.();
+        restoreOptimisticStatus = undefined;
+        return false;
+      }
+      if (activeIdRef.current === sessionId) {
+        showSkillInvocationFeedback(uiLocale, toastApi, sendResult.skillInvocation);
+      }
+      showOptimisticUserMessage(
+        sessionId,
+        turnId,
+        skillInvocationDisplayText(text, sendResult.skillInvocation),
+        sendResult.attachments,
+        { ...(quotes && quotes.length > 0 ? { quotes } : {}) },
+      );
       await refreshMessagesUntilTurn(sessionId, turnId);
       return true;
     } catch (error) {

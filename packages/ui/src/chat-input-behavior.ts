@@ -96,6 +96,11 @@ export function mentionQueryMatches(query: string, text: string): boolean {
     .every((token) => haystack.includes(token));
 }
 
+/** Normalize `/skill:<query>` and bare `/<query>` into the same Skill search query. */
+export function skillMentionQuery(query: string): string {
+  return query.toLowerCase().startsWith('skill:') ? query.slice('skill:'.length) : query;
+}
+
 export interface ChatInputActionOwner<ActionId> {
   readonly pending: ActionId | null;
   run<Result>(actionId: ActionId, action: () => Promise<Result>): Promise<Result | undefined>;

@@ -678,6 +678,27 @@ describe('e2e-fixture mode', () => {
     assert.equal(getE2eFixtureState(dailyReview)?.activeSessionId, 'e2e-fixture-turn');
   });
 
+  it('composer-skill-invocation opens a real chat draft and seeds invocable Skills', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-skill-composer-'));
+    try {
+      const fixture = resolveE2eFixture('composer-skill-invocation', false);
+      assert.ok(fixture);
+      const state = getE2eFixtureState(fixture);
+      assert.equal(state?.activeSessionId, 'e2e-fixture-turn');
+      assert.equal(state?.composerText, '请整理这次会议的行动项');
+      assert.deepEqual(state?.composerSkills, [{ id: 'meeting-followup', name: '会议跟进' }]);
+      await seedE2eFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      await readFile(join(workspaceRoot, 'skills', 'meeting-followup', 'SKILL.md'), 'utf8');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('module-mcp seeds a couple of installed servers so the 已安装 list renders', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-mcp-'));
     try {

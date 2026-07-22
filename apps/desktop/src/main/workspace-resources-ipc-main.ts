@@ -2,6 +2,7 @@ import { ipcMain, shell } from 'electron';
 import { copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ArtifactSaveResult } from '@maka/core';
+import type { InvocableSkillEntry } from '@maka/runtime';
 import { createArtifactStore, resolveArtifactPath } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
 import {
@@ -32,6 +33,7 @@ interface WorkspaceResourcesIpcDeps {
   artifactStore: ArtifactStore;
   mainWindowController: MainWindowController;
   sendToRenderer: MainWindowController['send'];
+  listInvocableSkills(sessionId?: string): Promise<InvocableSkillEntry[]>;
 }
 
 export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): void {
@@ -113,6 +115,9 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
 
   ipcMain.handle('skills:list', async () => {
     return listSkillEntries(deps.workspaceRoot);
+  });
+  ipcMain.handle('skills:listInvocable', async (_event, sessionId?: unknown) => {
+    return deps.listInvocableSkills(typeof sessionId === 'string' ? sessionId : undefined);
   });
   ipcMain.handle('skills:catalog:list', async () => {
     return listBundledSkillCatalog(deps.workspaceRoot);

@@ -24,6 +24,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent
 import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection } from '@maka/core';
 import {
   Button,
+  ComposerMentionPopup,
   Item,
   ItemActions,
   ItemContent,
@@ -35,7 +36,11 @@ import {
   createChatInputActionOwner,
   fileTransferContainsFiles,
   focusTextInputAtEnd,
+  getConversationCopy,
   isChatInputComposing,
+  mentionOptionId,
+  useComposerSkillDraft,
+  useMentionPopup,
   useMountedRef,
   useUiLocale,
   type ChatInputActionOwner,
@@ -67,7 +72,13 @@ export interface OnboardingHeroProps {
    * the target session is created; the hero keeps the draft on false
    * so a setup/send failure does not erate the user's first prompt.
    */
-  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
+  onQuickChatSubmit: (
+    prompt: string,
+    mode?: QuickChatMode,
+    skillIds?: readonly string[],
+  ) => boolean | Promise<boolean>;
+  /** Enabled, host-compatible Skills offered by the `/` popup. */
+  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
   /**
    * Flag set when a `quickChat:start` call is in flight, so the
    * composer can disable its submit button without owning the
@@ -166,6 +177,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
       return (
         <ReadyEmptyHero
           onQuickChatSubmit={props.onQuickChatSubmit}
+          mentionSkills={props.mentionSkills}
           quickChatPending={props.quickChatPending === true}
           onImportDroppedTextFiles={props.onImportDroppedTextFiles}
         />
@@ -482,7 +494,12 @@ function BlockedHero(props: {
 }
 
 function ReadyEmptyHero(props: {
-  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
+  onQuickChatSubmit: (
+    prompt: string,
+    mode?: QuickChatMode,
+    skillIds?: readonly string[],
+  ) => boolean | Promise<boolean>;
+  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
   quickChatPending: boolean;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
 }) {
@@ -495,6 +512,7 @@ function ReadyEmptyHero(props: {
   const readyHeroMountedRef = useMountedRef();
   const submitPendingRef = useRef(false);
   const compositionActiveRef = useRef(false);
+  const skillDraft = useComposerSkillDraft('onboarding-quick-chat');
   const importActionOwnerRef = useRef<ChatInputActionOwner<string> | null>(null);
   if (!importActionOwnerRef.current) {
     importActionOwnerRef.current = createChatInputActionOwner((action) => {
@@ -511,6 +529,7 @@ function ReadyEmptyHero(props: {
 
   const locale = useUiLocale();
   const onboardingCopy = getOnboardingCopy(locale);
+  const composerCopy = getConversationCopy(locale).composer;
   const copy = onboardingCopy.ready;
   const suggestions = getFirstRunTaskSuggestions(locale);
   const quickChatBusy = props.quickChatPending || submitPending;
@@ -520,6 +539,29 @@ function ReadyEmptyHero(props: {
       ? copy.importFolderPending
       : copy.importFilesPending;
 
+  const saveQuickChatDraft = useCallback((value?: string) => {
+    setDraft(value ?? inputRef.current?.value ?? '');
+  }, []);
+  const {
+    mention,
+    mentionItems,
+    mentionActiveIndex,
+    setMentionActiveIndex,
+    mentionLoading,
+    mentionListboxId,
+    mentionPopupOpen,
+    recomputeMention,
+    closeMention,
+    selectMention,
+  } = useMentionPopup({
+    textareaRef: inputRef,
+    mentionSkills: props.mentionSkills,
+    saveCurrentDraft: saveQuickChatDraft,
+    autoResize: () => {},
+    resetPromptHistoryNavigation: () => {},
+    onSelectSkill: (skill) => skillDraft.add(skill),
+  });
+
   const submit = useCallback(async () => {
     if (props.quickChatPending || submitPendingRef.current) return;
     submitPendingRef.current = true;
@@ -528,16 +570,18 @@ function ReadyEmptyHero(props: {
     // without sending. Caller (main.tsx) decides whether to focus the
     // composer afterward.
     try {
-      const submitted = await props.onQuickChatSubmit(draft, draftMode);
+      const skillIds = skillDraft.skills.map((skill) => skill.id);
+      const submitted = await props.onQuickChatSubmit(draft, draftMode, skillIds);
       if (!readyHeroMountedRef.current) return;
       if (!submitted) return;
       setDraft('');
       setDraftMode(undefined);
+      skillDraft.clear(skillDraft.activeDraftKey());
     } finally {
       submitPendingRef.current = false;
       if (readyHeroMountedRef.current) setSubmitPending(false);
     }
-  }, [draft, draftMode, props]);
+  }, [draft, draftMode, props, skillDraft.skills]);
 
   const handleKey = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -549,6 +593,43 @@ function ReadyEmptyHero(props: {
       // covers the main chat input; the onboarding-hero clone
       // had drifted.
       if (isChatInputComposing(event, compositionActiveRef.current)) return;
+      if (mentionPopupOpen) {
+        const count = mentionItems.length;
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          if (count > 0) setMentionActiveIndex((index) => (index + 1) % count);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          if (count > 0) setMentionActiveIndex((index) => (index - 1 + count) % count);
+          return;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          if (count > 0) {
+            event.preventDefault();
+            selectMention(mentionActiveIndex);
+            return;
+          }
+          if (event.key === 'Enter') event.preventDefault();
+          closeMention();
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeMention();
+          return;
+        }
+      }
+      if (
+        event.key === 'Backspace' &&
+        event.currentTarget.selectionStart === 0 &&
+        event.currentTarget.selectionEnd === 0 &&
+        skillDraft.removeLast()
+      ) {
+        event.preventDefault();
+        return;
+      }
       // Enter (without modifier) → submit. Shift+Enter inserts newline.
       if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
@@ -561,7 +642,17 @@ function ReadyEmptyHero(props: {
         setDragActive(false);
       }
     },
-    [submit, dragActive],
+    [
+      closeMention,
+      dragActive,
+      mentionActiveIndex,
+      mentionItems.length,
+      mentionPopupOpen,
+      selectMention,
+      setMentionActiveIndex,
+      skillDraft,
+      submit,
+    ],
   );
 
   const prefillSuggestion = useCallback((prompt: string, mode?: QuickChatMode) => {
@@ -681,6 +772,29 @@ function ReadyEmptyHero(props: {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {skillDraft.skills.length > 0 ? (
+          <ul className="maka-composer-skill-chips" aria-label={composerCopy.selectedSkillsAriaLabel}>
+            {skillDraft.skills.map((skill) => (
+              <li className="maka-composer-skill-chip" key={skill.id}>
+                <span>{skill.name}</span>
+                <Button
+                  type="button"
+                  variant="quiet"
+                  size="icon"
+                  shape="pill"
+                  className="maka-composer-skill-chip-remove"
+                  aria-label={composerCopy.removeSkillAriaLabel(skill.name)}
+                  onClick={() => {
+                    skillDraft.remove(skill.id);
+                    window.requestAnimationFrame(() => inputRef.current?.focus());
+                  }}
+                >
+                  <X size={12} aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <div className="maka-onboarding-quickchat-field">
           <Textarea
             ref={inputRef}
@@ -689,13 +803,28 @@ function ReadyEmptyHero(props: {
             placeholder={copy.quickChatPlaceholder}
             rows={3}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              recomputeMention();
+            }}
             onKeyDown={handleKey}
+            onKeyUp={recomputeMention}
+            onClick={recomputeMention}
             onPaste={handlePaste}
             onCompositionStart={() => { compositionActiveRef.current = true; }}
-            onCompositionEnd={() => { compositionActiveRef.current = false; }}
+            onCompositionEnd={() => {
+              compositionActiveRef.current = false;
+              recomputeMention();
+            }}
             disabled={quickChatBusy}
             aria-label={copy.quickChatAria}
+            aria-controls={mentionPopupOpen ? mentionListboxId : undefined}
+            aria-expanded={mentionPopupOpen ? true : undefined}
+            aria-activedescendant={
+              mentionPopupOpen && mentionItems.length > 0
+                ? mentionOptionId(mentionListboxId, mentionActiveIndex)
+                : undefined
+            }
           />
           <small
             className="maka-onboarding-quickchat-example"
@@ -706,6 +835,17 @@ function ReadyEmptyHero(props: {
             {importStatusText ?? copy.quickChatExample}
           </small>
         </div>
+        {mention ? (
+          <ComposerMentionPopup
+            trigger={mention.trigger}
+            items={mentionItems}
+            activeIndex={mentionActiveIndex}
+            loading={mentionLoading}
+            listboxId={mentionListboxId}
+            onSelect={selectMention}
+            onHover={setMentionActiveIndex}
+          />
+        ) : null}
         {dragActive && (
           <span className="maka-visually-hidden" role="status" aria-live="polite">
             {copy.dropFiles}

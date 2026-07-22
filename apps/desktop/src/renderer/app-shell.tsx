@@ -965,14 +965,6 @@ function AppShellContent({
   // the bridge is absent the panel hides the row (fail-soft).
   const keepSystemAwakeController = useKeepSystemAwake();
 
-  // Composer mention popups: `/` skills (enabled only) + `@` workspace file
-  // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
-  // inline mention state.
-  const { mentionSkills, searchMentionFiles } = useComposerMentions({
-    skills,
-    sessionId: activeId,
-  });
-
   const {
     projectInfo,
     branchList,
@@ -1001,8 +993,18 @@ function AppShellContent({
     toastApi,
   });
 
+  // Composer mention popups: `/` uses Runtime's session/project-aware,
+  // host-compatible projection; `@` uses workspace file search. Keep the
+  // resolved project path as a refresh key for new-chat project changes.
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({
+    skills,
+    sessionId: activeId,
+    projectPath: projectInfo?.projectPath,
+  });
+
   const { applyE2eFixture } = useStableActions(createAppShellE2eFixtureActions, {
     openPalette,
+    composerRef,
     openSettingsSection,
     openConnectionDetail,
     refreshSessions,
@@ -1086,7 +1088,10 @@ function AppShellContent({
     upsertSessionSummary,
   });
 
-  async function sendWithAttachments(text: string): Promise<boolean | void> {
+  async function sendWithAttachments(
+    text: string,
+    skillIds: readonly string[],
+  ): Promise<boolean | void> {
     const revision = revisionDraftRef.current;
     const revisionSend = Boolean(
       revision && activeIdRef.current === revision.draftSessionId,
@@ -1095,6 +1100,7 @@ function AppShellContent({
     if (
       revisionSend &&
       revision &&
+      skillIds.length === 0 &&
       text.trim() === revision.originalText.trim() &&
       pendingAttachments.length === 0
     ) {
@@ -1108,13 +1114,13 @@ function AppShellContent({
         toastApi.info(actionCopy.revisionUnavailableTitle, actionCopy.revisionAttachmentsUnsupported);
         return false;
       }
-      if (text.trim() === '/compact' || swarmCommand) {
+      if ((skillIds.length === 0 && text.trim() === '/compact') || swarmCommand) {
         toastApi.info(actionCopy.revisionUnavailableTitle, actionCopy.revisionCommandUnsupported);
         return false;
       }
       if (!(await prepareRevisionSend(text))) return false;
     }
-    if (text.trim() === '/compact') {
+    if (skillIds.length === 0 && text.trim() === '/compact') {
       const sessionId = activeIdRef.current;
       if (!sessionId) return true;
       try {
@@ -1159,6 +1165,7 @@ function AppShellContent({
       const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
       const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
       const ok = await send(swarmCommand.task, pending, {
+        ...(skillIds.length > 0 ? { skillIds } : {}),
         turnOrchestration: { mode: 'swarm', source: 'slash_command' },
         ...(quotes ? { quotes } : {}),
       });
@@ -1171,7 +1178,10 @@ function AppShellContent({
       ? revisionDraftRef.current?.draftSessionId
       : undefined;
     const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
-    const ok = await send(text, pending, { ...(quotes ? { quotes } : {}) });
+    const ok = await send(text, pending, {
+      ...(skillIds.length > 0 ? { skillIds } : {}),
+      ...(quotes ? { quotes } : {}),
+    });
     if (ok !== false && pending) clearSubmittedAttachments(pending);
     if (ok !== false && quotes) clearQuotes();
     if (ok !== false && revisionSend) {
@@ -1745,6 +1755,7 @@ function AppShellContent({
                 }}
                 onBrowseProviders={openProviderCatalog}
                 onQuickChatSubmit={handleQuickChatSubmit}
+                mentionSkills={mentionSkills}
                 quickChatPending={quickChatPending}
                 connections={connections}
                 onRefreshConnections={refreshConnections}

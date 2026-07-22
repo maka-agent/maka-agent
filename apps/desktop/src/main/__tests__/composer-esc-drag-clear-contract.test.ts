@@ -42,7 +42,7 @@ describe('Esc clears stuck drag-active highlight (PR-COMPOSER-ESC-DRAG-CLEAR-0)'
   it('OnboardingHero handleKey handles Esc + dragActive alongside Enter→submit', async () => {
     const src = await readFile(ONBOARDING_HERO_SOURCE, 'utf8');
     // Find the handleKey body.
-    const handler = src.match(/const handleKey = useCallback\([\s\S]*?\[submit[\s\S]*?\]\s*\)/);
+    const handler = src.match(/const handleKey = useCallback\([\s\S]*?\n  \);\n\n  const prefillSuggestion/);
     assert.ok(handler, 'handleKey must exist on OnboardingHero');
     assert.match(
       handler[0],
@@ -53,8 +53,8 @@ describe('Esc clears stuck drag-active highlight (PR-COMPOSER-ESC-DRAG-CLEAR-0)'
     // the current value.
     assert.match(
       handler[0],
-      /\[submit,\s*dragActive\]/,
-      'handleKey deps must include dragActive',
+      /\[[\s\S]*?\bdragActive\b[\s\S]*?\bsubmit\b[\s\S]*?\],\s*\);/,
+      'handleKey deps must include dragActive and submit',
     );
   });
 });

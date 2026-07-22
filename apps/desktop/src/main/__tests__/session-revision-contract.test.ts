@@ -40,8 +40,18 @@ describe('session revision (edit-and-resend) contract', () => {
     assert.match(shell, /composerRef\.current\?\.clearDraft\(expectedRevisionSessionId\)/);
     assert.match(
       shell,
-      /if \(text\.trim\(\) === '\/compact' \|\| swarmCommand\) \{[\s\S]*revisionCommandUnsupported/,
+      /if \(\(skillIds\.length === 0 && text\.trim\(\) === '\/compact'\) \|\| swarmCommand\) \{[\s\S]*revisionCommandUnsupported/,
       'revision drafts must reject local slash commands before preparing a durable version',
+    );
+    assert.match(
+      shell,
+      /revisionSend &&[\s\S]*skillIds\.length === 0 &&[\s\S]*text\.trim\(\) === revision\.originalText\.trim\(\)/,
+      'adding a structured Skill makes an otherwise unchanged revision sendable',
+    );
+    assert.match(
+      shell,
+      /send\(text, pending, \{\s*\.\.\.\(skillIds\.length > 0 \? \{ skillIds \} : \{\}\),\s*\.\.\.\(quotes \? \{ quotes \} : \{\}\),\s*\}\)/,
+      'revision sends preserve structured Skill ids alongside quote refs in the shared send envelope',
     );
     assert.match(shell, /cancelRevisionDraft/);
     assert.match(
@@ -82,7 +92,8 @@ describe('session revision (edit-and-resend) contract', () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/sessions-ipc-main.ts'), 'utf8');
     assert.match(
       main,
-      /onRunStarted: async \(_runId, header\) => \{[\s\S]*header\.revisionState === 'preparing'[\s\S]*commitRevisionVersion\(sessionId\)/,
+      /text: skillInvocation\.sendText,[\s\S]*onRunStarted: async \(_runId, header\) => \{[\s\S]*header\.revisionState === 'preparing'[\s\S]*commitRevisionVersion\(sessionId\)/,
+      'Skill expansion and the revision commit hook must coexist in one Runtime send',
     );
   });
 

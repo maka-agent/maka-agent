@@ -12,6 +12,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import type { OnboardingState, SessionSummary } from '@maka/core';
+import type { PreparedSkillInvocationMessage } from '@maka/runtime';
 import { handleQuickChatStart, type QuickChatDeps } from '../quick-chat.js';
 import { SESSION_WORKSPACE_UNAVAILABLE_CODE } from '../project-context-root.js';
 
@@ -43,7 +44,9 @@ function makeDeps(overrides: Partial<QuickChatDeps> = {}): QuickChatDeps & {
     createInputs: Array<{ defaultConnectionSlug: string; defaultModel: string; mode: 'chat' | 'deep_research' }>;
     emitCalls: string[];
     ensureCanSendCalls: string[];
-    sendCalls: Array<{ sessionId: string; text: string }>;
+    prepareCalls: Array<{ sessionId: string; text: string; skillIds: readonly string[] }>;
+    removeCalls: string[];
+    sendCalls: Array<{ sessionId: string; text: string; displayText?: string }>;
   };
 } {
   const spy: {
@@ -51,13 +54,17 @@ function makeDeps(overrides: Partial<QuickChatDeps> = {}): QuickChatDeps & {
     createInputs: Array<{ defaultConnectionSlug: string; defaultModel: string; mode: 'chat' | 'deep_research' }>;
     emitCalls: string[];
     ensureCanSendCalls: string[];
-    sendCalls: Array<{ sessionId: string; text: string }>;
+    prepareCalls: Array<{ sessionId: string; text: string; skillIds: readonly string[] }>;
+    removeCalls: string[];
+    sendCalls: Array<{ sessionId: string; text: string; displayText?: string }>;
   } = {
     createCalls: 0,
     createInputs: [],
     emitCalls: [] as string[],
     ensureCanSendCalls: [] as string[],
-    sendCalls: [] as Array<{ sessionId: string; text: string }>,
+    prepareCalls: [],
+    removeCalls: [],
+    sendCalls: [] as Array<{ sessionId: string; text: string; displayText?: string }>,
   };
   const deps: QuickChatDeps = {
     async getOnboardingState() {
@@ -78,8 +85,19 @@ function makeDeps(overrides: Partial<QuickChatDeps> = {}): QuickChatDeps & {
     async ensureCanSend(sessionId) {
       spy.ensureCanSendCalls.push(sessionId);
     },
-    async sendFirstMessage(sessionId, text) {
-      spy.sendCalls.push({ sessionId, text });
+    async prepareSkillInvocation(sessionId, text, skillIds) {
+      spy.prepareCalls.push({ sessionId, text, skillIds });
+      return {
+        disposition: 'passthrough',
+        sendText: text,
+        skillInvocation: { loaded: [], failed: [] },
+      } satisfies PreparedSkillInvocationMessage;
+    },
+    async removeSession(sessionId) {
+      spy.removeCalls.push(sessionId);
+    },
+    async sendFirstMessage(sessionId, text, displayText) {
+      spy.sendCalls.push({ sessionId, text, ...(displayText ? { displayText } : {}) });
     },
     ...overrides,
   };
@@ -192,6 +210,117 @@ describe('handleQuickChatStart — non-empty prompt (send path)', () => {
     const result = await handleQuickChatStart({ prompt: 'hello', mode: 'execute' }, deps);
     assert.equal(result.ok, true);
     assert.equal(deps.spy.createInputs[0]?.mode, 'chat');
+  });
+});
+
+describe('handleQuickChatStart — explicit Skill invocation', () => {
+  it('sends a chip-only invocation with a readable display fallback', async () => {
+    const skillInvocation = {
+      loaded: [{ id: 'starter-skill', name: '示例技能' }],
+      failed: [],
+    };
+    const deps = makeDeps({
+      prepareSkillInvocation: async () => ({
+        disposition: 'ready',
+        sendText: '<invoked-skill>instructions</invoked-skill>',
+        skillInvocation,
+      }),
+    });
+
+    const result = await handleQuickChatStart({ prompt: '', skillIds: ['starter-skill'] }, deps);
+
+    assert.deepEqual(result, {
+      ok: true,
+      sessionId: 'session-quickchat-1',
+      skillInvocation,
+    });
+    assert.deepEqual(deps.spy.ensureCanSendCalls, ['session-quickchat-1']);
+    assert.deepEqual(deps.spy.sendCalls, [
+      {
+        sessionId: 'session-quickchat-1',
+        text: '<invoked-skill>instructions</invoked-skill>',
+        displayText: '/skill:starter-skill',
+      },
+    ]);
+  });
+
+  it('removes the temporary session and does not emit it when every Skill fails', async () => {
+    const skillInvocation = {
+      loaded: [],
+      failed: [{ request: 'missing-skill', reason: 'not_found' as const }],
+    };
+    const deps = makeDeps({
+      prepareSkillInvocation: async () => ({ disposition: 'blocked', skillInvocation }),
+    });
+
+    const result = await handleQuickChatStart(
+      { prompt: 'run it', skillIds: ['missing-skill'] },
+      deps,
+    );
+
+    assert.deepEqual(result, {
+      ok: false,
+      reason: 'skill_invocation_failed',
+      skillInvocation,
+    });
+    assert.deepEqual(deps.spy.removeCalls, ['session-quickchat-1']);
+    assert.deepEqual(deps.spy.emitCalls, []);
+    assert.deepEqual(deps.spy.ensureCanSendCalls, []);
+    assert.deepEqual(deps.spy.sendCalls, []);
+  });
+
+  it('continues with loaded Skills and reports partial failures', async () => {
+    const skillInvocation = {
+      loaded: [{ id: 'starter-skill', name: '示例技能' }],
+      failed: [{ request: 'missing-skill', reason: 'not_found' as const }],
+    };
+    const deps = makeDeps({
+      prepareSkillInvocation: async () => ({
+        disposition: 'ready',
+        sendText: '<invoked-skill>instructions</invoked-skill>\n\nrun it',
+        skillInvocation,
+      }),
+    });
+
+    const result = await handleQuickChatStart(
+      { prompt: 'run it', skillIds: ['starter-skill', 'missing-skill'] },
+      deps,
+    );
+
+    assert.deepEqual(result, {
+      ok: true,
+      sessionId: 'session-quickchat-1',
+      skillInvocation,
+    });
+    assert.deepEqual(deps.spy.sendCalls, [
+      {
+        sessionId: 'session-quickchat-1',
+        text: '<invoked-skill>instructions</invoked-skill>\n\nrun it',
+        displayText: 'run it',
+      },
+    ]);
+  });
+
+  it('removes an unannounced session when Skill preparation throws', async () => {
+    const deps = makeDeps({
+      prepareSkillInvocation: async () => {
+        throw new Error('discovery failed');
+      },
+    });
+
+    const result = await handleQuickChatStart(
+      { prompt: 'run it', skillIds: ['starter-skill'] },
+      deps,
+    );
+
+    assert.deepEqual(result, {
+      ok: false,
+      reason: 'send_failed',
+      message: '会话已创建但发送失败，请重试。',
+    });
+    assert.deepEqual(deps.spy.removeCalls, ['session-quickchat-1']);
+    assert.deepEqual(deps.spy.emitCalls, []);
+    assert.deepEqual(deps.spy.sendCalls, []);
   });
 });
 

@@ -29,7 +29,9 @@ describe('Desktop Swarm Mode host contract', () => {
 
     assert.match(renderer, /parseSwarmCommand\(text\)/);
     assert.match(renderer, /send\(swarmCommand\.task, pending, \{/);
+    assert.match(renderer, /\.\.\.\(skillIds\.length > 0 \? \{ skillIds \} : \{\}\)/);
     assert.match(renderer, /turnOrchestration: \{ mode: 'swarm', source: 'slash_command' \}/);
+    assert.match(renderer, /skillIds: \[\.\.\.skillIds\]/);
     assert.match(renderer, /turnOrchestration: options\.turnOrchestration/);
   });
 
