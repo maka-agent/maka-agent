@@ -556,25 +556,23 @@ function resolveNativeHarborTimeoutMs(
   task: TaskRunInput['task'],
 ): number {
   return resolveNativeTrialTimeoutMs({
-    agentTimeoutSec: task.metadata?.agentTimeoutSec ?? 0,
-    verifierTimeoutSec: verifierPolicy(task).outerTimeoutSec,
+    nativePhasesSec: (task.metadata?.agentTimeoutSec ?? 0) + verifierPolicy(task).outerTimeoutSec,
     timeoutMultiplier: options.timeoutMultiplier ?? 1,
   });
 }
 
-/** Shared wall-clock watchdog contract for one trial: the task-native phase
- * budget (agent + verifier seconds) times the multiplier, plus container
- * build/teardown grace, floored at 45 minutes so short tasks keep a sane
- * ceiling. Cross-runner benchmark invariant — the Pier runner reuses this
- * derivation with the task's native verifier seconds, while Harbor supplies
- * the oracle verifier policy's outer budget. */
+/** Shared wall-clock watchdog contract for one trial: the harness's maximum
+ * legitimate lifecycle in native seconds, times the multiplier, plus
+ * setup/teardown grace, floored at 45 minutes so short tasks keep a sane
+ * ceiling. Cross-runner benchmark invariant: each runner owns its own
+ * lifecycle shape (which phases run, and how often its harness retries them)
+ * and supplies the summed seconds — Harbor passes agent + the oracle verifier
+ * policy's outer budget; Pier passes its full phase-and-retry model. */
 export function resolveNativeTrialTimeoutMs(input: {
-  agentTimeoutSec: number;
-  verifierTimeoutSec: number;
+  nativePhasesSec: number;
   timeoutMultiplier: number;
 }): number {
-  const nativePhasesMs =
-    (input.agentTimeoutSec + input.verifierTimeoutSec) * input.timeoutMultiplier * 1_000;
+  const nativePhasesMs = input.nativePhasesSec * input.timeoutMultiplier * 1_000;
   return Math.max(DEFAULT_HARBOR_TIMEOUT_MS, nativePhasesMs + HARBOR_SETUP_TEARDOWN_GRACE_MS);
 }
 

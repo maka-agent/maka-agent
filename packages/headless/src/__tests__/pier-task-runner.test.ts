@@ -317,19 +317,28 @@ test('createPierTaskRunner derives the wall-clock watchdog from the task-native 
     const runner = createPierTaskRunner(
       baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward: 0, captured }) }),
     );
-    // DeepSWE-shaped budget: 5400s agent + 1800s verifier. A fixed 45-minute
-    // watchdog would kill every trial mid-flight; the shared Harbor derivation
-    // yields native phases + 15min setup/teardown grace.
+    // DeepSWE-shaped budget (113/113 tasks): build 1800s + agent 5400s +
+    // verifier 1800s, and pier retries build and verification once each on
+    // their timeout errors (tenacity stop_after_attempt(2) in
+    // pier/trial/execution.py:208 and pier/trial/trial.py:333). The watchdog
+    // must cover the complete legitimate lifecycle 2xbuild + agent +
+    // 2xverifier = 12600s, or cold builds and verifier retries get killed as
+    // infra. Contract: derived value covers that ceiling plus grace.
+    const deepSweMetadata = {
+      agentTimeoutSec: 5400,
+      verifierTimeoutSec: 1800,
+      buildTimeoutSec: 1800,
+    };
     await runner(
       runInput({
-        task: {
-          id: 'dasel',
-          path: '/tasks/dasel-html-document-format',
-          metadata: { agentTimeoutSec: 5400, verifierTimeoutSec: 1800 },
-        },
+        task: { id: 'dasel', path: '/tasks/dasel-html-document-format', metadata: deepSweMetadata },
       }),
     );
-    assert.equal(captured.request?.timeoutMs, (5400 + 1800) * 1_000 + 15 * 60_000);
+    assert.equal(
+      captured.request?.timeoutMs,
+      (2 * 1800 + 5400 + 2 * 1800) * 1_000 + 15 * 60_000,
+    );
+    assert.ok((captured.request?.timeoutMs ?? 0) >= 12_600_000);
 
     // Without task metadata the 45-minute floor holds.
     await runner(runInput());
@@ -346,11 +355,7 @@ test('createPierTaskRunner derives the wall-clock watchdog from the task-native 
     );
     await explicit(
       runInput({
-        task: {
-          id: 'dasel',
-          path: '/tasks/dasel-html-document-format',
-          metadata: { agentTimeoutSec: 5400, verifierTimeoutSec: 1800 },
-        },
+        task: { id: 'dasel', path: '/tasks/dasel-html-document-format', metadata: deepSweMetadata },
       }),
     );
     assert.equal(captured.request?.timeoutMs, 1_234);

@@ -122,10 +122,11 @@ export interface PierTaskRunnerOptions {
   environment?: string;
   timeoutMultiplier?: number;
   /** Wall-clock ceiling for a single `pier run`; a hung Docker/Pier would
-   * otherwise stall the unattended loop forever. Defaults to the task-native
-   * budget: (agentTimeoutSec + verifierTimeoutSec) x timeoutMultiplier plus
-   * setup/teardown grace, floored at 45 minutes (shared derivation with the
-   * Harbor runner — DeepSWE tasks alone run 5400s agent + 1800s verifier). */
+   * otherwise stall the unattended loop forever. Defaults to pier's maximum
+   * legitimate trial lifecycle (2 x build + agent + 2 x verifier task-native
+   * seconds, covering pier's one-retry policy on build and verification) x
+   * timeoutMultiplier plus setup/teardown grace, floored at 45 minutes —
+   * shared floor+grace contract with the Harbor runner. */
   pierTimeoutMs?: number;
   /** Injectable Pier process runner (default: execFile the pier binary). */
   runPier?: PierProcessRunner;
@@ -267,14 +268,13 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
             jobsDir,
             args,
             cwd: harborAdapterDir,
-            // Task-aware watchdog (shared Harbor derivation): a fixed 45-minute
-            // default would systematically undercut DeepSWE's native budget of
-            // 5400s agent + 1800s verifier per trial.
+            // Task-aware watchdog (shared Harbor floor+grace contract, fed with
+            // pier's complete lifecycle model): a fixed 45-minute default would
+            // systematically undercut DeepSWE's native budgets.
             timeoutMs:
               options.pierTimeoutMs ??
               resolveNativeTrialTimeoutMs({
-                agentTimeoutSec: input.task.metadata?.agentTimeoutSec ?? 0,
-                verifierTimeoutSec: input.task.metadata?.verifierTimeoutSec ?? 0,
+                nativePhasesSec: pierMaxTrialPhasesSec(input.task.metadata),
                 timeoutMultiplier: options.timeoutMultiplier ?? 1,
               }),
             env: processEnv,
@@ -622,6 +622,25 @@ async function writeEnvFile(path: string, env: Record<string, string>): Promise<
     .join('\n');
   await writeFile(path, `${body}\n`, { encoding: 'utf8', mode: 0o600 });
   await chmod(path, 0o600);
+}
+
+/** Pier's maximum legitimate trial lifecycle in task-native seconds. Owns the
+ * COMPLETE pier phase-and-retry model in one place — never patch phases in
+ * piecemeal. Pier runs environment build, then the agent once, then the
+ * verifier, and retries two of those phases once on their timeout errors
+ * (tenacity `stop_after_attempt(2)`: `start_environment` in
+ * pier/trial/execution.py:208 on EnvironmentStartTimeoutError, and
+ * `_verify_with_retry` in pier/trial/trial.py:333 on VerifierTimeoutError), so
+ * the legitimate ceiling is 2 x build + agent + 2 x verifier. For DeepSWE
+ * (build 1800s, agent 5400s, verifier 1800s) that is 12600s — a derivation
+ * missing any phase or retry would let the watchdog kill legitimate trials as
+ * infra. */
+function pierMaxTrialPhasesSec(metadata: TaskRunInput['task']['metadata']): number {
+  return (
+    2 * (metadata?.buildTimeoutSec ?? 0) +
+    (metadata?.agentTimeoutSec ?? 0) +
+    2 * (metadata?.verifierTimeoutSec ?? 0)
+  );
 }
 
 /** Single-attempt structured outcome from Pier's scoring authority, aligned

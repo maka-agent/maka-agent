@@ -189,6 +189,7 @@ function parseTaskTomlMetadata(text: string): FixedPromptTask['metadata'] {
     ),
     ...numberField('agentTimeoutSec', sectionField(text, 'agent', 'timeout_sec')),
     ...numberField('verifierTimeoutSec', sectionField(text, 'verifier', 'timeout_sec')),
+    ...numberField('buildTimeoutSec', sectionField(text, 'environment', 'build_timeout_sec')),
   };
 }
 

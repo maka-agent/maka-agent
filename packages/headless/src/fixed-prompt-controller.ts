@@ -36,6 +36,9 @@ export interface FixedPromptTask {
     juniorTimeEstimateMin?: number;
     agentTimeoutSec?: number;
     verifierTimeoutSec?: number;
+    /** Task-native environment build budget (task.toml [environment]
+     * build_timeout_sec); feeds runner wall-clock watchdog derivation. */
+    buildTimeoutSec?: number;
   };
 }
 

@@ -225,6 +225,7 @@ describe('discoverCachedHarborTasks', () => {
         estimatedDurationSec: 540,
         agentTimeoutSec: 900,
         verifierTimeoutSec: 1200,
+        buildTimeoutSec: 1800,
       });
       // A hash dir whose inner dir lacks task.toml is ignored.
       await mkdir(join(dir, 'hashC', 'not-a-task'), { recursive: true });
@@ -242,6 +243,7 @@ describe('discoverCachedHarborTasks', () => {
         estimatedDurationSec: 540,
         agentTimeoutSec: 900,
         verifierTimeoutSec: 1200,
+        buildTimeoutSec: 1800,
       });
     });
   });
@@ -801,6 +803,7 @@ async function makeCachedTask(
     estimatedDurationSec?: number;
     agentTimeoutSec?: number;
     verifierTimeoutSec?: number;
+    buildTimeoutSec?: number;
   } = {},
 ): Promise<void> {
   const taskPath = join(root, hash, name);
@@ -830,6 +833,11 @@ async function makeCachedTask(
       '[agent]',
       ...(metadata.agentTimeoutSec !== undefined
         ? [`timeout_sec = ${metadata.agentTimeoutSec}`]
+        : []),
+      '',
+      '[environment]',
+      ...(metadata.buildTimeoutSec !== undefined
+        ? [`build_timeout_sec = ${metadata.buildTimeoutSec}`]
         : []),
       '',
     ].join('\n'),
