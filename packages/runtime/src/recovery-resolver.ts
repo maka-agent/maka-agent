@@ -6,6 +6,7 @@ import {
 import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 import {
   parseToolRecoveryFact,
+  type PreparedFileMutationFact,
   type ToolRecoveryDecisionFact,
   type ToolReconcileResultFact,
 } from './tool-recovery-facts.js';
@@ -47,6 +48,7 @@ export interface RecoveryDecision {
   dispatchRuntimeEventId?: string;
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
+  preparedFileMutation?: PreparedFileMutationFact;
   recoveryContractId?: string;
   /**
    * Whether recovery may take the decision's next action without human confirmation.
@@ -84,6 +86,7 @@ export interface RuntimeRecoveryResolution {
           | 'orphan_operation'
           | 'duplicate_decision'
           | 'duplicate_reconcile_result'
+          | 'duplicate_prepared_mutation'
           | 'fact_after_decision'
           | 'invalid_evidence';
       }
@@ -109,6 +112,10 @@ export function resolveRuntimeRecovery(
     | { kind: 'recovery_decision'; eventId: string; fact: ToolRecoveryDecisionFact }
     | { kind: 'reconcile_result'; eventId: string; fact: ToolReconcileResultFact }
   > = [];
+  const preparedFileFacts: Array<{
+    event: RuntimeEvent;
+    fact: PreparedFileMutationFact;
+  }> = [];
   if (firstProtocol !== undefined && toolBoundaryProtocol === undefined && firstCanonicalEvent) {
     issues.push({
       code: 'protocol_marker_invalid' as const,
@@ -134,9 +141,7 @@ export function resolveRuntimeRecovery(
       continue;
     }
     if (parsed.status === 'prepared_file_mutation') {
-      // Phase 3B preparation evidence is associated with its operation below;
-      // recognizing it here keeps the ledger readable and prevents an unknown-
-      // fact park while older operations continue to use Phase 3A decisions.
+      preparedFileFacts.push({ event, fact: parsed.fact });
       continue;
     }
     if (parsed.status === 'invalid') {
@@ -280,6 +285,58 @@ export function resolveRuntimeRecovery(
       }
     }
   }
+  const canonicalEventPositions = new Map(
+    canonicalEvents.map((event, index) => [event.id, index] as const),
+  );
+  const appliedPreparedFileFacts = new Set<string>();
+  for (const prepared of preparedFileFacts) {
+    const { event, fact } = prepared;
+    const decision = decisionsByOperationId.get(fact.operationId);
+    if (!decision) {
+      issues.push({
+        code: 'recovery_fact_corruption',
+        eventId: event.id,
+        reason: 'orphan_operation',
+      });
+      continue;
+    }
+    if (appliedPreparedFileFacts.has(fact.operationId)) {
+      markRecoveryFactCorruption(decision, event.id);
+      issues.push({
+        code: 'recovery_fact_corruption',
+        eventId: event.id,
+        reason: 'duplicate_prepared_mutation',
+      });
+      continue;
+    }
+    const callPosition = decision.callRuntimeEventId
+      ? canonicalEventPositions.get(decision.callRuntimeEventId)
+      : undefined;
+    const preparedPosition = canonicalEventPositions.get(event.id);
+    const dispatchPosition = decision.dispatchRuntimeEventId
+      ? canonicalEventPositions.get(decision.dispatchRuntimeEventId)
+      : undefined;
+    if (
+      callPosition === undefined ||
+      preparedPosition === undefined ||
+      dispatchPosition === undefined ||
+      preparedPosition <= callPosition ||
+      preparedPosition >= dispatchPosition ||
+      event.refs?.operationId !== fact.operationId ||
+      event.refs?.toolCallId !== decision.toolCallId
+    ) {
+      markRecoveryFactCorruption(decision, event.id);
+      issues.push({
+        code: 'recovery_fact_corruption',
+        eventId: event.id,
+        reason: 'invalid_evidence',
+      });
+      continue;
+    }
+    appliedPreparedFileFacts.add(fact.operationId);
+    decision.preparedFileMutation = fact;
+    decision.evidenceEventIds.push(event.id);
+  }
   for (const event of events) {
     if (event.partial || event.content?.kind !== 'function_response') continue;
     const decision = decisionsByToolCallId.get(event.content.id);
@@ -323,9 +380,6 @@ export function resolveRuntimeRecovery(
   }
   const appliedRecoveryDecisions = new Set<string>();
   const appliedReconcileResults = new Set<string>();
-  const canonicalEventPositions = new Map(
-    canonicalEvents.map((event, index) => [event.id, index] as const),
-  );
   for (const recoveryFact of recoveryFacts) {
     const { eventId } = recoveryFact;
     const decision = decisionsByOperationId.get(recoveryFact.fact.operationId);

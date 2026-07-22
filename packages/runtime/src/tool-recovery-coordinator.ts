@@ -75,7 +75,7 @@ export async function reconcileUnsettledToolOperation(
     );
   }
   const contract = contractResolution.contract;
-  if (!contract.observe || !contract.decide) {
+  if (!contract.reconcile && (!contract.observe || !contract.decide)) {
     return blockedDiagnostic(
       'tool_recovery_contract_missing',
       'tool recovery contract does not implement observation and decision',
@@ -85,8 +85,14 @@ export async function reconcileUnsettledToolOperation(
   let observation: unknown;
   let contractDecision: ToolReconcileDecision;
   try {
-    observation = await contract.observe(operation);
-    contractDecision = contract.decide({ operation, observation });
+    if (contract.reconcile) {
+      const reconciled = await contract.reconcile(operation);
+      observation = reconciled.observation;
+      contractDecision = reconciled.decision;
+    } else {
+      observation = await contract.observe!(operation);
+      contractDecision = contract.decide!({ operation, observation });
+    }
   } catch {
     return blockedDiagnostic(
       'tool_recovery_observation_failed',

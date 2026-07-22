@@ -1194,6 +1194,9 @@ export class SessionManager {
           toolName: operation.toolName,
           args: operation.args,
           ...(operation.recoveryMode ? { recoveryMode: operation.recoveryMode } : {}),
+          ...(operation.preparedFileMutation
+            ? { preparedFileMutation: operation.preparedFileMutation }
+            : {}),
           workspaceCwd,
           evidenceEventIds: operation.evidenceEventIds,
         },

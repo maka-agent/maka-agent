@@ -144,7 +144,7 @@ export interface MakaTool<P = any, R = unknown> {
   prepareDurableExecution?: (
     args: P,
     context: DurableToolPreparationContext,
-  ) => Promise<DurableToolPreparation<R>>;
+  ) => Promise<DurableToolPreparation<R> | undefined>;
   /** Optional provider-visible content mapping, used for screenshot image parts. */
   toModelOutput?: (options: {
     toolCallId: string;

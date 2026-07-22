@@ -1,4 +1,5 @@
 import type { ToolRecoveryMode } from '@maka/core';
+import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
 export const TOOL_RECOVERY_CONTRACT_MODES = [
   'replay_safe_read',
@@ -17,6 +18,7 @@ export interface UnsettledToolOperation {
   args: unknown;
   recoveryMode?: ToolRecoveryMode;
   workspaceCwd?: string;
+  preparedFileMutation?: PreparedFileMutationFact;
   evidenceEventIds: readonly string[];
 }
 
@@ -36,6 +38,14 @@ export interface ToolRecoveryContract<TObservation = unknown> {
     operation: UnsettledToolOperation;
     observation: TObservation;
   }): ToolReconcileDecision;
+  /**
+   * Restricted recovery path for contracts that must perform a checkpoint-
+   * authorized action between observation and the final decision.
+   */
+  reconcile?(operation: UnsettledToolOperation): Promise<{
+    observation: TObservation;
+    decision: ToolReconcileDecision;
+  }>;
 }
 
 export interface ToolRecoveryContractRegistration {

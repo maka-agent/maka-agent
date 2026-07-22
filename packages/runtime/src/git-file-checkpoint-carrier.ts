@@ -11,11 +11,10 @@ import {
   type CurrentFileCheckpointState,
 } from './prepared-file-mutation.js';
 
-export interface PrepareGitFileMutationInput {
+interface PrepareGitFileMutationBaseInput {
   operationId: string;
   workspaceRoot: string;
   targetPath: string;
-  expectedContent: Uint8Array;
   transform: {
     id: string;
     version: number;
@@ -23,15 +22,42 @@ export interface PrepareGitFileMutationInput {
   };
 }
 
+export type PrepareGitFileMutationInput = PrepareGitFileMutationBaseInput &
+  (
+    | {
+        expectedContent: Uint8Array;
+        deriveExpectedContent?: never;
+      }
+    | {
+        expectedContent?: never;
+        deriveExpectedContent(beforeContent: Uint8Array | undefined): Uint8Array;
+      }
+  );
+
+export interface PreparedFileMutationCarrier {
+  isAvailable?(workspaceRoot: string): Promise<boolean>;
+  prepare(input: PrepareGitFileMutationInput): Promise<PreparedFileMutationFact>;
+  redo(fact: PreparedFileMutationFact): Promise<void>;
+}
+
 export interface GitFileCheckpointCarrierOptions {
   gitBinary?: string;
 }
 
-export class GitFileCheckpointCarrier {
+export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
   private readonly gitBinary: string;
 
   constructor(options: GitFileCheckpointCarrierOptions = {}) {
     this.gitBinary = options.gitBinary ?? 'git';
+  }
+
+  async isAvailable(workspaceRoot: string): Promise<boolean> {
+    try {
+      const canonicalRoot = await realpath(workspaceRoot);
+      return (await this.git(canonicalRoot, ['rev-parse', '--is-inside-work-tree'])).trim() === 'true';
+    } catch {
+      return false;
+    }
   }
 
   async prepare(input: PrepareGitFileMutationInput): Promise<PreparedFileMutationFact> {
@@ -57,6 +83,7 @@ export class GitFileCheckpointCarrier {
     }
 
     let before: PreparedFileBeforeState;
+    let beforeContent: Buffer | undefined;
     let mode = 0o100644;
     try {
       const info = await lstat(canonicalPath);
@@ -64,6 +91,7 @@ export class GitFileCheckpointCarrier {
         throw new Error('Prepared file mutation target must be a regular non-symlink file');
       }
       const content = await readFile(canonicalPath);
+      beforeContent = content;
       mode = info.mode & 0o111 ? 0o100755 : 0o100644;
       before = {
         kind: 'file',
@@ -77,7 +105,11 @@ export class GitFileCheckpointCarrier {
       before = { kind: 'missing' };
     }
 
-    const expectedContent = Buffer.from(input.expectedContent);
+    const expectedContent = Buffer.from(
+      input.expectedContent !== undefined
+        ? input.expectedContent
+        : input.deriveExpectedContent(beforeContent),
+    );
     const expectedAfter = {
       kind: 'file' as const,
       sha256: sha256(expectedContent),

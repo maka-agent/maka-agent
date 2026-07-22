@@ -1125,6 +1125,7 @@ export {
   PreparedFileMutationConflictError,
   type GitFileCheckpointCarrierOptions,
   type PrepareGitFileMutationInput,
+  type PreparedFileMutationCarrier,
 } from './git-file-checkpoint-carrier.js';
 
 export {
@@ -1146,15 +1147,12 @@ export type {
 } from './restricted-verification.js';
 
 export {
-  createLocalReadOnlyFileRecoveryObserver,
-  createWriteEditRecoveryContractRegistry,
-  createWriteEditRecoveryContracts,
+  createPreparedWriteEditRecoveryContractRegistry,
+  createPreparedWriteEditRecoveryContracts,
 } from './file-tool-recovery.js';
 export type {
-  LocalReadOnlyFileRecoveryObserverOptions,
-  ReadOnlyFileObservation,
-  ReadOnlyFileRecoveryObserver,
-  WriteEditRecoveryContracts,
+  PreparedFileRecoveryCarrier,
+  PreparedWriteEditRecoveryContracts,
 } from './file-tool-recovery.js';
 
 export { reconcileUnsettledToolOperation } from './tool-recovery-coordinator.js';

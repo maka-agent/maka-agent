@@ -1,171 +1,209 @@
-import { lstat, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
 import type {
   ToolReconcileDecision,
   ToolRecoveryContract,
   UnsettledToolOperation,
 } from './tool-recovery-contract.js';
 import { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
+import { acquireFileWriteLock } from './file-write-lock.js';
+import {
+  EDIT_FILE_TRANSFORM,
+  WRITE_FILE_TRANSFORM,
+  fileMutationArgsHash,
+} from './file-mutation-transform.js';
+import {
+  decidePreparedFileMutation,
+  type CurrentFileCheckpointState,
+} from './prepared-file-mutation.js';
+import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
-export type ReadOnlyFileObservation =
-  | { status: 'missing' }
-  | { status: 'text'; content: string }
-  | { status: 'unreadable' };
-
-export interface ReadOnlyFileRecoveryObserver {
-  readText(path: string, operation: UnsettledToolOperation): Promise<ReadOnlyFileObservation>;
+export interface PreparedFileRecoveryCarrier {
+  inspect(fact: PreparedFileMutationFact): Promise<CurrentFileCheckpointState>;
+  redo(fact: PreparedFileMutationFact): Promise<void>;
 }
 
-export interface LocalReadOnlyFileRecoveryObserverOptions {
-  maxBytes?: number;
+type PreparedFileRecoveryObservation =
+  | { status: 'checkpoint_missing' }
+  | { status: 'checkpoint_invalid' }
+  | {
+      status: 'prepared_after_matches' | 'prepared_redone' | 'prepared_file_drifted';
+      current: CurrentFileCheckpointState;
+    };
+
+type PreparedFileRecoveryContract = ToolRecoveryContract<PreparedFileRecoveryObservation> & {
+  reconcile(operation: UnsettledToolOperation): Promise<{
+    observation: PreparedFileRecoveryObservation;
+    decision: ToolReconcileDecision;
+  }>;
+};
+
+export interface PreparedWriteEditRecoveryContracts {
+  Write: PreparedFileRecoveryContract;
+  Edit: PreparedFileRecoveryContract;
 }
 
-export function createLocalReadOnlyFileRecoveryObserver(
-  options: LocalReadOnlyFileRecoveryObserverOptions = {},
-): ReadOnlyFileRecoveryObserver {
-  const maxBytes = options.maxBytes ?? 16 * 1024 * 1024;
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
-    throw new Error('File recovery observer maxBytes must be a positive safe integer');
-  }
-  return {
-    readText: async (path, operation) => {
-      const cwd = operation.workspaceCwd;
-      if (!cwd) return { status: 'unreadable' };
-      const target = resolve(cwd, path);
-      if (!isPathWithin(cwd, target)) return { status: 'unreadable' };
-      try {
-        const [canonicalCwd, targetInfo] = await Promise.all([realpath(cwd), lstat(target)]);
-        if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || targetInfo.size > maxBytes) {
-          return { status: 'unreadable' };
-        }
-        const canonicalTarget = await realpath(target);
-        if (!isPathWithin(canonicalCwd, canonicalTarget)) return { status: 'unreadable' };
-        const bytes = await readFile(canonicalTarget);
-        if (bytes.length > maxBytes || bytes.includes(0)) return { status: 'unreadable' };
-        try {
-          return {
-            status: 'text',
-            content: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
-          };
-        } catch {
-          return { status: 'unreadable' };
-        }
-      } catch (error) {
-        return isNodeError(error) && error.code === 'ENOENT'
-          ? { status: 'missing' }
-          : { status: 'unreadable' };
-      }
-    },
-  };
-}
-
-export function createWriteEditRecoveryContractRegistry(
-  observer: ReadOnlyFileRecoveryObserver,
+export function createPreparedWriteEditRecoveryContractRegistry(
+  carrier: PreparedFileRecoveryCarrier,
 ): ToolRecoveryContractRegistry {
-  const contracts = createWriteEditRecoveryContracts(observer);
+  const contracts = createPreparedWriteEditRecoveryContracts(carrier);
   return new ToolRecoveryContractRegistry([
     { toolName: 'Write', contract: contracts.Write },
     { toolName: 'Edit', contract: contracts.Edit },
   ]);
 }
 
-type FileToolObservation =
-  | { status: 'invalid_args' }
-  | { status: 'checkpoint_missing' }
-  | ({ path: string } & ReadOnlyFileObservation);
-
-export interface WriteEditRecoveryContracts {
-  Write: ReadOnlyFileRecoveryContract;
-  Edit: ReadOnlyFileRecoveryContract;
-}
-
-type ReadOnlyFileRecoveryContract = ToolRecoveryContract<FileToolObservation> & {
-  observe(operation: UnsettledToolOperation): Promise<FileToolObservation>;
-  decide(input: {
-    operation: UnsettledToolOperation;
-    observation: FileToolObservation;
-  }): ToolReconcileDecision;
-};
-
-export function createWriteEditRecoveryContracts(
-  observer: ReadOnlyFileRecoveryObserver,
-): WriteEditRecoveryContracts {
+export function createPreparedWriteEditRecoveryContracts(
+  carrier: PreparedFileRecoveryCarrier,
+): PreparedWriteEditRecoveryContracts {
   return {
-    Write: {
-      id: 'maka.tool.write.reconcile',
-      version: 1,
-      mode: 'reconcile_then_decide',
-      observe: (operation) => observeFileTarget(observer, operation, parseWriteArgs),
-      decide: ({ operation, observation }) => decideWrite(operation, observation),
-    },
-    Edit: {
-      id: 'maka.tool.edit.reconcile',
-      version: 1,
-      mode: 'reconcile_then_decide',
-      // Edit cannot be reconciled safely from old_string/new_string occurrence
-      // counts. Until the durable dispatch carries a prepared before/after file
-      // checkpoint, do not inspect the live file and do not infer an outcome.
-      observe: async (operation) =>
-        parseEditArgs(operation.args)
-          ? { status: 'checkpoint_missing' }
-          : { status: 'invalid_args' },
-      decide: ({ operation, observation }) => decideEdit(operation, observation),
-    },
+    Write: preparedFileContract('Write', carrier),
+    Edit: preparedFileContract('Edit', carrier),
   };
 }
 
-async function observeFileTarget(
-  observer: ReadOnlyFileRecoveryObserver,
-  operation: UnsettledToolOperation,
-  parseArgs: (args: unknown) => { path: string } | undefined,
-): Promise<FileToolObservation> {
-  const args = parseArgs(operation.args);
-  if (!args) return { status: 'invalid_args' };
-  return { path: args.path, ...(await observer.readText(args.path, operation)) };
+function preparedFileContract(
+  toolName: 'Write' | 'Edit',
+  carrier: PreparedFileRecoveryCarrier,
+): PreparedFileRecoveryContract {
+  return {
+    id: `maka.tool.${toolName.toLowerCase()}.prepared-file`,
+    version: 1,
+    mode: 'reconcile_then_decide',
+    reconcile: async (operation) => reconcilePreparedFileOperation(toolName, carrier, operation),
+  };
 }
 
-function decideWrite(
+async function reconcilePreparedFileOperation(
+  toolName: 'Write' | 'Edit',
+  carrier: PreparedFileRecoveryCarrier,
   operation: UnsettledToolOperation,
-  observation: FileToolObservation,
-): ToolReconcileDecision {
-  const args = parseWriteArgs(operation.args);
-  if (!args || observation.status === 'invalid_args') {
-    return parked('write_arguments_invalid');
-  }
-  if (observation.status === 'missing') {
+): Promise<{
+  observation: PreparedFileRecoveryObservation;
+  decision: ToolReconcileDecision;
+}> {
+  const fact = operation.preparedFileMutation;
+  if (!fact) {
+    const observation = { status: 'checkpoint_missing' } as const;
     return {
-      result: 'not_applied',
-      reasonCode: 'write_target_missing',
-      nextAction: 'retry_allowed',
+      observation,
+      decision: parked(`${toolName.toLowerCase()}_checkpoint_evidence_missing`),
     };
   }
-  if (observation.status === 'checkpoint_missing') {
-    return parked('write_checkpoint_evidence_missing');
+  if (!preparedFactMatchesOperation(toolName, fact, operation)) {
+    const observation = { status: 'checkpoint_invalid' } as const;
+    return { observation, decision: parked('prepared_file_checkpoint_invalid') };
   }
-  if (observation.status === 'unreadable') return parked('write_target_unreadable');
-  if (observation.content === args.content) {
+
+  const lease = await acquireFileWriteLock(fact.canonicalPath);
+  try {
+    const initial = await carrier.inspect(fact);
+    const initialDecision = decidePreparedFileMutation(fact, initial);
+    if (initialDecision.disposition === 'finalize') {
+      const observation = { status: 'prepared_after_matches', current: initial } as const;
+      return {
+        observation,
+        decision: synthesizedPreparedResult(toolName, operation, fact, observation.status),
+      };
+    }
+    if (initialDecision.disposition === 'park') {
+      const observation = { status: 'prepared_file_drifted', current: initial } as const;
+      return { observation, decision: parked(initialDecision.reasonCode) };
+    }
+
+    try {
+      await carrier.redo(fact);
+    } catch (error) {
+      const afterFailure = await carrier.inspect(fact);
+      const afterFailureDecision = decidePreparedFileMutation(fact, afterFailure);
+      if (afterFailureDecision.disposition === 'park') {
+        const observation = {
+          status: 'prepared_file_drifted',
+          current: afterFailure,
+        } as const;
+        return { observation, decision: parked(afterFailureDecision.reasonCode) };
+      }
+      throw error;
+    }
+    const installed = await carrier.inspect(fact);
+    if (decidePreparedFileMutation(fact, installed).disposition !== 'finalize') {
+      const observation = { status: 'prepared_file_drifted', current: installed } as const;
+      return { observation, decision: parked('prepared_file_install_unverified') };
+    }
+    const observation = { status: 'prepared_redone', current: installed } as const;
     return {
-      result: 'applied',
-      reasonCode: 'write_postcondition_matches',
-      nextAction: 'synthesize_response',
-      synthesizedResult: {
-        ok: true,
-        path: args.path,
-        bytes: Buffer.byteLength(args.content, 'utf8'),
-        recovered: true,
-      },
+      observation,
+      decision: synthesizedPreparedResult(toolName, operation, fact, observation.status),
     };
+  } finally {
+    lease.release();
   }
-  return parked('write_postcondition_conflict');
 }
 
-function decideEdit(
+function preparedFactMatchesOperation(
+  toolName: 'Write' | 'Edit',
+  fact: PreparedFileMutationFact,
   operation: UnsettledToolOperation,
-  observation: FileToolObservation,
-): ToolReconcileDecision {
+): boolean {
+  if (!operation.operationId || fact.operationId !== operation.operationId) return false;
+  if (normalizeRelativePath(fact.relativePath) !== normalizeRelativePath(filePath(operation.args))) {
+    return false;
+  }
+  if (toolName === 'Write') {
+    const args = parseWriteArgs(operation.args);
+    return (
+      args !== undefined &&
+      fact.transform.id === WRITE_FILE_TRANSFORM.id &&
+      fact.transform.version === WRITE_FILE_TRANSFORM.version &&
+      fact.transform.argsHash === fileMutationArgsHash({ path: args.path, content: args.content })
+    );
+  }
   const args = parseEditArgs(operation.args);
-  if (!args || observation.status === 'invalid_args') return parked('edit_arguments_invalid');
-  return parked('edit_checkpoint_evidence_missing');
+  return (
+    args !== undefined &&
+    fact.transform.id === EDIT_FILE_TRANSFORM.id &&
+    fact.transform.version === EDIT_FILE_TRANSFORM.version &&
+    fact.transform.argsHash ===
+      fileMutationArgsHash({
+        path: args.path,
+        old_string: args.oldString,
+        new_string: args.newString,
+      })
+  );
+}
+
+function synthesizedPreparedResult(
+  toolName: 'Write' | 'Edit',
+  operation: UnsettledToolOperation,
+  fact: PreparedFileMutationFact,
+  reasonCode: 'prepared_after_matches' | 'prepared_redone',
+): ToolReconcileDecision {
+  const args = toolName === 'Write' ? parseWriteArgs(operation.args) : parseEditArgs(operation.args);
+  return {
+    result: 'applied',
+    reasonCode,
+    nextAction: 'synthesize_response',
+    synthesizedResult:
+      toolName === 'Write'
+        ? {
+            ok: true,
+            path: args?.path ?? fact.relativePath,
+            bytes: fact.expectedAfter.byteLength,
+            recovered: true,
+          }
+        : {
+            ok: true,
+            path: args?.path ?? fact.relativePath,
+            replacements: 1,
+            recovered: true,
+          },
+  };
+}
+
+function filePath(args: unknown): string {
+  return isRecord(args) && typeof args.path === 'string' ? args.path : '';
+}
+
+function normalizeRelativePath(path: string): string {
+  return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 function parked(reasonCode: string): ToolReconcileDecision {
@@ -196,11 +234,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isPathWithin(root: string, candidate: string): boolean {
-  const pathFromRoot = relative(resolve(root), resolve(candidate));
-  return pathFromRoot === '' || (!pathFromRoot.startsWith('..') && !isAbsolute(pathFromRoot));
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error;
-}

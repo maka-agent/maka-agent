@@ -42,6 +42,7 @@
 
 export type EditMatchStrategy = 'exact' | 'line-trimmed' | 'whitespace' | 'escape';
 
+/** Bump whenever computeEditedSource semantics change. Persisted checkpoints pin this value. */
 export interface EditMatch {
   /** The full new file content after the replacement. */
   content: string;

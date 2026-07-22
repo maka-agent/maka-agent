@@ -12,6 +12,7 @@ import {
   type RuntimeRecoveryResolution,
 } from './recovery-resolver.js';
 import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
+import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
 export type ToolOperationStatus =
   | 'succeeded'
@@ -32,6 +33,7 @@ export interface ToolOperation {
   callRuntimeEventId: string;
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
+  preparedFileMutation?: PreparedFileMutationFact;
   recoveryReason: RecoveryReasonCode;
   evidenceEventIds: readonly string[];
 }
@@ -535,6 +537,9 @@ function projectToolOperations(
           : {}),
         ...(decision.responseIsError !== undefined
           ? { responseIsError: decision.responseIsError }
+          : {}),
+        ...(decision.preparedFileMutation
+          ? { preparedFileMutation: decision.preparedFileMutation }
           : {}),
       },
     ];

@@ -98,6 +98,63 @@ describe('RecoveryResolver', () => {
     assert.equal(resolution.requiresReconciliation, true);
   });
 
+  it('associates one prepared file checkpoint with its dispatched operation', () => {
+    const contracts = new ToolRecoveryContractRegistry([
+      {
+        toolName: 'Write',
+        contract: {
+          id: 'maka.tool.write.prepared-file',
+          version: 1,
+          mode: 'reconcile_then_decide',
+        },
+      },
+    ]);
+    const call = functionCallEvent();
+    call.content = {
+      kind: 'function_call',
+      id: 'call-1',
+      name: 'Write',
+      args: { path: 'notes.txt', content: 'expected' },
+    };
+    call.refs = { operationId: 'operation-1', toolCallId: 'call-1' };
+    const resolution = resolveRuntimeRecovery(
+      [
+        initialEvent('t1_after_preflight_v1'),
+        call,
+        preparedMutationEvent(),
+        toolDispatchEvent({ toolName: 'Write', recoveryMode: 'reconcile' }),
+      ],
+      { contracts },
+    );
+
+    assert.equal(resolution.hasCorruption, false);
+    assert.equal(resolution.decisions[0]?.preparedFileMutation?.operationId, 'operation-1');
+    assert.deepEqual(resolution.decisions[0]?.evidenceEventIds, [
+      'function-call-1',
+      'dispatch-1',
+      'prepared-file-1',
+    ]);
+  });
+
+  it('treats duplicate prepared checkpoints for one operation as corruption', () => {
+    const resolution = resolveRuntimeRecovery([
+      initialEvent('t1_after_preflight_v1'),
+      functionCallEvent(),
+      preparedMutationEvent(),
+      { ...preparedMutationEvent(), id: 'prepared-file-2' },
+      toolDispatchEvent(),
+    ]);
+
+    assert.equal(resolution.hasCorruption, true);
+    assert.deepEqual(resolution.issues, [
+      {
+        code: 'recovery_fact_corruption',
+        eventId: 'prepared-file-2',
+        reason: 'duplicate_prepared_mutation',
+      },
+    ]);
+  });
+
   it('returns the same decision and evidence for the same canonical facts', () => {
     const contracts = new ToolRecoveryContractRegistry([
       {
@@ -768,6 +825,41 @@ function functionResponseEvent(isError = false, operationId?: string): RuntimeEv
       ...(isError ? { isError: true } : {}),
     },
     ...(operationId ? { refs: { operationId, toolCallId: 'call-1' } } : {}),
+  });
+}
+
+function preparedMutationEvent(): RuntimeEvent {
+  return event({
+    id: 'prepared-file-1',
+    actions: {
+      runtimeFact: {
+        kind: 'maka.file.prepared_mutation',
+        version: 1,
+        legacyProjection: 'invisible',
+        payload: {
+          protocol: 'prepared_file_mutation_v1',
+          operationId: 'operation-1',
+          workspaceRoot: '/workspace',
+          canonicalPath: '/workspace/notes.txt',
+          relativePath: 'notes.txt',
+          before: { kind: 'missing' },
+          expectedAfter: {
+            kind: 'file',
+            sha256: 'a'.repeat(64),
+            blobOid: 'b'.repeat(40),
+            byteLength: 8,
+            mode: 0o100644,
+          },
+          transform: { id: 'maka.write.utf8', version: 1, argsHash: 'c'.repeat(64) },
+          carrier: {
+            kind: 'git_object_v1',
+            repositoryCommonDir: '/workspace/.git',
+            retentionRef: 'refs/maka/checkpoints/operations/operation-1',
+          },
+        },
+      },
+    },
+    refs: { operationId: 'operation-1', toolCallId: 'call-1' },
   });
 }
 
