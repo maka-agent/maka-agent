@@ -289,7 +289,7 @@ async function runHarborTaskRunMode(
     invocations.length > 0
       ? await writeHarborTaskRunTrace({
           outputDir: options.cellArtifactDir,
-          storageRoot: options.storageRoot,
+          storage,
           invocations,
         })
       : undefined;

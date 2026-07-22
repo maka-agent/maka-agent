@@ -2061,6 +2061,7 @@ describe('runTaskOnce', () => {
               sessionId: ctx.sessionId,
               header: ctx.header,
               store: ctx.store,
+              execution: ctx.execution,
             });
           });
         },

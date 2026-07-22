@@ -260,7 +260,7 @@ describe('maka-headless CLI', () => {
         {
           env: {
             MAKA_MODEL: 'fake-model',
-            MAKA_CELL_SOFT_TIMEOUT_MS: '50',
+            MAKA_CELL_SOFT_TIMEOUT_MS: '1',
           },
         },
       );
@@ -273,6 +273,24 @@ describe('maka-headless CLI', () => {
         source: 'benchmark.deadline',
         mode: 'immediate',
       });
+      assert.ok(cell.runtimeRefs);
+      const runtimeEvents = (await readFile(cell.runtimeEventsPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      assert.ok(runtimeEvents.length >= 2);
+      assert.deepEqual(
+        [...new Set(runtimeEvents.map((event) => event.invocationId))],
+        [cell.runtimeRefs.invocationId],
+      );
+
+      const storage = await openHeadlessStorageForWrite(storageRoot);
+      const runs = await storage.executionStores.agentRunStore.listSessionRuns(
+        cell.runtimeRefs.sessionId,
+      );
+      assert.equal(runs.length, 1);
+      assert.equal(cell.runtimeRefs.runId, runs[0]?.runId);
+      assert.equal(cell.runtimeRefs.invocationId, runs[0]?.invocationId);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

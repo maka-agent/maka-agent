@@ -1,8 +1,14 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { BackendKind, PricingConfig, ProviderType } from '@maka/core';
-import { isThinkingLevel, resolveModelVisionSupport } from '@maka/core';
+import type {
+  AgentRunHeader,
+  BackendKind,
+  PricingConfig,
+  ProviderType,
+  RuntimeEvent,
+} from '@maka/core';
+import { isTerminalRuntimeEvent, isThinkingLevel, resolveModelVisionSupport } from '@maka/core';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -385,13 +391,20 @@ export async function runHarborCellWithStorage(
   let nextText = input.instruction;
   let stepCapHits = 0;
   let attemptedTurnId: string | undefined;
+  let attemptedRunId: string | undefined;
   try {
     for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
       if (deadlineReached) break;
       const turnId = newId();
+      const runId = newId();
       attemptedTurnId = turnId;
+      attemptedRunId = runId;
       invocation = undefined;
-      for await (const event of manager.sendMessage(session.id, { turnId, text: nextText })) {
+      for await (const event of manager.sendMessage(
+        session.id,
+        { turnId, text: nextText },
+        { runId },
+      )) {
         if ((event as { type?: string }).type === 'permission_request') {
           const { requestId } = event as { requestId: string };
           await manager.respondToPermission(session.id, {
@@ -419,27 +432,33 @@ export async function runHarborCellWithStorage(
   }
   await settlementAttempt;
   if (settlementError) throw settlementError;
+  const deadlineRun =
+    deadlineReached && attemptedRunId
+      ? await agentRunStore.readRun(session.id, attemptedRunId).catch((error) => {
+          if (isStorageRootAuthorityError(error)) throw error;
+          return undefined;
+        })
+      : undefined;
+  const settledByDeadline =
+    deadlineRun?.status === 'cancelled' && deadlineRun.abortSource === 'benchmark.deadline';
   if (sendMessageError) {
     invocations.push(
-      failedInvocationFromError(sendMessageError, {
-        newId,
-        now,
-        sessionId: session.id,
-        turnId: attemptedTurnId ?? newId(),
-      }),
+      settledByDeadline
+        ? failedDeadlineInvocationFromRun(
+            deadlineRun,
+            await runtimeEventStore.readRuntimeEvents(session.id, deadlineRun.runId),
+          )
+        : failedInvocationFromError(sendMessageError, {
+            newId,
+            now,
+            sessionId: session.id,
+            turnId: attemptedTurnId ?? newId(),
+          }),
     );
   } else if (invocations.length === 0) {
     throw new Error('Harbor cell finished without a runtime invocation result');
   }
   const combinedInvocation = combineInvocations(invocations);
-  const terminalRun = deadlineReached
-    ? await agentRunStore.readRun(session.id, combinedInvocation.runId).catch((error) => {
-        if (isStorageRootAuthorityError(error)) throw error;
-        return undefined;
-      })
-    : undefined;
-  const settledByDeadline =
-    terminalRun?.status === 'cancelled' && terminalRun.abortSource === 'benchmark.deadline';
   const continuationSummary = continuationPolicy.enabled
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;
@@ -508,23 +527,17 @@ export async function writeHarborCellArtifacts(
 
 export async function writeHarborTaskRunTrace(input: {
   outputDir: string;
-  storageRoot: string;
+  storage: HeadlessStorageWriter;
   invocations: readonly InvocationResult[];
 }): Promise<string> {
-  const chunks = await Promise.all(
+  const storage = authenticateHeadlessStorageWriter(input.storage);
+  const eventGroups = await Promise.all(
     input.invocations.map((invocation) =>
-      readFile(
-        join(
-          input.storageRoot,
-          'sessions',
-          invocation.sessionId,
-          'runs',
-          invocation.runId,
-          'events.jsonl',
-        ),
-        'utf8',
-      ),
+      storage.executionStores.agentRunStore.readEvents(invocation.sessionId, invocation.runId),
     ),
+  );
+  const chunks = eventGroups.map((events) =>
+    events.map((event) => JSON.stringify(event)).join('\n'),
   );
   const nonEmptyChunks = chunks.map((chunk) => chunk.trimEnd()).filter(Boolean);
   const traceEventsPath = join(input.outputDir, HARBOR_CELL_TRACE_EVENTS_FILENAME);
@@ -782,6 +795,37 @@ function failedInvocationFromError(
     events: [],
     startedAt: ts,
     finishedAt: ts,
+  };
+}
+
+function failedDeadlineInvocationFromRun(
+  run: AgentRunHeader,
+  events: RuntimeEvent[],
+): InvocationResult {
+  let terminal: RuntimeEvent | undefined;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const candidate = events[index]!;
+    if (!isTerminalRuntimeEvent(candidate)) continue;
+    terminal = candidate;
+    break;
+  }
+  const terminalStatus =
+    terminal?.status === 'completed' ? 'cancelled' : (terminal?.status ?? 'cancelled');
+  const message = terminal?.content?.kind === 'error' ? terminal.content.message : undefined;
+  return {
+    invocationId: run.invocationId ?? events[0]?.invocationId ?? run.runId,
+    runId: run.runId,
+    sessionId: run.sessionId,
+    turnId: run.turnId,
+    status: 'failed',
+    failure: {
+      class: terminalStatus,
+      ...(message ? { message } : {}),
+      terminalStatus,
+    },
+    events,
+    startedAt: run.createdAt,
+    finishedAt: run.completedAt ?? run.updatedAt,
   };
 }
 
