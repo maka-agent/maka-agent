@@ -72,6 +72,7 @@ export function buildAgentSwarmTool(
     ].join(' '),
     parameters: agentSwarmInputSchema(),
     permissionRequired: true,
+    executionSemantics: 'exclusive_step',
     categoryHint: 'subagent',
     impl: async (input, ctx) => {
       const prepared = preflightAgentSwarmInput(input);

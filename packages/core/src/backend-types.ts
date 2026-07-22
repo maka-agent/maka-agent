@@ -14,6 +14,7 @@ import type { StoredMessage, BackendKind } from './session.js';
 import type { PermissionResponse } from './permission.js';
 import type { UserQuestionResponse } from './user-question.js';
 import type { ContextBudgetDiagnostic } from './usage-stats/types.js';
+import type { EffectiveOrchestration } from './orchestration.js';
 
 export interface RuntimeContinuationMetadata {
   sourceInvocationId: string;
@@ -29,6 +30,8 @@ export interface BackendSendInput {
   runId?: string;
   /** Caller-generated turn id shared by the persisted UserMessage and every emitted event. */
   turnId: string;
+  /** Trusted effective orchestration snapshot for this run. */
+  orchestration?: EffectiveOrchestration;
   /**
    * The persisted initial user RuntimeEvent for this turn (the head anchor).
    * Mid-turn capacity compaction keeps this event verbatim in every projection

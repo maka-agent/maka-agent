@@ -25,6 +25,10 @@ import type {
 import { isDeepStrictEqual } from 'node:util';
 import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
+import {
+  resolveEffectiveOrchestration,
+  type EffectiveOrchestration,
+} from '@maka/core/orchestration';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import {
   AgentRun,
@@ -388,6 +392,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       newId: this.deps.newId,
       now: this.deps.now,
       workspaceIdentity: continuation.safetySnapshot.workspaceIdentity,
+      effectiveOrchestration: effectiveOrchestrationForRun(sourceRun, header),
       continuationFailpoint: this.deps.continuationFailpoint,
       hooks: {
         ensureActive: (targetSessionId, nextHeader) =>
@@ -431,6 +436,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
       newId: this.deps.newId,
       now: this.deps.now,
+      effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
       hooks: {
         ensureActive: (targetSessionId, nextHeader) =>
           this.ensureActive(targetSessionId, nextHeader),
@@ -567,6 +573,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
       newId: this.deps.newId,
       now: this.deps.now,
+      effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
       recordSessionMessages: false,
       hooks: {
         ensureActive: (targetSessionId, nextHeader) =>
@@ -729,6 +736,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
         invocationId: begin.initialRuntimeEvent.invocationId,
         runId: run.runId,
         turnId: run.turnId,
+        ...(begin.backendInput.orchestration
+          ? { orchestration: begin.backendInput.orchestration }
+          : {}),
         text: input.text,
         ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
         context: begin.backendInput.context,
@@ -830,6 +840,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const runnerResult = runner
       .resume(continuation, {
         source: this.deps.runtimeSource ?? 'desktop',
+        orchestration: run.effectiveOrchestration,
         abortSignal: abortController.signal,
       })
       .then(
@@ -1698,6 +1709,24 @@ function runtimeToolBoundaryProtocol(
   header: Pick<SessionHeader, 'backend'>,
 ): ToolBoundaryProtocol | undefined {
   return header.backend === 'ai-sdk' ? deps.toolBoundaryProtocol : undefined;
+}
+
+function effectiveOrchestrationForRun(
+  run: AgentRunHeader,
+  session: SessionHeader,
+): EffectiveOrchestration {
+  if (
+    run.orchestrationMode !== undefined &&
+    run.orchestrationSource !== undefined &&
+    run.agentSwarmAuthorization !== undefined
+  ) {
+    return {
+      mode: run.orchestrationMode,
+      source: run.orchestrationSource,
+      agentSwarmAuthorization: run.agentSwarmAuthorization,
+    };
+  }
+  return resolveEffectiveOrchestration(session.orchestrationMode, undefined);
 }
 
 class AsyncEventQueueClosed extends Error {

@@ -7,6 +7,9 @@ import type { BackendKind, SessionBlockedReason, SessionStatus } from './session
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
 import type { CollaborationMode } from './collaboration.js';
+import type { OrchestrationMode, TurnOrchestration } from './orchestration.js';
+
+export type { TurnOrchestration } from './orchestration.js';
 
 export interface CreateSessionInput {
   /** Absolute path to the session's working dir (project root). */
@@ -22,6 +25,8 @@ export interface CreateSessionInput {
   permissionMode: PermissionMode;
   /** Defaults to `agent`. */
   collaborationMode?: CollaborationMode;
+  /** Defaults to `default`. Orthogonal to Agent/Plan collaboration mode. */
+  orchestrationMode?: OrchestrationMode;
   status?: SessionStatus;
   blockedReason?: SessionBlockedReason;
   parentSessionId?: string;
@@ -46,6 +51,8 @@ export interface UserMessageInput {
    * this over `text`. Omit when the two are identical.
    */
   displayText?: string;
+  /** Trusted host-supplied orchestration override for this turn only. */
+  turnOrchestration?: TurnOrchestration;
   attachments?: AttachmentRef[];
   parentRunId?: string;
   agentId?: string;

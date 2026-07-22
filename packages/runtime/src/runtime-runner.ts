@@ -150,6 +150,7 @@ export class RuntimeRunner {
     options: {
       source: InvocationRequest['source'];
       context?: InvocationRequest['context'];
+      orchestration?: InvocationRequest['orchestration'];
       abortSignal?: AbortSignal;
     },
   ): Promise<InvocationResult> {
@@ -164,6 +165,7 @@ export class RuntimeRunner {
       runtimeContext: continuation.runtimeContext,
       continuation: invocationContinuationMetadata(continuation),
       source: options.source,
+      ...(options.orchestration ? { orchestration: options.orchestration } : {}),
       ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     });
   }
@@ -517,6 +519,7 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
     : undefined;
   return {
     ...(request.lineage?.parentRunId ? { parentRunId: request.lineage.parentRunId } : {}),
+    ...(request.orchestration !== undefined ? { orchestration: request.orchestration } : {}),
     text: request.text,
     context: request.context ?? [],
     ...(request.runtimeContext !== undefined ? { runtimeContext: request.runtimeContext } : {}),

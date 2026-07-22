@@ -46,6 +46,7 @@ import type { PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { PermissionMode } from '@maka/core/permission';
 import type { CollaborationMode } from '@maka/core/collaboration';
+import type { OrchestrationMode } from '@maka/core/orchestration';
 import type {
   ApprovePlanProposalInput,
   PlanMutationResult,
@@ -745,6 +746,28 @@ export class SessionManager {
     return headerToSummary(next);
   }
 
+  async setOrchestrationMode(sessionId: string, mode: OrchestrationMode): Promise<SessionSummary> {
+    const previous = await this.deps.store.readHeader(sessionId);
+    const from = previous.orchestrationMode ?? 'default';
+    if (from === mode) return headerToSummary(previous);
+    if (this.runtimeKernel.hasActiveRuns(sessionId)) {
+      throw new Error('Cannot change orchestration mode while a turn is running.');
+    }
+    if (previous.status === 'waiting_for_user') {
+      throw new Error('Cannot change orchestration mode while a tool call awaits confirmation.');
+    }
+    const next = await this.deps.store.updateHeader(sessionId, { orchestrationMode: mode });
+    await this.deps.store.appendMessage(sessionId, {
+      type: 'system_note',
+      id: this.deps.newId(),
+      ts: this.deps.now(),
+      kind: 'mode_change',
+      data: { dimension: 'orchestration', from, to: mode },
+    } satisfies SystemNoteMessage);
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
+    return headerToSummary(next);
+  }
+
   async requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanMutationResult> {
     const result = await this.requirePlanStore().requestRevision({ sessionId, proposalId });
     const header = await this.deps.store.readHeader(sessionId);
@@ -1350,6 +1373,7 @@ export class SessionManager {
       model: header.model,
       thinkingLevel: header.thinkingLevel,
       permissionMode: header.permissionMode,
+      orchestrationMode: header.orchestrationMode ?? 'default',
       name: input.name ?? `${header.name} · 分支`,
       labels: header.labels,
       parentSessionId: sessionId,
@@ -1869,6 +1893,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     model: h.model,
     permissionMode: h.permissionMode ?? 'ask',
     collaborationMode: h.collaborationMode ?? 'agent',
+    orchestrationMode: h.orchestrationMode ?? 'default',
   };
   if (h.thinkingLevel !== undefined) summary.thinkingLevel = h.thinkingLevel;
   if (h.lastMessageAt !== undefined) {

@@ -34,6 +34,7 @@ import type {
 import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type { EffectiveOrchestration } from '@maka/core/orchestration';
 import { redactSecrets } from '@maka/core/redaction';
 import { TOOL_BOUNDARY_PROTOCOL_V1, type RuntimeEvent } from '@maka/core';
 
@@ -104,6 +105,8 @@ export interface MakaTool<P = any, R = unknown> {
   executionFacts?: ToolExecutionFacts;
   /** Crash-recovery contract used by the durable tool boundary. */
   recoveryMode?: ToolRecoveryMode;
+  /** Step-level admission contract. Exclusive tools cannot share an assistant step. */
+  executionSemantics?: 'parallel' | 'exclusive_step';
   /** Optional permission/persistence projection derived from isolated execution args. */
   permissionArgs?: (
     args: P,
@@ -241,6 +244,8 @@ export interface ToolRuntimeInput {
    * (legacy per-turn behavior).
    */
   getCurrentStepId?: () => string | undefined;
+  /** Effective orchestration for the active send; undefined between turns. */
+  getCurrentOrchestration?: () => EffectiveOrchestration | undefined;
   spawnChildAgent?: (input: {
     parentRunId: string;
     spec: AgentSpec;
@@ -320,6 +325,10 @@ export class ToolRuntime {
   private readonly recentSandboxDenials = new Set<string>();
   private readonly autoReviewEscalationAttempts = new Map<string, 'pending' | 'denied'>();
   private readonly durableToolAttempts = new Map<string, DurableToolAttempt>();
+  private readonly stepAdmissions = new Map<
+    string,
+    { callCount: number; exclusiveToolName?: string }
+  >();
   private readonly approvalCoordinator: ApprovalCoordinator;
 
   constructor(private readonly input: ToolRuntimeInput) {
@@ -398,6 +407,7 @@ export class ToolRuntime {
     this.recentSandboxDenials.clear();
     this.autoReviewEscalationAttempts.clear();
     this.durableToolAttempts.clear();
+    this.stepAdmissions.clear();
   }
 
   /**
@@ -463,6 +473,10 @@ export class ToolRuntime {
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
+    const stepId = this.input.getCurrentStepId?.();
+    // Registration is synchronous and happens before the first await, so
+    // parallel AI SDK execute callbacks cannot race past exclusive admission.
+    const admissionFailure = this.admitToolForStep(tool, stepId);
     let permissionArgs = executionArgs;
     let permissionArgsError: unknown;
     try {
@@ -486,7 +500,6 @@ export class ToolRuntime {
     const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
 
-    const stepId = this.input.getCurrentStepId?.();
     const runId = this.input.getCurrentRunId?.();
     const invocationId = this.input.getCurrentInvocationId?.() ?? runId;
     if (this.input.runtimeCommitSink && !runId) {
@@ -536,6 +549,18 @@ export class ToolRuntime {
       ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
     });
     const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
+    if (admissionFailure) {
+      await this.writeSyntheticToolResult(toolUseId, turnId, admissionFailure, queue);
+      trace?.emit('tool', 'tool_failed', 'Tool rejected by exclusive-step admission', {
+        toolUseId,
+        toolName: tool.name,
+        stepId,
+        status: 'error',
+        errorClass: 'ExclusiveStepConflict',
+      });
+      this.recordLoopGateOutcome(callSignature, true);
+      return this.errorReturn(admissionFailure);
+    }
     const computerSemanticSignature =
       tool.categoryHint === 'computer_use'
         ? computerUseSemanticSignature(permissionArgs)
@@ -784,9 +809,10 @@ export class ToolRuntime {
       this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'pending');
     }
 
+    const permissionRules = this.permissionRulesFor(tool.name);
     if (
       tool.permissionRequired !== false ||
-      (this.input.permissionRules?.length ?? 0) > 0 ||
+      permissionRules.length > 0 ||
       additionalPlan.kind === 'request' ||
       escalationPlan.kind === 'request'
     ) {
@@ -799,9 +825,7 @@ export class ToolRuntime {
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
-        ...(this.input.permissionRules !== undefined
-          ? { permissionRules: this.input.permissionRules }
-          : {}),
+        ...(permissionRules.length > 0 ? { permissionRules } : {}),
         ...(tool.sandbox !== undefined
           ? {
               sandbox:
@@ -1033,6 +1057,12 @@ export class ToolRuntime {
           toolName: tool.name,
           decision: 'allow',
           category: verdict.category,
+          ...(tool.name === 'agent_swarm'
+            ? {
+                authorizationSource:
+                  this.input.getCurrentOrchestration?.()?.agentSwarmAuthorization ?? 'none',
+              }
+            : {}),
         });
       }
     }
@@ -1588,6 +1618,31 @@ export class ToolRuntime {
         return committedOutcome;
       },
     };
+  }
+
+  private admitToolForStep(tool: MakaTool, stepId: string | undefined): string | undefined {
+    if (!stepId) return undefined;
+    const existing = this.stepAdmissions.get(stepId) ?? { callCount: 0 };
+    const exclusive = tool.executionSemantics === 'exclusive_step';
+    if (existing.exclusiveToolName) {
+      return `Tool ${tool.name} cannot share an assistant step with exclusive tool ${existing.exclusiveToolName}. Retry it in a separate step.`;
+    }
+    if (exclusive && existing.callCount > 0) {
+      return `Exclusive tool ${tool.name} cannot share an assistant step with other tool calls. Retry it in a separate step.`;
+    }
+    existing.callCount += 1;
+    if (exclusive) existing.exclusiveToolName = tool.name;
+    this.stepAdmissions.set(stepId, existing);
+    return undefined;
+  }
+
+  private permissionRulesFor(toolName: string): ToolPermissionRule[] {
+    const rules = [...(this.input.permissionRules ?? [])];
+    const authorization = this.input.getCurrentOrchestration?.()?.agentSwarmAuthorization;
+    if (toolName === 'agent_swarm' && authorization && authorization !== 'none') {
+      rules.push({ effect: 'allow', kind: 'tool', toolName: 'agent_swarm' });
+    }
+    return rules;
   }
 
   private async awaitPermissionDecision(

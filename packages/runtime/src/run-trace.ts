@@ -109,11 +109,12 @@ export class RunTrace {
     }
   }
 
-  turnStarted(): void {
+  turnStarted(extra: Record<string, unknown> = {}): void {
     this.emit('turn', 'turn_started', 'Turn started', {
       connectionSlug: this.input.connectionSlug,
       providerId: this.input.providerId,
       modelId: this.input.modelId,
+      ...extra,
     });
   }
 

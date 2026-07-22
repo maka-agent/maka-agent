@@ -42,6 +42,7 @@ describe('FileSessionStore CRUD', () => {
 
       assert.equal(header.status, 'active');
       assert.equal(header.collaborationMode, 'agent');
+      assert.equal(header.orchestrationMode, 'default');
       assert.equal(typeof header.statusUpdatedAt, 'number');
       const [summary] = await store.list();
       assert.equal(summary?.status, 'active');
@@ -49,6 +50,15 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(summary?.model, 'fake-model');
       assert.equal(summary?.cwd, '/tmp/cwd');
       assert.equal(summary?.collaborationMode, 'agent');
+      assert.equal(summary?.orchestrationMode, 'default');
+    });
+  });
+
+  test('persists a requested orchestration mode in headers and summaries', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ orchestrationMode: 'swarm' }));
+      assert.equal(header.orchestrationMode, 'swarm');
+      assert.equal((await store.list())[0]?.orchestrationMode, 'swarm');
     });
   });
 
@@ -371,9 +381,11 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(header.permissionMode, 'ask');
       assert.equal(header.status, 'active');
       assert.equal(header.titleIsManual, true);
+      assert.equal(header.orchestrationMode, 'default');
       const [summary] = await store.list();
       assert.equal(summary?.permissionMode, 'ask');
       assert.equal(summary?.status, 'active');
+      assert.equal(summary?.orchestrationMode, 'default');
     });
   });
 
