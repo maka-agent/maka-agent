@@ -124,6 +124,7 @@ interface FakeOptions {
   exitCode?: number;
   timedOut?: boolean;
   combinedTrace?: boolean;
+  sessionTrace?: boolean;
   captured?: { request?: PierRunRequest; envFile?: Record<string, string> };
 }
 
@@ -176,6 +177,13 @@ function fakePier(opts: FakeOptions): PierProcessRunner {
     await writeFile(join(trialDir, 'agent', 'runtime-events.jsonl'), '{"type":"x"}\n', 'utf8');
     if (opts.combinedTrace) {
       await writeFile(join(trialDir, 'agent', 'trace-events.jsonl'), '{"type":"first"}\n', 'utf8');
+    }
+    if (opts.sessionTrace) {
+      // The in-cell session trace layout hostTraceEventsPath resolves via
+      // cell.runtimeRefs (sessionId 'sess', runId 'run' in cellOutput()).
+      const sessionDir = join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run');
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(join(sessionDir, 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
     }
     if (opts.reward !== undefined && opts.rewardJson !== false) {
       await writeFile(
@@ -410,12 +418,13 @@ test('createPierTaskRunner falls back to the trial verifier_result reward', asyn
   });
 });
 
-test('createPierTaskRunner surfaces the combined trace path when present', async () => {
+test('createPierTaskRunner surfaces the combined trace path in task-run mode', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(
       baseOptions({
         jobsDir,
         makaRepoPath: repo,
+        agentEnv: { MAKA_HARBOR_MODE: 'task-run' },
         runPier: fakePier({ reward: 0, combinedTrace: true }),
       }),
     );
@@ -424,7 +433,28 @@ test('createPierTaskRunner surfaces the combined trace path when present', async
   });
 });
 
-test('createPierTaskRunner falls back to runtime events when the combined trace is missing', async () => {
+test('createPierTaskRunner resolves the cell-mode session trace via runtimeRefs', async () => {
+  // Shared hostTraceEventsPath: in cell mode the rich trace lives at
+  // agent/maka-storage/sessions/<sid>/runs/<rid>/events.jsonl. Skipping this
+  // branch silently drops tool_failed / provider_request_captured attribution
+  // from downstream failure analysis.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        runPier: fakePier({ reward: 0, sessionTrace: true }),
+      }),
+    );
+    const output = await runner(runInput());
+    assert.match(
+      output.cell.traceEventsPath ?? '',
+      /agent\/maka-storage\/sessions\/sess\/runs\/run\/events\.jsonl$/,
+    );
+  });
+});
+
+test('createPierTaskRunner falls back to runtime events when no richer trace exists', async () => {
   // Harbor-parity (hostTraceEventsPath): traceEventsPath is always set, so
   // downstream trace analysis never silently skips the sample.
   await withDirs(async ({ jobsDir, repo }) => {

@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
@@ -16,6 +15,7 @@ import {
   assertNoProviderSecretsInAgentEnv,
   findTrialDir,
   harborTraceMode,
+  hostTraceEventsPath,
   isBudgetExhaustedError,
   isBudgetExhaustedTrialException,
   mergeAgentEnv,
@@ -48,7 +48,6 @@ import {
 const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
-const TRIAL_COMBINED_TRACE_EVENTS = 'agent/trace-events.jsonl';
 const TRIAL_REWARD_JSON = 'verifier/reward.json';
 const TRIAL_RESULT = 'result.json';
 const PROVIDER_REQUEST_TELEMETRY = 'provider-request-telemetry.json';
@@ -403,7 +402,6 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
           ? rawCell
           : { ...rawCell, tokenSummary: providerTokenSummary(providerUsage, options.pricing) };
       const hostEventsPath = join(trialDir, TRIAL_RUNTIME_EVENTS);
-      const combinedTracePath = join(trialDir, TRIAL_COMBINED_TRACE_EVENTS);
       // Pier's verifier grading is the scoring authority. Surface it as the
       // structured verifier outcome the controller requires: without it a
       // graded failed cell (max_tokens / tool_step_cap_reached / policy_denied)
@@ -420,10 +418,17 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
           ...cell,
           ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
           runtimeEventsPath: hostEventsPath,
-          // Harbor-parity fallback (hostTraceEventsPath): downstream trace
-          // analysis skips a sample whose traceEventsPath is absent, so when
-          // the combined trace is missing the runtime events stand in.
-          traceEventsPath: existsSync(combinedTracePath) ? combinedTracePath : hostEventsPath,
+          // Shared Harbor resolution: cell mode prefers the maka-storage
+          // session events (the rich trace with tool_failed /
+          // provider_request_captured), task-run mode the combined trace, and
+          // only then the raw runtime events — same layouts, same adapters.
+          traceEventsPath: hostTraceEventsPath(
+            agent,
+            harborTraceMode(attemptAgentEnv),
+            trialDir,
+            cell,
+            hostEventsPath,
+          ),
         },
       };
     } catch (error) {

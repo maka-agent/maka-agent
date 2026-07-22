@@ -603,7 +603,13 @@ async function readOptionalCellOutput(
   }
 }
 
-function hostTraceEventsPath(
+/** Shared across runners: resolve the richest host-side trace for a trial.
+ * Task-run mode prefers the combined agent/trace-events.jsonl, then the
+ * task-run session layout; cell mode resolves the maka-storage session events
+ * via cell.runtimeRefs — the raw runtime-events fallback is a last resort, and
+ * skipping the session branch silently drops tool_failed /
+ * provider_request_captured failure attribution downstream. */
+export function hostTraceEventsPath(
   agent: HarborTaskRunnerOptions['agent'],
   mode: 'cell' | 'task-run',
   trialDir: string,
