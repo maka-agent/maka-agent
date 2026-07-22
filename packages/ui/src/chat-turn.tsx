@@ -1,20 +1,21 @@
 import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
-import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, GitBranch, Info, Loader2, RefreshCcw, Timer } from './icons.js';
+import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, Cpu, GitBranch, Info, Loader2, RefreshCcw, Timer } from './icons.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
-import { Button as UiButton, DialogContent, DialogRoot } from './ui.js';
+import { Button as UiButton, cn, DialogContent, DialogRoot } from './ui.js';
 import type { AttachmentRef } from '@maka/core';
-import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
+import type { ProcessingTimelineChild, TurnTimelineItem, TurnViewModel } from './materialize.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
-import { ToolTrow } from './tool-activity.js';
+import { SETTLE_FADE, ToolTrow, useToolDisclosure } from './tool-activity.js';
+import { isProcessingRunning, processingNeedsAttention, summarizeProcessing } from './tool-activity/trow-summary.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 
@@ -314,13 +315,7 @@ export const TurnView = memo(function TurnView(props: {
   // this is the live streaming tail (a thinking-only / textless streaming turn
   // has an empty committed timeline but must still show its live answer block).
   const showAssistantMessage = turn.timeline.length > 0 || !!props.liveStreaming;
-  const hasLiveTimelineContent = turn.timeline.some((item) =>
-    item.kind === 'thinking'
-      ? item.live === true
-      : item.kind === 'text'
-        ? item.live === true
-        : item.items.some((tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'),
-  );
+  const hasLiveTimelineContent = turn.timeline.some(timelineItemHasLiveContent);
   return (
     <section
       className="maka-turn"
@@ -784,14 +779,39 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
  * re-positioned mid-timeline without remounting — and thereby collapsing —
  * the disclosures after it.
  */
-function timelineEntryKey(item: TurnTimelineItem, index: number): string {
+function timelineEntryKey(item: TurnTimelineItem | ProcessingTimelineChild, index: number): string {
   if (item.kind === 'tools') return `tools-${item.items[0]?.toolUseId ?? index}`;
+  if (item.kind === 'processing') {
+    const first = item.children[0];
+    const inner = first
+      ? (first.kind === 'tools' ? first.items[0]?.toolUseId : first.messageId)
+      : index;
+    return `processing-${inner ?? index}`;
+  }
   return `${item.kind}-${item.messageId}`;
 }
 
-/** Render one timeline entry: reasoning disclosure / answer bubble / tool trow. */
+/** True when a timeline entry (including a folded processing block) is still
+ *  streaming reasoning/answer text or running a tool — drives the tail turn's
+ *  live indicators. */
+function timelineItemHasLiveContent(item: TurnTimelineItem): boolean {
+  switch (item.kind) {
+    case 'thinking':
+    case 'text':
+      return item.live === true;
+    case 'tools':
+      return item.items.some(
+        (tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission',
+      );
+    case 'processing':
+      return item.children.some(timelineItemHasLiveContent);
+  }
+}
+
+/** Render one timeline entry: reasoning disclosure / answer bubble / tool trow /
+ *  folded Processing block. */
 function TurnTimelineEntry(props: {
-  item: TurnTimelineItem;
+  item: TurnTimelineItem | ProcessingTimelineChild;
   onStreamingSettled?: (messageId?: string) => void;
 }) {
   const { item } = props;
@@ -799,6 +819,9 @@ function TurnTimelineEntry(props: {
     return <DeepThinking text={item.text} live={item.live === true} truncated={item.truncated === true} />;
   }
   if (item.kind === 'tools') return <ToolTrow items={item.items} />;
+  if (item.kind === 'processing') {
+    return <ProcessingBlock entries={item.children} onStreamingSettled={props.onStreamingSettled} />;
+  }
   if (item.kind === 'text' && item.live) {
     return (
       <StreamingAssistantBubble
@@ -810,6 +833,78 @@ function TurnTimelineEntry(props: {
     );
   }
   return <MessageBody role="assistant" text={item.text} ts={item.ts} />;
+}
+
+/**
+ * "Processing" — a folded run of the model's reasoning + tool activity between
+ * two answer texts (#1307). Collapsed by default (no defaultOpen — same
+ * disclosure-collapsible-contract as 深度思考 / the tool trow): the summary line
+ * shows the current activity while running and freezes to a settled roll-up
+ * (思考 N 次 + tool counts + 「N 个失败」 in destructive) once the turn ends. A
+ * `waiting_permission` prompt inside forces the block open (trowNeedsAttention);
+ * an errored tool stays collapsed with its failure count on the summary line.
+ * The expanded panel replays the full timeline — the SAME 深度思考 disclosures
+ * and tool trows, just nested one indent in — so nothing is lost, only folded.
+ */
+function ProcessingBlock(props: {
+  entries: ProcessingTimelineChild[];
+  onStreamingSettled?: (messageId?: string) => void;
+}) {
+  const locale = useUiLocale();
+  const { entries } = props;
+  const running = isProcessingRunning(entries);
+  const attention = processingNeedsAttention(entries);
+  // Reuse the tool disclosure state machine: ordinary work summarized, a
+  // permission prompt opens, an explicit toggle sticks across status changes.
+  const disclosure = useToolDisclosure({ kind: 'tool', summary: '', needsAttention: attention });
+  // #646 settle seam: play the one-shot landing fade only if this block was
+  // seen running here (not a replayed transcript), matching the tool trow.
+  const everRunningRef = useRef(false);
+  if (running) everRunningRef.current = true;
+  const settled = !running;
+  const settling = settled && everRunningRef.current;
+  const hasError = entries.some((entry) => entry.kind === 'tools' && entry.items.some((item) => item.status === 'errored'));
+  const summary = summarizeProcessing(entries, { live: running, locale });
+  return (
+    <Collapsible
+      className="flex flex-col"
+      data-processing="block"
+      data-settled={settled ? 'true' : undefined}
+      open={disclosure.open}
+      onOpenChange={disclosure.setOpen}
+    >
+      {/* Same row language as the tool trow / 深度思考: [16px icon] + [label] +
+          hover/open chevron, one tier — hierarchy carried by color, not size. */}
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
+        <Cpu
+          size={16}
+          aria-hidden="true"
+          className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
+        />
+        {running ? (
+          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
+        ) : (
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]', settling && SETTLE_FADE)}>{summary}</span>
+        )}
+        <ChevronRight
+          size={14}
+          aria-hidden="true"
+          className="shrink-0 text-[color:var(--muted-foreground)] opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
+        />
+      </CollapsibleTrigger>
+      <CollapsiblePanel>
+        <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
+          {entries.map((entry, index) => (
+            <TurnTimelineEntry
+              key={timelineEntryKey(entry, index)}
+              item={entry}
+              onStreamingSettled={props.onStreamingSettled}
+            />
+          ))}
+        </div>
+      </CollapsiblePanel>
+    </Collapsible>
+  );
 }
 
 /**

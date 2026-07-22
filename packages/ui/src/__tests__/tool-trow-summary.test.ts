@@ -7,8 +7,13 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup as renderReactToStaticMarkup } from 'react-dom/server';
 import { LocaleProvider } from '../locale-context.js';
 import { ToolTrow } from '../tool-activity.js';
-import { summarizeTrowTools } from '../tool-activity/trow-summary.js';
-import type { ToolActivityItem } from '../materialize.js';
+import {
+  isProcessingRunning,
+  processingNeedsAttention,
+  summarizeProcessing,
+  summarizeTrowTools,
+} from '../tool-activity/trow-summary.js';
+import type { ProcessingTimelineChild, ToolActivityItem } from '../materialize.js';
 
 const toolActivitySource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'tool-activity.tsx'),
@@ -99,5 +104,75 @@ describe('tool trow summary aggregation', () => {
     assert.doesNotMatch(toolActivitySource, /\bmotion\.(settling|shimmer|settled)\b/);
     assert.doesNotMatch(toolActivitySource, /\bsettleFade\b/);
     assert.equal((toolActivitySource.match(/\bSETTLE_FADE\b/g) ?? []).length, 2);
+  });
+});
+
+function thinking(live?: boolean): ProcessingTimelineChild {
+  return { kind: 'thinking', text: 'reasoning', messageId: 'a1', ...(live !== undefined ? { live } : {}) };
+}
+
+function tools(items: ToolActivityItem[]): ProcessingTimelineChild {
+  return { kind: 'tools', items };
+}
+
+describe('processing block summary (#1307)', () => {
+  it('settled summary counts reasoning blocks + tool buckets + failed', () => {
+    const children = [
+      thinking(),
+      tools([
+        { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'completed', args: {} },
+        { toolUseId: 'g1', toolName: 'Grep', activityKind: 'search', status: 'errored', args: {} },
+      ]),
+      thinking(),
+    ];
+    // 思考计数 + 读取/搜索桶 + 标红失败计数，沿用 summarizeTrowTools 的文案与顺序。
+    assert.equal(summarizeProcessing(children, {}), '思考 2 次，读取 1 个文件，搜索 1 次，1 个失败');
+  });
+
+  it('a pure-thinking block summarizes as just the reasoning count', () => {
+    assert.equal(summarizeProcessing([thinking(), thinking()], {}), '思考 2 次');
+  });
+
+  it('keeps the failed count on the live summary while a tool is still running', () => {
+    const children = [
+      tools([
+        { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'errored', args: {} },
+        { toolUseId: 'b1', toolName: 'Bash', activityKind: 'command', status: 'running', args: {}, intent: '运行测试' },
+      ]),
+    ];
+    // 运行中显示当前活动（最后一个在飞行中的工具意图），带「正在」前缀。
+    assert.equal(summarizeProcessing(children, { live: true }), '正在运行测试');
+  });
+
+  it('live summary falls back to the reasoning label when only thinking is streaming', () => {
+    assert.equal(summarizeProcessing([thinking(true)], { live: true }), '正在深度思考');
+  });
+
+  it('is running while any tool is in flight or reasoning is still streaming', () => {
+    assert.equal(isProcessingRunning([thinking(true)]), true);
+    assert.equal(isProcessingRunning([thinking(false)]), false);
+    assert.equal(
+      isProcessingRunning([tools([{ toolUseId: 'r1', toolName: 'Read', status: 'running', args: {} }])]),
+      true,
+    );
+    assert.equal(
+      isProcessingRunning([tools([{ toolUseId: 'r1', toolName: 'Read', status: 'completed', args: {} }])]),
+      false,
+    );
+  });
+
+  it('needs attention (force-open) only for a waiting_permission prompt, not an error', () => {
+    assert.equal(
+      processingNeedsAttention([tools([{ toolUseId: 'w1', toolName: 'Write', status: 'waiting_permission', args: {} }])]),
+      true,
+    );
+    // Errored tools stay collapsed — the summary line carries the failure count.
+    assert.equal(
+      processingNeedsAttention([
+        thinking(),
+        tools([{ toolUseId: 'e1', toolName: 'Bash', status: 'errored', args: {} }]),
+      ]),
+      false,
+    );
   });
 });

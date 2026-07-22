@@ -12,8 +12,9 @@
  */
 
 import type { ToolActivityKind, UiLocale } from '@maka/core';
-import type { ToolActivityItem } from '../materialize.js';
+import type { ProcessingTimelineChild, ToolActivityItem } from '../materialize.js';
 import { getToolActivityCopy } from './copy.js';
+import { formatUserVisibleToolText } from './preview-utils.js';
 
 export type TrowActivityKind = ToolActivityKind;
 
@@ -124,4 +125,80 @@ export function isTrowRunning(items: readonly ToolActivityItem[]): boolean {
  */
 export function trowNeedsAttention(items: readonly ToolActivityItem[]): boolean {
   return items.some((item) => item.status === 'waiting_permission');
+}
+
+// ── Processing block (#1307) ────────────────────────────────────────────────
+// A processing block folds a maximal run of reasoning + tool groups between two
+// answer texts. Its summary reuses the trow bucket clauses and prepends a
+// reasoning-count clause; the failed count stays visible (errored tools remain
+// collapsed, so the summary line is the failure signal, matching the trow).
+
+/** All tool items across the block's tool groups, in order. */
+function processingTools(children: readonly ProcessingTimelineChild[]): ToolActivityItem[] {
+  return children.flatMap((child) => (child.kind === 'tools' ? child.items : []));
+}
+
+/** Number of reasoning blocks folded into the processing group. */
+function processingThinkingCount(children: readonly ProcessingTimelineChild[]): number {
+  return children.reduce((count, child) => (child.kind === 'thinking' ? count + 1 : count), 0);
+}
+
+/** True while any tool is in flight or any reasoning block is still streaming. */
+export function isProcessingRunning(children: readonly ProcessingTimelineChild[]): boolean {
+  return children.some((child) =>
+    child.kind === 'thinking' ? child.live === true : isTrowRunning(child.items),
+  );
+}
+
+/**
+ * True when the block must force itself open: a permission prompt sits inside.
+ * Mirrors `trowNeedsAttention` — an errored tool does NOT force-open; the
+ * settled summary carries the failure count (「N 个失败」 in destructive color).
+ */
+export function processingNeedsAttention(children: readonly ProcessingTimelineChild[]): boolean {
+  return children.some((child) => child.kind === 'tools' && trowNeedsAttention(child.items));
+}
+
+/**
+ * Summary line for a processing block. Settled: reasoning-count clause +
+ * per-bucket tool clauses + failed count, joined like the trow. Live
+ * (`{ live: true }`): the current activity — the running tool's intent (or the
+ * reasoning label when only thinking is streaming), prefixed with "正在".
+ */
+export function summarizeProcessing(
+  children: readonly ProcessingTimelineChild[],
+  options?: { live?: boolean; locale?: UiLocale },
+): string {
+  const locale = options?.locale ?? 'zh';
+  const copy = getToolActivityCopy(locale).summary;
+  if (options?.live) return processingLiveSummary(children, locale);
+  const tools = processingTools(children);
+  const thinkingCount = processingThinkingCount(children);
+  const clauses: string[] = [];
+  if (thinkingCount > 0) clauses.push(copy.thinking(thinkingCount));
+  if (tools.length > 0) clauses.push(summarizeTrowTools(tools, { locale }));
+  return copy.join(clauses);
+}
+
+/** Current-activity line for a running processing block. */
+function processingLiveSummary(
+  children: readonly ProcessingTimelineChild[],
+  locale: UiLocale,
+): string {
+  const copy = getToolActivityCopy(locale).summary;
+  const tools = processingTools(children);
+  const activeTool = [...tools]
+    .reverse()
+    .find(
+      (tool) =>
+        tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
+    );
+  if (activeTool) {
+    const label =
+      formatUserVisibleToolText(activeTool.intent ?? '', locale)
+      || activeTool.displayName
+      || activeTool.toolName;
+    return copy.live(label);
+  }
+  return copy.live(copy.thinkingActivity);
 }
