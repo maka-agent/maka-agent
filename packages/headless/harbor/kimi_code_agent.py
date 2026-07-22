@@ -11,12 +11,22 @@ import shlex
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 from process_scope import cleanup_process_scope, scoped_command
+
+# Pier (Datacurve's Harbor fork) asks each agent for a per-container network
+# allowlist. Plain Harbor has no such hook, so the import is guarded: under plain
+# Harbor `pier` is absent and network_allowlist() is never called, but the module
+# must still import for the Terminal-Bench (plain Harbor) runs.
+try:
+    from pier.models.agent.network import NetworkAllowlist as _NetworkAllowlist
+except ImportError:  # plain Harbor without Pier installed
+    _NetworkAllowlist = None
 
 _TOOLCHAIN_ROOT = Path("/opt/maka-kimi-code-toolchain")
 _TOOLCHAIN_NODE = _TOOLCHAIN_ROOT / "bin" / "node"
@@ -41,6 +51,30 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
     @staticmethod
     def name() -> str:
         return "kimi-code"
+
+    def install_spec(self):
+        # The Kimi Code toolchain is baked into the task image and only verified
+        # (sha256 checksums + manifest fingerprint) in install(); there is
+        # nothing to install at Pier build time. None keeps the runtime verify
+        # path unchanged.
+        return None
+
+    def network_allowlist(self):
+        if _NetworkAllowlist is None:
+            return None
+        # The container runs the pre-baked Kimi Code CLI against
+        # KIMI_MODEL_BASE_URL, which _runtime_env() sets to
+        # MAKA_PROVIDER_PROXY_URL. The toolchain is verified offline (no install
+        # download), so the only outbound host the container needs is that model
+        # endpoint. Derive its hostname the way Pier's builtin agents do
+        # (claude_code), defaulting to api.kimi.com for the
+        # https://api.kimi.com/coding/v1 base URL when the proxy URL is unset.
+        base_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
+        if base_url:
+            parsed = urlparse(base_url if "://" in base_url else f"https://{base_url}")
+            if parsed.hostname:
+                return _NetworkAllowlist(domains=[parsed.hostname])
+        return _NetworkAllowlist(domains=["api.kimi.com"])
 
     def get_version_command(self) -> str | None:
         return (

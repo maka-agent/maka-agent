@@ -32,6 +32,15 @@ from process_scope import (
 )
 from trial_pricing import estimate_cost, pricing_from_env
 
+# Pier (Datacurve's Harbor fork) asks each agent for a per-container network
+# allowlist. Plain Harbor has no such hook, so the import is guarded: under plain
+# Harbor `pier` is absent and network_allowlist() is never called, but the module
+# must still import for the Terminal-Bench (plain Harbor) runs.
+try:
+    from pier.models.agent.network import NetworkAllowlist as _NetworkAllowlist
+except ImportError:  # plain Harbor without Pier installed
+    _NetworkAllowlist = None
+
 # Default wall-clock budget for a single bridged tool command when the client
 # does not request its own timeout. Matches the in-container executor floor
 # (HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000) rather than the whole-cell
@@ -158,6 +167,20 @@ class MakaAgent(BaseInstalledAgent):
     @staticmethod
     def name() -> str:
         return "maka"
+
+    def install_spec(self):
+        # Maka installs at runtime inside install()/setup() (host-side Node, or
+        # the in-container Node bootstrap), not via a Pier build-time install
+        # spec. Returning None keeps that runtime-install path unchanged; Pier
+        # falls back to setup() when the spec is None.
+        return None
+
+    def network_allowlist(self):
+        # Host-side LLM mode makes every model call on the host and bridges tools
+        # into the container via environment.exec, so the container itself needs
+        # no outbound network. An empty allowlist keeps a non-internet Pier task
+        # fully offline. Called only under Pier, where NetworkAllowlist imports.
+        return _NetworkAllowlist() if _NetworkAllowlist is not None else None
 
     def _harbor_mode(self) -> str:
         """cell (default) runs a RuntimeRunner cell; task-run runs the full
