@@ -1,11 +1,11 @@
-import type { OrchestrationMode } from '@maka/core/orchestration';
+import type { OrchestrationMode } from './orchestration.js';
 
 export type ParsedSwarmCommand =
   | { kind: 'status' }
   | { kind: 'set_mode'; mode: OrchestrationMode }
   | { kind: 'run_once'; task: string };
 
-/** Parse the CLI's exact `/swarm` command without treating lookalike prompts as commands. */
+/** Parse the exact `/swarm` command without treating lookalike prompts as commands. */
 export function parseSwarmCommand(input: string): ParsedSwarmCommand | null {
   const trimmed = input.trim();
   const commandToken = trimmed.split(/\s+/, 1)[0] ?? '';

@@ -52,7 +52,7 @@ import {
 } from '@maka/runtime';
 import { MakaSkillHighlightEditor } from './skill-highlight-editor.js';
 import { parseSkillInvocationTokens, stripSkillInvocationTokens } from './skill-token.js';
-import { parseSwarmCommand, type ParsedSwarmCommand } from './swarm-command.js';
+import { parseSwarmCommand, type ParsedSwarmCommand } from '@maka/core';
 import type { CliGoalTurnHost } from './cli-goal-continuation.js';
 import {
   inspectSessionResumeAvailability,

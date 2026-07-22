@@ -249,6 +249,9 @@ describe('runExperiment (walking skeleton)', () => {
       assert.equal(result.exitCode, 0);
       assert.equal(result.taskId, 'pass-task');
       assert.equal(result.configId, 'fake-cfg');
+      assert.equal(result.orchestrationMode, 'default');
+      assert.equal(result.orchestrationSource, 'session');
+      assert.equal(result.agentSwarmAuthorization, 'none');
       // The agent run produced a trajectory...
       assert.ok(result.steps > 0, 'expected a non-empty trajectory');
       // ...persisted as the canonical runtime-events.jsonl.
@@ -292,6 +295,45 @@ describe('runExperiment (walking skeleton)', () => {
       const result = await runExperiment(fakeConfig, task, { storageRoot });
       assert.equal(result.status, 'completed');
       assert.equal(result.passed, true);
+    });
+  });
+
+  test('records the persistent session Swarm Mode as authoritative run evidence', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'session-swarm',
+        instruction: 'fan out the work',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+      const result = await runExperiment(fakeConfig, task, {
+        storageRoot,
+        orchestrationMode: 'swarm',
+      });
+
+      assert.equal(result.orchestrationMode, 'swarm');
+      assert.equal(result.orchestrationSource, 'session');
+      assert.equal(result.agentSwarmAuthorization, 'session_mode');
+    });
+  });
+
+  test('records a host API turn override without changing the session-default API', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'turn-swarm',
+        instruction: 'fan out this turn',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+      const result = await runExperiment(fakeConfig, task, {
+        storageRoot,
+        orchestrationMode: 'default',
+        turnOrchestration: { mode: 'swarm', source: 'host_api' },
+      });
+
+      assert.equal(result.orchestrationMode, 'swarm');
+      assert.equal(result.orchestrationSource, 'turn_override');
+      assert.equal(result.agentSwarmAuthorization, 'turn_override');
     });
   });
 });

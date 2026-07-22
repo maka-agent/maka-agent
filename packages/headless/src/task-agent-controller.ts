@@ -305,6 +305,7 @@ export async function runTaskOnce(
       llmConnectionSlug: effectiveConfig.llmConnectionSlug,
       model: effectiveConfig.model,
       permissionMode: deps.permissionMode ?? 'execute',
+      ...(deps.orchestrationMode ? { orchestrationMode: deps.orchestrationMode } : {}),
       name: `task:${config.id}:${task.id}`,
     });
     const turnId = newId();
@@ -312,7 +313,11 @@ export async function runTaskOnce(
     const run = new AgentRun({
       sessionId: header.id,
       header,
-      userInput: { turnId, text: instruction },
+      userInput: {
+        turnId,
+        text: instruction,
+        ...(deps.turnOrchestration ? { turnOrchestration: deps.turnOrchestration } : {}),
+      },
       store: sessionStore,
       runStore: agentRunStore,
       runtimeEventStore,
@@ -590,6 +595,9 @@ export async function runTaskOnce(
     });
     const finishedAt = now();
     const scoreResultId = newId();
+    const runEvidence = await agentRunStore
+      .readRun(header.id, invocation.runId)
+      .catch(() => undefined);
     const resultRecord = resultRecordFromInvocation({
       config,
       task,
@@ -602,6 +610,7 @@ export async function runTaskOnce(
       startedAt,
       finishedAt,
       systemPrompt: prompt,
+      runEvidence,
     });
     const taxonomy = finalScore.taxonomy;
     const scoreResult: ScoreResult = {
@@ -1281,6 +1290,10 @@ function resultRecordFromInvocation(input: {
   startedAt: number;
   finishedAt: number;
   systemPrompt: Pick<ResolvedHeadlessSystemPrompt, 'mode' | 'systemPromptHash'>;
+  runEvidence?: Pick<
+    import('@maka/core').AgentRunHeader,
+    'orchestrationMode' | 'orchestrationSource' | 'agentSwarmAuthorization'
+  >;
 }): ResultRecord {
   const status = input.invocation.status;
   return {
@@ -1290,6 +1303,15 @@ function resultRecordFromInvocation(input: {
     runId: input.invocation.runId,
     systemPromptMode: input.systemPrompt.mode,
     systemPromptHash: input.systemPrompt.systemPromptHash,
+    ...(input.runEvidence?.orchestrationMode
+      ? { orchestrationMode: input.runEvidence.orchestrationMode }
+      : {}),
+    ...(input.runEvidence?.orchestrationSource
+      ? { orchestrationSource: input.runEvidence.orchestrationSource }
+      : {}),
+    ...(input.runEvidence?.agentSwarmAuthorization
+      ? { agentSwarmAuthorization: input.runEvidence.agentSwarmAuthorization }
+      : {}),
     status,
     runnerCompleted: status === 'completed',
     passed: input.finalScore.passed,

@@ -44,7 +44,8 @@
   flex: 0 0 auto;
 }
 
-.maka-composer-plan-mode-control {
+.maka-composer-plan-mode-control,
+.maka-composer-swarm-mode-control {
   height: 26px;
   display: inline-flex;
   align-items: center;
@@ -56,7 +57,8 @@
   white-space: nowrap;
 }
 
-.maka-composer-plan-mode-label {
+.maka-composer-plan-mode-label,
+.maka-composer-swarm-mode-label {
   line-height: var(--leading-none);
 }
 

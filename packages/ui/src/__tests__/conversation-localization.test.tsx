@@ -134,6 +134,24 @@ describe('localized conversation journey', () => {
     assert.doesNotMatch(unavailable, /maka-composer-plan-mode-control/);
   });
 
+  it('renders the compact Swarm Mode switch with localized state labels', () => {
+    const inactive = render(
+      'zh',
+      <Composer onSend={() => {}} onStop={() => {}} onSwarmModeChange={() => {}} />,
+    );
+    assert.match(inactive, /maka-composer-swarm-mode-control/);
+    assert.match(inactive, />Swarm</);
+    assert.match(inactive, /aria-label="开启 Swarm Mode"/);
+    assert.match(inactive, /aria-checked="false"/);
+
+    const active = render(
+      'en',
+      <Composer onSend={() => {}} onStop={() => {}} swarmModeActive onSwarmModeChange={() => {}} />,
+    );
+    assert.match(active, /aria-label="Disable Swarm Mode"/);
+    assert.match(active, /aria-checked="true"/);
+  });
+
   it('localizes permission and question chrome while preserving raw values', () => {
     const surface = (
       <>

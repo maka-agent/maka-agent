@@ -162,6 +162,29 @@ describe('permission response IPC boundary', () => {
     assert.throws(() => normalizeSessionSendCommand({ type: 'send', turnId: 1, text: 'hello' }), /send turnId/);
   });
 
+  it('accepts only a bounded trusted orchestration override on send', () => {
+    assert.deepEqual(
+      normalizeSessionSendCommand({
+        type: 'send',
+        turnId: 'turn-swarm',
+        text: 'inspect the repository',
+        turnOrchestration: { mode: 'swarm', source: 'slash_command', ignored: true },
+      }),
+      {
+        type: 'send',
+        turnId: 'turn-swarm',
+        text: 'inspect the repository',
+        turnOrchestration: { mode: 'swarm', source: 'slash_command' },
+      },
+    );
+    assert.throws(
+      () => normalizeSessionSendCommand({
+        type: 'send', text: 'hello', turnOrchestration: { mode: 'swarm', source: 'prompt' },
+      }),
+      /turn orchestration/,
+    );
+  });
+
   it('normalizes stop session input and rejects malformed stop sources', () => {
     assert.deepEqual(normalizeStopSessionInput(undefined), {});
     assert.deepEqual(normalizeStopSessionInput({ source: 'stop_button', extra: true }), { source: 'stop_button' });
@@ -517,7 +540,7 @@ describe('permission response IPC boundary', () => {
       'app-shell.tsx',
     ]);
     const sendBlock = renderer.match(
-      /async function send\(text: string[\s\S]*?\n  async function respondToPermission/,
+      /async function send\([\s\S]*?\n  async function respondToPermission/,
     )?.[0] ?? '';
     const newSessionBranch = sendBlock.match(/if \(!initialSessionId\) \{[\s\S]*?return true;/)?.[0] ?? '';
     const existingSessionBranch = sendBlock.match(/const sessionId = initialSessionId;[\s\S]*?return true;/)?.[0] ?? '';

@@ -14,6 +14,8 @@ import type {
   UserQuestionResponse,
   PermissionMode,
   CollaborationMode,
+  OrchestrationMode,
+  TurnOrchestration,
   PlanSessionState,
   SearchErrorReason,
   SearchRequest,
@@ -187,7 +189,13 @@ export interface MakaBridge {
       sessionId: string,
       command:
         | SessionCommand
-        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        | {
+            type: 'send';
+            turnId: string;
+            text: string;
+            attachmentItems?: RendererIngestInput[];
+            turnOrchestration?: TurnOrchestration;
+          },
     ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
     readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -215,6 +223,7 @@ export interface MakaBridge {
     rename(sessionId: string, name: string): Promise<void>;
     setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
     setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary>;
+    setOrchestrationMode(sessionId: string, mode: OrchestrationMode): Promise<SessionSummary>;
     getPlanState(sessionId: string): Promise<PlanSessionState>;
     requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanSessionState>;
     abandonPlanProposal(

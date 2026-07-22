@@ -173,6 +173,11 @@ export const Composer = forwardRef<
     planModePending?: boolean;
     planModeDisabledReason?: string;
     onPlanModeChange?(active: boolean): void | Promise<void>;
+    /** Session orchestration mode switch. Default mode remains the implicit fallback. */
+    swarmModeActive?: boolean;
+    swarmModePending?: boolean;
+    swarmModeDisabledReason?: string;
+    onSwarmModeChange?(active: boolean): void | Promise<void>;
     /**
      * Composer mention popups (v1 plain-text tokens; see
      * docs/archive/composer-mentions-spec-2026-07-14.md). Both are optional and the
@@ -680,6 +685,30 @@ export const Composer = forwardRef<
                   title={
                     props.planModeDisabledReason
                     ?? (props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode)
+                  }
+                />
+              </span>
+            ) : null}
+            {props.onSwarmModeChange ? (
+              <span
+                className="maka-composer-swarm-mode-control"
+                data-active={props.swarmModeActive ? 'true' : 'false'}
+              >
+                <span className="maka-composer-swarm-mode-label">{copy.swarmModeLabel}</span>
+                <Switch
+                  checked={props.swarmModeActive === true}
+                  disabled={
+                    props.disabled
+                    || props.swarmModePending === true
+                    || Boolean(props.swarmModeDisabledReason)
+                  }
+                  onCheckedChange={(checked) => {
+                    void props.onSwarmModeChange?.(checked);
+                  }}
+                  aria-label={props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode}
+                  title={
+                    props.swarmModeDisabledReason
+                    ?? (props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode)
                   }
                 />
               </span>

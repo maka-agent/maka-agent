@@ -12,7 +12,13 @@
  * promoting these contracts into @maka/core once a second consumer exists.
  */
 
-import type { BackendKind, ThinkingLevel } from '@maka/core';
+import type {
+  AgentSwarmAuthorizationSource,
+  BackendKind,
+  EffectiveOrchestrationSource,
+  OrchestrationMode,
+  ThinkingLevel,
+} from '@maka/core';
 
 /**
  * A unit of work the lab runs a Config against. Field names lean toward
@@ -181,6 +187,10 @@ export interface ResultRecord {
   systemPromptMode?: HeadlessSystemPromptMode;
   /** SHA-256 of the final model-visible system prompt, including policy overlays. */
   systemPromptHash?: string;
+  /** Effective orchestration evidence copied from the authoritative AgentRun header. */
+  orchestrationMode?: OrchestrationMode;
+  orchestrationSource?: EffectiveOrchestrationSource;
+  agentSwarmAuthorization?: AgentSwarmAuthorizationSource;
   /** Did the agent invocation finish (vs. error out mid-run)? */
   status: 'completed' | 'failed';
   /** Explicit runner status; legacy `status` is preserved for JSONL readers. */

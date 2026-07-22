@@ -26,6 +26,8 @@ import type {
   UserQuestionResponse,
   PermissionMode,
   CollaborationMode,
+  OrchestrationMode,
+  TurnOrchestration,
   PlanSessionState,
   SearchErrorReason,
   SearchRequest,
@@ -143,7 +145,13 @@ const makaBridge = {
       sessionId: string,
       command:
         | SessionCommand
-        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        | {
+            type: 'send';
+            turnId: string;
+            text: string;
+            attachmentItems?: RendererIngestInput[];
+            turnOrchestration?: TurnOrchestration;
+          },
     ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
       if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {
         const encoded = await encodeIngestItems(command.attachmentItems as RendererIngestInput[]);
@@ -223,6 +231,9 @@ const makaBridge = {
     },
     setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setCollaborationMode', sessionId, mode);
+    },
+    setOrchestrationMode(sessionId: string, mode: OrchestrationMode): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setOrchestrationMode', sessionId, mode);
     },
     getPlanState(sessionId: string): Promise<PlanSessionState> {
       return ipcRenderer.invoke('plan-mode:getState', sessionId);
