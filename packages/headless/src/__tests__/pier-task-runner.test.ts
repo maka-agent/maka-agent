@@ -580,7 +580,31 @@ test('createPierTaskRunner recovers execution identity from a budget-exhausted t
   });
 });
 
-test('createPierTaskRunner treats a non-budget trial exception as infra', async () => {
+test('createPierTaskRunner scores a graded trial despite a non-budget exception', async () => {
+  // Harbor-authority parity: exception_info records how the agent phase ended,
+  // not whether the trial was graded. A Kimi CLI non-zero exit the verifier
+  // still passed must count as passed, not be discarded as infra.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        runPier: fakePier({
+          reward: 1,
+          exceptionInfo: {
+            exception_type: 'NonZeroAgentExitCodeError',
+            exception_message: 'agent exited 1',
+          },
+        }),
+      }),
+    );
+    const output = await runner(runInput());
+    assert.equal(output.harbor.reward, 1);
+    assert.equal(output.harbor.verifier?.outcome, 'passed');
+  });
+});
+
+test('createPierTaskRunner treats an ungraded non-budget trial exception as infra', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(
       baseOptions({
@@ -594,7 +618,9 @@ test('createPierTaskRunner treats a non-budget trial exception as infra', async 
     );
     await assert.rejects(runner(runInput()), (error: Error) => {
       assert.ok(error instanceof PierInfraError);
-      assert.match(error.message, /pier trial errored/);
+      // The trial exception is the root cause and must ride the diagnostics.
+      assert.match(error.message, /failed before verifier reward/);
+      assert.match(error.message, /RuntimeError: boom/);
       return true;
     });
   });

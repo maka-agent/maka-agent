@@ -345,24 +345,19 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
 
       // A populated `exception_info` records how the agent phase ended, NOT
       // whether the trial was graded: pier's trial.py records the exception and
-      // then unconditionally runs verification, so an AgentTimeoutError trial
-      // can still carry an authoritative reward. Mirror Harbor's
-      // completeTimedOutTrial semantics: when the grading authority and the
-      // cell output are both present, score the trial on its actual reward;
-      // only an ungraded budget exhaustion is a budget_exhausted outcome, and
-      // any other exception is infra.
+      // then unconditionally runs verification, so an exceptional trial can
+      // still carry an authoritative reward. Mirror Harbor's authority order
+      // exactly: an ungraded budget exhaustion is a budget_exhausted outcome;
+      // every other exception falls through to the normal reward/cell reads —
+      // a graded trial scores on its actual reward (e.g. a non-zero Kimi CLI
+      // exit the verifier still passed), and missing artifacts become infra
+      // there, with the trial exception attached for diagnosis.
       const trialException = await readTrialException(
         join(trialDir, TRIAL_RESULT),
         'PierTrialError',
       );
       let completeTimedOutTrial = false;
-      if (trialException) {
-        if (!isBudgetExhaustedTrialException(trialException)) {
-          throw new PierInfraError(
-            `pier trial errored for task ${input.task.id}: ${trialException}`,
-            tail(result.stderr || result.stdout),
-          );
-        }
+      if (trialException && isBudgetExhaustedTrialException(trialException)) {
         const [gradedReward, cellArtifact] = await Promise.all([
           readOptionalPierReward(trialDir, input.task.id),
           readOptionalText(join(trialDir, TRIAL_CELL_OUTPUT)),
@@ -397,7 +392,7 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
         );
       }
 
-      const reward = await readPierReward(trialDir, input.task.id);
+      const reward = await readPierReward(trialDir, input.task.id, trialException);
       const rawCell = await readCellOutput(
         join(trialDir, TRIAL_CELL_OUTPUT),
         input.task.id,
@@ -745,9 +740,23 @@ async function readOptionalPierReward(trialDir: string, taskId: string): Promise
   return null;
 }
 
-async function readPierReward(trialDir: string, taskId: string): Promise<number> {
+async function readPierReward(
+  trialDir: string,
+  taskId: string,
+  trialException: string | null,
+): Promise<number> {
   const reward = await readOptionalPierReward(trialDir, taskId);
-  if (reward === null) throw new PierInfraError(`missing verifier reward for task ${taskId}`);
+  if (reward === null) {
+    // Mirror Harbor's readReward diagnostics: when the trial recorded an
+    // exception and grading never produced a reward, name the exception —
+    // that is the root cause, not the missing file.
+    if (trialException) {
+      throw new PierInfraError(
+        `pier trial failed before verifier reward for task ${taskId}: ${trialException}`,
+      );
+    }
+    throw new PierInfraError(`missing verifier reward for task ${taskId}`);
+  }
   return reward;
 }
 
