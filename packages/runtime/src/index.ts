@@ -1159,6 +1159,7 @@ export {
   collectPersonalizationWarnings,
 } from './system-prompt/personalization-prompt.js';
 export type { PersonalizationPromptFragment } from './system-prompt/personalization-prompt.js';
+export { buildResponseLanguagePromptFragment } from './system-prompt/response-language-prompt.js';
 export {
   resolveProjectGitInfo,
   resolveProjectRoot,

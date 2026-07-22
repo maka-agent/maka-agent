@@ -7,6 +7,20 @@ import { buildCliSystemPrompt, buildCliTurnTailPrompt } from '../cli-system-prom
 import type { HostCapabilities } from '@maka/runtime';
 
 describe('CLI system prompt', () => {
+  test('always injects the latest-request language policy', async () => {
+    await withCwdAndWorkspace(async ({ cwd, workspaceRoot, homeDir }) => {
+      const out = await buildCliSystemPrompt({
+        settings: { personalization: {}, workspaceInstructions: { enabled: false } },
+        cwd,
+        workspaceRoot,
+        homeDir,
+      });
+
+      assert.match(out ?? '', /same predominant natural language as the user's latest request/);
+      assert.match(out ?? '', /raw tool output in their original form/);
+    });
+  });
+
   test('injects the skill catalog from workspaceRoot, gated by host capabilities (Office skills auto-filter on the CLI host)', async () => {
     await withCwdAndWorkspace(async ({ cwd, workspaceRoot, homeDir }) => {
       await writeSkill(
@@ -186,9 +200,11 @@ Project body.`,
         workspaceRoot: cwd,
         homeDir,
       });
-      assert.equal(
+      assert.ok(out);
+      assert.match(out, /Response language:/);
+      assert.doesNotMatch(
         out,
-        undefined,
+        /secret project rule/,
         'gate must suppress AGENTS.md when workspaceInstructions is disabled',
       );
     });
@@ -210,7 +226,7 @@ Project body.`,
     });
   });
 
-  test('returns undefined when there is no personalization and no readable instruction file', async () => {
+  test('keeps the base language policy when no optional prompt fragments are available', async () => {
     await withCwd(async (cwd, homeDir) => {
       const out = await buildCliSystemPrompt({
         settings: { personalization: {}, workspaceInstructions: { enabled: true } },
@@ -218,7 +234,10 @@ Project body.`,
         workspaceRoot: cwd,
         homeDir,
       });
-      assert.equal(out, undefined);
+      assert.ok(out);
+      assert.match(out, /Response language:/);
+      assert.doesNotMatch(out, /User personalization preferences/);
+      assert.doesNotMatch(out, /<workspace-instructions/);
     });
   });
 

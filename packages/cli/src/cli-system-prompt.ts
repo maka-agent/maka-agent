@@ -1,6 +1,7 @@
 import { redactSecrets, type PersonalizationSettings } from '@maka/core';
 import {
   buildPersonalizationPromptFragment,
+  buildResponseLanguagePromptFragment,
   buildSessionEnvironmentPromptFragment,
   buildSkillsPromptFragment,
   buildWorkspaceInstructionsPromptFragment,
@@ -59,8 +60,10 @@ export interface BuildCliSystemPromptInput {
 export async function buildCliSystemPrompt(
   input: BuildCliSystemPromptInput,
 ): Promise<string | undefined> {
+  const responseLanguage = buildResponseLanguagePromptFragment();
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
-  // personalization -> skills -> workspaceInstructions, matching the desktop app.
+  // responseLanguage -> personalization -> skills -> workspaceInstructions,
+  // matching the desktop app.
   const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot, input.homeDir);
   const skills = await buildSkillsPromptFragment(skillSource, input.host, {
     contextWindow: input.modelContextWindow,
@@ -68,8 +71,8 @@ export async function buildCliSystemPrompt(
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;
-  const fragments = [personalization.text, skills, workspaceInstructions].filter((v): v is string =>
-    Boolean(v),
+  const fragments = [responseLanguage, personalization.text, skills, workspaceInstructions].filter(
+    (v): v is string => Boolean(v),
   );
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
 }

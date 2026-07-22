@@ -303,8 +303,8 @@ const longMessages: StoredMessage[] = [
 // Multi-step reasoning turn (streaming UI rework): two think->say->call steps
 // in a single turn. Each step persists an assistant row (thinking + text) plus
 // tool_calls tagged with that row's id as `stepId`, so the turn timeline
-// reconstructs the real order — 深度思考 → answer text → tool trow — per step,
-// instead of lumping every tool into one trailing group.
+// reconstructs the real user-visible order — answer text → tool trow — per
+// step. Provider thinking remains in the projection but is never rendered.
 const multiStepConversation: StoredMessage[] = [
   user('msg-user-multistep', 'turn-multistep', 12, '看一下 stream-fade 的环逻辑有没有边界问题，然后跑一下单测。'),
   {
@@ -385,6 +385,17 @@ const multiStepConversation: StoredMessage[] = [
     text: '13 个单测全绿，环的窗口滑动、乱序快照取龄和上限都被覆盖。边界没有问题。',
     thinking: {
       text: '测试包含窗口滑动、乱序 age 查询与上限三类，全过说明剪枝和 cap 的顺序是对的，可以收尾。',
+    },
+    modelId: 'claude-sonnet-4-5',
+  },
+  {
+    type: 'assistant',
+    id: 'msg-assistant-final',
+    turnId: 'turn-multistep',
+    ts: NOW - 7 * 60_000,
+    text: '最终结论：窗口滑动、乱序快照取龄和容量上限都已被测试覆盖，这里不需要继续修改。',
+    thinking: {
+      text: '命令已经完成，最后把验证结果整理成简洁结论。',
     },
     modelId: 'claude-sonnet-4-5',
   },

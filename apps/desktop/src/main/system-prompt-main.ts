@@ -16,6 +16,7 @@ import {
 import {
   buildExpertTeamLeadSystemPromptFragment,
   buildPersonalizationPromptFragment,
+  buildResponseLanguagePromptFragment,
   resolveProjectGitInfo,
   buildSessionEnvironmentPromptFragment,
   resolveSkillDiscoveryPaths,
@@ -52,6 +53,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     options?: { memoryFragment?: string | null; includePersonalization?: boolean; skillBudget?: SkillPromptBudgetContext; forChildTurn?: boolean; host?: HostCapabilities },
   ): Promise<string | undefined> {
     const settings = await deps.settingsStore.get();
+    const responseLanguage = buildResponseLanguagePromptFragment();
     const includePersonalization = options?.includePersonalization !== false;
     const personalization = includePersonalization
       ? buildPersonalizationPromptFragment(settings.personalization)
@@ -79,6 +81,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
       ? options.memoryFragment ?? undefined
       : await buildLocalMemoryPromptFragment();
     const fragments = [
+      responseLanguage,
       personalization.text,
       deepResearch,
       expertLead,
