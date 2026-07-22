@@ -180,6 +180,7 @@ try {
     process.env.MAKA_E2E_FIXTURE_THEME,
     process.env.MAKA_E2E_FIXTURE_LOCALE,
     process.env.MAKA_E2E_FIXTURE_TIMEZONE,
+    process.env.MAKA_E2E_FIXTURE_PLATFORM,
   );
 } catch (error) {
   if (process.env.MAKA_E2E_FIXTURE) {

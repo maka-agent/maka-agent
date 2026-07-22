@@ -40,6 +40,7 @@ describe('e2e-fixture mode', () => {
       theme: null,
       locale: null,
       timezone: null,
+      platform: null,
     });
   });
 
@@ -65,6 +66,30 @@ describe('e2e-fixture mode', () => {
       for (const raw of ['solar', '', 'oklch', 'high-contrast', 'monochrome']) {
         const fixture = resolveE2eFixture('all', false, undefined, raw);
         assert.equal(fixture?.theme, null, `raw=${JSON.stringify(raw)}`);
+      }
+    });
+  });
+
+  describe('platform override (#1312)', () => {
+    it('defaults to null when MAKA_E2E_FIXTURE_PLATFORM unset', () => {
+      const fixture = resolveE2eFixture('all', false);
+      assert.equal(fixture?.platform, null);
+    });
+
+    it('accepts the closed enum darwin / win32 / linux (case + whitespace tolerant)', () => {
+      for (const raw of ['darwin', 'win32', 'linux', 'DARWIN', ' Win32 ']) {
+        const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, undefined, raw);
+        assert.ok(
+          fixture?.platform && ['darwin', 'win32', 'linux'].includes(fixture.platform),
+          `raw=${JSON.stringify(raw)}`,
+        );
+      }
+    });
+
+    it('rejects unknown values (fail-closed)', () => {
+      for (const raw of ['macos', 'windows', '', 'freebsd', 'ios']) {
+        const fixture = resolveE2eFixture('all', false, undefined, undefined, undefined, undefined, raw);
+        assert.equal(fixture?.platform, null, `raw=${JSON.stringify(raw)}`);
       }
     });
   });

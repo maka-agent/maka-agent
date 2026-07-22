@@ -44,7 +44,12 @@ async function seedE2eLocale(userDataDir: string, locale: 'zh' | 'en'): Promise<
  * CoreFoundation / X11 / sandbox session) that an allow-list would silently
  * drop and break the launch.
  */
-function buildE2eEnv(userDataDir: string, e2eFixtureScenario?: string, locale?: 'zh' | 'en'): NodeJS.ProcessEnv {
+function buildE2eEnv(
+  userDataDir: string,
+  e2eFixtureScenario?: string,
+  locale?: 'zh' | 'en',
+  platform?: 'darwin' | 'win32' | 'linux',
+): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (
@@ -54,6 +59,7 @@ function buildE2eEnv(userDataDir: string, e2eFixtureScenario?: string, locale?: 
       key === 'MAKA_E2E_SHOW_WINDOW' ||
       key === 'MAKA_E2E_FIXTURE' ||
       key === 'MAKA_E2E_FIXTURE_LOCALE' ||
+      key === 'MAKA_E2E_FIXTURE_PLATFORM' ||
       /_API_KEY$/.test(key) ||
       /_API_TOKEN$/.test(key) ||
       /_API_SECRET$/.test(key)
@@ -65,6 +71,7 @@ function buildE2eEnv(userDataDir: string, e2eFixtureScenario?: string, locale?: 
   env.MAKA_E2E_USER_DATA_DIR = userDataDir;
   if (e2eFixtureScenario) env.MAKA_E2E_FIXTURE = e2eFixtureScenario;
   if (locale) env.MAKA_E2E_FIXTURE_LOCALE = locale;
+  if (platform) env.MAKA_E2E_FIXTURE_PLATFORM = platform;
   // E2E windows launch hidden so local and macOS runs never steal the
   // developer's focus. Linux CI runs under xvfb, where a hidden window's
   // compositor is throttled to ~1fps — content-visibility turns never inflate
@@ -82,11 +89,13 @@ function buildE2eEnv(userDataDir: string, e2eFixtureScenario?: string, locale?: 
  * Electron and a leaked `maka-e2e-*` directory.
  */
 async function withE2eWindow(
-  { seed, readinessSelector, e2eFixtureScenario, locale }: {
+  { seed, readinessSelector, e2eFixtureScenario, locale, platform }: {
     seed: boolean;
     readinessSelector: string;
     e2eFixtureScenario?: string;
     locale?: 'zh' | 'en';
+    /** #1312: force app:info's platform so the window boots natively into that platform's `data-os` cascade. */
+    platform?: 'darwin' | 'win32' | 'linux';
   },
   use: (page: Page) => Promise<void>,
 ): Promise<void> {
@@ -102,7 +111,7 @@ async function withE2eWindow(
     app = await electron.launch({
       args: ['.'],
       cwd: DESKTOP_ROOT,
-      env: buildE2eEnv(userDataDir, e2eFixtureScenario, locale),
+      env: buildE2eEnv(userDataDir, e2eFixtureScenario, locale, platform),
     });
     app.on('console', (message) => {
       mainLogs.push(message.text());
@@ -147,6 +156,8 @@ export const test = base.extend<{
   window: Page;
   emptyWindow: Page;
   longTranscriptWindow: Page;
+  chatChromeDarwinWindow: Page;
+  chatChromeWin32Window: Page;
   sidebarLongSessionsWindow: Page;
   permissionWindow: Page;
   staleSessionsWindow: Page;
@@ -188,6 +199,23 @@ export const test = base.extend<{
   sidebarLongSessionsWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: '.maka-list-row', e2eFixtureScenario: 'sidebar-long-sessions', locale: 'zh' },
+      use,
+    );
+  },
+  // Chat-chrome contract (#1312): the long-transcript shell booted with a
+  // FORCED platform (app:info override), so `data-os` — and with it the
+  // darwin glass cascade vs the opaque base cascade — is native from the
+  // first frame on any host. No post-boot attribute flip, which Chromium's
+  // style recalc resolves relative colors against stale values for.
+  chatChromeDarwinWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '.maka-turn', e2eFixtureScenario: 'long-transcript', locale: 'zh', platform: 'darwin' },
+      use,
+    );
+  },
+  chatChromeWin32Window: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '.maka-turn', e2eFixtureScenario: 'long-transcript', locale: 'zh', platform: 'win32' },
       use,
     );
   },

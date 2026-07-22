@@ -238,6 +238,17 @@ export interface E2eFixture {
    * fail closed to null.
    */
   timezone: string | null;
+  /**
+   * #1312: platform override (darwin | win32 | linux). null means "report
+   * the real `process.platform`". When set, `app:info` reports this value,
+   * so the renderer's app-shell-effects sets `data-os` to the forced
+   * platform through the production path and the window boots natively
+   * into that platform's CSS cascade (e.g. the darwin glass overrides) —
+   * no post-boot attribute flip. Driven by env var
+   * `MAKA_E2E_FIXTURE_PLATFORM=darwin|win32|linux`. Unknown values fail
+   * closed to null.
+   */
+  platform: 'darwin' | 'win32' | 'linux' | null;
 }
 
 export function resolveE2eFixture(
@@ -247,6 +258,7 @@ export function resolveE2eFixture(
   rawTheme: string | undefined = undefined,
   rawLocale: string | undefined = undefined,
   rawTimezone: string | undefined = undefined,
+  rawPlatform: string | undefined = undefined,
 ): E2eFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
@@ -260,6 +272,7 @@ export function resolveE2eFixture(
   const theme = parseThemeFlag(rawTheme);
   const locale = parseLocaleFlag(rawLocale);
   const timezone = parseTimezoneFlag(rawTimezone);
+  const platform = parsePlatformFlag(rawPlatform);
   return {
     scenario,
     workspaceName: `e2e-fixture-${scenario}`,
@@ -267,6 +280,7 @@ export function resolveE2eFixture(
     theme,
     locale,
     timezone,
+    platform,
   };
 }
 
@@ -330,6 +344,19 @@ function parseTimezoneFlag(raw: string | undefined): string | null {
     return null;
   }
   return trimmed;
+}
+
+/**
+ * Validate the platform override (#1312). Accepts only the closed enum
+ * `darwin | win32 | linux` — the three platforms the renderer's `data-os`
+ * cascade branches on; everything else fails closed to null (app:info
+ * reports the real `process.platform`).
+ */
+function parsePlatformFlag(raw: string | undefined): 'darwin' | 'win32' | 'linux' | null {
+  if (raw === undefined) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'darwin' || normalized === 'win32' || normalized === 'linux') return normalized;
+  return null;
 }
 
 function parseReducedMotionFlag(raw: string | undefined): boolean {
