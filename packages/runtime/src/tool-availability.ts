@@ -1,3 +1,4 @@
+import { decodeCanonicalToolResultContent } from '@maka/core';
 import type { ToolAvailabilityDiagnostic } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 
@@ -7,9 +8,8 @@ import type { MakaTool, ToolGating } from './tool-runtime.js';
 
 /**
  * Unified tool-availability mechanism (issue #37): one catalog, one connector,
- * one same-turn activation policy, one diagnostics source. Subsumes the former
- * deferred-loader (PR #30) and tool-source-economy (PR #34) into a single
- * runtime whose only knob is the global `economy` switch.
+ * one same-turn activation policy, one diagnostics source. The runtime's only
+ * knob is the global `economy` switch.
  *
  * - `economy: false` (or no hideable groups) → every tool is advertised every
  *   turn; no connector, no gating, no diagnostics (the full-surface case).
@@ -21,19 +21,6 @@ import type { MakaTool, ToolGating } from './tool-runtime.js';
 
 /** Canonical name of the always-on group-activation connector. */
 export const LOAD_TOOLS_NAME = 'load_tools';
-
-/**
- * Historical connector names accepted ONLY when re-seeding prior-turn
- * activations from the durable ledger, so sessions that activated groups under
- * the pre-unification connectors (`load_tool` from PR #30, `connect_tool_source`
- * from PR #34) do not regress. Same-turn activation never honors these — only
- * `LOAD_TOOLS_NAME` is a live connector. Never exposed as a provider-visible tool.
- */
-const SEED_CONNECTOR_NAMES: ReadonlySet<string> = new Set([
-  LOAD_TOOLS_NAME,
-  'load_tool',
-  'connect_tool_source',
-]);
 
 /** A natural cluster of tools that load together (browser, office, …). */
 export interface ToolGroup {
@@ -212,11 +199,7 @@ export class ToolAvailabilityRuntime {
     const out = new Set<string>();
     for (const event of events ?? []) {
       const content = event?.content;
-      if (
-        !content ||
-        content.kind !== 'function_response' ||
-        !SEED_CONNECTOR_NAMES.has(content.name ?? '')
-      ) {
+      if (!content || content.kind !== 'function_response' || content.name !== LOAD_TOOLS_NAME) {
         continue;
       }
       for (const toolName of extractLoadedToolNames(content.result)) {
@@ -232,11 +215,8 @@ export class ToolAvailabilityRuntime {
     const out = new Set<string>();
     for (const step of steps ?? []) {
       for (const call of step.toolCalls ?? []) {
-        // Same-turn activation is the unified connector only. The historical
-        // names are accepted for ledger seeding (prior turns), never live this
-        // turn — and only the `group` arg is honored here.
         if (call?.toolName !== LOAD_TOOLS_NAME) continue;
-        const id = extractGroupId(call.input, ['group']);
+        const id = extractGroupId(call.input);
         if (id && this.groupIds.has(id)) out.add(id);
       }
     }
@@ -304,10 +284,7 @@ export class ToolAvailabilityRuntime {
   }
 }
 
-function extractGroupId(
-  input: unknown,
-  keys: readonly string[] = ['group', 'namespace', 'source'],
-): string | undefined {
+function extractGroupId(input: unknown): string | undefined {
   let value = input;
   if (typeof value === 'string') {
     try {
@@ -317,19 +294,26 @@ function extractGroupId(
     }
   }
   if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    for (const key of keys) {
-      if (typeof record[key] === 'string') return record[key] as string;
-    }
+    const group = (value as Record<string, unknown>).group;
+    if (typeof group === 'string') return group;
   }
   return undefined;
 }
 
 function extractLoadedToolNames(value: unknown): string[] {
-  if (typeof value !== 'object' || value === null) return [];
-  const descriptor = Object.getOwnPropertyDescriptor(value, 'loaded');
-  if (!descriptor || !('value' in descriptor) || !Array.isArray(descriptor.value)) return [];
-  return descriptor.value.filter((item): item is string => typeof item === 'string');
+  try {
+    const decoded = decodeCanonicalToolResultContent(value);
+    if (decoded.kind !== 'json' || typeof decoded.value !== 'object' || decoded.value === null) {
+      return [];
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(decoded.value, 'loaded');
+    if (!descriptor || !('value' in descriptor) || !Array.isArray(descriptor.value)) return [];
+    const loaded: unknown[] = descriptor.value;
+    if (!loaded.every((item): item is string => typeof item === 'string')) return [];
+    return loaded;
+  } catch {
+    return [];
+  }
 }
 
 function renderCatalog(groups: readonly CatalogGroup[]): string {

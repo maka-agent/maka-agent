@@ -465,19 +465,65 @@ test('composes only canonical Host model context in the fixed order', async () =
 
     const bashTool = buildBuiltinTools().find((tool) => tool.name === 'Bash');
     assert.ok(bashTool);
-    const composition = createHostExecutionModelComposition({
-      policy: policyStores.runtimePolicy,
-      skills,
-      memory,
-      taskLedger,
-      runtimeTools: [bashTool],
-      platform: 'linux',
-      shell: 'test-shell',
-      now: () => new Date('2026-07-21T00:00:00Z'),
-    });
+    const deferredRuntimeTools = [
+      bashTool,
+      { ...bashTool, name: 'browser_navigate' },
+      { ...bashTool, name: 'browser_click' },
+      { ...bashTool, name: 'maka_computer' },
+    ];
+    const previousDeferredToolsKillSwitch = process.env.MAKA_DISABLE_DEFERRED_TOOLS;
+    let composition!: ReturnType<typeof createHostExecutionModelComposition>;
+    try {
+      delete process.env.MAKA_DISABLE_DEFERRED_TOOLS;
+      composition = createHostExecutionModelComposition({
+        policy: policyStores.runtimePolicy,
+        skills,
+        memory,
+        taskLedger,
+        runtimeTools: deferredRuntimeTools,
+        platform: 'linux',
+        shell: 'test-shell',
+        now: () => new Date('2026-07-21T00:00:00Z'),
+      });
+      assert.equal(composition.toolAvailability.economy, true);
+      assert.deepEqual(
+        composition.toolAvailability.groups?.map(({ id, toolNames }) => ({ id, toolNames })),
+        [
+          { id: 'browser', toolNames: ['browser_navigate', 'browser_click'] },
+          { id: 'computer_use', toolNames: ['maka_computer'] },
+        ],
+      );
+
+      process.env.MAKA_DISABLE_DEFERRED_TOOLS = '1';
+      const fullSurfaceComposition = createHostExecutionModelComposition({
+        policy: policyStores.runtimePolicy,
+        skills,
+        memory,
+        taskLedger,
+        runtimeTools: deferredRuntimeTools,
+      });
+      assert.equal(fullSurfaceComposition.toolAvailability.economy, false);
+    } finally {
+      if (previousDeferredToolsKillSwitch === undefined) {
+        delete process.env.MAKA_DISABLE_DEFERRED_TOOLS;
+      } else {
+        process.env.MAKA_DISABLE_DEFERRED_TOOLS = previousDeferredToolsKillSwitch;
+      }
+    }
     assert.deepEqual(
       composition.tools.map((tool) => tool.name),
-      ['AskUserQuestion', 'Skill', 'task_create', 'task_update', 'task_list', 'task_get', 'Bash'],
+      [
+        'AskUserQuestion',
+        'Skill',
+        'task_create',
+        'task_update',
+        'task_list',
+        'task_get',
+        'Bash',
+        'browser_navigate',
+        'browser_click',
+        'maka_computer',
+      ],
     );
 
     const context = { sessionId: SESSION_ID, cwd: root };

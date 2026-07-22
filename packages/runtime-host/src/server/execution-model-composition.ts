@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
   AiSdkBackend,
+  assertProductBindingCatalogClean,
   buildAskUserQuestionTool,
   buildAutomationToolFromService,
   buildDefaultContextBudgetPolicy,
+  buildDeferredToolGroupsFromBinding,
   buildHostCapabilitiesFromBinding,
   buildLlmHistorySummarizer,
   buildPersonalizationPromptFragment,
@@ -35,6 +37,7 @@ import {
   type RuntimeCommitSink,
   type SandboxDiagnosticsProvider,
   type SkillCatalogBudgetOptions,
+  type ToolAvailabilityConfig,
 } from '@maka/runtime';
 import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import { resolveModelVisionSupport } from '@maka/core/model-metadata';
@@ -67,6 +70,7 @@ export interface HostModelPromptContext {
 
 export interface HostExecutionModelComposition {
   readonly tools: MakaTool[];
+  readonly toolAvailability: ToolAvailabilityConfig;
   readonly systemPrompt: (context: HostModelPromptContext) => Promise<string | undefined>;
   readonly turnTailPrompt: (context: HostModelPromptContext) => Promise<string>;
 }
@@ -100,9 +104,19 @@ export function createHostExecutionModelComposition(
     () => [...input.skills.readCanonicalModelSkills()],
     hostCapabilities,
   );
+  const tools = [questionTool, skillTool, ...taskTools, ...input.runtimeTools];
+  assertProductBindingCatalogClean(
+    'runtime-host',
+    tools.map((tool) => tool.name),
+  );
+  const toolAvailability: ToolAvailabilityConfig = {
+    economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+    groups: buildDeferredToolGroupsFromBinding(tools.map((tool) => tool.name)),
+  };
 
   return Object.freeze({
-    tools: [questionTool, skillTool, ...taskTools, ...input.runtimeTools],
+    tools,
+    toolAvailability,
     systemPrompt: async (context: HostModelPromptContext) => {
       const policy = (await input.policy.getSnapshot()).policy;
       const personalization = buildPersonalizationPromptFragment(policy.personalization).text;
@@ -220,6 +234,7 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         permissionEngine: input.permissionEngine,
         modelFactory,
         tools: modelComposition.tools,
+        toolAvailability: modelComposition.toolAvailability,
         sandboxDiagnosticsSnapshot,
         runtimeCommitSink: input.runtimeCommitSink,
         shellRunContextSummary: input.context.shellRunContextSummary,

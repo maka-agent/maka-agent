@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   assertProductBindingCatalogClean,
+  buildDeferredToolGroupsFromBinding,
   buildDeferredToolGroupsFromCatalog,
   buildHostCapabilitiesFromBinding,
 } from '../tool-catalog-derive.js';
@@ -64,6 +65,27 @@ describe('buildDeferredToolGroupsFromCatalog', () => {
   it('returns no group when a supported surface has zero bound members', () => {
     const groups = buildDeferredToolGroupsFromCatalog('desktop', ['Read', 'Bash']);
     assert.deepEqual(groups, []);
+  });
+});
+
+describe('buildDeferredToolGroupsFromBinding', () => {
+  it('projects every bound deferred surface without applying host affinity', () => {
+    const groups = buildDeferredToolGroupsFromBinding([
+      'Read',
+      'browser_navigate',
+      'maka_computer',
+      'agent_spawn',
+      'agent_output',
+    ]);
+
+    assert.deepEqual(
+      groups.map(({ id, toolNames }) => ({ id, toolNames })),
+      [
+        { id: 'browser', toolNames: ['browser_navigate'] },
+        { id: 'computer_use', toolNames: ['maka_computer'] },
+        { id: 'agent', toolNames: ['agent_spawn', 'agent_output'] },
+      ],
+    );
   });
 });
 

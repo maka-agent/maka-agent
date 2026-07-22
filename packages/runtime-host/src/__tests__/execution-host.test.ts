@@ -1508,15 +1508,17 @@ test('runs a real Host ai-sdk Tool loop across Clients and refreshes committed p
         assert.equal(taskCreateSchema?.type, 'function');
         assert.deepEqual(taskCreateSchema?.function?.parameters?.required, ['tasks']);
         const toolNames = new Set(tools?.map((tool) => tool.function?.name));
-        for (const browserToolName of [
+        assert.equal(toolNames.has('load_tools'), true);
+        for (const deferredToolName of [
           'browser_navigate',
           'browser_snapshot',
           'browser_click',
           'browser_type',
           'browser_wait',
           'browser_extract',
+          'maka_computer',
         ]) {
-          assert.equal(toolNames.has(browserToolName), true);
+          assert.equal(toolNames.has(deferredToolName), false);
         }
         const properties = taskCreateSchema?.function?.parameters?.properties as
           | Record<string, { type?: unknown; items?: { required?: unknown } }>
@@ -1614,11 +1616,11 @@ test('completes the Browser child journey after provider release ack and clears 
       for await (const chunk of request) body += chunk;
       requests.push(JSON.parse(body) as Record<string, unknown>);
       const requestNumber = requests.length;
-      if (requestNumber === 3) markFollowupRequestReceived();
-      if (requestNumber === 4) markFollowupToolResultReceived();
+      if (requestNumber === 4) markFollowupRequestReceived();
+      if (requestNumber === 5) markFollowupToolResultReceived();
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       const delta =
-        requestNumber === 1 || requestNumber === 3
+        requestNumber === 1 || requestNumber === 2 || requestNumber === 4
           ? {
               role: 'assistant',
               tool_calls: [
@@ -1626,13 +1628,24 @@ test('completes the Browser child journey after provider release ack and clears 
                   index: 0,
                   id:
                     requestNumber === 1
-                      ? 'call:native.browser_snapshot'
-                      : 'call:native.stale_browser_ref',
+                      ? 'call:native.load_browser_tools'
+                      : requestNumber === 2
+                        ? 'call:native.browser_snapshot'
+                        : 'call:native.stale_browser_ref',
                   type: 'function',
                   function: {
-                    name: requestNumber === 1 ? 'browser_snapshot' : 'browser_click',
+                    name:
+                      requestNumber === 1
+                        ? 'load_tools'
+                        : requestNumber === 2
+                          ? 'browser_snapshot'
+                          : 'browser_click',
                     arguments: JSON.stringify(
-                      requestNumber === 1 ? {} : { target: { kind: 'ref', value: '[1]' } },
+                      requestNumber === 1
+                        ? { group: 'browser' }
+                        : requestNumber === 2
+                          ? {}
+                          : { target: { kind: 'ref', value: '[1]' } },
                     ),
                   },
                 },
@@ -1652,7 +1665,10 @@ test('completes the Browser child journey after provider release ack and clears 
             {
               index: 0,
               delta,
-              finish_reason: requestNumber === 1 || requestNumber === 3 ? 'tool_calls' : 'stop',
+              finish_reason:
+                requestNumber === 1 || requestNumber === 2 || requestNumber === 4
+                  ? 'tool_calls'
+                  : 'stop',
             },
           ],
           usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
@@ -1793,7 +1809,7 @@ test('completes the Browser child journey after provider release ack and clears 
         );
         assert.deepEqual(browserSubcalls, ['snapshot']);
         assert.match(
-          JSON.stringify(requests[3]),
+          JSON.stringify(requests[4]),
           /requires a successful browser_snapshot in the same Turn/,
         );
       } finally {

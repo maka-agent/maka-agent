@@ -954,7 +954,7 @@ function priorBrowserLoad(turnId: string): RuntimeEvent[] {
         kind: 'function_response',
         id: 'tc-prev',
         name: LOAD_TOOLS_NAME,
-        result: { loaded: ['browser_click'] },
+        result: { kind: 'json', value: { loaded: ['browser_click'] } },
       },
     },
     {
