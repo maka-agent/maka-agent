@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import {
   fingerprintFixedPromptTask,
   fingerprintFixedPromptTaskTree,
+  selectTasksByIds,
 } from '../fixed-prompt-task-source.js';
 
 test('task tree fingerprint is root-independent and content-sensitive', async () => {
@@ -50,4 +51,58 @@ test('per-task fingerprint is unaffected by another task changing', async () => 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('selectTasksByIds preserves the requested order and returns the matching tasks', () => {
+  const tasks = [
+    { id: 'task-a', path: '/tasks/task-a' },
+    { id: 'task-b', path: '/tasks/task-b' },
+    { id: 'task-c', path: '/tasks/task-c' },
+  ];
+
+  const selected = selectTasksByIds(tasks, ['task-c', 'task-a']);
+
+  assert.deepEqual(
+    selected,
+    [tasks[2], tasks[0]],
+    'selection must follow the requested id order, not discovery order',
+  );
+});
+
+test('selectTasksByIds rejects duplicate ids by default with the exact message', () => {
+  const tasks = [
+    { id: 'task-a', path: '/tasks/task-a' },
+    { id: 'task-b', path: '/tasks/task-b' },
+  ];
+
+  assert.throws(
+    () => selectTasksByIds(tasks, ['task-a', 'task-b', 'task-a']),
+    new Error('duplicate task id(s): task-a'),
+  );
+});
+
+test('selectTasksByIds passes duplicates through when rejectDuplicates is false', () => {
+  const tasks = [{ id: 'task-a', path: '/tasks/task-a' }];
+
+  const selected = selectTasksByIds(tasks, ['task-a', 'task-a'], { rejectDuplicates: false });
+
+  assert.deepEqual(selected, [tasks[0], tasks[0]]);
+});
+
+test('selectTasksByIds reports unknown ids with the exact unlabeled message', () => {
+  const tasks = [{ id: 'task-a', path: '/tasks/task-a' }];
+
+  assert.throws(
+    () => selectTasksByIds(tasks, ['task-a', 'nope', 'missing']),
+    new Error('unknown task id(s): nope, missing'),
+  );
+});
+
+test('selectTasksByIds prefixes the unknown-id message with the caller label', () => {
+  const tasks = [{ id: 'task-a', path: '/tasks/task-a' }];
+
+  assert.throws(
+    () => selectTasksByIds(tasks, ['nope'], { label: 'pilotTaskIds', rejectDuplicates: false }),
+    new Error('pilotTaskIds contains unknown task id(s): nope'),
+  );
 });

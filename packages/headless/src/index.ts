@@ -212,7 +212,6 @@ export type {
   SelfCheckPolicy,
 } from './autonomous-agent-loop.js';
 export { AutonomousAgentLoop, runAutonomousTask } from './autonomous-agent-loop.js';
-export type { TaskRunner, TaskRunInput, TaskRunOutput } from './fixed-prompt-controller.js';
 export { runExperiment, type RunExperimentDeps } from './runner.js';
 export { runMatrix, type ExperimentSpec } from './matrix.js';
 export {

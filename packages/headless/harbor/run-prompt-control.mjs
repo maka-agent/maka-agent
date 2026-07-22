@@ -3,17 +3,12 @@
 // It does not run Docker/Harbor tasks. Outputs live under repo-local maka-eval.
 
 import { mkdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { envPath as parseEnvPath } from '#headless-run-env';
 import { runPromptControlExperiment } from '#prompt-control-run';
 
-function envPath(name, fallback) {
-  const raw = process.env[name];
-  const value = raw && raw.length > 0 ? raw : fallback;
-  if (!value) throw new Error(`${name} is required`);
-  return value.startsWith('~') ? join(homedir(), value.slice(1)) : resolve(value);
-}
+const envPath = (name, fallback) => parseEnvPath(name, process.env[name], fallback);
 
 function defaultLocalEvalRoot(repoRoot) {
   const marker = '/.worktree/';

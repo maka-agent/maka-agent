@@ -2,21 +2,17 @@
 
 import { closeSync, openSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
+import { envPath as parseEnvPath } from '#headless-run-env';
 import { resolveHarnessAbRunId, resolveHarnessCompetitorProfile } from './run-harness-ab.mjs';
 
 const JOURNAL_FILENAME = 'background-run.json';
 const LOG_FILENAME = 'background-run.log';
 
-function envPath(name) {
-  const raw = process.env[name];
-  if (!raw) throw new Error(`${name} is required`);
-  return raw.startsWith('~') ? join(homedir(), raw.slice(1)) : resolve(raw);
-}
+const envPath = (name) => parseEnvPath(name, process.env[name]);
 
 function detachedRunPaths() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
