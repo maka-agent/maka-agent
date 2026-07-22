@@ -14,6 +14,7 @@ import {
 } from './events.js';
 import type { PermissionMode } from './permission.js';
 import type { CollaborationMode } from './collaboration.js';
+import type { OrchestrationMode } from './orchestration.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -122,6 +123,8 @@ export interface SessionHeader {
   permissionMode: PermissionMode;
   /** Defaults to `agent` when absent on legacy session records. */
   collaborationMode?: CollaborationMode;
+  /** Defaults to `default` when absent on legacy session records. */
+  orchestrationMode?: OrchestrationMode;
 
   /** Forward-compatible schema versioning. V0.1 only writes 1. */
   schemaVersion: 1;
@@ -162,6 +165,8 @@ export interface SessionSummary {
   permissionMode: PermissionMode;
   /** Defaults to `agent` when absent on legacy summaries. */
   collaborationMode?: CollaborationMode;
+  /** Defaults to `default` when absent on legacy summaries. */
+  orchestrationMode?: OrchestrationMode;
 }
 
 export type SessionChangedReason =

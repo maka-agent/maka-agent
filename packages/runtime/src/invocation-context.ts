@@ -17,6 +17,7 @@ import type { SteeringLease } from '@maka/core/backend-types';
 import type { RuntimeEvent, RuntimeEventStatus } from '@maka/core/runtime-event';
 import type { StoredMessage } from '@maka/core/session';
 import type { RuntimeContinuationMetadata } from '@maka/core/backend-types';
+import type { EffectiveOrchestration } from '@maka/core/orchestration';
 
 // ============================================================================
 // InvocationSource
@@ -76,6 +77,8 @@ export interface InvocationRequest {
   invocationId?: string;
   runId?: string;
   turnId: string;
+  /** Trusted effective orchestration snapshot for this invocation. */
+  orchestration?: EffectiveOrchestration;
   text: string;
   /** Optional attachments bound to this user turn. */
   attachments?: AttachmentRef[];

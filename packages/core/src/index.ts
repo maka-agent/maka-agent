@@ -9,6 +9,7 @@
 
 export * from './mcp.js';
 export * from './collaboration.js';
+export * from './orchestration.js';
 export * from './plan.js';
 
 // events.ts
@@ -510,6 +511,7 @@ export type {
   ChildAgentTurnInput,
   CreateSessionInput,
   RegenerateTurnInput,
+  TurnOrchestration,
   UserMessageInput,
   SessionListFilter,
 } from './runtime-inputs.js';

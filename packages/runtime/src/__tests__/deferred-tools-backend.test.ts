@@ -322,6 +322,44 @@ describe('AiSdkBackend deferred tool loading', () => {
 });
 
 describe('AiSdkBackend deferred agent tools', () => {
+  test('Swarm Mode injects the shared prompt and pins agent_swarm at step 0', async () => {
+    const capturedTools: string[][] = [];
+    const capturedPrompts: string[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async ({ tools: stepTools, prompt }) => {
+        capturedTools.push((stepTools ?? []).map((tool) => tool.name));
+        capturedPrompts.push(JSON.stringify(prompt));
+        return {
+          stream: convertArrayToReadableStream<LanguageModelV4StreamPart>([
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: ZERO_USAGE,
+            },
+          ]),
+        };
+      },
+    });
+
+    await drain(
+      agentBackend(model, []).send({
+        turnId: 'turn-swarm-mode',
+        text: 'fan out',
+        context: [],
+        orchestration: {
+          mode: 'swarm',
+          source: 'turn_override',
+          agentSwarmAuthorization: 'turn_override',
+        },
+      }),
+    );
+
+    assert.ok(capturedTools[0]?.includes(AGENT_SWARM_TOOL_NAME));
+    assert.match(capturedPrompts[0] ?? '', /Orchestration Mode: Swarm/);
+    assert.match(capturedPrompts[0] ?? '', /only tool in its assistant step/);
+  });
+
   test('agent tools are hidden by default and visible after load_tools(agent)', async () => {
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];

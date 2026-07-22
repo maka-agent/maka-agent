@@ -18,6 +18,10 @@ import type {
   UserMessage,
 } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
+import {
+  resolveEffectiveOrchestration,
+  type EffectiveOrchestration,
+} from '@maka/core/orchestration';
 import { failureClassFromCompleteStopReason, type SessionEvent } from '@maka/core/events';
 import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import type { RunTraceEvent } from './run-trace.js';
@@ -106,6 +110,8 @@ export interface AgentRunInput {
   hooks: AgentRunHooks;
   recordSessionMessages?: boolean;
   invocationId?: string;
+  /** Pre-resolved snapshot used by continuations; normal turns derive it from header + input. */
+  effectiveOrchestration?: EffectiveOrchestration;
   /** Set only when this run's backend tool path is guarded by canonical T1. */
   toolBoundaryProtocol?: ToolBoundaryProtocol;
 }
@@ -150,6 +156,7 @@ export class AgentRun {
   readonly turnId: string;
   readonly toolBoundaryProtocol: ToolBoundaryProtocol | undefined;
   readonly lineage: AgentRunLineage;
+  readonly effectiveOrchestration: EffectiveOrchestration;
 
   private header: SessionHeader;
   private active: AgentRunActiveSession | undefined;
@@ -191,6 +198,12 @@ export class AgentRun {
     this.turnId = input.userInput.turnId;
     this.toolBoundaryProtocol = input.toolBoundaryProtocol;
     this.header = input.header;
+    this.effectiveOrchestration =
+      input.effectiveOrchestration ??
+      resolveEffectiveOrchestration(
+        input.header.orchestrationMode,
+        input.userInput.turnOrchestration,
+      );
     this.lineage = {
       ...(input.userInput.parentRunId ? { parentRunId: input.userInput.parentRunId } : {}),
       ...(input.userInput.parentTurnId ? { parentTurnId: input.userInput.parentTurnId } : {}),
@@ -383,6 +396,7 @@ export class AgentRun {
         invocationId,
         runId: this.runId,
         turnId: this.turnId,
+        orchestration: this.effectiveOrchestration,
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments
           ? { attachments: this.input.userInput.attachments }
@@ -519,6 +533,7 @@ export class AgentRun {
       backend: this.active.backend,
       backendInput: {
         turnId: this.turnId,
+        orchestration: this.effectiveOrchestration,
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments
           ? { attachments: this.input.userInput.attachments }
@@ -889,6 +904,9 @@ export class AgentRun {
       ...(this.input.workspaceIdentity ? { workspaceIdentity: this.input.workspaceIdentity } : {}),
       permissionMode: this.header.permissionMode,
       collaborationMode: this.header.collaborationMode ?? 'agent',
+      orchestrationMode: this.effectiveOrchestration.mode,
+      orchestrationSource: this.effectiveOrchestration.source,
+      agentSwarmAuthorization: this.effectiveOrchestration.agentSwarmAuthorization,
       createdAt,
       updatedAt: createdAt,
       ...this.lineage,
@@ -924,6 +942,9 @@ export class AgentRun {
           data: {
             textLength: this.input.userInput.text.length,
             attachmentCount: this.input.userInput.attachments?.length ?? 0,
+            orchestrationMode: this.effectiveOrchestration.mode,
+            orchestrationSource: this.effectiveOrchestration.source,
+            agentSwarmAuthorization: this.effectiveOrchestration.agentSwarmAuthorization,
           },
         },
         { durable },

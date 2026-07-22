@@ -563,6 +563,80 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readMessages(session.id)).length).toBe(0);
   });
 
+  test('persists orchestration mode changes and records a dimensioned audit note', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(4_500) });
+    const session = await manager.createSession(makeInput());
+
+    const summary = await manager.setOrchestrationMode(session.id, 'swarm');
+    expect(summary.orchestrationMode).toBe('swarm');
+    expect((await store.readHeader(session.id)).orchestrationMode).toBe('swarm');
+    const notes = (await store.readMessages(session.id)).filter(
+      (message): message is Extract<StoredMessage, { type: 'system_note' }> =>
+        message.type === 'system_note' && message.kind === 'mode_change',
+    );
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.data).toEqual({
+      dimension: 'orchestration',
+      from: 'default',
+      to: 'swarm',
+    });
+
+    await manager.setOrchestrationMode(session.id, 'swarm');
+    expect(
+      (await store.readMessages(session.id)).filter((message) => message.type === 'system_note'),
+    ).toHaveLength(1);
+  });
+
+  test('snapshots persisted and one-turn orchestration into runs and backend sends', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(4_600),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ orchestrationMode: 'swarm' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'persisted', text: 'first' }));
+    await drain(
+      manager.sendMessage(session.id, {
+        turnId: 'one-shot-default',
+        text: 'second',
+        turnOrchestration: { mode: 'default', source: 'host_api' },
+      }),
+    );
+
+    const runs = await runStore.listSessionRuns(session.id);
+    expect(runs.find((run) => run.turnId === 'persisted')).toMatchObject({
+      orchestrationMode: 'swarm',
+      orchestrationSource: 'session',
+      agentSwarmAuthorization: 'session_mode',
+    });
+    expect(runs.find((run) => run.turnId === 'one-shot-default')).toMatchObject({
+      orchestrationMode: 'default',
+      orchestrationSource: 'turn_override',
+      agentSwarmAuthorization: 'none',
+    });
+    expect(backend?.sendInputs.map((input) => input.orchestration)).toEqual([
+      { mode: 'swarm', source: 'session', agentSwarmAuthorization: 'session_mode' },
+      { mode: 'default', source: 'turn_override', agentSwarmAuthorization: 'none' },
+    ]);
+    expect((await store.readHeader(session.id)).orchestrationMode).toBe('swarm');
+  });
+
   test('leaving explore clears the deep research label so visible read-only copy stays truthful', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -1117,6 +1191,9 @@ describe('SessionManager permission mode updates', () => {
       modelId: header.model,
       cwd: header.cwd,
       permissionMode: header.permissionMode,
+      orchestrationMode: 'swarm',
+      orchestrationSource: 'turn_override',
+      agentSwarmAuthorization: 'turn_override',
       createdAt: 1,
       updatedAt: 2,
       completedAt: 2,
@@ -1174,6 +1251,11 @@ describe('SessionManager permission mode updates', () => {
     expect(continuationRun.parentRunId).toBe(sourceRunId);
     expect(continuationRun.parentTurnId).toBe(sourceTurnId);
     expect(continuationRun.status).toBe('completed');
+    expect(continuationRun).toMatchObject({
+      orchestrationMode: 'swarm',
+      orchestrationSource: 'turn_override',
+      agentSwarmAuthorization: 'turn_override',
+    });
     const continuationEvents = await runStore.readRuntimeEvents(
       session.id,
       plan.continuation.runId,
@@ -5671,7 +5753,9 @@ describe('SessionManager permission mode updates', () => {
       now: nextNow(6_840),
       runtimeSource: 'test',
     });
-    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const session = await manager.createSession(
+      makeInput({ permissionMode: 'ask', orchestrationMode: 'swarm' }),
+    );
 
     await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
     const [parentRun] = await runStore.listSessionRuns(session.id);
@@ -5705,6 +5789,15 @@ describe('SessionManager permission mode updates', () => {
     expect(childRun?.agentId).toBe(LOCAL_READ_AGENT_ID);
     expect(childRun?.agentName).toBe(LOCAL_READ_AGENT_DEFINITION.name);
     expect(childRun?.permissionMode).toBe('explore');
+    expect(parentRun).toMatchObject({
+      orchestrationMode: 'swarm',
+      agentSwarmAuthorization: 'session_mode',
+    });
+    expect(childRun).toMatchObject({
+      orchestrationMode: 'default',
+      orchestrationSource: 'session',
+      agentSwarmAuthorization: 'none',
+    });
 
     const childMessages = (await store.readMessages(session.id)).filter(
       (message) => 'turnId' in message && message.turnId === 'child-turn',
@@ -9961,7 +10054,7 @@ describe('SessionManager permission mode updates', () => {
     expect(danglingUpdates[0]?.result.output).toBe(undefined);
   });
 
-  test('branchFromTurn preserves the parent thinking level for future turns', async () => {
+  test('branchFromTurn preserves parent thinking and orchestration modes', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -9979,7 +10072,7 @@ describe('SessionManager permission mode updates', () => {
       now: nextNow(15_500),
     });
     const session = await manager.createSession(
-      makeInput({ name: 'Parent', thinkingLevel: 'high' }),
+      makeInput({ name: 'Parent', thinkingLevel: 'high', orchestrationMode: 'swarm' }),
     );
     await drain(manager.sendMessage(session.id, { turnId: 'source', text: 'context' }));
 
@@ -9989,7 +10082,9 @@ describe('SessionManager permission mode updates', () => {
     });
 
     expect(child.thinkingLevel).toBe('high');
+    expect(child.orchestrationMode).toBe('swarm');
     expect((await store.readHeader(child.id)).thinkingLevel).toBe('high');
+    expect((await store.readHeader(child.id)).orchestrationMode).toBe('swarm');
     await drain(manager.sendMessage(child.id, { turnId: 'child-turn', text: 'continue' }));
     expect(contexts.find((ctx) => ctx.sessionId === child.id)?.header.thinkingLevel).toBe('high');
   });
@@ -12498,6 +12593,7 @@ class MemorySessionStore implements SessionStore {
       model: input.model ?? 'fake-model',
       ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       permissionMode: input.permissionMode,
+      orchestrationMode: input.orchestrationMode ?? 'default',
       schemaVersion: 1,
     };
     this.headers.set(header.id, header);

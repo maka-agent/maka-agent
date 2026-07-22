@@ -13,6 +13,7 @@ import {
   DEFAULT_SESSION_NAME,
   deriveTurnRecords,
   isCollaborationMode,
+  isOrchestrationMode,
   isPermissionMode,
   isSessionBlockedReason,
   isSessionStatus,
@@ -116,6 +117,7 @@ class FileSessionStore implements SessionStore {
       model: input.model ?? 'default',
       permissionMode: input.permissionMode,
       collaborationMode: input.collaborationMode ?? 'agent',
+      orchestrationMode: input.orchestrationMode ?? 'default',
       ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       schemaVersion: 1,
     };
@@ -550,6 +552,7 @@ type StoredSessionHeader = Omit<
   | 'model'
   | 'permissionMode'
   | 'collaborationMode'
+  | 'orchestrationMode'
   | 'status'
   | 'blockedReason'
   | 'titleIsManual'
@@ -558,6 +561,7 @@ type StoredSessionHeader = Omit<
   model?: unknown;
   permissionMode?: unknown;
   collaborationMode?: unknown;
+  orchestrationMode?: unknown;
   status?: unknown;
   blockedReason?: unknown;
   titleIsManual?: unknown;
@@ -586,6 +590,9 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
   const collaborationMode = isCollaborationMode(header.collaborationMode)
     ? header.collaborationMode
     : 'agent';
+  const orchestrationMode = isOrchestrationMode(header.orchestrationMode)
+    ? header.orchestrationMode
+    : 'default';
   const model =
     typeof header.model === 'string' && header.model.length > 0 ? header.model : 'default';
   const status = resolveMigratedStatus(header);
@@ -617,6 +624,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
         model,
         permissionMode,
         collaborationMode,
+        orchestrationMode,
       },
       sessionId,
     );
@@ -631,6 +639,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
         model,
         permissionMode,
         collaborationMode,
+        orchestrationMode,
       },
       sessionId,
     );
@@ -645,6 +654,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
         model,
         permissionMode,
         collaborationMode,
+        orchestrationMode,
       },
       sessionId,
     );
@@ -658,6 +668,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
       model,
       permissionMode,
       collaborationMode,
+      orchestrationMode,
     },
     sessionId,
   );
@@ -698,6 +709,7 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
     typeof header.model === 'string' &&
     isPermissionMode(header.permissionMode) &&
     isCollaborationMode(header.collaborationMode) &&
+    isOrchestrationMode(header.orchestrationMode) &&
     header.schemaVersion === 1;
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
@@ -748,6 +760,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     model: header.model,
     permissionMode: header.permissionMode,
     collaborationMode: header.collaborationMode ?? 'agent',
+    orchestrationMode: header.orchestrationMode ?? 'default',
     ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
   };
 }
