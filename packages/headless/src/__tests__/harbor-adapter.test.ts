@@ -2793,6 +2793,7 @@ class BaseInstalledAgent:
         self._extra_env = extra_env or {}
         self._version = version
         self.model_name = model_name
+        self.logger = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
 
     def _get_env(self, key):
         return self._extra_env.get(key) or os.environ.get(key)
@@ -2826,6 +2827,9 @@ with tempfile.TemporaryDirectory() as tmp:
     commands = []
 
     class Environment:
+        def __init__(self):
+            self.downloads = []
+
         async def exec(self, command, env=None, **kwargs):
             commands.append((command, env or {}))
             if "--output-format stream-json" in command:
@@ -2840,6 +2844,9 @@ with tempfile.TemporaryDirectory() as tmp:
                     encoding="utf-8",
                 )
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+
+        async def download_file(self, remote, local):
+            self.downloads.append(remote)
 
     agent = MakaKimiCodeAgent(
         logs,
@@ -2865,6 +2872,9 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "/opt/maka-kimi-code-toolchain/bin/node" in install_command, install_command
     assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
     asyncio.run(agent.run("hi", environment, object()))
+    # Harbor mounted path: the stream-json already landed host-side, so the
+    # adapter must not race the mount with a re-download.
+    assert environment.downloads == [], environment.downloads
     run_command, run_env = commands[-1]
     assert "--output-format stream-json --prompt" in run_command, run_command
     assert "config.toml" in run_command, run_command
@@ -2976,7 +2986,51 @@ with tempfile.TemporaryDirectory() as tmp:
         if timeout_environment.process is not None and timeout_environment.process.poll() is None:
             os.killpg(timeout_environment.process.pid, signal.SIGKILL)
             timeout_environment.process.wait()
-    print("kimi-code adapter ok")
+
+# Pier custom-mounts path: --mounts-json replaces the default log mounts while
+# capabilities.mounted stays true, so pier's own log download never runs and
+# the CLI's stream-json exists only in the container. The adapter must download
+# it itself, or _events(require_assistant=True) raises and a real
+# token-burning run is misclassified as infra.
+with tempfile.TemporaryDirectory() as pier_tmp:
+    pier_logs = Path(pier_tmp)
+
+    class PierEnvironment:
+        def __init__(self):
+            self.downloads = []
+
+        async def exec(self, command, env=None, **kwargs):
+            # The CLI writes only the in-container /logs/agent/kimi-code.jsonl;
+            # nothing appears under the host logs_dir.
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+
+        async def download_file(self, remote, local):
+            self.downloads.append(remote)
+            Path(local).write_text(
+                json.dumps({"role": "assistant", "content": "done"}) + "\n",
+                encoding="utf-8",
+            )
+
+    pier_agent = MakaKimiCodeAgent(
+        pier_logs,
+        version="0.26.0",
+        model_name="k3",
+        extra_env={
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "k3",
+            "MAKA_SYSTEM_PROMPT": "",
+        },
+    )
+    pier_environment = PierEnvironment()
+    asyncio.run(pier_agent.run("hi", pier_environment, object()))
+    assert "/logs/agent/kimi-code.jsonl" in pier_environment.downloads, pier_environment.downloads
+    pier_agent.populate_context_post_run(object())
+    pier_cell = json.loads((pier_logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert pier_cell["status"] == "completed", pier_cell
+    assert pier_cell["steps"] == 1, pier_cell
+
+print("kimi-code adapter ok")
 `;
 }
 

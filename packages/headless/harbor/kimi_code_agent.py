@@ -188,6 +188,25 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
                     await cleanup_process_scope(self, environment, command_scope)
             finally:
                 self._finished_at_ms = int(time.time() * 1000)
+                await self._download_agent_logs(environment)
+
+    async def _download_agent_logs(self, environment: BaseEnvironment) -> None:
+        # _write_cell_output's only in-container input is the stream-json the
+        # CLI writes to /logs/agent/kimi-code.jsonl (identity and timestamps
+        # are host-side). Under Harbor the agent log dir is bind-mounted, so
+        # the file is already host-side and is skipped; under Pier a
+        # --mounts-json run replaces the default log mounts while
+        # capabilities.mounted stays true (pier docker.py), so pier's own log
+        # download never runs — without this download, _events() sees nothing
+        # and a real token-burning run is misclassified as infra. Runs in
+        # run()'s finally so the AgentTimeoutError path is hydrated too.
+        local = self.logs_dir / _OUTPUT_PATH.name
+        if local.exists():
+            return
+        try:
+            await environment.download_file(_OUTPUT_PATH.as_posix(), local)
+        except Exception as exc:  # noqa: BLE001 - best-effort log hydration.
+            self.logger.debug("Could not download Kimi Code stream %s: %s", _OUTPUT_PATH, exc)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         self._write_cell_output()
