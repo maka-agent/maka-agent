@@ -452,6 +452,9 @@ function projectText(
       ...(event.content.attachments !== undefined && event.content.attachments.length > 0
         ? { attachments: event.content.attachments }
         : {}),
+      ...(event.content.quotes !== undefined && event.content.quotes.length > 0
+        ? { quotes: event.content.quotes }
+        : {}),
     });
     return true;
   }
@@ -1149,6 +1152,7 @@ function semanticMessage(message: StoredMessage): unknown {
         text: message.text,
         displayText: message.displayText,
         attachments: message.attachments ?? [],
+        quotes: message.quotes ?? [],
       };
     case 'assistant':
       return {

@@ -22,7 +22,6 @@
  *     advances to a real implementation.
  */
 
-import { shell } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -97,6 +96,8 @@ interface PendingAuthorization {
 export interface AntigravitySubscriptionServiceDeps {
   /** Absolute path to userData dir; e.g. app.getPath('userData'). */
   userDataDir: string;
+  /** Opens the provider authorization URL in the system browser. */
+  openExternal: (url: string) => Promise<void>;
   /** Function returning current epoch ms. Injectable for tests. */
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
@@ -110,6 +111,7 @@ export class AntigravitySubscriptionService {
    *  anymore; unlinked on logout in case the startup import could not
    *  run, so logout still means "no credential survives anywhere". */
   private readonly legacyTokenFilePath: string;
+  private readonly openExternal: (url: string) => Promise<void>;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
   private readonly credentialStore: SharedOAuthCredentialStore;
@@ -122,6 +124,7 @@ export class AntigravitySubscriptionService {
 
   constructor(deps: AntigravitySubscriptionServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.antigravity_subscription_token');
+    this.openExternal = deps.openExternal;
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
     this.credentialStore = deps.credentialStore;
@@ -203,7 +206,7 @@ export class AntigravitySubscriptionService {
       return { ok: false, reason: 'authorization_expired', message: '授权请求已过期，请重新点击“登录 Antigravity”。' };
     }
     try {
-      await shell.openExternal(pending.url);
+      await this.openExternal(pending.url);
       this.authorizing = true;
       return { ok: true };
     } catch (err) {
@@ -510,8 +513,8 @@ export class AntigravitySubscriptionService {
 
   /**
    * Always reads the shared store — no in-memory copy; the store is
-   * the cross-surface authority (#1125). A corrupt entry is deleted by
-   * the bridge so the next login isn't stuck.
+   * the cross-surface authority (#1125). A corrupt entry is preserved
+   * for recovery; a fresh login can overwrite it.
    */
   private async loadTokens(): Promise<PersistedTokens | null> {
     let result: Awaited<ReturnType<typeof loadSharedOAuthTokens>>;
@@ -555,9 +558,8 @@ export interface AntigravityAccountStateSnapshot {
   errorMessage?: string;
 }
 
-// Re-exports for the IPC handler + tests. Pure helpers live in
-// `antigravity-subscription-helpers.ts` so they can be unit-tested
-// without dragging in the electron ESM module.
+// Re-exports for the IPC handler + focused protocol tests. The pure
+// helpers keep preview configuration and PKCE logic independent of service state.
 export {
   ANTIGRAVITY_MISSING_CLIENT_ID_ENVELOPE,
   ANTIGRAVITY_OAUTH_CONFIG,

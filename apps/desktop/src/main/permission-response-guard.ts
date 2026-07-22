@@ -1,20 +1,29 @@
 import type {
   BranchFromTurnInput,
   PermissionResponse,
+  QuoteRef,
   RegenerateTurnInput,
+  ReviseBeforeTurnInput,
+  TurnOrchestration,
   UserQuestionResponse,
 } from '@maka/core';
+import { isOrchestrationMode, isTurnOrchestrationSource } from '@maka/core';
 
 const MAX_PERMISSION_REQUEST_ID_LENGTH = 128;
 const MAX_TURN_ID_LENGTH = 128;
 const MAX_BRANCH_NAME_LENGTH = 200;
 const MAX_SESSION_SEND_TEXT_LENGTH = 128_000;
+const MAX_QUOTE_COUNT = 16;
+const MAX_QUOTE_TEXT_LENGTH = 32_000;
+const MAX_QUOTE_LABEL_LENGTH = 200;
 
 interface NormalizedSendSessionCommand {
   type: 'send';
   turnId?: string;
   text: string;
   attachmentItems?: unknown;
+  turnOrchestration?: TurnOrchestration;
+  quotes?: QuoteRef[];
 }
 type NormalizedStopSessionInput = { source?: 'stop_button' };
 
@@ -85,6 +94,17 @@ export function normalizeBranchFromTurnInput(input: unknown): BranchFromTurnInpu
   };
 }
 
+export function normalizeReviseBeforeTurnInput(input: unknown): ReviseBeforeTurnInput {
+  const value = requireObject(input, 'Invalid revision turn input');
+  return {
+    sourceTurnId: normalizeRequiredString(
+      value.sourceTurnId,
+      'Invalid revision sourceTurnId',
+      MAX_TURN_ID_LENGTH,
+    ),
+  };
+}
+
 export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessionCommand | undefined {
   const value = requireObject(input, 'Invalid session command');
   if (value.type !== 'send') return undefined;
@@ -93,7 +113,47 @@ export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessi
     ...normalizeOptionalSendTurnId(value.turnId),
     text: normalizeRequiredString(value.text, 'Invalid send text', MAX_SESSION_SEND_TEXT_LENGTH),
     ...(value.attachmentItems !== undefined ? { attachmentItems: value.attachmentItems } : {}),
+    ...(value.turnOrchestration !== undefined
+      ? { turnOrchestration: normalizeTurnOrchestration(value.turnOrchestration) }
+      : {}),
+    ...normalizeOptionalQuotes(value.quotes),
   };
+}
+
+function normalizeTurnOrchestration(input: unknown): TurnOrchestration {
+  const value = requireObject(input, 'Invalid turn orchestration');
+  if (!isOrchestrationMode(value.mode) || !isTurnOrchestrationSource(value.source)) {
+    throw new Error('Invalid turn orchestration');
+  }
+  return { mode: value.mode, source: value.source };
+}
+
+function normalizeOptionalQuotes(input: unknown): { quotes?: QuoteRef[] } {
+  if (input === undefined) return {};
+  if (!Array.isArray(input) || input.length > MAX_QUOTE_COUNT) {
+    throw new Error('Invalid send quotes');
+  }
+  const quotes = input.map((entry) => {
+    const value = requireObject(entry, 'Invalid send quote');
+    const label =
+      value.label === undefined
+        ? undefined
+        : normalizeOptionalString(value.label, 'Invalid send quote label', MAX_QUOTE_LABEL_LENGTH);
+    const sourceTurnId =
+      value.sourceTurnId === undefined
+        ? undefined
+        : normalizeRequiredString(
+            value.sourceTurnId,
+            'Invalid send quote sourceTurnId',
+            MAX_TURN_ID_LENGTH,
+          );
+    return {
+      text: normalizeRequiredString(value.text, 'Invalid send quote text', MAX_QUOTE_TEXT_LENGTH),
+      ...(label ? { label } : {}),
+      ...(sourceTurnId ? { sourceTurnId } : {}),
+    };
+  });
+  return quotes.length > 0 ? { quotes } : {};
 }
 
 export function normalizeStopSessionInput(input: unknown): NormalizedStopSessionInput {

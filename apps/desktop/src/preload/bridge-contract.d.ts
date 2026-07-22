@@ -14,6 +14,8 @@ import type {
   UserQuestionResponse,
   PermissionMode,
   CollaborationMode,
+  OrchestrationMode,
+  TurnOrchestration,
   PlanSessionState,
   SearchErrorReason,
   SearchRequest,
@@ -41,6 +43,7 @@ import type {
   BranchFromTurnInput,
   CapabilitySnapshotCollection,
   RegenerateTurnInput,
+  ReviseBeforeTurnInput,
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
@@ -187,7 +190,14 @@ export interface MakaBridge {
       sessionId: string,
       command:
         | SessionCommand
-        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        | {
+            type: 'send';
+            turnId: string;
+            text: string;
+            attachmentItems?: RendererIngestInput[];
+            turnOrchestration?: TurnOrchestration;
+            quotes?: import('@maka/core').QuoteRef[];
+          },
     ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
     readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -199,6 +209,7 @@ export interface MakaBridge {
     >;
     regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
     branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
+    reviseBeforeTurn(sessionId: string, input: ReviseBeforeTurnInput): Promise<SessionSummary>;
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
     respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void>;
     saveConversationToFile(input: {
@@ -209,12 +220,13 @@ export interface MakaBridge {
     >;
     subscribeEvents(sessionId: string, handler: (event: SessionEvent) => void): () => void;
     subscribeChanges(handler: (event: SessionChangedEvent) => void): () => void;
-    archive(sessionId: string): Promise<void>;
-    unarchive(sessionId: string): Promise<void>;
-    setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
-    rename(sessionId: string, name: string): Promise<void>;
+    archive(sessionId: string, options?: { revisionFamily?: boolean }): Promise<void>;
+    unarchive(sessionId: string, options?: { revisionFamily?: boolean }): Promise<void>;
+    setFlagged(sessionId: string, isFlagged: boolean, options?: { revisionFamily?: boolean }): Promise<void>;
+    rename(sessionId: string, name: string, options?: { revisionFamily?: boolean }): Promise<void>;
     setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
     setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary>;
+    setOrchestrationMode(sessionId: string, mode: OrchestrationMode): Promise<SessionSummary>;
     getPlanState(sessionId: string): Promise<PlanSessionState>;
     requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanSessionState>;
     abandonPlanProposal(
@@ -234,7 +246,7 @@ export interface MakaBridge {
     abandonPlanExecution(sessionId: string, executionId: string): Promise<PlanSessionState>;
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
     setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
-    remove(sessionId: string): Promise<void>;
+    remove(sessionId: string, options?: { revisionFamily?: boolean }): Promise<void>;
   };
   shellRuns: {
     list(sessionId: string): Promise<ShellRunUpdate[]>;

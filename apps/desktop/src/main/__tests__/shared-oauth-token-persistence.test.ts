@@ -11,6 +11,7 @@ import { mkdtemp, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { resolveOAuthSubscriptionTokens } from '@maka/runtime';
 import { createFileCredentialStore, type CredentialStore } from '@maka/storage';
 import {
   deleteSharedOAuthTokens,
@@ -57,6 +58,23 @@ describe('shared OAuth token persistence (store authority)', () => {
     const result = await loadSharedOAuthTokens(store, 'claude-subscription');
     assert.equal(result.status, 'ok');
     assert.deepEqual(result.status === 'ok' && result.tokens, TOKENS);
+  });
+
+  it('makes a desktop-written token immediately readable by a pure-Node runtime surface', async () => {
+    const workspaceRoot = await makeWorkspace();
+    const desktopStore = createFileCredentialStore(workspaceRoot);
+    await saveSharedOAuthTokens(desktopStore, 'codex-subscription', TOKENS);
+
+    const runtimeStore = createFileCredentialStore(workspaceRoot);
+    const resolved = await resolveOAuthSubscriptionTokens({
+      providerType: 'openai-codex',
+      slug: 'codex-subscription',
+      credentialStore: runtimeStore,
+      now: () => TOKENS.expires_at - 3_600_000,
+      fetchFn: async () => assert.fail('a fresh shared token must not use the network'),
+    });
+
+    assert.deepEqual(resolved, TOKENS);
   });
 
   it('reports missing tokens as missing', async () => {

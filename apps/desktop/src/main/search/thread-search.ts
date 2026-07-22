@@ -35,6 +35,7 @@
  */
 
 import {
+  collapseSessionRevisions,
   normalizeSearchLimit,
   normalizeSearchQuery,
   redactSecrets,
@@ -159,7 +160,7 @@ export async function runThreadSearch(
   const queryFolded = foldForMatch(queryResult.value);
   const maxResults = limitResult.value;
 
-  const sessions = (await deps.listSessions())
+  const sessions = collapseSessionRevisions(await deps.listSessions())
     // Exclude fake-backend sessions — e2e-fixture fixtures and
     // similar dev-only state should not surface as real chat hits.
     .filter((session) => session.backend !== 'fake')

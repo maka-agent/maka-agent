@@ -34,6 +34,7 @@ import type {
 import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type { EffectiveOrchestration } from '@maka/core/orchestration';
 import { redactSecrets } from '@maka/core/redaction';
 import { TOOL_BOUNDARY_PROTOCOL_V1, type RuntimeEvent } from '@maka/core';
 
@@ -104,6 +105,8 @@ export interface MakaTool<P = any, R = unknown> {
   executionFacts?: ToolExecutionFacts;
   /** Crash-recovery contract used by the durable tool boundary. */
   recoveryMode?: ToolRecoveryMode;
+  /** Step-level admission contract. Exclusive tools cannot share an assistant step. */
+  executionSemantics?: 'parallel' | 'exclusive_step';
   /** Optional permission/persistence projection derived from isolated execution args. */
   permissionArgs?: (
     args: P,
@@ -160,6 +163,37 @@ export interface MakaToolContext {
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
+  prepareChildAgentResume?: (sourceRunId: string) => Promise<{
+    sourceRunId: string;
+    agentId: string;
+    agentName: string;
+    profile: string;
+  }>;
+  resumeChildAgent?: (input: {
+    sourceRunId: string;
+    prompt: string;
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
+  retryChildAgent?: (input: {
+    sourceRunId: string;
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
     onReady?: (input: {
       turnId: string;
       agentId: string;
@@ -221,6 +255,14 @@ export const LOOP_GATE_IDENTICAL_THRESHOLD = 3;
 const SUBAGENT_TOOL_LIMIT_MESSAGE =
   '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。';
 
+function composeChildAbortSignal(
+  invocationSignal: AbortSignal,
+  childSignal: AbortSignal | undefined,
+): AbortSignal {
+  if (!childSignal || childSignal === invocationSignal) return invocationSignal;
+  return AbortSignal.any([invocationSignal, childSignal]);
+}
+
 export interface ToolRuntimeInput {
   sessionId: string;
   header: SessionHeader;
@@ -241,10 +283,41 @@ export interface ToolRuntimeInput {
    * (legacy per-turn behavior).
    */
   getCurrentStepId?: () => string | undefined;
+  /** Effective orchestration for the active send; undefined between turns. */
+  getCurrentOrchestration?: () => EffectiveOrchestration | undefined;
   spawnChildAgent?: (input: {
     parentRunId: string;
     spec: AgentSpec;
     prompt: string;
+    abortSignal: AbortSignal;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
+  prepareChildAgentResume?: (sourceRunId: string) => Promise<{
+    sourceRunId: string;
+    agentId: string;
+    agentName: string;
+    profile: string;
+  }>;
+  resumeChildAgent?: (input: {
+    parentRunId: string;
+    sourceRunId: string;
+    prompt: string;
+    abortSignal: AbortSignal;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
+  retryChildAgent?: (input: {
+    parentRunId: string;
+    sourceRunId: string;
     abortSignal: AbortSignal;
     onReady?: (input: {
       turnId: string;
@@ -320,6 +393,10 @@ export class ToolRuntime {
   private readonly recentSandboxDenials = new Set<string>();
   private readonly autoReviewEscalationAttempts = new Map<string, 'pending' | 'denied'>();
   private readonly durableToolAttempts = new Map<string, DurableToolAttempt>();
+  private readonly stepAdmissions = new Map<
+    string,
+    { callCount: number; exclusiveToolName?: string }
+  >();
   private readonly approvalCoordinator: ApprovalCoordinator;
 
   constructor(private readonly input: ToolRuntimeInput) {
@@ -398,6 +475,7 @@ export class ToolRuntime {
     this.recentSandboxDenials.clear();
     this.autoReviewEscalationAttempts.clear();
     this.durableToolAttempts.clear();
+    this.stepAdmissions.clear();
   }
 
   /**
@@ -463,6 +541,10 @@ export class ToolRuntime {
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
+    const stepId = this.input.getCurrentStepId?.();
+    // Registration is synchronous and happens before the first await, so
+    // parallel AI SDK execute callbacks cannot race past exclusive admission.
+    const admissionFailure = this.admitToolForStep(tool, stepId);
     let permissionArgs = executionArgs;
     let permissionArgsError: unknown;
     try {
@@ -486,7 +568,6 @@ export class ToolRuntime {
     const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
 
-    const stepId = this.input.getCurrentStepId?.();
     const runId = this.input.getCurrentRunId?.();
     const invocationId = this.input.getCurrentInvocationId?.() ?? runId;
     if (this.input.runtimeCommitSink && !runId) {
@@ -536,6 +617,18 @@ export class ToolRuntime {
       ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
     });
     const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
+    if (admissionFailure) {
+      await this.writeSyntheticToolResult(toolUseId, turnId, admissionFailure, queue);
+      trace?.emit('tool', 'tool_failed', 'Tool rejected by exclusive-step admission', {
+        toolUseId,
+        toolName: tool.name,
+        stepId,
+        status: 'error',
+        errorClass: 'ExclusiveStepConflict',
+      });
+      this.recordLoopGateOutcome(callSignature, true);
+      return this.errorReturn(admissionFailure);
+    }
     const computerSemanticSignature =
       tool.categoryHint === 'computer_use'
         ? computerUseSemanticSignature(permissionArgs)
@@ -784,9 +877,10 @@ export class ToolRuntime {
       this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'pending');
     }
 
+    const permissionRules = this.permissionRulesFor(tool.name);
     if (
       tool.permissionRequired !== false ||
-      (this.input.permissionRules?.length ?? 0) > 0 ||
+      permissionRules.length > 0 ||
       additionalPlan.kind === 'request' ||
       escalationPlan.kind === 'request'
     ) {
@@ -799,9 +893,7 @@ export class ToolRuntime {
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
-        ...(this.input.permissionRules !== undefined
-          ? { permissionRules: this.input.permissionRules }
-          : {}),
+        ...(permissionRules.length > 0 ? { permissionRules } : {}),
         ...(tool.sandbox !== undefined
           ? {
               sandbox:
@@ -1033,6 +1125,12 @@ export class ToolRuntime {
           toolName: tool.name,
           decision: 'allow',
           category: verdict.category,
+          ...(tool.name === 'agent_swarm'
+            ? {
+                authorizationSource:
+                  this.input.getCurrentOrchestration?.()?.agentSwarmAuthorization ?? 'none',
+              }
+            : {}),
         });
       }
     }
@@ -1206,7 +1304,7 @@ export class ToolRuntime {
           ...(this.input.readChildAgentOutput
             ? { readChildAgentOutput: this.input.readChildAgentOutput }
             : {}),
-          ...this.buildSpawnChildAgentContext({
+          ...this.buildChildAgentContext({
             abortSignal: ctx.abortSignal,
             trace,
             toolUseId,
@@ -1590,6 +1688,31 @@ export class ToolRuntime {
     };
   }
 
+  private admitToolForStep(tool: MakaTool, stepId: string | undefined): string | undefined {
+    if (!stepId) return undefined;
+    const existing = this.stepAdmissions.get(stepId) ?? { callCount: 0 };
+    const exclusive = tool.executionSemantics === 'exclusive_step';
+    if (existing.exclusiveToolName) {
+      return `Tool ${tool.name} cannot share an assistant step with exclusive tool ${existing.exclusiveToolName}. Retry it in a separate step.`;
+    }
+    if (exclusive && existing.callCount > 0) {
+      return `Exclusive tool ${tool.name} cannot share an assistant step with other tool calls. Retry it in a separate step.`;
+    }
+    existing.callCount += 1;
+    if (exclusive) existing.exclusiveToolName = tool.name;
+    this.stepAdmissions.set(stepId, existing);
+    return undefined;
+  }
+
+  private permissionRulesFor(toolName: string): ToolPermissionRule[] {
+    const rules = [...(this.input.permissionRules ?? [])];
+    const authorization = this.input.getCurrentOrchestration?.()?.agentSwarmAuthorization;
+    if (toolName === 'agent_swarm' && authorization && authorization !== 'none') {
+      rules.push({ effect: 'allow', kind: 'tool', toolName: 'agent_swarm' });
+    }
+    return rules;
+  }
+
   private async awaitPermissionDecision(
     verdict: Extract<ReturnType<PermissionEngine['evaluate']>, { kind: 'prompt' }>,
     turnId: string,
@@ -1634,102 +1757,176 @@ export class ToolRuntime {
     return { error: message };
   }
 
-  private buildSpawnChildAgentContext(input: {
+  private buildChildAgentContext(input: {
     abortSignal: AbortSignal;
     trace: RunTraceLike | null;
     toolUseId: string;
     toolName: string;
-  }): Pick<MakaToolContext, 'spawnChildAgent'> {
+  }): Pick<
+    MakaToolContext,
+    'spawnChildAgent' | 'prepareChildAgentResume' | 'resumeChildAgent' | 'retryChildAgent'
+  > {
     const parentRunId = this.input.getCurrentRunId?.();
-    const spawnChildAgent = this.input.spawnChildAgent;
-    if (!parentRunId || !spawnChildAgent) return {};
+    if (!parentRunId) return {};
     const limiter = this.childAgentRunLimiter;
-    return {
-      spawnChildAgent: async (spawnInput) => {
-        const waitingForPermit =
-          limiter.activeCount >= limiter.capacity || limiter.waitingCount > 0;
-        if (waitingForPermit) {
-          input.trace?.emit(
-            'tool',
-            'tool_started',
-            'Child run waiting for shared runtime capacity',
-            {
-              toolUseId: input.toolUseId,
-              toolName: input.toolName,
-              boundary: 'shared_child_run_permit',
-              stage: 'waiting',
-              activeChildRuns: limiter.activeCount,
-              waitingChildRuns: limiter.waitingCount + 1,
-              capacity: limiter.capacity,
-            },
-          );
+    const runWithPermit = async <T>(
+      mode: 'spawn' | 'resume' | 'retry',
+      abortSignal: AbortSignal,
+      execute: () => Promise<T>,
+    ): Promise<T> => {
+      const waitingForPermit = limiter.activeCount >= limiter.capacity || limiter.waitingCount > 0;
+      if (waitingForPermit) {
+        input.trace?.emit('tool', 'tool_started', 'Child run waiting for shared runtime capacity', {
+          toolUseId: input.toolUseId,
+          toolName: input.toolName,
+          boundary: 'shared_child_run_permit',
+          stage: 'waiting',
+          mode,
+          activeChildRuns: limiter.activeCount,
+          waitingChildRuns: limiter.waitingCount + 1,
+          capacity: limiter.capacity,
+        });
+      }
+      let permit;
+      try {
+        permit = await limiter.acquire(abortSignal);
+      } catch (error) {
+        input.trace?.emit(
+          'tool',
+          'tool_failed',
+          'Child run did not acquire shared runtime capacity',
+          {
+            toolUseId: input.toolUseId,
+            toolName: input.toolName,
+            boundary: 'shared_child_run_permit',
+            stage: 'cancelled_while_waiting',
+            mode,
+            status: abortSignal.aborted ? 'aborted' : 'error',
+          },
+        );
+        throw error;
+      }
+      const childStartedAt = this.input.now();
+      input.trace?.emit('tool', 'tool_started', 'Child run execution started', {
+        toolUseId: input.toolUseId,
+        toolName: input.toolName,
+        boundary: 'child_run_execution',
+        stage: 'started',
+        mode,
+        waitedForPermit: waitingForPermit,
+        activeChildRuns: limiter.activeCount,
+        waitingChildRuns: limiter.waitingCount,
+        capacity: limiter.capacity,
+      });
+      try {
+        if (abortSignal.aborted) {
+          throw abortSignal.reason instanceof Error
+            ? abortSignal.reason
+            : new Error('Child agent run cancelled before it started');
         }
-        let permit;
-        try {
-          permit = await limiter.acquire(input.abortSignal);
-        } catch (error) {
-          input.trace?.emit(
-            'tool',
-            'tool_failed',
-            'Child run did not acquire shared runtime capacity',
-            {
-              toolUseId: input.toolUseId,
-              toolName: input.toolName,
-              boundary: 'shared_child_run_permit',
-              stage: 'cancelled_while_waiting',
-              status: input.abortSignal.aborted ? 'aborted' : 'error',
-            },
-          );
-          throw error;
-        }
-        const childStartedAt = this.input.now();
-        input.trace?.emit('tool', 'tool_started', 'Child run execution started', {
+        const result = await execute();
+        input.trace?.emit('tool', 'tool_completed', 'Child run execution completed', {
           toolUseId: input.toolUseId,
           toolName: input.toolName,
           boundary: 'child_run_execution',
-          stage: 'started',
-          waitedForPermit: waitingForPermit,
-          activeChildRuns: limiter.activeCount,
-          waitingChildRuns: limiter.waitingCount,
-          capacity: limiter.capacity,
+          stage: 'completed',
+          mode,
+          status: 'success',
+          durationMs: Math.max(0, this.input.now() - childStartedAt),
         });
-        try {
-          if (input.abortSignal.aborted) {
-            throw input.abortSignal.reason instanceof Error
-              ? input.abortSignal.reason
-              : new Error('Child agent run cancelled before it started');
+        return result;
+      } catch (error) {
+        input.trace?.emit('tool', 'tool_failed', 'Child run execution failed', {
+          toolUseId: input.toolUseId,
+          toolName: input.toolName,
+          boundary: 'child_run_execution',
+          stage: 'completed',
+          mode,
+          status: abortSignal.aborted ? 'aborted' : 'error',
+          durationMs: Math.max(0, this.input.now() - childStartedAt),
+        });
+        throw error;
+      } finally {
+        permit.release();
+      }
+    };
+
+    const spawnChildAgent = this.input.spawnChildAgent;
+    const prepareChildAgentResume = this.input.prepareChildAgentResume;
+    const resumeChildAgent = this.input.resumeChildAgent;
+    const retryChildAgent = this.input.retryChildAgent;
+    return {
+      ...(spawnChildAgent
+        ? {
+            spawnChildAgent: async (spawnInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                spawnInput.abortSignal,
+              );
+              return await runWithPermit(
+                'spawn',
+                abortSignal,
+                async () =>
+                  await spawnChildAgent({
+                    parentRunId,
+                    spec: spawnInput.spec,
+                    prompt: spawnInput.prompt,
+                    abortSignal,
+                    ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
+                    ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
+                  }),
+              );
+            },
           }
-          const result = await spawnChildAgent({
-            parentRunId,
-            spec: spawnInput.spec,
-            prompt: spawnInput.prompt,
-            abortSignal: input.abortSignal,
-            ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
-            ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
-          });
-          input.trace?.emit('tool', 'tool_completed', 'Child run execution completed', {
-            toolUseId: input.toolUseId,
-            toolName: input.toolName,
-            boundary: 'child_run_execution',
-            stage: 'completed',
-            status: 'success',
-            durationMs: Math.max(0, this.input.now() - childStartedAt),
-          });
-          return result;
-        } catch (error) {
-          input.trace?.emit('tool', 'tool_failed', 'Child run execution failed', {
-            toolUseId: input.toolUseId,
-            toolName: input.toolName,
-            boundary: 'child_run_execution',
-            stage: 'completed',
-            status: input.abortSignal.aborted ? 'aborted' : 'error',
-            durationMs: Math.max(0, this.input.now() - childStartedAt),
-          });
-          throw error;
-        } finally {
-          permit.release();
-        }
-      },
+        : {}),
+      ...(prepareChildAgentResume
+        ? { prepareChildAgentResume: (sourceRunId) => prepareChildAgentResume(sourceRunId) }
+        : {}),
+      ...(resumeChildAgent
+        ? {
+            resumeChildAgent: async (resumeInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                resumeInput.abortSignal,
+              );
+              return await runWithPermit(
+                'resume',
+                abortSignal,
+                async () =>
+                  await resumeChildAgent({
+                    parentRunId,
+                    sourceRunId: resumeInput.sourceRunId,
+                    prompt: resumeInput.prompt,
+                    abortSignal,
+                    ...(resumeInput.onReady ? { onReady: resumeInput.onReady } : {}),
+                    ...(resumeInput.onEvent ? { onEvent: resumeInput.onEvent } : {}),
+                  }),
+              );
+            },
+          }
+        : {}),
+      ...(retryChildAgent
+        ? {
+            retryChildAgent: async (retryInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                retryInput.abortSignal,
+              );
+              return await runWithPermit(
+                'retry',
+                abortSignal,
+                async () =>
+                  await retryChildAgent({
+                    parentRunId,
+                    sourceRunId: retryInput.sourceRunId,
+                    abortSignal,
+                    ...(retryInput.onReady ? { onReady: retryInput.onReady } : {}),
+                    ...(retryInput.onEvent ? { onEvent: retryInput.onEvent } : {}),
+                  }),
+              );
+            },
+          }
+        : {}),
     };
   }
 

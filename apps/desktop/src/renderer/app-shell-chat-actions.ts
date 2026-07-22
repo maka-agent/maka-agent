@@ -1,9 +1,12 @@
 import type {
   CollaborationMode,
+  OrchestrationMode,
   PermissionResponse,
+  QuoteRef,
   SessionSummary,
   StoredMessage,
   ThinkingLevel,
+  TurnOrchestration,
   UiLocale,
   UserQuestionResponse,
 } from '@maka/core';
@@ -107,7 +110,11 @@ async function readMessagesForRefresh(
 }
 
 export interface AppShellChatActions {
-  send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean>;
+  send(
+    text: string,
+    pending?: readonly PendingAttachment[],
+    options?: { turnOrchestration?: TurnOrchestration; quotes?: readonly QuoteRef[] },
+  ): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   respondToUserQuestion(response: UserQuestionResponse): Promise<void>;
   refreshMessages(sessionId: string, options?: RefreshMessagesOptions): Promise<boolean>;
@@ -162,6 +169,7 @@ export function createAppShellChatActions(deps: {
   validPendingNewChatModel: PendingNewChatModel;
   pendingNewChatThinkingLevel: PendingNewChatThinkingLevel;
   newChatCollaborationMode: CollaborationMode;
+  newChatOrchestrationMode: OrchestrationMode;
 }): AppShellChatActions {
   const {
     uiLocale,
@@ -187,6 +195,7 @@ export function createAppShellChatActions(deps: {
     validPendingNewChatModel,
     pendingNewChatThinkingLevel,
     newChatCollaborationMode,
+    newChatOrchestrationMode,
   } = deps;
   const copy = getShellCopy(uiLocale).chatActions;
 
@@ -194,6 +203,7 @@ export function createAppShellChatActions(deps: {
     turnId: string,
     text: string,
     attachments: readonly import('@maka/core').AttachmentRef[] = [],
+    quotes: readonly QuoteRef[] = [],
   ): StoredMessage {
     return {
       type: 'user',
@@ -202,6 +212,7 @@ export function createAppShellChatActions(deps: {
       ts: Date.now(),
       text,
       ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+      ...(quotes.length > 0 ? { quotes: [...quotes] } : {}),
     };
   }
 
@@ -210,7 +221,10 @@ export function createAppShellChatActions(deps: {
     turnId: string,
     text: string,
     attachments: readonly import('@maka/core').AttachmentRef[] = [],
-    options: { replaceCurrentMessages?: boolean } = {},
+    options: {
+      replaceCurrentMessages?: boolean;
+      quotes?: readonly QuoteRef[];
+    } = {},
   ): void {
     if (activeIdRef.current !== sessionId) return;
     setMessageLoadErrorBySession((current) => {
@@ -221,7 +235,7 @@ export function createAppShellChatActions(deps: {
     });
     setMessages((current) => {
       if (current.some((message) => message.type === 'user' && message.turnId === turnId)) return current;
-      const next = optimisticUserMessage(turnId, text, attachments);
+      const next = optimisticUserMessage(turnId, text, attachments, options.quotes);
       return options.replaceCurrentMessages ? [next] : [...current, next];
     });
   }
@@ -255,7 +269,15 @@ export function createAppShellChatActions(deps: {
     });
   }
 
-  async function send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean> {
+  async function send(
+    text: string,
+    pending?: readonly PendingAttachment[],
+    options: {
+      turnOrchestration?: TurnOrchestration;
+      quotes?: readonly QuoteRef[];
+    } = {},
+  ): Promise<boolean> {
+    const quotes = options.quotes;
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
     let optimisticSessionId: string | undefined;
@@ -277,6 +299,7 @@ export function createAppShellChatActions(deps: {
             : {}),
           ...(pendingNewChatThinkingLevel ? { thinkingLevel: pendingNewChatThinkingLevel } : {}),
           collaborationMode: newChatCollaborationMode,
+          orchestrationMode: newChatOrchestrationMode,
         });
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
@@ -288,12 +311,17 @@ export function createAppShellChatActions(deps: {
           type: 'send',
           turnId,
           text,
+          ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
           ...(attachmentItems ? { attachmentItems } : {}),
+          ...(quotes && quotes.length > 0 ? { quotes: [...quotes] } : {}),
         });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
-          showOptimisticUserMessage(session.id, turnId, text, sendResult.attachments, { replaceCurrentMessages: true });
+          showOptimisticUserMessage(session.id, turnId, text, sendResult.attachments, {
+            replaceCurrentMessages: true,
+            ...(quotes && quotes.length > 0 ? { quotes } : {}),
+          });
         }
         if (activeIdRef.current === session.id) {
           await refreshMessagesUntilTurn(session.id, turnId);
@@ -311,9 +339,13 @@ export function createAppShellChatActions(deps: {
         type: 'send',
         turnId,
         text,
+        ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
         ...(attachmentItems ? { attachmentItems } : {}),
+        ...(quotes && quotes.length > 0 ? { quotes: [...quotes] } : {}),
       });
-      showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
+      showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments, {
+        ...(quotes && quotes.length > 0 ? { quotes } : {}),
+      });
       await refreshMessagesUntilTurn(sessionId, turnId);
       return true;
     } catch (error) {

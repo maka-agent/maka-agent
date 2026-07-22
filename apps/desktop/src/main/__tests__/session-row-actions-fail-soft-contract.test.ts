@@ -8,11 +8,11 @@ describe('session row actions fail soft', () => {
     const main = await readRendererShellCombinedSource();
 
     assert.match(main, /async function runSessionRowAction\([\s\S]*errorTitle: string,[\s\S]*try \{[\s\S]*await action\(\);[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, localizedShellErrorMessage\(error, copy\.actionFallback, uiLocale\)\)/);
-    assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag', flagged \? copy\.flagFailedTitle : copy\.unflagFailedTitle[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function archiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive', copy\.archiveFailedTitle[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function unarchiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive', copy\.unarchiveFailedTitle[\s\S]*window\.maka\.sessions\.unarchive\(sessionId\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function renameSession\(sessionId: string, name: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'rename', copy\.renameFailedTitle[\s\S]*window\.maka\.sessions\.rename\(sessionId, name\)[\s\S]*refreshSessions\(\)/);
-    assert.match(main, /async function deleteSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'delete', copy\.deleteFailedTitle[\s\S]*toastApi\.confirm\([\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.success\(copy\.deletedTitle\(name\)\)/);
+    assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag', flagged \? copy\.flagFailedTitle : copy\.unflagFailedTitle[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged, \{ revisionFamily: true \}\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function archiveSession\(sessionId: string\) \{[\s\S]*revisionFamilySessionIds\(sessionsRef\.current, sessionId\)[\s\S]*window\.maka\.sessions\.archive\(sessionId, \{ revisionFamily: true \}\)[\s\S]*familyIds\.includes\(activeIdRef\.current\)[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*for \(const id of familyIds\) clearSessionRendererState\(id\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function unarchiveSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.unarchive\(sessionId, \{ revisionFamily: true \}\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function renameSession\(sessionId: string, name: string\) \{[\s\S]*window\.maka\.sessions\.rename\(sessionId, name, \{ revisionFamily: true \}\)[\s\S]*refreshSessions\(\)/);
+    assert.match(main, /async function deleteSession\(sessionId: string\) \{[\s\S]*toastApi\.confirm\([\s\S]*revisionFamilySessionIds\(sessionsRef\.current, sessionId\)[\s\S]*window\.maka\.sessions\.remove\(sessionId, \{ revisionFamily: true \}\)[\s\S]*familyIds\.includes\(activeIdRef\.current\)[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*for \(const id of familyIds\) clearSessionRendererState\(id\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.success\(copy\.deletedTitle\(name\)\)/);
     assert.doesNotMatch(
       main,
       /toastApi\.error\((?:flagged \? '标记会话失败' : '取消标记失败'|'归档会话失败'|'恢复会话失败'|'重命名会话失败'|'删除会话失败'), cleanErrorMessage\(error\)\)/,
@@ -67,12 +67,12 @@ describe('session row actions fail soft', () => {
     );
     assert.match(
       main,
-      /async function archiveSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*clearSessionRendererState\(sessionId\);/,
+      /async function archiveSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.archive\(sessionId, \{ revisionFamily: true \}\)[\s\S]*familyIds\.includes\(activeIdRef\.current\)[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*for \(const id of familyIds\) clearSessionRendererState\(id\);/,
       'archiving the active session must clear streaming, permission, pending, and health state',
     );
     assert.match(
       main,
-      /async function deleteSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*clearSessionRendererState\(sessionId\);/,
+      /async function deleteSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.remove\(sessionId, \{ revisionFamily: true \}\)[\s\S]*familyIds\.includes\(activeIdRef\.current\)[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*for \(const id of familyIds\) clearSessionRendererState\(id\);/,
       'deleting a session must clear renderer state even after the row unmounts',
     );
   });

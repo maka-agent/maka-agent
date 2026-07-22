@@ -43,7 +43,7 @@ import {
   type RuntimeEventRole,
 } from '@maka/core/runtime-event';
 import { normalizeShellToolResultContent } from '@maka/core';
-import type { AttachmentRef } from '@maka/core/events';
+import type { AttachmentRef, QuoteRef } from '@maka/core/events';
 import type { ModelMessage } from 'ai';
 
 // ============================================================================
@@ -442,8 +442,8 @@ export function buildRuntimeEventModelReplayPlan(
           // A steered user event replays in its canonical provider form (the
           // envelope); the raw text is a UI/transcript projection only.
           content: steeringReplay
-            ? buildSteeringEnvelope(formatTextWithAttachmentRefs(event.content))
-            : formatTextWithAttachmentRefs(event.content),
+            ? buildSteeringEnvelope(formatTextWithInlineRefs(event.content))
+            : formatTextWithInlineRefs(event.content),
           ...(steeringReplay ? { steering: { eventId: event.id } } : {}),
           ...(event.content.attachments ? { attachments: event.content.attachments } : {}),
           // Model text carries its step id (the message id) so the materializer
@@ -695,8 +695,8 @@ export function buildTextModelMessagesFromRuntimeEvents(
     out.push({
       role,
       content: steering
-        ? buildSteeringEnvelope(formatTextWithAttachmentRefs(entry.content))
-        : formatTextWithAttachmentRefs(entry.content),
+        ? buildSteeringEnvelope(formatTextWithInlineRefs(entry.content))
+        : formatTextWithInlineRefs(entry.content),
       // Keep the structured identity even in the text-only shape: dedupe
       // against the live injection set works by ledger event id.
       ...(steering ? { providerOptions: steeringProviderOptions(entry.eventId) } : {}),
@@ -828,16 +828,37 @@ export function stripSteeringMessages(
   });
 }
 
-export function formatTextWithAttachmentRefs(
+/**
+ * Fold a user turn's inline references into its model-facing text. Attachments
+ * render as a name/type marker (their bytes, when the model can see them, are
+ * appended separately as image parts); quotes carry their excerpt inline, since
+ * a quote has no backing storage — the text IS the reference. Presentation
+ * layers render both as chips and never show this folded form.
+ */
+export function formatTextWithInlineRefs(
   textOrContent: string | RuntimeEventTextContent,
-  attachments?: AttachmentRef[],
+  refs?: { attachments?: AttachmentRef[]; quotes?: QuoteRef[] },
 ): string {
-  const text = typeof textOrContent === 'string' ? textOrContent : textOrContent.text;
-  const refs = typeof textOrContent === 'string' ? attachments : textOrContent.attachments;
-  if (!refs || refs.length === 0) return text;
-  return `${text}\n\n${formatAttachmentRefs(refs)}`;
+  const fromContent = typeof textOrContent !== 'string';
+  const text = fromContent ? textOrContent.text : textOrContent;
+  const attachments = fromContent ? textOrContent.attachments : refs?.attachments;
+  const quotes = fromContent ? textOrContent.quotes : refs?.quotes;
+  const blocks: string[] = [];
+  if (quotes && quotes.length > 0) blocks.push(formatQuoteRefs(quotes));
+  if (attachments && attachments.length > 0) blocks.push(formatAttachmentRefs(attachments));
+  if (blocks.length === 0) return text;
+  return [text, ...blocks].join('\n\n');
 }
 
 function formatAttachmentRefs(attachments: readonly AttachmentRef[]): string {
   return attachments.map((a) => `[attachment: ${a.name} (${a.mimeType})]`).join(' ');
+}
+
+function formatQuoteRefs(quotes: readonly QuoteRef[]): string {
+  return quotes
+    .map((q) => {
+      const label = q.label === undefined ? '' : ` label="${q.label.replace(/"/g, "'")}"`;
+      return `<quoted_excerpt${label}>\n${q.text}\n</quoted_excerpt>`;
+    })
+    .join('\n');
 }

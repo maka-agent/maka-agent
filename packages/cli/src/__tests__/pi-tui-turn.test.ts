@@ -15,7 +15,10 @@ describe('Maka Pi TUI turn', () => {
         async preparePrompt(prompt, options) {
           sequence.push('prepare');
           assert.equal(prompt, 'visible prompt');
-          assert.deepEqual(options, { modelText: 'expanded prompt' });
+          assert.deepEqual(options, {
+            modelText: 'expanded prompt',
+            turnOrchestration: { mode: 'swarm', source: 'slash_command' },
+          });
           return preparedTurn([
             event({
               type: 'text_delta',
@@ -49,6 +52,7 @@ describe('Maka Pi TUI turn', () => {
         prompt: 'visible prompt',
         sendText: 'expanded prompt',
         sessionId: null,
+        turnOrchestration: { mode: 'swarm', source: 'slash_command' },
       },
       shouldAbort: () => false,
       onStart: () => {

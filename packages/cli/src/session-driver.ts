@@ -10,8 +10,10 @@ import type { UserQuestionResponse } from '@maka/core/user-question';
 import type {
   BranchFromTurnInput,
   CreateSessionInput,
+  TurnOrchestration,
   UserMessageInput,
 } from '@maka/core/runtime-inputs';
+import type { OrchestrationMode } from '@maka/core/orchestration';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
 import { userFacingText } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
@@ -47,6 +49,7 @@ export interface MakaSessionRuntime {
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
+  setOrchestrationMode(sessionId: string, mode: OrchestrationMode): Promise<SessionSummary>;
   updateSession(
     sessionId: string,
     patch: {
@@ -87,6 +90,7 @@ export interface MakaSessionDriverInput {
   llmConnectionSlug: string;
   model: string;
   permissionMode?: PermissionMode;
+  orchestrationMode?: OrchestrationMode;
   newId?: () => string;
   inspectCwdChanges?: InspectCwdChanges;
 }
@@ -107,6 +111,8 @@ export interface MakaPreparePromptOptions {
   turnId?: string;
   /** Model-facing text when it differs from the prompt shown to the user. */
   modelText?: string;
+  /** Trusted per-turn orchestration override; never encoded into prompt text. */
+  turnOrchestration?: TurnOrchestration;
 }
 
 export interface MakaSessionDriver {
@@ -145,6 +151,8 @@ export interface MakaSessionDriver {
   setModel(model: string, connectionSlug?: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
+  /** Available on Runtime-backed drivers; optional for lightweight host adapters. */
+  setOrchestrationMode?(mode: OrchestrationMode): Promise<void>;
   renameSession(name: string): Promise<string | void>;
   moveSession?(cwd: string): Promise<MakaSessionMoveResult>;
   switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
@@ -160,6 +168,7 @@ export interface MakaSessionDriver {
   startNewSession(): void;
   stop(): Promise<void>;
   getSessionId(): string | null;
+  getOrchestrationMode?(): OrchestrationMode;
 }
 
 export type SessionResumeAvailability = { available: true } | { available: false; reason: string };
@@ -196,6 +205,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private llmConnectionSlug: string;
   private thinkingLevel: ThinkingLevel | undefined;
   private permissionMode: PermissionMode;
+  private orchestrationMode: OrchestrationMode;
   private pendingCwdReminder: { from: string; to: string } | undefined;
   private readonly newId: () => string;
 
@@ -205,6 +215,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.model = input.model;
     this.llmConnectionSlug = input.llmConnectionSlug;
     this.permissionMode = input.permissionMode ?? 'ask';
+    this.orchestrationMode = input.orchestrationMode ?? 'default';
   }
 
   async preparePrompt(
@@ -222,6 +233,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       turnId,
       text: modelText,
       ...(modelText !== prompt ? { displayText: prompt } : {}),
+      ...(options.turnOrchestration ? { turnOrchestration: options.turnOrchestration } : {}),
     });
     return {
       sessionId,
@@ -376,6 +388,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.permissionMode = mode;
   }
 
+  async setOrchestrationMode(mode: OrchestrationMode): Promise<void> {
+    if (this.sessionId) {
+      const summary = await this.input.runtime.setOrchestrationMode(this.sessionId, mode);
+      this.orchestrationMode = summary.orchestrationMode ?? mode;
+      return;
+    }
+    this.orchestrationMode = mode;
+  }
+
   async renameSession(name: string): Promise<string> {
     if (!this.sessionId) throw new Error('Cannot rename before a session starts.');
     return (await this.input.runtime.updateSession(this.sessionId, { name })).name;
@@ -419,6 +440,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.llmConnectionSlug = summary.llmConnectionSlug;
     this.thinkingLevel = summary.thinkingLevel;
     this.permissionMode = summary.permissionMode;
+    this.orchestrationMode = summary.orchestrationMode ?? 'default';
     return { summary, messages };
   }
 
@@ -478,6 +500,10 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     return this.sessionId;
   }
 
+  getOrchestrationMode(): OrchestrationMode {
+    return this.orchestrationMode;
+  }
+
   private async ensureSession(): Promise<string> {
     if (this.sessionId) return this.sessionId;
     const session = await this.input.runtime.createSession({
@@ -487,6 +513,9 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       llmConnectionSlug: this.llmConnectionSlug,
       model: this.model,
       permissionMode: this.permissionMode,
+      ...(this.orchestrationMode !== 'default'
+        ? { orchestrationMode: this.orchestrationMode }
+        : {}),
       ...(this.thinkingLevel !== undefined ? { thinkingLevel: this.thinkingLevel } : {}),
     });
     this.sessionId = session.id;

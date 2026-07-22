@@ -251,7 +251,7 @@ export interface MakaSlashCommandMetadata {
 }
 
 export interface MakaSlashCommand extends MakaSlashCommandMetadata {
-  run(parts: string[], rawTail?: string): void;
+  run(parts: string[], rawTail: string | undefined, context: { idleMs: number }): void;
   /** Alternate names that dispatch to this command without appearing in
    *  completion or the /help menu (e.g. /quit as an alias of /exit). */
   aliases?: readonly string[];

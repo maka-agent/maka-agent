@@ -113,6 +113,67 @@ export function connectionEnabledModelIds(connection: {
   return [...seen];
 }
 
+/**
+ * After a successful live model discovery, keep the connection usable.
+ *
+ * Fetching models used to leave a stale `defaultModel` (e.g. retired
+ * `moonshot-v1-*` fallbacks) that is absent from the live inventory. The
+ * readiness gate then fails with `model_not_enabled` — the "pull models and
+ * the connection breaks" regression. Prefer an already-enabled id that is
+ * still live; otherwise take the first discovered id.
+ */
+export function reconcileConnectionAfterModelFetch(
+  connection: {
+    defaultModel?: unknown;
+    enabledModelIds?: unknown;
+  },
+  models: readonly { id?: unknown }[],
+): {
+  defaultModel: string;
+  enabledModelIds: string[];
+} {
+  const liveIds: string[] = [];
+  const live = new Set<string>();
+  for (const model of models) {
+    if (typeof model?.id !== 'string') continue;
+    const id = model.id.trim();
+    if (!id || live.has(id)) continue;
+    live.add(id);
+    liveIds.push(id);
+  }
+
+  const previousDefault =
+    typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '';
+  const previousEnabled = connectionEnabledModelIds(connection);
+
+  if (liveIds.length === 0) {
+    const defaultModel = previousDefault;
+    return {
+      defaultModel,
+      enabledModelIds: connectionEnabledModelIds({
+        defaultModel,
+        enabledModelIds: previousEnabled,
+      }),
+    };
+  }
+
+  const defaultModel =
+    (previousDefault && live.has(previousDefault) ? previousDefault : undefined) ??
+    previousEnabled.find((id) => live.has(id)) ??
+    liveIds[0]!;
+
+  // Keep previously enabled ids that still exist live, plus the (possibly
+  // repaired) default. Do not auto-enable the entire discovered catalog.
+  const keptEnabled = previousEnabled.filter((id) => live.has(id) || id === defaultModel);
+  return {
+    defaultModel,
+    enabledModelIds: connectionEnabledModelIds({
+      defaultModel,
+      enabledModelIds: keptEnabled,
+    }),
+  };
+}
+
 export type ConnectionTestErrorClass =
   | 'auth'
   | 'timeout'

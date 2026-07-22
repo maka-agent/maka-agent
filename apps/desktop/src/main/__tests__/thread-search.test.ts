@@ -340,6 +340,51 @@ describe('G2 — fake-backend sessions excluded', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Logical revision projection
+// ---------------------------------------------------------------------------
+
+describe('logical revision projection', () => {
+  it('searches only the current committed version of one conversation', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'shared-match', limit: 10 },
+      makeDeps({
+        root: {
+          session: session({ id: 'root', lastMessageAt: 10 }),
+          messages: [userMessage('shared-match old version')],
+        },
+        revision: {
+          session: session({
+            id: 'revision',
+            revisionRootSessionId: 'root',
+            revisionParentSessionId: 'root',
+            revisionIndex: 2,
+            revisionState: 'committed',
+            lastMessageAt: 20,
+          }),
+          messages: [userMessage('shared-match current version')],
+        },
+        preparing: {
+          session: session({
+            id: 'preparing',
+            revisionRootSessionId: 'root',
+            revisionParentSessionId: 'revision',
+            revisionIndex: 3,
+            revisionState: 'preparing',
+            lastMessageAt: 30,
+          }),
+          messages: [userMessage('shared-match uncommitted version')],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.deepEqual(
+      result.map((entry) => entry.target?.kind === 'thread' ? entry.target.sessionId : undefined),
+      ['revision'],
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Session title hits
 // ---------------------------------------------------------------------------
 

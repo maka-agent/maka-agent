@@ -121,6 +121,7 @@ export interface InitialUserRuntimeEventInput {
   /** Human-facing view when it differs from `text`; see RuntimeEventTextContent. */
   displayText?: string;
   attachments?: InvocationRequest['attachments'];
+  quotes?: InvocationRequest['quotes'];
   toolBoundaryProtocol?: ToolBoundaryProtocol;
 }
 
@@ -150,6 +151,7 @@ export class RuntimeRunner {
     options: {
       source: InvocationRequest['source'];
       context?: InvocationRequest['context'];
+      orchestration?: InvocationRequest['orchestration'];
       abortSignal?: AbortSignal;
     },
   ): Promise<InvocationResult> {
@@ -164,6 +166,7 @@ export class RuntimeRunner {
       runtimeContext: continuation.runtimeContext,
       continuation: invocationContinuationMetadata(continuation),
       source: options.source,
+      ...(options.orchestration ? { orchestration: options.orchestration } : {}),
       ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     });
   }
@@ -186,7 +189,11 @@ export class RuntimeRunner {
       if (!request.runtimeContext) {
         throw new Error('Runtime continuation requires replay context');
       }
-      if (request.text.length > 0 || request.attachments !== undefined) {
+      if (
+        request.text.length > 0 ||
+        request.attachments !== undefined ||
+        request.quotes !== undefined
+      ) {
         throw new Error('Runtime continuation cannot carry a new user message or attachments');
       }
       assertRuntimeContinuationEnvelope({
@@ -279,6 +286,7 @@ export class RuntimeRunner {
           ...(ctx.branch ? { branch: ctx.branch } : {}),
           text: request.text,
           ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+          ...(request.quotes !== undefined ? { quotes: request.quotes } : {}),
           ...(this.toolBoundaryProtocol ? { toolBoundaryProtocol: this.toolBoundaryProtocol } : {}),
         });
       events.push(userEvent);
@@ -484,6 +492,7 @@ export function buildInitialUserRuntimeEvent(input: InitialUserRuntimeEventInput
       ...(input.attachments !== undefined && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),
+      ...(input.quotes !== undefined && input.quotes.length > 0 ? { quotes: input.quotes } : {}),
     },
     ...(input.toolBoundaryProtocol
       ? { actions: { runtimeProtocol: { toolBoundary: input.toolBoundaryProtocol } } }
@@ -517,11 +526,13 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
     : undefined;
   return {
     ...(request.lineage?.parentRunId ? { parentRunId: request.lineage.parentRunId } : {}),
+    ...(request.orchestration !== undefined ? { orchestration: request.orchestration } : {}),
     text: request.text,
     context: request.context ?? [],
     ...(request.runtimeContext !== undefined ? { runtimeContext: request.runtimeContext } : {}),
     ...(continuation !== undefined ? { continuation } : {}),
     ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+    ...(request.quotes !== undefined ? { quotes: request.quotes } : {}),
     ...(request.pullSteering !== undefined ? { pullSteering: request.pullSteering } : {}),
     ...(request.ackSteering !== undefined ? { ackSteering: request.ackSteering } : {}),
     ...(request.nackSteering !== undefined ? { nackSteering: request.nackSteering } : {}),

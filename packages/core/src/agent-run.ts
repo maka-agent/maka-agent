@@ -1,5 +1,13 @@
 import { isPermissionMode, type PermissionMode } from './permission.js';
 import { isCollaborationMode, type CollaborationMode } from './collaboration.js';
+import {
+  isAgentSwarmAuthorizationSource,
+  isEffectiveOrchestrationSource,
+  isOrchestrationMode,
+  type AgentSwarmAuthorizationSource,
+  type EffectiveOrchestrationSource,
+  type OrchestrationMode,
+} from './orchestration.js';
 import type { BackendKind } from './session.js';
 import {
   defineObjectShape,
@@ -48,10 +56,20 @@ export interface AgentRunHeader {
   permissionMode: PermissionMode;
   /** Snapshot of the session collaboration mode. Optional on legacy runs. */
   collaborationMode?: CollaborationMode;
+  /** Effective orchestration mode for this run. Optional on legacy runs. */
+  orchestrationMode?: OrchestrationMode;
+  /** Whether the effective mode came from the session or this turn. */
+  orchestrationSource?: EffectiveOrchestrationSource;
+  /** Narrow authority for the parent agent_swarm envelope. */
+  agentSwarmAuthorization?: AgentSwarmAuthorizationSource;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
   parentRunId?: string;
+  /** Immediate child AgentRun continued by this run. */
+  resumedFromRunId?: string;
+  /** Immediate child AgentRun whose provider step is retried by this run. */
+  retriedFromRunId?: string;
   agentId?: string;
   agentName?: string;
   parentTurnId?: string;
@@ -156,6 +174,8 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'invocationId',
     'completedAt',
     'parentRunId',
+    'resumedFromRunId',
+    'retriedFromRunId',
     'agentId',
     'agentName',
     'parentTurnId',
@@ -171,6 +191,9 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'abortSource',
     'traceWriteError',
     'collaborationMode',
+    'orchestrationMode',
+    'orchestrationSource',
+    'agentSwarmAuthorization',
   ],
 );
 
@@ -194,12 +217,19 @@ export function decodeAgentRunHeader(value: unknown): AgentRunHeader {
     typeof value.cwd === 'string' &&
     isPermissionMode(value.permissionMode) &&
     (value.collaborationMode === undefined || isCollaborationMode(value.collaborationMode)) &&
+    (value.orchestrationMode === undefined || isOrchestrationMode(value.orchestrationMode)) &&
+    (value.orchestrationSource === undefined ||
+      isEffectiveOrchestrationSource(value.orchestrationSource)) &&
+    (value.agentSwarmAuthorization === undefined ||
+      isAgentSwarmAuthorizationSource(value.agentSwarmAuthorization)) &&
     isFiniteNumber(value.createdAt) &&
     isFiniteNumber(value.updatedAt) &&
     isOptionalString(value.invocationId) &&
     (value.completedAt === undefined || isFiniteNumber(value.completedAt)) &&
     [
       value.parentRunId,
+      value.resumedFromRunId,
+      value.retriedFromRunId,
       value.agentId,
       value.agentName,
       value.parentTurnId,

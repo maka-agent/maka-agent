@@ -5,7 +5,7 @@ import {
   STEP_LIMIT_NOTICE_TEXT,
   toolResultActivityStatus,
 } from '@maka/core';
-import type { AttachmentRef, ShellRunUpdate, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
+import type { AttachmentRef, QuoteRef, ShellRunUpdate, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 
 export { isCancelledToolResultContent, toolResultActivityStatus } from '@maka/core';
@@ -18,6 +18,8 @@ export interface ChatItem {
   ts?: number;
   /** User-message attachments projected from StoredMessage; absent on assistant/system rows. */
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts projected from StoredMessage; user rows only. */
+  quotes?: QuoteRef[];
   /** Present when the turn was fired by an automation, not hand-typed. */
   automationOrigin?: { automationId: string };
 }
@@ -111,6 +113,7 @@ export function materializeChat(messages: StoredMessage[]): ChatItem[] {
         text: message.displayText ?? message.text,
         ts: message.ts,
         ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+        ...(message.quotes && message.quotes.length > 0 ? { quotes: message.quotes } : {}),
       });
     }
     if (message.type === 'assistant') items.push({ id: message.id, role: 'assistant', text: message.text, ts: message.ts });
@@ -473,6 +476,7 @@ export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
         text: message.displayText ?? message.text,
         ts: message.ts,
         ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+        ...(message.quotes && message.quotes.length > 0 ? { quotes: message.quotes } : {}),
         ...(message.origin?.kind === 'automation' ? { automationOrigin: { automationId: message.origin.automationId } } : {}),
       };
     } else if (message.type === 'assistant') {

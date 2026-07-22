@@ -131,6 +131,7 @@ const AGENT_SWARM_ITEM_SHAPE = defineObjectShape<AgentSwarmItem>()(
     'agentName',
     'turnId',
     'runId',
+    'resumedFromRunId',
     'startedAt',
     'completedAt',
     'durationMs',
@@ -321,6 +322,7 @@ function isAgentSwarmItem(value: unknown): value is AgentSwarmItem {
     isOptionalString(value.agentName) &&
     isOptionalString(value.turnId) &&
     isOptionalString(value.runId) &&
+    isOptionalString(value.resumedFromRunId) &&
     ['completed', 'failed', 'cancelled'].includes(value.status as string) &&
     typeof value.summary === 'string' &&
     isStringArray(value.artifactIds) &&

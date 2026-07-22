@@ -1,7 +1,7 @@
 /**
  * Contract for the app-shell action-factory stabilization (issue #1043).
  *
- * The 9 `createAppShell*Actions` factories run in the AppShell render body, so
+ * The 10 `createAppShell*Actions` factories run in the AppShell render body, so
  * every render allocates fresh handler identities. That churn is observable:
  * the streaming-settle fallback effect lists `settleAssistantStreaming` in its
  * deps and therefore tears down/re-arms its 1s timer on every render while the
@@ -68,8 +68,8 @@ describe('AppShell action-factory stabilization', () => {
       shell.match(/useStableActions\(createAppShell\w+, \{/g) ?? [];
     assert.equal(
       wrapped.length,
-      9,
-      `expected 9 useStableActions-wrapped factories, found ${wrapped.length}`,
+      10,
+      `expected 10 useStableActions-wrapped factories, found ${wrapped.length}`,
     );
   });
 

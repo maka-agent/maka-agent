@@ -486,6 +486,14 @@ const vercelModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.vercel,
   ['anthropic/claude-opus-4.8'],
 ).filter((id) => GENERATED_MODELS_DEV_METADATA.vercel[id]?.lifecycle !== 'deprecated');
+const moonshot = GENERATED_MODELS_DEV_PROVIDER_FACTS.moonshot;
+if (moonshot.id !== 'moonshotai-cn' || moonshot.api !== 'https://api.moonshot.cn/v1') {
+  throw new Error('models.dev Moonshot provider facts are missing the China platform id or API');
+}
+const moonshotModelIds = toolCallingModelIds('Moonshot', GENERATED_MODELS_DEV_METADATA.moonshot, [
+  'kimi-k2.6',
+  'kimi-k2.7-code',
+]).filter((id) => GENERATED_MODELS_DEV_METADATA.moonshot[id]?.lifecycle !== 'deprecated');
 const cloudflareWorkersAi = GENERATED_MODELS_DEV_PROVIDER_FACTS['cloudflare-workers-ai'];
 if (cloudflareWorkersAi.id !== 'cloudflare-workers-ai') {
   throw new Error(
@@ -737,10 +745,10 @@ const providerRegistry = {
   moonshot: {
     label: 'Moonshot',
     description: 'Moonshot Kimi API key access.',
-    baseUrl: 'https://api.moonshot.cn/v1',
+    baseUrl: moonshot.api,
     authKind: 'api_key',
     backendKind: 'ai-sdk',
-    fallbackModels: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    fallbackModels: moonshotModelIds,
     status: 'ready',
     protocol: 'openai',
     runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
@@ -749,6 +757,7 @@ const providerRegistry = {
     catalogGroup: 'api',
     catalogBadge: 'API',
     signupUrl: 'https://platform.kimi.com/console/api-keys',
+    modelsDevId: moonshot.id,
     readyOrder: 5,
     catalogOrder: 4,
   },

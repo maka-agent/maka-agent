@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { wireAppLifecycle } from './app-lifecycle.js';
 import {
+  collapseSessionRevisions,
   DEFAULT_SESSION_NAME,
   filterModelVisibleTaskLedgerTasks,
   DEEP_RESEARCH_SESSION_LABEL,
@@ -180,6 +181,7 @@ try {
     process.env.MAKA_E2E_FIXTURE_THEME,
     process.env.MAKA_E2E_FIXTURE_LOCALE,
     process.env.MAKA_E2E_FIXTURE_TIMEZONE,
+    process.env.MAKA_E2E_FIXTURE_PLATFORM,
   );
 } catch (error) {
   if (process.env.MAKA_E2E_FIXTURE) {
@@ -233,6 +235,7 @@ const credentialStore = createFileCredentialStore(workspaceRoot);
 // and lives in a separate module not statically imported here.
 const claudeSubscription = new ClaudeSubscriptionService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 // PR-MODEL-OAUTH-ALL-0: Codex / Cursor / Antigravity subscription
@@ -242,6 +245,7 @@ const claudeSubscription = new ClaudeSubscriptionService({
 // until the Google client_id question is resolved.
 const openAiCodex = new OpenAiCodexService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 const githubCopilotSubscription = new GitHubCopilotSubscriptionService({ credentialStore });
@@ -296,10 +300,12 @@ function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {
 }
 const cursorSubscription = new CursorSubscriptionService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 const antigravitySubscription = new AntigravitySubscriptionService({
   userDataDir: app.getPath('userData'),
+  openExternal: (url) => shell.openExternal(url),
   credentialStore,
 });
 
@@ -521,7 +527,7 @@ const deepResearchTools = buildDeepResearchTools({
 });
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
-  listSessions: () => runtime.listSessions(),
+  listSessions: async () => collapseSessionRevisions(await runtime.listSessions()),
   readMessages: (sessionId) => runtime.getMessages(sessionId),
   sendMessage: async (sessionId, input) => {
     await ensureSessionCanSend(sessionId);
@@ -799,7 +805,7 @@ const dailyReview = createDailyReviewMainService({
   archiveStore: dailyReviewArchiveStore,
   connectionStore,
   telemetryRepo,
-  listSessions: () => runtime.listSessions(),
+  listSessions: async () => collapseSessionRevisions(await runtime.listSessions()),
   resolveConnectionSecret,
   buildSubscriptionModelFetch,
 });

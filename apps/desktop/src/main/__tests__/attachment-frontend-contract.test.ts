@@ -77,8 +77,16 @@ describe('attachment frontend contract', () => {
     // pending attachments are carried as items in sessions.send, ingested main-side at send time.
     assert.match(chatActions, /toIngestItems\(pending\)/);
     assert.match(chatActions, /sessions\.send[\s\S]*attachmentItems/);
-    assert.match(appShell, /onPickAttachments=\{pickAttachments\}/);
-    assert.match(appShell, /onAttachFilePaths=\{attachFilePaths\}/);
+    assert.match(
+      appShell,
+      /onPickAttachments=\{[\s\S]*revisionDraft && activeId === revisionDraft\.draftSessionId[\s\S]*\? undefined[\s\S]*: pickAttachments/,
+      'ordinary composers keep the picker, while a revision owner cannot silently add unsupported attachments',
+    );
+    assert.match(
+      appShell,
+      /onAttachFilePaths=\{[\s\S]*revisionDraft && activeId === revisionDraft\.draftSessionId[\s\S]*\? undefined[\s\S]*: attachFilePaths/,
+      'ordinary composers keep drop/paste import, while a revision owner stays text-only',
+    );
   });
 
   it('passes selected model vision capability to the runtime attachment renderer', async () => {

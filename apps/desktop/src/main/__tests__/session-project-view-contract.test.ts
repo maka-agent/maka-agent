@@ -89,7 +89,8 @@ describe('sidebar project view mode', () => {
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
-    assert.match(appShell, /const visibleSessions = useMemo\(\(\) => filterSessions\(sessions, navSelection\), \[sessions, navSelection\]\)/);
+    assert.match(appShell, /const sidebarSessions = useMemo\([\s\S]*collapseSessionRevisions\(sessions, activeId\)[\s\S]*\[sessions, activeId\]/);
+    assert.match(appShell, /const visibleSessions = useMemo\([\s\S]*filterSessions\(sidebarSessions, navSelection\)[\s\S]*\[sidebarSessions, navSelection\]/);
     assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
     assert.match(appShell, /deriveProjectGroups\(visibleSessions, uiLocale\)/);
     assert.match(appShell, /const sessionListGroups = viewMode === 'project' \? sessionProjectGroups : sessionStatusGroups/);

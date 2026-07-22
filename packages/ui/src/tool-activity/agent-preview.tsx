@@ -56,6 +56,9 @@ export function AgentSwarmPreview(props: {
               item.artifactIds.length > 0 ? copy.swarm.artifactCount(item.artifactIds.length) : '',
             ].filter(Boolean).join(' · ');
             const refs = [
+              item.resumedFromRunId
+                ? `resumed from ${redactSecrets(item.resumedFromRunId)}`
+                : '',
               item.runId ? `run ${redactSecrets(item.runId)}` : '',
               item.turnId ? `turn ${redactSecrets(item.turnId)}` : '',
             ].filter(Boolean).join(' · ');

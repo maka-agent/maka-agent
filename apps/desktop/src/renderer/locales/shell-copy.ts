@@ -409,6 +409,15 @@ type ShellCopy = {
     planModeExitCancel: string;
     planModeExecutionActiveTitle: string;
     planModeExecutionActiveDescription: string;
+    swarmModeChanging: string;
+    swarmModeStreaming: string;
+    swarmModeRunning: string;
+    swarmModeWaiting: string;
+    swarmModeFailedTitle: string;
+    swarmModeFallback: string;
+    swarmModeEnabledTitle: string;
+    swarmModeDisabledTitle: string;
+    swarmModeStatusDescription: string;
     resizeWorkbar: string;
   };
 };
@@ -1058,6 +1067,15 @@ const SHELL_COPY_BY_LOCALE = {
       planModeExitCancel: '继续规划',
       planModeExecutionActiveTitle: '计划仍在执行',
       planModeExecutionActiveDescription: '请先中断当前执行，再进入 Plan Mode 调整方案。',
+      swarmModeChanging: 'Swarm Mode 正在切换，完成后再继续操作。',
+      swarmModeStreaming: '当前对话正在流式输出，等结束后再切换 Swarm Mode。',
+      swarmModeRunning: '当前对话正在运行，等结束后再切换 Swarm Mode。',
+      swarmModeWaiting: '当前有工具调用正在等待确认，处理后再切换 Swarm Mode。',
+      swarmModeFailedTitle: '切换 Swarm Mode 失败',
+      swarmModeFallback: 'Swarm Mode 暂时无法切换，请稍后重试。',
+      swarmModeEnabledTitle: 'Swarm Mode 已开启',
+      swarmModeDisabledTitle: 'Swarm Mode 未开启',
+      swarmModeStatusDescription: '使用 /swarm on、/swarm off，或 /swarm <任务> 单次运行。',
       resizeWorkbar: '调整会话工作栏宽度',
     },
   },
@@ -1535,6 +1553,15 @@ const SHELL_COPY_BY_LOCALE = {
       planModeExitCancel: 'Keep planning',
       planModeExecutionActiveTitle: 'The plan is still running',
       planModeExecutionActiveDescription: 'Interrupt the active execution before entering Plan Mode to revise it.',
+      swarmModeChanging: 'Swarm Mode is changing. Wait for it to finish before continuing.',
+      swarmModeStreaming: 'This conversation is streaming. Wait for it to finish before changing Swarm Mode.',
+      swarmModeRunning: 'This conversation is running. Wait for it to finish before changing Swarm Mode.',
+      swarmModeWaiting: 'A tool call is waiting for confirmation. Respond before changing Swarm Mode.',
+      swarmModeFailedTitle: 'Could not change Swarm Mode',
+      swarmModeFallback: 'Swarm Mode could not be changed. Try again later.',
+      swarmModeEnabledTitle: 'Swarm Mode is on',
+      swarmModeDisabledTitle: 'Swarm Mode is off',
+      swarmModeStatusDescription: 'Use /swarm on, /swarm off, or /swarm <task> for one turn.',
       resizeWorkbar: 'Resize conversation workbar',
     },
   },

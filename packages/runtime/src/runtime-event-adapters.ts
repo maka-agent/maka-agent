@@ -108,6 +108,9 @@ export function storedMessageToRuntimeEvent(
           ...(message.attachments !== undefined && message.attachments.length > 0
             ? { attachments: message.attachments }
             : {}),
+          ...(message.quotes !== undefined && message.quotes.length > 0
+            ? { quotes: message.quotes }
+            : {}),
         },
         refs: { storedMessageId: message.id },
       };
@@ -250,6 +253,9 @@ export function runtimeEventToStoredMessageDraft(
       ...(content.displayText !== undefined ? { displayText: content.displayText } : {}),
       ...(content.attachments !== undefined && content.attachments.length > 0
         ? { attachments: content.attachments }
+        : {}),
+      ...(content.quotes !== undefined && content.quotes.length > 0
+        ? { quotes: content.quotes }
         : {}),
     };
     return draft;

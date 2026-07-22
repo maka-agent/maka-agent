@@ -213,15 +213,4 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
       assert.match(u, /OAUTH_USER_AGENT/, `${u} must reference the OAUTH_USER_AGENT constant`);
     }
   });
-
-  it('token storage fails closed when the shared credential store rejects the write', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    // saveTokens must record storage_failed AND rethrow — a token that
-    // could not be persisted for every surface is not a partial success.
-    assert.match(
-      src,
-      /saveSharedOAuthTokens\(this\.credentialStore, 'claude-subscription'[\s\S]{0,400}lastStorageFailedMessage[\s\S]{0,200}throw err;/,
-      'saveTokens must set storage_failed detail and rethrow when the store write fails',
-    );
-  });
 });

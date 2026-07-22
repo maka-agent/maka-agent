@@ -52,7 +52,10 @@ export function registerAppIpc(deps: AppIpcDeps): void {
       electronVersion: process.versions.electron ?? '',
       nodeVersion: process.versions.node ?? '',
       chromeVersion: process.versions.chrome ?? '',
-      platform: process.platform,
+      // #1312: fixture windows may force a platform so the renderer boots
+      // natively into that platform's `data-os` CSS cascade (e.g. the darwin
+      // glass overrides) on any host — see E2eFixture.platform.
+      platform: e2eFixture?.platform ?? process.platform,
       arch: osArch(),
       osRelease: osRelease(),
       workspacePath: workspaceRoot,

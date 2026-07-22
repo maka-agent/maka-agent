@@ -1,4 +1,5 @@
 import type { SessionEvent } from '@maka/core';
+import type { TurnOrchestration } from '@maka/core/runtime-inputs';
 import {
   drainGoalTurn,
   type GoalExternalTurnStart,
@@ -22,6 +23,8 @@ export type MakaPiTuiTurnRequest =
       sendText?: string;
       /** Session observed before preparation; null is valid for the first turn. */
       sessionId: string | null;
+      /** Trusted one-turn orchestration override supplied by a host command. */
+      turnOrchestration?: TurnOrchestration;
     }
   | {
       kind: 'coordinator';
@@ -80,6 +83,9 @@ export async function runMakaPiTuiTurn(input: RunMakaPiTuiTurnInput): Promise<Go
       ...(request.kind === 'coordinator' ? { turnId: request.turnId } : {}),
       ...(request.kind === 'external' && request.sendText !== undefined
         ? { modelText: request.sendText }
+        : {}),
+      ...(request.kind === 'external' && request.turnOrchestration
+        ? { turnOrchestration: request.turnOrchestration }
         : {}),
     });
     preparedTurnId = turn.turnId;

@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { describe, it } from 'node:test';
+import { readRendererShellSource } from './renderer-shell-source-helpers.js';
+
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
+
+describe('session revision (edit-and-resend) contract', () => {
+  it('edits locally, then lazily prepares an in-conversation version on send', async () => {
+    const source = await readRendererShellSource('app-shell-revision-actions.ts');
+    assert.match(source, /function beginEditUserMessage\(turnId: string\): void/);
+    assert.match(source, /userFacingText\(userMessage\)/);
+    assert.match(source, /composerRef\.current\?\.setText\(prompt\)/);
+    assert.match(source, /async function prepareRevisionSend\(text: string\)/);
+    assert.match(
+      source,
+      /reviseBeforeTurn\(sourceSessionId, \{\s*sourceTurnId: draft\.sourceTurnId/,
+    );
+    assert.match(source, /revisionDraftRef\.current !== draft/);
+    assert.match(source, /retainedAttachmentTurn/);
+    assert.match(
+      source,
+      /userMessage\.displayText !== undefined && userMessage\.displayText !== userMessage\.text/,
+    );
+  });
+
+  it('wires revision ownership through the shell and composer', async () => {
+    const shell = await readRendererShellSource('app-shell.tsx');
+    const source = await readRendererShellSource('app-shell-revision-actions.ts');
+    assert.match(
+      shell,
+      /onEditUserMessage=\{\(turnId\) => \{ void beginEditUserMessage\(turnId\); \}\}/,
+    );
+    assert.match(shell, /prepareRevisionSend/);
+    assert.match(
+      shell,
+      /revisionNotice=\{[\s\S]*revisionDraft && activeId === revisionDraft\.draftSessionId/,
+    );
+    assert.match(shell, /composerRef\.current\?\.clearDraft\(expectedRevisionSessionId\)/);
+    assert.match(
+      shell,
+      /if \(text\.trim\(\) === '\/compact' \|\| swarmCommand\) \{[\s\S]*revisionCommandUnsupported/,
+      'revision drafts must reject local slash commands before preparing a durable version',
+    );
+    assert.match(shell, /cancelRevisionDraft/);
+    assert.match(
+      shell,
+      /if \(source && owner && !source\.isArchived && !owner\.isArchived\) return;[\s\S]*commitRevisionDraft\(null\)/,
+    );
+    assert.match(source, /composerRef\.current\?\.setDraft\(newSession\.id, text\)/);
+    assert.doesNotMatch(source, /requestAnimationFrame/);
+    const rowActions = await readRendererShellSource('app-shell-session-row-actions.ts');
+    assert.match(rowActions, /revisionFamily: true/);
+
+    const composer = await readFile(resolve(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
+    assert.match(composer, /if \(activeDraftKey\(\) !== submittedDraftKey\) return;/);
+    assert.match(composer, /clearDraft\(draftKey: string\)/);
+    assert.match(composer, /disabled=\{sendPending\}/);
+  });
+
+  it('keeps edit disabled for unsafe or non-user turns', async () => {
+    const turn = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-turn.tsx'), 'utf8');
+    assert.match(
+      turn,
+      /props\.onEditUserMessage && !turn\.user\.automationOrigin/,
+    );
+    assert.match(
+      turn,
+      /editDisabled=\{[\s\S]*turn\.user\.attachments\?\.length[\s\S]*turn\.status === 'running'[\s\S]*!!props\.liveStreaming/,
+    );
+    assert.match(turn, /aria-disabled=\{props\.editDisabled === true/);
+    assert.match(turn, /editMessageDisabledAttachments/);
+    assert.match(turn, /editMessageDisabledTransformedText/);
+
+    const view = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    assert.match(view, /message\.displayText !== undefined &&[\s\S]*message\.displayText !== message\.text/);
+    assert.match(view, /streamingActive \|\| props\.activeSession\?\.status === 'running'/);
+  });
+
+  it('commits a preparing revision only when its first run starts', async () => {
+    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/sessions-ipc-main.ts'), 'utf8');
+    assert.match(
+      main,
+      /onRunStarted: async \(_runId, header\) => \{[\s\S]*header\.revisionState === 'preparing'[\s\S]*commitRevisionVersion\(sessionId\)/,
+    );
+  });
+
+  it('exposes reviseBeforeTurn on the preload bridge', async () => {
+    const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
+    const bridge = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/preload/bridge-contract.d.ts'),
+      'utf8',
+    );
+    assert.match(preload, /reviseBeforeTurn\(sessionId: string, input: ReviseBeforeTurnInput\)/);
+    assert.match(preload, /sessions:reviseBeforeTurn/);
+    assert.match(bridge, /reviseBeforeTurn\(sessionId: string, input: ReviseBeforeTurnInput\)/);
+    assert.doesNotMatch(preload, /branchBeforeTurn/);
+    assert.doesNotMatch(bridge, /branchBeforeTurn/);
+  });
+});

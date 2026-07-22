@@ -20,7 +20,7 @@ It is intentionally a structured-concurrency convenience over existing child
 | One specialist result, or the next task depends on the previous result | `agent_spawn` sequentially | The dependency is explicit and each result can refine the next prompt. |
 | Several finite, independent items with one final synthesis | `agent_swarm` | Bounded worker-pool execution, stable ordered results, and isolated failures. |
 | Durable ownership, task claiming, or worker communication | Agent Team | Members have roles, mailbox collaboration, and Task Ledger coordination. |
-| DAG dependencies, retries, resume, dynamic expansion, or distributed execution | Rive | Workflow state and recovery need a durable orchestration authority. |
+| DAG dependencies, retry policies, arbitrary workflow resume, dynamic expansion, or distributed execution | Rive | Workflow state and recovery need a durable orchestration authority. |
 
 The main Agent should call Swarm deliberately. The runtime does not infer that a
 request is parallelizable and does not automatically fan work out.
@@ -30,6 +30,62 @@ request is parallelizable and does not automatically fan work out.
 One call accepts `1..32` items. Local concurrency defaults to `3` and is capped
 at `5`. The entire input is validated before any child starts. Results retain
 input order even when children finish out of order.
+
+New work has two mutually exclusive forms. Callers may provide the explicit
+structured items shown below, or use a homogeneous template batch with one
+shared `profile`, a `prompt_template` containing `{{item}}`, and string
+`items`. Template batches replace every placeholder occurrence, reject
+duplicate expanded tasks, generate stable ordered IDs (`item-1`, `item-2`,
+...), and then enter the same preflight and execution path as explicit items.
+They are input shorthand, not a separate scheduler.
+
+Either form may also include `resume_run_ids`, a map from an existing child
+`runId` to the new prompt that should continue it. A call may contain only
+resumes. Resume entries count toward the same 32-item bound, are presented
+before new items in map insertion order, and use the same local and shared
+concurrency limits as newly spawned children.
+
+## Resuming child runs
+
+Resume creates a fresh child `AgentRun` whose durable lineage names the source
+in `resumedFromRunId`. It replays the complete RuntimeEvent history of that
+source and its resume ancestors, then sends the new prompt. It does not mutate
+or restart the original run, and it does not approximate continuation by
+concatenating a summary into a fresh prompt.
+
+The runtime preflights every resume entry before any resumed or new child
+starts. Resume fails closed unless all of these invariants hold:
+
+- the source and every resume ancestor are built-in child runs in this session;
+- every run has the same Agent profile and current backend, connection, model,
+  working directory, and child permission mode;
+- every RuntimeEvent ledger has a valid terminal fact and a user-anchored,
+  model-replayable history with no indeterminate tool boundary;
+- the immediate source does not already have a resume successor.
+
+Completed, failed, and cancelled child runs may be continued. Each source has
+at most one direct successor, while that successor may itself be resumed to
+form an auditable linear chain. The API deliberately uses `resume_run_ids`
+rather than `resume_agent_ids`: built-in `agentId`s identify reusable profiles
+such as `local-read`, while `runId`s identify the unique execution and history
+being continued.
+
+```ts
+agent_swarm({
+  resume_run_ids: {
+    "child-run-123": "Re-check the failing assertion and propose the smallest fix.",
+    "child-run-456": "Continue from your findings and inspect the UI projection."
+  },
+  items: [
+    {
+      item_id: "fresh-review",
+      profile: "local_read",
+      task: "Independently review the updated cancellation invariant."
+    }
+  ],
+  max_concurrency: 3
+})
+```
 
 Three separate concurrency boundaries remain observable:
 
@@ -43,6 +99,33 @@ Partial child failure does not erase successful siblings. Parent cancellation
 signals active children, prevents locally queued items from starting, joins
 active work, and returns explicit cancelled rows for both started and
 never-started items.
+
+## Provider backpressure
+
+Swarm uses Kimi-compatible, batch-local rate-limit handling after the backend's
+ordinary request retry policy is exhausted:
+
+- launch up to five initial items, then admit one additional pending item every
+  700 ms;
+- when a child settles with `failureClass: RateLimit`, suspend that item and
+  requeue it at the front with a 3 s, 6 s, 12 s, ... retry delay;
+- reduce the batch's effective capacity by one (never below one), at most once
+  every 2 s;
+- after three minutes without another rate limit, recover capacity one slot at
+  a time;
+- if the rate-limited item is the only unfinished item, fail it instead of
+  leaving the foreground tool suspended indefinitely.
+
+A retry is a fresh child `AgentRun` linked through `retriedFromRunId`. It
+replays the safely materialized RuntimeEvent history and sends no second user
+prompt. This keeps each attempt inspectable while preventing duplicated task
+instructions. Artifacts from all attempts are retained in the final ordered
+item result, and parent cancellation still covers queued retries and active
+retry runs through the shared child-run permit pool.
+
+This mechanism is deliberately reactive and local to one Swarm call. It is not
+a provider-global RPM/TPM admission controller and does not coordinate capacity
+between independent sessions or processes.
 
 ## Presentation and evidence
 
@@ -66,6 +149,8 @@ data fields:
 | --- | --- |
 | Tool-call admission rejection | `boundary: subagent_tool_admission` |
 | Local item queued or started | `swarmStage: item_queued` / `item_started`, `boundary: local_swarm_concurrency` |
+| Provider-limited item suspended | `swarmStage: item_suspended`, `failureClass: RateLimit`, plus attempt and retry delay |
+| Adaptive batch capacity | `swarmStage: capacity_changed`, direction, and effective capacity |
 | Waiting for shared capacity | `boundary: shared_child_run_permit`, `stage: waiting` |
 | Real child execution | `boundary: child_run_execution`, `stage: started` / `completed` |
 | Settled batch | `swarmStage: batch_completed` plus the aggregate projection |
@@ -96,6 +181,17 @@ agent_swarm({
       task: "Review regression coverage and identify missing cases."
     }
   ],
+  max_concurrency: 3
+})
+```
+
+The same read-only batch can use Kimi-compatible single-placeholder expansion:
+
+```ts
+agent_swarm({
+  prompt_template: "Review {{item}} and report concrete file or symbol evidence.",
+  profile: "local_read",
+  items: ["runtime concurrency and cancellation", "UI and CLI presentation", "regression coverage"],
   max_concurrency: 3
 })
 ```

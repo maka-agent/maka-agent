@@ -13,6 +13,12 @@ test('conversation catalogs are complete and independently selectable', () => {
   assert.equal(zh.sessions.status.running, '进行中');
   assert.equal(en.sessions.status.running, 'Running');
   assert.notEqual(en.composer.placeholder, zh.composer.placeholder);
+  assert.equal(zh.messages.editMessage, '编辑并重发');
+  assert.equal(en.messages.editMessage, 'Edit & resend');
+  assert.equal(zh.messages.editMessageDisabledAttachments, '包含附件的历史消息暂不支持编辑并重发');
+  assert.equal(en.messages.editMessageDisabledAttachments, 'Edit & resend does not yet support messages with attachments');
+  assert.equal(zh.messages.editMessageDisabledTransformedText, '通过显式技能发送的历史消息暂不支持编辑并重发');
+  assert.equal(en.messages.editMessageDisabledTransformedText, 'Edit & resend does not yet support messages sent with an explicit skill');
 });
 
 test('tool catalogs are complete and independently selectable', () => {

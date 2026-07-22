@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { BackendKind } from '@maka/core';
+import type { BackendKind, OrchestrationMode, TurnOrchestration } from '@maka/core';
 import {
   BackendRegistry,
   SessionManager,
@@ -50,6 +50,10 @@ export interface RunExperimentDeps {
   benchmarkAdapters?: BenchmarkAdapterRegistry;
   now?: () => number;
   newId?: () => string;
+  /** Persistent orchestration default for the created headless session. */
+  orchestrationMode?: OrchestrationMode;
+  /** Trusted override for this experiment's single user turn. */
+  turnOrchestration?: TurnOrchestration;
 }
 
 /**
@@ -125,9 +129,10 @@ export async function runExperiment(
     });
 
     let invocation: InvocationResult | undefined;
+    const runStore = createAgentRunStore(deps.storageRoot);
     const manager = new SessionManager({
       store: createSessionStore(deps.storageRoot),
-      runStore: createAgentRunStore(deps.storageRoot),
+      runStore,
       runtimeEventStore: createRuntimeEventStore(deps.storageRoot),
       backends,
       ...(deps.realBackendIsolation?.toolExecutor
@@ -152,6 +157,7 @@ export async function runExperiment(
       llmConnectionSlug: config.llmConnectionSlug,
       model: config.model,
       permissionMode: 'execute',
+      ...(deps.orchestrationMode ? { orchestrationMode: deps.orchestrationMode } : {}),
       name: `lab:${config.id}:${task.id}`,
     });
 
@@ -161,7 +167,11 @@ export async function runExperiment(
     // still asks this generic runner for an interactive permission decision,
     // fail safe and deny it; isolated eval backends should run with explicit
     // non-interactive policy/tooling.
-    for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
+    for await (const event of manager.sendMessage(session.id, {
+      turnId,
+      text: task.instruction,
+      ...(deps.turnOrchestration ? { turnOrchestration: deps.turnOrchestration } : {}),
+    })) {
       if ((event as { type?: string }).type === 'permission_request') {
         const { requestId } = event as { requestId: string };
         await manager.respondToPermission(session.id, {
@@ -203,6 +213,9 @@ export async function runExperiment(
         verifierResult,
       });
       const finishedAt = now();
+      const runEvidence = invocation
+        ? await runStore.readRun(session.id, invocation.runId).catch(() => undefined)
+        : undefined;
 
       return {
         taskId: task.id,
@@ -211,6 +224,15 @@ export async function runExperiment(
         runId: invocation?.runId ?? turnId,
         systemPromptMode: prompt.mode,
         systemPromptHash: prompt.systemPromptHash,
+        ...(runEvidence?.orchestrationMode
+          ? { orchestrationMode: runEvidence.orchestrationMode }
+          : {}),
+        ...(runEvidence?.orchestrationSource
+          ? { orchestrationSource: runEvidence.orchestrationSource }
+          : {}),
+        ...(runEvidence?.agentSwarmAuthorization
+          ? { agentSwarmAuthorization: runEvidence.agentSwarmAuthorization }
+          : {}),
         status,
         runnerCompleted,
         passed: finalScore.passed,

@@ -34,6 +34,8 @@ export interface ComposerDraftApi {
    * after a new-session swap) in addition to the active draft.
    */
   clearDraft(key: string | undefined): void;
+  /** Persist text under an explicit session key before the host switches it. */
+  setDraft(key: string | undefined, value: string): void;
   /** The key the current textarea content is persisted under. */
   activeDraftKey(): string | undefined;
 }
@@ -61,6 +63,11 @@ export function useComposerDraft(input: {
     rememberComposerDraft(draftStoreRef.current, key, '');
   }
 
+  function setDraft(key: string | undefined, value: string) {
+    rememberComposerDraft(draftStoreRef.current, key, value);
+    if (activeDraftKeyRef.current === key) setHasDraftText(Boolean(value.trim()));
+  }
+
   function activeDraftKey() {
     return activeDraftKeyRef.current;
   }
@@ -85,5 +92,5 @@ export function useComposerDraft(input: {
     }
   }, [input.draftKey]);
 
-  return { hasDraftText, saveCurrentDraft, clearDraft, activeDraftKey };
+  return { hasDraftText, saveCurrentDraft, clearDraft, setDraft, activeDraftKey };
 }

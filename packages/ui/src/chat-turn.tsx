@@ -1,17 +1,18 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
-import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, Cpu, GitBranch, Info, Loader2, RefreshCcw, Timer } from './icons.js';
+import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, Cpu, GitBranch, Info, Loader2, Pencil, RefreshCcw, Timer } from './icons.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { Button as UiButton, cn, DialogContent, DialogRoot } from './ui.js';
-import type { AttachmentRef } from '@maka/core';
+import type { AttachmentRef, QuoteRef } from '@maka/core';
 import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
 import { foldTimeline, type FoldedTimelineChild } from './timeline-fold.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
+import { QuoteRefChip } from './quote-ref-chip.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
@@ -94,9 +95,24 @@ function AttachmentImage(props: { attachment: AttachmentRef; onReadAttachmentByt
   );
 }
 
-const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[]; onReadAttachmentBytes?: ReadAttachmentBytes }) {
+const MessageBody = memo(function MessageBody(props: {
+  role: string;
+  text: string;
+  ts?: number;
+  attachments?: readonly AttachmentRef[];
+  quotes?: readonly QuoteRef[];
+  onReadAttachmentBytes?: ReadAttachmentBytes;
+  /** When set on a user message, show an edit affordance that starts a revision draft. */
+  onEditUserMessage?: () => void;
+  editDisabled?: boolean;
+  editDisabledReason?: string;
+}) {
   const locale = useUiLocale();
+  const copyText = getConversationCopy(locale).messages;
   if (props.role === 'user') {
+    const editActionLabel = props.editDisabled
+      ? (props.editDisabledReason ?? copyText.editMessageDisabledRunning)
+      : copyText.editMessage;
     // User turn: the message sits in a tinted, width-capped block aligned to
     // the right (so the right-anchor reads even for long messages), with an
     // absolute HH:mm time + a copy affordance in a meta row beneath it. #642:
@@ -109,6 +125,13 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
       <>
         <Bubble variant="user">
           <span>{props.text}</span>
+          {props.quotes && props.quotes.length > 0 ? (
+            <div className="maka-user-quotes flex flex-wrap items-start gap-1 mt-1">
+              {props.quotes.map((quote, index) => (
+                <QuoteRefChip key={`${quote.sourceTurnId ?? 'quote'}-${index}`} quote={quote} />
+              ))}
+            </div>
+          ) : null}
           {props.attachments && props.attachments.length > 0 ? (
             <div className="maka-user-attachments flex flex-wrap gap-1.5 mt-2">
               {props.attachments.map((attachment, index) => (
@@ -142,6 +165,30 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
             </small>
           )}
           <MessageCopyButton text={props.text} footerStyle />
+          {props.onEditUserMessage && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <UiButton
+                    type="button"
+                    variant="quiet"
+                    size="icon-sm"
+                    className={markerVariants({ variant: 'footer-action' })}
+                    aria-label={editActionLabel}
+                    aria-disabled={props.editDisabled === true ? 'true' : undefined}
+                    data-action="edit"
+                    onClick={() => {
+                      if (props.editDisabled) return;
+                      props.onEditUserMessage?.();
+                    }}
+                  />
+                }
+              >
+                <Pencil size={12} aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>{editActionLabel}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </>
     );
@@ -282,6 +329,15 @@ export const TurnView = memo(function TurnView(props: {
   /** PR109e-e: invoked when the user clicks a lineage badge. The
    *  renderer scrolls the target turn into view. */
   onLineageBadgeClick?: (targetTurnId: string) => void;
+  /**
+   * Edit-and-resend for the user message of this turn. Desktop owns the
+   * revision draft (branch-before + composer refill); UI only fires the click.
+   */
+  onEditUserMessage?: (turnId: string) => void;
+  /** True when the stored model text differs from the user-facing prompt. */
+  editUserMessageTransformed?: boolean;
+  /** True while the turn is still running — edit is disabled until terminal. */
+  editUserMessageDisabled?: boolean;
   /** True when a search result just navigated to this turn. */
   searchHighlighted?: boolean;
   /**
@@ -374,7 +430,40 @@ export const TurnView = memo(function TurnView(props: {
           title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts, locale) : undefined}
           className="group/usermsg"
         >
-          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} onReadAttachmentBytes={props.onReadAttachmentBytes} />
+          <MessageBody
+            role="user"
+            text={turn.user.text}
+            ts={turn.user.ts}
+            attachments={turn.user.attachments}
+            quotes={turn.user.quotes}
+            onReadAttachmentBytes={props.onReadAttachmentBytes}
+            onEditUserMessage={
+              props.onEditUserMessage && !turn.user.automationOrigin
+                ? () => props.onEditUserMessage?.(turn.turnId)
+                : undefined
+            }
+            // A revision restages neither attachments nor quotes, so a turn
+            // carrying either can't be edited without silently dropping the
+            // reference the answer was grounded in.
+            editDisabled={
+              (turn.user.attachments?.length ?? 0) > 0 ||
+              (turn.user.quotes?.length ?? 0) > 0 ||
+              props.editUserMessageTransformed === true ||
+              props.editUserMessageDisabled === true ||
+              turn.status === 'running' ||
+              !!props.liveStreaming
+            }
+            editDisabledReason={
+              (turn.user.attachments?.length ?? 0) > 0
+                ? copy.editMessageDisabledAttachments
+                : (turn.user.quotes?.length ?? 0) > 0
+                  ? copy.editMessageDisabledQuotes
+                  : props.editUserMessageTransformed
+                    ? copy.editMessageDisabledTransformedText
+                    : copy.editMessageDisabledRunning
+            }
+          />
+
         </Message>
       )}
       {turn.notes.map((note) => (

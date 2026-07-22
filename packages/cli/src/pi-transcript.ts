@@ -174,6 +174,7 @@ export interface MakaPiTranscriptMetadata {
   model: string;
   connectionSlug: string;
   permissionMode: string;
+  orchestrationMode?: 'default' | 'swarm';
   thinkingLevel?: ThinkingLevel;
   thinkingLevels?: readonly ThinkingLevel[];
   sessionId?: string | null;
@@ -1253,6 +1254,9 @@ export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width
   // changes the level. Only a non-default, explicitly set level shows.
   if (metadata.thinkingLevel) {
     parts.push(ansi.dim(`thinking:${metadata.thinkingLevel}`));
+  }
+  if (metadata.orchestrationMode === 'swarm') {
+    parts.push(ansi.accent('swarm'));
   }
   const usage = metadata.usage;
   if (usage) {

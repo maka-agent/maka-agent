@@ -9,6 +9,8 @@
 
 export * from './mcp.js';
 export * from './collaboration.js';
+export * from './orchestration.js';
+export * from './swarm-command.js';
 export * from './plan.js';
 
 // events.ts
@@ -49,6 +51,7 @@ export type {
   AbortEvent,
   StorageRef,
   AttachmentRef,
+  QuoteRef,
   AttachmentIngestItem,
   CompleteStopReason,
   ContextBudgetExhaustedDetail,
@@ -510,9 +513,18 @@ export type {
   ChildAgentTurnInput,
   CreateSessionInput,
   RegenerateTurnInput,
+  ReviseBeforeTurnInput,
+  TurnOrchestration,
   UserMessageInput,
   SessionListFilter,
 } from './runtime-inputs.js';
+
+export {
+  collapseSessionRevisions,
+  revisionFamilySessionIds,
+  sessionRevisionFamilyId,
+  visibleSessionRevisionMembers,
+} from './session-revisions.js';
 
 // e2e-fixture.ts
 export type {
@@ -1093,6 +1105,7 @@ export {
   READY_PROVIDER_TYPES,
   backendKindOf,
   connectionEnabledModelIds,
+  reconcileConnectionAfterModelFetch,
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,

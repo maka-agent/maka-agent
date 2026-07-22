@@ -95,6 +95,11 @@ describe('versioned execution inspect documents', () => {
         llmConnectionSlug: 'fake',
         model: 'fake-model',
         permissionMode: 'ask',
+        revisionRootSessionId: 'root-session',
+        revisionParentSessionId: 'previous-version',
+        revisionOfTurnId: 'turn-edited',
+        revisionIndex: 2,
+        revisionState: 'committed',
       });
       const header = runHeader(session.id);
       await runStore.createRun(header);
@@ -119,6 +124,11 @@ describe('versioned execution inspect documents', () => {
 
       assert.equal(document.schemaVersion, SESSION_INSPECT_DOCUMENT_VERSION);
       assert.equal(document.session.name, 'Inspectable session');
+      assert.equal(document.session.revisionRootSessionId, 'root-session');
+      assert.equal(document.session.revisionParentSessionId, 'previous-version');
+      assert.equal(document.session.revisionOfTurnId, 'turn-edited');
+      assert.equal(document.session.revisionIndex, 2);
+      assert.equal(document.session.revisionState, 'committed');
       assert.equal(document.agentRuns[0]?.agentRun.agentRunId, RUN_ID);
       assert.match(renderSessionInspectTree(document), /Runtime Events runtime_event:run-1 0–0/);
     });

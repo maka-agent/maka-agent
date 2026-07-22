@@ -81,6 +81,21 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
     assert.ok(!plan.activeTools.includes('office_edit'));
   });
 
+  test('a required orchestration tool stays pinned for the whole turn', () => {
+    const plan = runtime(true).prepare([], new Set(['rive_run']));
+    assert.ok(plan.activeTools.includes('rive_run'), 'required tool is visible at step 0');
+    assert.ok(plan.gating?.activeNames().has('rive_run'));
+    const next = plan.prepareStep!({ steps: [] });
+    assert.ok(next.activeTools.includes('rive_run'), 'required tool remains visible later');
+    assert.ok(!next.activeTools.includes('office_edit'), 'other deferred groups remain hidden');
+  });
+
+  test('unknown required tool names are ignored', () => {
+    const plan = runtime(true).prepare([], new Set(['not-a-tool']));
+    assert.ok(!plan.activeTools.includes('not-a-tool'));
+    assert.ok(!plan.activeTools.includes('rive_run'));
+  });
+
   test('providerTools keeps every tool dispatchable, including hidden groups + invalid', () => {
     const names = runtime(true)
       .prepare([])

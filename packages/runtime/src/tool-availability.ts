@@ -144,7 +144,10 @@ export class ToolAvailabilityRuntime {
     this.allTools = this.connector ? [...tools, this.connector] : tools;
   }
 
-  prepare(priorEvents: ReadonlyArray<RuntimeEventLike> | undefined): ToolAvailabilityPlan {
+  prepare(
+    priorEvents: ReadonlyArray<RuntimeEventLike> | undefined,
+    requiredToolNames: ReadonlySet<string> = new Set(),
+  ): ToolAvailabilityPlan {
     const canonical = canonicalizeToolSet(this.allTools, this.invalidTool);
 
     if (!this.economy) {
@@ -158,6 +161,8 @@ export class ToolAvailabilityRuntime {
     }
 
     const seedGroups = this.seedLoadedGroups(priorEvents);
+    const knownNames = new Set(canonical.providerTools.map((tool) => tool.name));
+    const requiredNames = [...requiredToolNames].filter((name) => knownNames.has(name));
     // Turn-local snapshot the guard / repair / diagnostics read; recomputed
     // before every step by `prepareStep`. No cross-turn mutable state — a load
     // survives turns only via the ledger seed above (durable by construction),
@@ -167,11 +172,9 @@ export class ToolAvailabilityRuntime {
     const turn = { active: new Set<string>() };
     const computeActive = (steps: ReadonlyArray<StepLike> | undefined): string[] => {
       const loaded = new Set<string>([...seedGroups, ...this.loadedGroupsFromSteps(steps)]);
-      const active = canonicalizeToolSet(
-        this.allTools,
-        this.invalidTool,
-        this.activeNamesFor(loaded),
-      ).activeTools;
+      const activeNames = this.activeNamesFor(loaded);
+      for (const name of requiredNames) activeNames.add(name);
+      const active = canonicalizeToolSet(this.allTools, this.invalidTool, activeNames).activeTools;
       turn.active = new Set(active);
       return active;
     };

@@ -1,4 +1,14 @@
 /**
+ * This is the fast SOURCE-STRING pre-check: it regex-matches the first rule
+ * body per selector, so it locks the source declarations but NOT the rendered
+ * cascade (a later @layer override / adjacent shadow / token merge can pass
+ * here while the rendered UI regresses). The AUTHORITATIVE rendered lock is
+ * the e2e spec `apps/desktop/e2e/chat-chrome-style.spec.ts` (#1312), which
+ * measures getComputedStyle on the LIVE shell DOM (gutter vs card contrast,
+ * no seam, transparent resize gutter, 12px card radius, mode-split card
+ * shadow) across darwin/win32 × light/dark. Keep this test as the cheap
+ * pre-check.
+ *
  * PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): pin the no-gradient
  * + visible-radius invariant. Background:
  *

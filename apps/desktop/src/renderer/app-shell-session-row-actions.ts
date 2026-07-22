@@ -1,5 +1,6 @@
 import type { SessionSummary, StoredMessage, UiLocale } from '@maka/core';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
+import { revisionFamilySessionIds } from '@maka/core';
 
 type RefBox<T> = { current: T };
 
@@ -68,33 +69,37 @@ export function createAppShellSessionRowActions(deps: {
 
   async function flagSession(sessionId: string, flagged: boolean) {
     return runSessionRowAction(sessionId, 'flag', flagged ? copy.flagFailedTitle : copy.unflagFailedTitle, async () => {
-      await window.maka.sessions.setFlagged(sessionId, flagged);
+      const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
+      await window.maka.sessions.setFlagged(sessionId, flagged, { revisionFamily: true });
       await refreshSessions();
     });
   }
 
   async function archiveSession(sessionId: string) {
     return runSessionRowAction(sessionId, 'archive', copy.archiveFailedTitle, async () => {
-      await window.maka.sessions.archive(sessionId);
-      if (activeIdRef.current === sessionId) {
+      const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
+      await window.maka.sessions.archive(sessionId, { revisionFamily: true });
+      if (activeIdRef.current && familyIds.includes(activeIdRef.current)) {
         setActiveId(undefined);
         setMessages([]);
-        clearSessionRendererState(sessionId);
       }
+      for (const id of familyIds) clearSessionRendererState(id);
       await refreshSessions();
     });
   }
 
   async function unarchiveSession(sessionId: string) {
     return runSessionRowAction(sessionId, 'archive', copy.unarchiveFailedTitle, async () => {
-      await window.maka.sessions.unarchive(sessionId);
+      const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
+      await window.maka.sessions.unarchive(sessionId, { revisionFamily: true });
       await refreshSessions();
     });
   }
 
   async function renameSession(sessionId: string, name: string) {
     return runSessionRowAction(sessionId, 'rename', copy.renameFailedTitle, async () => {
-      await window.maka.sessions.rename(sessionId, name);
+      const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
+      await window.maka.sessions.rename(sessionId, name, { revisionFamily: true });
       await refreshSessions();
     });
   }
@@ -111,12 +116,13 @@ export function createAppShellSessionRowActions(deps: {
         destructive: true,
       });
       if (!ok) return;
-      await window.maka.sessions.remove(sessionId);
-      if (activeIdRef.current === sessionId) {
+      const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
+      await window.maka.sessions.remove(sessionId, { revisionFamily: true });
+      if (activeIdRef.current && familyIds.includes(activeIdRef.current)) {
         setActiveId(undefined);
         setMessages([]);
       }
-      clearSessionRendererState(sessionId);
+      for (const id of familyIds) clearSessionRendererState(id);
       await refreshSessions();
       toastApi.success(copy.deletedTitle(name));
     });

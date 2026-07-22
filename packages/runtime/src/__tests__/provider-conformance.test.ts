@@ -71,6 +71,87 @@ describe('models.dev provider conformance', () => {
     assert.equal(result.ok, false);
   });
 
+  test('connection probe does not revive fallback ids from an authoritative empty inventory', async () => {
+    const result = await testConnection(
+      {
+        slug: 'openai-empty',
+        name: 'OpenAI Empty',
+        providerType: 'openai',
+        baseUrl: 'http://127.0.0.1:1/v1',
+        defaultModel: 'gpt-5.5',
+        enabled: false,
+        models: [],
+        modelSource: 'fetched',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'unused',
+    );
+    assert.deepEqual(result, { ok: false, errorMessage: 'No model to test' });
+  });
+
+  test('connection probe skips a stale default when a live inventory is available', async () => {
+    const requestedModels: string[] = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as { model: string };
+      requestedModels.push(body.model);
+      respondJson(response, 200, {});
+    });
+    const connection: LlmConnection = {
+      slug: 'moonshot-main',
+      name: 'Moonshot',
+      providerType: 'moonshot',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'moonshot-v1-8k',
+      enabledModelIds: ['moonshot-v1-8k', 'kimi-k2.6'],
+      models: [{ id: 'kimi-k2.5' }, { id: 'kimi-k2.6' }],
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    assert.equal((await testConnection(connection, 'moonshot-key')).modelTested, 'kimi-k2.6');
+    assert.equal(
+      (await testConnection(connection, 'moonshot-key', 'explicit-preview')).modelTested,
+      'explicit-preview',
+    );
+    const legacy = { ...connection, models: undefined, enabledModelIds: undefined };
+    assert.equal((await testConnection(legacy, 'moonshot-key')).modelTested, 'moonshot-v1-8k');
+    assert.deepEqual(requestedModels, ['kimi-k2.6', 'explicit-preview', 'moonshot-v1-8k']);
+  });
+
+  test('connection probe bounds a fallback snapshot to its non-empty inventory', async () => {
+    const requestedModels: string[] = [];
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      const body = JSON.parse(await readBody(request)) as { model: string };
+      requestedModels.push(body.model);
+      respondJson(response, 200, {});
+    });
+    const result = await testConnection(
+      {
+        slug: 'moonshot-fallback',
+        name: 'Moonshot Fallback',
+        providerType: 'moonshot',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: 'custom-moonshot-preview',
+        enabledModelIds: ['custom-moonshot-preview'],
+        models: [{ id: 'kimi-k2.6' }],
+        modelSource: 'fallback',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'moonshot-key',
+    );
+
+    assert.equal(result.modelTested, 'kimi-k2.6');
+    assert.deepEqual(requestedModels, ['kimi-k2.6']);
+  });
+
   test('OpenAI routes gpt-5* through the Responses wire and other models through Chat Completions by declaration', async () => {
     const requests: string[] = [];
     const server = await startJsonServer(async (request, response) => {

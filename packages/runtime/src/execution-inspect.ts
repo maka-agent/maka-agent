@@ -37,6 +37,8 @@ export interface AgentRunInspectIdentity {
   invocationId?: string;
   turnId: string;
   parentRunId?: string;
+  resumedFromRunId?: string;
+  retriedFromRunId?: string;
   parentTurnId?: string;
   agentId?: string;
   status: AgentRunHeader['status'];
@@ -94,6 +96,11 @@ export interface SessionInspectSummary {
   isArchived: boolean;
   parentSessionId?: string;
   branchOfTurnId?: string;
+  revisionRootSessionId?: string;
+  revisionParentSessionId?: string;
+  revisionOfTurnId?: string;
+  revisionIndex?: number;
+  revisionState?: 'preparing' | 'committed';
 }
 
 export interface SessionInspectDocument {
@@ -179,6 +186,19 @@ export async function inspectSessionDocument(
         ? { parentSessionId: resolvedHeader.parentSessionId }
         : {}),
       ...(resolvedHeader.branchOfTurnId ? { branchOfTurnId: resolvedHeader.branchOfTurnId } : {}),
+      ...(resolvedHeader.revisionRootSessionId
+        ? { revisionRootSessionId: resolvedHeader.revisionRootSessionId }
+        : {}),
+      ...(resolvedHeader.revisionParentSessionId
+        ? { revisionParentSessionId: resolvedHeader.revisionParentSessionId }
+        : {}),
+      ...(resolvedHeader.revisionOfTurnId
+        ? { revisionOfTurnId: resolvedHeader.revisionOfTurnId }
+        : {}),
+      ...(resolvedHeader.revisionIndex !== undefined
+        ? { revisionIndex: resolvedHeader.revisionIndex }
+        : {}),
+      ...(resolvedHeader.revisionState ? { revisionState: resolvedHeader.revisionState } : {}),
     },
     agentRuns,
     diagnostics: agentRuns.flatMap((run) => run.diagnostics),
@@ -236,6 +256,8 @@ function inspectIdentity(header: AgentRunHeader): AgentRunInspectIdentity {
     ...(header.invocationId ? { invocationId: header.invocationId } : {}),
     turnId: header.turnId,
     ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
+    ...(header.resumedFromRunId ? { resumedFromRunId: header.resumedFromRunId } : {}),
+    ...(header.retriedFromRunId ? { retriedFromRunId: header.retriedFromRunId } : {}),
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.agentId ? { agentId: header.agentId } : {}),
     status: header.status,

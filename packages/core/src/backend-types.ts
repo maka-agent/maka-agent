@@ -8,12 +8,13 @@
  * implementation file.
  */
 
-import type { AttachmentRef, SessionEvent } from './events.js';
+import type { AttachmentRef, QuoteRef, SessionEvent } from './events.js';
 import type { RuntimeEvent } from './runtime-event.js';
 import type { StoredMessage, BackendKind } from './session.js';
 import type { PermissionResponse } from './permission.js';
 import type { UserQuestionResponse } from './user-question.js';
 import type { ContextBudgetDiagnostic } from './usage-stats/types.js';
+import type { EffectiveOrchestration } from './orchestration.js';
 
 export interface RuntimeContinuationMetadata {
   sourceInvocationId: string;
@@ -29,6 +30,8 @@ export interface BackendSendInput {
   runId?: string;
   /** Caller-generated turn id shared by the persisted UserMessage and every emitted event. */
   turnId: string;
+  /** Trusted effective orchestration snapshot for this run. */
+  orchestration?: EffectiveOrchestration;
   /**
    * The persisted initial user RuntimeEvent for this turn (the head anchor).
    * Mid-turn capacity compaction keeps this event verbatim in every projection
@@ -37,6 +40,8 @@ export interface BackendSendInput {
   headAnchorRuntimeEvent?: RuntimeEvent;
   text: string;
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts folded into the model-facing user content. */
+  quotes?: QuoteRef[];
   /**
    * Prior conversation projected from the RuntimeEvent ledger into the
    * existing StoredMessage public shape. Adapters materialize this into the

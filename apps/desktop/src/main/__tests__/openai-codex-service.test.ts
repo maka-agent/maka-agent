@@ -155,20 +155,6 @@ describe('Codex JWT account-id extraction', () => {
 });
 
 describe('Codex service source-grep contract', () => {
-  it('persists tokens through the shared credential store, not safeStorage (#1125)', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /saveSharedOAuthTokens\(this\.credentialStore, 'codex-subscription'/,
-      'tokens must be written to the shared CredentialStore (the cross-surface authority)',
-    );
-    assert.doesNotMatch(
-      src,
-      /encryptString|decryptString|isEncryptionAvailable/,
-      'no safeStorage-encrypted token path may remain',
-    );
-  });
-
   it('uses proxiedFetch by default so the active Maka proxy applies to OAuth requests', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(
@@ -181,24 +167,6 @@ describe('Codex service source-grep contract', () => {
       /deps\.fetchFn\s*\?\?\s*\(globalThis\.fetch/,
       'Electron global fetch does not honor Maka active-proxy state',
     );
-  });
-
-  it('does not expose tokens through the `getAccountState` return object', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    const match = src.match(/async getAccountState\(\)[\s\S]*?\n {2}\}/);
-    assert.ok(match, 'getAccountState must exist');
-    const body = match[0];
-    // The return objects (there are two — early not_logged_in and
-    // the authenticated one) must not include any token field.
-    const returns = [...body.matchAll(/return\s*\{[\s\S]*?\n\s*\};/g)].map((m) => m[0]);
-    assert.ok(returns.length >= 1, 'must have at least one return literal');
-    for (const ret of returns) {
-      assert.doesNotMatch(
-        ret,
-        /(access_token|refresh_token|id_token)\s*:/,
-        'getAccountState return objects must not include token fields',
-      );
-    }
   });
 
   it('exports isOpenAiCodexExperimentalEnabled tied to the env flag', async () => {

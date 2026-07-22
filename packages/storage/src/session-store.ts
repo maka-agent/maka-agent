@@ -13,6 +13,7 @@ import {
   DEFAULT_SESSION_NAME,
   deriveTurnRecords,
   isCollaborationMode,
+  isOrchestrationMode,
   isPermissionMode,
   isSessionBlockedReason,
   isSessionStatus,
@@ -109,6 +110,15 @@ class FileSessionStore implements SessionStore {
       statusUpdatedAt: now,
       ...(input.parentSessionId ? { parentSessionId: input.parentSessionId } : {}),
       ...(input.branchOfTurnId ? { branchOfTurnId: input.branchOfTurnId } : {}),
+      ...(input.revisionRootSessionId
+        ? { revisionRootSessionId: input.revisionRootSessionId }
+        : {}),
+      ...(input.revisionParentSessionId
+        ? { revisionParentSessionId: input.revisionParentSessionId }
+        : {}),
+      ...(input.revisionOfTurnId ? { revisionOfTurnId: input.revisionOfTurnId } : {}),
+      ...(input.revisionIndex !== undefined ? { revisionIndex: input.revisionIndex } : {}),
+      ...(input.revisionState ? { revisionState: input.revisionState } : {}),
       hasUnread: false,
       backend: input.backend,
       llmConnectionSlug: input.llmConnectionSlug,
@@ -116,9 +126,14 @@ class FileSessionStore implements SessionStore {
       model: input.model ?? 'default',
       permissionMode: input.permissionMode,
       collaborationMode: input.collaborationMode ?? 'agent',
+      orchestrationMode: input.orchestrationMode ?? 'default',
       ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       schemaVersion: 1,
     };
+
+    if (!isValidRevisionLineage(header)) {
+      throw new Error('Invalid session revision lineage');
+    }
 
     await this.withQueue(id, async () => {
       await mkdir(this.sessionDir(id), { recursive: true });
@@ -275,6 +290,9 @@ class FileSessionStore implements SessionStore {
     await this.withQueue(sessionId, async () => {
       const { header, messages } = await this.readFilePartsUnlocked(sessionId);
       nextHeader = { ...header, ...patch };
+      if (!isValidRevisionLineage(nextHeader)) {
+        throw new Error('Invalid session revision lineage');
+      }
       const lines = [
         JSON.stringify(nextHeader),
         ...messages.map((message) => JSON.stringify(message)),
@@ -550,6 +568,7 @@ type StoredSessionHeader = Omit<
   | 'model'
   | 'permissionMode'
   | 'collaborationMode'
+  | 'orchestrationMode'
   | 'status'
   | 'blockedReason'
   | 'titleIsManual'
@@ -558,6 +577,7 @@ type StoredSessionHeader = Omit<
   model?: unknown;
   permissionMode?: unknown;
   collaborationMode?: unknown;
+  orchestrationMode?: unknown;
   status?: unknown;
   blockedReason?: unknown;
   titleIsManual?: unknown;
@@ -586,6 +606,9 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
   const collaborationMode = isCollaborationMode(header.collaborationMode)
     ? header.collaborationMode
     : 'agent';
+  const orchestrationMode = isOrchestrationMode(header.orchestrationMode)
+    ? header.orchestrationMode
+    : 'default';
   const model =
     typeof header.model === 'string' && header.model.length > 0 ? header.model : 'default';
   const status = resolveMigratedStatus(header);
@@ -617,6 +640,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
         model,
         permissionMode,
         collaborationMode,
+        orchestrationMode,
       },
       sessionId,
     );
@@ -631,6 +655,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
         model,
         permissionMode,
         collaborationMode,
+        orchestrationMode,
       },
       sessionId,
     );
@@ -645,6 +670,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
         model,
         permissionMode,
         collaborationMode,
+        orchestrationMode,
       },
       sessionId,
     );
@@ -658,6 +684,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
       model,
       permissionMode,
       collaborationMode,
+      orchestrationMode,
     },
     sessionId,
   );
@@ -690,6 +717,7 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
     (header.statusUpdatedAt === undefined || isFiniteNumber(header.statusUpdatedAt)) &&
     (header.parentSessionId === undefined || typeof header.parentSessionId === 'string') &&
     (header.branchOfTurnId === undefined || typeof header.branchOfTurnId === 'string') &&
+    isValidRevisionLineage(header) &&
     (header.lastReadMessageId === undefined || typeof header.lastReadMessageId === 'string') &&
     typeof header.hasUnread === 'boolean' &&
     isBackendKind(header.backend) &&
@@ -698,11 +726,35 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
     typeof header.model === 'string' &&
     isPermissionMode(header.permissionMode) &&
     isCollaborationMode(header.collaborationMode) &&
+    isOrchestrationMode(header.orchestrationMode) &&
     header.schemaVersion === 1;
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
   }
   return { ...header, name: normalizeSessionName(header.name) };
+}
+
+function isValidRevisionLineage(header: SessionHeader): boolean {
+  const values = [
+    header.revisionRootSessionId,
+    header.revisionParentSessionId,
+    header.revisionOfTurnId,
+    header.revisionIndex,
+    header.revisionState,
+  ];
+  if (values.every((value) => value === undefined)) return true;
+  return (
+    typeof header.revisionRootSessionId === 'string' &&
+    isSafeSessionId(header.revisionRootSessionId) &&
+    typeof header.revisionParentSessionId === 'string' &&
+    isSafeSessionId(header.revisionParentSessionId) &&
+    typeof header.revisionOfTurnId === 'string' &&
+    header.revisionOfTurnId.length > 0 &&
+    header.revisionOfTurnId.length <= 128 &&
+    Number.isSafeInteger(header.revisionIndex) &&
+    header.revisionIndex! >= 2 &&
+    (header.revisionState === 'preparing' || header.revisionState === 'committed')
+  );
 }
 
 function isBackendKind(value: unknown): value is SessionHeader['backend'] {
@@ -742,12 +794,22 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     ...(header.statusUpdatedAt !== undefined ? { statusUpdatedAt: header.statusUpdatedAt } : {}),
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
+    ...(header.revisionRootSessionId
+      ? { revisionRootSessionId: header.revisionRootSessionId }
+      : {}),
+    ...(header.revisionParentSessionId
+      ? { revisionParentSessionId: header.revisionParentSessionId }
+      : {}),
+    ...(header.revisionOfTurnId ? { revisionOfTurnId: header.revisionOfTurnId } : {}),
+    ...(header.revisionIndex !== undefined ? { revisionIndex: header.revisionIndex } : {}),
+    ...(header.revisionState ? { revisionState: header.revisionState } : {}),
     backend: header.backend,
     llmConnectionSlug: header.llmConnectionSlug,
     connectionLocked: header.connectionLocked,
     model: header.model,
     permissionMode: header.permissionMode,
     collaborationMode: header.collaborationMode ?? 'agent',
+    orchestrationMode: header.orchestrationMode ?? 'default',
     ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
   };
 }

@@ -181,6 +181,72 @@ describe('syncOpenAiCodexConnection live discovery behavior', () => {
     assert.equal(saved.enabled, true);
   });
 
+  it('normalizes an enabled fetched-empty snapshot to disabled on transient failure', async () => {
+    const existing = makeExisting({
+      enabled: true,
+      models: [],
+      modelSource: 'fetched',
+      lastTestStatus: 'verified',
+    });
+    const { sync, getSaved } = makeService({
+      existing,
+      token: 'tok',
+      fetchModels: async () => {
+        throw new Error('offline');
+      },
+    });
+
+    const result = await sync();
+
+    assert.deepEqual(result?.models, []);
+    assert.equal(result?.modelSource, 'fetched');
+    assert.equal(result?.enabled, false);
+    assert.equal(result?.lastTestStatus, 'error');
+    assert.deepEqual(getSaved()?.models, []);
+    assert.equal(getSaved()?.enabled, false);
+  });
+
+  it('re-enables a fetched-empty connection after later non-empty discovery', async () => {
+    const { sync, getSaved } = makeService({
+      existing: makeExisting({
+        enabled: false,
+        models: [],
+        modelSource: 'fetched',
+        lastTestStatus: 'error',
+      }),
+      token: 'tok',
+      fetchModels: async () => [{ id: 'gpt-5.6-sol' }],
+    });
+
+    const result = await sync();
+
+    assert.deepEqual(result?.models, [{ id: 'gpt-5.6-sol' }]);
+    assert.equal(result?.modelSource, 'fetched');
+    assert.equal(result?.enabled, true);
+    assert.equal(result?.lastTestStatus, 'verified');
+    assert.equal(getSaved()?.enabled, true);
+  });
+
+  it('does not preserve a non-empty fetched list when every cached id is now unsupported', async () => {
+    const existing = makeExisting({
+      models: [{ id: 'gpt-5-codex' }],
+      modelSource: 'fetched',
+    });
+    const { sync, getSaved } = makeService({
+      existing,
+      token: 'tok',
+      fetchModels: async () => {
+        throw new Error('offline');
+      },
+    });
+
+    const result = await sync();
+    assert.deepEqual(result?.models, []);
+    assert.equal(result?.enabled, false);
+    assert.equal(result?.lastTestStatus, 'error');
+    assert.deepEqual(getSaved()?.models, []);
+  });
+
   it('disables with needs_reauth when /models rejects with 401', async () => {
     const { sync, getSaved } = makeService({
       existing: makeExisting(),

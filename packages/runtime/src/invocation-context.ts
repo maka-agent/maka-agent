@@ -12,11 +12,12 @@
  * minted inside a flow stay 1:1 with the invocation that produced them.
  */
 
-import type { AttachmentRef } from '@maka/core/events';
+import type { AttachmentRef, QuoteRef } from '@maka/core/events';
 import type { SteeringLease } from '@maka/core/backend-types';
 import type { RuntimeEvent, RuntimeEventStatus } from '@maka/core/runtime-event';
 import type { StoredMessage } from '@maka/core/session';
 import type { RuntimeContinuationMetadata } from '@maka/core/backend-types';
+import type { EffectiveOrchestration } from '@maka/core/orchestration';
 
 // ============================================================================
 // InvocationSource
@@ -76,9 +77,13 @@ export interface InvocationRequest {
   invocationId?: string;
   runId?: string;
   turnId: string;
+  /** Trusted effective orchestration snapshot for this invocation. */
+  orchestration?: EffectiveOrchestration;
   text: string;
   /** Optional attachments bound to this user turn. */
   attachments?: AttachmentRef[];
+  /** Optional inline quoted excerpts bound to this user turn. */
+  quotes?: QuoteRef[];
   /**
    * Prior conversation history resolved by the caller/gate. RuntimeRunner
    * passes this to AgentFlow as `context`, defaulting to [] so flows never

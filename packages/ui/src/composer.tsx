@@ -11,12 +11,12 @@ import {
   type ReactNode,
 } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import { ArrowUp, Blocks, Paperclip, Plus } from './icons.js';
+import { ArrowUp, Blocks, Paperclip, Pencil, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
-import { appendPromptContextDraft } from './composer-helpers.js';
+import { appendPromptContextDraft, isReferenceSizedPaste } from './composer-helpers.js';
 import { useComposerDraft } from './use-composer-draft.js';
 import { useComposerHistory } from './use-composer-history.js';
 import {
@@ -29,10 +29,11 @@ import {
 import { ComposerMentionPopup, mentionOptionId } from './composer-mention-popup.js';
 import { useMentionPopup } from './use-mention-popup.js';
 import { ComposerWorkspaceRow, type ComposerBranchPicker, type ComposerWorkspacePicker } from './composer-workspace-row.js';
-import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
+import type { AttachmentRef, PermissionMode, ProviderType, QuoteRef, SessionSummary } from '@maka/core';
 import { Button as UiButton, Switch } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
+import { QuoteRefChip } from './quote-ref-chip.js';
 import { Kbd } from './primitives/kbd.js';
 import { PermissionModeSelect } from './permission-mode-menu.js';
 import { Menu, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
@@ -54,6 +55,12 @@ export interface ComposerHandle {
   setText(text: string): void;
   /** Append a prompt/context fragment after the existing draft instead of replacing it. */
   appendText(text: string): void;
+  /** Read the current uncontrolled textarea value. */
+  getText(): string;
+  /** Clear one persisted draft without affecting a different active session. */
+  clearDraft(draftKey: string): void;
+  /** Write a specific session draft before navigation changes the active key. */
+  setDraft(draftKey: string, text: string): void;
   /** Move focus to the textarea without changing its content. */
   focus(): void;
 }
@@ -96,6 +103,15 @@ export const Composer = forwardRef<
     onAttachFilePaths?(files: File[]): void | Promise<void>;
     pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
     onRemoveAttachment?(index: number): void;
+    /** Quoted excerpts staged for the next send; rendered as removable chips. */
+    pendingQuotes?: readonly QuoteRef[];
+    onRemoveQuote?(index: number): void;
+    /**
+     * Stage a reference-sized paste as a quote chip rather than letting it
+     * flood the textarea. Omitted by hosts that don't compose quotes, in which
+     * case a large paste behaves like any other paste.
+     */
+    onPasteAsQuote?(input: { text: string; label?: string }): void;
     /** Built-in expert teams offered under 专家团 in the "+" menu. */
     expertTeams?: readonly { id: string; name: string; description?: string }[];
     /** Start a new expert-team session from the "+" menu. */
@@ -143,6 +159,18 @@ export const Composer = forwardRef<
      * constant footprint (#740).
      */
     noModelConnection?: boolean;
+    /**
+     * Optional edit-and-resend banner above the composer. Desktop owns the
+     * revision draft; Composer only renders the notice + cancel affordance.
+     */
+    revisionNotice?: {
+      /** Short primary status, e.g. "修改已发送消息". */
+      title: string;
+      /** Optional quieter secondary line under the title. */
+      detail?: string;
+      cancelLabel: string;
+      onCancel(): void;
+    };
     workspacePicker?: ComposerWorkspacePicker;
     /**
      * Git branch picker for the workspace row, shown to the right of
@@ -173,6 +201,11 @@ export const Composer = forwardRef<
     planModePending?: boolean;
     planModeDisabledReason?: string;
     onPlanModeChange?(active: boolean): void | Promise<void>;
+    /** Session orchestration mode switch. Default mode remains the implicit fallback. */
+    swarmModeActive?: boolean;
+    swarmModePending?: boolean;
+    swarmModeDisabledReason?: string;
+    onSwarmModeChange?(active: boolean): void | Promise<void>;
     /**
      * Composer mention popups (v1 plain-text tokens; see
      * docs/archive/composer-mentions-spec-2026-07-14.md). Both are optional and the
@@ -206,7 +239,7 @@ export const Composer = forwardRef<
   // (issue #1044). `resetPromptHistoryNavigation` is a hoisted wrapper so the
   // draft hook's swap effect can reset history navigation even though the
   // history hook is created one line below it.
-  const { hasDraftText, saveCurrentDraft, clearDraft, activeDraftKey } = useComposerDraft({
+  const { hasDraftText, saveCurrentDraft, clearDraft, setDraft, activeDraftKey } = useComposerDraft({
     textareaRef,
     draftKey: props.draftKey,
     autoResize,
@@ -288,6 +321,27 @@ export const Composer = forwardRef<
         autoResize();
         focusTextInputAtEnd(el);
       },
+      getText() {
+        return textareaRef.current?.value ?? '';
+      },
+      clearDraft(draftKey: string) {
+        clearDraft(draftKey);
+        if (activeDraftKey() !== draftKey) return;
+        const el = textareaRef.current;
+        if (el) el.value = '';
+        saveCurrentDraft('');
+        autoResize();
+      },
+      setDraft(draftKey: string, text: string) {
+        setDraft(draftKey, text);
+        if (activeDraftKey() !== draftKey) return;
+        const el = textareaRef.current;
+        if (!el) return;
+        resetPromptHistoryNavigation();
+        el.value = text;
+        autoResize();
+        focusTextInputAtEnd(el);
+      },
       focus() {
         textareaRef.current?.focus();
       },
@@ -317,6 +371,9 @@ export const Composer = forwardRef<
     // survives page reloads and is shared across all input surfaces.
     rememberSentEntry(text);
     clearDraft(submittedDraftKey);
+    // The owner may have changed while onSend awaited (new-session creation,
+    // revision branch, or user navigation). Never erase a foreign draft.
+    if (activeDraftKey() !== submittedDraftKey) return;
     saveCurrentDraft('');
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
@@ -462,12 +519,30 @@ export const Composer = forwardRef<
     // + a typed cast so this compiles AND keeps working when the
     // browser does expose the flag.
     if (isChatInputComposing(event, compositionActiveRef.current)) return;
-    if (!hasPastedFiles(event)) return;
+    if (!hasPastedFiles(event)) {
+      pasteLongTextAsQuote(event);
+      return;
+    }
     if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
     void runImportAction('attach', () => props.onAttachFilePaths?.(files));
+  }
+
+  /**
+   * A paste this big is reference material (a log, a diff, a doc section), not
+   * a prompt the user is going to keep editing inline — so it becomes a quote
+   * chip instead of flooding the textarea, and the model still receives it
+   * verbatim. Below the threshold the paste stays a normal paste; the user is
+   * writing, not attaching.
+   */
+  function pasteLongTextAsQuote(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (!props.onPasteAsQuote || props.disabled) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!isReferenceSizedPaste(text)) return;
+    event.preventDefault();
+    props.onPasteAsQuote({ text, label: copy.pastedQuoteLabel });
   }
 
   useEffect(() => {
@@ -517,6 +592,24 @@ export const Composer = forwardRef<
           )}
         </div>
       )}
+      {!props.hidden && props.revisionNotice && (
+        <div className="maka-composer-revision-notice" role="status" data-revision-notice="true">
+          <Pencil size={13} aria-hidden="true" />
+          <span className="maka-composer-revision-notice-text">
+            {props.revisionNotice.title}
+            {props.revisionNotice.detail ? <span className="maka-composer-revision-notice-detail">{props.revisionNotice.detail}</span> : null}
+          </span>
+          <button
+            type="button"
+            className="maka-composer-revision-notice-cancel"
+            disabled={sendPending}
+            aria-busy={sendPending ? 'true' : undefined}
+            onClick={() => props.revisionNotice?.onCancel()}
+          >
+            {props.revisionNotice.cancelLabel}
+          </button>
+        </div>
+      )}
       <form
       ref={formRef}
       className="maka-composer composer"
@@ -532,6 +625,19 @@ export const Composer = forwardRef<
         className="maka-composer-inner composerInner agents-parchment-paper-surface"
         data-streaming={props.streaming ? 'true' : undefined}
       >
+        {/* No px on the chip row: `.maka-composer-inner` already pads the card,
+            so an extra px-3 would sit the chips 12px right of the textarea. */}
+        {props.pendingQuotes && props.pendingQuotes.length > 0 ? (
+          <div className="flex flex-wrap items-start gap-1 pb-1">
+            {props.pendingQuotes.map((quote, index) => (
+              <QuoteRefChip
+                key={`${quote.sourceTurnId ?? 'quote'}-${index}`}
+                quote={quote}
+                onRemove={props.onRemoveQuote ? () => props.onRemoveQuote?.(index) : undefined}
+              />
+            ))}
+          </div>
+        ) : null}
         {props.pendingAttachments && props.pendingAttachments.length > 0 ? (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {props.pendingAttachments.map((attachment, index) => (
@@ -680,6 +786,30 @@ export const Composer = forwardRef<
                   title={
                     props.planModeDisabledReason
                     ?? (props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode)
+                  }
+                />
+              </span>
+            ) : null}
+            {props.onSwarmModeChange ? (
+              <span
+                className="maka-composer-swarm-mode-control"
+                data-active={props.swarmModeActive ? 'true' : 'false'}
+              >
+                <span className="maka-composer-swarm-mode-label">{copy.swarmModeLabel}</span>
+                <Switch
+                  checked={props.swarmModeActive === true}
+                  disabled={
+                    props.disabled
+                    || props.swarmModePending === true
+                    || Boolean(props.swarmModeDisabledReason)
+                  }
+                  onCheckedChange={(checked) => {
+                    void props.onSwarmModeChange?.(checked);
+                  }}
+                  aria-label={props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode}
+                  title={
+                    props.swarmModeDisabledReason
+                    ?? (props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode)
                   }
                 />
               </span>

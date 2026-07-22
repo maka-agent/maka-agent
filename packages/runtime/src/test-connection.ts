@@ -1,5 +1,6 @@
 import {
   PROVIDER_DEFAULTS,
+  connectionEnabledModelIds,
   type ConnectionTestResult,
   type LlmConnection,
 } from '@maka/core/llm-connections';
@@ -10,6 +11,38 @@ import { claudeSubscriptionHeaders } from './subscription-auth.js';
 import { fetchGitHubCopilotModels } from './model-fetcher.js';
 
 const CONNECTION_TEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Prefer an explicit model, then a still-live configured model. Legacy
+ * connections without a discovered inventory keep the historical
+ * default/fallback order.
+ */
+function resolveConnectionTestModel(
+  connection: LlmConnection,
+  model: string | undefined,
+  fallbackModels: readonly string[],
+): string | undefined {
+  const explicitModel = model?.trim();
+  if (explicitModel) return explicitModel;
+
+  const hasAuthoritativeInventory =
+    connection.modelSource === 'fetched' && Array.isArray(connection.models);
+  const discoveredIds =
+    connection.models?.map(({ id }) => id.trim()).filter((id) => id.length > 0) ?? [];
+  const discovered =
+    hasAuthoritativeInventory || discoveredIds.length > 0 ? new Set(discoveredIds) : undefined;
+  const candidates = [
+    ...connectionEnabledModelIds(connection),
+    ...fallbackModels,
+    ...discoveredIds,
+  ];
+  for (const candidate of candidates) {
+    const id = candidate.trim();
+    if (!id || (discovered && !discovered.has(id))) continue;
+    return id;
+  }
+  return undefined;
+}
 
 export async function testConnection(
   connection: LlmConnection,
@@ -25,7 +58,7 @@ export async function testConnection(
   }
   const auth = defaults.authKind;
   const secret = auth === 'none' ? '' : apiKey;
-  const testModel = model || connection.defaultModel || defaults.fallbackModels[0];
+  const testModel = resolveConnectionTestModel(connection, model, defaults.fallbackModels);
 
   if (!testModel) {
     return { ok: false, errorMessage: 'No model to test' };

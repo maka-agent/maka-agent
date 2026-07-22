@@ -325,6 +325,7 @@ describe('Maka CLI runtime bootstrap', () => {
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
         assert.equal(typeof backendInput.spawnChildAgent, 'function');
+        assert.equal(typeof backendInput.retryChildAgent, 'function');
         assert.equal(typeof backendInput.listChildAgents, 'function');
         assert.equal(typeof backendInput.readChildAgentOutput, 'function');
         assert.deepEqual(backendInput.toolAvailability, {

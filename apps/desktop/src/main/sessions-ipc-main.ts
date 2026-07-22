@@ -5,7 +5,9 @@ import { ipcMain } from 'electron';
 import {
   DEFAULT_SESSION_NAME,
   isCollaborationMode,
+  isOrchestrationMode,
   isPermissionMode,
+  revisionFamilySessionIds,
   isThinkingLevel,
   sanitizeTaskLedgerTask,
   thinkingVariantsForModel,
@@ -45,6 +47,7 @@ import type { MainAutomationWiring } from './automation-wiring.js';
 import type { AttachmentApprovalRegistry } from './attachment-approval.js';
 import type { createMainWindowController } from './main-window.js';
 import { handleBranchFromTurn } from './session-branch.js';
+import { handleReviseBeforeTurn } from './session-revision.js';
 
 type SessionStore = ReturnType<typeof createSessionStore>;
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
@@ -141,6 +144,26 @@ function normalizeSupportedSessionThinkingLevel(
   return thinkingLevel;
 }
 
+function requestsRevisionFamily(options: unknown): boolean {
+  if (options === undefined) return false;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('Invalid session family action options');
+  }
+  const value = (options as { revisionFamily?: unknown }).revisionFamily;
+  if (value === undefined) return false;
+  if (typeof value !== 'boolean') throw new Error('Invalid revisionFamily option');
+  return value;
+}
+
+async function resolveSessionActionIds(
+  runtime: SessionManager,
+  sessionId: string,
+  options: unknown,
+): Promise<string[]> {
+  if (!requestsRevisionFamily(options)) return [sessionId];
+  return revisionFamilySessionIds(await runtime.listSessions(), sessionId);
+}
+
 export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   const {
     runtime,
@@ -186,6 +209,10 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     if (!isCollaborationMode(collaborationMode)) {
       throw new TypeError('Invalid collaboration mode.');
     }
+    const orchestrationMode = input?.orchestrationMode ?? 'default';
+    if (!isOrchestrationMode(orchestrationMode)) {
+      throw new TypeError('Invalid orchestration mode.');
+    }
     if (input?.backend === 'fake') {
       if (!canCreateFakeSession()) {
         throw new Error('FakeBackend sessions are only available in development.');
@@ -197,6 +224,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
         model: input.model ?? 'fake-model',
         permissionMode: input.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
         collaborationMode,
+        orchestrationMode,
         name: input.name ?? DEFAULT_SESSION_NAME,
         labels: input.labels,
       });
@@ -216,6 +244,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
       collaborationMode,
+      orchestrationMode,
       name: input?.name ?? DEFAULT_SESSION_NAME,
       labels: input?.labels,
     });
@@ -308,11 +337,25 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       artifactStore,
       resizeImage: resizeImageForAttachment,
     });
-    const iterator = runtime.sendMessage(sessionId, {
-      turnId,
-      text: sendCommand.text,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    });
+    const iterator = runtime.sendMessage(
+      sessionId,
+      {
+        turnId,
+        text: sendCommand.text,
+        ...(sendCommand.turnOrchestration
+          ? { turnOrchestration: sendCommand.turnOrchestration }
+          : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(sendCommand.quotes ? { quotes: sendCommand.quotes } : {}),
+      },
+      {
+        onRunStarted: async (_runId, header) => {
+          if (header.revisionState === 'preparing') {
+            await runtime.commitRevisionVersion(sessionId);
+          }
+        },
+      },
+    );
     void streamEvents(sessionId, iterator, { turnId, goalBoundary: 'external' });
     return { turnId, attachments };
   });
@@ -392,31 +435,52 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       emitCreated: (id) => emitSessionsChanged('created', id),
     });
   });
-  ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    await goalWiring.archiveSession(sessionId, () => runtime.archive(sessionId));
-    invalidateSessionBindings?.(sessionId);
-    clearSkillHost?.(sessionId);
-    // An archived conversation is no longer shown: drop its browser connection
-    // and view so it does not keep a live Chromium page in the background.
-    await releaseBrowserSession(sessionId);
-    // Stop autonomous polling heartbeats tied to the session. Goal ownership is
-    // revoked transactionally with the archive above.
-    automationManager.removeAllForSession(sessionId);
-    emitSessionsChanged('archived', sessionId);
+  ipcMain.handle('sessions:reviseBeforeTurn', async (_event, sessionId: string, input: unknown) => {
+    return handleReviseBeforeTurn(sessionId, input, {
+      ensureSessionWorkspaceAvailable,
+      reviseBeforeTurn: (id, normalized) => runtime.reviseBeforeTurn(id, normalized),
+      emitCreated: (id) => emitSessionsChanged('created', id),
+    });
   });
-  ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
-    await goalWiring.unarchiveSession(sessionId, () => runtime.unarchive(sessionId));
-    emitSessionsChanged('updated', sessionId);
+  ipcMain.handle('sessions:archive', async (_event, sessionId: string, options?: unknown) => {
+    for (const id of await resolveSessionActionIds(runtime, sessionId, options)) {
+      computerUseOverlay.clearForSession(id);
+      computerUseTools.clearSession(id);
+      await goalWiring.archiveSession(id, () => runtime.archive(id));
+      invalidateSessionBindings?.(id);
+      clearSkillHost?.(id);
+      await releaseBrowserSession(id);
+      automationManager.removeAllForSession(id);
+      emitSessionsChanged('archived', id);
+    }
   });
-  ipcMain.handle('sessions:setFlagged', async (_event, sessionId: string, isFlagged: boolean) => {
-    await runtime.setFlagged(sessionId, isFlagged);
-    emitSessionsChanged('pinned', sessionId);
+  ipcMain.handle('sessions:unarchive', async (_event, sessionId: string, options?: unknown) => {
+    for (const id of await resolveSessionActionIds(runtime, sessionId, options)) {
+      await goalWiring.unarchiveSession(id, () => runtime.unarchive(id));
+      emitSessionsChanged('updated', id);
+    }
   });
-  ipcMain.handle('sessions:rename', async (_event, sessionId: string, name: string) => {
-    await runtime.renameSession(sessionId, name);
-    emitSessionsChanged('renamed', sessionId);
+  ipcMain.handle('sessions:setFlagged', async (
+    _event,
+    sessionId: string,
+    isFlagged: boolean,
+    options?: unknown,
+  ) => {
+    for (const id of await resolveSessionActionIds(runtime, sessionId, options)) {
+      await runtime.setFlagged(id, isFlagged);
+      emitSessionsChanged('pinned', id);
+    }
+  });
+  ipcMain.handle('sessions:rename', async (
+    _event,
+    sessionId: string,
+    name: string,
+    options?: unknown,
+  ) => {
+    for (const id of await resolveSessionActionIds(runtime, sessionId, options)) {
+      await runtime.renameSession(id, name);
+      emitSessionsChanged('renamed', id);
+    }
   });
   ipcMain.handle('sessions:setPermissionMode', (_event, sessionId: string, mode: unknown) => {
     if (!isPermissionMode(mode)) {
@@ -432,6 +496,15 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       throw new Error(`Invalid collaboration mode: ${String(mode)}`);
     }
     return runtime.setCollaborationMode(sessionId, mode).then((session) => {
+      emitSessionsChanged('mode-change', sessionId);
+      return session;
+    });
+  });
+  ipcMain.handle('sessions:setOrchestrationMode', (_event, sessionId: string, mode: unknown) => {
+    if (!isOrchestrationMode(mode)) {
+      throw new Error(`Invalid orchestration mode: ${String(mode)}`);
+    }
+    return runtime.setOrchestrationMode(sessionId, mode).then((session) => {
       emitSessionsChanged('mode-change', sessionId);
       return session;
     });
@@ -549,19 +622,16 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     emitSessionsChanged('updated', sessionId);
     return next;
   });
-  ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
-    computerUseOverlay.clearForSession(sessionId);
-    computerUseTools.clearSession(sessionId);
-    await goalWiring.removeSession(sessionId, () => runtime.remove(sessionId));
-    invalidateSessionBindings?.(sessionId);
-    clearSkillHost?.(sessionId);
-    // Drop the conversation's browser connection and destroy its view (no-op
-    // if it never opened one). releaseBrowserSession disposes the view via the
-    // host, covering both agent-driven and hand-opened views.
-    await releaseBrowserSession(sessionId);
-    // Stop autonomous polling heartbeats tied to the session. Goal ownership is
-    // revoked transactionally with the removal above.
-    automationManager.removeAllForSession(sessionId);
-    emitSessionsChanged('deleted', sessionId);
+  ipcMain.handle('sessions:remove', async (_event, sessionId: string, options?: unknown) => {
+    for (const id of await resolveSessionActionIds(runtime, sessionId, options)) {
+      computerUseOverlay.clearForSession(id);
+      computerUseTools.clearSession(id);
+      await goalWiring.removeSession(id, () => runtime.remove(id));
+      invalidateSessionBindings?.(id);
+      clearSkillHost?.(id);
+      await releaseBrowserSession(id);
+      automationManager.removeAllForSession(id);
+      emitSessionsChanged('deleted', id);
+    }
   });
 }

@@ -1,6 +1,7 @@
 import {
   DAILY_REVIEW_LIST_LIMIT,
   buildDailyReviewSummary,
+  collapseSessionRevisions,
   dailyReviewArchiveId,
   dailyUsageQuery,
   generalizedErrorMessageChinese,
@@ -81,7 +82,7 @@ export function createDailyReviewMainService(deps: DailyReviewMainServiceDeps): 
     return buildDailyReviewSummary({
       day: range,
       usageSummary,
-      sessions: pickDailyReviewSessions(sessions, range, DAILY_REVIEW_LIST_LIMIT),
+      sessions: pickDailyReviewSessions(collapseSessionRevisions(sessions), range, DAILY_REVIEW_LIST_LIMIT),
       topTools: pickDailyReviewTopEntries(toolBuckets, DAILY_REVIEW_LIST_LIMIT),
       topModels: pickDailyReviewTopEntries(modelBuckets, DAILY_REVIEW_LIST_LIMIT),
     });

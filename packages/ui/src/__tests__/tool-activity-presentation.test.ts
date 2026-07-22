@@ -825,6 +825,7 @@ describe('tool activity presentation', () => {
             started: true,
             turnId: 'turn-auth',
             runId: 'run-auth',
+            resumedFromRunId: 'run-auth-source',
             status: 'completed',
             summary: longSummary,
             artifactIds: ['artifact-auth'],
@@ -862,6 +863,7 @@ describe('tool activity presentation', () => {
     assert.match(markup, /1 取消/);
     assert.match(markup, /run run-auth/);
     assert.match(markup, /turn turn-auth/);
+    assert.match(markup, /resumed from run-auth-source/);
     assert.match(markup, /ParentCancelled/);
     assert.match(markup, />已取消</);
     assert.doesNotMatch(markup, /x{300}/);

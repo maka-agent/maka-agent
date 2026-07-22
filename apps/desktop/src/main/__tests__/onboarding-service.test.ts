@@ -88,6 +88,29 @@ describe('createOnboardingService.getSnapshot', () => {
     ]);
   });
 
+  it('keeps physical revision summaries in the snapshot for version navigation', async () => {
+    const root = { id: 'root', revisionState: undefined } as unknown as SessionSummary;
+    const revision = {
+      id: 'revision',
+      revisionRootSessionId: 'root',
+      revisionParentSessionId: 'root',
+      revisionIndex: 2,
+      revisionState: 'committed',
+    } as unknown as SessionSummary;
+    const service = createOnboardingService(
+      fakeDeps({
+        listConnections: async () => [realConnection({ slug: 'a' })],
+        getDefaultSlug: async () => 'a',
+        hasCredential: async () => true,
+        listSessions: async () => [revision, root],
+        getMilestones: async () => [{ id: 'initial_onboarding', completedAt: 1 }],
+      }),
+    );
+
+    const snapshot = await service.getSnapshot();
+    assert.deepEqual(snapshot.sessions.map((session) => session.id), ['revision', 'root']);
+  });
+
   it('resolves per-connection credentials in PARALLEL (@kenji perf gate)', async () => {
     const conns = ['a', 'b', 'c', 'd'].map((slug) => realConnection({ slug }));
     let started = 0;

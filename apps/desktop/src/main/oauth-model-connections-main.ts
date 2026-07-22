@@ -191,14 +191,14 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     // snapshot is rebuilt from the current registry so renamed/added models
     // (e.g. gpt-5.6-sol) reach existing users instead of being shadowed by a
     // stale copy on disk.
-    const cachedFetchedModels =
-      existing?.modelSource === 'fetched' && existing.models?.length
-        ? normalizeOpenAiCodexModels(existing.models, fallbackModels)
-        : fallbackModels;
+    const hasFetchedSnapshot =
+      existing?.modelSource === 'fetched' && Array.isArray(existing.models);
+    const cachedFetchedModels = hasFetchedSnapshot
+      ? normalizeOpenAiCodexModels(existing.models ?? [], [])
+      : fallbackModels;
 
     let models: NonNullable<LlmConnection['models']> = cachedFetchedModels;
-    let modelSource: ModelDiscoverySource =
-      existing?.modelSource === 'fetched' ? 'fetched' : 'fallback';
+    let modelSource: ModelDiscoverySource = hasFetchedSnapshot ? 'fetched' : 'fallback';
     let modelsFetchedAt = existing?.modelsFetchedAt;
     try {
       const accessToken = await deps.openAiCodex.getAccessTokenInternal();
@@ -277,7 +277,21 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
         }
       }
       // Transient network failure / 5xx / unknown - keep the cached fetched
-      // list or the curated fallback so the connection stays usable.
+      // list or the curated fallback so the connection stays usable. An
+      // authoritative fetched-empty snapshot remains disabled/error; reviving
+      // fallback ids here would make an account with no usable models appear
+      // verified after a temporary outage.
+      if (hasFetchedSnapshot && cachedFetchedModels.length === 0 && existing) {
+        return deps.connectionStore.update(existing.slug, {
+          enabled: false,
+          lastTestStatus: 'error',
+          models: [],
+          modelSource: 'fetched',
+          modelsFetchedAt,
+          lastTestAt: new Date(now).toISOString(),
+          lastTestMessage: '当前账号无可用 Codex 模型。',
+        });
+      }
     }
 
     const normalizedDefaultModel = normalizeOpenAiCodexDefaultModel(

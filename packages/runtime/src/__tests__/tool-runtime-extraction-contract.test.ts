@@ -169,7 +169,8 @@ describe('RunTrace extraction contract', () => {
     assert.match(backend, /from '\.\/run-trace\.js'/);
     assert.match(backend, /recordRunTrace\?: RunTraceRecorder/);
     assert.match(backend, /private currentRunTrace: RunTrace \| null = null;/);
-    assert.match(backend, /trace\.turnStarted\(\)/);
+    assert.match(backend, /trace\.turnStarted\(\{/);
+    assert.match(backend, /orchestrationMode: this\.currentOrchestration\.mode/);
     assert.match(backend, /trace\.modelResolved\(\)/);
     assert.match(backend, /trace\.modelStreamStarted\(activeTools, \{/);
     assert.match(backend, /trace\.usageRecorded\(\{\n\s+\.\.\.tokenUsage,/);

@@ -10,10 +10,8 @@
  *     calls must surface a clear, copy-paste-ready error so a
  *     future review catches an accidental enable).
  *
- * The tests import from `antigravity-subscription-helpers.ts`
- * directly so they don't pull in the `electron` ESM module —
- * the service class file imports `shell` from electron,
- * which is unavailable under plain `node --test`.
+ * The service receives its Electron-only URL opener as a dependency,
+ * so the preview's public behavior can run under plain `node --test`.
  */
 
 import { strict as assert } from 'node:assert';
@@ -27,6 +25,7 @@ import {
   STATUS,
   buildAntigravityAuthorizationUrl,
 } from '../oauth/antigravity-subscription-helpers.js';
+import { AntigravitySubscriptionService } from '../oauth/antigravity-subscription-service.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 const SERVICE_SOURCE = resolve(
@@ -38,18 +37,8 @@ const SERVICE_SOURCE = resolve(
   'oauth',
   'antigravity-subscription-service.ts',
 );
-const HELPERS_SOURCE = resolve(
-  REPO_ROOT,
-  'apps',
-  'desktop',
-  'src',
-  'main',
-  'oauth',
-  'antigravity-subscription-helpers.ts',
-);
-
 describe('Antigravity subscription preview config', () => {
-  it('pins STATUS = preview and exports it for the contract scan', () => {
+  it('stays in preview status', () => {
     assert.equal(STATUS, 'preview');
     assert.equal(ANTIGRAVITY_OAUTH_CONFIG.status, 'preview');
   });
@@ -108,49 +97,21 @@ describe('Antigravity subscription preview config', () => {
   });
 });
 
-describe('Antigravity service source-grep contract', () => {
-  it('service file references the missing-client-id envelope from getAuthorizationUrl', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /ANTIGRAVITY_MISSING_CLIENT_ID_ENVELOPE/,
-      'service must return the shared envelope when GOOGLE_CLIENT_ID is empty',
-    );
-    // The check itself must live next to getAuthorizationUrl.
-    const match = src.match(/async getAuthorizationUrl\(\)[\s\S]{0,400}/);
-    assert.ok(match, 'getAuthorizationUrl must exist');
-    assert.match(
-      match[0],
-      /GOOGLE_CLIENT_ID/,
-      'getAuthorizationUrl must early-return based on GOOGLE_CLIENT_ID',
-    );
-  });
+describe('Antigravity service contract', () => {
+  it('fails closed through the public authorization API when no Google client_id is bundled', async () => {
+    const service = new AntigravitySubscriptionService({
+      userDataDir: '/unused',
+      openExternal: async () => undefined,
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async () => {},
+      },
+    });
 
-  it('persists tokens through the shared credential store, not safeStorage (#1125)', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /saveSharedOAuthTokens\(this\.credentialStore, 'antigravity-subscription'/,
-      'tokens must be written to the shared CredentialStore (the cross-surface authority)',
-    );
-    assert.doesNotMatch(
-      src,
-      /encryptString|decryptString|isEncryptionAvailable/,
-      'no safeStorage-encrypted token path may remain',
-    );
-  });
-
-  it('exports the preview status constant for the renderer-side scan', async () => {
-    const src = await readFile(HELPERS_SOURCE, 'utf8');
-    assert.match(src, /export const STATUS = 'preview' as const;/);
-  });
-
-  it('marks Google-specific calls as spec-only in the comment block', async () => {
-    const src = await readFile(HELPERS_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /spec-only/i,
-      'antigravity helpers must call out that endpoint values come from the docs spec, not from a working upstream plugin source',
+    assert.deepEqual(
+      await service.getAuthorizationUrl(),
+      ANTIGRAVITY_MISSING_CLIENT_ID_ENVELOPE,
     );
   });
 

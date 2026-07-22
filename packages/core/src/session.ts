@@ -9,11 +9,13 @@
 import {
   TOOL_ACTIVITY_KINDS,
   type AttachmentRef,
+  type QuoteRef,
   type ToolActivityKind,
   type ToolResultContent,
 } from './events.js';
 import type { PermissionMode } from './permission.js';
 import type { CollaborationMode } from './collaboration.js';
+import type { OrchestrationMode } from './orchestration.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -105,6 +107,16 @@ export interface SessionHeader {
   statusUpdatedAt?: number;
   parentSessionId?: string;
   branchOfTurnId?: string;
+  /** Stable root id for an edit-and-resend version family. */
+  revisionRootSessionId?: string;
+  /** Immediate previous version in the same conversation slot. */
+  revisionParentSessionId?: string;
+  /** User turn replaced when this revision was created. */
+  revisionOfTurnId?: string;
+  /** Stable display order inside the revision family; root is implicitly 1. */
+  revisionIndex?: number;
+  /** Preparing versions are hidden after restart until their first run starts. */
+  revisionState?: 'preparing' | 'committed';
 
   // Unread tracking
   lastReadMessageId?: string;
@@ -122,6 +134,8 @@ export interface SessionHeader {
   permissionMode: PermissionMode;
   /** Defaults to `agent` when absent on legacy session records. */
   collaborationMode?: CollaborationMode;
+  /** Defaults to `default` when absent on legacy session records. */
+  orchestrationMode?: OrchestrationMode;
 
   /** Forward-compatible schema versioning. V0.1 only writes 1. */
   schemaVersion: 1;
@@ -146,6 +160,11 @@ export interface SessionSummary {
   statusUpdatedAt?: number;
   parentSessionId?: string;
   branchOfTurnId?: string;
+  revisionRootSessionId?: string;
+  revisionParentSessionId?: string;
+  revisionOfTurnId?: string;
+  revisionIndex?: number;
+  revisionState?: 'preparing' | 'committed';
   backend: BackendKind;
   llmConnectionSlug: string;
   /**
@@ -162,6 +181,8 @@ export interface SessionSummary {
   permissionMode: PermissionMode;
   /** Defaults to `agent` when absent on legacy summaries. */
   collaborationMode?: CollaborationMode;
+  /** Defaults to `default` when absent on legacy summaries. */
+  orchestrationMode?: OrchestrationMode;
 }
 
 export type SessionChangedReason =
@@ -219,6 +240,8 @@ export interface UserMessage {
    */
   displayText?: string;
   attachments?: AttachmentRef[];
+  /** Inline quoted excerpts carried into this message; rendered as chips. */
+  quotes?: QuoteRef[];
   /** Non-user trigger source (automation fire). Lets the chat mark turns the
    *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
   origin?: { kind: 'automation'; automationId: string };
@@ -391,7 +414,7 @@ export interface SystemNoteMessage {
 
 const USER_MESSAGE_SHAPE = defineObjectShape<UserMessage>()(
   ['type', 'id', 'turnId', 'ts', 'text'],
-  ['displayText', 'attachments', 'origin'],
+  ['displayText', 'attachments', 'quotes', 'origin'],
 );
 const ASSISTANT_MESSAGE_SHAPE = defineObjectShape<AssistantMessage>()(
   ['type', 'id', 'turnId', 'ts', 'text', 'modelId'],

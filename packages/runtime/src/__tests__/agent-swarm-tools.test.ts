@@ -3,10 +3,13 @@ import { describe, test } from 'node:test';
 import type { LlmConnection, SessionEvent, SessionHeader, ToolInvocationRecord } from '@maka/core';
 import {
   AGENT_SWARM_DEFAULT_CONCURRENCY,
+  AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS,
   AGENT_SWARM_MAX_CONCURRENCY,
   AGENT_SWARM_MAX_ITEMS,
+  AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER,
   AGENT_SWARM_TOOL_NAME,
   buildAgentSwarmTool,
+  type AgentSwarmExplicitItemInput,
   type AgentSwarmToolInput,
   type AgentSwarmToolResult,
 } from '../agent-swarm-tools.js';
@@ -42,6 +45,7 @@ describe('AgentSwarm adapter', () => {
     assert.equal(tool.name, AGENT_SWARM_TOOL_NAME);
     assert.equal(tool.permissionRequired, true);
     assert.equal(tool.categoryHint, 'subagent');
+    assert.equal(AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS, 2 * 60 * 60 * 1_000);
     assert.equal(([...AGENT_TOOL_NAMES] as string[]).includes(AGENT_SWARM_TOOL_NAME), true);
     assert.deepEqual(
       schema.safeParse({
@@ -137,6 +141,221 @@ describe('AgentSwarm adapter', () => {
       /worktree child executor/,
     );
     assert.equal(starts, 0);
+  });
+
+  test('accepts prompt_template with string items and rejects ambiguous template input', () => {
+    const tool = buildAgentSwarmTool();
+    const schema = tool.parameters as {
+      safeParse(input: unknown): {
+        success: boolean;
+        data?: AgentSwarmToolInput;
+      };
+    };
+
+    assert.deepEqual(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: [' runtime ', ' ui '],
+      }).data,
+      {
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'ui'],
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.equal(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'ui'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: 'Review this.',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'ui'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        items: ['runtime', 'ui'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['same', 'same'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: [swarmItem(0)],
+      }).success,
+      false,
+    );
+  });
+
+  test('normalizes prompt_template items through the existing ordered execution path', async () => {
+    const prompts: string[] = [];
+    const tool = buildAgentSwarmTool();
+    const result = await tool.impl(
+      {
+        prompt_template: `Compare ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER} with ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'desktop'],
+        max_concurrency: 2,
+      },
+      context({
+        spawnChildAgent: async (input) => {
+          prompts.push(input.prompt);
+          const index = prompts.length - 1;
+          await input.onReady?.({
+            turnId: `turn-${index}`,
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          return childResult(index);
+        },
+      }),
+    );
+
+    assert.deepEqual(prompts, ['Compare runtime with runtime.', 'Compare desktop with desktop.']);
+    assert.deepEqual(
+      result.items.map((item) => ({ itemId: item.itemId, index: item.index, status: item.status })),
+      [
+        { itemId: 'item-1', index: 0, status: 'completed' },
+        { itemId: 'item-2', index: 1, status: 'completed' },
+      ],
+    );
+  });
+
+  test('accepts resume-only input and enforces the shared total item bound', () => {
+    const schema = buildAgentSwarmTool().parameters as {
+      safeParse(input: unknown): { success: boolean; data?: AgentSwarmToolInput };
+    };
+    expectSchemaSuccess(
+      schema.safeParse({
+        resume_run_ids: {
+          'run-a': 'Continue the runtime review.',
+          'run-b': 'Continue the UI review.',
+        },
+      }),
+      {
+        resume_run_ids: {
+          'run-a': 'Continue the runtime review.',
+          'run-b': 'Continue the UI review.',
+        },
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.equal(
+      schema.safeParse({
+        items: Array.from({ length: AGENT_SWARM_MAX_ITEMS }, (_, index) => swarmItem(index)),
+        resume_run_ids: { extra: 'Continue.' },
+      }).success,
+      false,
+    );
+  });
+
+  test('preflights every resume before starting resumed or new child work', async () => {
+    let starts = 0;
+    const tool = buildAgentSwarmTool();
+    await assert.rejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            resume_run_ids: {
+              'run-good': 'Continue good.',
+              'run-unsafe': 'Continue unsafe.',
+            },
+            items: [swarmItem(0)],
+          },
+          context({
+            prepareChildAgentResume: async (sourceRunId) => {
+              if (sourceRunId === 'run-unsafe') throw new Error('unsafe resume history');
+              return preparedResume(sourceRunId);
+            },
+            resumeChildAgent: async () => {
+              starts += 1;
+              return childResult(10);
+            },
+            spawnChildAgent: async () => {
+              starts += 1;
+              return childResult(0);
+            },
+          }),
+        ),
+      ),
+      /unsafe resume history/,
+    );
+    assert.equal(starts, 0);
+  });
+
+  test('orders resumed children before new items and preserves resume evidence', async () => {
+    const calls: string[] = [];
+    const tool = buildAgentSwarmTool();
+    const result = await tool.impl(
+      {
+        resume_run_ids: { 'source-run': 'Continue the source review.' },
+        items: [swarmItem(0)],
+        max_concurrency: 2,
+      },
+      context({
+        prepareChildAgentResume: async (sourceRunId) => preparedResume(sourceRunId),
+        resumeChildAgent: async (input) => {
+          calls.push(`resume:${input.sourceRunId}:${input.prompt}`);
+          await input.onReady?.({
+            turnId: 'turn-resumed',
+            agentId: 'local-read',
+            agentName: 'Local Read',
+          });
+          return {
+            ...childResult(10),
+            turnId: 'turn-resumed',
+            runId: 'new-run',
+            resumedFromRunId: input.sourceRunId,
+          };
+        },
+        spawnChildAgent: async (input) => {
+          calls.push(`spawn:${input.prompt}`);
+          await input.onReady?.({
+            turnId: 'turn-0',
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          return childResult(0);
+        },
+      }),
+    );
+
+    assert.deepEqual(calls, ['resume:source-run:Continue the source review.', 'spawn:task-0']);
+    assert.deepEqual(
+      result.items.map((item) => ({
+        itemId: item.itemId,
+        index: item.index,
+        runId: item.runId,
+        resumedFromRunId: item.resumedFromRunId,
+      })),
+      [
+        {
+          itemId: 'resume-1',
+          index: 0,
+          runId: 'new-run',
+          resumedFromRunId: 'source-run',
+        },
+        { itemId: 'item-0', index: 1, runId: 'run-0', resumedFromRunId: undefined },
+      ],
+    );
   });
 
   test('fails at the tool boundary when child spawning is unavailable', async () => {
@@ -257,6 +476,7 @@ describe('AgentSwarm adapter', () => {
         cancelledItemCount: 0,
         artifactCount: 3,
         durationMs: 80,
+        resumedItemCount: 0,
       },
     );
   });
@@ -290,6 +510,69 @@ describe('AgentSwarm adapter', () => {
     assert.equal(result.items[1]?.started, false);
     assert.match(result.items[1]?.summary ?? '', /provider startup failed/);
     assert.equal(result.items[1]?.failureClass, 'Error');
+  });
+
+  test('retries provider rate limits without spawning the child prompt twice', async () => {
+    const traceEvents: TestTraceEvent[] = [];
+    const prompts: string[] = [];
+    const retrySources: string[] = [];
+    const siblingGate = deferred<SpawnChildAgentResult>();
+    const tool = buildAgentSwarmTool({
+      adaptiveSwarmPolicy: {
+        initialLaunchLimit: 2,
+        initialLaunchIntervalMs: 1,
+        rateLimitRetryBaseMs: 1,
+        rateLimitRetryFactor: 2,
+        capacityShrinkIntervalMs: 1,
+        capacityRecoveryIntervalMs: 100,
+      },
+    });
+    const pending = tool.impl(
+      { items: [swarmItem(0), swarmItem(1)], max_concurrency: 2 },
+      context({
+        emitRunTrace: (type, message, data) => traceEvents.push({ type, message, data }),
+        spawnChildAgent: async (input) => {
+          prompts.push(input.prompt);
+          const index = Number(input.prompt.slice('task-'.length));
+          await input.onReady?.({
+            turnId: `turn-${index}`,
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          if (index === 1) return await siblingGate.promise;
+          return {
+            ...childResult(0, 'failed'),
+            failureClass: 'RateLimit',
+            summary: 'provider 429',
+          };
+        },
+        retryChildAgent: async (input) => {
+          retrySources.push(input.sourceRunId);
+          await input.onReady?.({
+            turnId: 'turn-0-retry',
+            agentId: 'local-read',
+            agentName: 'Local Read',
+          });
+          return {
+            ...childResult(0),
+            turnId: 'turn-0-retry',
+            runId: 'run-0-retry',
+            artifactIds: ['artifact-retry'],
+          };
+        },
+      }),
+    );
+
+    await waitFor(() => traceEvents.some((event) => event.data?.swarmStage === 'item_suspended'));
+    siblingGate.resolve(childResult(1));
+    const result = await pending;
+
+    assert.deepEqual(prompts, ['task-0', 'task-1']);
+    assert.deepEqual(retrySources, ['run-0']);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.items[0]?.runId, 'run-0-retry');
+    assert.deepEqual(result.items[0]?.artifactIds, ['artifact-0', 'artifact-retry']);
+    assert.ok(traceEvents.some((event) => event.data?.swarmStage === 'capacity_changed'));
   });
 
   test('distinguishes active cancellation from items that never started', async () => {
@@ -374,6 +657,57 @@ describe('AgentSwarm adapter', () => {
     assert.equal(batchTrace?.cancelledItemCount, 4);
     assert.equal(batchTrace?.artifactCount, 2);
     assert.equal(typeof batchTrace?.durationMs, 'number');
+  });
+
+  test('fails only the timed-out item and continues queued siblings', async () => {
+    const parent = new AbortController();
+    const starts: string[] = [];
+    const traceEvents: TestTraceEvent[] = [];
+    const runtime = buildRuntime(
+      async (input) => {
+        starts.push(input.prompt);
+        const index = Number(input.prompt.slice('task-'.length));
+        await input.onReady?.({
+          turnId: `turn-${index}`,
+          agentId: input.spec.id,
+          agentName: input.spec.name,
+        });
+        if (index === 0) {
+          await onceAborted(input.abortSignal);
+          return childResult(index, 'cancelled');
+        }
+        return childResult(index);
+      },
+      { traceEvents },
+    );
+
+    const result = (await executeTool(
+      runtime,
+      {
+        ...buildAgentSwarmTool({ itemTimeoutMs: 20 }),
+        permissionRequired: false,
+      },
+      { items: [swarmItem(0), swarmItem(1)], max_concurrency: 1 },
+      parent,
+    )) as AgentSwarmToolResult;
+
+    assert.equal(parent.signal.aborted, false);
+    assert.deepEqual(starts, ['task-0', 'task-1']);
+    assert.equal(result.status, 'partial');
+    assert.deepEqual(
+      result.items.map((item) => ({ status: item.status, failureClass: item.failureClass })),
+      [
+        { status: 'failed', failureClass: 'Timeout' },
+        { status: 'completed', failureClass: undefined },
+      ],
+    );
+    assert.match(result.items[0]?.summary ?? '', /timed out after 20 ms/i);
+    assert.ok(
+      traceEvents.some(
+        (event) =>
+          event.data?.swarmStage === 'item_completed' && event.data?.failureClass === 'Timeout',
+      ),
+    );
   });
 
   test('composes local width with the shared child-run permit pool', async () => {
@@ -610,7 +944,7 @@ describe('AgentSwarm adapter', () => {
   });
 });
 
-function swarmItem(index: number): AgentSwarmToolInput['items'][number] {
+function swarmItem(index: number): AgentSwarmExplicitItemInput {
   return {
     item_id: `item-${index}`,
     profile: LOCAL_READ_AGENT_PROFILE,
@@ -644,6 +978,23 @@ function childResult(
 function childResultForPrompt(prompt: string): SpawnChildAgentResult {
   const index = prompt === 'single' ? 99 : Number(prompt.slice('task-'.length));
   return childResult(index);
+}
+
+function preparedResume(sourceRunId: string) {
+  return {
+    sourceRunId,
+    agentId: 'local-read',
+    agentName: 'Local Read',
+    profile: LOCAL_READ_AGENT_PROFILE,
+  };
+}
+
+function expectSchemaSuccess(
+  parsed: { success: boolean; data?: AgentSwarmToolInput },
+  expected: AgentSwarmToolInput & { max_concurrency: number },
+): void {
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.data, expected);
 }
 
 function context(overrides: Partial<MakaToolContext> = {}): MakaToolContext {

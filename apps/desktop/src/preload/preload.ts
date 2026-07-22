@@ -26,6 +26,8 @@ import type {
   UserQuestionResponse,
   PermissionMode,
   CollaborationMode,
+  OrchestrationMode,
+  TurnOrchestration,
   PlanSessionState,
   SearchErrorReason,
   SearchRequest,
@@ -53,6 +55,7 @@ import type {
   BranchFromTurnInput,
   CapabilitySnapshotCollection,
   RegenerateTurnInput,
+  ReviseBeforeTurnInput,
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
@@ -104,6 +107,7 @@ import type {
   AttachmentRef,
   OnboardingMilestoneId,
   QuickChatMode,
+  QuoteRef,
 } from '@maka/core';
 
 type LocalMemoryMutationResult =
@@ -143,7 +147,14 @@ const makaBridge = {
       sessionId: string,
       command:
         | SessionCommand
-        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        | {
+            type: 'send';
+            turnId: string;
+            text: string;
+            attachmentItems?: RendererIngestInput[];
+            turnOrchestration?: TurnOrchestration;
+            quotes?: QuoteRef[];
+          },
     ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
       if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {
         const encoded = await encodeIngestItems(command.attachmentItems as RendererIngestInput[]);
@@ -174,6 +185,9 @@ const makaBridge = {
     },
     branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:branchFromTurn', sessionId, input);
+    },
+    reviseBeforeTurn(sessionId: string, input: ReviseBeforeTurnInput): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:reviseBeforeTurn', sessionId, input);
     },
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
       return ipcRenderer.invoke('sessions:respondToPermission', sessionId, response);
@@ -206,23 +220,26 @@ const makaBridge = {
       ipcRenderer.on('sessions:changed', listener);
       return () => ipcRenderer.off('sessions:changed', listener);
     },
-    archive(sessionId: string): Promise<void> {
-      return ipcRenderer.invoke('sessions:archive', sessionId);
+    archive(sessionId: string, options?: { revisionFamily?: boolean }): Promise<void> {
+      return ipcRenderer.invoke('sessions:archive', sessionId, options);
     },
-    unarchive(sessionId: string): Promise<void> {
-      return ipcRenderer.invoke('sessions:unarchive', sessionId);
+    unarchive(sessionId: string, options?: { revisionFamily?: boolean }): Promise<void> {
+      return ipcRenderer.invoke('sessions:unarchive', sessionId, options);
     },
-    setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
-      return ipcRenderer.invoke('sessions:setFlagged', sessionId, isFlagged);
+    setFlagged(sessionId: string, isFlagged: boolean, options?: { revisionFamily?: boolean }): Promise<void> {
+      return ipcRenderer.invoke('sessions:setFlagged', sessionId, isFlagged, options);
     },
-    rename(sessionId: string, name: string): Promise<void> {
-      return ipcRenderer.invoke('sessions:rename', sessionId, name);
+    rename(sessionId: string, name: string, options?: { revisionFamily?: boolean }): Promise<void> {
+      return ipcRenderer.invoke('sessions:rename', sessionId, name, options);
     },
     setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setPermissionMode', sessionId, mode);
     },
     setCollaborationMode(sessionId: string, mode: CollaborationMode): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setCollaborationMode', sessionId, mode);
+    },
+    setOrchestrationMode(sessionId: string, mode: OrchestrationMode): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setOrchestrationMode', sessionId, mode);
     },
     getPlanState(sessionId: string): Promise<PlanSessionState> {
       return ipcRenderer.invoke('plan-mode:getState', sessionId);
@@ -259,8 +276,8 @@ const makaBridge = {
     setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setThinkingLevel', sessionId, level ?? undefined);
     },
-    remove(sessionId: string): Promise<void> {
-      return ipcRenderer.invoke('sessions:remove', sessionId);
+    remove(sessionId: string, options?: { revisionFamily?: boolean }): Promise<void> {
+      return ipcRenderer.invoke('sessions:remove', sessionId, options);
     },
   },
   shellRuns: {

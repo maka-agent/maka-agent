@@ -20,7 +20,6 @@
  * Reference: cursor-auth plugin pattern (external reference).
  */
 
-import { shell } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
@@ -95,6 +94,8 @@ interface PendingAuthorization {
 export interface CursorSubscriptionServiceDeps {
   /** Absolute path to userData dir; e.g. app.getPath('userData'). */
   userDataDir: string;
+  /** Opens the provider authorization URL in the system browser. */
+  openExternal: (url: string) => Promise<void>;
   /** Function returning current epoch ms. Injectable for tests. */
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
@@ -111,6 +112,7 @@ export class CursorSubscriptionService {
    *  anymore; unlinked on logout in case the startup import could not
    *  run, so logout still means "no credential survives anywhere". */
   private readonly legacyTokenFilePath: string;
+  private readonly openExternal: (url: string) => Promise<void>;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
   private readonly sleepFn: (ms: number) => Promise<void>;
@@ -124,6 +126,7 @@ export class CursorSubscriptionService {
 
   constructor(deps: CursorSubscriptionServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.cursor_subscription_token');
+    this.openExternal = deps.openExternal;
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
     this.sleepFn =
@@ -194,7 +197,7 @@ export class CursorSubscriptionService {
       return { ok: false, reason: 'authorization_expired', message: '授权请求已过期，请重新点击“登录 Cursor”。' };
     }
     try {
-      await shell.openExternal(pending.url);
+      await this.openExternal(pending.url);
       this.authorizing = true;
       return { ok: true };
     } catch (err) {
@@ -462,8 +465,8 @@ export class CursorSubscriptionService {
 
   /**
    * Always reads the shared store — no in-memory copy; the store is
-   * the cross-surface authority (#1125). A corrupt entry is deleted by
-   * the bridge so the next login isn't stuck.
+   * the cross-surface authority (#1125). A corrupt entry is preserved
+   * for recovery; a fresh login can overwrite it.
    */
   private async loadTokens(): Promise<PersistedTokens | null> {
     let result: Awaited<ReturnType<typeof loadSharedOAuthTokens>>;
@@ -505,9 +508,8 @@ export interface CursorAccountStateSnapshot {
   errorMessage?: string;
 }
 
-// Re-exports for the IPC handler + tests. The pure helpers live
-// in `cursor-subscription-helpers.ts` so they can be unit-tested
-// without dragging in the electron ESM module.
+// Re-exports for the IPC handler + focused protocol tests. The pure
+// helpers keep URL, PKCE, and expiry logic independent of service state.
 export {
   CURSOR_OAUTH_CONFIG,
   buildCursorLoginUrl,

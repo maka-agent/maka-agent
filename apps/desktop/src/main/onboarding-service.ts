@@ -29,6 +29,7 @@
  */
 
 import {
+  collapseSessionRevisions,
   deriveOnboardingState,
   hasSettledInitialOnboarding,
   ONBOARDING_MILESTONE_IDS,
@@ -121,17 +122,18 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
       );
       const secrets: Record<string, boolean> = Object.fromEntries(secretEntries);
 
+      const logicalSessions = collapseSessionRevisions(sessions);
       const state = deriveOnboardingState({
         connections,
         defaultSlug: defaultSlug ?? undefined,
-        sessions,
+        sessions: logicalSessions,
         secrets,
       });
 
       // Backfill: existing users who already have sessions but no
       // initial_onboarding milestone (upgraded from before this PR)
       // get auto-marked as completed so the hero never appears.
-      if (sessions.length > 0 && !hasSettledInitialOnboarding(milestones)) {
+      if (logicalSessions.length > 0 && !hasSettledInitialOnboarding(milestones)) {
         const updated = await deps.upsertMilestone('initial_onboarding', 'completed');
         return { state, milestones: updated, sessions, connections, defaultSlug: defaultSlug ?? null };
       }
@@ -169,10 +171,11 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
         }),
       );
       const secrets: Record<string, boolean> = Object.fromEntries(secretEntries);
+      const logicalSessions = collapseSessionRevisions(sessions);
       const state = deriveOnboardingState({
         connections,
         defaultSlug: defaultSlug ?? undefined,
-        sessions,
+        sessions: logicalSessions,
         secrets,
       });
       return { state, milestones, sessions, connections, defaultSlug: defaultSlug ?? null };
@@ -198,10 +201,11 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
         }),
       );
       const secrets: Record<string, boolean> = Object.fromEntries(secretEntries);
+      const logicalSessions = collapseSessionRevisions(sessions);
       const state = deriveOnboardingState({
         connections,
         defaultSlug: defaultSlug ?? undefined,
-        sessions,
+        sessions: logicalSessions,
         secrets,
       });
       return { state, milestones, sessions, connections, defaultSlug: defaultSlug ?? null };
