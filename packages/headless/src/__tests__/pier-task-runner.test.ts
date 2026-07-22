@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { HarborCellOutput } from '../cell-output.js';
-import { FixedPromptBudgetExhaustedError, type TaskRunInput } from '../fixed-prompt-controller.js';
+import {
+  FixedPromptBudgetExhaustedError,
+  hashSystemPrompt,
+  runFixedPromptController,
+  type TaskRunInput,
+} from '../fixed-prompt-controller.js';
 import {
   buildPierRunArgs,
   createPierTaskRunner,
@@ -226,7 +231,12 @@ test('createPierTaskRunner maps a completed fake trial to reward and host cell p
     );
     const output = await runner(runInput());
     assert.equal(output.harbor.reward, 0);
-    assert.equal(output.harbor.verifier, undefined);
+    // Pier's grading is surfaced as the structured verifier outcome the
+    // controller requires for failed-cell scoring.
+    assert.deepEqual(output.harbor.verifier, {
+      outcome: 'failed',
+      attempts: [{ attempt: 1, classification: 'failed', durationMs: 0, reward: 0 }],
+    });
     assert.equal(output.cell.status, 'completed');
     // The container-local runtime path is overridden with the host trial path.
     assert.match(output.cell.runtimeEventsPath, /agent\/runtime-events\.jsonl$/);
@@ -389,6 +399,52 @@ test('createPierTaskRunner reports a budget exhaustion as a benchmark outcome', 
       runner(runInput()),
       (error: Error) => error instanceof FixedPromptBudgetExhaustedError,
     );
+  });
+});
+
+test('pier-graded failed cells stay scored through the fixed-prompt controller', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-pier-controller-'));
+    try {
+      const systemPrompt = 'CANDIDATE PROMPT\n';
+      const systemPromptPath = join(dir, 'prompt.txt');
+      await writeFile(systemPromptPath, systemPrompt, 'utf8');
+      const promptHash = hashSystemPrompt(systemPrompt);
+      const cell = cellOutput({
+        status: 'failed',
+        errorClass: 'max_tokens',
+        promptHash,
+        executionIdentity: {
+          llmConnectionSlug: 'fake',
+          model: 'fake',
+          systemPromptMode: 'default',
+          systemPromptHash: promptHash,
+          pricingProfile: 'fake-structural',
+        },
+      });
+      const runner = createPierTaskRunner(
+        baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward: 0, cell }) }),
+      );
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config: { id: 'cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake' },
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'dasel', path: '/tasks/dasel-html-document-format' }],
+        taskRunner: runner,
+      });
+      // Without the structured verifier outcome this event is scored=false and
+      // silently leaves the benchmark denominator.
+      const event = result.events[0]!;
+      assert.equal(event.type, 'task_completed');
+      assert.equal(event.passed, false);
+      assert.equal(event.scored, true);
+      assert.equal(event.eligible, true);
+      assert.equal(event.errorClass, 'max_tokens');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

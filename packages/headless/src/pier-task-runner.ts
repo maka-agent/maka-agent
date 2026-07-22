@@ -9,6 +9,7 @@ import { validateHarborCellOutput, type HarborCellOutput } from './cell-output.j
 import {
   FixedPromptBudgetExhaustedError,
   type FixedPromptBudgetExhaustedError as FixedPromptBudgetExhaustedErrorType,
+  type HarborVerifierOutcome,
   type TaskRunInput,
   type TaskRunOutput,
   type TaskRunner,
@@ -375,8 +376,18 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
           : { ...rawCell, tokenSummary: providerTokenSummary(providerUsage, options.pricing) };
       const hostEventsPath = join(trialDir, TRIAL_RUNTIME_EVENTS);
       const combinedTracePath = join(trialDir, TRIAL_COMBINED_TRACE_EVENTS);
+      // Pier's verifier grading is the scoring authority. Surface it as the
+      // structured verifier outcome the controller requires: without it a
+      // graded failed cell (max_tokens / tool_step_cap_reached / policy_denied)
+      // is never verifierGraded and drops out of the benchmark denominator as
+      // scored=false. The outcome is derived from the reward itself, so unlike
+      // Harbor's independently-written oracle artifact it cannot disagree.
+      const verifier = pierVerifierOutcome(
+        reward,
+        await readVerifierDurationMs(join(trialDir, TRIAL_RESULT)),
+      );
       return {
-        harbor: { reward },
+        harbor: { reward, verifier },
         cell: {
           ...cell,
           ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
@@ -643,6 +654,36 @@ async function writeEnvFile(path: string, env: Record<string, string>): Promise<
     .join('\n');
   await writeFile(path, `${body}\n`, { encoding: 'utf8', mode: 0o600 });
   await chmod(path, 0o600);
+}
+
+/** Single-attempt structured outcome from Pier's scoring authority, aligned
+ * with the HarborVerifierOutcome contract the fixed-prompt controller consumes.
+ * Harbor reads this from the Maka oracle verifier's own JSON artifact; Pier has
+ * no such artifact, so the outcome is constructed from the graded reward. */
+function pierVerifierOutcome(reward: number, durationMs: number): HarborVerifierOutcome {
+  const passed = reward > 0;
+  return {
+    outcome: passed ? 'passed' : 'failed',
+    attempts: [
+      {
+        attempt: 1,
+        classification: passed ? 'passed' : 'failed',
+        durationMs,
+        reward,
+      },
+    ],
+  };
+}
+
+async function readVerifierDurationMs(resultPath: string): Promise<number> {
+  const result = await readOptionalJson(resultPath);
+  const phase = result && isRecord(result.verifier) ? result.verifier : null;
+  const started = typeof phase?.started_at === 'string' ? Date.parse(phase.started_at) : Number.NaN;
+  const finished =
+    typeof phase?.finished_at === 'string' ? Date.parse(phase.finished_at) : Number.NaN;
+  return Number.isFinite(started) && Number.isFinite(finished) && finished >= started
+    ? finished - started
+    : 0;
 }
 
 async function readPierReward(trialDir: string, taskId: string): Promise<number> {
