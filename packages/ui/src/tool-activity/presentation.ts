@@ -1,8 +1,12 @@
 import type { UiLocale } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
-import { loadToolDisplayName } from '../tool-format.js';
 import { formatUserVisibleToolText } from './preview-utils.js';
-import { trowActivityKind, type TrowActivityKind } from './trow-summary.js';
+import { resolveToolDisplayName, trowActivityKind, type TrowActivityKind } from './trow-summary.js';
+
+// Definitions moved into trow-summary.ts (the leaf module) so the live
+// processing summary can use the localized display-name fallback without an
+// import cycle; re-exported here for existing consumers.
+export { isConnectorTool, resolveToolDisplayName } from './trow-summary.js';
 
 export interface ToolActivityPresentation {
   kind: TrowActivityKind;
@@ -13,18 +17,6 @@ export interface ToolActivityPresentation {
 export interface ToolDisclosureState {
   open: boolean;
   manuallySet: boolean;
-}
-
-const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set(['load_tools', 'load_tool']);
-
-export function isConnectorTool(name: string): boolean {
-  return CONNECTOR_TOOL_NAMES.has(name);
-}
-
-export function resolveToolDisplayName(item: ToolActivityItem, locale: UiLocale): string {
-  if (item.displayName) return item.displayName;
-  if (isConnectorTool(item.toolName)) return loadToolDisplayName(locale);
-  return item.toolName;
 }
 
 export function deriveToolActivityPresentation(

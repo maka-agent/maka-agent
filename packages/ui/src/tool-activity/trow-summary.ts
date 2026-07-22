@@ -14,10 +14,27 @@
 import type { ToolActivityKind, UiLocale } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
 import type { FoldedTimelineChild } from '../timeline-fold.js';
+import { loadToolDisplayName } from '../tool-format.js';
 import { getToolActivityCopy } from './copy.js';
 import { formatUserVisibleToolText } from './preview-utils.js';
 
 export type TrowActivityKind = ToolActivityKind;
+
+// Connector-tool naming lives in this leaf module (rather than
+// presentation.ts, which imports us) so the live processing summary below can
+// reuse the same localized fallback without an import cycle. presentation.ts
+// re-exports both for its existing consumers.
+const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set(['load_tools', 'load_tool']);
+
+export function isConnectorTool(name: string): boolean {
+  return CONNECTOR_TOOL_NAMES.has(name);
+}
+
+export function resolveToolDisplayName(item: ToolActivityItem, locale: UiLocale): string {
+  if (item.displayName) return item.displayName;
+  if (isConnectorTool(item.toolName)) return loadToolDisplayName(locale);
+  return item.toolName;
+}
 
 /**
  * Prefer a declared semantic category. Legacy rows fall back to the canonical
@@ -162,8 +179,10 @@ export function processingNeedsAttention(children: readonly FoldedTimelineChild[
  * Summary line for a processing block. Settled: the tool-activity roll-up only
  * (per-bucket clauses + failed count, exactly the trow summary) — folded
  * reasoning is not counted. Live (`{ live: true }`): the current activity —
- * the running tool's intent (or the reasoning label when the tools are done
- * and only thinking is still streaming), prefixed with "正在".
+ * the LAST live entry in timeline order (a running tool's intent, or the
+ * reasoning label when a later thinking block is still streaming), prefixed
+ * with "正在" — plus the failed clause whenever the block already holds an
+ * errored tool, so the failure signal is never deferred to settle.
  */
 export function summarizeProcessing(
   children: readonly FoldedTimelineChild[],
@@ -180,19 +199,38 @@ function processingLiveSummary(
   locale: UiLocale,
 ): string {
   const copy = getToolActivityCopy(locale).summary;
-  const tools = processingTools(children);
-  const activeTool = [...tools]
-    .reverse()
-    .find(
-      (tool) =>
-        tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
-    );
-  if (activeTool) {
-    const label =
-      formatUserVisibleToolText(activeTool.intent ?? '', locale)
-      || activeTool.displayName
-      || activeTool.toolName;
-    return copy.live(label);
+  const line = copy.live(currentProcessingActivity(children, locale) ?? copy.thinkingActivity);
+  const failed = processingTools(children).filter((tool) => isFailed(tool.status)).length;
+  return failed > 0 ? copy.join([line, copy.failed(failed)]) : line;
+}
+
+/**
+ * The block's current activity: walk the children in reverse timeline order
+ * and return the first live entry found — a still-streaming thinking block
+ * (reasoning label) or a tool group's active tool (intent, falling back to the
+ * localized display name via resolveToolDisplayName so connector tools read as
+ * 「加载工具组」, not `load_tools`).
+ */
+function currentProcessingActivity(
+  children: readonly FoldedTimelineChild[],
+  locale: UiLocale,
+): string | undefined {
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    const child = children[index]!;
+    if (child.kind === 'thinking') {
+      if (child.live === true) return getToolActivityCopy(locale).summary.thinkingActivity;
+      continue;
+    }
+    const activeTool = [...child.items]
+      .reverse()
+      .find(
+        (tool) =>
+          tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
+      );
+    if (activeTool) {
+      return formatUserVisibleToolText(activeTool.intent ?? '', locale)
+        || resolveToolDisplayName(activeTool, locale);
+    }
   }
-  return copy.live(copy.thinkingActivity);
+  return undefined;
 }

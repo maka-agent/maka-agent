@@ -130,14 +130,22 @@ describe('processing block summary (#1307)', () => {
     assert.equal(summarizeProcessing(children, {}), '读取 1 个文件，搜索 1 次，1 个失败');
   });
 
-  it('shows the running tool intent as the live current activity', () => {
+  it('shows the running tool intent as the live current activity and appends the failed count', () => {
     const children = [
       tools([
         { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'errored', args: {} },
         { toolUseId: 'b1', toolName: 'Bash', activityKind: 'command', status: 'running', args: {}, intent: '运行测试' },
       ]),
     ];
-    // 运行中显示当前活动（最后一个在飞行中的工具意图），带「正在」前缀。
+    // 运行中显示当前活动（带「正在」前缀）；区块内已有失败工具时,失败计数
+    // 不等 settle 才出现——摘要行是折叠错误的唯一信号。
+    assert.equal(summarizeProcessing(children, { live: true }), '正在运行测试，1 个失败');
+  });
+
+  it('live summary without failures stays a bare current-activity line', () => {
+    const children = [
+      tools([{ toolUseId: 'b1', toolName: 'Bash', activityKind: 'command', status: 'running', args: {}, intent: '运行测试' }]),
+    ];
     assert.equal(summarizeProcessing(children, { live: true }), '正在运行测试');
   });
 
@@ -147,6 +155,31 @@ describe('processing block summary (#1307)', () => {
       thinking(true),
     ];
     assert.equal(summarizeProcessing(children, { live: true }), '正在深度思考');
+  });
+
+  it('live summary picks the LAST live entry in timeline order, skipping settled thinking', () => {
+    // A settled reasoning block after a still-running tool must not steal the
+    // current-activity line: the last LIVE entry is the running tool.
+    const children = [
+      tools([{ toolUseId: 'b1', toolName: 'Bash', activityKind: 'command', status: 'running', args: {}, intent: '运行测试' }]),
+      thinking(false),
+    ];
+    assert.equal(summarizeProcessing(children, { live: true }), '正在运行测试');
+    // And a LATER streaming thinking block outranks an earlier running tool.
+    const laterThinking = [
+      tools([{ toolUseId: 'b1', toolName: 'Bash', activityKind: 'command', status: 'running', args: {}, intent: '运行测试' }]),
+      thinking(true),
+    ];
+    assert.equal(summarizeProcessing(laterThinking, { live: true }), '正在深度思考');
+  });
+
+  it('localizes the connector-tool fallback in the live current activity', () => {
+    // A load_tools call with no intent/displayName must read as the localized
+    // 「加载工具组」, not the raw tool name (resolveToolDisplayName fallback).
+    const children = [
+      tools([{ toolUseId: 'l1', toolName: 'load_tools', status: 'running', args: {} }]),
+    ];
+    assert.equal(summarizeProcessing(children, { live: true }), '正在加载工具组');
   });
 
   it('is running while any tool is in flight or reasoning is still streaming', () => {
