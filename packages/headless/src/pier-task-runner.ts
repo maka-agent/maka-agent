@@ -112,10 +112,10 @@ export interface PierTaskRunnerOptions {
   agentEnv?: Record<string, string>;
   /** Pier launcher (default "pier"). */
   pierBin?: string;
-  /** Pier environment type (default "docker"). */
+  /** Pier environment type (default "docker"). Unlike Harbor, Pier's
+   * EnvironmentConfig has no extra_docker_compose or platform field, so an
+   * explicit Docker target platform cannot be wired through `pier run`. */
   environment?: string;
-  /** Explicit Docker target platform shared by comparison arms. */
-  dockerPlatform?: 'linux/amd64';
   timeoutMultiplier?: number;
   /** Wall-clock ceiling for a single `pier run`; a hung Docker/Pier would
    * otherwise stall the unattended loop forever. Defaults to 45 minutes. */
