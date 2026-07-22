@@ -1,30 +1,37 @@
 import { resolve } from 'node:path';
 import type { AgentRunHeader, SessionHeader } from '@maka/core';
 import {
-  createTaskRunStore,
   inspectTaskRun,
+  openHeadlessStorageForRead,
   renderTaskRunInspectTree,
   type TaskRunInspectDocument,
-  type TaskRunStore,
+  type TaskRunReader,
 } from '@maka/headless';
 import {
   inspectAgentRunDocument,
   inspectSessionDocument,
   renderAgentRunInspectTree,
   renderSessionInspectTree,
+  type RuntimeEventInspectReader,
+  type SessionAgentRunInspectReader,
   type AgentRunInspectDocument,
   type SessionInspectDocument,
 } from '@maka/runtime';
 import {
-  createAgentRunStore,
-  createRuntimeEventStore,
-  createSessionStore,
-  type SessionStore,
-} from '@maka/storage';
-import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
+  openInteractiveExecutionStoresForRead,
+  type ExecutionStoresReader,
+} from '@maka/storage/execution-stores';
+import {
+  discoverMarkedStorageRoot,
+  StorageRootAuthorityError,
+  tryAcquireInteractiveRootReader,
+} from '@maka/storage/root-authority';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
 
 export const INSPECT_RESOLUTION_SCHEMA_VERSION = 'maka.inspect_resolution.v1' as const;
+
+const isStorageRootAuthorityError = (error: unknown): error is StorageRootAuthorityError =>
+  error instanceof StorageRootAuthorityError;
 
 export type InspectEntityKind = 'session' | 'agent-run' | 'task-run';
 
@@ -51,11 +58,16 @@ export type InspectDocument =
   | AgentRunInspectDocument
   | TaskRunInspectDocument;
 
+interface InspectSessionReader {
+  list(): Promise<readonly { id: string }[]>;
+  readHeader(id: string): Promise<SessionHeader>;
+}
+
 export interface InspectCommandStores {
-  sessionStore: SessionStore;
-  agentRunStore: AgentRunStore;
-  runtimeEventStore: RuntimeEventStore;
-  taskRunStore: TaskRunStore;
+  sessionStore: InspectSessionReader;
+  agentRunStore: SessionAgentRunInspectReader;
+  runtimeEventStore: RuntimeEventInspectReader;
+  taskRunStore?: TaskRunReader;
 }
 
 interface SessionCandidate extends InspectCandidateDescriptor {
@@ -127,6 +139,12 @@ export async function inspectResolvedTarget(
   candidate: InspectCandidate,
 ): Promise<InspectDocument> {
   if (candidate.kind === 'task-run') {
+    if (!stores.taskRunStore) {
+      throw new StorageRootAuthorityError(
+        'root_kind_mismatch',
+        'TaskRun inspection requires a headless storage root',
+      );
+    }
     return inspectTaskRun(
       {
         taskRunStore: stores.taskRunStore,
@@ -141,66 +159,118 @@ export async function inspectResolvedTarget(
       sessionId: candidate.sessionId,
       agentRunId: candidate.id,
       header: candidate.header,
+      isFatalReadError: isStorageRootAuthorityError,
     });
   }
   return inspectSessionDocument(
-    { readHeader: (id) => stores.sessionStore.readHeaderSnapshot(id) },
+    { readHeader: (id) => stores.sessionStore.readHeader(id) },
     stores.agentRunStore,
     stores.runtimeEventStore,
     candidate.id,
-    candidate.header,
+    {
+      header: candidate.header,
+      isFatalReadError: isStorageRootAuthorityError,
+    },
   );
 }
 
-export async function runMakaInspectCli(args: string[]): Promise<number> {
+export interface InspectCommandIo {
+  stdout: { write(value: string): unknown };
+  stderr: { write(value: string): unknown };
+}
+
+export async function runMakaInspectCli(
+  args: string[],
+  io: InspectCommandIo = process,
+): Promise<number> {
   let parsed: ParsedInspectArgs;
   try {
     parsed = parseInspectArgs(args);
   } catch (error) {
-    process.stderr.write(`${errorMessage(error)}\n\n${inspectUsage()}\n`);
+    io.stderr.write(`${errorMessage(error)}\n\n${inspectUsage()}\n`);
     return 2;
   }
   if (parsed.help) {
-    process.stdout.write(`${inspectUsage()}\n`);
+    io.stdout.write(`${inspectUsage()}\n`);
     return 0;
   }
   if (!parsed.id) {
-    process.stderr.write(`${inspectUsage()}\n`);
+    io.stderr.write(`${inspectUsage()}\n`);
     return 2;
   }
 
   const storageRoot = parsed.store ? resolve(parsed.store) : resolveMakaWorkspaceRoot();
-  const stores: InspectCommandStores = {
-    sessionStore: createSessionStore(storageRoot),
-    agentRunStore: createAgentRunStore(storageRoot),
-    runtimeEventStore: createRuntimeEventStore(storageRoot),
-    taskRunStore: createTaskRunStore(storageRoot),
-  };
-  const resolution = await resolveInspectTarget(stores, {
-    id: parsed.id,
-    ...(parsed.kind ? { requestedKind: parsed.kind } : {}),
-    ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
+  const result = await withInspectCommandStores(storageRoot, async (stores) => {
+    const resolution = await resolveInspectTarget(stores, {
+      id: parsed.id!,
+      ...(parsed.kind ? { requestedKind: parsed.kind } : {}),
+      ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
+    });
+    if (resolution.status !== 'resolved') return resolution;
+    return {
+      status: 'inspected' as const,
+      document: await inspectResolvedTarget(stores, resolution.candidate),
+    };
   });
-  if (resolution.status !== 'resolved') {
+  if (result.status !== 'inspected') {
     if (parsed.json) {
-      process.stdout.write(`${JSON.stringify(resolution.document, null, 2)}\n`);
+      io.stdout.write(`${JSON.stringify(result.document, null, 2)}\n`);
     } else {
-      process.stderr.write(`${renderResolutionFailure(resolution.document)}\n`);
+      io.stderr.write(`${renderResolutionFailure(result.document)}\n`);
     }
-    return resolution.status === 'ambiguous' ? 2 : 1;
+    return result.status === 'ambiguous' ? 2 : 1;
   }
 
-  const document = await inspectResolvedTarget(stores, resolution.candidate);
+  const document = result.document;
   if (parsed.json) {
-    process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+    io.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
   } else if (document.kind === 'task_run') {
-    process.stdout.write(renderTaskRunInspectTree(document));
+    io.stdout.write(renderTaskRunInspectTree(document));
   } else if (document.kind === 'agent_run') {
-    process.stdout.write(renderAgentRunInspectTree(document));
+    io.stdout.write(renderAgentRunInspectTree(document));
   } else {
-    process.stdout.write(renderSessionInspectTree(document));
+    io.stdout.write(renderSessionInspectTree(document));
   }
   return 0;
+}
+
+export async function withInspectCommandStores<T>(
+  storageRoot: string,
+  operation: (stores: InspectCommandStores) => Promise<T>,
+): Promise<T> {
+  const capability = await discoverMarkedStorageRoot({ path: storageRoot });
+  if (capability.kind === 'headless') {
+    const storage = await openHeadlessStorageForRead(capability);
+    return operation(
+      inspectStoresFromExecutionReader(storage.executionStores, storage.taskRunStore),
+    );
+  }
+
+  const reader = await tryAcquireInteractiveRootReader(capability);
+  if (!reader) {
+    throw new StorageRootAuthorityError(
+      'lock_failed',
+      `Interactive storage root is exclusively locked: ${capability.canonicalPath}`,
+    );
+  }
+  try {
+    const executionStores = await openInteractiveExecutionStoresForRead(reader.lease);
+    return await operation(inspectStoresFromExecutionReader(executionStores));
+  } finally {
+    await reader.close();
+  }
+}
+
+function inspectStoresFromExecutionReader(
+  stores: ExecutionStoresReader<'headless' | 'interactive'>,
+  taskRunStore?: TaskRunReader,
+): InspectCommandStores {
+  return {
+    sessionStore: stores.sessionStore,
+    agentRunStore: stores.agentRunStore,
+    runtimeEventStore: stores.runtimeEventStore,
+    ...(taskRunStore ? { taskRunStore } : {}),
+  };
 }
 
 interface ParsedInspectArgs {
@@ -257,13 +327,20 @@ function isInspectEntityKind(value: string): value is InspectEntityKind {
   return value === 'session' || value === 'agent-run' || value === 'task-run';
 }
 
-async function findSessionCandidates(store: SessionStore, id: string): Promise<SessionCandidate[]> {
+async function findSessionCandidates(
+  store: InspectSessionReader,
+  id: string,
+): Promise<SessionCandidate[]> {
   const summaries = await store.list();
   if (!summaries.some((session) => session.id === id)) return [];
-  return [{ kind: 'session', id, header: await store.readHeaderSnapshot(id) }];
+  return [{ kind: 'session', id, header: await store.readHeader(id) }];
 }
 
-async function findTaskRunCandidates(store: TaskRunStore, id: string): Promise<TaskRunCandidate[]> {
+async function findTaskRunCandidates(
+  store: TaskRunReader | undefined,
+  id: string,
+): Promise<TaskRunCandidate[]> {
+  if (!store) return [];
   const records = await store.readEventRecords(id);
   return records.length > 0 ? [{ kind: 'task-run', id }] : [];
 }

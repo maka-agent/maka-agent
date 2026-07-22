@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, test } from 'node:test';
-import { createSessionStore } from '@maka/storage';
+import { createConnectionStore, createSessionStore } from '@maka/storage';
 import {
   parseMakaCliArgs,
   formatResumeHint,
@@ -15,6 +15,7 @@ import {
   resolveMakaCliExitCode,
   resolveTuiResumeTarget,
 } from '../cli.js';
+import { createMakaCliRuntimeContext } from '../runtime-bootstrap.js';
 
 const execFileAsync = promisify(execFile);
 const cliPath = new URL('../cli.js', import.meta.url).pathname;
@@ -196,17 +197,36 @@ describe('Maka CLI args', () => {
   test('inspects a Session through the executable entrypoint', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-cli-inspect-'));
     try {
-      const session = await createSessionStore(root).create({
-        cwd: '/tmp/workspace',
-        name: 'CLI inspect',
-        backend: 'fake',
-        llmConnectionSlug: 'fake',
-        model: 'fake-model',
-        permissionMode: 'ask',
+      const connections = createConnectionStore(root);
+      await connections.create({
+        slug: 'local',
+        name: 'Local',
+        providerType: 'ollama',
+        defaultModel: 'local-model',
       });
+      const context = await createMakaCliRuntimeContext({
+        surface: 'run',
+        workspaceRoot: root,
+        cwd: '/tmp/workspace',
+      });
+      let sessionId: string;
+      try {
+        sessionId = (
+          await context.runtime.createSession({
+            cwd: context.cwd,
+            name: 'CLI inspect',
+            backend: 'ai-sdk',
+            llmConnectionSlug: context.target.connection.slug,
+            model: context.target.model,
+            permissionMode: 'ask',
+          })
+        ).id;
+      } finally {
+        await context.close();
+      }
       const result = await runCliProcess(cliPath, [
         'inspect',
-        session.id,
+        sessionId,
         '--store',
         root,
         '--kind',

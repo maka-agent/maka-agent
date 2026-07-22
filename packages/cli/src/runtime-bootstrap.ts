@@ -67,6 +67,7 @@ import {
   type ForeignSessionStore,
   persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
+import { resolveStorageRoot } from '@maka/storage/root-authority';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
 import { createApiKeyOnboardingSurface, type MakaOnboardingSurface } from './onboarding.js';
@@ -169,6 +170,7 @@ export function isMakaClaudeSubscriptionCloakEnabled(
 export async function createMakaCliRuntimeContext(
   input: CreateMakaCliRuntimeContextInput,
 ): Promise<MakaCliRuntimeContext> {
+  await resolveStorageRoot({ path: input.workspaceRoot, kind: 'interactive' });
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimePersistence = await openRuntimeEventPersistence({
