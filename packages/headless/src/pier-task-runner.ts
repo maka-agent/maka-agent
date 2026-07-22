@@ -8,20 +8,27 @@ import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { validateHarborCellOutput, type HarborCellOutput } from './cell-output.js';
 import {
   FixedPromptBudgetExhaustedError,
-  type FixedPromptBudgetExhaustedError as FixedPromptBudgetExhaustedErrorType,
   type HarborVerifierOutcome,
   type TaskRunInput,
   type TaskRunOutput,
   type TaskRunner,
 } from './fixed-prompt-controller.js';
-import { lenientPositiveIntEnv } from './headless-run-env.js';
 import {
   assertNoExperimentIdentityOverrides,
+  assertNoProviderSecretsInAgentEnv,
   harborTraceMode,
+  isBudgetExhaustedError,
+  isBudgetExhaustedTrialException,
+  mergeAgentEnv,
   modelIdForProvider,
+  providerProxyAuthMode,
+  providerProxyUsageProtocol,
+  providerTokenSummary,
   readTimedOutTrialArtifacts,
   resolveNativeTrialTimeoutMs,
+  type HarborTaskPricing,
 } from './harbor-task-runner.js';
+import { lenientPositiveIntEnv } from './headless-run-env.js';
 import {
   KIMI_CODE_TOOLCHAIN_CONTAINER_PATH,
   KIMI_CODE_TOOLCHAIN_FINGERPRINT,
@@ -32,9 +39,7 @@ import {
   type ProviderRequestTelemetry,
   type ProviderTokenUsage,
   type ProviderUpstreamCredentialResolver,
-  type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
-import { isSensitiveEnvName } from './provider-env.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -55,9 +60,14 @@ export const PIER_PROVIDER_PROXY_DEFAULT_PORT = 443;
 
 /** A Pier-side failure (build/docker/timeout/missing artifact) — NOT a benchmark
  * result. The fixed-prompt controller turns a thrown error into an infra_failed
- * event, excluding it from scoring instead of recording reward 0. Mirrors
- * `HarborInfraError`; kept Pier-local so this runner does not depend on the
- * Harbor runner's error identity. */
+ * event, excluding it from scoring instead of recording reward 0.
+ *
+ * Deliberately separate from HarborInfraError: the controller classifies infra
+ * by behavior (any thrown non-budget error), never by error identity, so
+ * sharing a class buys no invariant — while a Pier failure surfacing as
+ * "HarborInfraError" in diagnostics would misattribute the failing harness.
+ * The telemetry-attachment helpers below stay local for the same reason: they
+ * construct this runner-local error type. */
 export class PierInfraError extends Error {
   constructor(
     message: string,
@@ -70,13 +80,8 @@ export class PierInfraError extends Error {
   }
 }
 
-export interface PierTaskPricing {
-  inputUsdPer1M: number;
-  outputUsdPer1M: number;
-  cacheReadUsdPer1M?: number;
-  cacheWriteUsdPer1M?: number;
-  source?: string;
-}
+/** Same per-1M pricing contract as the Harbor runner (shared cost math). */
+export type PierTaskPricing = HarborTaskPricing;
 
 export interface PierTaskRunnerOptions {
   /** Host path to the maka repo, bind-mounted read-only at /opt/maka-agent. */
@@ -127,7 +132,6 @@ export interface PierTaskRunnerOptions {
   pierTimeoutMs?: number;
   /** Injectable Pier process runner (default: execFile the pier binary). */
   runPier?: PierProcessRunner;
-  now?: () => number;
 }
 
 export interface PierRunRequest {
@@ -610,55 +614,6 @@ function providerDefaultBaseUrl(provider: string): string | undefined {
   return definition?.baseUrl;
 }
 
-function providerProxyAuthMode(provider: string): 'bearer' | 'x-api-key' {
-  const definition = (
-    PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[ProviderType]>>
-  )[provider];
-  return definition?.runtimeAdapter.kind === 'anthropic' &&
-    definition.runtimeAdapter.auth === 'api-key'
-    ? 'x-api-key'
-    : 'bearer';
-}
-
-function providerProxyUsageProtocol(
-  agent: 'maka' | 'kimi-code',
-  provider: string,
-): ProviderUsageProtocol | undefined {
-  if (agent === 'kimi-code') return 'openai-chat-sse';
-  const definition = (
-    PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[ProviderType]>>
-  )[provider];
-  if (definition?.runtimeAdapter.kind === 'anthropic') return 'anthropic-sse';
-  if (definition?.runtimeAdapter.kind === 'openai-compatible') return 'openai-chat-sse';
-  return undefined;
-}
-
-function providerTokenSummary(
-  usage: ProviderTokenUsage,
-  pricing: PierTaskPricing,
-): NonNullable<HarborCellOutput['tokenSummary']> {
-  const cacheMissInput = Math.max(0, usage.input - usage.cacheRead - usage.cacheWrite);
-  const costUsd =
-    (cacheMissInput * pricing.inputUsdPer1M +
-      usage.cacheRead * (pricing.cacheReadUsdPer1M ?? pricing.inputUsdPer1M) +
-      usage.cacheWrite * (pricing.cacheWriteUsdPer1M ?? pricing.inputUsdPer1M) +
-      usage.output * pricing.outputUsdPer1M) /
-    1_000_000;
-  return {
-    input: usage.input,
-    output: usage.output,
-    cachedInput: usage.cacheRead,
-    cacheHitInput: usage.cacheRead,
-    cacheMissInput,
-    cacheWriteInput: usage.cacheWrite,
-    cacheMissInputSource: 'explicit',
-    reasoning: usage.reasoning ?? 0,
-    total: usage.input + usage.output,
-    costUsd,
-    pricingSource: 'runtime',
-  };
-}
-
 async function writeEnvFile(path: string, env: Record<string, string>): Promise<void> {
   // dotenv KEY=VALUE lines. Values here are minted/scoped proxy tokens and URLs,
   // never the real provider key; the file is created 0600 and removed after run.
@@ -810,13 +765,6 @@ async function readTrialException(resultPath: string): Promise<string | null> {
   return message ? `${type}: ${message}` : type;
 }
 
-function isBudgetExhaustedTrialException(message: string): boolean {
-  return (
-    /^RuntimeError: Maka host cell exceeded \d+(?:\.\d+)?s$/.test(message) ||
-    /^AgentTimeoutError: Agent execution timed out after \d+(?:\.\d+)? seconds$/.test(message)
-  );
-}
-
 function providerTelemetryArtifactRefs(
   telemetry: readonly ProviderRequestTelemetry[],
   providerTelemetryPath: string,
@@ -840,21 +788,6 @@ function withProviderTelemetryArtifact(
   const enriched = new PierInfraError(error.message, error.detail, error.kind, artifactRefs);
   enriched.stack = error.stack;
   return enriched;
-}
-
-function mergeAgentEnv(
-  base: Record<string, string> | undefined,
-  attempt: Record<string, string> | undefined,
-): Record<string, string> | undefined {
-  if (!base && !attempt) return undefined;
-  return { ...(base ?? {}), ...(attempt ?? {}) };
-}
-
-function assertNoProviderSecretsInAgentEnv(agentEnv: Record<string, string> | undefined): void {
-  const forbidden = Object.keys(agentEnv ?? {}).filter((key) => isSensitiveEnvName(key));
-  if (forbidden.length > 0) {
-    throw new Error(`agentEnv must not contain provider secrets: ${forbidden.sort().join(', ')}`);
-  }
 }
 
 const defaultPierProcessRunner: PierProcessRunner = async (request) => {
@@ -883,19 +816,15 @@ const defaultPierProcessRunner: PierProcessRunner = async (request) => {
   }
 };
 
+// The generic helpers below (isExecFileTimeout .. isRecord) intentionally stay
+// local copies of their harbor-task-runner counterparts: they carry no
+// benchmark semantics, and exporting 3-line utilities would widen the Harbor
+// module's surface for no invariant. Everything with benchmark meaning is
+// imported from harbor-task-runner above.
 function isExecFileTimeout(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const record = error as { killed?: unknown; signal?: unknown };
   return record.killed === true && record.signal === 'SIGKILL';
-}
-
-function isBudgetExhaustedError(error: unknown): error is FixedPromptBudgetExhaustedErrorType {
-  return (
-    error instanceof FixedPromptBudgetExhaustedError ||
-    (typeof error === 'object' &&
-      error !== null &&
-      (error as { name?: unknown }).name === 'FixedPromptBudgetExhaustedError')
-  );
 }
 
 async function readOptionalText(path: string): Promise<string | null> {

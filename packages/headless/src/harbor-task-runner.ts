@@ -825,7 +825,8 @@ function structuredOutputValuesMismatch(normalizedText: string): boolean {
   return normalizedText.includes('only found') && normalizedText.includes('expected values');
 }
 
-function mergeAgentEnv(
+/** Shared across runners: overlay attempt-level env onto runner-level env. */
+export function mergeAgentEnv(
   base: Record<string, string> | undefined,
   attempt: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
@@ -1140,7 +1141,8 @@ function usesHostProviderProxy(agent: HarborTaskRunnerOptions['agent']): boolean
   return agent === 'opencode' || agent === 'kimi-code' || agent === 'codex';
 }
 
-function providerTokenSummary(
+/** Shared cost math across runners: build the cell token summary from proxy-observed usage and per-1M pricing. */
+export function providerTokenSummary(
   usage: ProviderTokenUsage,
   pricing: HarborTaskPricing,
 ): NonNullable<HarborCellOutput['tokenSummary']> {
@@ -1166,7 +1168,8 @@ function providerTokenSummary(
   };
 }
 
-function providerProxyAuthMode(provider: string): 'bearer' | 'x-api-key' {
+/** Shared across runners: provider registry drives the proxy's client-facing auth header. */
+export function providerProxyAuthMode(provider: string): 'bearer' | 'x-api-key' {
   const definition = (
     PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[ProviderType]>>
   )[provider];
@@ -1176,7 +1179,8 @@ function providerProxyAuthMode(provider: string): 'bearer' | 'x-api-key' {
     : 'bearer';
 }
 
-function providerProxyUsageProtocol(
+/** Shared across runners: adapter/provider registry drives the proxy's SSE usage parser. */
+export function providerProxyUsageProtocol(
   agent: HarborTaskRunnerOptions['agent'],
   provider: string,
 ): ProviderUsageProtocol | undefined {
@@ -1242,7 +1246,8 @@ function taskAgentEnvWithoutProviderSecrets(
   return result;
 }
 
-function assertNoProviderSecretsInAgentEnv(
+/** Shared benchmark invariant: agentEnv must never carry provider secrets. */
+export function assertNoProviderSecretsInAgentEnv(
   agentEnv: Record<string, string> | undefined,
   allowedHostCredentialEnvNames: ReadonlySet<string> = new Set(),
 ): void {
@@ -1398,7 +1403,8 @@ async function readTrialException(resultPath: string): Promise<string | null> {
   return message ? `${type}: ${message}` : type;
 }
 
-function isBudgetExhaustedTrialException(message: string): boolean {
+/** Shared across runners: the trial exceptions that mean the agent budget ran out (host cell deadline or harness AgentTimeoutError). */
+export function isBudgetExhaustedTrialException(message: string): boolean {
   return (
     /^RuntimeError: Maka host cell exceeded \d+(?:\.\d+)?s$/.test(message) ||
     /^AgentTimeoutError: Agent execution timed out after \d+(?:\.\d+)? seconds$/.test(message)
@@ -1466,7 +1472,10 @@ function isExecFileTimeout(error: unknown): boolean {
   return record.killed === true && record.signal === 'SIGKILL';
 }
 
-function isBudgetExhaustedError(error: unknown): error is FixedPromptBudgetExhaustedErrorType {
+/** Shared across runners: identify FixedPromptBudgetExhaustedError across module instances. */
+export function isBudgetExhaustedError(
+  error: unknown,
+): error is FixedPromptBudgetExhaustedErrorType {
   return (
     error instanceof FixedPromptBudgetExhaustedError ||
     (typeof error === 'object' &&
