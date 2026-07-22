@@ -400,14 +400,15 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /'openai-codex':\s*\{\s*zh:\s*\{ name: 'OpenAI OAuth', description: 'ChatGPT \/ Codex 账号登录；登录后自动成为可用模型连接。' \}/,
       'OpenAI OAuth account path should not be presented as a Codex subscription in provider settings',
     );
-    // Both locales ship explicit copy for the custom provider, so the Chinese
-    // UI never falls through to the raw English registry fallback
-    // ("Custom OpenAI-compatible endpoint or gateway.").
-    assert.match(src, /zh: \{ name: '自定义 OpenAI 兼容接口'/);
-    assert.match(src, /en: \{ name: 'Custom OpenAI-compatible'/);
+    // Both locales ship explicit copy for the custom relay provider, so the Chinese
+    // UI never falls through to the raw English registry fallback. The copy must
+    // also name the current wire protocol: this provider is OpenAI Chat
+    // Completions-compatible, not OpenAI Responses.
+    assert.match(src, /zh: \{ name: '自定义中转站（OpenAI Chat）'/);
+    assert.match(src, /en: \{ name: 'Custom relay \(OpenAI Chat\)'/);
     assert.doesNotMatch(
       src,
-      /OpenAI-compatible endpoint or gateway/,
+      /Custom OpenAI-compatible endpoint or gateway|OpenAI-compatible \(custom\)/,
       'localized display copy must not leak the raw English registry fallback into UI',
     );
   });

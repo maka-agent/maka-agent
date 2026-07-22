@@ -63,17 +63,22 @@ export async function testConnection(
   if (!testModel) {
     return { ok: false, errorMessage: 'No model to test' };
   }
-  const { adapter, baseUrl } = resolveModelRuntime(connection, testModel);
+  const { adapter, baseUrl, apiProtocol } = resolveModelRuntime(connection, testModel);
 
   try {
     switch (adapter.kind) {
       case 'anthropic':
       case 'claude-subscription':
         return await probeAnthropic(connection, baseUrl, secret, testModel, t0);
-      case 'openai':
-        return /^gpt-5/i.test(testModel)
+      case 'openai': {
+        const resolvedApiProtocol =
+          adapter.apiProtocol ??
+          apiProtocol ??
+          (/^gpt-5/i.test(testModel) ? 'openai-responses' : 'openai-chat');
+        return resolvedApiProtocol === 'openai-responses'
           ? await probeOpenAIResponses(baseUrl, secret, testModel, t0)
           : await probeOpenAI(connection, baseUrl, secret, testModel, t0);
+      }
       case 'openai-codex':
       case 'openai-compatible':
         return await probeOpenAI(connection, baseUrl, secret, testModel, t0);

@@ -1,5 +1,10 @@
 import { test, expect } from './fixtures';
-import { PROVIDER_REGISTRY, RECOMMENDED_PROVIDER_TYPES } from '@maka/core';
+import { PROVIDER_REGISTRY, RECOMMENDED_PROVIDER_TYPES, type ProviderType } from '@maka/core';
+import { PROVIDER_DISPLAY_COPY } from '../src/renderer/settings/provider-display-copy';
+
+function providerDisplayName(type: ProviderType): string {
+  return PROVIDER_DISPLAY_COPY[type]?.zh.name ?? PROVIDER_REGISTRY[type].label;
+}
 
 /**
  * First-run flow: a brand-new workspace (empty userData) must boot to the main
@@ -15,7 +20,7 @@ test('boots to registry recommendations and browses the shared provider catalog'
   const providerRows = page.locator('.maka-firstrun-row');
   await expect(providerRows).toHaveCount(RECOMMENDED_PROVIDER_TYPES.length);
   await expect(providerRows).toContainText(
-    RECOMMENDED_PROVIDER_TYPES.map((type) => PROVIDER_REGISTRY[type].label),
+    RECOMMENDED_PROVIDER_TYPES.map((type) => providerDisplayName(type)),
   );
 
   await page.getByRole('button', { name: '浏览全部服务商' }).click();

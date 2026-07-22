@@ -32,6 +32,7 @@ export function AddProviderForm(props: {
   const [baseUrl, setBaseUrl] = useState(defaults.baseUrl);
   const [cloudflareAccountId, setCloudflareAccountId] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [defaultModel, setDefaultModel] = useState(recommendedDefaultModel);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submitGuard = useActionGuard<'submit'>();
@@ -39,6 +40,8 @@ export function AddProviderForm(props: {
 
   const isCloudflareWorkersAi = props.providerType === 'cloudflare-workers-ai';
   const requiresBaseUrl = !defaults.baseUrl && !isCloudflareWorkersAi;
+  const showsDefaultModel = recommendedDefaultModel.trim() === '';
+  const isCustomRelay = defaults.category === 'custom';
   const isExperimental = defaults.status === 'phase3-experimental';
   const isWiredOAuth = isWiredOAuthProvider(props.providerType);
   const supportsApiKey = providerAuthSupportsApiKey(props.providerType);
@@ -58,6 +61,8 @@ export function AddProviderForm(props: {
       return setError(copy.cloudflareAccount);
     }
     if (requiresBaseUrl && !baseUrl.trim()) return setError(copy.endpointRequired);
+    const normalizedDefaultModel = defaultModel.trim();
+    if (isCustomRelay && !normalizedDefaultModel) return setError(copy.defaultModelRequired);
     if (isExperimental) {
       return setError(isWiredOAuth
         ? copy.wiredLogin
@@ -77,9 +82,11 @@ export function AddProviderForm(props: {
         name: name || display.name,
         providerType: props.providerType,
         baseUrl: resolvedBaseUrl,
-        defaultModel: recommendedDefaultModel,
+        defaultModel: normalizedDefaultModel || recommendedDefaultModel,
         ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
       });
+      if (!addProviderMountedRef.current) return;
+      if (isCustomRelay) await props.bridge.fetchModels(connection.slug).catch(() => undefined);
       if (!addProviderMountedRef.current) return;
       await props.onCreated(connection.slug);
     } catch (err) {
@@ -181,6 +188,19 @@ export function AddProviderForm(props: {
             disabled={isExperimental || busy}
             aria-label={copy.endpointAria}
           />
+        </label>
+      )}
+      {showsDefaultModel && (
+        <label>
+          <span>{copy.defaultModel}</span>
+          <Input
+            value={defaultModel}
+            onChange={(event) => setDefaultModel(event.currentTarget.value)}
+            placeholder={copy.defaultModelPlaceholder}
+            disabled={isExperimental || busy}
+            aria-label={copy.defaultModelAria}
+          />
+          <small>{copy.defaultModelHelp}</small>
         </label>
       )}
       {error && <p className="providerError" role="alert">{error}</p>}

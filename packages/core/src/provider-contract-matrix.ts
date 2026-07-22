@@ -324,6 +324,18 @@ function wireDimensionCell(
       contract: `${def.runtimeAdapter.kind} subscription wire is provider-specific (per-model protocol, headers, auth)`,
     };
   }
+  if (
+    def.runtimeAdapter.kind === 'openai' &&
+    def.runtimeAdapter.apiProtocol === 'openai-responses'
+  ) {
+    return {
+      state: 'override',
+      dimension,
+      overrideKey: overrideKeyFor(providerType, dimension),
+      contract:
+        'OpenAI Responses relay wire is provider-specific until the matrix has a generated Responses executor',
+    };
+  }
   return { state: 'generated', dimension, wire: wireForProtocol(def.protocol) };
 }
 

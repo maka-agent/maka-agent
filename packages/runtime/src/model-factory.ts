@@ -88,6 +88,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
       // otherwise the model's declared OpenAI-adapter protocol decides. gpt-5*
       // families are Responses-only; everything else uses Chat Completions.
       const apiProtocol =
+        adapter.apiProtocol ??
         connection.models?.find((model) => model.id === modelId)?.apiProtocol ??
         openAiAdapterApiProtocol(modelId);
       return apiProtocol === 'openai-responses' ? openai.responses(modelId) : openai.chat(modelId);

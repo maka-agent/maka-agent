@@ -63,7 +63,7 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
     //   - a concrete baseUrl, or
     //   - a baseUrlTemplate whose placeholders resolve to a concrete URL
     //     (account-scoped endpoints), or
-    //   - a custom openai-compatible connection where the user supplies the URL
+    //   - a custom relay connection where the user supplies the URL
     //     at connect time.
     // Concrete URLs are judged by validateConnectionBaseUrl — the same gate the
     // connection IPC applies — so a registry default can never be something
@@ -97,8 +97,7 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
         );
         continue;
       }
-      const isCustomConnection =
-        def.runtimeAdapter.kind === 'openai-compatible' && def.runtimeAdapter.name === 'connection';
+      const isCustomConnection = def.category === 'custom';
       assert.ok(
         isCustomConnection,
         `${type} has no baseUrl, no baseUrlTemplate, and is not a custom connection — it cannot source an endpoint`,

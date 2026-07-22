@@ -350,30 +350,61 @@ describe('fetchProviderModels', () => {
     );
   });
 
-  test('OpenAI-compatible providers fetch live /models instead of returning fallback defaults', async () => {
-    const server = await startJsonServer((request, response) => {
-      assert.equal(request.url, '/v1/models');
-      assert.equal(request.headers.authorization, 'Bearer relay-secret');
-      respondJson(response, 200, {
-        data: [{ id: 'custom-live-model' }],
+  test('Custom OpenAI relay providers fetch live /models instead of returning fallback defaults', async () => {
+    for (const [providerType, modelId] of [
+      ['openai-compatible', 'custom-chat-model'],
+      ['openai-responses-compatible', 'custom-responses-model'],
+    ] as const) {
+      const server = await startJsonServer((request, response) => {
+        assert.equal(request.url, '/v1/models');
+        assert.equal(request.headers.authorization, 'Bearer relay-secret');
+        respondJson(response, 200, {
+          data: [{ id: modelId }],
+        });
       });
+
+      const models = await fetchProviderModels(
+        {
+          slug: `${providerType}-relay`,
+          name: 'Relay',
+          providerType,
+          baseUrl: `${server.url}/v1`,
+          defaultModel: modelId,
+          enabled: true,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        'relay-secret',
+      );
+
+      assert.deepEqual(models, [{ id: modelId }]);
+    }
+  });
+
+  test('Custom Anthropic relay providers fetch live /v1/models with x-api-key auth', async () => {
+    let observedApiKey = '';
+    const server = await startJsonServer((request, response) => {
+      observedApiKey = (request.headers['x-api-key'] as string | undefined) ?? '';
+      assert.equal(request.url, '/anthropic/v1/models');
+      respondJson(response, 200, { data: [{ id: 'claude-relay-sonnet' }] });
     });
 
     const models = await fetchProviderModels(
       {
-        slug: 'relay',
-        name: 'Relay',
-        providerType: 'openai-compatible',
-        baseUrl: `${server.url}/v1`,
-        defaultModel: 'custom-live-model',
+        slug: 'anthropic-relay',
+        name: 'Anthropic Relay',
+        providerType: 'anthropic-compatible',
+        baseUrl: `${server.url}/anthropic`,
+        defaultModel: 'claude-relay-sonnet',
         enabled: true,
         createdAt: 1,
         updatedAt: 1,
       },
-      'relay-secret',
+      'anthropic-relay-secret',
     );
 
-    assert.deepEqual(models, [{ id: 'custom-live-model' }]);
+    assert.equal(observedApiKey, 'anthropic-relay-secret');
+    assert.deepEqual(models, [{ id: 'claude-relay-sonnet' }]);
   });
 
   test('Google Gemini appends /models to a /v1beta base URL without doubling the version segment', async () => {

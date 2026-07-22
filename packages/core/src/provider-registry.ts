@@ -11,7 +11,7 @@ export type ProviderCatalogGroup = 'recommended' | 'plans' | 'api' | 'aggregator
 export type ProviderRuntimeAdapter =
   | { kind: 'anthropic'; auth: 'api-key' | 'bearer'; normalizeBaseUrl: boolean }
   | { kind: 'claude-subscription' }
-  | { kind: 'openai' }
+  | { kind: 'openai'; apiProtocol?: 'openai-chat' | 'openai-responses' }
   | { kind: 'openai-codex' }
   | { kind: 'google'; normalizeBaseUrl?: boolean }
   | { kind: 'github-copilot' }
@@ -1541,8 +1541,8 @@ const providerRegistry = {
     catalogOrder: 17.5,
   },
   'openai-compatible': {
-    label: 'OpenAI-compatible (custom)',
-    description: 'Custom OpenAI-compatible endpoint or gateway.',
+    label: 'Custom relay (OpenAI Chat-compatible)',
+    description: 'Custom OpenAI Chat Completions-compatible relay, proxy, or self-hosted gateway.',
     baseUrl: '',
     authKind: 'api_key',
     backendKind: 'ai-sdk',
@@ -1553,9 +1553,46 @@ const providerRegistry = {
     modelDiscovery: { kind: 'protocol' },
     category: 'custom',
     catalogGroup: 'aggregators',
-    catalogBadge: 'Custom',
+    catalogBadge: 'Relay',
     readyOrder: 16,
     catalogOrder: 18,
+    recommendedOrder: 7.5,
+  },
+  'openai-responses-compatible': {
+    label: 'Custom relay (OpenAI Responses)',
+    description: 'Custom OpenAI Responses-compatible relay, proxy, or self-hosted gateway.',
+    baseUrl: '',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai', apiProtocol: 'openai-responses' },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'custom',
+    catalogGroup: 'aggregators',
+    catalogBadge: 'Responses',
+    readyOrder: 16.1,
+    catalogOrder: 18.1,
+    recommendedOrder: 7.6,
+  },
+  'anthropic-compatible': {
+    label: 'Custom relay (Anthropic)',
+    description: 'Custom Anthropic Messages-compatible relay, proxy, or self-hosted gateway.',
+    baseUrl: '',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [],
+    status: 'ready',
+    protocol: 'anthropic',
+    runtimeAdapter: { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true },
+    modelDiscovery: { kind: 'protocol' },
+    category: 'custom',
+    catalogGroup: 'aggregators',
+    catalogBadge: 'Anthropic',
+    readyOrder: 16.2,
+    catalogOrder: 18.2,
+    recommendedOrder: 7.7,
   },
   'github-copilot': {
     label: githubCopilot.name,

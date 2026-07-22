@@ -391,11 +391,13 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'opencode-go':
       return <ProviderAssetMask src={opencodeBrandMark} />;
     case 'anthropic':
+    case 'anthropic-compatible':
     case 'claude-subscription':
       return <Claude />;
     case 'openai':
     case 'openai-codex':
     case 'openai-compatible':
+    case 'openai-responses-compatible':
       return <OpenAI />;
     case 'github-copilot':
       return <ProviderAssetMask src={githubCopilotBrandMark} />;

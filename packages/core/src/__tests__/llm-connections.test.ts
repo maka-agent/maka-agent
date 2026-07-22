@@ -86,6 +86,8 @@ describe('provider compatibility contract', () => {
       'lm-studio',
       'localai',
       'openai-compatible',
+      'openai-responses-compatible',
+      'anthropic-compatible',
       'github-copilot',
       'claude-subscription',
       'openai-codex',
@@ -114,6 +116,8 @@ describe('provider compatibility contract', () => {
       'localai',
       'kimi-coding-plan',
       'openai-compatible',
+      'openai-responses-compatible',
+      'anthropic-compatible',
       'minimax-coding-plan',
       'togetherai',
       'fireworks-ai',
@@ -169,6 +173,8 @@ describe('provider compatibility contract', () => {
       'lm-studio',
       'localai',
       'openai-compatible',
+      'openai-responses-compatible',
+      'anthropic-compatible',
       'fireworks-ai',
       'nvidia',
       'tencent-tokenhub',
@@ -220,6 +226,9 @@ describe('provider compatibility contract', () => {
       'kimi-coding-plan',
       'deepseek',
       'ollama',
+      'openai-compatible',
+      'openai-responses-compatible',
+      'anthropic-compatible',
     ]);
     assert.equal(PROVIDER_REGISTRY['kimi-coding-plan'].catalogGroup, 'plans');
     assert.equal(PROVIDER_REGISTRY.siliconflow.catalogGroup, 'aggregators');
@@ -1550,16 +1559,18 @@ describe('persistedBaseUrl', () => {
     );
   });
 
-  it('persists a custom override for openai-compatible (whose default is the empty string)', () => {
-    // openai-compatible is the one provider with no canonical default — any
-    // non-empty value the user supplies is a real override and must persist.
+  it('persists a custom override for custom relay providers (empty canonical default)', () => {
+    // Custom relay providers have no canonical default — any non-empty value
+    // the user supplies is a real override and must persist.
     const custom = 'https://my-gateway.example.com/v1';
-    assert.equal(persistedBaseUrl('openai-compatible', custom), custom);
-    assert.equal(
-      persistedBaseUrl('openai-compatible', ''),
-      undefined,
-      'empty still means no override',
-    );
+    for (const providerType of [
+      'openai-compatible',
+      'openai-responses-compatible',
+      'anthropic-compatible',
+    ] as const) {
+      assert.equal(persistedBaseUrl(providerType, custom), custom);
+      assert.equal(persistedBaseUrl(providerType, ''), undefined, 'empty still means no override');
+    }
   });
 });
 

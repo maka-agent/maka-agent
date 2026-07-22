@@ -85,6 +85,7 @@ const zhCopy = {
     accountId: 'Cloudflare Account ID', accountIdPlaceholder: '填写账户 ID', accountIdAria: 'Cloudflare 账户 ID', endpoint: '服务地址', endpointAria: '模型供应商服务地址',
     saving: '保存中…', save: '保存供应商', keyRequired: (name: string) => `请填写 ${name} API Key`,
     apiKeyLabel: (required: boolean) => `API Key（${required ? '必填' : '可选'}）`, accountIdLabel: 'Cloudflare Account ID（必填）', endpointLabel: (required: boolean) => `服务地址${required ? '（必填）' : ''}`,
+    defaultModel: '默认模型', defaultModelPlaceholder: '填写你的中转站模型 ID，例如 gpt-4o、claude-sonnet-4-5 或自定义模型名', defaultModelAria: '自定义中转站默认模型', defaultModelHelp: '用于首次连接测试和模型选择器兜底；保存后仍会自动拉取模型目录。', defaultModelRequired: '请填写默认模型 ID。保存后仍会自动拉取模型目录。',
   },
   oauthFlow: {
     refreshFailed: '刷新登录状态失败', accountActionFailed: (name: string) => `${name} 账号操作失败`, loginFailedRetry: '登录失败，请稍后重试。',
@@ -211,6 +212,7 @@ const enCopy: ProviderSettingsCopy = {
     accountId: 'Cloudflare Account ID', accountIdPlaceholder: 'Enter account ID', accountIdAria: 'Cloudflare account ID', endpoint: 'Service URL', endpointAria: 'Model provider service URL',
     saving: 'Saving…', save: 'Save provider', keyRequired: (name: string) => `Enter the ${name} API key`,
     apiKeyLabel: (required: boolean) => `API key (${required ? 'required' : 'optional'})`, accountIdLabel: 'Cloudflare Account ID (required)', endpointLabel: (required: boolean) => `Service URL${required ? ' (required)' : ''}`,
+    defaultModel: 'Default model', defaultModelPlaceholder: 'Enter your relay model id, e.g. gpt-4o, claude-sonnet-4-5, or a custom model name', defaultModelAria: 'Custom relay default model', defaultModelHelp: 'Used as the first connection-test and picker fallback; Maka still fetches the model catalog after saving.', defaultModelRequired: 'Enter a default model id. Maka still fetches the model catalog after saving.',
   },
   oauthFlow: {
     refreshFailed: 'Failed to refresh sign-in status', accountActionFailed: (name: string) => `${name} account action failed`, loginFailedRetry: 'Sign-in failed. Try again later.',

@@ -125,8 +125,16 @@ export const PROVIDER_DISPLAY_COPY = {
     en: { name: 'LocalAI', description: 'Local models served by LocalAI, with optional API key.', badge: 'Local' },
   },
   'openai-compatible': {
-    zh: { name: '自定义 OpenAI 兼容接口', description: '中转站、代理服务或自部署网关。', badge: 'Custom' },
-    en: { name: 'Custom OpenAI-compatible', description: 'Relay, proxy, or self-hosted gateway.', badge: 'Custom' },
+    zh: { name: '自定义中转站（OpenAI Chat）', description: 'OpenAI Chat Completions 兼容中转站、代理服务或自部署网关。', badge: '中转' },
+    en: { name: 'Custom relay (OpenAI Chat)', description: 'OpenAI Chat Completions-compatible relay, proxy, or self-hosted gateway.', badge: 'Relay' },
+  },
+  'openai-responses-compatible': {
+    zh: { name: '自定义中转站（OpenAI Responses）', description: 'OpenAI Responses API 兼容中转站、代理服务或自部署网关。', badge: 'Responses' },
+    en: { name: 'Custom relay (OpenAI Responses)', description: 'OpenAI Responses-compatible relay, proxy, or self-hosted gateway.', badge: 'Responses' },
+  },
+  'anthropic-compatible': {
+    zh: { name: '自定义中转站（Anthropic）', description: 'Anthropic Messages 兼容中转站、代理服务或自部署网关。', badge: 'Anthropic' },
+    en: { name: 'Custom relay (Anthropic)', description: 'Anthropic Messages-compatible relay, proxy, or self-hosted gateway.', badge: 'Anthropic' },
   },
   'fireworks-ai': {
     zh: { name: 'Fireworks AI', description: 'Serverless 开源模型托管', badge: 'API' },

@@ -73,6 +73,11 @@ export const PROVIDER_CONTRACT_OVERRIDE_BINDINGS: readonly ProviderContractOverr
     title: 'ZenMux replays signed reasoning details in the streamed runtime tool loop',
     run: runZenMuxSignedReasoningReplay,
   },
+  {
+    keys: ['openai-responses-compatible:exact-model-id', 'openai-responses-compatible:tool-loop'],
+    title: 'Custom OpenAI Responses relay preserves exact model ids and tool results',
+    run: runCustomOpenAIResponsesRelayWire,
+  },
 ];
 
 async function runGitHubCopilotDiscovery(): Promise<void> {
@@ -777,6 +782,94 @@ async function runCohereDiscovery(): Promise<void> {
   );
   assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
   assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
+  assert.equal(result.text, 'Echoed hello.');
+}
+
+async function runCustomOpenAIResponsesRelayWire(): Promise<void> {
+  const modelId = 'relay-responses-model';
+  const requestBodies: Array<Record<string, unknown>> = [];
+  const server = await startJsonServer(async (request, response) => {
+    assert.equal(request.method, 'POST');
+    assert.equal(request.url, '/relay/v1/responses');
+    assert.equal(request.headers.authorization, 'Bearer responses-relay-key');
+    requestBodies.push(JSON.parse(await readBody(request)) as Record<string, unknown>);
+    if (requestBodies.length === 1) {
+      respondJson(response, 200, {
+        id: 'resp_relay_tool',
+        object: 'response',
+        created_at: 1,
+        status: 'completed',
+        model: modelId,
+        output: [
+          {
+            type: 'function_call',
+            id: 'fc_relay_echo',
+            call_id: 'call_relay_echo',
+            name: 'echo',
+            arguments: '{"text":"hello"}',
+            status: 'completed',
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
+      });
+      return;
+    }
+    respondJson(response, 200, {
+      id: 'resp_relay_final',
+      object: 'response',
+      created_at: 2,
+      status: 'completed',
+      model: modelId,
+      output: [
+        {
+          type: 'message',
+          id: 'msg_relay_final',
+          status: 'completed',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Echoed hello.', annotations: [], logprobs: [] }],
+        },
+      ],
+      usage: { input_tokens: 14, output_tokens: 3, total_tokens: 17 },
+    });
+  });
+  const connection: LlmConnection = {
+    slug: 'responses-relay',
+    name: 'Responses Relay',
+    providerType: 'openai-responses-compatible',
+    baseUrl: `${server.url}/relay/v1`,
+    defaultModel: modelId,
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  const result = await generateText({
+    model: getAIModel({ connection, apiKey: 'responses-relay-key', modelId }),
+    prompt: 'Call echo with hello.',
+    stopWhen: isStepCount(2),
+    tools: {
+      echo: tool({
+        description: 'Echo text',
+        inputSchema: z.object({ text: z.string() }),
+        execute: async ({ text }) => ({ echoed: text }),
+      }),
+    },
+  });
+
+  assert.deepEqual(
+    requestBodies.map((body) => body.model),
+    [modelId, modelId],
+  );
+  assert.deepEqual(
+    (requestBodies[1].input as Array<Record<string, unknown>>).find(
+      ({ type }) => type === 'function_call_output',
+    ),
+    {
+      type: 'function_call_output',
+      call_id: 'call_relay_echo',
+      output: '{"echoed":"hello"}',
+    },
+  );
   assert.equal(result.text, 'Echoed hello.');
 }
 
