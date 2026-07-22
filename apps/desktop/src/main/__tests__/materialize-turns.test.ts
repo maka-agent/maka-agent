@@ -8,20 +8,8 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { deriveTurnLineageMap, materializeTurns, overlayLiveTurn, type LiveTurnProjection, type TurnTimelineItem } from '@maka/ui';
+import { deriveTurnLineageMap, materializeTurns, overlayLiveTurn, type LiveTurnProjection } from '@maka/ui';
 import type { StoredMessage } from '@maka/core';
-
-// #1307: reasoning + tool groups fold into collapsible `processing` blocks
-// between answer texts. These ordering tests care about the interleave, not the
-// folding, so they assert against the unfolded timeline; the folding itself is
-// covered by packages/ui/src/__tests__/materialize.test.ts and asserted here in
-// the dedicated "processing grouping" test below.
-function flattenTimeline(timeline: readonly TurnTimelineItem[]): TurnTimelineItem[] {
-  return timeline.flatMap((item) => (item.kind === 'processing' ? item.children : [item]));
-}
-function timelineKinds(timeline: readonly TurnTimelineItem[]): string[] {
-  return flattenTimeline(timeline).map((item) => item.kind);
-}
 
 function userMsg(turnId: string, ts: number, text: string, id?: string): StoredMessage {
   return { type: 'user', id: id ?? `u-${turnId}`, turnId, ts, text };
@@ -471,7 +459,7 @@ describe('materializeTurns timeline', () => {
       },
     );
 
-    assert.deepEqual(timelineKinds(turns[0]!.timeline), ['thinking', 'tools']);
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['thinking', 'tools']);
   });
 
   it('appends the current live step after earlier committed steps in thinking -> text -> tools order', () => {
@@ -491,8 +479,8 @@ describe('materializeTurns timeline', () => {
       },
     );
 
-    assert.deepEqual(timelineKinds(turns[0]!.timeline), ['text', 'thinking', 'text', 'tools']);
-    assert.equal((flattenTimeline(turns[0]!.timeline)[2] as { text: string } | undefined)?.text, 'second answer');
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['text', 'thinking', 'text', 'tools']);
+    assert.equal((turns[0]?.timeline[2] as { text: string } | undefined)?.text, 'second answer');
   });
 
   it('keeps multiple uncommitted live steps in production order', () => {
@@ -519,7 +507,7 @@ describe('materializeTurns timeline', () => {
       },
     );
 
-    assert.deepEqual(timelineKinds(turns[0]!.timeline), ['thinking', 'tools', 'thinking', 'text']);
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['thinking', 'tools', 'thinking', 'text']);
   });
 
   it('interleaves each step: thinking -> text -> that step’s tools', () => {
@@ -532,7 +520,7 @@ describe('materializeTurns timeline', () => {
       toolResultMsg('t1', 105, 'c2'),
       assistantStep('t1', 106, 'a2', 'step two', 'think two'),
     ]);
-    const timeline = flattenTimeline(turns[0]!.timeline);
+    const timeline = turns[0]!.timeline;
     assert.deepEqual(timeline.map((i) => i.kind), ['thinking', 'text', 'tools', 'thinking', 'text', 'tools']);
     assert.equal((timeline[0] as { text: string }).text, 'think one');
     assert.equal((timeline[1] as { text: string }).text, 'step one');
@@ -560,7 +548,7 @@ describe('materializeTurns timeline', () => {
       },
     ]);
 
-    assert.deepEqual(timelineKinds(turns[0]!.timeline), ['tools', 'thinking', 'text']);
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['tools', 'thinking', 'text']);
   });
 
   it('renders a pure-tool step’s orphan tools before the next step’s answer', () => {
@@ -574,7 +562,7 @@ describe('materializeTurns timeline', () => {
       toolResultMsg('t1', 102, 'c1'),
       assistantStep('t1', 103, 'a2', 'summary', 'think'),
     ]);
-    const timeline = flattenTimeline(turns[0]!.timeline);
+    const timeline = turns[0]!.timeline;
     assert.deepEqual(timeline.map((i) => i.kind), ['tools', 'thinking', 'text']);
     assert.equal((timeline[0] as { items: { toolUseId: string }[] }).items[0]?.toolUseId, 'c1');
     assert.equal((timeline[2] as { text: string }).text, 'summary');
@@ -587,7 +575,7 @@ describe('materializeTurns timeline', () => {
       toolResultMsg('t1', 102, 'c1'),
       assistantMsg('t1', 103, 'summary'),
     ]);
-    const timeline = flattenTimeline(turns[0]!.timeline);
+    const timeline = turns[0]!.timeline;
     assert.deepEqual(timeline.map((i) => i.kind), ['tools', 'text']);
     assert.equal((timeline[1] as { text: string }).text, 'summary');
   });
@@ -597,7 +585,7 @@ describe('materializeTurns timeline', () => {
       userMsg('t1', 100, 'q'),
       toolCallStep('t1', 101, 'c1', 'a1'),
     ]);
-    const timeline = flattenTimeline(turns[0]!.timeline);
+    const timeline = turns[0]!.timeline;
     assert.deepEqual(timeline.map((i) => i.kind), ['tools']);
     assert.equal((timeline[0] as { items: { status: string }[] }).items[0]?.status, 'interrupted');
   });
@@ -612,7 +600,7 @@ describe('materializeTurns timeline', () => {
         }],
       },
     );
-    const timeline = flattenTimeline(turns[0]!.timeline);
+    const timeline = turns[0]!.timeline;
     assert.deepEqual(timeline.map((i) => i.kind), ['text', 'tools']);
     assert.equal((timeline[1] as { items: { toolUseId: string }[] }).items[0]?.toolUseId, 'live-1');
   });
@@ -623,7 +611,7 @@ describe('materializeTurns timeline', () => {
       assistantStep('t1', 101, 'a1', '', 'first'),
       assistantStep('t1', 102, 'a2', '', 'second'),
     ]);
-    const tl1 = flattenTimeline(thinkingOnly[0]!.timeline);
+    const tl1 = thinkingOnly[0]!.timeline;
     assert.deepEqual(tl1.map((i) => i.kind), ['thinking']);
     assert.equal((tl1[0] as { text: string }).text, 'first\n\nsecond');
 
@@ -634,36 +622,9 @@ describe('materializeTurns timeline', () => {
       toolCallStep('t1', 103, 'c2', 'a2'),
       assistantStep('t1', 104, 'a2', ''),
     ]);
-    const tl2 = flattenTimeline(toolsOnly[0]!.timeline);
+    const tl2 = toolsOnly[0]!.timeline;
     assert.deepEqual(tl2.map((i) => i.kind), ['tools']);
     assert.equal((tl2[0] as { items: unknown[] }).items.length, 2);
-  });
-
-  it('folds each maximal reasoning + tool run between answers into a processing block (#1307)', () => {
-    const turns = materializeTurns([
-      userMsg('t1', 100, 'q'),
-      toolCallStep('t1', 101, 'c1', 'a1'),
-      toolResultMsg('t1', 102, 'c1'),
-      assistantStep('t1', 103, 'a1', 'step one', 'think one'),
-      toolCallStep('t1', 104, 'c2', 'a2'),
-      toolResultMsg('t1', 105, 'c2'),
-      assistantStep('t1', 106, 'a2', 'step two', 'think two'),
-    ]);
-    const timeline = turns[0]!.timeline;
-    // Answer text is the only boundary; a run folds only when it contains tool
-    // activity, so the lone pre-answer reasoning stays a bare thinking entry.
-    assert.deepEqual(timeline.map((item) => item.kind), [
-      'thinking',
-      'text',
-      'processing',
-      'text',
-      'processing',
-    ]);
-    const middle = timeline[2];
-    assert.deepEqual(
-      middle?.kind === 'processing' ? middle.children.map((child) => child.kind) : [],
-      ['tools', 'thinking'],
-    );
   });
 });
 

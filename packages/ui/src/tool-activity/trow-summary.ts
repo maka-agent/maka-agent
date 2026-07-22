@@ -12,7 +12,8 @@
  */
 
 import type { ToolActivityKind, UiLocale } from '@maka/core';
-import type { ProcessingTimelineChild, ToolActivityItem } from '../materialize.js';
+import type { ToolActivityItem } from '../materialize.js';
+import type { FoldedTimelineChild } from '../timeline-fold.js';
 import { getToolActivityCopy } from './copy.js';
 import { formatUserVisibleToolText } from './preview-utils.js';
 
@@ -130,18 +131,19 @@ export function trowNeedsAttention(items: readonly ToolActivityItem[]): boolean 
 // ── Processing block (#1307) ────────────────────────────────────────────────
 // A processing block folds a maximal run of reasoning + tool groups between two
 // answer texts (a run folds only when it contains tool activity — see
-// groupProcessing). Its summary reuses the trow bucket clauses; folded
+// foldTimeline in timeline-fold.ts). Its summary reuses the trow bucket
+// clauses; folded
 // reasoning stays inside the block but is not counted in the summary line. The
 // failed count stays visible (errored tools remain collapsed, so the summary
 // line is the failure signal, matching the trow).
 
 /** All tool items across the block's tool groups, in order. */
-function processingTools(children: readonly ProcessingTimelineChild[]): ToolActivityItem[] {
+function processingTools(children: readonly FoldedTimelineChild[]): ToolActivityItem[] {
   return children.flatMap((child) => (child.kind === 'tools' ? child.items : []));
 }
 
 /** True while any tool is in flight or any reasoning block is still streaming. */
-export function isProcessingRunning(children: readonly ProcessingTimelineChild[]): boolean {
+export function isProcessingRunning(children: readonly FoldedTimelineChild[]): boolean {
   return children.some((child) =>
     child.kind === 'thinking' ? child.live === true : isTrowRunning(child.items),
   );
@@ -152,7 +154,7 @@ export function isProcessingRunning(children: readonly ProcessingTimelineChild[]
  * Mirrors `trowNeedsAttention` — an errored tool does NOT force-open; the
  * settled summary carries the failure count (「N 个失败」 in destructive color).
  */
-export function processingNeedsAttention(children: readonly ProcessingTimelineChild[]): boolean {
+export function processingNeedsAttention(children: readonly FoldedTimelineChild[]): boolean {
   return children.some((child) => child.kind === 'tools' && trowNeedsAttention(child.items));
 }
 
@@ -164,7 +166,7 @@ export function processingNeedsAttention(children: readonly ProcessingTimelineCh
  * and only thinking is still streaming), prefixed with "正在".
  */
 export function summarizeProcessing(
-  children: readonly ProcessingTimelineChild[],
+  children: readonly FoldedTimelineChild[],
   options?: { live?: boolean; locale?: UiLocale },
 ): string {
   const locale = options?.locale ?? 'zh';
@@ -174,7 +176,7 @@ export function summarizeProcessing(
 
 /** Current-activity line for a running processing block. */
 function processingLiveSummary(
-  children: readonly ProcessingTimelineChild[],
+  children: readonly FoldedTimelineChild[],
   locale: UiLocale,
 ): string {
   const copy = getToolActivityCopy(locale).summary;

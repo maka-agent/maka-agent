@@ -80,131 +80,67 @@ describe('materializeChat attachments', () => {
   });
 });
 
-// ── #1307: reasoning + tool calls fold into collapsible Processing blocks ─────
+// ── #1307: the timeline model stays flat (fold is a render concern) ──────────
 
 function userMsg(turnId: string, ts: number, text: string): StoredMessage {
   return { type: 'user', id: `u-${turnId}`, turnId, ts, text };
 }
 
-function assistantStep(
-  turnId: string,
-  ts: number,
-  id: string,
-  text: string,
-  thinking?: string,
-): StoredMessage {
+function shellRunResult(revision: number) {
   return {
-    type: 'assistant',
-    id,
-    turnId,
-    ts,
-    text,
-    modelId: 'm',
-    ...(thinking !== undefined ? { thinking: { text: thinking } } : {}),
-  } as StoredMessage;
+    kind: 'shell_run' as const,
+    ref: 'maka://runtime/background-tasks/pty-1',
+    mode: 'pty' as const,
+    status: 'running' as const,
+    cwd: '/repo',
+    cmd: 'job',
+    startedAt: 1,
+    updatedAt: revision,
+    revision,
+    output: {
+      mode: 'pty' as const,
+      screen: 'ready',
+      scrollback: '',
+      cols: 80,
+      rows: 24,
+      cursor: { x: 0, y: 0, visible: true },
+      alternateScreen: false,
+      truncated: false,
+      redacted: false,
+    },
+  };
 }
 
-function toolCallStep(turnId: string, ts: number, id: string, stepId: string, toolName = 'Read'): StoredMessage {
-  return { type: 'tool_call', id, turnId, ts, toolName, args: {}, stepId };
-}
-
-function toolResult(turnId: string, ts: number, toolUseId: string): StoredMessage {
-  return { type: 'tool_result', id: `r-${toolUseId}`, turnId, ts, toolUseId, isError: false, content: { kind: 'text', text: 'ok' } };
-}
-
-function childKinds(item: TurnTimelineItem | undefined): string[] {
-  return item?.kind === 'processing' ? item.children.map((child) => child.kind) : [];
-}
-
-describe('materializeTurns processing grouping (#1307)', () => {
-  test('leaves a pure-thinking run bare instead of folding it (review fix)', () => {
-    const turns = materializeTurns([
-      userMsg('t1', 100, 'q'),
-      assistantStep('t1', 101, 'a1', '', 'reasoning only'),
+describe('flat timeline under tool projection (#1307 P1 regression)', () => {
+  test('shell-run folding away a turn’s only tool leaves a flat thinking-only timeline', () => {
+    // Turn t1 owns the Bash ShellRun parent; the live turn t2's ONLY tool is a
+    // Read carrying a shell_run result with the same ref, so foldShellRunTurns
+    // merges it into t1's Bash and drops it from t2 entirely. With the fold
+    // living in the model this used to strand an illegal thinking-only
+    // "processing" block with an empty summary; the flat model simply drops
+    // the emptied tools group.
+    const settled = materializeTurns([
+      { type: 'tool_call', id: 'bash-1', turnId: 't1', ts: 1, toolName: 'Bash', args: { command: 'job', pty: true } },
+      { type: 'tool_result', id: 'r-bash-1', turnId: 't1', ts: 2, toolUseId: 'bash-1', isError: false, content: shellRunResult(1) },
+      userMsg('t2', 3, 'q'),
     ]);
-    const timeline = turns[0]!.timeline;
-    // No tools in the run → no processing block; the 深度思考 disclosure
-    // renders the reasoning directly.
-    assert.deepEqual(timeline.map((item) => item.kind), ['thinking']);
-  });
-
-  test('folds a pure-tools run into one processing block', () => {
-    const turns = materializeTurns([
-      userMsg('t1', 100, 'q'),
-      toolCallStep('t1', 101, 'c1', 'a1'),
-      toolResult('t1', 102, 'c1'),
-      assistantStep('t1', 103, 'a1', ''),
-    ]);
-    const timeline = turns[0]!.timeline;
-    assert.deepEqual(timeline.map((item) => item.kind), ['processing']);
-    assert.deepEqual(childKinds(timeline[0]), ['tools']);
-  });
-
-  test('keeps interleaved thinking + tools inside one block, in order', () => {
-    const turns = materializeTurns([
-      userMsg('t1', 100, 'q'),
-      toolCallStep('t1', 101, 'c1', 'a1'),
-      toolResult('t1', 102, 'c1'),
-      assistantStep('t1', 103, 'a1', '', 'think then call'),
-    ]);
-    const timeline = turns[0]!.timeline;
-    assert.deepEqual(timeline.map((item) => item.kind), ['processing']);
-    // Reasoning renders above the tools it precedes, full timeline preserved.
-    assert.deepEqual(childKinds(timeline[0]), ['thinking', 'tools']);
-  });
-
-  test('answer text is a boundary: two steps yield several processing blocks around the texts', () => {
-    const turns = materializeTurns([
-      userMsg('t1', 100, 'q'),
-      toolCallStep('t1', 101, 'c1', 'a1'),
-      toolResult('t1', 102, 'c1'),
-      assistantStep('t1', 103, 'a1', 'step one', 'think one'),
-      toolCallStep('t1', 104, 'c2', 'a2'),
-      toolResult('t1', 105, 'c2'),
-      assistantStep('t1', 106, 'a2', 'step two', 'think two'),
-    ]);
-    const timeline = turns[0]!.timeline;
-    // thinking, text, tools, thinking, text, tools ->
-    // thinking (pure run stays bare), text, processing[tools, thinking],
-    // text, processing[tools]
-    assert.deepEqual(timeline.map((item) => item.kind), [
-      'thinking',
-      'text',
-      'processing',
-      'text',
-      'processing',
-    ]);
-    assert.deepEqual(childKinds(timeline[2]), ['tools', 'thinking']);
-    assert.deepEqual(childKinds(timeline[4]), ['tools']);
-    assert.equal((timeline[1] as { text: string }).text, 'step one');
-    assert.equal((timeline[3] as { text: string }).text, 'step two');
-  });
-
-  test('live overlay path folds a streaming step the same way as settled history', () => {
-    const timeline = overlayLiveTurn([], {
-      turnId: 't1',
-      phase: 'streamed',
-      steps: [{
-        stepId: 'a1',
-        thinking: { text: '先测试工具', truncated: false, complete: false },
-        tools: [{ toolUseId: 'c1', toolName: 'Read', stepId: 'a1', status: 'running', args: {} }],
-      }],
-    })[0]?.timeline;
-    assert.deepEqual(timeline?.map((item) => item.kind), ['processing']);
-    assert.deepEqual(childKinds(timeline?.[0]), ['thinking', 'tools']);
-    // The live processing block keeps its answer texts as boundaries: a live
-    // step with text splits reasoning/tools out of the answer, and a lone
-    // pre-answer thinking run stays bare (same rule as settled history).
-    const withText = overlayLiveTurn([], {
+    const turns = overlayLiveTurn(settled, {
       turnId: 't2',
       phase: 'streamed',
       steps: [{
         stepId: 'a1',
-        thinking: { text: 'think', truncated: false, complete: true },
-        text: { text: 'answer', truncated: false, complete: false },
-        tools: [{ toolUseId: 'c2', toolName: 'Bash', stepId: 'a1', status: 'running', args: {} }],
+        thinking: { text: 'watching the background job', truncated: false, complete: false },
+        tools: [{
+          toolUseId: 'read-1',
+          toolName: 'Read',
+          stepId: 'a1',
+          status: 'completed',
+          args: {},
+          result: shellRunResult(2),
+        }],
       }],
-    })[0]?.timeline;
-    assert.deepEqual(withText?.map((item) => item.kind), ['thinking', 'text', 'processing']);
+    });
+    const liveTurn = turns.find((turn) => turn.turnId === 't2');
+    assert.deepEqual(liveTurn?.timeline.map((item: TurnTimelineItem) => item.kind), ['thinking']);
   });
 });

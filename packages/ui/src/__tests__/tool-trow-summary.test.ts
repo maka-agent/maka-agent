@@ -13,7 +13,8 @@ import {
   summarizeProcessing,
   summarizeTrowTools,
 } from '../tool-activity/trow-summary.js';
-import type { ProcessingTimelineChild, ToolActivityItem } from '../materialize.js';
+import type { ToolActivityItem } from '../materialize.js';
+import type { FoldedTimelineChild } from '../timeline-fold.js';
 
 const toolActivitySource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'tool-activity.tsx'),
@@ -107,11 +108,11 @@ describe('tool trow summary aggregation', () => {
   });
 });
 
-function thinking(live?: boolean): ProcessingTimelineChild {
+function thinking(live?: boolean): FoldedTimelineChild {
   return { kind: 'thinking', text: 'reasoning', messageId: 'a1', ...(live !== undefined ? { live } : {}) };
 }
 
-function tools(items: ToolActivityItem[]): ProcessingTimelineChild {
+function tools(items: ToolActivityItem[]): FoldedTimelineChild {
   return { kind: 'tools', items };
 }
 

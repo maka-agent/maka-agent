@@ -74,11 +74,11 @@ describe('single live-turn handoff', () => {
       }],
     });
 
-    // #1307: the answer text is the grouping boundary and a pure-thinking run
-    // stays bare, so the reasoning renders as the 深度思考 disclosure above the
-    // answer while the tool folds into one collapsed "Processing" block below
-    // it (its body is not in the static markup; the summary line carries the
-    // tool roll-up).
+    // #1307: the render-layer fold (foldTimeline) keeps answer text as the
+    // grouping boundary and leaves a pure-thinking run bare, so the reasoning
+    // renders as the 深度思考 disclosure above the answer while the tool folds
+    // into one collapsed "Processing" block below it (its body is not in the
+    // static markup; the summary line carries the tool roll-up).
     assert.equal((markup.match(/data-processing="block"/g) ?? []).length, 1);
     assert.ok(markup.indexOf('深度思考') >= 0);
     assert.ok(markup.indexOf('深度思考') < markup.indexOf('最终答案'));

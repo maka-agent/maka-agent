@@ -222,25 +222,16 @@ function mergeLiveOverPersisted(persisted: ToolActivityItem, live: ToolActivityI
  *   step's wall-clock for hover meta.
  * - `tools`: one contiguous group of tool activity, rendered as a single
  *   Codex-style trow. Adjacent groups are pre-merged.
- * - `processing`: a maximal run of `thinking` + `tools` entries between two
- *   answer texts, folded into one collapsed "Processing" disclosure (#1307).
- *   A run folds only when it contains at least one tools group — a
- *   pure-thinking run stays bare. `children` preserve the original interleaved
- *   order so the expanded block is the full timeline; answer `text` stays a
- *   grouping boundary and always renders in place, so a turn can hold several
- *   processing blocks.
+ *
+ * The model stays FLAT: the collapsed "Processing" fold (#1307) is a render
+ * concern applied by `foldTimeline` (timeline-fold.ts) at the component layer,
+ * so timeline-rewriting passes (overlayLiveTurn, projectTurnTools, shell-run
+ * folding) never have to maintain a nesting invariant.
  */
-export type ThinkingTimelineItem = { kind: 'thinking'; text: string; messageId: string; live?: boolean; truncated?: boolean };
-export type TextTimelineItem = { kind: 'text'; text: string; messageId: string; ts?: number; live?: boolean; complete?: boolean; truncated?: boolean };
-export type ToolsTimelineItem = { kind: 'tools'; items: ToolActivityItem[] };
-/** A single entry inside a folded processing block: reasoning or a tool group. */
-export type ProcessingTimelineChild = ThinkingTimelineItem | ToolsTimelineItem;
-export type ProcessingTimelineItem = { kind: 'processing'; children: ProcessingTimelineChild[] };
 export type TurnTimelineItem =
-  | ThinkingTimelineItem
-  | TextTimelineItem
-  | ToolsTimelineItem
-  | ProcessingTimelineItem;
+  | { kind: 'thinking'; text: string; messageId: string; live?: boolean; truncated?: boolean }
+  | { kind: 'text'; text: string; messageId: string; ts?: number; live?: boolean; complete?: boolean; truncated?: boolean }
+  | { kind: 'tools'; items: ToolActivityItem[] };
 
 /**
  * A single conversational turn — typically one user message, the assistant's
@@ -333,11 +324,7 @@ export function overlayLiveTurn(
     }
   }
   const timeline: TurnTimelineItem[] = [];
-  // Rebuild from a flat timeline: unfold committed processing blocks so the
-  // settled-tool filter + live-step append operate on raw thinking/text/tools,
-  // then re-fold once via finalizeTimeline. Keeps grouping a single source of
-  // truth shared with the settled path (#1307).
-  for (const item of flattenProcessing(current.timeline)) {
+  for (const item of current.timeline) {
     if (item.kind !== 'tools') {
       timeline.push(item);
       continue;
@@ -378,7 +365,7 @@ export function overlayLiveTurn(
       }
     }
   }
-  const next = { ...current, tools, timeline: finalizeTimeline(timeline) };
+  const next = { ...current, tools, timeline: mergeAdjacentTimeline(timeline) };
   const overlaid = targetIndex < 0
     ? [...turns, next]
     : turns.map((turn, index) => index === targetIndex ? next : turn);
@@ -616,33 +603,16 @@ function projectTurnTools(
       return projectedTool ? [projectedTool] : [];
     });
     let timelineChanged = false;
-    const projectTools = (source: readonly ToolActivityItem[]): { items: ToolActivityItem[]; changed: boolean } => {
-      const items = source.flatMap((tool) => {
+    const timeline = turn.timeline.flatMap<TurnTimelineItem>((item): TurnTimelineItem[] => {
+      if (item.kind !== 'tools') return [item];
+      const items = item.items.flatMap((tool) => {
         const projectedTool = projected.get(tool.toolUseId);
         return projectedTool ? [projectedTool] : [];
       });
-      const changed = items.length !== source.length || items.some((tool, index) => tool !== source[index]);
-      return { items, changed };
-    };
-    const timeline = turn.timeline.flatMap<TurnTimelineItem>((item): TurnTimelineItem[] => {
-      if (item.kind === 'tools') {
-        const { items, changed } = projectTools(item.items);
-        if (changed) timelineChanged = true;
-        return items.length > 0 ? [{ kind: 'tools' as const, items }] : [];
-      }
-      if (item.kind === 'processing') {
-        let childChanged = false;
-        const children = item.children.flatMap<ProcessingTimelineChild>((child): ProcessingTimelineChild[] => {
-          if (child.kind !== 'tools') return [child];
-          const { items, changed } = projectTools(child.items);
-          if (changed) childChanged = true;
-          return items.length > 0 ? [{ kind: 'tools' as const, items }] : [];
-        });
-        if (!childChanged) return [item];
+      if (items.length !== item.items.length || items.some((tool, index) => tool !== item.items[index])) {
         timelineChanged = true;
-        return children.length > 0 ? [{ kind: 'processing' as const, children }] : [];
       }
-      return [item];
+      return items.length > 0 ? [{ kind: 'tools' as const, items }] : [];
     });
     const toolsChanged = nextTools.length !== turn.tools.length
       || nextTools.some((tool, index) => tool !== turn.tools[index]);
@@ -741,53 +711,7 @@ function buildTurnTimeline(
     }
   }
   flushTools(pending);
-  return finalizeTimeline(raw);
-}
-
-/**
- * Shared final pass for both the settled (`buildTurnTimeline`) and live-overlay
- * (`overlayLiveTurn`) paths: merge adjacent thinking/tool runs, then fold every
- * maximal thinking+tools run between answer texts into one collapsed
- * `processing` block (#1307). Answer `text` is the only grouping boundary, so a
- * turn can carry several processing blocks and the answer always reads in place.
- */
-function finalizeTimeline(items: readonly TurnTimelineItem[]): TurnTimelineItem[] {
-  return groupProcessing(mergeAdjacentTimeline(items));
-}
-
-/** Expand any folded processing blocks back into their raw thinking/tools
- *  children, so the overlay/projection passes can rebuild from a flat timeline
- *  and re-group once at the end. Text passes through untouched. */
-function flattenProcessing(items: readonly TurnTimelineItem[]): TurnTimelineItem[] {
-  return items.flatMap((item) => (item.kind === 'processing' ? item.children : [item]));
-}
-
-function groupProcessing(items: readonly TurnTimelineItem[]): TurnTimelineItem[] {
-  const out: TurnTimelineItem[] = [];
-  let buffer: ProcessingTimelineChild[] | null = null;
-  const flush = (): void => {
-    if (buffer && buffer.length > 0) {
-      // A run folds only when it contains tool activity. A pure-thinking run
-      // stays bare so the existing 深度思考 disclosure renders it directly —
-      // wrapping a lone reasoning block would just double the fold.
-      if (buffer.some((child) => child.kind === 'tools')) {
-        out.push({ kind: 'processing', children: buffer });
-      } else {
-        out.push(...buffer);
-      }
-    }
-    buffer = null;
-  };
-  for (const item of items) {
-    if (item.kind === 'thinking' || item.kind === 'tools') {
-      (buffer ??= []).push(item);
-    } else {
-      flush();
-      out.push(item);
-    }
-  }
-  flush();
-  return out;
+  return mergeAdjacentTimeline(raw);
 }
 
 function mergeAdjacentTimeline(items: readonly TurnTimelineItem[]): TurnTimelineItem[] {

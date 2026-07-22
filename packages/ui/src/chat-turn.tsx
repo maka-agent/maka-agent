@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
 import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, Cpu, GitBranch, Info, Loader2, RefreshCcw, Timer } from './icons.js';
@@ -9,7 +9,8 @@ import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { Button as UiButton, cn, DialogContent, DialogRoot } from './ui.js';
 import type { AttachmentRef } from '@maka/core';
-import type { ProcessingTimelineChild, TurnTimelineItem, TurnViewModel } from './materialize.js';
+import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
+import { foldTimeline, type FoldedTimelineChild } from './timeline-fold.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
@@ -315,7 +316,17 @@ export const TurnView = memo(function TurnView(props: {
   // this is the live streaming tail (a thinking-only / textless streaming turn
   // has an empty committed timeline but must still show its live answer block).
   const showAssistantMessage = turn.timeline.length > 0 || !!props.liveStreaming;
-  const hasLiveTimelineContent = turn.timeline.some(timelineItemHasLiveContent);
+  const hasLiveTimelineContent = turn.timeline.some((item) =>
+    item.kind === 'thinking'
+      ? item.live === true
+      : item.kind === 'text'
+        ? item.live === true
+        : item.items.some((tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'),
+  );
+  // #1307: the collapsed "Processing" fold is derived at render time from the
+  // flat timeline. Settled turn identities are stable (memoized projections),
+  // so this only recomputes for the turn whose timeline actually changed.
+  const foldedTimeline = useMemo(() => foldTimeline(turn.timeline), [turn.timeline]);
   return (
     <section
       className="maka-turn"
@@ -426,14 +437,20 @@ export const TurnView = memo(function TurnView(props: {
             )}
             {/* The turn timeline is the rendering source of truth
                 (materialize.ts): each step's 深度思考 disclosure, answer bubble,
-                and Codex-style tool trow in the order the model produced them. */}
-            {turn.timeline.map((item, index) => (
-              <TurnTimelineEntry
-                key={timelineEntryKey(item, index)}
-                item={item}
-                onStreamingSettled={props.liveStreaming?.onStreamingSettled}
-              />
-            ))}
+                and Codex-style tool trow in the order the model produced them.
+                #1307: runs of reasoning + tools between answer texts render
+                through the derived fold as collapsed Processing blocks. */}
+            {foldedTimeline.map((item, index) =>
+              item.kind === 'processing' ? (
+                <ProcessingBlock key={`processing-${item.id}`} entries={item.children} />
+              ) : (
+                <TurnTimelineEntry
+                  key={timelineEntryKey(item, index)}
+                  item={item}
+                  onStreamingSettled={props.liveStreaming?.onStreamingSettled}
+                />
+              ),
+            )}
             {props.liveStreaming && (
               <>
                 {props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelProcessingIndicator />}
@@ -779,39 +796,14 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
  * re-positioned mid-timeline without remounting — and thereby collapsing —
  * the disclosures after it.
  */
-function timelineEntryKey(item: TurnTimelineItem | ProcessingTimelineChild, index: number): string {
+function timelineEntryKey(item: TurnTimelineItem, index: number): string {
   if (item.kind === 'tools') return `tools-${item.items[0]?.toolUseId ?? index}`;
-  if (item.kind === 'processing') {
-    const first = item.children[0];
-    const inner = first
-      ? (first.kind === 'tools' ? first.items[0]?.toolUseId : first.messageId)
-      : index;
-    return `processing-${inner ?? index}`;
-  }
   return `${item.kind}-${item.messageId}`;
 }
 
-/** True when a timeline entry (including a folded processing block) is still
- *  streaming reasoning/answer text or running a tool — drives the tail turn's
- *  live indicators. */
-function timelineItemHasLiveContent(item: TurnTimelineItem): boolean {
-  switch (item.kind) {
-    case 'thinking':
-    case 'text':
-      return item.live === true;
-    case 'tools':
-      return item.items.some(
-        (tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission',
-      );
-    case 'processing':
-      return item.children.some(timelineItemHasLiveContent);
-  }
-}
-
-/** Render one timeline entry: reasoning disclosure / answer bubble / tool trow /
- *  folded Processing block. */
+/** Render one timeline entry: reasoning disclosure / answer bubble / tool trow. */
 function TurnTimelineEntry(props: {
-  item: TurnTimelineItem | ProcessingTimelineChild;
+  item: TurnTimelineItem;
   onStreamingSettled?: (messageId?: string) => void;
 }) {
   const { item } = props;
@@ -819,9 +811,6 @@ function TurnTimelineEntry(props: {
     return <DeepThinking text={item.text} live={item.live === true} truncated={item.truncated === true} />;
   }
   if (item.kind === 'tools') return <ToolTrow items={item.items} />;
-  if (item.kind === 'processing') {
-    return <ProcessingBlock entries={item.children} onStreamingSettled={props.onStreamingSettled} />;
-  }
   if (item.kind === 'text' && item.live) {
     return (
       <StreamingAssistantBubble
@@ -837,7 +826,8 @@ function TurnTimelineEntry(props: {
 
 /**
  * "Processing" — a folded run of the model's reasoning + tool activity between
- * two answer texts (#1307; a run folds only when it contains tool activity — a
+ * two answer texts (#1307; the fold is derived at render time by
+ * `foldTimeline`, which only folds runs containing tool activity — a
  * pure-thinking run renders as the bare 深度思考 disclosure). Collapsed by
  * default (no defaultOpen — same disclosure-collapsible-contract as 深度思考 /
  * the tool trow): the summary line shows the current activity while running and
@@ -848,10 +838,7 @@ function TurnTimelineEntry(props: {
  * The expanded panel replays the full timeline — the SAME 深度思考 disclosures
  * and tool trows, just nested one indent in — so nothing is lost, only folded.
  */
-function ProcessingBlock(props: {
-  entries: ProcessingTimelineChild[];
-  onStreamingSettled?: (messageId?: string) => void;
-}) {
+function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
   const locale = useUiLocale();
   const { entries } = props;
   const running = isProcessingRunning(entries);
@@ -897,11 +884,7 @@ function ProcessingBlock(props: {
       <CollapsiblePanel>
         <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
           {entries.map((entry, index) => (
-            <TurnTimelineEntry
-              key={timelineEntryKey(entry, index)}
-              item={entry}
-              onStreamingSettled={props.onStreamingSettled}
-            />
+            <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} />
           ))}
         </div>
       </CollapsiblePanel>

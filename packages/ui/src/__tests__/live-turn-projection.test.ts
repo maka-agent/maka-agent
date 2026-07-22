@@ -372,14 +372,7 @@ describe('applyLiveTurnEvent', () => {
     });
 
     const timeline = overlayLiveTurn([], withLateThinking)[0]?.timeline;
-    // Folded into one Processing block (#1307); the tool still renders before
-    // the late reasoning inside the block — the ordering this test guards.
-    assert.deepEqual(timeline?.map((item) => item.kind), ['processing']);
-    const block = timeline?.[0];
-    assert.deepEqual(
-      block?.kind === 'processing' ? block.children.map((child) => child.kind) : [],
-      ['tools', 'thinking'],
-    );
+    assert.deepEqual(timeline?.map((item) => item.kind), ['tools', 'thinking']);
   });
 
   it('drops a terminal projection only after its last live step settles', () => {
