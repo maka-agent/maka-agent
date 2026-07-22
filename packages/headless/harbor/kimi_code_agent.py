@@ -13,20 +13,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
-from harbor.environments.base import BaseEnvironment
-from harbor.models.agent.context import AgentContext
-
+# harness_compat picks the harbor.* tree under plain Harbor 0.13.2 and the
+# pier.* tree under Pier, whose parallel classes are type-incompatible with
+# harbor's (Pier's TrialResult only accepts Pier's AgentInfo).
+from harness_compat import (
+    AgentContext,
+    BaseEnvironment,
+    BaseInstalledAgent,
+    NetworkAllowlist as _NetworkAllowlist,
+    with_prompt_template,
+)
 from process_scope import cleanup_process_scope, scoped_command
-
-# Pier (Datacurve's Harbor fork) asks each agent for a per-container network
-# allowlist. Plain Harbor has no such hook, so the import is guarded: under plain
-# Harbor `pier` is absent and network_allowlist() is never called, but the module
-# must still import for the Terminal-Bench (plain Harbor) runs.
-try:
-    from pier.models.agent.network import NetworkAllowlist as _NetworkAllowlist
-except ImportError:  # plain Harbor without Pier installed
-    _NetworkAllowlist = None
 
 _TOOLCHAIN_ROOT = Path("/opt/maka-kimi-code-toolchain")
 _TOOLCHAIN_NODE = _TOOLCHAIN_ROOT / "bin" / "node"
@@ -55,8 +52,8 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
     def install_spec(self):
         # The Kimi Code toolchain is baked into the task image and only verified
         # (sha256 checksums + manifest fingerprint) in install(); there is
-        # nothing to install at Pier build time. None keeps the runtime verify
-        # path unchanged.
+        # nothing to install at Pier build time. Pier declares this abstract on
+        # BaseInstalledAgent; None keeps the runtime verify path unchanged.
         return None
 
     def network_allowlist(self):

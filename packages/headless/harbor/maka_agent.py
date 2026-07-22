@@ -16,13 +16,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from harbor.agents.installed.base import BaseInstalledAgent, CliFlag, with_prompt_template
-from harbor.environments.base import BaseEnvironment
-from harbor.models.agent.context import AgentContext
-from harbor.models.trajectories import Agent, FinalMetrics, Step, Trajectory
-from harbor.models.trial.paths import EnvironmentPaths
-from harbor.utils.trajectory_utils import format_trajectory_json
-
+# harness_compat picks the harbor.* tree under plain Harbor 0.13.2 and the
+# pier.* tree under Pier, whose parallel classes are type-incompatible with
+# harbor's (Pier's TrialResult only accepts Pier's AgentInfo).
+from harness_compat import (
+    Agent,
+    AgentContext,
+    BaseEnvironment,
+    BaseInstalledAgent,
+    CliFlag,
+    EnvironmentPaths,
+    FinalMetrics,
+    NetworkAllowlist as _NetworkAllowlist,
+    Step,
+    Trajectory,
+    format_trajectory_json,
+    with_prompt_template,
+)
 from process_scope import (
     COMMAND_SCOPE_ENV as _COMMAND_SCOPE_ENV,
     COMMAND_SCOPE_ROOT as _COMMAND_SCOPE_ROOT,
@@ -31,15 +41,6 @@ from process_scope import (
     scoped_process_cleanup_command as _scoped_process_cleanup_command,
 )
 from trial_pricing import estimate_cost, pricing_from_env
-
-# Pier (Datacurve's Harbor fork) asks each agent for a per-container network
-# allowlist. Plain Harbor has no such hook, so the import is guarded: under plain
-# Harbor `pier` is absent and network_allowlist() is never called, but the module
-# must still import for the Terminal-Bench (plain Harbor) runs.
-try:
-    from pier.models.agent.network import NetworkAllowlist as _NetworkAllowlist
-except ImportError:  # plain Harbor without Pier installed
-    _NetworkAllowlist = None
 
 # Default wall-clock budget for a single bridged tool command when the client
 # does not request its own timeout. Matches the in-container executor floor
@@ -171,15 +172,17 @@ class MakaAgent(BaseInstalledAgent):
     def install_spec(self):
         # Maka installs at runtime inside install()/setup() (host-side Node, or
         # the in-container Node bootstrap), not via a Pier build-time install
-        # spec. Returning None keeps that runtime-install path unchanged; Pier
-        # falls back to setup() when the spec is None.
+        # spec. Pier declares this abstract on BaseInstalledAgent; returning
+        # None keeps the runtime-install path unchanged (Pier runs install()
+        # when no spec is preinstalled).
         return None
 
     def network_allowlist(self):
         # Host-side LLM mode makes every model call on the host and bridges tools
         # into the container via environment.exec, so the container itself needs
         # no outbound network. An empty allowlist keeps a non-internet Pier task
-        # fully offline. Called only under Pier, where NetworkAllowlist imports.
+        # fully offline. Called only under Pier; plain Harbor never calls it and
+        # harness_compat exports NetworkAllowlist = None there.
         return _NetworkAllowlist() if _NetworkAllowlist is not None else None
 
     def _harbor_mode(self) -> str:
