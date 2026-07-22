@@ -227,10 +227,12 @@ test('createPierTaskRunner maps a completed fake trial to reward and host cell p
     // never `--ae`.
     assert.equal(captured.request?.env?.MAKA_BACKEND, 'fake');
     assert.ok(!captured.request?.args.some((arg) => arg.startsWith('MAKA_BACKEND=')));
-    // The system prompt is forwarded verbatim through --ae for the identity round-trip.
-    assert.ok(
-      captured.request?.args.some((arg) => arg === 'MAKA_SYSTEM_PROMPT=CANDIDATE PROMPT\n'),
-    );
+    // The system prompt rides the process env byte-exact (trailing newline
+    // preserved) and must NOT appear in --ae, whose values pier strips — a
+    // stripped extra_env copy would shadow os.environ and break the
+    // execution-identity hash round-trip.
+    assert.equal(captured.request?.env?.MAKA_SYSTEM_PROMPT, 'CANDIDATE PROMPT\n');
+    assert.ok(!captured.request?.args.some((arg) => arg.startsWith('MAKA_SYSTEM_PROMPT=')));
   });
 });
 

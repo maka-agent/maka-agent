@@ -128,8 +128,9 @@ export interface PierRunRequest {
   cwd: string;
   /** Wall-clock ceiling in ms; the default runner kills pier past this. */
   timeoutMs?: number;
-  /** Env overlaid onto the pier process (PYTHONPATH + MAKA_BACKEND, which the
-   * adapter's CliFlag env_fallback reads only from os.environ). */
+  /** Env overlaid onto the pier process: PYTHONPATH, MAKA_BACKEND (the adapter's
+   * CliFlag env_fallback reads only os.environ), and MAKA_SYSTEM_PROMPT (byte-
+   * exact; pier's --ae parser would strip its whitespace). */
   env?: Record<string, string>;
 }
 
@@ -202,6 +203,15 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
         // `--ae MAKA_BACKEND=` is silently ignored — it must ride the pier process
         // env. The Kimi adapter ignores it.
         MAKA_BACKEND: options.backend ?? 'ai-sdk',
+        // Byte-safe channel for the prompt: pier's --ae parser strips leading and
+        // trailing whitespace from values (pier/cli/utils.py key.strip() /
+        // value.strip()), which would drop the prompt's trailing newline and break
+        // the execution-identity hash round-trip on every task. Both adapters fall
+        // back to os.environ (CliFlag env_fallback for Maka, _get_env for Kimi) and
+        // forward the exact bytes into the cell, so the value rides the pier
+        // process env verbatim — and must never also appear in --ae, where the
+        // stripped extra_env copy would take precedence in _get_env.
+        MAKA_SYSTEM_PROMPT: input.systemPrompt,
       };
       if (usesEnvFile) await writeEnvFile(envFilePath, envFileEntries);
       const args = buildPierRunArgs({
@@ -408,9 +418,9 @@ function buildPierAgentEnv(
     MAKA_PROVIDER: provider,
     MAKA_LLM_CONNECTION_SLUG: provider,
     MAKA_REPO_ROOT: CONTAINER_MAKA_REPO,
-    // Verbatim — the controller hashes exactly these bytes and verifies the
-    // round-trip against the cell's execution-identity attestation.
-    MAKA_SYSTEM_PROMPT: input.systemPrompt,
+    // MAKA_SYSTEM_PROMPT deliberately does NOT ride --ae: pier's CLI strips
+    // whitespace from --ae values, and a stripped copy in the adapter's
+    // extra_env would shadow the byte-exact os.environ value. See processEnv.
   };
   if (options.reasoningEffort) env.MAKA_REASONING_EFFORT = options.reasoningEffort;
   if (agent === 'kimi-code') {
