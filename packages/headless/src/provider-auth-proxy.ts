@@ -139,6 +139,11 @@ type ProviderAuthProxyInput = {
   advertisedHost?: string;
   authMode?: ProviderAuthProxyMode;
   usageProtocol?: ProviderUsageProtocol;
+  /** Fixed listen port. Defaults to an ephemeral port (0). Pier's Squid egress
+   * for offline tasks only permits destination ports 80/443, so a container
+   * reaching this proxy through Squid needs it bound to 80 or 443. Binding a
+   * privileged port can fail on Linux; callers get a clear error. */
+  port?: number;
   /** Injectable monotonic clock for deterministic tests. */
   now?: () => number;
 } & (
@@ -203,9 +208,12 @@ export async function startProviderAuthProxy(
     sockets.add(socket);
     socket.once('close', () => sockets.delete(socket));
   });
+  const listenPort = input.port ?? 0;
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '0.0.0.0', () => {
+    server.once('error', (error) => {
+      reject(listenPort === 0 ? error : bindError(error, listenPort));
+    });
+    server.listen(listenPort, '0.0.0.0', () => {
       server.off('error', reject);
       resolve();
     });
@@ -618,6 +626,21 @@ function authorized(
   const presented = Buffer.from(value);
   const expected = Buffer.from(token);
   return presented.length === expected.length && timingSafeEqual(presented, expected);
+}
+
+function bindError(error: unknown, port: number): Error {
+  const code = (error as { code?: unknown }).code;
+  const hint =
+    code === 'EACCES'
+      ? ` Binding privileged port ${port} was denied — run with the CAP_NET_BIND_SERVICE capability (or as root), lower net.ipv4.ip_unprivileged_port_start, or forward 80/443 to an unprivileged port. Pier's Squid egress for offline tasks only allows destination ports 80/443, so the container-facing proxy must present one of those.`
+      : code === 'EADDRINUSE'
+        ? ` Port ${port} is already in use; free it or choose the other of 80/443.`
+        : '';
+  const bound = new Error(
+    `provider auth proxy failed to bind port ${port}: ${error instanceof Error ? error.message : String(error)}.${hint}`,
+  );
+  if (typeof code === 'string') (bound as Error & { code?: string }).code = code;
+  return bound;
 }
 
 async function readRequestBody(request: IncomingMessage): Promise<Buffer> {

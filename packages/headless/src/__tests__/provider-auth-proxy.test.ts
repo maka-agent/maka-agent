@@ -599,3 +599,60 @@ test('provider auth proxy aborts the upstream stream when its client disconnects
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('provider auth proxy binds a caller-specified port', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-'));
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, 'k\n', 'utf8');
+  // Grab a free port from the OS, then demand the proxy bind exactly it. An
+  // unprivileged high port avoids the CAP_NET_BIND_SERVICE requirement that 80/443
+  // (the only Squid-legal ports) would impose on Linux, while still exercising the
+  // fixed-port path the Kimi arm relies on.
+  const probe = createServer();
+  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+  const probeAddress = probe.address();
+  assert.ok(probeAddress && typeof probeAddress !== 'string');
+  const port = probeAddress.port;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: 'http://127.0.0.1:1/api',
+    apiKeyFile: keyFile,
+    advertisedHost: 'host.docker.internal',
+    port,
+  });
+  try {
+    assert.equal(proxy.baseUrl, `http://host.docker.internal:${port}`);
+  } finally {
+    await proxy.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('provider auth proxy reports a clear error when a fixed port is unavailable', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-'));
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, 'k\n', 'utf8');
+  const occupied = createServer();
+  // Occupy the wildcard address the proxy also binds, so the collision is a real
+  // EADDRINUSE on every platform (a loopback-only bind does not conflict with
+  // 0.0.0.0 on macOS).
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const occupiedAddress = occupied.address();
+  assert.ok(occupiedAddress && typeof occupiedAddress !== 'string');
+  try {
+    await assert.rejects(
+      startProviderAuthProxy({
+        upstreamBaseUrl: 'http://127.0.0.1:1/api',
+        apiKeyFile: keyFile,
+        port: occupiedAddress.port,
+      }),
+      (error: Error) =>
+        error.message.includes(`failed to bind port ${occupiedAddress.port}`) &&
+        /Squid egress|already in use/.test(error.message),
+    );
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
