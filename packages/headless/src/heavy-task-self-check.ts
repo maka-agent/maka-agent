@@ -11,7 +11,7 @@ import type {
   HeavyTaskSourceGuardResult,
   TaskEvent,
 } from './task-contracts.js';
-import type { TaskRunStore } from './task-run-store.js';
+import type { TaskRunWriter } from './task-run-store.js';
 
 export const HEAVY_TASK_SELF_CHECK_TOOL_NAMES = [
   'self_check_plan_submit',
@@ -219,7 +219,7 @@ export interface HeavyTaskSelfCheckRecorder {
 export function createHeavyTaskSelfCheckRecorder(input: {
   taskRunId: string;
   attemptId?: string;
-  store: TaskRunStore;
+  store: TaskRunWriter;
   now: () => number;
   newId: () => string;
 }): HeavyTaskSelfCheckRecorder {

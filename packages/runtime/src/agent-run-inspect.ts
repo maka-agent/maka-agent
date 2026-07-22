@@ -64,17 +64,35 @@ export interface InspectAgentRunOptions {
   sessionId: string;
   runId: string;
   header?: AgentRunHeader;
+  isFatalReadError?: (error: unknown) => boolean;
 }
 
+export type AgentRunInspectReader = Pick<AgentRunStore, 'readRun' | 'readEvents'>;
+
+export type SessionAgentRunInspectReader = AgentRunInspectReader &
+  Pick<AgentRunStore, 'listSessionRuns'>;
+
+export type RuntimeEventInspectReader = Pick<RuntimeEventStore, 'readRuntimeEvents'>;
+
 export async function inspectAgentRunReadModel(
-  runStore: AgentRunStore,
-  runtimeEventStore: RuntimeEventStore,
+  runStore: AgentRunInspectReader,
+  runtimeEventStore: RuntimeEventInspectReader,
   options: InspectAgentRunOptions,
 ): Promise<AgentRunInspectModel> {
   const header = options.header ?? (await runStore.readRun(options.sessionId, options.runId));
   const diagnostics: AgentRunInspectDiagnostic[] = [];
-  const events = await readOperationalEvents(runStore, header, diagnostics);
-  const runtimeRead = await readRuntimeEvents(runtimeEventStore, header, diagnostics);
+  const events = await readOperationalEvents(
+    runStore,
+    header,
+    diagnostics,
+    options.isFatalReadError,
+  );
+  const runtimeRead = await readRuntimeEvents(
+    runtimeEventStore,
+    header,
+    diagnostics,
+    options.isFatalReadError,
+  );
   const runtimeEvents = runtimeRead.events;
 
   const operationalTerminalEvent = latestOperationalTerminalEvent(events);
@@ -164,9 +182,10 @@ export async function inspectAgentRunReadModel(
 }
 
 export async function inspectSessionRunReadModels(
-  runStore: AgentRunStore,
-  runtimeEventStore: RuntimeEventStore,
+  runStore: SessionAgentRunInspectReader,
+  runtimeEventStore: RuntimeEventInspectReader,
   sessionId: string,
+  options: Pick<InspectAgentRunOptions, 'isFatalReadError'> = {},
 ): Promise<AgentRunInspectModel[]> {
   const headers = await runStore.listSessionRuns(sessionId);
   const models: AgentRunInspectModel[] = [];
@@ -176,6 +195,7 @@ export async function inspectSessionRunReadModels(
         sessionId,
         runId: header.runId,
         header,
+        ...(options.isFatalReadError ? { isFatalReadError: options.isFatalReadError } : {}),
       }),
     );
   }
@@ -183,9 +203,10 @@ export async function inspectSessionRunReadModels(
 }
 
 async function readOperationalEvents(
-  runStore: AgentRunStore,
+  runStore: AgentRunInspectReader,
   header: AgentRunHeader,
   diagnostics: AgentRunInspectDiagnostic[],
+  isFatalReadError: InspectAgentRunOptions['isFatalReadError'],
 ): Promise<AgentRunEvent[]> {
   try {
     const events = await runStore.readEvents(header.sessionId, header.runId);
@@ -203,6 +224,7 @@ async function readOperationalEvents(
     }
     return events;
   } catch (error) {
+    if (isFatalReadError?.(error)) throw error;
     diagnostics.push(
       inspectDiagnostic(
         header,
@@ -216,9 +238,10 @@ async function readOperationalEvents(
 }
 
 async function readRuntimeEvents(
-  runtimeEventStore: RuntimeEventStore,
+  runtimeEventStore: RuntimeEventInspectReader,
   header: AgentRunHeader,
   diagnostics: AgentRunInspectDiagnostic[],
+  isFatalReadError: InspectAgentRunOptions['isFatalReadError'],
 ): Promise<{ state: AgentRunInspectSourceHealth['runtimeLedger']; events: RuntimeEvent[] }> {
   try {
     const events = await runtimeEventStore.readRuntimeEvents(header.sessionId, header.runId);
@@ -234,6 +257,7 @@ async function readRuntimeEvents(
     }
     return { state: 'present', events };
   } catch (error) {
+    if (isFatalReadError?.(error)) throw error;
     diagnostics.push(
       inspectDiagnostic(
         header,

@@ -16,7 +16,8 @@ import type {
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskSourceGuardResult,
 } from '../task-contracts.js';
-import { createInMemoryTaskRunStore, projectTaskRun } from '../task-run-store.js';
+import { projectTaskRun } from '../task-run-projection.js';
+import { createInMemoryTaskRunStore } from '../task-run-store.js';
 
 const toolContext = {
   sessionId: 'session-1',

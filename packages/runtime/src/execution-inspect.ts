@@ -1,15 +1,13 @@
-import type {
-  AgentRunHeader,
-  AgentRunStore,
-  RuntimeEvent,
-  RuntimeEventStore,
-  SessionHeader,
-} from '@maka/core';
+import type { AgentRunHeader, RuntimeEvent, SessionHeader } from '@maka/core';
 import type { ExecutionLogCoverage } from '@maka/core/execution-evidence';
 import {
   inspectAgentRunReadModel,
+  type AgentRunInspectReader,
   type AgentRunInspectDiagnostic as SourceDiagnostic,
   type AgentRunInspectSourceHealth,
+  type InspectAgentRunOptions,
+  type RuntimeEventInspectReader,
+  type SessionAgentRunInspectReader,
 } from './agent-run-inspect.js';
 import {
   validateHistoryCompactCheckpointShape,
@@ -115,15 +113,26 @@ export interface SessionHeaderReader {
   readHeader(sessionId: string): Promise<SessionHeader>;
 }
 
+export interface InspectSessionDocumentOptions {
+  header?: SessionHeader;
+  isFatalReadError?: InspectAgentRunOptions['isFatalReadError'];
+}
+
 export async function inspectAgentRunDocument(
-  runStore: AgentRunStore,
-  runtimeEventStore: RuntimeEventStore,
-  input: { sessionId: string; agentRunId: string; header?: AgentRunHeader },
+  runStore: AgentRunInspectReader,
+  runtimeEventStore: RuntimeEventInspectReader,
+  input: {
+    sessionId: string;
+    agentRunId: string;
+    header?: AgentRunHeader;
+    isFatalReadError?: InspectAgentRunOptions['isFatalReadError'];
+  },
 ): Promise<AgentRunInspectDocument> {
   const model = await inspectAgentRunReadModel(runStore, runtimeEventStore, {
     sessionId: input.sessionId,
     runId: input.agentRunId,
     ...(input.header ? { header: input.header } : {}),
+    ...(input.isFatalReadError ? { isFatalReadError: input.isFatalReadError } : {}),
   });
   const diagnostics = model.diagnostics.map((item) => sourceDiagnostic(model.header, item));
   const tools = inspectTools(model.header, model.runtimeEvents, diagnostics);
@@ -152,12 +161,12 @@ export async function inspectAgentRunDocument(
 
 export async function inspectSessionDocument(
   sessionStore: SessionHeaderReader,
-  runStore: AgentRunStore,
-  runtimeEventStore: RuntimeEventStore,
+  runStore: SessionAgentRunInspectReader,
+  runtimeEventStore: RuntimeEventInspectReader,
   sessionId: string,
-  header?: SessionHeader,
+  options: InspectSessionDocumentOptions = {},
 ): Promise<SessionInspectDocument> {
-  const resolvedHeader = header ?? (await sessionStore.readHeader(sessionId));
+  const resolvedHeader = options.header ?? (await sessionStore.readHeader(sessionId));
   const runHeaders = await runStore.listSessionRuns(sessionId);
   const agentRuns: AgentRunInspectDocument[] = [];
   for (const runHeader of runHeaders) {
@@ -166,6 +175,7 @@ export async function inspectSessionDocument(
         sessionId,
         agentRunId: runHeader.runId,
         header: runHeader,
+        ...(options.isFatalReadError ? { isFatalReadError: options.isFatalReadError } : {}),
       }),
     );
   }

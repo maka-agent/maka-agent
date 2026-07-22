@@ -1001,10 +1001,13 @@ export {
 export type {
   AgentRunInspectDiagnostic,
   AgentRunInspectDiagnosticCode,
+  AgentRunInspectReader,
   AgentRunInspectModel,
   AgentRunInspectProjectionSummary,
   AgentRunInspectSourceHealth,
   InspectAgentRunOptions,
+  RuntimeEventInspectReader,
+  SessionAgentRunInspectReader,
 } from './agent-run-inspect.js';
 
 // execution-inspect.ts — payload-safe, versioned CLI inspection documents.
@@ -1024,6 +1027,7 @@ export type {
   AgentRunInspectToolSummary,
   ExecutionInspectDiagnostic,
   ExecutionInspectSeverity,
+  InspectSessionDocumentOptions,
   SessionHeaderReader,
   SessionInspectDocument,
   SessionInspectSummary,

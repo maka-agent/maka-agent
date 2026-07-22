@@ -12,7 +12,7 @@ import type {
   HeavyTaskWorkspaceObservationState,
   HeavyTaskTodoItem,
 } from './task-contracts.js';
-import type { TaskRunProjection } from './task-run-store.js';
+import type { TaskRunProjection } from './task-run-projection.js';
 
 export type HeavyTaskSelfCheckGateDecision =
   | {

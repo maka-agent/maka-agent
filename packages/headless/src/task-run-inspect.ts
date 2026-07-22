@@ -1,4 +1,4 @@
-import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import type { AgentRunHeader, RuntimeEvent } from '@maka/core';
 import type {
   ExecutionEvidenceRef,
   ExecutionIdentityRef,
@@ -7,19 +7,23 @@ import type {
 } from '@maka/core/execution-evidence';
 import {
   inspectAgentRunReadModel,
+  type AgentRunInspectReader,
   type AgentRunInspectDiagnostic,
   type AgentRunInspectSourceHealth,
+  type RuntimeEventInspectReader,
 } from '@maka/runtime/agent-run-inspect';
 import {
   validateHistoryCompactCheckpointShape,
   type HistoryCompactCheckpoint,
 } from '@maka/runtime';
+import { isStorageRootAuthorityError } from './headless-storage.js';
 import {
   isTerminalTaskRunStatus,
   type HeavyTaskSelfCheckProjection,
   type TaskAttempt,
 } from './task-contracts.js';
-import { projectTaskRun, type TaskRunProjection, type TaskRunStore } from './task-run-store.js';
+import { projectTaskRun, type TaskRunProjection } from './task-run-projection.js';
+import type { TaskRunReader } from './task-run-store.js';
 
 export const TASK_RUN_INSPECT_SCHEMA_VERSION = 'maka.task_run_inspect.v1' as const;
 
@@ -141,9 +145,9 @@ export interface TaskRunInspectDocument {
 }
 
 export interface InspectTaskRunDependencies {
-  taskRunStore: TaskRunStore;
-  agentRunStore: AgentRunStore;
-  runtimeEventStore: RuntimeEventStore;
+  taskRunStore: TaskRunReader;
+  agentRunStore: AgentRunInspectReader;
+  runtimeEventStore: RuntimeEventInspectReader;
 }
 
 export async function inspectTaskRun(
@@ -243,7 +247,11 @@ async function inspectLinkedAgentRun(
     const inspected = await inspectAgentRunReadModel(
       dependencies.agentRunStore,
       dependencies.runtimeEventStore,
-      { sessionId: identity.sessionId, runId: identity.agentRunId },
+      {
+        sessionId: identity.sessionId,
+        runId: identity.agentRunId,
+        isFatalReadError: isStorageRootAuthorityError,
+      },
     );
     for (const sourceDiagnostic of inspected.diagnostics) {
       diagnostics.push(agentRunDiagnostic(taskRunId, refs, sourceDiagnostic));
@@ -275,6 +283,7 @@ async function inspectLinkedAgentRun(
       compactionCheckpoints,
     };
   } catch (error) {
+    if (isStorageRootAuthorityError(error)) throw error;
     diagnostics.push(
       diagnostic(
         taskRunId,
@@ -620,7 +629,7 @@ function taskRunSummary(projection: TaskRunProjection): TaskRunInspectSummary {
 }
 
 function taskEventSource(
-  records: Awaited<ReturnType<TaskRunStore['readEventRecords']>>,
+  records: Awaited<ReturnType<TaskRunReader['readEventRecords']>>,
 ): TaskRunInspectTaskEventSource {
   const first = records[0]?.cursor;
   const last = records.at(-1)?.cursor;

@@ -1,7 +1,7 @@
 import type { MakaTool, MakaToolContext } from '@maka/runtime';
 import { z } from 'zod';
 import type { HeavyTaskInventoryState, HeavyTaskTodoState, TaskEvent } from './task-contracts.js';
-import type { TaskRunStore } from './task-run-store.js';
+import type { TaskRunWriter } from './task-run-store.js';
 
 export const HEAVY_TASK_PROGRESS_TOOL_NAMES = ['inventory_submit', 'todo_update'] as const;
 
@@ -103,7 +103,7 @@ export interface HeavyTaskProgressRecorder {
 export function createHeavyTaskProgressRecorder(input: {
   taskRunId: string;
   attemptId?: string;
-  store: TaskRunStore;
+  store: TaskRunWriter;
   now: () => number;
   newId: () => string;
 }): HeavyTaskProgressRecorder {

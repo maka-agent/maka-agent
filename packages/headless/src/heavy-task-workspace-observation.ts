@@ -6,7 +6,7 @@ import type {
   HeavyTaskWorkspaceObservationEntry,
   HeavyTaskWorkspaceObservationRecordedEvent,
 } from './task-contracts.js';
-import type { TaskRunProjection } from './task-run-store.js';
+import type { TaskRunProjection } from './task-run-projection.js';
 
 export async function observeHeavyTaskWorkspace(input: {
   taskRunId: string;

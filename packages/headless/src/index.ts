@@ -148,12 +148,18 @@ export {
   resourceScopeEquals,
   type NormalizedPermissionArgs,
 } from './permission-grants.js';
-export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
-export {
-  createInMemoryTaskRunStore,
-  createTaskRunStore,
-  projectTaskRun,
+export type { TaskRunProjection } from './task-run-projection.js';
+export { projectTaskRun } from './task-run-projection.js';
+export type {
+  TaskEventLedgerEntry,
+  TaskRunReader,
+  TaskRunWriter,
 } from './task-run-store.js';
+export { createInMemoryTaskRunStore } from './task-run-store.js';
+export {
+  openHeadlessStorageForRead,
+  type HeadlessStorageReader,
+} from './headless-storage.js';
 export {
   TASK_RUN_INSPECT_SCHEMA_VERSION,
   inspectTaskRun,

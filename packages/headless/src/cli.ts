@@ -4,10 +4,16 @@ import { realpathSync } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createAgentRunStore, createRuntimeEventStore } from '@maka/storage';
 import { inspectAgentRunDocument } from '@maka/runtime';
 import type { Config, ResultRecord, Task } from './contracts.js';
-import { runAutonomousTask } from './autonomous-agent-loop.js';
+import { runAutonomousTask, runAutonomousTaskWithStorage } from './autonomous-agent-loop.js';
+import {
+  authenticateHeadlessStorageReader,
+  isStorageRootAuthorityError,
+  openHeadlessStorageForRead,
+  openHeadlessStorageForWrite,
+  type HeadlessStorageReader,
+} from './headless-storage.js';
 import { harborCommand } from './harbor-cli.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
 import { planMatrixRetry, readMatrixPriorRecords } from './matrix-resume.js';
@@ -22,9 +28,10 @@ import {
 } from './ahe-evidence-export.js';
 import { writeTaskRunExport } from './result-export.js';
 import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
-import { runTaskOnce } from './task-agent-controller.js';
+import { runTaskOnce, runTaskOnceWithStorage } from './task-agent-controller.js';
 import { isTerminalTaskRunStatus, type TaskPermissionGrant } from './task-contracts.js';
-import { createTaskRunStore, type TaskRunProjection } from './task-run-store.js';
+import { taskRunLocator } from './task-run-identity.js';
+import type { TaskRunProjection } from './task-run-projection.js';
 import { inspectTaskRun, renderTaskRunInspectTree } from './task-run-inspect.js';
 import { readResults, toComparisonTable, writeResults } from './results.js';
 
@@ -163,10 +170,8 @@ async function taskRunCommand(args: string[]): Promise<number> {
     const config = requireConfig(spec.configs, parsed.flags.config);
     validateRunnableCell(config, task);
     const outDir = resolve(parsed.flags.out ?? 'maka-headless-out');
-    const store = createTaskRunStore(join(outDir, 'runs'));
     const common = {
       storageRoot: join(outDir, 'runs'),
-      taskRunStore: store,
       ...(parsed.flags['task-run-id'] ? { taskRunId: parsed.flags['task-run-id'] } : {}),
     };
     const run = parsed.bools.autonomous
@@ -178,7 +183,7 @@ async function taskRunCommand(args: string[]): Promise<number> {
         })
       : await runTaskOnce(config, task, common);
     await appendResultRecord(outDir, run.resultRecord);
-    const exportDir = join(outDir, 'exports', run.taskRunId);
+    const exportDir = join(outDir, 'exports', taskRunLocator(run.taskRunId));
     await writeTaskRunExport(exportDir, run.projection, {
       includeEvents: parsed.bools['include-events'],
     });
@@ -208,11 +213,12 @@ async function taskInspectCommand(args: string[]): Promise<number> {
     return 1;
   }
   const storageRoot = resolve(parsed.flags.store);
+  const storage = await openHeadlessStorageForRead(storageRoot);
   const document = await inspectTaskRun(
     {
-      taskRunStore: createTaskRunStore(storageRoot),
-      agentRunStore: createAgentRunStore(storageRoot),
-      runtimeEventStore: createRuntimeEventStore(storageRoot),
+      taskRunStore: storage.taskRunStore,
+      agentRunStore: storage.executionStores.agentRunStore,
+      runtimeEventStore: storage.executionStores.runtimeEventStore,
     },
     taskRunId,
   );
@@ -241,7 +247,8 @@ async function taskExportCommand(args: string[]): Promise<number> {
     );
     return 1;
   }
-  const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
+  const storage = await openHeadlessStorageForRead(resolve(parsed.flags.store));
+  const projection = await storage.taskRunStore.project(taskRunId);
   const result = await writeTaskRunExport(resolve(parsed.flags.out), projection, {
     includeEvents: parsed.bools['include-events'],
   });
@@ -286,9 +293,9 @@ async function aheExportCommand(args: string[]): Promise<number> {
   }
   try {
     const storeRoot = resolve(parsed.flags.store);
-    const store = createTaskRunStore(storeRoot);
+    const storage = await openHeadlessStorageForRead(storeRoot);
     const projections = await Promise.all(
-      parsed.positional.map((taskRunId) => store.project(taskRunId)),
+      parsed.positional.map((taskRunId) => storage.taskRunStore.project(taskRunId)),
     );
     const officialResults = await aheOfficialResultsForCli(projections, {
       storeRoot,
@@ -296,10 +303,10 @@ async function aheExportCommand(args: string[]): Promise<number> {
         ? resolve(parsed.flags['harbor-trial-dir'])
         : undefined,
     });
-    const sessionMessages = await aheSessionMessagesForCli(projections, storeRoot);
+    const sessionMessages = await aheSessionMessagesForCli(projections, storage);
     const agentRunEvidence = await aheAgentRunEvidenceForCli(
       projections,
-      storeRoot,
+      storage,
       parsed.bools['include-events'] === true,
     );
     const snapshot = await buildMakaAheTargetSnapshot({
@@ -365,16 +372,21 @@ async function looksLikeHarborTrialDir(dir: string): Promise<boolean> {
 
 async function aheSessionMessagesForCli(
   projections: readonly TaskRunProjection[],
-  storeRoot: string,
+  storage: HeadlessStorageReader,
 ): Promise<MakaAheSessionMessagesByTaskRun | undefined> {
+  storage = authenticateHeadlessStorageReader(storage);
   const messagesByTaskRun: Record<string, readonly unknown[]> = {};
   for (const projection of projections) {
     if (!projection.sessionId) continue;
-    const messages = await readSessionMessages(
-      join(storeRoot, 'sessions', projection.sessionId, 'session.jsonl'),
-    );
-    if (messages.length > 0) {
-      messagesByTaskRun[projection.taskRunId] = messages;
+    try {
+      const messages = await storage.executionStores.sessionStore.readMessages(
+        projection.sessionId,
+      );
+      if (messages.length > 0) {
+        messagesByTaskRun[projection.taskRunId] = messages;
+      }
+    } catch (error) {
+      rethrowStorageAuthorityError(error);
     }
   }
   return Object.keys(messagesByTaskRun).length > 0 ? messagesByTaskRun : undefined;
@@ -382,11 +394,12 @@ async function aheSessionMessagesForCli(
 
 async function aheAgentRunEvidenceForCli(
   projections: readonly TaskRunProjection[],
-  storeRoot: string,
+  storage: HeadlessStorageReader,
   includeRuntimeEvents: boolean,
 ): Promise<MakaAheAgentRunEvidenceByTaskRun | undefined> {
-  const runStore = createAgentRunStore(storeRoot);
-  const runtimeEventStore = createRuntimeEventStore(storeRoot);
+  storage = authenticateHeadlessStorageReader(storage);
+  const runStore = storage.executionStores.agentRunStore;
+  const runtimeEventStore = storage.executionStores.runtimeEventStore;
   const byTaskRun: Record<string, MakaAheAgentRunEvidenceSource[]> = {};
   for (const projection of projections) {
     const sources: MakaAheAgentRunEvidenceSource[] = [];
@@ -405,8 +418,10 @@ async function aheAgentRunEvidenceForCli(
         source.inspect = await inspectAgentRunDocument(runStore, runtimeEventStore, {
           sessionId: identity.sessionId,
           agentRunId: identity.agentRunId,
+          isFatalReadError: isStorageRootAuthorityError,
         });
       } catch (error) {
+        rethrowStorageAuthorityError(error);
         source.inspectError = errorMessage(error);
       }
       if (includeRuntimeEvents) {
@@ -421,6 +436,7 @@ async function aheAgentRunEvidenceForCli(
             );
           }
         } catch (error) {
+          rethrowStorageAuthorityError(error);
           source.runtimeEventsError = errorMessage(error);
         }
       }
@@ -431,18 +447,8 @@ async function aheAgentRunEvidenceForCli(
   return Object.keys(byTaskRun).length > 0 ? byTaskRun : undefined;
 }
 
-async function readSessionMessages(path: string): Promise<unknown[]> {
-  try {
-    const text = await readFile(path, 'utf8');
-    return text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as unknown)
-      .filter((record) => Boolean((record as { type?: unknown }).type));
-  } catch {
-    return [];
-  }
+function rethrowStorageAuthorityError(error: unknown): void {
+  if (isStorageRootAuthorityError(error)) throw error;
 }
 
 async function taskResumeCommand(args: string[]): Promise<number> {
@@ -464,7 +470,8 @@ async function taskResumeCommand(args: string[]): Promise<number> {
   }
   try {
     const outDir = resolve(parsed.flags.out);
-    const store = createTaskRunStore(join(outDir, 'runs'));
+    const storage = await openHeadlessStorageForWrite(join(outDir, 'runs'));
+    const store = storage.taskRunStore;
     const projection = await store.project(taskRunId);
     if (isTerminalTaskRunStatus(projection.status)) {
       console.error(
@@ -505,16 +512,20 @@ async function taskResumeCommand(args: string[]): Promise<number> {
       });
     }
     const attemptId = `${taskRunId}-attempt-${projection.attempts.length + 1}`;
-    const run = await runTaskOnce(config, task, {
-      storageRoot: join(outDir, 'runs'),
-      taskRunStore: store,
-      taskRunId,
-      attemptId,
-      createTaskRun: false,
-      permissionGrants: grants,
-    });
+    const run = await runTaskOnceWithStorage(
+      config,
+      task,
+      {
+        storageRoot: join(outDir, 'runs'),
+        taskRunId,
+        attemptId,
+        createTaskRun: false,
+        permissionGrants: grants,
+      },
+      storage,
+    );
     await appendResultRecord(outDir, run.resultRecord);
-    await writeTaskRunExport(join(outDir, 'exports', taskRunId), run.projection);
+    await writeTaskRunExport(join(outDir, 'exports', taskRunLocator(taskRunId)), run.projection);
     console.log(`resumed: ${taskRunId}\nstatus: ${run.projection.status}`);
     return run.resultRecord.error ? 1 : 0;
   } catch (error) {
@@ -545,6 +556,7 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
     const spec = await loadSpec(parsed.flags.spec);
     const prior = await readMatrixPriorRecords(resolve(priorPath));
     const outDir = resolve(parsed.flags.out);
+    const storage = await openHeadlessStorageForWrite(join(outDir, 'runs'));
     const onlyTaxonomy = parsed.flags['only-taxonomy']
       ?.split(',')
       .map((value) => value.trim())
@@ -561,12 +573,19 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
       }
       validateRunnableCell(decision.config, decision.task);
       console.log(`retry ${decision.task.id} × ${decision.config.id}: ${decision.reason}`);
-      const run = await runTaskOnce(decision.config, decision.task, {
-        storageRoot: join(outDir, 'runs'),
-        taskRunStore: createTaskRunStore(join(outDir, 'runs')),
-      });
+      const run = await runTaskOnceWithStorage(
+        decision.config,
+        decision.task,
+        {
+          storageRoot: join(outDir, 'runs'),
+        },
+        storage,
+      );
       records.push(run.resultRecord);
-      await writeTaskRunExport(join(outDir, 'exports', run.taskRunId), run.projection);
+      await writeTaskRunExport(
+        join(outDir, 'exports', taskRunLocator(run.taskRunId)),
+        run.projection,
+      );
     }
     await writeResults(join(outDir, 'results.jsonl'), records);
     await writeFile(join(outDir, 'comparison.md'), toComparisonTable(records), 'utf8');

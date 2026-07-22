@@ -16,7 +16,8 @@ import {
 import type { MakaAheTargetComponent } from '../ahe-target-protocol.js';
 import type { ScoreResult, TaskEvent } from '../task-contracts.js';
 import { taskAttemptExecutionEvidence } from '../task-execution-lineage.js';
-import { projectTaskRun } from '../task-run-store.js';
+import { taskRunLocator } from '../task-run-identity.js';
+import { projectTaskRun } from '../task-run-projection.js';
 
 describe('AHE evidence export', () => {
   test('builds a deterministic target snapshot after validating repo source refs', async () => {
@@ -202,21 +203,16 @@ describe('AHE evidence export', () => {
     assert.equal(evidence.harnessResults.results[1]?.scoreAuthority, 'official_scorer');
     assert.equal(evidence.harnessResults.results[0]?.schemaVersion, 'maka.ahe.run_result.v1');
     assert.equal(evidence.harnessResults.results[0]?.taskRunId, 'run-self-check');
+    const traceRoot = `traces/${taskRunLocator('run-self-check')}`;
     assert.equal(
       evidence.harnessResults.results[0]?.executionLineageRef.ref,
-      'traces/run-self-check/execution-lineage.json',
+      `${traceRoot}/execution-lineage.json`,
     );
-    assert.equal(
-      evidence.traceIndex.entries[0]?.transcript?.ref,
-      'traces/run-self-check/result.md',
-    );
-    assert.equal(
-      evidence.traceIndex.entries[0]?.messages?.ref,
-      'traces/run-self-check/messages.json',
-    );
+    assert.equal(evidence.traceIndex.entries[0]?.transcript?.ref, `${traceRoot}/result.md`);
+    assert.equal(evidence.traceIndex.entries[0]?.messages?.ref, `${traceRoot}/messages.json`);
     assert.equal(
       evidence.traceIndex.entries[0]?.taskEventsJsonl?.ref,
-      'traces/run-self-check/task-events.jsonl',
+      `${traceRoot}/task-events.jsonl`,
     );
     assert.equal(evidence.traceIndex.entries[0]?.runtimeEventsJsonl, undefined);
   });
@@ -271,9 +267,10 @@ describe('AHE evidence export', () => {
 
       assert.equal(evidence.harnessResults.results[0]?.status, 'official_pass');
       assert.equal(evidence.harnessResults.results[0]?.scoreAuthority, 'official_scorer');
+      const traceRoot = `traces/${taskRunLocator('run-harbor')}`;
       assert.equal(
         evidence.harnessResults.results[0]?.verifierRef?.ref,
-        'traces/run-harbor/official-harbor-result.json',
+        `${traceRoot}/official-harbor-result.json`,
       );
       assert.match(
         evidence.traceIndex.entries[0]?.artifacts?.[0]?.ref ?? '',
@@ -402,29 +399,21 @@ describe('AHE evidence export', () => {
         },
       });
 
-      const lineageText = await readFile(
-        join(out, 'traces', 'run-safe', 'execution-lineage.json'),
-        'utf8',
-      );
+      const traceRoot = join(out, 'traces', taskRunLocator('run-safe'));
+      const lineageText = await readFile(join(traceRoot, 'execution-lineage.json'), 'utf8');
       assert.match(lineageText, /"rawRuntimeEvents": "omitted_by_policy"/);
       assert.doesNotMatch(lineageText, /PRIVATE_RUNTIME_PAYLOAD/);
       assert.match(
-        await readFile(
-          join(out, 'traces', 'run-safe', 'agent-runs', 'agent-run-1', 'inspect.json'),
-          'utf8',
-        ),
+        await readFile(join(traceRoot, 'agent-runs', 'agent-run-1', 'inspect.json'), 'utf8'),
         /maka.agent_run_inspect.v1/,
       );
       await assert.rejects(
         () =>
-          readFile(
-            join(out, 'traces', 'run-safe', 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'),
-            'utf8',
-          ),
+          readFile(join(traceRoot, 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'), 'utf8'),
         /ENOENT/,
       );
       assert.match(
-        await readFile(join(out, 'traces', 'run-safe', 'task-events.jsonl'), 'utf8'),
+        await readFile(join(traceRoot, 'task-events.jsonl'), 'utf8'),
         /task_attempt_execution_linked/,
       );
     } finally {
@@ -476,18 +465,14 @@ describe('AHE evidence export', () => {
         },
       });
 
-      const lineage = JSON.parse(
-        await readFile(join(out, 'traces', 'run-gap', 'execution-lineage.json'), 'utf8'),
-      );
+      const traceRoot = join(out, 'traces', taskRunLocator('run-gap'));
+      const lineage = JSON.parse(await readFile(join(traceRoot, 'execution-lineage.json'), 'utf8'));
       assert.equal(lineage.attempts.length, 0);
       assert.equal(lineage.gaps[0].code, 'attempt_execution_missing');
       assert.equal(lineage.rawRuntimeEvents, 'requested_with_gaps');
       await assert.rejects(
         () =>
-          readFile(
-            join(out, 'traces', 'run-gap', 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'),
-            'utf8',
-          ),
+          readFile(join(traceRoot, 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'), 'utf8'),
         /ENOENT/,
       );
     } finally {
@@ -683,35 +668,39 @@ describe('AHE evidence export', () => {
 
       assert.equal(firstHarness, await readFile(second.files.harnessResultsJson, 'utf8'));
       const parsedHarness = JSON.parse(firstHarness);
+      const traceLocator = taskRunLocator('run-official');
+      const traceRefRoot = `traces/${traceLocator}`;
+      const traceRoot = join(out, 'traces', traceLocator);
       assert.equal(parsedHarness.results[0].status, 'official_fail');
       assert.equal(parsedHarness.results[0].taskRunId, 'run-official');
-      assert.equal(parsedHarness.results[0].traceRef.ref, 'traces/run-official/task-run.json');
+      assert.equal(parsedHarness.results[0].traceRef.ref, `${traceRefRoot}/task-run.json`);
       assert.match(parsedHarness.results[0].traceRef.digest, /^sha256:/);
       assert.match(parsedHarness.results[0].executionLineageRef.digest, /^sha256:/);
       assert.match(parsedHarness.traceIndexRef.digest, /^sha256:/);
       const traceIndexJson = await readFile(join(out, 'trace-index.json'), 'utf8');
-      assert.match(traceIndexJson, /traces\/run-official\/result.md/);
-      assert.match(traceIndexJson, /traces\/run-official\/task-events.jsonl/);
-      assert.match(traceIndexJson, /traces\/run-official\/execution-lineage.json/);
-      assert.match(traceIndexJson, /traces\/run-official\/agent-runs\/agent-run-1\/inspect.json/);
+      assert.match(traceIndexJson, new RegExp(`${traceRefRoot}/result\\.md`));
+      assert.match(traceIndexJson, new RegExp(`${traceRefRoot}/task-events\\.jsonl`));
+      assert.match(traceIndexJson, new RegExp(`${traceRefRoot}/execution-lineage\\.json`));
       assert.match(
         traceIndexJson,
-        /traces\/run-official\/agent-runs\/agent-run-1\/runtime-events.jsonl/,
+        new RegExp(`${traceRefRoot}/agent-runs/agent-run-1/inspect\\.json`),
+      );
+      assert.match(
+        traceIndexJson,
+        new RegExp(`${traceRefRoot}/agent-runs/agent-run-1/runtime-events\\.jsonl`),
       );
       assert.doesNotMatch(traceIndexJson, /"runtimeEventsJsonl"/);
-      assert.match(traceIndexJson, /traces\/run-official\/messages.json/);
-      assert.match(traceIndexJson, /traces\/run-official\/failure-digest.json/);
+      assert.match(traceIndexJson, new RegExp(`${traceRefRoot}/messages\\.json`));
+      assert.match(traceIndexJson, new RegExp(`${traceRefRoot}/failure-digest\\.json`));
       assert.match(
-        await readFile(join(out, 'traces', 'run-official', 'task-run.json'), 'utf8'),
+        await readFile(join(traceRoot, 'task-run.json'), 'utf8'),
         /maka.task_run_export.v1/,
       );
       assert.match(
-        await readFile(join(out, 'traces', 'run-official', 'task-events.jsonl'), 'utf8'),
+        await readFile(join(traceRoot, 'task-events.jsonl'), 'utf8'),
         /task_run_created/,
       );
-      const lineage = JSON.parse(
-        await readFile(join(out, 'traces', 'run-official', 'execution-lineage.json'), 'utf8'),
-      );
+      const lineage = JSON.parse(await readFile(join(traceRoot, 'execution-lineage.json'), 'utf8'));
       assert.equal(lineage.schemaVersion, 'maka.ahe.execution_lineage.v1');
       assert.equal(lineage.target.snapshotId, snapshot.snapshotId);
       assert.equal(lineage.task.taskRunId, 'run-official');
@@ -726,13 +715,13 @@ describe('AHE evidence export', () => {
       assert.deepEqual(lineage.gaps, []);
       assert.match(
         await readFile(
-          join(out, 'traces', 'run-official', 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'),
+          join(traceRoot, 'agent-runs', 'agent-run-1', 'runtime-events.jsonl'),
           'utf8',
         ),
         /RAW_RUNTIME_PAYLOAD/,
       );
       const failureDigest = JSON.parse(
-        await readFile(join(out, 'traces', 'run-official', 'failure-digest.json'), 'utf8'),
+        await readFile(join(traceRoot, 'failure-digest.json'), 'utf8'),
       );
       assert.equal(failureDigest.schemaVersion, 'maka.ahe.failure_digest.v1');
       assert.equal(failureDigest.status, 'official_fail');
@@ -770,9 +759,7 @@ describe('AHE evidence export', () => {
       assert.ok(
         failureDigest.selfCheck.selfCheckPlan.audit.riskFlags.includes('unplanned_added_path'),
       );
-      const taskRunExport = JSON.parse(
-        await readFile(join(out, 'traces', 'run-official', 'task-run.json'), 'utf8'),
-      );
+      const taskRunExport = JSON.parse(await readFile(join(traceRoot, 'task-run.json'), 'utf8'));
       assert.equal(taskRunExport.progress.selfCheckPlans.latest.planId, 'plan-1');
       assert.equal(taskRunExport.progress.selfCheckPlans.audit.status, 'fail');
       assert.equal(taskRunExport.heavyTask.selfCheckPlan.audit.status, 'fail');
@@ -782,15 +769,13 @@ describe('AHE evidence export', () => {
         /uncleaned workspace side effects/,
       );
       assert.match(failureDigest.officialHarbor.verifier.stdoutExcerpt, /expected move e2e4/);
-      assert.equal(failureDigest.debugRefs.messages.ref, 'traces/run-official/messages.json');
+      assert.equal(failureDigest.debugRefs.messages.ref, `${traceRefRoot}/messages.json`);
       assert.equal(
         failureDigest.debugRefs.taskEventsJsonl.ref,
-        'traces/run-official/task-events.jsonl',
+        `${traceRefRoot}/task-events.jsonl`,
       );
       assert.equal(failureDigest.debugRefs.runtimeEventSources.length, 1);
-      const messages = JSON.parse(
-        await readFile(join(out, 'traces', 'run-official', 'messages.json'), 'utf8'),
-      );
+      const messages = JSON.parse(await readFile(join(traceRoot, 'messages.json'), 'utf8'));
       assert.equal(messages.trace_id, 'run-official');
       assert.equal(messages.messages[0].role, 'system');
       assert.equal(messages.messages[1].role, 'user');

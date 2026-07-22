@@ -1,5 +1,5 @@
-import type { ShellPlan } from '@maka/runtime';
 import type { StorageRef } from '@maka/core';
+import type { ShellPlan } from '@maka/runtime';
 import type { Config, Task } from './contracts.js';
 import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
 import type { HeavyTaskModeSelection } from './heavy-task-policy.js';
@@ -11,6 +11,7 @@ import type {
   ToolExecutorIdentity,
 } from './task-contracts.js';
 import type { HeadlessSessionCapabilities } from './session-capabilities.js';
+import type { HeadlessArtifactStore } from './headless-storage.js';
 
 export interface IsolatedCommandInput {
   command: string;
@@ -195,6 +196,8 @@ export interface HeadlessBackendContext extends Partial<HeadlessSessionCapabilit
   storageRoot: string;
   /** Absolute throwaway workspace path for this run. */
   workspaceDir: string;
+  /** Lease-bound storage for Headless-owned artifacts. */
+  artifactStore: HeadlessArtifactStore;
   /**
    * Present only for model-backed backends and only after the caller has
    * explicitly asserted an isolation boundary.

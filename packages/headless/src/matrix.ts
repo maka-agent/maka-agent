@@ -1,5 +1,6 @@
 import type { Config, ResultRecord, Task } from './contracts.js';
-import { runExperiment, type RunExperimentDeps } from './runner.js';
+import { openHeadlessStorageForWrite } from './headless-storage.js';
+import { runExperimentWithStorage, type RunExperimentDeps } from './runner.js';
 
 /** An experiment is the cross product of Configs and Tasks. */
 export interface ExperimentSpec {
@@ -21,10 +22,11 @@ export async function runMatrix(
   deps: RunExperimentDeps,
   onResult?: (record: ResultRecord) => void,
 ): Promise<ResultRecord[]> {
+  const storage = await openHeadlessStorageForWrite(deps.storageRoot);
   const records: ResultRecord[] = [];
   for (const task of spec.tasks) {
     for (const config of spec.configs) {
-      const record = await runExperiment(config, task, deps).catch(
+      const record = await runExperimentWithStorage(config, task, deps, storage).catch(
         (error): ResultRecord => failedRecord(config, task, error),
       );
       records.push(record);

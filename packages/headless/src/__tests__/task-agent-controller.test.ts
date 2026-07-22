@@ -16,16 +16,20 @@ import {
   type AgentRunHeader,
   type BackendKind,
   type RuntimeEvent,
-  type RuntimeEventStore,
   type SessionEvent,
   type SessionHeader,
 } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
-import { createRuntimeEventStore } from '@maka/storage';
+import { StorageRootAuthorityError } from '@maka/storage/root-authority';
 import type { Config, Task } from '../contracts.js';
+import { openHeadlessStorageForWrite } from '../headless-storage.js';
 import type { HeadlessBackendContext } from '../isolation.js';
 import { commandResourceScope, hashNormalizedArgs } from '../permission-grants.js';
-import { runTaskOnce, type RunTaskOnceResult } from '../task-agent-controller.js';
+import {
+  runTaskOnce,
+  runTaskOnceWithStorage,
+  type RunTaskOnceResult,
+} from '../task-agent-controller.js';
 import type { TaskPermissionGrant } from '../task-contracts.js';
 import { buildIsolatedHeadlessTools } from '../tools.js';
 
@@ -1762,53 +1766,36 @@ describe('runTaskOnce', () => {
     });
   });
 
-  test('does not persist terminal headless run headers when terminal runtime event append fails', async () => {
+  test('rejects a copied Headless storage aggregate before execution', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
       const task: Task = {
-        id: 'terminal-append-fails',
+        id: 'forged-storage',
         instruction: 'do the thing',
         workspaceDir: fixtureDir,
         verification: { command: 'test -f marker.txt', protectedPaths: [] },
       };
-      const backingRuntimeEventStore = createRuntimeEventStore(storageRoot);
-      const runtimeEventStore: RuntimeEventStore = {
-        appendRuntimeEvent(sessionId, runId, event) {
-          if (isTerminalRuntimeEvent(event)) {
-            throw new Error('terminal append failed');
-          }
-          return backingRuntimeEventStore.appendRuntimeEvent(sessionId, runId, event);
-        },
-        ensureTerminalRuntimeEventDurable() {
-          throw new Error('terminal append failed');
-        },
-        readRuntimeEvents: (sessionId, runId) =>
-          backingRuntimeEventStore.readRuntimeEvents(sessionId, runId),
-        readSessionRuntimeEvents: (sessionId) =>
-          backingRuntimeEventStore.readSessionRuntimeEvents(sessionId),
-      };
+      const storage = await openHeadlessStorageForWrite(storageRoot);
+      let backendRegistrationCalled = false;
 
-      const result = await runTaskOnce(fakeConfig, task, {
-        storageRoot,
-        registerBackends: registerFakeBackend,
-        runtimeEventStore,
-      });
-
-      assert.equal(latestInvocation(result).status, 'failed');
-      assert.equal(latestInvocation(result).failure?.message, 'terminal append failed');
-      const runtimeEvents = await runtimeEventStore.readRuntimeEvents(
-        latestInvocation(result).sessionId,
-        latestInvocation(result).runId,
+      await assert.rejects(
+        () =>
+          runTaskOnceWithStorage(
+            fakeConfig,
+            task,
+            {
+              storageRoot,
+              registerBackends: (registry) => {
+                backendRegistrationCalled = true;
+                registerFakeBackend(registry);
+              },
+            },
+            { ...storage },
+          ),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
-      assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
-      const runHeader = await readAgentRunHeader(
-        storageRoot,
-        latestInvocation(result).sessionId,
-        latestInvocation(result).runId,
-      );
-      assert.notEqual(runHeader.status, 'completed');
-      assert.notEqual(runHeader.status, 'failed');
-      assert.notEqual(runHeader.status, 'cancelled');
+      assert.equal(backendRegistrationCalled, false);
     });
   });
 

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { link, mkdir, open, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-export async function publishImmutableFile(path: string, contents: string): Promise<boolean> {
+export async function publishFileExclusively(path: string, contents: string): Promise<boolean> {
   const directory = dirname(path);
   await mkdir(directory, { recursive: true });
   const temporaryPath = `${path}.tmp-${process.pid}-${randomUUID()}`;

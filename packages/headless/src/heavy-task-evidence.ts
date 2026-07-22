@@ -15,7 +15,7 @@ import type {
   HeavyTaskTruncationRef,
   TaskRunArtifact,
 } from './task-contracts.js';
-import type { TaskRunStore } from './task-run-store.js';
+import type { TaskRunWriter } from './task-run-store.js';
 import type {
   IsolatedCommandInput,
   IsolatedCommandResult,
@@ -358,7 +358,7 @@ export function compactSelfCheckEvidence(input: {
 export function createHeavyTaskEvidenceRecorder(input: {
   taskRunId: string;
   attemptId?: string;
-  store: TaskRunStore;
+  store: TaskRunWriter;
   now: () => number;
   newId: () => string;
 }): HeavyTaskEvidenceRecorder {
