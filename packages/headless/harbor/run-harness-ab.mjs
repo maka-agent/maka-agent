@@ -123,7 +123,6 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
       model: 'gpt-5.6-sol',
       reasoningEffort: 'xhigh',
       baseUrl: 'https://chatgpt.com/backend-api/codex',
-      apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
       billingMode: 'account-plan',
       pricing: Object.freeze({
         currency: 'USD',
@@ -161,7 +160,6 @@ export function resolveHarnessRuntimeProfile(competitorProfile) {
       model: MODEL,
       reasoningEffort: REASONING_EFFORT,
       baseUrl: BASE_URL,
-      apiKeyEnvName: 'ANTHROPIC_API_KEY',
       billingMode: BILLING_MODE,
       pricing: PRICING,
     }
@@ -183,7 +181,6 @@ export function buildHarnessExecutionProfile(competitorProfile) {
     model: runtime.model,
     reasoningEffort: runtime.reasoningEffort,
     baseUrl: runtime.baseUrl,
-    apiKeyEnvName: runtime.apiKeyEnvName,
     billingMode: runtime.billingMode,
     pricing: {
       inputUsdPer1M: runtime.pricing.input,
@@ -640,7 +637,6 @@ async function runLocked({
     provider: execution.provider,
     reasoningEffort: execution.reasoningEffort,
     ...credentials,
-    apiKeyEnvName: execution.apiKeyEnvName,
     pricing: execution.pricing,
     agentEnv: { MAKA_BASE_URL: execution.baseUrl },
     timeoutMultiplier: 1,

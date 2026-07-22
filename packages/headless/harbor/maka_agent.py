@@ -84,6 +84,14 @@ _HOST_NODE_ENV_ALLOWLIST = {
     "COMSPEC",
 }
 
+_HOST_PROVIDER_AUTHORITY_ENV_KEYS = (
+    "MAKA_HOST_API_KEY",
+    "MAKA_HOST_API_KEY_FILE",
+    "MAKA_HOST_NO_AUTH",
+    "MAKA_HOST_BASE_URL",
+    "MAKA_HOST_MODEL_API_PROTOCOL",
+)
+
 def _host_node_process_env(cell_env: dict[str, str]) -> dict[str, str]:
     env = {key: value for key in _HOST_NODE_ENV_ALLOWLIST if (value := os.environ.get(key))}
     env.update(cell_env)
@@ -393,7 +401,7 @@ class MakaAgent(BaseInstalledAgent):
         env["MAKA_HARBOR_TOOL_EXECUTOR_URL"] = executor.url
         env["MAKA_HARBOR_TOOL_EXECUTOR_TOKEN"] = executor.token
         env["MAKA_CELL_SOFT_TIMEOUT_MS"] = str(self._cell_soft_timeout_ms())
-        for key in ("MAKA_HOST_API_KEY", "MAKA_HOST_API_KEY_FILE", "MAKA_HOST_API_KEY_ENV_NAME", "MAKA_HOST_BASE_URL"):
+        for key in _HOST_PROVIDER_AUTHORITY_ENV_KEYS:
             value = self._get_env(key)
             if value:
                 env[key] = value

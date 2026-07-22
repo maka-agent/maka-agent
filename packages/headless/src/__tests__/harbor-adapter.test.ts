@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { describe, test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { HARBOR_CELL_CONTEXT_ENV_KEYS } from '../harbor-cell.js';
+import { HARBOR_CELL_CONTEXT_ENV_KEYS, resolveHarborCellAiSdkEnv } from '../harbor-cell.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const execFileAsync = promisify(execFile);
@@ -180,7 +180,7 @@ describe('Harbor adapter contract', () => {
     }
   });
 
-  test('run-host-cell.mjs maps direct SiliconFlow credentials to the SiliconFlow namespace', async () => {
+  test('run-host-cell.mjs resolves direct SiliconFlow credentials without materializing aliases', async () => {
     const tmp = mkdtempSync(resolve(tmpdir(), 'maka-host-cell-siliconflow-'));
     try {
       const keyFile = resolve(tmp, 'key.txt');
@@ -190,18 +190,36 @@ describe('Harbor adapter contract', () => {
       );
 
       const rawEnv = await backendEnv({ MAKA_HOST_API_KEY: 'siliconflow-raw-key' }, 'siliconflow');
-      assert.equal(rawEnv.SILICONFLOW_API_KEY, 'siliconflow-raw-key');
+      assert.equal(
+        resolveHarborCellAiSdkEnv({
+          provider: 'siliconflow',
+          model: 'test-model',
+          env: rawEnv,
+          ts: 1,
+        }).apiKey,
+        'siliconflow-raw-key',
+      );
+      assert.equal(rawEnv.SILICONFLOW_API_KEY, undefined);
       assert.equal(rawEnv.OPENAI_API_KEY, undefined);
 
       const fileEnv = await backendEnv({ MAKA_HOST_API_KEY_FILE: keyFile }, 'siliconflow');
-      assert.equal(fileEnv.SILICONFLOW_API_KEY, 'siliconflow-file-key');
+      assert.equal(
+        resolveHarborCellAiSdkEnv({
+          provider: 'siliconflow',
+          model: 'test-model',
+          env: fileEnv,
+          ts: 1,
+        }).apiKey,
+        'siliconflow-file-key',
+      );
+      assert.equal(fileEnv.SILICONFLOW_API_KEY, undefined);
       assert.equal(fileEnv.OPENAI_API_KEY, undefined);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  test('run-host-cell.mjs maps Vercel Gateway credentials only to the AI Gateway namespace', async () => {
+  test('run-host-cell.mjs resolves Vercel Gateway credentials without materializing aliases', async () => {
     const tmp = mkdtempSync(resolve(tmpdir(), 'maka-host-cell-vercel-'));
     try {
       const keyFile = resolve(tmp, 'key.txt');
@@ -211,11 +229,29 @@ describe('Harbor adapter contract', () => {
       );
 
       const rawEnv = await backendEnv({ MAKA_HOST_API_KEY: 'vercel-raw-key' }, 'vercel');
-      assert.equal(rawEnv.AI_GATEWAY_API_KEY, 'vercel-raw-key');
+      assert.equal(
+        resolveHarborCellAiSdkEnv({
+          provider: 'vercel',
+          model: 'creator/model',
+          env: rawEnv,
+          ts: 1,
+        }).apiKey,
+        'vercel-raw-key',
+      );
+      assert.equal(rawEnv.AI_GATEWAY_API_KEY, undefined);
       assert.equal(rawEnv.OPENAI_API_KEY, undefined);
 
       const fileEnv = await backendEnv({ MAKA_HOST_API_KEY_FILE: keyFile }, 'vercel');
-      assert.equal(fileEnv.AI_GATEWAY_API_KEY, 'vercel-file-key');
+      assert.equal(
+        resolveHarborCellAiSdkEnv({
+          provider: 'vercel',
+          model: 'creator/model',
+          env: fileEnv,
+          ts: 1,
+        }).apiKey,
+        'vercel-file-key',
+      );
+      assert.equal(fileEnv.AI_GATEWAY_API_KEY, undefined);
       assert.equal(fileEnv.OPENAI_API_KEY, undefined);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -235,9 +271,16 @@ describe('Harbor adapter contract', () => {
       'github-copilot',
     );
 
-    assert.equal(env.COPILOT_GITHUB_TOKEN, 'github_pat_copilot_requests');
-    assert.equal(env.MAKA_BASE_URL, 'https://api.githubcopilot.com');
-    assert.equal(env.MAKA_MODEL_API_PROTOCOL, 'openai-responses');
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'github-copilot',
+      model: 'gpt-test',
+      env,
+      ts: 1,
+    });
+    assert.equal(resolved.apiKey, 'github_pat_copilot_requests');
+    assert.equal(resolved.connection.baseUrl, 'https://api.githubcopilot.com');
+    assert.equal(resolved.connection.models?.[0]?.apiProtocol, 'openai-responses');
+    assert.equal(env.COPILOT_GITHUB_TOKEN, undefined);
   });
 
   test('run-host-cell.mjs accepts Ollama without provider credentials', async () => {
@@ -258,10 +301,20 @@ describe('Harbor adapter contract', () => {
     assert.deepEqual(await backendEnv({}, 'localai'), {
       MAKA_LLM_CONNECTION_SLUG: 'localai',
     });
-    assert.deepEqual(await backendEnv({ MAKA_HOST_API_KEY: 'localai-user-key' }, 'localai'), {
+    const env = await backendEnv({ MAKA_HOST_API_KEY: 'localai-user-key' }, 'localai');
+    assert.deepEqual(env, {
       MAKA_LLM_CONNECTION_SLUG: 'localai',
-      LOCALAI_API_KEY: 'localai-user-key',
+      MAKA_HOST_API_KEY: 'localai-user-key',
     });
+    assert.equal(
+      resolveHarborCellAiSdkEnv({
+        provider: 'localai',
+        model: 'local-model',
+        env,
+        ts: 1,
+      }).apiKey,
+      'localai-user-key',
+    );
   });
 
   test('run-host-cell.mjs rejects unknown context env instead of dropping it', async () => {
@@ -1922,6 +1975,18 @@ with tempfile.TemporaryDirectory() as tmp:
         token="test-token",
     ))
     assert host_deadline_env["MAKA_CELL_SOFT_TIMEOUT_MS"] == "870000", host_deadline_env
+
+    copilot_host_env = MakaAgent(Path(tmp), extra_env={
+        "MAKA_HOST_API_KEY": "copilot-token",
+        "MAKA_HOST_BASE_URL": "https://api.githubcopilot.com",
+        "MAKA_HOST_MODEL_API_PROTOCOL": "openai-responses",
+        "MAKA_PROVIDER": "github-copilot",
+        "MAKA_MODEL": "gpt-test",
+    })._host_cell_env(Path("/tmp/instruction.txt"), "/workspace", types.SimpleNamespace(
+        url="http://127.0.0.1:1",
+        token="test-token",
+    ))
+    assert copilot_host_env["MAKA_HOST_MODEL_API_PROTOCOL"] == "openai-responses", copilot_host_env
 
     # The default model must not be the deprecated deepseek-chat alias.
     default_model_env = MakaAgent(Path(tmp), extra_env={"MAKA_HOST_API_KEY_FILE": "/host/deepseek-key"})._cell_env(Path("/logs/agent/instruction.txt"))

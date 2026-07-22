@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test, afterEach } from 'node:test';
+import { resolveHarborCellAiSdkEnv } from '../harbor-cell.js';
 import { applyConnectionDefaults, resolveHarborRunOptions } from '../harbor-cli.js';
 
 /**
@@ -438,7 +439,6 @@ describe('resolveHarborRunOptions backend guard', () => {
       {
         MAKA_MODEL: 'openai-codex/gpt-5.6-codex',
         MAKA_HOST_API_KEY: 'selected-host-token',
-        MAKA_HOST_API_KEY_ENV_NAME: 'OPENAI_CODEX_OAUTH_TOKEN',
         MAKA_HOST_BASE_URL: 'http://127.0.0.1:43210/v1',
         MAKA_HOST_MODEL_API_PROTOCOL: 'openai-responses',
         OPENAI_CODEX_OAUTH_TOKEN: 'stale-ambient-token',
@@ -447,9 +447,14 @@ describe('resolveHarborRunOptions backend guard', () => {
       },
     );
 
-    assert.equal(opts.env.OPENAI_CODEX_OAUTH_TOKEN, 'selected-host-token');
-    assert.equal(opts.env.MAKA_BASE_URL, 'http://127.0.0.1:43210/v1');
-    assert.equal(opts.env.MAKA_MODEL_API_PROTOCOL, 'openai-responses');
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'openai-codex',
+      model: 'gpt-5.6-codex',
+      env: opts.env,
+      ts: 1,
+    });
+    assert.equal(resolved.apiKey, 'selected-host-token');
+    assert.equal(resolved.connection.baseUrl, 'http://127.0.0.1:43210/v1');
   });
 
   test('file-based host authority overrides stale ambient provider credentials', async () => {
@@ -463,13 +468,67 @@ describe('resolveHarborRunOptions backend guard', () => {
       {
         MAKA_MODEL: 'deepseek/deepseek-chat',
         MAKA_HOST_API_KEY_FILE: keyFile,
-        MAKA_HOST_API_KEY_ENV_NAME: 'DEEPSEEK_API_KEY',
         DEEPSEEK_API_KEY: 'stale-deepseek-token',
         OPENAI_API_KEY: 'stale-fallback-token',
       },
     );
 
-    assert.equal(opts.env.DEEPSEEK_API_KEY, 'selected-file-token');
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      env: opts.env,
+      ts: 1,
+    });
+    assert.equal(resolved.apiKey, 'selected-file-token');
+  });
+
+  test('explicit host authority bypasses higher-priority ambient credential aliases', async () => {
+    const opts = await resolveHarborRunOptions(
+      ['--instruction', 'test', '--isolation', 'harbor-local'],
+      {
+        MAKA_MODEL: 'deepseek/deepseek-chat',
+        MAKA_HOST_API_KEY: 'selected-host-token',
+        DEEPSEEK_API_KEY: 'stale-primary-token',
+      },
+    );
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      env: opts.env,
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, 'selected-host-token');
+  });
+
+  test('explicit no-auth authority bypasses ambient and stored provider credentials', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'maka-host-no-auth-'));
+    cleanupDirs.push(dir);
+    const credentialsPath = join(dir, 'credentials.json');
+    writeFileSync(
+      credentialsPath,
+      JSON.stringify({ version: 1, values: { 'localai:apiKey': 'stored-token' } }),
+      'utf8',
+    );
+    const opts = await resolveHarborRunOptions(
+      ['--instruction', 'test', '--isolation', 'harbor-local'],
+      {
+        MAKA_MODEL: 'localai/local-model',
+        MAKA_HOST_NO_AUTH: 'true',
+        MAKA_HOST_BASE_URL: 'http://127.0.0.1:8080/v1',
+        MAKA_CREDENTIALS_PATH: credentialsPath,
+        LOCALAI_API_KEY: 'ambient-token',
+      },
+    );
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'localai',
+      model: 'local-model',
+      env: opts.env,
+      ts: 1,
+    });
+
+    assert.equal(resolved.apiKey, '');
+    assert.equal(resolved.connection.baseUrl, 'http://127.0.0.1:8080/v1');
   });
 
   test('--backend fake flag skips applyConnectionDefaults (no desktop connection pollution)', async () => {

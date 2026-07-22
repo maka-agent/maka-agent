@@ -3711,7 +3711,10 @@ setTimeout(() => {
     const missing = resolveHarborCellAiSdkEnv({
       provider: 'ollama-cloud',
       model: 'qwen3.5:397b',
-      env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+      env: {
+        MAKA_CREDENTIALS_PATH: join(tmpdir(), 'missing-maka-test-credentials.json'),
+        OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+      },
       ts: 1,
     });
     assert.equal(missing.apiKey, '');
@@ -3779,7 +3782,10 @@ setTimeout(() => {
       const missing = resolveHarborCellAiSdkEnv({
         provider: provider.type,
         model: provider.modelId,
-        env: { OPENAI_API_KEY: 'must-not-cross-provider-boundary' },
+        env: {
+          MAKA_CREDENTIALS_PATH: join(tmpdir(), 'missing-maka-test-credentials.json'),
+          OPENAI_API_KEY: 'must-not-cross-provider-boundary',
+        },
         ts: 1,
       });
       assert.equal(missing.apiKey, '');
@@ -4739,6 +4745,21 @@ describe('createHarborCellLocalToolExecutor', () => {
     });
     assert.equal(result.exitCode, 0);
     assert.equal(result.stdout, '[][]');
+  });
+
+  test('scrubs provider token env so task commands cannot read OAuth credentials', async () => {
+    const executor = createHarborCellLocalToolExecutor({
+      OPENAI_CODEX_OAUTH_TOKEN: 'oauth-should-not-leak',
+      COPILOT_GITHUB_TOKEN: 'copilot-should-not-leak',
+      HF_TOKEN: 'hf-should-not-leak',
+    });
+    const result = await executor.exec({
+      command:
+        'printf "[%s][%s][%s]" "${OPENAI_CODEX_OAUTH_TOKEN:-}" "${COPILOT_GITHUB_TOKEN:-}" "${HF_TOKEN:-}"',
+      cwd: process.cwd(),
+    });
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, '[][][]');
   });
 });
 

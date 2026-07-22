@@ -309,7 +309,6 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
     model: 'gpt-5.6-sol',
     reasoningEffort: 'xhigh',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
-    apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
     billingMode: 'account-plan',
     pricing: {
       currency: 'USD',
@@ -425,7 +424,6 @@ test('Codex comparison freezes the OpenAI model, pricing, and run identity', asy
     model: 'gpt-5.6-sol',
     reasoningEffort: 'xhigh',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
-    apiKeyEnvName: 'OPENAI_CODEX_OAUTH_TOKEN',
     billingMode: 'account-plan',
     pricing: {
       inputUsdPer1M: 0,

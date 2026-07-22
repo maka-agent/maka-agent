@@ -20,7 +20,6 @@ import {
   createHarborCellLocalToolExecutor,
   createHarborHttpToolExecutor,
   reasoningEffortFromEnv,
-  resolveHostProviderAuthorityEnv,
   runHarborCell,
   writeHarborCellArtifacts,
   writeHarborCellExecutionIdentity,
@@ -314,13 +313,6 @@ export async function resolveHarborRunOptions(
     applyConnectionDefaults(env);
   }
   applyApiKeyFile(parsed, env);
-  if (backend === 'ai-sdk') {
-    const modelSpec = parseModelSpec(
-      env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'deepseek/deepseek-v4-flash',
-      env.MAKA_PROVIDER,
-    );
-    Object.assign(env, resolveHostProviderAuthorityEnv({ provider: modelSpec.provider, env }));
-  }
   const mode = harborMode(valueOf(parsed, env, 'mode', 'MAKA_HARBOR_MODE') ?? 'task-run');
   const isolation = optionalIsolation(
     valueOf(parsed, env, 'isolation', 'MAKA_HARBOR_ISOLATION') ?? env.MAKA_ISOLATION,

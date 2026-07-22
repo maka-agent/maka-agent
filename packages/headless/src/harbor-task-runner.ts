@@ -41,11 +41,7 @@ import {
   type ProviderUpstreamCredentialResolver,
   type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
-import {
-  providerBaseUrlFromEnv,
-  providerCredentialEnv,
-  requireProviderCredentialEnv,
-} from './provider-env.js';
+import { providerBaseUrlFromEnv, providerCredentialEnv } from './provider-env.js';
 import { lenientPositiveIntEnv } from './headless-run-env.js';
 import {
   OPENCODE_TOOLCHAIN_CONTAINER_PATH,
@@ -130,9 +126,6 @@ export interface HarborTaskRunnerOptions {
   apiKeyFile?: string;
   /** Resolves the current provider authority inside the host proxy for every request. */
   resolveProviderCredential?: ProviderUpstreamCredentialResolver;
-  /** Raw API-key env var the host-side cell uses (default derived from provider).
-   * A legacy *_API_KEY_FILE name is normalized to its raw *_API_KEY companion. */
-  apiKeyEnvName?: string;
   /** Per-1M USD pricing forwarded as MAKA_TRIAL_* so the cell emits real costUsd. */
   pricing?: HarborTaskPricing;
   /** Extra agent env merged last (e.g. DEEPSEEK_BASE_URL). */
@@ -1071,9 +1064,6 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
           ? {
               MAKA_HOST_BASE_URL: proxy.baseUrl,
               MAKA_HOST_API_KEY: proxy.token,
-              MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(
-                options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!,
-              ),
             }
           : {
               MAKA_PROVIDER_PROXY_URL: proxy.baseUrl,
@@ -1084,13 +1074,6 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       close: proxy.close,
     };
   }
-  const apiKeyEnvName = copilotCredential
-    ? 'COPILOT_GITHUB_TOKEN'
-    : options.apiKeyFile
-      ? normalizeRawKeyEnvName(
-          options.apiKeyEnvName ?? requireProviderCredentialEnv(provider).apiKeys[0]!,
-        )
-      : undefined;
   return {
     env: {
       MAKA_HOST_REPO_ROOT: options.makaRepoPath,
@@ -1099,7 +1082,6 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
         : options.apiKeyFile
           ? { MAKA_HOST_API_KEY_FILE: options.apiKeyFile }
           : {}),
-      ...(apiKeyEnvName ? { MAKA_HOST_API_KEY_ENV_NAME: apiKeyEnvName } : {}),
       ...(!options.apiKeyFile && !copilotCredential ? { MAKA_HOST_NO_AUTH: 'true' } : {}),
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
       ...(copilotCredential ? { MAKA_HOST_MODEL_API_PROTOCOL: copilotCredential.apiProtocol } : {}),
@@ -1229,10 +1211,6 @@ function assertNoExperimentIdentityOverrides(agentEnv: Record<string, string> | 
       `agentEnv must not override experiment identity: ${forbidden.sort().join(', ')}`,
     );
   }
-}
-
-function normalizeRawKeyEnvName(name: string): string {
-  return name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name;
 }
 
 function providerRequiresSecret(provider: string | undefined): boolean {

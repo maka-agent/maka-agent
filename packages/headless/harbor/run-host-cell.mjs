@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
+import { providerAuthRequiresSecret } from '@maka/core/llm-connections';
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
@@ -14,7 +14,7 @@ import {
   harborCellSoftTimeoutMsFromEnv,
   normalizeHarborCellContextEnv,
   reasoningEffortFromEnv,
-  resolveHostProviderAuthorityEnv,
+  resolveHostProviderAuthority,
   runHarborCell,
   writeHarborCellUsageCheckpoint,
 } from '#harbor-cell';
@@ -119,16 +119,14 @@ export async function backendEnv(env, provider) {
   const result = {
     MAKA_LLM_CONNECTION_SLUG: env.MAKA_LLM_CONNECTION_SLUG || provider,
   };
-  const hasHostApiKey = Boolean(env.MAKA_HOST_API_KEY || env.MAKA_HOST_API_KEY_FILE);
-  if (
-    providerAuthRequiresSecret(provider) ||
-    (providerAuthSupportsApiKey(provider) && hasHostApiKey)
-  ) {
-    if (!hasHostApiKey) {
-      throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
-    }
+  const authority = resolveHostProviderAuthority(env);
+  if (providerAuthRequiresSecret(provider) && authority.auth.kind !== 'credential') {
+    throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
   }
-  Object.assign(result, resolveHostProviderAuthorityEnv({ provider, env }));
+  if (authority.auth.kind === 'credential') result.MAKA_HOST_API_KEY = authority.auth.apiKey;
+  if (authority.auth.kind === 'none') result.MAKA_HOST_NO_AUTH = 'true';
+  if (authority.baseUrl) result.MAKA_HOST_BASE_URL = authority.baseUrl;
+  if (authority.apiProtocol) result.MAKA_HOST_MODEL_API_PROTOCOL = authority.apiProtocol;
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];
   }

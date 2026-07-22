@@ -94,8 +94,9 @@ export {
 } from './harbor-cell-tool-executor.js';
 export {
   providerApiKeyEnvName,
-  resolveHostProviderAuthorityEnv,
+  resolveHostProviderAuthority,
   resolveHarborCellAiSdkEnv,
+  type ResolvedHostProviderAuthority,
   type ResolvedHarborCellAiSdkEnv,
 } from './provider-env.js';
 export type { RunHarborCellEnv } from './headless-run-env.js';
