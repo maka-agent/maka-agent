@@ -68,6 +68,8 @@ export interface AgentRunHeader {
   parentRunId?: string;
   /** Immediate child AgentRun continued by this run. */
   resumedFromRunId?: string;
+  /** Immediate child AgentRun whose provider step is retried by this run. */
+  retriedFromRunId?: string;
   agentId?: string;
   agentName?: string;
   parentTurnId?: string;
@@ -173,6 +175,7 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'completedAt',
     'parentRunId',
     'resumedFromRunId',
+    'retriedFromRunId',
     'agentId',
     'agentName',
     'parentTurnId',
@@ -226,6 +229,7 @@ export function decodeAgentRunHeader(value: unknown): AgentRunHeader {
     [
       value.parentRunId,
       value.resumedFromRunId,
+      value.retriedFromRunId,
       value.agentId,
       value.agentName,
       value.parentTurnId,

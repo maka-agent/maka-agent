@@ -544,6 +544,17 @@ export interface AiSdkBackendInput {
   }) => Promise<unknown>;
   prepareChildAgentResume?: ToolRuntimeInput['prepareChildAgentResume'];
   resumeChildAgent?: ToolRuntimeInput['resumeChildAgent'];
+  retryChildAgent?: (input: {
+    parentRunId: string;
+    sourceRunId: string;
+    abortSignal: AbortSignal;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
     runId?: string;
@@ -762,6 +773,7 @@ export class AiSdkBackend implements AgentBackend {
       spawnChildAgent: input.spawnChildAgent,
       prepareChildAgentResume: input.prepareChildAgentResume,
       resumeChildAgent: input.resumeChildAgent,
+      retryChildAgent: input.retryChildAgent,
       listChildAgents: input.listChildAgents,
       readChildAgentOutput: input.readChildAgentOutput,
       getRunTrace: () => this.currentRunTrace,

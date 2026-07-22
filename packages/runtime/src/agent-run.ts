@@ -83,6 +83,7 @@ export type AgentRunLineage = Partial<
     UserMessageInput,
     | 'parentRunId'
     | 'resumedFromRunId'
+    | 'retriedFromRunId'
     | 'parentTurnId'
     | 'retriedFromTurnId'
     | 'regeneratedFromTurnId'
@@ -209,6 +210,9 @@ export class AgentRun {
       ...(input.userInput.parentRunId ? { parentRunId: input.userInput.parentRunId } : {}),
       ...(input.userInput.resumedFromRunId
         ? { resumedFromRunId: input.userInput.resumedFromRunId }
+        : {}),
+      ...(input.userInput.retriedFromRunId
+        ? { retriedFromRunId: input.userInput.retriedFromRunId }
         : {}),
       ...(input.userInput.parentTurnId ? { parentTurnId: input.userInput.parentTurnId } : {}),
       ...(input.userInput.retriedFromTurnId

@@ -118,6 +118,7 @@ import {
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { requireResolvedAgentDefinition } from './expert-catalog.js';
 import {
+  buildResumePlanFromRuntimeEvents,
   RuntimeContinuationPlanner,
   type RuntimeContinuation,
   type RuntimeContinuationPlannerInput,
@@ -185,6 +186,16 @@ export interface SpawnChildAgentResult {
   eventCount: number;
   failureClass?: string;
   resumedFromRunId?: string;
+  retriedFromRunId?: string;
+}
+
+export interface RetryChildAgentInput {
+  parentRunId: string;
+  sourceRunId: string;
+  abortSignal?: AbortSignal;
+  onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+  /** Presentation-only observer for projecting child activity into a parent surface. */
+  onEvent?: (event: SessionEvent) => void;
 }
 
 const CHILD_AGENT_SUMMARY_MAX_CHARS = 4_000;
@@ -1367,6 +1378,145 @@ export class SessionManager {
       eventCount: summary.eventCount,
       ...(failureClass ? { failureClass } : {}),
       ...(resumedFromRunId ? { resumedFromRunId } : {}),
+    };
+  }
+
+  async retryChildAgent(
+    sessionId: string,
+    input: RetryChildAgentInput,
+  ): Promise<SpawnChildAgentResult> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('Child agent retry requires AgentRunStore and RuntimeEventStore');
+    }
+    const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    const rawSourceRun = runs.find((run) => run.runId === input.sourceRunId);
+    if (!rawSourceRun) throw new Error('Child agent retry source run was not found');
+    const sourceRun = await this.effectiveRunHeaderFromRuntimeLedger(rawSourceRun);
+    if (!sourceRun.parentRunId || sourceRun.parentRunId !== input.parentRunId) {
+      throw new Error('Child agent retry source does not belong to the active parent run');
+    }
+    if (sourceRun.status !== 'failed' || sourceRun.failureClass !== 'RateLimit') {
+      throw new Error('Child agent retry source must be a provider rate-limit failure');
+    }
+    if (!sourceRun.agentId) throw new Error('Child agent retry source is missing its agent id');
+    const existingRetry = runs.find((run) => run.retriedFromRunId === sourceRun.runId);
+    if (existingRetry) {
+      throw new Error(`Child agent retry source already has a successor: ${existingRetry.runId}`);
+    }
+
+    const definition = requireResolvedAgentDefinition(sourceRun.agentId);
+    const replaySegments: RuntimeEvent[][] = [];
+    let chainRun: AgentRunHeader | undefined = rawSourceRun;
+    const visited = new Set<string>();
+    while (chainRun) {
+      if (visited.has(chainRun.runId))
+        throw new Error('Child agent retry lineage contains a cycle');
+      visited.add(chainRun.runId);
+      const events = await this.deps.runtimeEventStore.readRuntimeEvents(sessionId, chainRun.runId);
+      const plan = buildResumePlanFromRuntimeEvents(events);
+      if (plan.disposition !== 'safe_replay') {
+        throw new Error(`Child agent retry source is not safely replayable: ${chainRun.runId}`);
+      }
+      replaySegments.unshift(plan.replayRuntimeEvents);
+      const previousRunId: string | undefined =
+        chainRun.retriedFromRunId ?? chainRun.resumedFromRunId;
+      if (!previousRunId) break;
+      chainRun = runs.find((run) => run.runId === previousRunId);
+      if (!chainRun) throw new Error('Child agent retry lineage source is missing');
+    }
+
+    const sourceEvents = await this.deps.runtimeEventStore.readRuntimeEvents(
+      sessionId,
+      sourceRun.runId,
+    );
+    const sourcePlan = buildResumePlanFromRuntimeEvents(sourceEvents);
+    if (sourcePlan.disposition !== 'safe_replay') {
+      throw new Error('Child agent retry source is not safely replayable');
+    }
+    const sourceInvocationId = sourceRun.invocationId ?? sourceEvents[0]?.invocationId;
+    if (!sourceInvocationId) throw new Error('Child agent retry source has no invocation id');
+    const turnId = this.deps.newId();
+    const runId = this.deps.newId();
+    const invocationId = this.deps.newId();
+    const continuation: RuntimeContinuation = {
+      sessionId,
+      invocationId,
+      runId,
+      turnId,
+      sourceInvocationId,
+      sourceRunId: sourceRun.runId,
+      sourceTurnId: sourceRun.turnId,
+      sourceRuntimeEventHighWater: sourceEvents.length,
+      sourceRuntimeContext: sourcePlan.replayRuntimeEvents,
+      runtimeContext: replaySegments.flat(),
+      safetySnapshot: {
+        workspaceIdentity: sourceRun.workspaceIdentity ?? sourceRun.cwd,
+        backgroundOperationsSettled: true,
+        availableToolNames: [],
+      },
+    };
+
+    const startedAt = this.deps.now();
+    const summary = new ChildAgentSummaryAccumulator();
+    let aborted = input.abortSignal?.aborted === true;
+    await input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name });
+    const startChildRetry = this.runtimeKernel.startChildRetry;
+    if (!startChildRetry) throw new Error('RuntimeKernel does not support child agent retry');
+    const iterator = startChildRetry
+      .call(this.runtimeKernel, sessionId, {
+        parentRunId: input.parentRunId,
+        spec: {
+          id: definition.id,
+          name: definition.name,
+          systemPrompt: definition.systemPrompt,
+        },
+        continuation,
+      })
+      [Symbol.asyncIterator]();
+    const onAbort = () => {
+      aborted = true;
+      void iterator.return?.();
+    };
+    if (input.abortSignal && !input.abortSignal.aborted) {
+      input.abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    try {
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        summary.add(next.value);
+        try {
+          input.onEvent?.(next.value);
+        } catch {
+          // A presentation observer must not change the child run outcome.
+        }
+      }
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onAbort);
+      if (aborted) await iterator.return?.();
+    }
+
+    const completedAt = this.deps.now();
+    const run = await this.findRunByTurnId(sessionId, turnId);
+    const failureClass = run?.failureClass ?? summary.failureClass;
+    const artifacts = this.deps.listArtifactsForTurn
+      ? await this.deps.listArtifactsForTurn(sessionId, turnId)
+      : [];
+    return {
+      agentId: definition.id,
+      agentName: definition.name,
+      turnId,
+      ...(run?.runId ? { runId: run.runId } : { runId }),
+      retriedFromRunId: sourceRun.runId,
+      status: run ? agentRunStatusForSpawnResult(run.status) : summary.status(aborted),
+      permissionMode: definition.permissionMode,
+      summary: summary.text(),
+      artifactIds: artifacts.map((artifact) => artifact.id),
+      startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - startedAt),
+      eventCount: summary.eventCount,
+      ...(failureClass ? { failureClass } : {}),
     };
   }
 

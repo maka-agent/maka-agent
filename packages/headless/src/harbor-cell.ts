@@ -789,6 +789,9 @@ export function buildAiSdkCellBackendRegistration(input: {
         resumeChildAgent: context.resumeChildAgent
           ? (childInput) => context.resumeChildAgent!(ctx.sessionId, childInput)
           : undefined,
+        retryChildAgent: context.retryChildAgent
+          ? (childInput) => context.retryChildAgent!(ctx.sessionId, childInput)
+          : undefined,
         listChildAgents: context.listChildAgents
           ? () => context.listChildAgents!(ctx.sessionId)
           : undefined,

@@ -418,6 +418,7 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.equal(contexts[0]?.config.id, 'real-cfg');
       assert.equal(contexts[0]?.task.id, 'real-task');
       assert.equal(typeof contexts[0]?.spawnChildAgent, 'function');
+      assert.equal(typeof contexts[0]?.retryChildAgent, 'function');
       assert.equal(typeof contexts[0]?.listChildAgents, 'function');
       assert.equal(typeof contexts[0]?.readChildAgentOutput, 'function');
       assert.ok(Array.isArray((await contexts[0]!.listChildAgents!(result.sessionId)).definitions));

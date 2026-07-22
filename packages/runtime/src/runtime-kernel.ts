@@ -88,6 +88,7 @@ export interface RuntimeKernelLike {
   resumeContinuation?(continuation: RuntimeContinuation): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
   startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
+  startChildRetry?(sessionId: string, input: ChildAgentRetryInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
@@ -110,6 +111,12 @@ export interface TurnStartOptions {
   userMessageId?: string;
   durability?: AgentRunDurability;
   onRunStarted?: (runId: string, initialHeader: SessionHeader) => void | Promise<void>;
+}
+
+export interface ChildAgentRetryInput {
+  parentRunId: string;
+  spec: ChildAgentTurnInput['spec'];
+  continuation: RuntimeContinuation;
 }
 
 /**
@@ -597,6 +604,87 @@ export class RuntimeKernel implements RuntimeKernelLike {
     yield* this.runAgentTurn(sessionId, userInput, run);
   }
 
+  async *startChildRetry(
+    sessionId: string,
+    input: ChildAgentRetryInput,
+  ): AsyncIterable<SessionEvent> {
+    const { continuation } = input;
+    if (continuation.sessionId !== sessionId) {
+      throw new Error('Child retry continuation belongs to a different session');
+    }
+    const parentHeader = await this.deps.store.readHeader(sessionId);
+    const definition = requireResolvedAgentDefinition(input.spec.id);
+    const availableChildTools = this.deps.childTools ?? [];
+    assertAgentDefinitionRunnable({
+      parentPermissionMode: parentHeader.permissionMode,
+      definition,
+      tools: availableChildTools,
+    });
+    const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
+    const expertIdentity = parseExpertAgentId(definition.id);
+    const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
+      ? {
+          role: 'member',
+          teamId: expertIdentity.teamId,
+          agentId: definition.id,
+          parentRunId: input.parentRunId,
+        }
+      : undefined;
+    const childHeader: SessionHeader = {
+      ...parentHeader,
+      permissionMode: definition.permissionMode,
+      connectionLocked: true,
+    };
+    const userInput: UserMessageInput = {
+      turnId: continuation.turnId,
+      text: '',
+      parentRunId: input.parentRunId,
+      retriedFromRunId: continuation.sourceRunId,
+      agentId: definition.id,
+      agentName: definition.name,
+    };
+    const activeKey = childActiveKey(sessionId, continuation.turnId);
+    const run = new AgentRun({
+      sessionId,
+      header: childHeader,
+      userInput,
+      runId: continuation.runId,
+      invocationId: continuation.invocationId,
+      store: this.deps.store,
+      runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
+      ...(runtimeToolBoundaryProtocol(this.deps, childHeader)
+        ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, childHeader) }
+        : {}),
+      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+      newId: this.deps.newId,
+      now: this.deps.now,
+      workspaceIdentity: continuation.safetySnapshot.workspaceIdentity,
+      effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
+      recordSessionMessages: false,
+      hooks: {
+        ensureActive: (targetSessionId, nextHeader) =>
+          this.ensureChildActive(
+            activeKey,
+            targetSessionId,
+            nextHeader,
+            definition.systemPrompt,
+            childTools,
+            agentTeam,
+          ),
+        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
+        unregisterRun: (active, activeRun) => this.unregisterChildRun(activeKey, active, activeRun),
+        updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
+        updateStatus: async () => {},
+        appendTurnState: async () => {},
+      },
+    });
+
+    // A provider retry replays the source ledger without recording a second
+    // user prompt and without turning the child into a session continuation.
+    yield* this.runAgentContinuation(continuation, run, false);
+  }
+
   private async *runAgentTurn(
     sessionId: string,
     input: UserMessageInput,
@@ -788,13 +876,16 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private async *runAgentContinuation(
     continuation: RuntimeContinuation,
     run: AgentRun,
+    persistContinuationSource = true,
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
     let flowDone = false;
     let begin: Awaited<ReturnType<AgentRun['beginContinuation']>>;
     try {
-      begin = await run.beginContinuation(continuation);
+      begin = persistContinuationSource
+        ? await run.beginContinuation(continuation)
+        : await run.beginOperation();
     } catch (error) {
       await run.recordFailure(error);
       await run.finalize();
@@ -834,7 +925,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
       ...(run.toolBoundaryProtocol ? { toolBoundaryProtocol: run.toolBoundaryProtocol } : {}),
       commitContinuationStart: async (event) => {
         await run.recordRuntimeEvents([event], { requireTerminalWrite: true });
-        await this.deps.continuationFailpoint?.('after_continuation_start_committed');
+        if (persistContinuationSource) {
+          await this.deps.continuationFailpoint?.('after_continuation_start_committed');
+        }
       },
     });
     let runnerFailure: unknown;

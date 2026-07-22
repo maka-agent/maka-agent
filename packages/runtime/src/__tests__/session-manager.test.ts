@@ -6128,6 +6128,133 @@ describe('SessionManager permission mode updates', () => {
     );
   });
 
+  test('retryChildAgent replays a rate-limited child without appending its prompt again', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const sendInputs: BackendSendInput[] = [];
+    let childAttempt = 0;
+    backends.register('fake', (ctx) => ({
+      kind: 'fake' as const,
+      sessionId: ctx.sessionId,
+      async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+        childAttempt += 1;
+        sendInputs.push(input);
+        if (childAttempt <= 2) {
+          yield {
+            type: 'error',
+            id: `${input.turnId}-error`,
+            turnId: input.turnId,
+            ts: 1,
+            recoverable: true,
+            reason: 'RateLimit',
+            message: 'provider 429',
+          };
+          yield {
+            type: 'complete',
+            id: `${input.turnId}-complete`,
+            turnId: input.turnId,
+            ts: 2,
+            stopReason: 'error',
+          };
+          return;
+        }
+        yield {
+          type: 'text_delta',
+          id: `${input.turnId}-delta`,
+          turnId: input.turnId,
+          ts: 3,
+          messageId: `${input.turnId}-message`,
+          text: 'recovered',
+        };
+        yield {
+          type: 'complete',
+          id: `${input.turnId}-complete`,
+          turnId: input.turnId,
+          ts: 4,
+          stopReason: 'end_turn',
+        };
+      },
+      async stop(): Promise<void> {},
+      async respondToPermission(): Promise<void> {},
+      async dispose(): Promise<void> {},
+    }));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_843),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const parentRun = makeRunHeader({
+      sessionId: session.id,
+      runId: 'parent-run',
+      turnId: 'parent-turn',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 110,
+      completedAt: 110,
+    });
+    await seedRuntimeRun(runStore, parentRun, [
+      runtimeEvent({
+        id: 'parent-complete',
+        sessionId: session.id,
+        runId: parentRun.runId,
+        turnId: parentRun.turnId,
+        ts: 110,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    const first = await manager.spawnChildAgent(session.id, {
+      turnId: 'child-rate-limited',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Reader', systemPrompt: 'read only' },
+      prompt: 'inspect auth',
+    });
+    expect(first.status).toBe('failed');
+    expect(first.failureClass).toBe('RateLimit');
+    if (!first.runId) throw new Error('rate-limited child run id was not recorded');
+
+    const second = await manager.retryChildAgent(session.id, {
+      parentRunId: parentRun.runId,
+      sourceRunId: first.runId,
+    });
+    expect(second.status).toBe('failed');
+    expect(second.failureClass).toBe('RateLimit');
+    if (!second.runId) throw new Error('second rate-limited child run id was not recorded');
+
+    const retried = await manager.retryChildAgent(session.id, {
+      parentRunId: parentRun.runId,
+      sourceRunId: second.runId,
+    });
+
+    expect(retried.status).toBe('completed');
+    expect(retried.retriedFromRunId).toBe(second.runId);
+    expect(sendInputs.map((input) => input.text)).toEqual(['inspect auth', '', '']);
+    expect(
+      sendInputs[2]?.runtimeContext?.some(
+        (event) =>
+          event.role === 'user' &&
+          event.content?.kind === 'text' &&
+          event.content.text === 'inspect auth',
+      ),
+    ).toBe(true);
+    const retryRun = await runStore.readRun(session.id, retried.runId!);
+    expect(retryRun.retriedFromRunId).toBe(second.runId);
+    expect(retryRun.continuationSource).toBe(undefined);
+    expect(
+      (await store.readMessages(session.id)).filter(
+        (message) => 'turnId' in message && message.turnId === retried.turnId,
+      ),
+    ).toEqual([]);
+  });
+
   test('the durable turn-ledger seam reaches parent runs but is withheld from child sessions', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

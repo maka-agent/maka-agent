@@ -100,6 +100,33 @@ signals active children, prevents locally queued items from starting, joins
 active work, and returns explicit cancelled rows for both started and
 never-started items.
 
+## Provider backpressure
+
+Swarm uses Kimi-compatible, batch-local rate-limit handling after the backend's
+ordinary request retry policy is exhausted:
+
+- launch up to five initial items, then admit one additional pending item every
+  700 ms;
+- when a child settles with `failureClass: RateLimit`, suspend that item and
+  requeue it at the front with a 3 s, 6 s, 12 s, ... retry delay;
+- reduce the batch's effective capacity by one (never below one), at most once
+  every 2 s;
+- after three minutes without another rate limit, recover capacity one slot at
+  a time;
+- if the rate-limited item is the only unfinished item, fail it instead of
+  leaving the foreground tool suspended indefinitely.
+
+A retry is a fresh child `AgentRun` linked through `retriedFromRunId`. It
+replays the safely materialized RuntimeEvent history and sends no second user
+prompt. This keeps each attempt inspectable while preventing duplicated task
+instructions. Artifacts from all attempts are retained in the final ordered
+item result, and parent cancellation still covers queued retries and active
+retry runs through the shared child-run permit pool.
+
+This mechanism is deliberately reactive and local to one Swarm call. It is not
+a provider-global RPM/TPM admission controller and does not coordinate capacity
+between independent sessions or processes.
+
 ## Presentation and evidence
 
 Desktop and CLI project the same settled `agent_swarm` result:
@@ -122,6 +149,8 @@ data fields:
 | --- | --- |
 | Tool-call admission rejection | `boundary: subagent_tool_admission` |
 | Local item queued or started | `swarmStage: item_queued` / `item_started`, `boundary: local_swarm_concurrency` |
+| Provider-limited item suspended | `swarmStage: item_suspended`, `failureClass: RateLimit`, plus attempt and retry delay |
+| Adaptive batch capacity | `swarmStage: capacity_changed`, direction, and effective capacity |
 | Waiting for shared capacity | `boundary: shared_child_run_permit`, `stage: waiting` |
 | Real child execution | `boundary: child_run_execution`, `stage: started` / `completed` |
 | Settled batch | `swarmStage: batch_completed` plus the aggregate projection |

@@ -186,6 +186,15 @@ export interface MakaToolContext {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  retryChildAgent?: (input: {
+    sourceRunId: string;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
     runId?: string;
@@ -284,6 +293,17 @@ export interface ToolRuntimeInput {
     parentRunId: string;
     sourceRunId: string;
     prompt: string;
+    abortSignal: AbortSignal;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
+  retryChildAgent?: (input: {
+    parentRunId: string;
+    sourceRunId: string;
     abortSignal: AbortSignal;
     onReady?: (input: {
       turnId: string;
@@ -1728,12 +1748,15 @@ export class ToolRuntime {
     trace: RunTraceLike | null;
     toolUseId: string;
     toolName: string;
-  }): Pick<MakaToolContext, 'spawnChildAgent' | 'prepareChildAgentResume' | 'resumeChildAgent'> {
+  }): Pick<
+    MakaToolContext,
+    'spawnChildAgent' | 'prepareChildAgentResume' | 'resumeChildAgent' | 'retryChildAgent'
+  > {
     const parentRunId = this.input.getCurrentRunId?.();
     if (!parentRunId) return {};
     const limiter = this.childAgentRunLimiter;
     const runWithPermit = async <T>(
-      mode: 'spawn' | 'resume',
+      mode: 'spawn' | 'resume' | 'retry',
       execute: () => Promise<T>,
     ): Promise<T> => {
       const waitingForPermit = limiter.activeCount >= limiter.capacity || limiter.waitingCount > 0;
@@ -1816,6 +1839,7 @@ export class ToolRuntime {
     const spawnChildAgent = this.input.spawnChildAgent;
     const prepareChildAgentResume = this.input.prepareChildAgentResume;
     const resumeChildAgent = this.input.resumeChildAgent;
+    const retryChildAgent = this.input.retryChildAgent;
     return {
       ...(spawnChildAgent
         ? {
@@ -1850,6 +1874,22 @@ export class ToolRuntime {
                     abortSignal: input.abortSignal,
                     ...(resumeInput.onReady ? { onReady: resumeInput.onReady } : {}),
                     ...(resumeInput.onEvent ? { onEvent: resumeInput.onEvent } : {}),
+                  }),
+              ),
+          }
+        : {}),
+      ...(retryChildAgent
+        ? {
+            retryChildAgent: async (retryInput) =>
+              await runWithPermit(
+                'retry',
+                async () =>
+                  await retryChildAgent({
+                    parentRunId,
+                    sourceRunId: retryInput.sourceRunId,
+                    abortSignal: input.abortSignal,
+                    ...(retryInput.onReady ? { onReady: retryInput.onReady } : {}),
+                    ...(retryInput.onEvent ? { onEvent: retryInput.onEvent } : {}),
                   }),
               ),
           }

@@ -4,6 +4,7 @@ import type {
   AgentOutputResult,
   PrepareChildAgentResumeResult,
   ResumeChildAgentInput,
+  RetryChildAgentInput,
   SessionManager,
   SpawnChildAgentInput,
   SpawnChildAgentResult,
@@ -16,6 +17,7 @@ export interface HeadlessSessionCapabilities {
     sourceRunId: string,
   ): Promise<PrepareChildAgentResumeResult>;
   resumeChildAgent(sessionId: string, input: ResumeChildAgentInput): Promise<SpawnChildAgentResult>;
+  retryChildAgent(sessionId: string, input: RetryChildAgentInput): Promise<SpawnChildAgentResult>;
   listChildAgents(sessionId: string): Promise<AgentListResult>;
   readChildAgentOutput(sessionId: string, input: AgentOutputInput): Promise<AgentOutputResult>;
 }
@@ -39,6 +41,8 @@ export function createHeadlessSessionCapabilityBridge(): {
         await requireManager().prepareChildAgentResume(sessionId, sourceRunId),
       resumeChildAgent: async (sessionId, input) =>
         await requireManager().resumeChildAgent(sessionId, input),
+      retryChildAgent: async (sessionId, input) =>
+        await requireManager().retryChildAgent(sessionId, input),
       listChildAgents: async (sessionId) => await requireManager().listChildAgents(sessionId),
       readChildAgentOutput: async (sessionId, input) =>
         await requireManager().readChildAgentOutput(sessionId, input),

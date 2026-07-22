@@ -510,6 +510,69 @@ describe('AgentSwarm adapter', () => {
     assert.equal(result.items[1]?.failureClass, 'Error');
   });
 
+  test('retries provider rate limits without spawning the child prompt twice', async () => {
+    const traceEvents: TestTraceEvent[] = [];
+    const prompts: string[] = [];
+    const retrySources: string[] = [];
+    const siblingGate = deferred<SpawnChildAgentResult>();
+    const tool = buildAgentSwarmTool({
+      adaptiveSwarmPolicy: {
+        initialLaunchLimit: 2,
+        initialLaunchIntervalMs: 1,
+        rateLimitRetryBaseMs: 1,
+        rateLimitRetryFactor: 2,
+        capacityShrinkIntervalMs: 1,
+        capacityRecoveryIntervalMs: 100,
+      },
+    });
+    const pending = tool.impl(
+      { items: [swarmItem(0), swarmItem(1)], max_concurrency: 2 },
+      context({
+        emitRunTrace: (type, message, data) => traceEvents.push({ type, message, data }),
+        spawnChildAgent: async (input) => {
+          prompts.push(input.prompt);
+          const index = Number(input.prompt.slice('task-'.length));
+          await input.onReady?.({
+            turnId: `turn-${index}`,
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          if (index === 1) return await siblingGate.promise;
+          return {
+            ...childResult(0, 'failed'),
+            failureClass: 'RateLimit',
+            summary: 'provider 429',
+          };
+        },
+        retryChildAgent: async (input) => {
+          retrySources.push(input.sourceRunId);
+          await input.onReady?.({
+            turnId: 'turn-0-retry',
+            agentId: 'local-read',
+            agentName: 'Local Read',
+          });
+          return {
+            ...childResult(0),
+            turnId: 'turn-0-retry',
+            runId: 'run-0-retry',
+            artifactIds: ['artifact-retry'],
+          };
+        },
+      }),
+    );
+
+    await waitFor(() => traceEvents.some((event) => event.data?.swarmStage === 'item_suspended'));
+    siblingGate.resolve(childResult(1));
+    const result = await pending;
+
+    assert.deepEqual(prompts, ['task-0', 'task-1']);
+    assert.deepEqual(retrySources, ['run-0']);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.items[0]?.runId, 'run-0-retry');
+    assert.deepEqual(result.items[0]?.artifactIds, ['artifact-0', 'artifact-retry']);
+    assert.ok(traceEvents.some((event) => event.data?.swarmStage === 'capacity_changed'));
+  });
+
   test('distinguishes active cancellation from items that never started', async () => {
     const controller = new AbortController();
     const tool = buildAgentSwarmTool();

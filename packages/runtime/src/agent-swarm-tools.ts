@@ -15,7 +15,11 @@ import {
   requireBuiltinAgentDefinitionByProfile,
   type AgentDefinition,
 } from './agent-catalog.js';
-import { runBoundedSwarm, type SwarmItemResult } from './bounded-swarm.js';
+import {
+  runAdaptiveSwarm,
+  type AdaptiveSwarmPolicy,
+  type AdaptiveSwarmItemResult,
+} from './adaptive-swarm.js';
 import type { SpawnChildAgentResult } from './session-manager.js';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 
@@ -91,7 +95,7 @@ interface StartedChildRef {
 }
 
 export function buildAgentSwarmTool(
-  deps: { now?: () => number } = {},
+  deps: { now?: () => number; adaptiveSwarmPolicy?: AdaptiveSwarmPolicy } = {},
 ): MakaTool<AgentSwarmToolInput, AgentSwarmToolResult> {
   const now = deps.now ?? Date.now;
   return {
@@ -146,41 +150,72 @@ export function buildAgentSwarmTool(
       const childResults: Array<SpawnChildAgentResult | undefined> = Array.from({
         length: prepared.items.length,
       });
-      const rows = await runBoundedSwarm(
+      const artifactIds = prepared.items.map(() => new Set<string>());
+      const rows = await runAdaptiveSwarm<
+        PreparedAgentSwarmItem,
+        SpawnChildAgentResult,
+        { sourceRunId: string }
+      >(
         prepared.items,
-        async (item, { index }) => {
+        async (item, { index, attempt, retry, markReady }) => {
           traceAgentSwarm(ctx, 'tool_started', 'item_started', {
             itemId: item.itemId,
             index: item.index,
             profile: item.profile,
             mode: item.mode,
             ...(item.resumedFromRunId ? { resumedFromRunId: item.resumedFromRunId } : {}),
+            attempt,
+            retry: retry !== undefined,
             boundary: 'local_swarm_concurrency',
           });
           ctx.emitOutput(
             'stdout',
-            `Agent swarm item ${item.itemId} started: ${item.definition.name}\n`,
+            `Agent swarm item ${item.itemId} ${retry ? 'retry' : 'started'}: ${item.definition.name}\n`,
           );
           try {
             const onReady = ({ turnId, agentId, agentName }: StartedChildRef) => {
               readyRefs[index] = { turnId, agentId, agentName };
+              markReady();
             };
-            const result = (await (item.mode === 'resume'
-              ? ctx.resumeChildAgent!({
-                  sourceRunId: item.resumedFromRunId!,
-                  prompt: item.task,
-                  onReady,
-                })
-              : ctx.spawnChildAgent!({
-                  spec: {
-                    id: item.definition.id,
-                    name: item.definition.name,
-                    systemPrompt: item.definition.systemPrompt,
-                  },
-                  prompt: item.task,
-                  onReady,
-                }))) as SpawnChildAgentResult;
-            childResults[index] = result;
+            const result = retry
+              ? ctx.retryChildAgent
+                ? ((await ctx.retryChildAgent({
+                    sourceRunId: retry.sourceRunId,
+                    onReady,
+                  })) as SpawnChildAgentResult)
+                : (() => {
+                    throw new Error('retryChildAgent capability is unavailable');
+                  })()
+              : item.mode === 'resume'
+                ? ((await ctx.resumeChildAgent!({
+                    sourceRunId: item.resumedFromRunId!,
+                    prompt: item.task,
+                    onReady,
+                  })) as SpawnChildAgentResult)
+                : ((await ctx.spawnChildAgent!({
+                    spec: {
+                      id: item.definition.id,
+                      name: item.definition.name,
+                      systemPrompt: item.definition.systemPrompt,
+                    },
+                    prompt: item.task,
+                    onReady,
+                  })) as SpawnChildAgentResult);
+            for (const artifactId of result.artifactIds) artifactIds[index]!.add(artifactId);
+            const observedResult = { ...result, artifactIds: [...artifactIds[index]!] };
+            childResults[index] = observedResult;
+            if (
+              result.status === 'failed' &&
+              result.failureClass === 'RateLimit' &&
+              result.runId &&
+              ctx.retryChildAgent
+            ) {
+              return {
+                status: 'rate_limited' as const,
+                retry: { sourceRunId: result.runId },
+                reason: new ProviderRateLimitRetry(result),
+              };
+            }
             traceAgentSwarm(
               ctx,
               result.status === 'failed' ? 'tool_failed' : 'tool_completed',
@@ -202,7 +237,7 @@ export function buildAgentSwarmTool(
               result.status === 'failed' ? 'stderr' : 'stdout',
               `Agent swarm item ${item.itemId}: ${result.status}\n`,
             );
-            return result;
+            return { status: 'fulfilled' as const, value: observedResult };
           } catch (error) {
             traceAgentSwarm(ctx, 'tool_failed', 'item_completed', {
               itemId: item.itemId,
@@ -223,6 +258,29 @@ export function buildAgentSwarmTool(
         {
           maxConcurrency: prepared.maxConcurrency,
           signal: ctx.abortSignal,
+          ...(deps.adaptiveSwarmPolicy ? { policy: deps.adaptiveSwarmPolicy } : {}),
+          onRateLimit: ({ index, attempt, retryDelayMs, capacity }) => {
+            const item = prepared.items[index]!;
+            traceAgentSwarm(ctx, 'tool_started', 'item_suspended', {
+              itemId: item.itemId,
+              index,
+              profile: item.profile,
+              attempt,
+              retryDelayMs,
+              capacity,
+              failureClass: 'RateLimit',
+            });
+            ctx.emitOutput(
+              'stderr',
+              `Agent swarm item ${item.itemId} rate limited; retrying in ${retryDelayMs}ms\n`,
+            );
+          },
+          onCapacityChanged: ({ direction, capacity }) => {
+            traceAgentSwarm(ctx, 'tool_started', 'capacity_changed', {
+              direction,
+              capacity,
+            });
+          },
         },
       );
 
@@ -252,7 +310,14 @@ export function buildAgentSwarmTool(
 function traceAgentSwarm(
   ctx: MakaToolContext,
   type: 'tool_started' | 'tool_completed' | 'tool_failed',
-  stage: 'batch_started' | 'item_queued' | 'item_started' | 'item_completed' | 'batch_completed',
+  stage:
+    | 'batch_started'
+    | 'item_queued'
+    | 'item_started'
+    | 'item_suspended'
+    | 'capacity_changed'
+    | 'item_completed'
+    | 'batch_completed',
   data: Record<string, unknown>,
 ): void {
   ctx.emitRunTrace?.(type, `Agent swarm ${stage.replaceAll('_', ' ')}`, {
@@ -648,7 +713,7 @@ function expandAgentSwarmPromptTemplate(promptTemplate: string, item: string): s
 
 function mapAgentSwarmItem(
   item: PreparedAgentSwarmItem,
-  row: SwarmItemResult<SpawnChildAgentResult>,
+  row: AdaptiveSwarmItemResult<SpawnChildAgentResult>,
   ready: StartedChildRef | undefined,
   observed: SpawnChildAgentResult | undefined,
 ): AgentSwarmToolResult['items'][number] {
@@ -664,6 +729,9 @@ function mapAgentSwarmItem(
     );
   }
   if (row.status === 'rejected') {
+    if (observed) {
+      return mapChildResult(item, observed, 'failed');
+    }
     return {
       itemId: item.itemId,
       index: row.index,
@@ -694,6 +762,13 @@ function mapAgentSwarmItem(
     artifactIds: [],
     failureClass: 'ParentCancelled',
   };
+}
+
+class ProviderRateLimitRetry extends Error {
+  constructor(readonly result: SpawnChildAgentResult) {
+    super(result.summary || 'Child agent provider rate limited');
+    this.name = 'RateLimit';
+  }
 }
 
 function mapChildResult(

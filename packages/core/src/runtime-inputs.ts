@@ -62,6 +62,8 @@ export interface UserMessageInput {
   parentRunId?: string;
   /** Child AgentRun whose durable conversation this child continues. */
   resumedFromRunId?: string;
+  /** Immediate child AgentRun retried without appending another user prompt. */
+  retriedFromRunId?: string;
   agentId?: string;
   agentName?: string;
   parentTurnId?: string;
