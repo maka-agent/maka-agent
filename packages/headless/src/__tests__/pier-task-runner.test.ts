@@ -418,6 +418,19 @@ test('createPierTaskRunner surfaces the combined trace path when present', async
   });
 });
 
+test('createPierTaskRunner falls back to runtime events when the combined trace is missing', async () => {
+  // Harbor-parity (hostTraceEventsPath): traceEventsPath is always set, so
+  // downstream trace analysis never silently skips the sample.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ reward: 0 }) }),
+    );
+    const output = await runner(runInput());
+    assert.equal(output.cell.traceEventsPath, output.cell.runtimeEventsPath);
+    assert.match(output.cell.traceEventsPath ?? '', /agent\/runtime-events\.jsonl$/);
+  });
+});
+
 test('createPierTaskRunner classifies a pier launch failure as infra', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(

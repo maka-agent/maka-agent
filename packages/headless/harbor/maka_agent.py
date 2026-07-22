@@ -127,6 +127,7 @@ class MakaAgent(BaseInstalledAgent):
     _CELL_OUTPUT_FILENAME = "maka-cell-output.json"
     _CELL_USAGE_CHECKPOINT_FILENAME = "maka-cell-usage-checkpoint.json"
     _RUNTIME_EVENTS_FILENAME = "runtime-events.jsonl"
+    _TRACE_EVENTS_FILENAME = "trace-events.jsonl"
 
     CLI_FLAGS = [
         CliFlag(
@@ -558,17 +559,20 @@ class MakaAgent(BaseInstalledAgent):
             await environment.download_file(remote.as_posix(), local)
         except Exception as exc:  # noqa: BLE001 - best-effort metadata hydration.
             self.logger.debug("Could not download Maka cell output %s: %s", remote, exc)
-        # The cell output's runtimeEventsPath contract points at this file. Under
-        # Harbor the agent log dir is bind-mounted, so it is already host-side and
-        # is skipped; under Pier a --mounts-json run replaces the default log
-        # mounts, so without this download the path would dangle.
-        events_remote = EnvironmentPaths.agent_dir / self._RUNTIME_EVENTS_FILENAME
-        events_local = self.logs_dir / self._RUNTIME_EVENTS_FILENAME
-        if not events_local.exists():
+        # The cell output's runtimeEventsPath/traceEventsPath contracts point at
+        # these files. Under Harbor the agent log dir is bind-mounted, so they
+        # are already host-side and are skipped; under Pier a --mounts-json run
+        # replaces the default log mounts, so without this download the paths
+        # would dangle on the host.
+        for filename in (self._RUNTIME_EVENTS_FILENAME, self._TRACE_EVENTS_FILENAME):
+            events_remote = EnvironmentPaths.agent_dir / filename
+            events_local = self.logs_dir / filename
+            if events_local.exists():
+                continue
             try:
                 await environment.download_file(events_remote.as_posix(), events_local)
             except Exception as exc:  # noqa: BLE001 - best-effort metadata hydration.
-                self.logger.debug("Could not download Maka runtime events %s: %s", events_remote, exc)
+                self.logger.debug("Could not download Maka agent log %s: %s", events_remote, exc)
 
     def _read_cell_output(self, *, required: bool) -> dict[str, Any] | None:
         output_path = self.logs_dir / self._CELL_OUTPUT_FILENAME

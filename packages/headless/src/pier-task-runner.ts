@@ -420,7 +420,10 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
           ...cell,
           ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
           runtimeEventsPath: hostEventsPath,
-          ...(existsSync(combinedTracePath) ? { traceEventsPath: combinedTracePath } : {}),
+          // Harbor-parity fallback (hostTraceEventsPath): downstream trace
+          // analysis skips a sample whose traceEventsPath is absent, so when
+          // the combined trace is missing the runtime events stand in.
+          traceEventsPath: existsSync(combinedTracePath) ? combinedTracePath : hostEventsPath,
         },
       };
     } catch (error) {
