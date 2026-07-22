@@ -504,7 +504,7 @@ describe('runAutonomousTask', () => {
     });
   });
 
-  test('maxWallTimeMs fails closed before starting another attempt', async () => {
+  test('maxWallTimeMs admits the first attempt but prevents another one', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const task: Task = {
         id: 'wall-cap',
@@ -525,9 +525,9 @@ describe('runAutonomousTask', () => {
         newId: idFactory(),
       });
 
-      assert.equal(result.attempts.length, 0);
+      assert.equal(result.attempts.length, 1);
       assert.equal(result.projection.status, 'budget_exhausted');
-      assert.equal(result.projection.feedback[0]?.source, 'system');
+      assert.equal(result.projection.decisions[0]?.reason, 'wall time cap reached');
       assert.equal(result.projection.error?.class, 'budget_exhausted');
     });
   });

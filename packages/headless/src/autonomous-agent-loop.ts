@@ -191,16 +191,17 @@ export async function runAutonomousTask(
   let runtimeStepsUsed = 0;
   let latestResultRecord: ResultRecord | undefined;
   let priorRuntimeContext = options.priorRuntimeContext ? [...options.priorRuntimeContext] : [];
+  const budgetStartedAt = now();
 
   while (attempts.length < options.budget.maxAttempts) {
     const beforeAttemptBudget = budgetSnapshot(
       options.budget,
       attempts.length,
       runtimeStepsUsed,
-      startedAt,
+      budgetStartedAt,
       now(),
     );
-    if (isWallTimeExhausted(beforeAttemptBudget)) {
+    if (attempts.length > 0 && isWallTimeExhausted(beforeAttemptBudget)) {
       await appendSystemFeedback(
         taskRunStore,
         taskRunId,
@@ -265,7 +266,7 @@ export async function runAutonomousTask(
       options.budget,
       attempts.length,
       runtimeStepsUsed,
-      startedAt,
+      budgetStartedAt,
       now(),
     );
     if (attempt.settledByDeadline) {
@@ -389,7 +390,7 @@ export async function runAutonomousTask(
     options.budget,
     attempts.length,
     runtimeStepsUsed,
-    startedAt,
+    budgetStartedAt,
     now(),
   );
   if (latestResultRecord?.passed) {
