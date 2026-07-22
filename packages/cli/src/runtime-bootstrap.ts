@@ -26,6 +26,9 @@ import {
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
+  buildSkillSearchAgentTool,
+  SkillShadowSelectionTracker,
+  SKILL_SEARCH_TOOL_NAME,
   SKILL_TOOL_NAME,
   buildGoalTools,
   buildParentAgentTools,
@@ -534,7 +537,11 @@ export async function createMakaCliRuntimeContext(
     ...surfaceTools,
   ].map((tool) => tool.name);
   // Skill is always registered on this host; include it before the instance exists.
-  const cliBoundToolNamesWithSkill = [...cliBoundToolNames, SKILL_TOOL_NAME];
+  const cliBoundToolNamesWithSkill = [
+    ...cliBoundToolNames,
+    SKILL_TOOL_NAME,
+    SKILL_SEARCH_TOOL_NAME,
+  ];
   assertProductBindingCatalogClean('cli', cliBoundToolNamesWithSkill);
   const host: HostCapabilities = buildHostCapabilitiesFromBinding(cliBoundToolNamesWithSkill);
   const toolAvailability: ToolAvailabilityConfig | undefined =
@@ -544,15 +551,23 @@ export async function createMakaCliRuntimeContext(
           groups: buildDeferredToolGroupsFromCatalog('cli', cliBoundToolNamesWithSkill),
         }
       : undefined;
+  const skillShadowTracker = new SkillShadowSelectionTracker();
   const skillTool = buildSkillAgentTool(
     ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
     host,
+    { shadowTracker: skillShadowTracker },
+  );
+  const skillSearchTool = buildSkillSearchAgentTool(
+    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+    host,
+    { shadowTracker: skillShadowTracker },
   );
   const allTools = [
     ...tools,
     automationTool,
     ...goalTools,
     skillTool,
+    skillSearchTool,
     ...subagentTools,
     ...surfaceTools,
   ];
@@ -640,7 +655,7 @@ export async function createMakaCliRuntimeContext(
       }),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
-      systemPrompt: async ({ cwd }) => {
+      systemPrompt: async ({ cwd, emitSkillCatalogTrace }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({
           settings,
@@ -648,6 +663,16 @@ export async function createMakaCliRuntimeContext(
           workspaceRoot: input.workspaceRoot,
           host,
           modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
+          onSkillSelection: (report) =>
+            emitSkillCatalogTrace?.('Skill catalog selection completed', {
+              policyVersion: report.policyVersion,
+              budgetChars: report.budgetChars,
+              usedChars: report.usedChars,
+              totalCount: report.totalCount,
+              eligibleCount: report.eligibleCount,
+              advertisedCount: report.advertisedCount,
+              omittedCount: report.omittedCount,
+            }),
         });
       },
       turnTailPrompt: ({ cwd }) =>

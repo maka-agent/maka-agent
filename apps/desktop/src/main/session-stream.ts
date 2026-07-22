@@ -80,6 +80,7 @@ type ArtifactStore = ReturnType<typeof createArtifactStore>;
 type TelemetryRepo = ReturnType<typeof createTelemetryRepo>;
 type PricingLookup = ReturnType<typeof buildPricingLookup>;
 type RuntimeCommitStore = Awaited<ReturnType<typeof openRuntimeEventPersistence>>['runtimeCommitStore'];
+const SKILL_CATALOG_TRACE_DECISION_LIMIT = 100;
 
 /**
  * Selected-model image-input capability, consulted before wiring AiSdkBackend.
@@ -265,7 +266,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
         name: 'desktop-default-history-budget',
         modelId: model,
       }),
-      systemPrompt: async ({ cwd }) => {
+      systemPrompt: async ({ cwd, emitSkillCatalogTrace }) => {
         const base = await systemPromptService.buildBackendSystemPrompt(
           ctx.header,
           cwd,
@@ -276,6 +277,28 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
             host: backendSkillHost,
           },
         );
+        const skillReport = systemPromptService.getLastSkillSelectionReport(cwd);
+        if (skillReport) {
+          emitSkillCatalogTrace?.('Skill catalog selection completed', {
+            policyVersion: skillReport.policyVersion,
+            budgetChars: skillReport.budgetChars,
+            usedChars: skillReport.usedChars,
+            totalCount: skillReport.totalCount,
+            eligibleCount: skillReport.eligibleCount,
+            advertisedCount: skillReport.advertisedCount,
+            omittedCount: skillReport.omittedCount,
+            decisionCount: skillReport.decisions.length,
+            decisionsTruncated:
+              skillReport.decisions.length > SKILL_CATALOG_TRACE_DECISION_LIMIT,
+            decisions: skillReport.decisions
+              .slice(0, SKILL_CATALOG_TRACE_DECISION_LIMIT)
+              .map((decision) => ({
+                skillRef: decision.ref,
+                reason: decision.reason,
+                ...(decision.rank !== undefined ? { rank: decision.rank } : {}),
+              })),
+          });
+        }
         return collaborationMode === 'plan' ? `${base}\n\n${renderPlanModePrompt()}` : base;
       },
       turnTailPrompt: async ({ cwd, sessionId }) => {

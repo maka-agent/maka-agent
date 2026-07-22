@@ -15,6 +15,7 @@ import {
   FilesystemWorkerClient,
   resolveSkillDiscoveryPaths,
   ShellRunProcessManager,
+  SKILL_SEARCH_TOOL_NAME,
   SKILL_TOOL_NAME,
 } from '@maka/runtime';
 import type {
@@ -36,7 +37,11 @@ import {
   applyComputerUseRealModelPolicy,
   parseComputerUseRealModelPolicy,
 } from './computer-use-real-model-policy.js';
-import { buildSkillAgentTool } from './skills.js';
+import {
+  buildSkillAgentTool,
+  buildSkillSearchAgentTool,
+  SkillShadowSelectionTracker,
+} from './skills.js';
 import type { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import type { createMainAutomationWiring } from './automation-wiring.js';
 import type { createMainGoalWiring } from './goal-wiring.js';
@@ -238,6 +243,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
   const desktopBoundToolNames = [
     ...toolsBeforeSkill.map((tool) => tool.name),
     SKILL_TOOL_NAME,
+    SKILL_SEARCH_TOOL_NAME,
     ...toolsAfterSkill.map((tool) => tool.name),
   ];
   assertProductBindingCatalogClean('desktop', desktopBoundToolNames);
@@ -247,11 +253,23 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
   // Resolve per-call from the session cwd so skills at all 5 standard paths
   // (cwd/.maka, cwd/.agents, workspaceRoot/skills, ~/.maka, ~/.agents) are
   // discovered — matching the CLI and the Agent Skills spec (#1068).
+  const skillShadowTracker = new SkillShadowSelectionTracker();
   const skillTool = buildSkillAgentTool(
     ({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot),
     resolveDesktopSkillHost,
+    { shadowTracker: skillShadowTracker },
   );
-  const builtinTools: MakaTool[] = [...toolsBeforeSkill, skillTool, ...toolsAfterSkill];
+  const skillSearchTool = buildSkillSearchAgentTool(
+    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot),
+    resolveDesktopSkillHost,
+    { shadowTracker: skillShadowTracker },
+  );
+  const builtinTools: MakaTool[] = [
+    ...toolsBeforeSkill,
+    skillTool,
+    skillSearchTool,
+    ...toolsAfterSkill,
+  ];
   const toolAvailability: ToolAvailabilityConfig = {
     economy: economyEnabled,
     groups: buildDeferredToolGroupsFromCatalog('desktop', desktopBoundToolNames),

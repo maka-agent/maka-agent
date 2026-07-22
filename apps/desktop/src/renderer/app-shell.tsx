@@ -951,6 +951,7 @@ function AppShellContent({
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
+    setSkillPinned,
     deleteSkill,
     openSkill,
   } = useAppShellModuleData({
@@ -1626,6 +1627,7 @@ function AppShellContent({
                   onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
                   onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
                   onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
+                  onSetSkillPinned={(skillRef, pinned) => setSkillPinned(skillRef, pinned)}
                   onDeleteSkill={(skillId) => deleteSkill(skillId)}
                 />
               ) : navSelection.section === 'mcp' ? (

@@ -2,7 +2,7 @@ import { redactSecrets, type PersonalizationSettings } from '@maka/core';
 import {
   buildPersonalizationPromptFragment,
   buildSessionEnvironmentPromptFragment,
-  buildSkillsPromptFragment,
+  buildSkillsPromptFragmentWithReport,
   buildWorkspaceInstructionsPromptFragment,
   resolveProjectGitInfo,
   resolveSkillDiscoveryPaths,
@@ -10,6 +10,7 @@ import {
   type GoalManager,
   type HostCapabilities,
   type SkillSource,
+  type SkillSelectionReport,
 } from '@maka/runtime';
 
 /**
@@ -54,6 +55,7 @@ export interface BuildCliSystemPromptInput {
    * to avoid picking up real installed skills.
    */
   homeDir?: string;
+  onSkillSelection?: (report: SkillSelectionReport) => void;
 }
 
 export async function buildCliSystemPrompt(
@@ -62,9 +64,11 @@ export async function buildCliSystemPrompt(
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
   // personalization -> skills -> workspaceInstructions, matching the desktop app.
   const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot, input.homeDir);
-  const skills = await buildSkillsPromptFragment(skillSource, input.host, {
+  const skillPrompt = await buildSkillsPromptFragmentWithReport(skillSource, input.host, {
     contextWindow: input.modelContextWindow,
   });
+  input.onSkillSelection?.(skillPrompt.report);
+  const skills = skillPrompt.text;
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;

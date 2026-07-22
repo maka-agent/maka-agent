@@ -371,9 +371,12 @@ description: First.
 
 function fakeLoadedSkill(overrides: Partial<LoadedSkillInstructions>): LoadedSkillInstructions {
   return {
+    ref: 'workspace:legacy:skill-id',
     id: 'skill-id',
     name: 'Skill Name',
     description: '',
+    scope: 'workspace',
+    source: 'legacy',
     declaredTools: [],
     relativePath: 'skills/skill-id/SKILL.md',
     instructions: '# Skill',

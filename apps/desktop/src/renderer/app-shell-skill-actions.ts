@@ -33,6 +33,7 @@ export interface AppShellSkillActions {
     },
   ): Promise<boolean>;
   setSkillEnabled(skillId: string, enabled: boolean): Promise<void>;
+  setSkillPinned(skillRef: string, pinned: boolean): Promise<void>;
   deleteSkill(skillId: string): Promise<void>;
   openSkill(skillId: string): Promise<void>;
 }
@@ -258,6 +259,24 @@ export function createAppShellSkillActions(deps: {
     }
   }
 
+  async function setSkillPinned(skillRef: string, pinned: boolean) {
+    try {
+      const result = await window.maka.skills.setPinned(skillRef, pinned);
+      if (!result.ok) {
+        if (isSkillsSurfaceActive()) toastApi.error(copy.toggleFailedTitle, copy.runtimeFailures[result.reason]);
+        return;
+      }
+      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
+      if (isSkillsSurfaceActive()) {
+        toastApi.success(pinned ? copy.pinnedTitle : copy.unpinnedTitle, result.skill.name);
+      }
+    } catch (error) {
+      if (isSkillsSurfaceActive()) {
+        toastApi.error(copy.toggleFailedTitle, localizedShellErrorMessage(error, copy.toggleFallback, uiLocale));
+      }
+    }
+  }
+
   async function deleteSkill(skillId: string) {
     try {
       const result = await window.maka.skills.delete(skillId);
@@ -290,6 +309,7 @@ export function createAppShellSkillActions(deps: {
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
+    setSkillPinned,
     deleteSkill,
     openSkill,
   };

@@ -8,12 +8,21 @@ import {
   parseSkillFrontMatter,
   readContainedRegularTextFile,
   readSkillRuntimeState,
+  resolveSkillDiscoveryPaths,
+  scanSkillsWithDiagnostics,
   scanWorkspaceSkills,
+  selectSkillScanForContext,
   writeContainedRegularTextFile,
-  writeSkillRuntimeState,
+  writeSkillRuntimePreferences,
+  type HostCapabilities,
+  type RejectedSkillDefinition,
   type RuntimeSkillDefinition,
   type ScannedSkill,
+  type SkillContextDecisionReason,
+  type SkillDiscoverySource,
   type SkillRuntimeStatus,
+  type SkillSelectionReport,
+  type SkillScope,
 } from '@maka/runtime';
 import {
   MANAGED_SKILL_CATEGORIES,
@@ -28,12 +37,16 @@ import { BUNDLED_REVERSE_ENGINEERED_SKILLS } from './bundled-skill-catalog.gener
 // managed-source status, Office seeding) stays defined below.
 export {
   buildSkillAgentTool,
+  buildSkillSearchAgentTool,
+  SkillShadowSelectionTracker,
   buildSkillsPromptFragment,
+  buildSkillsPromptFragmentWithReport,
   loadSkillInstructions,
   parseSkillFrontMatter,
   MAX_SKILL_BODY_CHARS,
   MAX_SKILL_TOOL_BODY_CHARS,
   MAX_SKILLS_PROMPT_CHARS,
+  SKILL_SEARCH_TOOL_NAME,
 } from '@maka/runtime';
 export type { LoadSkillInstructionsResult, LoadedSkillInstructions, SkillRuntimeStatus } from '@maka/runtime';
 
@@ -72,6 +85,7 @@ export interface InstalledSkill extends RuntimeSkillDefinition {
 }
 
 export interface SkillEntry {
+  ref: string;
   id: string;
   name: string;
   description: string;
@@ -82,7 +96,15 @@ export interface SkillEntry {
   validationStatus: SkillValidationStatus;
   managedUpdateStatus?: ManagedSkillUpdateStatus;
   enabled: boolean;
+  pinned: boolean;
   runtimeStatus: SkillRuntimeStatus;
+  scope: SkillScope;
+  source: SkillDiscoverySource;
+  contextStatus: SkillContextDecisionReason;
+  contextRank?: number;
+  shadowedBy?: string;
+  /** Only legacy workspace installs can be updated or deleted by this panel. */
+  manageable: boolean;
 }
 
 export interface SkillGovernanceDetails {
@@ -134,7 +156,11 @@ export type ResolveSkillOpenPathResult =
 
 export type SetSkillEnabledResult =
   | { ok: true; skill: SkillEntry }
-  | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' };
+  | {
+      ok: false;
+      reason: 'not_found' | 'needs_review' | 'blocked_path' | 'state_error' | 'write_failed';
+    };
+export type SetSkillPinnedResult = SetSkillEnabledResult;
 
 interface InstalledSkillDefinition extends InstalledSkill {
   content: string;
@@ -154,6 +180,12 @@ interface SkillLockFile {
 
 interface SkillReadOptions {
   managedSourceRoot?: string;
+  cwd?: string;
+  homeDir?: string;
+  host?: HostCapabilities;
+  contextWindow?: number;
+  /** Exact report from the last prompt build; absent means compute a policy preview. */
+  selectionReport?: SkillSelectionReport;
 }
 
 interface ManagedSkillUpdateOptions {
@@ -220,12 +252,67 @@ export async function listInstalledSkills(root: string, options: SkillReadOption
   return definitions.map(({ content: _content, ...skill }) => skill);
 }
 
-export async function listSkillEntries(root: string): Promise<SkillEntry[]> {
-  return (await listInstalledSkills(root)).map(toSkillEntry);
+export async function listGovernedSkillEntries(
+  root: string,
+  options: SkillReadOptions = {},
+): Promise<SkillEntry[]> {
+  const [installed, scan] = await Promise.all([
+    listInstalledSkills(root, options),
+    scanSkillsWithDiagnostics(
+      resolveSkillDiscoveryPaths(options.cwd ?? root, root, options.homeDir),
+    ),
+  ]);
+  const report = options.selectionReport ?? selectSkillScanForContext(scan, options.host, {
+    contextWindow: options.contextWindow,
+  }).report;
+  const decisionByRef = new Map(report.decisions.map((decision) => [decision.ref, decision]));
+  const installedByPath = new Map(installed.map((skill) => [skill.path, skill]));
+  const validEntries = scan.inventory.map((skill) => {
+    const governed = installedByPath.get(skill.path);
+    const decision = decisionByRef.get(skill.ref);
+    return toSkillEntry(governed ?? {
+      ...skill,
+      sourceType: 'unknown',
+      userModified: false,
+      validationStatus: 'ok',
+      validationCodes: [],
+    }, decision);
+  });
+  return [...validEntries, ...scan.rejected.map(toRejectedSkillEntry)];
 }
 
-export function toSkillEntry(skill: InstalledSkill): SkillEntry {
+function toRejectedSkillEntry(skill: RejectedSkillDefinition): SkillEntry {
   return {
+    ref: skill.ref,
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    path: skill.path,
+    declaredTools: skill.declaredTools,
+    sourceType: skill.scope === 'workspace' && skill.source === 'legacy' ? 'workspace' : 'unknown',
+    userModified: false,
+    validationStatus: 'metadata_error',
+    enabled: false,
+    pinned: false,
+    runtimeStatus: 'disabled',
+    scope: skill.scope,
+    source: skill.source,
+    contextStatus: 'invalid',
+    manageable: skill.scope === 'workspace' && skill.source === 'legacy',
+  };
+}
+
+/** Backward-compatible workspace-only projection used by install/update flows. */
+export async function listSkillEntries(root: string): Promise<SkillEntry[]> {
+  return (await listInstalledSkills(root)).map((skill) => toSkillEntry(skill));
+}
+
+export function toSkillEntry(
+  skill: InstalledSkill,
+  decision?: { reason: SkillContextDecisionReason; rank?: number; shadowedBy?: string },
+): SkillEntry {
+  return {
+    ref: skill.ref,
     id: skill.id,
     name: skill.name,
     description: skill.description,
@@ -237,7 +324,14 @@ export function toSkillEntry(skill: InstalledSkill): SkillEntry {
     userModified: skill.userModified,
     validationStatus: skill.validationStatus,
     enabled: skill.enabled,
+    pinned: skill.pinned,
     runtimeStatus: skill.runtimeStatus,
+    scope: skill.scope,
+    source: skill.source,
+    contextStatus: decision?.reason ?? (skill.enabled ? 'advertised' : 'disabled'),
+    ...(decision?.rank !== undefined ? { contextRank: decision.rank } : {}),
+    ...(decision?.shadowedBy ? { shadowedBy: decision.shadowedBy } : {}),
+    manageable: skill.scope === 'workspace' && skill.source === 'legacy',
     ...(skill.sourceType === 'managed' && skill.managedUpdateStatus ? { managedUpdateStatus: skill.managedUpdateStatus } : {}),
   };
 }
@@ -464,6 +558,7 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
         created: true,
         filePath,
         skill: {
+          ref: `workspace:legacy:${id}`,
           id,
           name,
           description: '把常用工作流写成可复用的本地指令。',
@@ -476,7 +571,11 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
           validationStatus: 'missing_lock',
           validationCodes: ['missing_lock'],
           enabled: true,
+          pinned: false,
           runtimeStatus: 'enabled',
+          scope: 'workspace',
+          source: 'legacy',
+          precedence: 0,
         },
       };
     } catch (error) {
@@ -1003,23 +1102,80 @@ async function resolveManagedSkillBaselineDir(skillDir: string): Promise<
   }
 }
 
-export async function setSkillEnabled(root: string, skillId: string, enabled: boolean): Promise<SetSkillEnabledResult> {
-  if (!isSafeSkillId(skillId)) return { ok: false, reason: 'not_found' };
-  const openPath = await resolveSkillOpenPath(root, skillId, 'file');
-  if (!openPath.ok) {
-    return { ok: false, reason: openPath.reason === 'blocked_path' ? 'blocked_path' : 'not_found' };
-  }
+export async function setSkillEnabled(
+  root: string,
+  skillRefOrId: string,
+  enabled: boolean,
+  options: SkillReadOptions = {},
+): Promise<SetSkillEnabledResult> {
+  return setSkillPreference(root, skillRefOrId, { enabled }, options);
+}
 
+export async function setSkillPinned(
+  root: string,
+  skillRefOrId: string,
+  pinned: boolean,
+  options: SkillReadOptions = {},
+): Promise<SetSkillPinnedResult> {
+  return setSkillPreference(root, skillRefOrId, { pinned }, options);
+}
+
+async function setSkillPreference(
+  root: string,
+  skillRefOrId: string,
+  patch: { enabled?: boolean; pinned?: boolean },
+  options: SkillReadOptions,
+): Promise<SetSkillEnabledResult> {
+  const source = resolveSkillDiscoveryPaths(options.cwd ?? root, root, options.homeDir);
+  const scan = await scanSkillsWithDiagnostics(source);
+  const normalized = skillRefOrId.toLowerCase();
+  const exactTarget = scan.inventory.find((skill) => skill.ref.toLowerCase() === normalized);
+  const idMatches = scan.inventory.filter((skill) => skill.id.toLowerCase() === normalized);
+  if (!exactTarget && idMatches.length > 1) return { ok: false, reason: 'needs_review' };
+  const target = exactTarget ?? idMatches[0];
+  if (!target) return { ok: false, reason: 'not_found' };
   const current = await readSkillRuntimeState(root);
   if (!current.ok) {
     return { ok: false, reason: current.reason === 'blocked_path' ? 'blocked_path' : 'state_error' };
   }
-  current.states.set(skillId, enabled);
-  const written = await writeSkillRuntimeState(root, current.states);
+  const preferences = new Map(current.preferences);
+  const needsReview = new Set(current.needsReview);
+  // Migrate unambiguous v1 id keys to stable v2 refs on the first mutation.
+  if (current.schemaVersion === 1) {
+    for (const [legacyId, preference] of current.preferences) {
+      const matches = scan.inventory.filter(
+        (skill) => skill.id.toLowerCase() === legacyId.toLowerCase(),
+      );
+      if (matches.length === 1) {
+        if (!preferences.has(matches[0].ref)) preferences.set(matches[0].ref, preference);
+        preferences.delete(legacyId);
+      } else if (matches.length > 1) {
+        needsReview.add(legacyId);
+      }
+    }
+  }
+  const prior = preferences.get(target.ref)
+    ?? current.preferences.get(target.id)
+    ?? { enabled: true, pinned: false };
+  preferences.set(target.ref, {
+    enabled: patch.enabled ?? prior.enabled,
+    pinned: patch.pinned ?? prior.pinned,
+    updatedAt: new Date().toISOString(),
+  });
+  for (const legacyId of needsReview) {
+    const matches = scan.inventory.filter(
+      (skill) => skill.id.toLowerCase() === legacyId.toLowerCase(),
+    );
+    if (matches.length > 1 && matches.every((skill) => preferences.has(skill.ref))) {
+      preferences.delete(legacyId);
+      needsReview.delete(legacyId);
+    }
+  }
+  const written = await writeSkillRuntimePreferences(root, preferences, { needsReview });
   if (!written.ok) return written;
 
-  const refreshed = await listSkillEntries(root);
-  const skill = refreshed.find((candidate) => candidate.id === skillId);
+  const refreshed = await listGovernedSkillEntries(root, options);
+  const skill = refreshed.find((candidate) => candidate.ref === target.ref);
   if (!skill) return { ok: false, reason: 'not_found' };
   return { ok: true, skill };
 }
@@ -1069,11 +1225,36 @@ function managedSkillLock(
 
 export async function resolveSkillOpenPath(
   root: string,
-  id: string,
+  idOrRef: string,
   target: SkillOpenTarget,
+  options: SkillReadOptions = {},
 ): Promise<ResolveSkillOpenPathResult> {
-  if (!isSafeSkillId(id)) return { ok: false, reason: 'invalid_id' };
   if (target !== 'file' && target !== 'directory') return { ok: false, reason: 'missing' };
+
+  if (!isSafeSkillId(idOrRef)) {
+    if (!idOrRef.includes(':') || idOrRef.length > 512) return { ok: false, reason: 'invalid_id' };
+    const scan = await scanSkillsWithDiagnostics(
+      resolveSkillDiscoveryPaths(options.cwd ?? root, root, options.homeDir),
+    );
+    const skill = [...scan.inventory, ...scan.rejected].find(
+      (candidate) => candidate.ref === idOrRef,
+    );
+    if (!skill) return { ok: false, reason: 'missing' };
+    const candidate = target === 'file' ? join(skill.path, 'SKILL.md') : skill.path;
+    try {
+      const [containmentReal, openedPath] = await Promise.all([
+        realpath(skill.discoveryRoot),
+        realpath(candidate),
+      ]);
+      if (!isPathInside(containmentReal, openedPath)) return { ok: false, reason: 'blocked_path' };
+      const openedStat = await stat(openedPath);
+      if (target === 'file' && !openedStat.isFile()) return { ok: false, reason: 'not_file' };
+      if (target === 'directory' && !openedStat.isDirectory()) return { ok: false, reason: 'not_directory' };
+      return { ok: true, path: openedPath, target };
+    } catch {
+      return { ok: false, reason: 'missing' };
+    }
+  }
 
   const skillsDir = join(root, 'skills');
   let rootReal: string;
@@ -1085,7 +1266,7 @@ export async function resolveSkillOpenPath(
   }
   if (!isPathInside(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
 
-  const skillDir = join(skillsDir, id);
+  const skillDir = join(skillsDir, idOrRef);
   const candidate = target === 'file' ? join(skillDir, 'SKILL.md') : skillDir;
   let openedPath: string;
   try {
@@ -1108,16 +1289,7 @@ async function readInstalledSkillDefinitions(root: string, options: SkillReadOpt
   for (const skill of scanned) {
     const status = await readSkillLockStatus(skill.path, skill.id, skill.contentSha256, options);
     out.push({
-      id: skill.id,
-      name: skill.name,
-      description: skill.description,
-      path: skill.path,
-      declaredTools: skill.declaredTools,
-      requiredTools: skill.requiredTools,
-      requiredCapabilities: skill.requiredCapabilities,
-      enabled: skill.enabled,
-      runtimeStatus: skill.runtimeStatus,
-      content: skill.content,
+      ...skill,
       ...status,
     });
   }

@@ -640,6 +640,8 @@ export interface SystemPromptContext {
   sessionId: string;
   cwd: string;
   workspaceRoot: string;
+  /** Diagnostic-only skill catalog trace; never affects prompt construction. */
+  emitSkillCatalogTrace?: (message: string, data?: Record<string, unknown>) => void;
 }
 
 function appendNonVisionImageFallbackNotice(textContent: string): string {
@@ -2858,6 +2860,8 @@ export class AiSdkBackend implements AgentBackend {
         sessionId: this.sessionId,
         cwd: this.input.header.cwd,
         workspaceRoot: this.input.header.workspaceRoot,
+        emitSkillCatalogTrace: (message, data) =>
+          this.currentRunTrace?.emit('skill', 'skill_catalog_built', message, data),
       });
     }
     return this.input.systemPrompt;

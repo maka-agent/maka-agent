@@ -271,6 +271,8 @@ type ShellCopy = {
     toggleFallback: string;
     enabledTitle: string;
     disabledTitle: string;
+    pinnedTitle: string;
+    unpinnedTitle: string;
     runtimeDescription(name: string): string;
     deleteFailedTitle: string;
     deleteFallback: string;
@@ -818,6 +820,8 @@ const SHELL_COPY_BY_LOCALE = {
       toggleFallback: '无法切换 Skill，请稍后重试。',
       enabledTitle: '已启用 Skill',
       disabledTitle: '已停用 Skill',
+      pinnedTitle: '已固定到技能上下文',
+      unpinnedTitle: '已取消固定',
       runtimeDescription: (name: string) => `${name} 已更新当前项目的运行状态。`,
       deleteFailedTitle: '无法删除 Skill',
       deleteFallback: '无法删除 Skill，请稍后重试。',
@@ -1275,6 +1279,8 @@ const SHELL_COPY_BY_LOCALE = {
       toggleFallback: 'The Skill status could not be changed. Try again later.',
       enabledTitle: 'Skill enabled',
       disabledTitle: 'Skill disabled',
+      pinnedTitle: 'Skill pinned to context',
+      unpinnedTitle: 'Skill unpinned',
       runtimeDescription: (name: string) => `${name} runtime status was updated for the current project.`,
       deleteFailedTitle: 'Could not delete Skill',
       deleteFallback: 'The Skill could not be deleted. Try again later.',

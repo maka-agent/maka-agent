@@ -1113,6 +1113,12 @@ const makaBridge = {
     > {
       return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
     },
+    setPinned(skillRef: string, pinned: boolean): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:setPinned', skillRef, pinned);
+    },
     createStarter(): Promise<
       | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
       | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }

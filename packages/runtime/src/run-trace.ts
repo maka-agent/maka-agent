@@ -16,6 +16,7 @@ export type RunTracePhase =
   | 'tool'
   | 'permission'
   | 'sandbox'
+  | 'skill'
   | 'plan'
   | 'abort'
   | 'usage';
@@ -40,6 +41,10 @@ export type RunTraceEventType =
   | 'tool_started'
   | 'tool_completed'
   | 'tool_failed'
+  | 'skill_catalog_built'
+  | 'skill_searched'
+  | 'skill_loaded'
+  | 'skill_load_failed'
   | 'permission_requested'
   | 'permission_decided'
   | 'permission_failed'

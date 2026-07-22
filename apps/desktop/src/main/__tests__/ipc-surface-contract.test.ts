@@ -72,7 +72,10 @@ describe('IPC surface contract', () => {
     // The ai-sdk backend wiring moved into session-stream.ts (arch R5); these two
     // pins now target the combined main-process source instead of main.ts itself.
     assert.match(combinedMainProcess, /const memoryPromptSnapshot = await systemPromptService\.buildLocalMemoryPromptFragment\(\)/);
-    assert.match(combinedMainProcess, /systemPrompt: async \(\{ cwd \}\) => \{/);
+    assert.match(
+      combinedMainProcess,
+      /systemPrompt: async \(\{ cwd, emitSkillCatalogTrace \}\) => \{/,
+    );
     assert.match(combinedMainProcess, /const base = await systemPromptService\.buildBackendSystemPrompt\([\s\S]*ctx\.header,[\s\S]*cwd,[\s\S]*childInstruction: ctx\.systemPrompt/);
     assert.match(combinedMainProcess, /async function buildBackendSystemPrompt/);
     assert.match(combinedMainProcess, /childInstruction[\s\S]*memoryFragment: null, includePersonalization: false/);

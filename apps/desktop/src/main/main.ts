@@ -885,6 +885,10 @@ function registerIpc(): void {
     mainWindowController,
     sendToRenderer: safeSendToRenderer,
     listInvocableSkills: listDesktopInvocableSkills,
+    skillHost: desktopHostCapabilities,
+    getCurrentProjectRoot: currentProjectRoot,
+    getSkillSelectionReport: systemPromptService.getLastSkillSelectionReport,
+    invalidateSkillSelectionReport: systemPromptService.invalidateSkillSelectionReport,
   });
   registerWorkspaceSearchIpc({ getProjectRoot: resolveProjectRootForContext });
   registerGitIpc({ getProjectRoot: resolveProjectRootForContext });

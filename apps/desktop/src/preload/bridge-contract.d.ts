@@ -708,6 +708,10 @@ export interface MakaBridge {
       | { ok: true; skill: SkillEntry }
       | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
     >;
+    setPinned(skillRef: string, pinned: boolean): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
+    >;
     createStarter(): Promise<
       | { ok: true; created: boolean; skill: SkillEntry; filePath: string }
       | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }

@@ -6,6 +6,8 @@ import {
   Download,
   FileEdit,
   Loader2,
+  Pin,
+  PinOff,
   Plus,
   Search,
   Trash2,
@@ -43,6 +45,7 @@ function SkillLibraryPanel(props: {
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
+  onSetSkillPinned?(skillRef: string, pinned: boolean): void | Promise<void>;
   onDeleteSkill?(skillId: string): void | Promise<void>;
   actionBusy?: boolean;
   refreshPending?: boolean;
@@ -118,6 +121,17 @@ function SkillLibraryPanel(props: {
     return `${entry.id} ${entry.name} ${entry.description} ${entry.category}`.toLowerCase().includes(normalizedSkillQuery);
   });
   const installedSkills = filteredSkills;
+  const contextCounts = (props.skills ?? []).reduce(
+    (counts, skill) => {
+      counts.discovered += 1;
+      const status = skill.contextStatus ?? (skill.enabled ? 'advertised' : 'disabled');
+      if (status === 'advertised') counts.advertised += 1;
+      if (status === 'budget') counts.omitted += 1;
+      if (status === 'shadowed') counts.shadowed += 1;
+      return counts;
+    },
+    { discovered: 0, advertised: 0, omitted: 0, shadowed: 0 },
+  );
   // Collision-only slug reveal: the slug normally lives in the row tooltip,
   // but when two visible skills share a display name (e.g. repeated starter
   // templates from old builds) the rows become indistinguishable — surface
@@ -413,6 +427,15 @@ function SkillLibraryPanel(props: {
         />
       ) : (
         <>
+          <aside className="maka-skill-context-inspector" aria-label={copy.context.title}>
+            <strong>{copy.context.title}</strong>
+            <span>{copy.context.summary(
+              contextCounts.discovered,
+              contextCounts.advertised,
+              contextCounts.omitted,
+              contextCounts.shadowed,
+            )}</span>
+          </aside>
           <SectionHeader
             className="maka-skill-section-row"
             title={<span className="maka-skill-section-label">{label}</span>}
@@ -420,24 +443,29 @@ function SkillLibraryPanel(props: {
           />
           <ul className="maka-skill-library-list" aria-label={copy.installed.listAriaLabel}>
             {list.map((skill) => {
+              const skillRef = skill.ref ?? skill.id;
+              const contextStatus = skill.contextStatus ?? (skill.enabled ? 'advertised' : 'disabled');
               const tools = skill.declaredTools ?? [];
               const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
               const description = formatSkillLibraryDescription(skill, copy);
               const statusLabel = formatSkillStatusLabel(skill, copy);
               const runtimeLabel = formatSkillRuntimeLabel(skill, copy);
-              const opening = props.openingSkillId === skill.id;
+              const opening = props.openingSkillId === skillRef;
               const updating = props.updatingSkillId === skill.id;
-              const toggling = props.togglingSkillId === skill.id;
+              const toggling = props.togglingSkillId === skillRef;
               const reviewing = reviewingSkillId === skill.id;
               const deleting = props.deletingSkillId === skill.id;
               const confirmingDelete = confirmingDeleteSkillId === skill.id;
               const reviewableManagedUpdate = skill.managedUpdateStatus === 'update_available' || skill.managedUpdateStatus === 'local_modified';
-              const canToggleSkill = Boolean(props.onSetSkillEnabled) && skill.runtimeStatus !== 'state_error';
+              const canToggleSkill =
+                Boolean(props.onSetSkillEnabled) &&
+                skill.runtimeStatus !== 'state_error' &&
+                contextStatus !== 'invalid';
               const hoverText = tools.length > 0
                 ? copy.row.hoverWithTools(skill.id, runtimeLabel, statusLabel, toolsLabel)
                 : copy.row.hover(skill.id, runtimeLabel, statusLabel);
               return (
-                <li key={skill.id} className="maka-skill-library-item" data-runtime-status={skill.runtimeStatus}>
+                <li key={skillRef} className="maka-skill-library-item" data-runtime-status={skill.runtimeStatus} data-context-status={contextStatus}>
                   <div
                     className="maka-skill-library-row"
                     title={hoverText}
@@ -468,6 +496,20 @@ function SkillLibraryPanel(props: {
                       {skill.runtimeStatus === 'state_error' && (
                         <Chip size="sm" variant="warning" className="maka-skill-library-runtime-label" data-status={skill.runtimeStatus}>{runtimeLabel}</Chip>
                       )}
+                      {skill.scope && (
+                        <Chip size="sm" variant="neutral" className="maka-skill-library-scope-label" data-scope={skill.scope}>
+                          {copy.context.scope[skill.scope]}
+                        </Chip>
+                      )}
+                      <Chip
+                        size="sm"
+                        variant={contextStatus === 'advertised' ? 'neutral' : 'warning'}
+                        className="maka-skill-library-context-label"
+                        data-status={contextStatus}
+                      >
+                        {copy.context.decision[contextStatus]}
+                        {skill.contextRank ? ` #${skill.contextRank}` : ''}
+                      </Chip>
                       <Chip size="sm" variant={skillStatusChipTone(skill)} className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</Chip>
                       {opening && <span>{copy.row.opening}</span>}
                       {updating && <span>{copy.row.updating}</span>}
@@ -475,7 +517,7 @@ function SkillLibraryPanel(props: {
                       {reviewing && <span>{copy.row.reviewing}</span>}
                     </span>
                   </div>
-                  {props.onUseSkill && skill.enabled && (
+                  {props.onUseSkill && skill.enabled && contextStatus !== 'shadowed' && (
                     <UiButton
                       type="button"
                       variant="secondary"
@@ -493,7 +535,7 @@ function SkillLibraryPanel(props: {
                     variant="secondary"
                     size="icon-sm"
                     className="maka-skill-library-open-button"
-                    onClick={() => props.onOpenSkill?.(skill.id)}
+                    onClick={() => props.onOpenSkill?.(skillRef)}
                     disabled={props.actionBusy || !props.onOpenSkill}
                     aria-label={copy.row.openAriaLabel(skill.name)}
                     title={copy.row.openTitle}
@@ -506,8 +548,26 @@ function SkillLibraryPanel(props: {
                     disabled={props.actionBusy || !canToggleSkill}
                     aria-label={skill.enabled ? copy.row.disableAriaLabel(skill.name) : copy.row.enableAriaLabel(skill.name)}
                     title={skill.runtimeStatus === 'state_error' ? copy.row.stateErrorTitle : skill.enabled ? copy.row.enabledTitle : copy.row.disabledTitle}
-                    onCheckedChange={(next) => props.onSetSkillEnabled?.(skill.id, next === true)}
+                    onCheckedChange={(next) => props.onSetSkillEnabled?.(skillRef, next === true)}
                   />
+                  {props.onSetSkillPinned && (
+                    <UiButton
+                      type="button"
+                      variant="secondary"
+                      size="icon-sm"
+                      className="maka-skill-library-pin-button"
+                      onClick={() => props.onSetSkillPinned?.(skillRef, !skill.pinned)}
+                      disabled={
+                        props.actionBusy ||
+                        skill.runtimeStatus === 'state_error' ||
+                        contextStatus === 'invalid'
+                      }
+                      aria-label={skill.pinned ? copy.row.unpinAriaLabel(skill.name) : copy.row.pinAriaLabel(skill.name)}
+                      title={skill.pinned ? copy.row.unpinTitle : copy.row.pinTitle}
+                    >
+                      {skill.pinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
+                    </UiButton>
+                  )}
                   {reviewableManagedUpdate && props.onPreviewManagedSkillUpdate && (
                     <UiButton
                       type="button"
@@ -519,7 +579,7 @@ function SkillLibraryPanel(props: {
                       {reviewing ? copy.row.reviewing : skill.managedUpdateStatus === 'local_modified' ? copy.row.viewDiff : copy.row.viewUpdate}
                     </UiButton>
                   )}
-                  {props.onDeleteSkill && (
+                  {props.onDeleteSkill && skill.manageable !== false && (
                     <UiButton
                       type="button"
                       variant="secondary"
@@ -699,6 +759,7 @@ export function SkillsModuleMain(props: {
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
+  onSetSkillPinned?(skillRef: string, pinned: boolean): void | Promise<void>;
   onDeleteSkill?(skillId: string): void | Promise<void>;
 }) {
   const copy = getSkillsCopy(useUiLocale());
@@ -802,6 +863,7 @@ export function SkillsModuleMain(props: {
         onUpdateManagedSkill={props.onUpdateManagedSkill ? async (skillId, options) =>
           (await runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId, options))) === true : undefined}
         onSetSkillEnabled={props.onSetSkillEnabled ? (skillId, enabled) => runSkillAction(`runtime:set:${skillId}`, () => props.onSetSkillEnabled?.(skillId, enabled)) : undefined}
+        onSetSkillPinned={props.onSetSkillPinned ? (skillRef, pinned) => runSkillAction(`runtime:pin:${skillRef}`, () => props.onSetSkillPinned?.(skillRef, pinned)) : undefined}
         onDeleteSkill={props.onDeleteSkill ? (skillId) => runSkillAction(`delete:${skillId}`, () => props.onDeleteSkill?.(skillId)) : undefined}
         onUseSkill={props.onUseSkill}
         actionBusy={skillActionBusy}

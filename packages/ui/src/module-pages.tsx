@@ -56,6 +56,7 @@ export function SkillsPage(props: {
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
+  onSetSkillPinned?(skillRef: string, pinned: boolean): void | Promise<void>;
   onDeleteSkill?(skillId: string): void | Promise<void>;
 }) {
   const copy = getSharedUiCopy(useUiLocale()).modules;

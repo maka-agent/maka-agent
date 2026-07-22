@@ -16,11 +16,13 @@ import {
   getSkillGovernanceDetails,
   installManagedSkill,
   loadSkillInstructions,
+  listGovernedSkillEntries,
   listInstalledSkills,
   parseSkillFrontMatter,
   previewManagedSkillUpdate,
   resolveSkillOpenPath,
   setSkillEnabled,
+  setSkillPinned,
   updateManagedSkill,
 } from '../skills.js';
 import { importManagedSkillSource } from '../managed-skill-sources.js';
@@ -106,8 +108,10 @@ Use the Office tools.`);
     const mainProcess = await readMainProcessCombinedSource();
     assert.match(mainProcess, /const desktopHostCapabilities = buildHostCapabilitiesFromBinding\(desktopBoundToolNames\)/);
     assert.match(mainProcess, /hostCapabilities: desktopHostCapabilities/);
-    assert.match(mainProcess, /buildSkillsPromptFragment\(\s*skillSource,\s*options\?\.host \?\? deps\.host \?\? deps\.hostCapabilities,\s*options\?\.skillBudget,\s*\)/);
-    assert.match(mainProcess, /buildSkillAgentTool\([\s\S]*resolveDesktopSkillHost(?:,\s*)?\)/);
+    assert.match(mainProcess, /buildSkillsPromptFragmentWithReport\(\s*skillSource,\s*options\?\.host \?\? deps\.host \?\? deps\.hostCapabilities,\s*options\?\.skillBudget,\s*\)/);
+    assert.match(mainProcess, /getSkillSelectionReport: systemPromptService\.getLastSkillSelectionReport/);
+    assert.match(mainProcess, /buildSkillAgentTool\([\s\S]*resolveDesktopSkillHost,[\s\S]*shadowTracker/);
+    assert.match(mainProcess, /buildSkillSearchAgentTool\([\s\S]*resolveDesktopSkillHost,[\s\S]*shadowTracker/);
     assert.match(mainProcess, /const backendSkillHost = buildHostCapabilitiesFromBinding\(backendToolNames\)/);
     assert.doesNotMatch(mainProcess, /const backendCapabilities = new Set<string>\(\)/);
     assert.match(mainProcess, /\[\.\.\.builtinTools, \.\.\.buildMcpTools\(mcpManager\)\]/);
@@ -116,6 +120,45 @@ Use the Office tools.`);
     assert.match(mainProcess, /selectedTools\.map\(\(tool\) => tool\.name\)/);
     assert.match(mainProcess, /if \(!ctx\.tools\) desktopSessionSkillHosts\.set\(ctx\.sessionId, backendSkillHost\)/);
     assert.match(mainProcess, /host: backendSkillHost/);
+  });
+
+  it('caches the exact prompt selection report for the Desktop Context Inspector', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'writer', `---
+name: Writer
+description: Draft project prose.
+---
+# Writer`);
+      const service = createSystemPromptMainService({
+        settingsStore: {
+          get: async () => ({
+            personalization: {},
+            workspaceInstructions: { enabled: false },
+          }) as never,
+        },
+        workspaceRoot,
+        localMemory: {
+          getState: async () => ({ status: 'ok', agentReadEnabled: false, content: '' }) as never,
+          consumePendingPromptUpdates: () => [],
+        },
+        taskLedger: { list: async () => [] },
+        host: { toolNames: new Set() },
+      });
+
+      await service.buildBackendSystemPrompt(
+        { labels: [] },
+        workspaceRoot,
+        { memoryFragment: null, skillBudget: { contextWindow: 128_000 } },
+      );
+      const report = service.getLastSkillSelectionReport(workspaceRoot);
+      assert.ok(report);
+      assert.equal(
+        report.decisions.find((decision) => decision.id === 'writer')?.reason,
+        'advertised',
+      );
+      service.invalidateSkillSelectionReport(workspaceRoot);
+      assert.equal(service.getLastSkillSelectionReport(workspaceRoot), undefined);
+    });
   });
 
   it('lists available skills in the system prompt and loads instructions lazily', async () => {
@@ -201,6 +244,153 @@ Make every slide carry one idea.`);
       assert.equal(enabled.ok, true);
       const loaded = await loadSkillInstructions(workspaceRoot, 'browser-helper');
       assert.equal(loaded.ok, true);
+    });
+  });
+
+  it('governs project, workspace, and user scopes with stable refs and v2 pin state', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = join(workspaceRoot, 'project');
+      const homeDir = join(workspaceRoot, 'home');
+      await mkdir(projectRoot, { recursive: true });
+      await mkdir(homeDir, { recursive: true });
+      await writeSkill(workspaceRoot, 'workspace-helper', `---
+name: Workspace Helper
+description: Workspace workflow.
+---
+# Workspace`);
+      await writeSkillAt(
+        join(projectRoot, '.maka', 'skills'),
+        'project-helper',
+        'Project Helper',
+        'Project workflow.',
+      );
+      await writeSkillAt(
+        join(homeDir, '.agents', 'skills'),
+        'user-helper',
+        'User Helper',
+        'User workflow.',
+      );
+
+      const options = { cwd: projectRoot, homeDir };
+      const entries = await listGovernedSkillEntries(workspaceRoot, options);
+      assert.deepEqual(entries.map((skill) => skill.scope).sort(), ['project', 'user', 'workspace']);
+      assert.equal(entries.find((skill) => skill.id === 'project-helper')?.ref, 'project:maka:project-helper');
+      assert.equal(entries.find((skill) => skill.id === 'user-helper')?.manageable, false);
+      assert.equal(entries.find((skill) => skill.id === 'workspace-helper')?.manageable, true);
+
+      const pinned = await setSkillPinned(
+        workspaceRoot,
+        'user:agents:user-helper',
+        true,
+        options,
+      );
+      assert.equal(pinned.ok, true);
+      if (!pinned.ok) return;
+      assert.equal(pinned.skill.pinned, true);
+      assert.equal(pinned.skill.contextRank, 1);
+      const state = JSON.parse(
+        await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8'),
+      ) as { schemaVersion: number; skills: Record<string, { enabled: boolean; pinned: boolean }> };
+      assert.equal(state.schemaVersion, 2);
+      assert.deepEqual(
+        {
+          enabled: state.skills['user:agents:user-helper']?.enabled,
+          pinned: state.skills['user:agents:user-helper']?.pinned,
+        },
+        { enabled: true, pinned: true },
+      );
+    });
+  });
+
+  it('marks ambiguous v1 ids for review instead of guessing a scope during migration', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = join(workspaceRoot, 'project');
+      const homeDir = join(workspaceRoot, 'home');
+      await mkdir(projectRoot, { recursive: true });
+      await mkdir(homeDir, { recursive: true });
+      await writeSkillAt(
+        join(projectRoot, '.maka', 'skills'),
+        'shared',
+        'Project Shared',
+        'Project copy.',
+      );
+      await writeSkillAt(
+        join(homeDir, '.agents', 'skills'),
+        'shared',
+        'User Shared',
+        'User copy.',
+      );
+      await mkdir(join(workspaceRoot, '.maka'), { recursive: true });
+      await writeFile(
+        join(workspaceRoot, '.maka', 'skills-state.json'),
+        JSON.stringify({ schemaVersion: 1, skills: { shared: { enabled: false } } }),
+        'utf8',
+      );
+      const options = { cwd: projectRoot, homeDir };
+
+      assert.deepEqual(await setSkillPinned(workspaceRoot, 'shared', true, options), {
+        ok: false,
+        reason: 'needs_review',
+      });
+      const projectPinned = await setSkillPinned(
+        workspaceRoot,
+        'project:maka:shared',
+        true,
+        options,
+      );
+      assert.equal(projectPinned.ok, true);
+      const interim = JSON.parse(
+        await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8'),
+      ) as {
+        skills: Record<string, { enabled: boolean; pinned: boolean }>;
+        migration?: { needsReview: string[] };
+      };
+      assert.deepEqual(interim.migration?.needsReview, ['shared']);
+      assert.equal(interim.skills.shared?.enabled, false);
+      assert.equal(interim.skills['project:maka:shared']?.pinned, true);
+
+      const userReviewed = await setSkillPinned(
+        workspaceRoot,
+        'user:agents:shared',
+        false,
+        options,
+      );
+      assert.equal(userReviewed.ok, true);
+      const migrated = JSON.parse(
+        await readFile(join(workspaceRoot, '.maka', 'skills-state.json'), 'utf8'),
+      ) as {
+        skills: Record<string, { enabled: boolean; pinned: boolean }>;
+        migration?: { needsReview: string[] };
+      };
+      assert.equal(migrated.migration, undefined);
+      assert.equal(migrated.skills.shared, undefined);
+      assert.equal(migrated.skills['project:maka:shared']?.enabled, false);
+      assert.equal(migrated.skills['user:agents:shared']?.enabled, false);
+    });
+  });
+
+  it('shows invalid discovered skills as explainable, openable inventory entries', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'broken', `---
+name: Broken
+---
+# Missing description`);
+      const entries = await listGovernedSkillEntries(workspaceRoot, {
+        cwd: workspaceRoot,
+        homeDir: join(workspaceRoot, 'empty-home'),
+      });
+      const broken = entries.find((skill) => skill.id === 'broken');
+      assert.ok(broken);
+      assert.equal(broken.contextStatus, 'invalid');
+      assert.equal(broken.validationStatus, 'metadata_error');
+      assert.equal(broken.manageable, true);
+      const opened = await resolveSkillOpenPath(
+        workspaceRoot,
+        broken.ref,
+        'file',
+        { cwd: workspaceRoot, homeDir: join(workspaceRoot, 'empty-home') },
+      );
+      assert.equal(opened.ok, true);
     });
   });
 
@@ -1252,6 +1442,7 @@ description: Exercise workspace-contained open paths.
     assert.match(renderer, /onPreviewManagedSkillUpdate=\{\(skillId\) => previewManagedSkillUpdate\(skillId\)\}/);
     assert.match(renderer, /onUpdateManagedSkill=\{\(skillId, options\) => updateManagedSkill\(skillId, options\)\}/);
     assert.match(renderer, /onSetSkillEnabled=\{\(skillId, enabled\) => setSkillEnabled\(skillId, enabled\)\}/);
+    assert.match(renderer, /onSetSkillPinned=\{\(skillRef, pinned\) => setSkillPinned\(skillRef, pinned\)\}/);
     assert.match(renderer, /onDeleteSkill=\{\(skillId\) => deleteSkill\(skillId\)\}/);
     assert.match(preload, /createStarter\(\)/);
     assert.match(preload, /delete\(id: string\)/);
@@ -1259,12 +1450,14 @@ description: Exercise workspace-contained open paths.
     assert.match(preload, /previewUpdate\(skillId: string\)/);
     assert.match(preload, /updateManaged\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\)/);
     assert.match(preload, /setEnabled\(skillId: string, enabled: boolean\)/);
+    assert.match(preload, /setPinned\(skillRef: string, pinned: boolean\)/);
     assert.match(main, /ipcMain\.handle\('skills:createStarter'/);
     assert.match(main, /ipcMain\.handle\('skills:delete'/);
     assert.match(main, /ipcMain\.handle\('skills:open'/);
     assert.match(main, /ipcMain\.handle\('skills:details'/);
     assert.match(main, /ipcMain\.handle\('skills:previewUpdate'/);
     assert.match(main, /ipcMain\.handle\('skills:setEnabled'/);
+    assert.match(main, /ipcMain\.handle\('skills:setPinned'/);
   });
 
   it('gates Skills module actions while async work is pending', async () => {
@@ -1367,7 +1560,14 @@ description: Exercise workspace-contained open paths.
     assert.match(skillPanel, /onPreviewManagedSkillUpdate\?\(skillId: string\): Promise<ManagedSkillUpdatePreview \| null>/);
     assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\): boolean \| Promise<boolean>/);
     assert.match(skillPanel, /onSetSkillEnabled\?\(skillId: string, enabled: boolean\): void \| Promise<void>/);
-    assert.match(skillPanel, /<Switch[\s\S]*checked=\{skill\.enabled\}[\s\S]*onCheckedChange=\{\(next\) => props\.onSetSkillEnabled\?\.\(skill\.id, next === true\)\}/);
+    assert.match(skillPanel, /<Switch[\s\S]*checked=\{skill\.enabled\}[\s\S]*onCheckedChange=\{\(next\) => props\.onSetSkillEnabled\?\.\(skillRef, next === true\)\}/);
+    assert.match(skillPanel, /props\.onSetSkillPinned\?\.\(skillRef, !skill\.pinned\)/);
+    assert.match(skillPanel, /className="maka-skill-context-inspector"/);
+    assert.match(skillPanel, /data-context-status=\{contextStatus\}/);
+    assert.match(
+      skillEntryContract,
+      /contextStatus\?:[\s\S]*'advertised'[\s\S]*'invalid'[\s\S]*'budget'/,
+    );
     // Per-row delete: destructive two-step confirm (no dialog precedent here).
     // First click arms 确认删除; a second within the window fires onDeleteSkill.
     // aria-label names the skill and reflects the armed state (keyboard-safe).
@@ -1543,6 +1743,21 @@ async function writeSkill(workspaceRoot: string, id: string, content: string): P
   const dir = join(workspaceRoot, 'skills', id);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'SKILL.md'), content, 'utf8');
+}
+
+async function writeSkillAt(
+  skillsDir: string,
+  id: string,
+  name: string,
+  description: string,
+): Promise<void> {
+  const dir = join(skillsDir, id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`,
+    'utf8',
+  );
 }
 
 function sha256Hex(text: string): string {

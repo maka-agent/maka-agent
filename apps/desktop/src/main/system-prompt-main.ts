@@ -21,8 +21,9 @@ import {
   resolveSkillDiscoveryPaths,
   type HostCapabilities,
   type GoalManager,
+  type SkillSelectionReport,
 } from '@maka/runtime';
-import { buildSkillsPromptFragment } from './skills.js';
+import { buildSkillsPromptFragmentWithReport } from './skills.js';
 import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
 import type { LocalMemoryPromptUpdate, LocalMemoryService } from './local-memory-service.js';
 
@@ -46,6 +47,8 @@ interface SkillPromptBudgetContext {
 }
 
 export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
+  const lastSkillSelectionByCwd = new Map<string, SkillSelectionReport>();
+
   async function buildSystemPrompt(
     header: Pick<SessionHeader, 'labels'>,
     cwd?: string,
@@ -56,12 +59,15 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     const personalization = includePersonalization
       ? buildPersonalizationPromptFragment(settings.personalization)
       : { text: undefined };
-    const skillSource = resolveSkillDiscoveryPaths(cwd ?? deps.workspaceRoot, deps.workspaceRoot);
-    const skills = await buildSkillsPromptFragment(
+    const skillCwd = cwd ?? deps.workspaceRoot;
+    const skillSource = resolveSkillDiscoveryPaths(skillCwd, deps.workspaceRoot);
+    const skillPrompt = await buildSkillsPromptFragmentWithReport(
       skillSource,
       options?.host ?? deps.host ?? deps.hostCapabilities,
       options?.skillBudget,
     );
+    lastSkillSelectionByCwd.set(skillCwd, skillPrompt.report);
+    const skills = skillPrompt.text;
     const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
       ? await buildWorkspaceInstructionsPromptFragment(cwd)
       : undefined;
@@ -186,6 +192,12 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     buildBackendSystemPrompt,
     buildLocalMemoryPromptFragment,
     buildTurnTailPrompt,
+    getLastSkillSelectionReport(cwd: string): SkillSelectionReport | undefined {
+      return lastSkillSelectionByCwd.get(cwd);
+    },
+    invalidateSkillSelectionReport(cwd: string): void {
+      lastSkillSelectionByCwd.delete(cwd);
+    },
   };
 }
 

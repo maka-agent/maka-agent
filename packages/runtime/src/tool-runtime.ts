@@ -152,7 +152,13 @@ export interface MakaToolContext {
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
   /** Diagnostic-only trace projection. It must never affect tool execution. */
   emitRunTrace?: (
-    type: 'tool_started' | 'tool_completed' | 'tool_failed',
+    type:
+      | 'tool_started'
+      | 'tool_completed'
+      | 'tool_failed'
+      | 'skill_searched'
+      | 'skill_loaded'
+      | 'skill_load_failed',
     message: string,
     data?: Record<string, unknown>,
   ) => void;
@@ -1287,11 +1293,17 @@ export class ToolRuntime {
           ...(trace
             ? {
                 emitRunTrace: (
-                  type: 'tool_started' | 'tool_completed' | 'tool_failed',
+                  type:
+                    | 'tool_started'
+                    | 'tool_completed'
+                    | 'tool_failed'
+                    | 'skill_searched'
+                    | 'skill_loaded'
+                    | 'skill_load_failed',
                   message: string,
                   data?: Record<string, unknown>,
                 ) =>
-                  trace.emit('tool', type, message, {
+                  trace.emit(type.startsWith('skill_') ? 'skill' : 'tool', type, message, {
                     toolUseId,
                     toolName: tool.name,
                     ...(data ?? {}),

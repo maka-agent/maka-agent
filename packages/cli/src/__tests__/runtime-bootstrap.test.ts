@@ -364,7 +364,7 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
-  test('registers the Skill tool so the CLI can load workspace skills', async () => {
+  test('registers Skill and bounded SkillSearch tools on the CLI host', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
       await connectionStore.create({
@@ -382,6 +382,8 @@ describe('Maka CLI runtime bootstrap', () => {
       try {
         const skill = context.tools.find((tool) => tool.name === 'Skill');
         assert.ok(skill, 'Skill tool must be registered on the CLI host');
+        const skillSearch = context.tools.find((tool) => tool.name === 'SkillSearch');
+        assert.ok(skillSearch, 'SkillSearch tool must be registered on the CLI host');
       } finally {
         await context.close();
       }

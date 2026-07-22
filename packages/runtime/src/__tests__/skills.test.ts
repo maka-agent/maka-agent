@@ -10,7 +10,9 @@ import {
   MIN_SKILLS_PROMPT_TOKENS,
   MAX_SKILL_TOOL_BODY_CHARS,
   buildSkillAgentTool,
+  buildSkillSearchAgentTool,
   buildSkillsPromptFragment,
+  buildSkillsPromptFragmentWithReport,
   gateSkillsByHostCapabilities,
   loadSkillInstructions,
   parseSkillFrontMatter,
@@ -20,7 +22,11 @@ import {
   scanSkills,
   scanSkillsWithDiagnostics,
   scanWorkspaceSkills,
+  searchSkills,
+  selectSkillsForContext,
+  SkillShadowSelectionTracker,
   validateSkillMetadata,
+  writeSkillRuntimePreferences,
   writeSkillRuntimeState,
   type HostCapabilities,
   type ScannedSkill,
@@ -189,6 +195,13 @@ description: [invalid collection syntax
         ['valid'],
       );
       assert.deepEqual(
+        scanned.rejected.map((skill) => [skill.id, skill.ref]),
+        [
+          ['malformed', 'workspace:legacy:malformed'],
+          ['missing-description', 'workspace:legacy:missing-description'],
+        ],
+      );
+      assert.deepEqual(
         scanned.diagnostics.map((diagnostic) => ({
           id: diagnostic.id,
           codes: diagnostic.issues.map((issue) => issue.code),
@@ -203,6 +216,14 @@ description: [invalid collection syntax
       assert.ok(prompt);
       assert.match(prompt, /id="valid"/);
       assert.doesNotMatch(prompt, /missing-description|malformed/);
+      const withReport = await buildSkillsPromptFragmentWithReport(workspaceRoot);
+      assert.deepEqual(
+        withReport.report.decisions
+          .filter((decision) => decision.reason === 'invalid')
+          .map((decision) => decision.id)
+          .sort(),
+        ['malformed', 'missing-description'],
+      );
 
       const missing = await loadSkillInstructions(workspaceRoot, 'missing-description');
       assert.equal(missing.ok, false);
@@ -883,6 +904,7 @@ Legacy v2 body.`,
   it('gateSkillsByHostCapabilities hard-hides skills whose required tools are missing and only hints at missing declared tools', () => {
     const skills: ScannedSkill[] = [
       {
+        ref: 'workspace:legacy:office',
         id: 'office',
         name: 'Office',
         description: '',
@@ -891,12 +913,17 @@ Legacy v2 body.`,
         requiredTools: ['OfficeDocument'],
         requiredCapabilities: [],
         enabled: true,
+        pinned: false,
         runtimeStatus: 'enabled',
+        scope: 'workspace',
+        source: 'legacy',
+        precedence: 0,
         content: '',
         contentSha256: 'sha256:x',
         discoveryRoot: '/p',
       },
       {
+        ref: 'workspace:legacy:plain',
         id: 'plain',
         name: 'Plain',
         description: '',
@@ -905,7 +932,11 @@ Legacy v2 body.`,
         requiredTools: [],
         requiredCapabilities: [],
         enabled: true,
+        pinned: false,
         runtimeStatus: 'enabled',
+        scope: 'workspace',
+        source: 'legacy',
+        precedence: 0,
         content: '',
         contentSha256: 'sha256:y',
         discoveryRoot: '/p',
@@ -926,6 +957,7 @@ Legacy v2 body.`,
   it('gateSkillsByHostCapabilities hides skills whose required capabilities are missing', () => {
     const skills: ScannedSkill[] = [
       {
+        ref: 'workspace:legacy:cap',
         id: 'cap',
         name: 'Cap',
         description: '',
@@ -934,7 +966,11 @@ Legacy v2 body.`,
         requiredTools: [],
         requiredCapabilities: ['office'],
         enabled: true,
+        pinned: false,
         runtimeStatus: 'enabled',
+        scope: 'workspace',
+        source: 'legacy',
+        precedence: 0,
         content: '',
         contentSha256: 'sha256:z',
         discoveryRoot: '/p',
@@ -1054,11 +1090,26 @@ Body.`,
       '/home/user',
     );
     assert.deepEqual(entries, [
-      { dir: '/repo/.maka/skills', containmentRoot: '/repo' },
-      { dir: '/repo/.agents/skills', containmentRoot: '/repo' },
-      { dir: '/workspace/skills', containmentRoot: '/workspace' },
-      { dir: '/home/user/.maka/skills', containmentRoot: '/home/user' },
-      { dir: '/home/user/.agents/skills', containmentRoot: '/home/user' },
+      { dir: '/repo/.maka/skills', containmentRoot: '/repo', scope: 'project', source: 'maka' },
+      { dir: '/repo/.agents/skills', containmentRoot: '/repo', scope: 'project', source: 'agents' },
+      {
+        dir: '/workspace/skills',
+        containmentRoot: '/workspace',
+        scope: 'workspace',
+        source: 'legacy',
+      },
+      {
+        dir: '/home/user/.maka/skills',
+        containmentRoot: '/home/user',
+        scope: 'user',
+        source: 'maka',
+      },
+      {
+        dir: '/home/user/.agents/skills',
+        containmentRoot: '/home/user',
+        scope: 'user',
+        source: 'agents',
+      },
     ]);
     assert.deepEqual(dirs, [
       '/repo/.maka/skills',
@@ -1144,7 +1195,7 @@ Body.`,
     });
   });
 
-  it('buildSkillsPromptFragment truncates by char budget and lists omitted skills', async () => {
+  it('buildSkillsPromptFragment truncates by char budget without expanding every omitted id', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const longDescription = 'x'.repeat(1200);
       for (let index = 1; index <= 20; index += 1) {
@@ -1155,29 +1206,205 @@ Body.`,
           `---\nname: Big ${index}\ndescription: ${longDescription}\n---\n# Big ${index}`,
         );
       }
-      const prompt = await buildSkillsPromptFragment(workspaceRoot, undefined, {
+      const result = await buildSkillsPromptFragmentWithReport(workspaceRoot, undefined, {
         contextWindow: 128_000,
       });
+      const prompt = result.text;
       assert.ok(prompt);
       const promptCharBudget = resolveSkillsPromptCharBudget({ contextWindow: 128_000 });
       assert.ok(
-        prompt.length <= promptCharBudget + 512,
-        'prompt should stay close to the character budget',
+        prompt.length <= promptCharBudget,
+        'prompt should stay within its character budget',
       );
       assert.match(prompt, /omitted from this prompt due to the prompt budget/);
-
-      const omittedMatch = prompt.match(/prompt budget: ([^.]+)\./);
-      assert.ok(omittedMatch);
-      const omittedIds = omittedMatch![1].split(', ').map((id) => id.trim());
-      assert.ok(omittedIds.length > 0);
-      for (const id of omittedIds) {
-        const loaded = await loadSkillInstructions(workspaceRoot, id);
+      assert.match(prompt, /Use SkillSearch to find them/);
+      const omitted = result.report.decisions.filter((decision) => decision.reason === 'budget');
+      assert.ok(omitted.length > 0);
+      for (const decision of omitted) {
+        assert.doesNotMatch(prompt, new RegExp(`Ref: ${decision.ref}`));
+        const loaded = await loadSkillInstructions(workspaceRoot, decision.ref);
         assert.equal(
           loaded.ok,
           true,
-          `omitted skill ${id} should still be loadable via the Skill tool`,
+          `omitted skill ${decision.ref} should still be loadable via the Skill tool`,
         );
       }
+    });
+  });
+
+  it('keeps a scope-aware inventory while retaining only the highest-precedence duplicate', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = join(workspaceRoot, 'project');
+      const homeDir = join(workspaceRoot, 'home');
+      await mkdir(projectRoot, { recursive: true });
+      await mkdir(homeDir, { recursive: true });
+      await writeSkillInDirectory(
+        join(projectRoot, '.maka', 'skills'),
+        'writer',
+        'Project Writer',
+        'Project-scoped writing workflow.',
+      );
+      await writeSkillInDirectory(
+        join(homeDir, '.agents', 'skills'),
+        'writer',
+        'User Writer',
+        'User-scoped writing workflow.',
+      );
+
+      const source = resolveSkillDiscoveryPaths(projectRoot, workspaceRoot, homeDir);
+      const scan = await scanSkillsWithDiagnostics(source);
+      assert.equal(scan.skills.length, 1);
+      assert.equal(scan.inventory.length, 2);
+      assert.equal(scan.skills[0].scope, 'project');
+      assert.equal(scan.skills[0].source, 'maka');
+      assert.equal(scan.skills[0].ref, 'project:maka:writer');
+      assert.equal(scan.inventory[1].scope, 'user');
+      assert.equal(scan.inventory[1].source, 'agents');
+      assert.equal(scan.inventory[1].shadowedBy, scan.skills[0].ref);
+      assert.ok(
+        scan.diagnostics.some((diagnostic) =>
+          diagnostic.issues.some((issue) => issue.code === 'duplicate_id'),
+        ),
+      );
+    });
+  });
+
+  it('reads v1 id preferences and writes v2 scope-aware pinned preferences', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(
+        workspaceRoot,
+        'writer',
+        '---\nname: Writer\ndescription: Draft project prose.\n---\n# Writer',
+      );
+      await mkdir(join(workspaceRoot, '.maka'), { recursive: true });
+      await writeFile(
+        join(workspaceRoot, '.maka', 'skills-state.json'),
+        JSON.stringify({ schemaVersion: 1, skills: { writer: { enabled: false } } }),
+        'utf8',
+      );
+
+      const legacyState = await readSkillRuntimeState(workspaceRoot);
+      assert.equal(legacyState.ok, true);
+      if (!legacyState.ok) return;
+      assert.equal(legacyState.schemaVersion, 1);
+      assert.deepEqual(legacyState.preferences.get('writer'), { enabled: false, pinned: false });
+      assert.equal((await scanWorkspaceSkills(workspaceRoot))[0].runtimeStatus, 'disabled');
+
+      const ref = 'workspace:legacy:writer';
+      assert.equal(
+        (
+          await writeSkillRuntimePreferences(
+            workspaceRoot,
+            new Map([[ref, { enabled: true, pinned: true }]]),
+          )
+        ).ok,
+        true,
+      );
+      const state = await readSkillRuntimeState(workspaceRoot);
+      assert.equal(state.ok, true);
+      if (!state.ok) return;
+      assert.equal(state.schemaVersion, 2);
+      assert.equal(state.preferences.get(ref)?.enabled, true);
+      assert.equal(state.preferences.get(ref)?.pinned, true);
+      const skill = (await scanWorkspaceSkills(workspaceRoot))[0];
+      assert.equal(skill.ref, ref);
+      assert.equal(skill.pinned, true);
+    });
+  });
+
+  it('selects pinned skills first and explains every inventory decision', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      for (const [id, name] of [
+        ['alpha', 'Alpha'],
+        ['zulu', 'Zulu'],
+      ] as const) {
+        await writeSkill(
+          workspaceRoot,
+          id,
+          `---\nname: ${name}\ndescription: ${'x'.repeat(200)}\n---\n# ${name}`,
+        );
+      }
+      await writeSkillRuntimePreferences(
+        workspaceRoot,
+        new Map([['workspace:legacy:zulu', { enabled: true, pinned: true }]]),
+      );
+      const scan = await scanSkillsWithDiagnostics(workspaceRoot);
+      const selection = selectSkillsForContext(scan.inventory);
+      assert.deepEqual(
+        selection.advertised.map((skill) => skill.id),
+        ['zulu', 'alpha'],
+      );
+      assert.deepEqual(
+        selection.report.decisions
+          .filter((decision) => decision.reason === 'advertised')
+          .map((decision) => [decision.id, decision.rank]),
+        [
+          ['zulu', 1],
+          ['alpha', 2],
+        ],
+      );
+      assert.equal(selection.report.totalCount, 2);
+      assert.equal(selection.report.usedChars <= selection.report.budgetChars, true);
+    });
+  });
+
+  it('bounds SkillSearch results and records search-to-load ranking telemetry', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      for (let index = 1; index <= 12; index += 1) {
+        await writeSkill(
+          workspaceRoot,
+          `report-${String(index).padStart(2, '0')}`,
+          `---\nname: Weekly Report ${index}\ndescription: Prepare a weekly report and status summary.\n---\n# Report`,
+        );
+      }
+      const scan = await scanSkillsWithDiagnostics(workspaceRoot);
+      const bounded = searchSkills(scan.inventory, 'weekly report', undefined, 99);
+      assert.equal(bounded.matches.length, 8);
+      assert.equal(bounded.matchedCount, 12);
+      assert.equal(bounded.queryTruncated, false);
+      assert.equal(bounded.truncated, true);
+      assert.equal(
+        bounded.matches.every((match) => !('path' in match) && !('content' in match)),
+        true,
+      );
+      assert.equal(searchSkills(scan.inventory, 'x'.repeat(600)).queryTruncated, true);
+
+      const tracker = new SkillShadowSelectionTracker();
+      const searchTool = buildSkillSearchAgentTool(workspaceRoot, undefined, {
+        shadowTracker: tracker,
+      });
+      const loadTool = buildSkillAgentTool(workspaceRoot, undefined, { shadowTracker: tracker });
+      const events: Array<{ type: string; data?: Record<string, unknown> }> = [];
+      const context = {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd: workspaceRoot,
+        emitRunTrace: (type: string, _message: string, data?: Record<string, unknown>) => {
+          events.push({ type, data });
+        },
+      } as unknown as MakaToolContext;
+      const searched = await searchTool.impl({ query: 'weekly report', limit: 3 }, context);
+      assert.equal(searched.matches.length, 3);
+      const loaded = await loadTool.impl({ name: searched.matches[1].ref }, context);
+      assert.equal(loaded.ok, true);
+      const missing = await loadTool.impl({ name: 'private-looking-missing-name' }, context);
+      assert.equal(missing.ok, false);
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ['skill_searched', 'skill_loaded', 'skill_load_failed'],
+      );
+      assert.equal(events[0].data?.resultCount, 3);
+      assert.equal(events[0].data?.candidateReductionRatio, 0.75);
+      assert.equal(events[0].data?.query, undefined, 'raw search text must not enter telemetry');
+      assert.equal(events[1].data?.shadowRank, 2);
+      assert.equal(events[1].data?.shadowCandidateCount, 12);
+      assert.equal(events[1].data?.shadowHitAt1, false);
+      assert.equal(events[1].data?.shadowHitAt5, true);
+      assert.equal(events[1].data?.shadowHitAt20, true);
+      assert.equal(events[1].data?.skillScope, 'workspace');
+      assert.equal(events[1].data?.skillSource, 'legacy');
+      assert.equal(events[2].data?.request, undefined);
+      assert.equal(events[2].data?.reason, 'not_found');
     });
   });
 });
@@ -1195,4 +1422,19 @@ async function writeSkill(workspaceRoot: string, id: string, content: string): P
   const dir = join(workspaceRoot, 'skills', id);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'SKILL.md'), content, 'utf8');
+}
+
+async function writeSkillInDirectory(
+  skillsDir: string,
+  id: string,
+  name: string,
+  description: string,
+): Promise<void> {
+  const dir = join(skillsDir, id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`,
+    'utf8',
+  );
 }

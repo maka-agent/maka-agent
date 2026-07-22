@@ -11,6 +11,7 @@ import type {
 import type { SettingsSelectOption } from './primitives/settings-select.js';
 
 export interface SkillEntry {
+  ref?: string;
   id: string;
   name: string;
   description: string;
@@ -26,7 +27,20 @@ export interface SkillEntry {
   validationStatus?: 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
   managedUpdateStatus?: 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
   enabled: boolean;
+  pinned?: boolean;
   runtimeStatus: 'enabled' | 'disabled' | 'state_error';
+  scope?: 'project' | 'workspace' | 'user' | 'custom';
+  source?: 'maka' | 'agents' | 'legacy' | 'custom';
+  contextStatus?:
+    | 'advertised'
+    | 'disabled'
+    | 'invalid'
+    | 'host_incompatible'
+    | 'shadowed'
+    | 'budget';
+  contextRank?: number;
+  shadowedBy?: string;
+  manageable?: boolean;
 }
 
 export type SkillGovernanceStatus = 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
