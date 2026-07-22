@@ -100,6 +100,7 @@ import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { AgentRunLineage, RuntimeContinuationFailpoint } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
 import type { InvocationResult, InvocationSource } from './invocation-context.js';
+import type { RuntimeMessageAuthority } from './message-authority.js';
 import { RuntimeKernel, type RuntimeKernelLike, type TurnStartOptions } from './runtime-kernel.js';
 import { fallbackSessionTitle, sessionTitleSource } from './session-title.js';
 import type { HistoryCompactCleanupRequest } from './runtime-kernel.js';
@@ -369,6 +370,8 @@ export interface SessionManagerDeps {
   inspectContinuationSafety?: (sessionId: string) => Promise<RuntimeContinuationSafetyObservation>;
   continuationFailpoint?: (point: RuntimeContinuationFailpoint) => Promise<void>;
   safeBoundaryResumeEnabled?: boolean;
+  /** Hosted composition capability. Omit for the production embedded queue. */
+  messageAuthority?: RuntimeMessageAuthority;
   onContinuationLifecycleEvent?: (event: RuntimeContinuationLifecycleEvent) => void | Promise<void>;
   generateSessionTitle?: (input: {
     sessionId: string;

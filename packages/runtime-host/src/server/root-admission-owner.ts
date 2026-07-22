@@ -1,8 +1,10 @@
+import { messageContentsEqual, type MessageContent } from '@maka/core/events';
 import type {
   AdmitRootTurnInput,
   AdmitRootTurnResult,
   RootTurnAdmission,
   RootTurnAdmissionStore,
+  RootTurnSourceMessage,
 } from '@maka/storage/execution-stores';
 
 type OwnedAdmitRootTurnInput = Omit<AdmitRootTurnInput, 'previousRootTurnId'>;
@@ -79,14 +81,48 @@ function sameRootAdmission(left: RootTurnAdmission, right: RootTurnAdmission): b
     left.runId === right.runId &&
     left.userMessageId === right.userMessageId &&
     left.previousRootTurnId === right.previousRootTurnId &&
-    left.normalizedInput.text === right.normalizedInput.text &&
+    messageContentsEqual(left.normalizedInput, right.normalizedInput) &&
+    left.sourceMessages.length === right.sourceMessages.length &&
+    left.sourceMessages.every((source, index) => {
+      const other = right.sourceMessages[index];
+      return (
+        other !== undefined &&
+        source.messageId === other.messageId &&
+        source.placement === other.placement &&
+        source.disposition === other.disposition &&
+        messageContentsEqual(source.content, other.content)
+      );
+    }) &&
     left.admittedAt === right.admittedAt
   );
 }
 
 function snapshotAdmission(admission: RootTurnAdmission): RootTurnAdmission {
+  const sourceMessages = admission.sourceMessages.map(
+    (source): RootTurnSourceMessage =>
+      Object.freeze({
+        ...source,
+        content: snapshotMessageContent(source.content),
+      }),
+  );
   return Object.freeze({
     ...admission,
-    normalizedInput: Object.freeze({ ...admission.normalizedInput }),
+    normalizedInput: snapshotMessageContent(admission.normalizedInput),
+    sourceMessages: Object.freeze(sourceMessages),
   });
+}
+
+function snapshotMessageContent(content: MessageContent): MessageContent {
+  const attachments = content.attachments?.map((attachment) =>
+    Object.freeze({
+      ...attachment,
+      ref: Object.freeze({ ...attachment.ref }),
+    }),
+  );
+  const snapshot: MessageContent = {
+    ...content,
+    ...(attachments !== undefined ? { attachments } : {}),
+  };
+  if (snapshot.attachments) Object.freeze(snapshot.attachments);
+  return Object.freeze(snapshot);
 }

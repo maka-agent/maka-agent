@@ -34,7 +34,14 @@ export type OperationHandlerMap = {
 };
 
 export type DomainOperationKey = Exclude<OperationKey, 'host.status'>;
-export type DomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
+export type TurnOperationKey = Extract<OperationKey, 'turn.start' | 'turn.query' | 'turn.stop'>;
+export type MessageOperationKey = Extract<
+  OperationKey,
+  'turn.message.submit' | 'queue.retract' | 'turn.interrupt'
+>;
+export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
+export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
+export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
 
 export function composeOperationHandlers(
   ...handlerMaps: readonly Partial<OperationHandlerMap>[]

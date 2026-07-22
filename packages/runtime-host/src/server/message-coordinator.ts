@@ -1,0 +1,1105 @@
+import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import type { SteeringLease } from '@maka/core/backend-types';
+import {
+  messageContentsEqual,
+  normalizeMessageContent,
+  type MessageContent,
+} from '@maka/core/events';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
+import {
+  RuntimeMessageAuthorityInvariantError,
+  type RuntimeMessageAuthority,
+  type RuntimeMessageRunIdentity,
+  type RuntimeMessageRunOwner,
+} from '@maka/runtime';
+import {
+  normalizeRootTurnAdmissionPayload,
+  type RootTurnSourceMessage,
+  type RootTurnSourceMessageReceipt,
+} from '@maka/storage/execution-stores';
+import {
+  MESSAGE_QUEUE_MAX_ENTRIES,
+  MESSAGE_QUEUE_PROJECTION_MAX_BYTES,
+  MESSAGE_OPERATION_RESULT_MAX_BYTES,
+  type MessagePlacement,
+  type QueueRetractInput,
+  type QueueRetractResult,
+  type QueuedMessageSnapshot,
+  type RetractedMessageSnapshot,
+  type SessionMessageQueueProjection,
+  type SteeringMessageSnapshot,
+  type TurnInterruptInput,
+  type TurnInterruptResult,
+  type TurnMessageSubmitInput,
+  type TurnMessageSubmitResult,
+  type TurnSnapshot,
+} from '../protocol/index.js';
+import type { RuntimeHostResidency } from './host-kernel.js';
+import type { MessageOperationHandlerMap } from './operation-dispatcher.js';
+import { SessionAdmissionGate } from './session-admission-gate.js';
+
+type MessageOperationErrorCode =
+  | 'host_draining'
+  | 'operation_unavailable'
+  | 'not_found'
+  | 'session_archived'
+  | 'session_busy'
+  | 'operation_conflict'
+  | 'outcome_unknown';
+
+type MessageOutcome<T> =
+  | { readonly ok: true; readonly result: T }
+  | {
+      readonly ok: false;
+      readonly error: { readonly code: MessageOperationErrorCode; readonly message: string };
+    };
+
+export interface HostMessageSessionHeader {
+  readonly isArchived: boolean;
+  readonly unavailableReason?: string;
+}
+
+export type HostMessageRootState =
+  | { readonly kind: 'idle' }
+  | ({ readonly kind: 'active' } & RuntimeMessageRunIdentity);
+
+export interface HostMessageStartInput {
+  readonly sessionId: string;
+  readonly content: MessageContent;
+  readonly sourceMessage: RootTurnSourceMessage;
+}
+
+export interface HostMessageStopClaim {
+  readonly deliverStop: () => Promise<void>;
+  readonly terminal: Promise<TurnSnapshot>;
+}
+
+/** Root execution operations that must share the message coordinator's Session gate. */
+export interface HostMessageRootPort {
+  readSessionHeader(sessionId: string): Promise<HostMessageSessionHeader | null>;
+  readRootState(sessionId: string): Promise<HostMessageRootState> | HostMessageRootState;
+  startFromMessage(input: HostMessageStartInput): Promise<{ readonly turnId: string }>;
+  claimStop(
+    input: Omit<TurnInterruptInput, 'originHostEpoch' | 'interruptId'>,
+    commitQueueFence: () => QueueFenceResult,
+  ): Promise<HostMessageStopClaim>;
+}
+
+/** Existing durable facts used only to prove an earlier Host Epoch's submit disposition. */
+export interface HostMessageDurableProofReader {
+  readRootTurnSourceMessageReceipt(
+    sessionId: string,
+    messageId: string,
+  ): Promise<RootTurnSourceMessageReceipt | undefined>;
+  readImmutableSessionRuntimeEvents(sessionId: string): Promise<readonly RuntimeEvent[]>;
+}
+
+export interface HostMessageCoordinatorOptions {
+  readonly hostEpoch: string;
+  readonly root: HostMessageRootPort;
+  readonly durableProof: HostMessageDurableProofReader;
+  readonly sessionAdmission: SessionAdmissionGate;
+  readonly acquireResidency: () => RuntimeHostResidency;
+  readonly createId?: () => string;
+}
+
+interface LiveEntry {
+  readonly entryId: string;
+  readonly messageId: string;
+  readonly content: MessageContent;
+  readonly placement: MessagePlacement;
+  readonly disposition: 'steering' | 'followup';
+  readonly generation: number;
+  readonly residency: RuntimeHostResidency;
+  state: 'queued' | 'in_flight' | 'released';
+  leaseId?: string;
+}
+
+interface BoundRun extends RuntimeMessageRunIdentity {
+  readonly generation: number;
+  released: boolean;
+}
+
+interface SubmitReceipt {
+  readonly payload: CanonicalSubmitPayload;
+  readonly result: TurnMessageSubmitResult;
+}
+
+interface RetractReceipt {
+  readonly payload: QueueRetractInput;
+  readonly result: QueueRetractResult;
+}
+
+interface InterruptReceipt {
+  readonly payload: TurnInterruptInput;
+  readonly result: Promise<MessageOutcome<TurnInterruptResult>>;
+}
+
+interface InterruptDeferred {
+  readonly promise: Promise<MessageOutcome<TurnInterruptResult>>;
+  resolve(result: MessageOutcome<TurnInterruptResult>): void;
+  reject(error: unknown): void;
+}
+
+interface TerminalTransition {
+  readonly transitionId: string;
+  readonly identity: RuntimeMessageRunIdentity;
+  readonly entries: readonly LiveEntry[];
+}
+
+interface SessionState {
+  revision: number;
+  generation: number;
+  phase: 'open' | 'closed';
+  steering: LiveEntry[];
+  inFlight: Map<string, LiveEntry>;
+  followup: LiveEntry[];
+  reservedRoot?: RuntimeMessageRunIdentity;
+  run?: BoundRun;
+  transition?: TerminalTransition;
+  stopFence?: {
+    readonly identity: RuntimeMessageRunIdentity;
+    readonly result: QueueFenceResult;
+  };
+  submitReceipts: Map<string, SubmitReceipt>;
+  retractReceipts: Map<string, RetractReceipt>;
+  interruptReceipts: Map<string, InterruptReceipt>;
+}
+
+export interface RootFollowupSource {
+  readonly messageId: string;
+  readonly content: MessageContent;
+  readonly placement: MessagePlacement;
+  readonly disposition: 'steering' | 'followup';
+}
+
+export interface RootFollowupBatch {
+  readonly transitionId: string;
+  readonly sessionId: string;
+  readonly previousTurnId: string;
+  readonly content: MessageContent;
+  readonly sources: readonly RootFollowupSource[];
+}
+
+export interface QueueFenceResult {
+  readonly queueRevision: number;
+  readonly retracted: readonly RetractedMessageSnapshot[];
+}
+
+/** The sole in-memory message authority for one Runtime Host Epoch. */
+export class HostMessageCoordinator implements RuntimeMessageAuthority {
+  readonly handlers: MessageOperationHandlerMap = {
+    'turn.message.submit': (input) => this.submit(input),
+    'queue.retract': (input) => this.retract(input),
+    'turn.interrupt': (input) => this.interrupt(input),
+  };
+
+  readonly #hostEpoch: string;
+  readonly #root: HostMessageRootPort;
+  readonly #durableProof: HostMessageDurableProofReader;
+  readonly #sessionAdmission: SessionAdmissionGate;
+  readonly #acquireResidency: () => RuntimeHostResidency;
+  readonly #createId: () => string;
+  readonly #sessions = new Map<string, SessionState>();
+  #draining = false;
+
+  constructor(options: HostMessageCoordinatorOptions) {
+    if (options.hostEpoch.length === 0 || options.hostEpoch.length > 128) {
+      throw new RuntimeMessageAuthorityInvariantError('Invalid Host Epoch identity');
+    }
+    this.#hostEpoch = options.hostEpoch;
+    this.#root = options.root;
+    this.#durableProof = options.durableProof;
+    this.#sessionAdmission = options.sessionAdmission;
+    this.#acquireResidency = options.acquireResidency;
+    this.#createId = options.createId ?? randomUUID;
+  }
+
+  projection(sessionId: string): SessionMessageQueueProjection {
+    const state = this.#sessions.get(sessionId);
+    if (!state) {
+      return { hostEpoch: this.#hostEpoch, queueRevision: 0, steering: [], followup: [] };
+    }
+    return this.#project(state);
+  }
+
+  bindRun(identity: RuntimeMessageRunIdentity): RuntimeMessageRunOwner {
+    const state = this.#state(identity.sessionId);
+    if (state.phase !== 'open') {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Message Run bound while admission was closed',
+      );
+    }
+    if (!state.reservedRoot || !sameRun(state.reservedRoot, identity) || state.run) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        `Message Run ${identity.runId} was not the exact reserved root identity`,
+      );
+    }
+    const run: BoundRun = { ...identity, generation: state.generation, released: false };
+    state.run = run;
+    return Object.freeze({
+      ...identity,
+      pull: () => this.#pull(run),
+      ack: (leaseIds: readonly string[]) => this.#ack(run, leaseIds),
+      nack: (leaseIds: readonly string[]) => this.#nack(run, leaseIds),
+      release: () => this.#releaseRun(run),
+    });
+  }
+
+  reserveRootTurn(identity: RuntimeMessageRunIdentity): void {
+    const state = this.#state(identity.sessionId);
+    if (state.reservedRoot) {
+      if (sameRun(state.reservedRoot, identity)) return;
+      throw new RuntimeMessageAuthorityInvariantError('Session already reserved another root Turn');
+    }
+    if (state.run || state.transition) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Cannot reserve a root Turn during live ownership',
+      );
+    }
+    state.reservedRoot = { ...identity };
+    state.phase = 'open';
+  }
+
+  abandonRootReservation(identity: RuntimeMessageRunIdentity): void {
+    const state = this.#requireState(identity.sessionId);
+    if (!state.reservedRoot || !sameRun(state.reservedRoot, identity) || state.run) {
+      throw new RuntimeMessageAuthorityInvariantError('Root reservation cannot be abandoned');
+    }
+    state.reservedRoot = undefined;
+    state.stopFence = undefined;
+    state.phase = 'closed';
+  }
+
+  beginTerminalTransition(identity: RuntimeMessageRunIdentity): RootFollowupBatch {
+    const state = this.#requireState(identity.sessionId);
+    const run = state.run;
+    if (
+      !state.reservedRoot ||
+      !sameRun(state.reservedRoot, identity) ||
+      !run ||
+      !sameRun(run, identity) ||
+      !run.released
+    ) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Terminal transition requires a released exact root owner',
+      );
+    }
+    if (state.inFlight.size !== 0 || state.transition) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Terminal transition began before in-flight steering settled',
+      );
+    }
+    if (state.phase !== 'open' && !state.stopFence) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Terminal transition found closed admission without a stop fence',
+      );
+    }
+    if (this.#draining && !state.stopFence) {
+      this.#commitQueueFence(identity);
+    }
+    state.phase = 'closed';
+    const folded = state.steering.splice(0);
+    for (const entry of folded) entry.state = 'queued';
+    if (folded.length > 0) {
+      state.followup.unshift(...folded);
+      this.#mutated(state);
+    }
+    state.run = undefined;
+    const entries = [...state.followup];
+    const followup = canonicalFollowupBatch(entries);
+    const transition: TerminalTransition = {
+      transitionId: this.#createId(),
+      identity: { ...identity },
+      entries,
+    };
+    state.transition = transition;
+    return {
+      transitionId: transition.transitionId,
+      sessionId: identity.sessionId,
+      previousTurnId: identity.turnId,
+      content: followup.content,
+      sources: followup.sources,
+    };
+  }
+
+  commitNextRoot(batch: RootFollowupBatch, identity: RuntimeMessageRunIdentity): void {
+    const state = this.#requireTransition(batch);
+    if (identity.sessionId !== batch.sessionId) {
+      throw new RuntimeMessageAuthorityInvariantError('Next root identity changed Session');
+    }
+    this.#commitTransition(state);
+    state.generation += 1;
+    state.reservedRoot = { ...identity };
+    state.phase = 'open';
+    this.#mutated(state);
+  }
+
+  completeIdle(batch: RootFollowupBatch): void {
+    const state = this.#requireTransition(batch);
+    if (batch.sources.length !== 0) {
+      throw new RuntimeMessageAuthorityInvariantError('Cannot become idle with a follow-up batch');
+    }
+    this.#commitTransition(state);
+    state.generation += 1;
+    state.reservedRoot = undefined;
+    state.phase = 'open';
+    this.#mutated(state);
+  }
+
+  beginDrain(): void {
+    this.#draining = true;
+  }
+
+  commitStopFence(identity: RuntimeMessageRunIdentity): QueueFenceResult {
+    return this.#commitQueueFence(identity);
+  }
+
+  async close(): Promise<void> {
+    this.beginDrain();
+    for (const state of this.#sessions.values()) {
+      if (
+        state.run ||
+        state.reservedRoot ||
+        state.transition ||
+        allLiveEntries(state).length !== 0
+      ) {
+        throw new RuntimeMessageAuthorityInvariantError(
+          'Message coordinator closed with a live owner, entry, or transition',
+        );
+      }
+    }
+  }
+
+  private submit(input: TurnMessageSubmitInput): Promise<MessageOutcome<TurnMessageSubmitResult>> {
+    return this.#sessionAdmission.run(input.sessionId, async () => {
+      const payload = canonicalSubmitPayload(input);
+      const isCurrentEpoch = input.originHostEpoch === this.#hostEpoch;
+      if (isCurrentEpoch) {
+        const receipt = this.#sessions.get(input.sessionId)?.submitReceipts.get(input.messageId);
+        if (receipt) {
+          return samePayload(receipt.payload, payload)
+            ? success(receipt.result)
+            : failure('operation_conflict', 'Message identity has a different payload');
+        }
+      }
+      const durableProof = await this.#queryDurableSubmitProof(input, payload);
+      if (durableProof) return durableProof;
+      if (!isCurrentEpoch) {
+        return failure(
+          'outcome_unknown',
+          'Message disposition cannot be proven in this Host Epoch',
+        );
+      }
+      if (this.#draining) {
+        return failure('host_draining', 'Runtime Host is draining');
+      }
+      const header = await this.#root.readSessionHeader(input.sessionId);
+      if (!header) return failure('not_found', 'Session does not exist');
+      if (header.isArchived) return failure('session_archived', 'Session is archived');
+      const rootState = await this.#root.readRootState(input.sessionId);
+      if (rootState.kind === 'idle') {
+        if (header.unavailableReason) {
+          return failure('operation_unavailable', header.unavailableReason);
+        }
+        const existingState = this.#sessions.get(input.sessionId);
+        if (existingState && hasLiveMessageState(existingState)) {
+          throw new RuntimeMessageAuthorityInvariantError(
+            'Root reported idle while the message authority retained live state',
+          );
+        }
+        const sourceMessage: RootTurnSourceMessage = {
+          messageId: input.messageId,
+          content: payload.content,
+          placement: input.placement,
+          disposition: 'turn_started',
+        };
+        const started = await this.#root.startFromMessage({
+          sessionId: input.sessionId,
+          content: payload.content,
+          sourceMessage,
+        });
+        if (!isEntityId(started.turnId)) {
+          throw new RuntimeMessageAuthorityInvariantError('Started Turn identity is not encodable');
+        }
+        const result = { disposition: 'turn_started', turnId: started.turnId } as const;
+        this.#requireState(input.sessionId).submitReceipts.set(input.messageId, {
+          payload,
+          result,
+        });
+        return success(result);
+      }
+      const state = this.#requireState(input.sessionId);
+      if (state.phase !== 'open') {
+        return failure('session_busy', 'Message admission is closed for the active generation');
+      }
+      if (!state.reservedRoot || !sameRun(state.reservedRoot, rootState)) {
+        throw new RuntimeMessageAuthorityInvariantError(
+          'Root state does not match message reservation',
+        );
+      }
+      if (allLiveEntries(state).length >= MESSAGE_QUEUE_MAX_ENTRIES) {
+        return failure('session_busy', 'Message queue capacity is full');
+      }
+      const disposition = input.placement === 'current_turn' ? 'steering' : 'followup';
+      const candidateRevision = state.revision;
+      const candidateGeneration = state.generation;
+      const entryId = this.#createId();
+      if (!isEntityId(entryId)) {
+        throw new RuntimeMessageAuthorityInvariantError('Message entry identity is not encodable');
+      }
+      const candidateEntry: QueuedMessageSnapshot = {
+        entryId,
+        messageId: input.messageId,
+        content: payload.content,
+        placement: input.placement,
+        state: 'queued',
+      };
+      const current = this.#project(state);
+      const candidate: SessionMessageQueueProjection = {
+        ...current,
+        queueRevision: state.revision + 1,
+        steering:
+          disposition === 'steering'
+            ? [
+                ...[...state.inFlight.values()].map(inFlightSnapshot),
+                ...state.steering.map(queuedSteeringSnapshot),
+                { ...candidateEntry, placement: 'current_turn' },
+              ]
+            : current.steering,
+        followup:
+          disposition === 'followup' ? [...current.followup, candidateEntry] : current.followup,
+      };
+      if (!projectionFitsEveryEntryState(candidate)) {
+        return failure('session_busy', 'Message queue projection capacity is full');
+      }
+      if (!interruptResultFits(candidate, rootState)) {
+        return failure('session_busy', 'Message queue interrupt result capacity is full');
+      }
+      const prospectiveSources = [
+        ...[...state.inFlight.values(), ...state.steering, ...state.followup].map(sourceFromEntry),
+        {
+          messageId: input.messageId,
+          content: payload.content,
+          placement: input.placement,
+          disposition,
+        },
+      ] satisfies RootTurnSourceMessage[];
+      if (!rootAdmissionPayloadFits(prospectiveSources)) {
+        return failure('session_busy', 'Message queue cannot form a durable follow-up Turn');
+      }
+      if (
+        state.phase !== 'open' ||
+        state.revision !== candidateRevision ||
+        state.generation !== candidateGeneration ||
+        !state.reservedRoot ||
+        !sameRun(state.reservedRoot, rootState)
+      ) {
+        return failure('session_busy', 'Message queue changed during admission');
+      }
+      const entry: LiveEntry = {
+        entryId,
+        messageId: input.messageId,
+        content: payload.content,
+        placement: input.placement,
+        disposition,
+        generation: state.generation,
+        residency: this.#acquireResidency(),
+        state: 'queued',
+      };
+      if (disposition === 'steering') state.steering.push(entry);
+      else state.followup.push(entry);
+      state.revision += 1;
+      const result = { disposition, queueRevision: state.revision } as const;
+      state.submitReceipts.set(input.messageId, { payload, result });
+      return success(result);
+    });
+  }
+
+  private retract(input: QueueRetractInput): Promise<MessageOutcome<QueueRetractResult>> {
+    return this.#sessionAdmission.run(input.sessionId, async () => {
+      if (input.originHostEpoch !== this.#hostEpoch) {
+        return failure('outcome_unknown', 'Retract outcome is not durable across Host Epochs');
+      }
+      const receipt = this.#sessions.get(input.sessionId)?.retractReceipts.get(input.retractId);
+      if (receipt) {
+        return samePayload(receipt.payload, input)
+          ? success(receipt.result)
+          : failure('operation_conflict', 'Retract identity has a different payload');
+      }
+      const header = await this.#root.readSessionHeader(input.sessionId);
+      if (!header) return failure('not_found', 'Session does not exist');
+      if (header.isArchived) return failure('session_archived', 'Session is archived');
+      const state = this.#state(input.sessionId);
+      if (
+        !retractionResultFits(
+          state,
+          state.revision + (queuedEntryCount(state) > 0 ? 1 : 0),
+          MESSAGE_OPERATION_RESULT_MAX_BYTES,
+        )
+      ) {
+        return failure('session_busy', 'Retract result exceeds protocol capacity');
+      }
+      const retracted = this.#retractQueued(state);
+      if (retracted.length > 0) this.#mutated(state);
+      const result = { queueRevision: state.revision, retracted };
+      state.retractReceipts.set(input.retractId, { payload: input, result });
+      return success(result);
+    });
+  }
+
+  private async interrupt(input: TurnInterruptInput): Promise<MessageOutcome<TurnInterruptResult>> {
+    if (input.originHostEpoch !== this.#hostEpoch) {
+      return failure('outcome_unknown', 'Interrupt outcome is not durable across Host Epochs');
+    }
+    const admitted = await this.#sessionAdmission.run(input.sessionId, async () => {
+      const prior = this.#sessions.get(input.sessionId)?.interruptReceipts.get(input.interruptId);
+      if (prior) {
+        return samePayload(prior.payload, input)
+          ? { kind: 'receipt' as const, result: prior.result }
+          : {
+              kind: 'conflict' as const,
+              result: failure('operation_conflict', 'Interrupt identity has a different payload'),
+            };
+      }
+
+      const header = await this.#root.readSessionHeader(input.sessionId);
+      if (!header) {
+        return {
+          kind: 'conflict' as const,
+          result: failure('not_found', 'Session does not exist'),
+        };
+      }
+      if (header.isArchived) {
+        return {
+          kind: 'conflict' as const,
+          result: failure('session_archived', 'Session is archived'),
+        };
+      }
+      const state = this.#state(input.sessionId);
+      const deferred = interruptDeferred();
+      state.interruptReceipts.set(input.interruptId, {
+        payload: input,
+        result: deferred.promise,
+      });
+      try {
+        const rootState = await this.#root.readRootState(input.sessionId);
+        if (
+          rootState.kind !== 'active' ||
+          rootState.sessionId !== input.sessionId ||
+          rootState.turnId !== input.turnId ||
+          rootState.runId !== input.runId
+        ) {
+          const result = failure(
+            'operation_conflict',
+            'Interrupt does not match the active root Turn',
+          );
+          deferred.resolve(result);
+          return { kind: 'receipt' as const, result: deferred.promise };
+        }
+        let fence: QueueFenceResult | undefined;
+        const claim = await this.#root.claimStop(
+          { sessionId: input.sessionId, turnId: input.turnId, runId: input.runId },
+          () => {
+            fence ??= this.#commitQueueFence(rootState);
+            return fence;
+          },
+        );
+        if (!fence) {
+          throw new RuntimeMessageAuthorityInvariantError(
+            'Root stop claim omitted queue fence commit',
+          );
+        }
+        return { kind: 'owner' as const, claim, fence, deferred };
+      } catch (error) {
+        deferred.reject(error);
+        throw error;
+      }
+    });
+
+    if (admitted.kind === 'conflict') return admitted.result;
+    if (admitted.kind === 'receipt') return admitted.result;
+    try {
+      await admitted.claim.deliverStop();
+      const turn = await admitted.claim.terminal;
+      const result = success({ ...admitted.fence, turn });
+      admitted.deferred.resolve(result);
+      return result;
+    } catch (error) {
+      admitted.deferred.reject(error);
+      throw error;
+    }
+  }
+
+  async #queryDurableSubmitProof(
+    input: TurnMessageSubmitInput,
+    payload: CanonicalSubmitPayload,
+  ): Promise<MessageOutcome<TurnMessageSubmitResult> | undefined> {
+    const receipt = await this.#durableProof.readRootTurnSourceMessageReceipt(
+      input.sessionId,
+      input.messageId,
+    );
+    if (receipt) {
+      const source = receipt.sourceMessage;
+      if (!sameSourcePayload(source, payload)) {
+        return failure('operation_conflict', 'Durable message receipt has a different payload');
+      }
+      if (source.disposition === 'turn_started') {
+        return success({ disposition: 'turn_started', turnId: receipt.admission.turnId });
+      }
+      return success({
+        disposition: source.disposition,
+        queueRevision: this.#sessions.get(input.sessionId)?.revision ?? 0,
+      });
+    }
+    const events = await this.#durableProof.readImmutableSessionRuntimeEvents(input.sessionId);
+    const matching = events.filter(
+      (event) =>
+        event.partial === false &&
+        event.refs?.providerEventId === input.messageId &&
+        event.content?.kind === 'text' &&
+        event.content.steering === true,
+    );
+    if (matching.length > 1) {
+      throw new RuntimeMessageAuthorityInvariantError('Durable steering identity is ambiguous');
+    }
+    const event = matching[0];
+    if (event) {
+      if (
+        input.placement !== 'current_turn' ||
+        event.content?.kind !== 'text' ||
+        !messageContentsEqual(runtimeEventContent(event.content), payload.content)
+      ) {
+        return failure('operation_conflict', 'Durable steering fact has a different payload');
+      }
+      return success({
+        disposition: 'steering',
+        queueRevision: this.#sessions.get(input.sessionId)?.revision ?? 0,
+      });
+    }
+    return undefined;
+  }
+
+  #pull(run: BoundRun): readonly SteeringLease[] {
+    this.#assertRun(run);
+    const state = this.#requireState(run.sessionId);
+    if (state.phase !== 'open' || run.generation !== state.generation) return [];
+    const entries = state.steering.splice(0);
+    if (entries.length === 0) return [];
+    const leases = entries.map((entry): SteeringLease => {
+      const leaseId = this.#createId();
+      entry.state = 'in_flight';
+      entry.leaseId = leaseId;
+      state.inFlight.set(leaseId, entry);
+      return {
+        id: leaseId,
+        messageId: entry.messageId,
+        content: normalizeMessageContent(entry.content),
+      };
+    });
+    this.#mutated(state);
+    return leases;
+  }
+
+  #ack(run: BoundRun, leaseIds: readonly string[]): void {
+    this.#assertRun(run);
+    const state = this.#requireState(run.sessionId);
+    let changed = false;
+    for (const leaseId of uniqueLeaseIds(leaseIds)) {
+      const entry = state.inFlight.get(leaseId);
+      if (!entry) continue;
+      state.inFlight.delete(leaseId);
+      this.#releaseEntry(entry);
+      changed = true;
+    }
+    if (changed) this.#mutated(state);
+  }
+
+  #nack(run: BoundRun, leaseIds: readonly string[]): void {
+    this.#assertRun(run);
+    const state = this.#requireState(run.sessionId);
+    const returned: LiveEntry[] = [];
+    let changed = false;
+    for (const leaseId of uniqueLeaseIds(leaseIds)) {
+      const entry = state.inFlight.get(leaseId);
+      if (!entry) continue;
+      state.inFlight.delete(leaseId);
+      entry.leaseId = undefined;
+      if (
+        state.phase === 'open' &&
+        run.generation === state.generation &&
+        entry.generation === state.generation
+      ) {
+        entry.state = 'queued';
+        returned.push(entry);
+      } else {
+        this.#releaseEntry(entry);
+      }
+      changed = true;
+    }
+    if (returned.length > 0) state.steering.unshift(...returned);
+    if (changed) this.#mutated(state);
+  }
+
+  #releaseRun(run: BoundRun): void {
+    this.#assertRun(run);
+    const state = this.#requireState(run.sessionId);
+    if (state.inFlight.size !== 0) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Message Run released with in-flight steering',
+      );
+    }
+    run.released = true;
+  }
+
+  #commitQueueFence(identity: RuntimeMessageRunIdentity): QueueFenceResult {
+    const state = this.#requireState(identity.sessionId);
+    const existing = state.stopFence;
+    if (existing) {
+      if (!sameRun(existing.identity, identity)) {
+        throw new RuntimeMessageAuthorityInvariantError('Stop fence belongs to another root Turn');
+      }
+      return existing.result;
+    }
+    if (!state.reservedRoot || !sameRun(state.reservedRoot, identity)) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Stop fence does not match the reserved root Turn',
+      );
+    }
+    if (!interruptResultFits(this.#project(state), identity)) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Stop fence interrupt result exceeds protocol capacity',
+      );
+    }
+    state.phase = 'closed';
+    const retracted = this.#retractQueued(state);
+    state.generation += 1;
+    this.#mutated(state);
+    const result = { queueRevision: state.revision, retracted };
+    state.stopFence = { identity: { ...identity }, result };
+    return result;
+  }
+
+  #retractQueued(state: SessionState): RetractedMessageSnapshot[] {
+    const entries = [...state.steering, ...state.followup];
+    state.steering = [];
+    state.followup = [];
+    for (const entry of entries) this.#releaseEntry(entry);
+    return entries.map(retractedSnapshot);
+  }
+
+  #commitTransition(state: SessionState): void {
+    const transition = state.transition;
+    if (!transition) throw new RuntimeMessageAuthorityInvariantError('Missing terminal transition');
+    for (const entry of transition.entries) this.#releaseEntry(entry);
+    state.followup = [];
+    state.transition = undefined;
+    state.reservedRoot = undefined;
+    state.stopFence = undefined;
+  }
+
+  #requireTransition(batch: RootFollowupBatch): SessionState {
+    const state = this.#requireState(batch.sessionId);
+    const transition = state.transition;
+    if (
+      !transition ||
+      transition.transitionId !== batch.transitionId ||
+      transition.identity.turnId !== batch.previousTurnId ||
+      !isDeepStrictEqual(transition.entries.map(sourceFromEntry), batch.sources) ||
+      !messageContentsEqual(
+        aggregateMessageContent(transition.entries.map((entry) => entry.content)),
+        batch.content,
+      )
+    ) {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'Follow-up batch does not own the transition',
+      );
+    }
+    return state;
+  }
+
+  #assertRun(run: BoundRun): void {
+    const state = this.#requireState(run.sessionId);
+    if (run.released || state.run !== run) {
+      throw new RuntimeMessageAuthorityInvariantError(`Message Run ${run.runId} is not live`);
+    }
+  }
+
+  #state(sessionId: string): SessionState {
+    let state = this.#sessions.get(sessionId);
+    if (!state) {
+      state = {
+        revision: 0,
+        generation: 0,
+        phase: 'open',
+        steering: [],
+        inFlight: new Map(),
+        followup: [],
+        submitReceipts: new Map(),
+        retractReceipts: new Map(),
+        interruptReceipts: new Map(),
+      };
+      this.#sessions.set(sessionId, state);
+    }
+    return state;
+  }
+
+  #requireState(sessionId: string): SessionState {
+    const state = this.#sessions.get(sessionId);
+    if (!state)
+      throw new RuntimeMessageAuthorityInvariantError(`Unknown message Session ${sessionId}`);
+    return state;
+  }
+
+  #mutated(state: SessionState): void {
+    state.revision += 1;
+  }
+
+  #project(
+    state: SessionState,
+    steering: readonly LiveEntry[] = state.steering,
+    followup: readonly LiveEntry[] = state.followup,
+  ): SessionMessageQueueProjection {
+    return {
+      hostEpoch: this.#hostEpoch,
+      queueRevision: state.revision,
+      steering: [
+        ...[...state.inFlight.values()].map(inFlightSnapshot),
+        ...steering.map(queuedSteeringSnapshot),
+      ],
+      followup: followup.map(queuedSnapshot),
+    };
+  }
+
+  #releaseEntry(entry: LiveEntry): void {
+    if (entry.state === 'released') return;
+    entry.state = 'released';
+    entry.leaseId = undefined;
+    entry.residency.release();
+  }
+}
+
+function success<T>(result: T): MessageOutcome<T> {
+  return { ok: true, result };
+}
+
+function failure(
+  code: MessageOperationErrorCode,
+  message: string,
+): {
+  readonly ok: false;
+  readonly error: { readonly code: MessageOperationErrorCode; readonly message: string };
+} {
+  return { ok: false, error: { code, message } };
+}
+
+function interruptDeferred(): InterruptDeferred {
+  let resolve!: (result: MessageOutcome<TurnInterruptResult>) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<MessageOutcome<TurnInterruptResult>>(
+    (resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    },
+  );
+  void promise.catch(() => undefined);
+  return { promise, resolve, reject };
+}
+
+function samePayload(left: object, right: object): boolean {
+  return isDeepStrictEqual(left, right);
+}
+
+function sameRun(left: RuntimeMessageRunIdentity, right: RuntimeMessageRunIdentity): boolean {
+  return (
+    left.sessionId === right.sessionId && left.turnId === right.turnId && left.runId === right.runId
+  );
+}
+
+function sameSourcePayload(source: RootTurnSourceMessage, input: CanonicalSubmitPayload): boolean {
+  return (
+    source.messageId === input.messageId &&
+    messageContentsEqual(source.content, input.content) &&
+    source.placement === input.placement
+  );
+}
+
+function sourceFromEntry(entry: LiveEntry): RootFollowupSource {
+  return {
+    messageId: entry.messageId,
+    content: normalizeMessageContent(entry.content),
+    placement: entry.placement,
+    disposition: entry.disposition,
+  };
+}
+
+function queuedSnapshot(entry: LiveEntry): QueuedMessageSnapshot {
+  return {
+    entryId: entry.entryId,
+    messageId: entry.messageId,
+    content: normalizeMessageContent(entry.content),
+    placement: entry.placement,
+    state: 'queued',
+  };
+}
+
+function queuedSteeringSnapshot(entry: LiveEntry): SteeringMessageSnapshot {
+  if (entry.placement !== 'current_turn') {
+    throw new RuntimeMessageAuthorityInvariantError('Steering entry lost current-turn placement');
+  }
+  return { ...queuedSnapshot(entry), placement: 'current_turn' };
+}
+
+function inFlightSnapshot(entry: LiveEntry): SteeringMessageSnapshot {
+  if (entry.placement !== 'current_turn') {
+    throw new RuntimeMessageAuthorityInvariantError('In-flight entry lost current-turn placement');
+  }
+  return {
+    entryId: entry.entryId,
+    messageId: entry.messageId,
+    content: normalizeMessageContent(entry.content),
+    placement: 'current_turn',
+    state: 'in_flight',
+  };
+}
+
+function retractedSnapshot(entry: LiveEntry): RetractedMessageSnapshot {
+  return { ...queuedSnapshot(entry), state: 'retracted' };
+}
+
+function uniqueLeaseIds(leaseIds: readonly string[]): readonly string[] {
+  return [...new Set(leaseIds)];
+}
+
+function allLiveEntries(state: SessionState): LiveEntry[] {
+  return [...new Set([...state.steering, ...state.inFlight.values(), ...state.followup])].filter(
+    (entry) => entry.state !== 'released',
+  );
+}
+
+function hasLiveMessageState(state: SessionState): boolean {
+  return Boolean(
+    state.reservedRoot || state.run || state.transition || allLiveEntries(state).length !== 0,
+  );
+}
+
+function queuedEntryCount(state: SessionState): number {
+  return state.steering.length + state.followup.length;
+}
+
+function projectionFitsEveryEntryState(projection: SessionMessageQueueProjection): boolean {
+  const worstCase: SessionMessageQueueProjection = {
+    ...projection,
+    queueRevision: Number.MAX_SAFE_INTEGER,
+    steering: projection.steering.map((entry) => ({ ...entry, state: 'in_flight' as const })),
+  };
+  return fitsEncodedByteLimit(worstCase, MESSAGE_QUEUE_PROJECTION_MAX_BYTES);
+}
+
+function retractionResultFits(
+  state: SessionState,
+  queueRevision: number,
+  maxBytes: number,
+): boolean {
+  const retracted = [...state.steering, ...state.followup].map(retractedSnapshot);
+  return fitsEncodedByteLimit({ queueRevision, retracted }, maxBytes);
+}
+
+function fitsEncodedByteLimit(value: unknown, maxBytes: number): boolean {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8') <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
+function isEntityId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+interface CanonicalSubmitPayload {
+  readonly originHostEpoch: string;
+  readonly sessionId: string;
+  readonly messageId: string;
+  readonly content: MessageContent;
+  readonly placement: MessagePlacement;
+}
+
+function canonicalSubmitPayload(input: TurnMessageSubmitInput): CanonicalSubmitPayload {
+  return {
+    originHostEpoch: input.originHostEpoch,
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    content: normalizeMessageContent(input.content),
+    placement: input.placement,
+  };
+}
+
+function aggregateMessageContent(contents: readonly MessageContent[]): MessageContent {
+  const text = contents.map((content) => content.text).join('\n\n');
+  const displayText = contents.map((content) => content.displayText ?? content.text).join('\n\n');
+  const attachments = contents.flatMap((content) => content.attachments ?? []);
+  return normalizeMessageContent({ text, displayText, attachments });
+}
+
+function canonicalFollowupBatch(entries: readonly LiveEntry[]): {
+  readonly content: MessageContent;
+  readonly sources: readonly RootFollowupSource[];
+} {
+  if (entries.length === 0) return { content: { text: '' }, sources: [] };
+  const sources = entries.map(sourceFromEntry);
+  try {
+    const { normalizedInput } = normalizeRootTurnAdmissionPayload(
+      aggregateMessageContent(entries.map((entry) => entry.content)),
+      sources,
+    );
+    return { content: normalizedInput, sources };
+  } catch {
+    throw new RuntimeMessageAuthorityInvariantError(
+      'Accepted follow-up batch violates the durable root admission contract',
+    );
+  }
+}
+
+function rootAdmissionPayloadFits(sources: readonly RootTurnSourceMessage[]): boolean {
+  try {
+    normalizeRootTurnAdmissionPayload(
+      aggregateMessageContent(sources.map((source) => source.content)),
+      sources,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function interruptResultFits(
+  projection: SessionMessageQueueProjection,
+  identity: RuntimeMessageRunIdentity,
+): boolean {
+  const retracted = [...projection.steering, ...projection.followup]
+    .filter((entry) => entry.state === 'queued')
+    .map((entry): RetractedMessageSnapshot => ({ ...entry, state: 'retracted' }));
+  // Control characters maximize JSON expansion for the protocol-bounded string field.
+  const worstCaseTurn: TurnSnapshot = {
+    ...identity,
+    status: 'failed',
+    terminalEventId: 'x'.repeat(128),
+    failureClass: '\0'.repeat(128),
+  };
+  return fitsEncodedByteLimit(
+    { queueRevision: Number.MAX_SAFE_INTEGER, retracted, turn: worstCaseTurn },
+    MESSAGE_OPERATION_RESULT_MAX_BYTES,
+  );
+}
+
+function runtimeEventContent(
+  content: Extract<RuntimeEvent['content'], { kind: 'text' }>,
+): MessageContent {
+  return normalizeMessageContent({
+    text: content.text,
+    ...(content.displayText !== undefined ? { displayText: content.displayText } : {}),
+    ...(content.attachments !== undefined ? { attachments: content.attachments } : {}),
+  });
+}

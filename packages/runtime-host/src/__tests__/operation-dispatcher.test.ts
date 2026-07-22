@@ -105,6 +105,49 @@ describe('Runtime Host operation dispatcher', () => {
       error: { code: 'not_found', message: 'Turn does not exist' },
     });
   });
+
+  test('revalidates Message operation outcomes through the shared decoder', async () => {
+    const messageRequest = {
+      requestId: 'submit-request-1',
+      operation: 'turn.message.submit',
+      input: {
+        originHostEpoch: 'epoch-1',
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        content: { text: 'steer' },
+        placement: 'current_turn',
+      },
+    } satisfies RequestFrame;
+    const handlers = validHandlers();
+    handlers['turn.message.submit'] = async () =>
+      ({
+        ok: true,
+        result: { disposition: 'steering', queueRevision: 1, privateState: true },
+      }) as unknown as OperationOutcome<'turn.message.submit'>;
+    assert.deepEqual(await dispatchOperation(messageRequest, handlers, context), {
+      requestId: messageRequest.requestId,
+      operation: messageRequest.operation,
+      ok: false,
+      error: { code: 'internal_failure', message: 'Runtime Host operation failed' },
+    });
+
+    handlers['turn.message.submit'] = async () => ({
+      ok: false,
+      error: {
+        code: 'outcome_unknown',
+        message: 'Message disposition cannot be proven in this Host Epoch',
+      },
+    });
+    assert.deepEqual(await dispatchOperation(messageRequest, handlers, context), {
+      requestId: messageRequest.requestId,
+      operation: messageRequest.operation,
+      ok: false,
+      error: {
+        code: 'outcome_unknown',
+        message: 'Message disposition cannot be proven in this Host Epoch',
+      },
+    });
+  });
 });
 
 function validHandlers(): OperationHandlerMap {
@@ -121,6 +164,9 @@ function validHandlers(): OperationHandlerMap {
     'turn.start': unavailable,
     'turn.query': unavailable,
     'turn.stop': unavailable,
+    'turn.message.submit': unavailable,
+    'queue.retract': unavailable,
+    'turn.interrupt': unavailable,
   };
 }
 

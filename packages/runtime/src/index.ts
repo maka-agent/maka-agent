@@ -37,6 +37,12 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 export { renderSwarmModePrompt } from './swarm-mode.js';
+export { RuntimeMessageAuthorityInvariantError } from './message-authority.js';
+export type {
+  RuntimeMessageAuthority,
+  RuntimeMessageRunIdentity,
+  RuntimeMessageRunOwner,
+} from './message-authority.js';
 
 export {
   MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
