@@ -14,7 +14,7 @@ import {
   type TaskRunner,
 } from './fixed-prompt-controller.js';
 import { lenientPositiveIntEnv } from './headless-run-env.js';
-import { modelIdForProvider } from './harbor-task-runner.js';
+import { assertNoExperimentIdentityOverrides, modelIdForProvider } from './harbor-task-runner.js';
 import {
   KIMI_CODE_TOOLCHAIN_CONTAINER_PATH,
   KIMI_CODE_TOOLCHAIN_FINGERPRINT,
@@ -182,6 +182,9 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
 
     const attemptAgentEnv = mergeAgentEnv(options.agentEnv, input.agentEnv);
     assertNoProviderSecretsInAgentEnv(attemptAgentEnv);
+    // Same benchmark invariant as the Harbor runner (shared implementation):
+    // agentEnv must not override experiment identity or MAKA_TRIAL_* pricing.
+    assertNoExperimentIdentityOverrides(attemptAgentEnv);
 
     const providerTelemetryPath = join(jobsDir, PROVIDER_REQUEST_TELEMETRY);
     let providerUsage: ProviderTokenUsage | null = null;

@@ -1229,7 +1229,12 @@ function assertNoProviderSecretsInAgentEnv(
   }
 }
 
-function assertNoExperimentIdentityOverrides(agentEnv: Record<string, string> | undefined): void {
+/** Shared benchmark invariant: attempt-level agentEnv must never override the
+ * experiment's identity or pricing. Exported so the Pier runner enforces the
+ * exact same key set instead of drifting on a copied list. */
+export function assertNoExperimentIdentityOverrides(
+  agentEnv: Record<string, string> | undefined,
+): void {
   const forbidden = Object.keys(agentEnv ?? {}).filter((key) =>
     EXPERIMENT_IDENTITY_ENV_KEYS.has(key),
   );

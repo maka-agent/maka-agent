@@ -372,6 +372,21 @@ test('createPierTaskRunner rejects provider secrets in agentEnv', async () => {
   });
 });
 
+test('createPierTaskRunner rejects experiment identity and pricing overrides in agentEnv', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const overrides: Array<Record<string, string>> = [
+      { MAKA_MODEL: 'other-model' },
+      { MAKA_TRIAL_INPUT_USD_PER_1M: '9' },
+    ];
+    for (const env of overrides) {
+      const runner = createPierTaskRunner(
+        baseOptions({ jobsDir, makaRepoPath: repo, agentEnv: env, runPier: fakePier({ reward: 0 }) }),
+      );
+      await assert.rejects(runner(runInput()), /must not override experiment identity/);
+    }
+  });
+});
+
 test('createPierTaskRunner requires the Kimi toolchain mount for the Kimi arm', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const runner = createPierTaskRunner(
