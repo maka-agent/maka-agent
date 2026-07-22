@@ -136,6 +136,14 @@ export interface PierTaskRunnerOptions {
   useProviderProxy?: boolean;
   /** Explicit host proxy listen port for the Kimi arm (default 443). */
   providerProxyPort?: number;
+  /** Host the Kimi container should dial to reach the host provider proxy. Only
+   * the Kimi arm honors it; the Maka arm's host cell always uses loopback
+   * (127.0.0.1) since it runs on the host itself. Unset keeps the default
+   * host.docker.internal, which Docker Desktop injects but native Linux Docker
+   * does NOT provide (pier 0.3.0's compose wires no extra_hosts/host-gateway),
+   * so on native Linux pass the host's docker-bridge-reachable address (e.g.
+   * 172.17.0.1) or the Kimi container's Squid cannot resolve the proxy. */
+  providerProxyAdvertisedHost?: string;
   /** Per-1M USD pricing forwarded as MAKA_TRIAL_* so the cell emits real costUsd. */
   pricing?: PierTaskPricing;
   /** Extra agent env merged last (e.g. MAKA_HARBOR_MODE). Never provider secrets. */
@@ -639,11 +647,14 @@ async function pierProviderRuntime(
     agent === 'kimi-code'
       ? (options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT)
       : undefined;
+  // The Maka host cell runs on the host and reaches the proxy on loopback; the
+  // Kimi container reaches it through Docker's host gateway on a Squid-legal
+  // port, defaulting to host.docker.internal unless an explicit advertised host
+  // is supplied (the native-Linux escape hatch, e.g. 172.17.0.1).
+  const advertisedHost = agent === 'maka' ? '127.0.0.1' : options.providerProxyAdvertisedHost;
   const proxy = await startProviderAuthProxy({
     upstreamBaseUrl: baseUrl,
-    // The Maka host cell runs on the host and reaches the proxy on loopback; the
-    // Kimi container reaches it through Docker's host gateway on a Squid-legal port.
-    ...(agent === 'maka' ? { advertisedHost: '127.0.0.1' } : {}),
+    ...(advertisedHost !== undefined ? { advertisedHost } : {}),
     ...(proxyPort !== undefined ? { port: proxyPort } : {}),
     ...(options.resolveProviderCredential
       ? { resolveUpstreamCredential: options.resolveProviderCredential }

@@ -1012,6 +1012,33 @@ test('createPierTaskRunner wires the Kimi arm through the host proxy on a Squid-
   });
 });
 
+test('createPierTaskRunner overrides the Kimi proxy advertised host for native Linux Docker', async () => {
+  // host.docker.internal does not resolve on native Linux Docker (pier's compose
+  // wires no extra_hosts), so the Kimi arm must be able to advertise the host's
+  // docker-bridge address instead; the container reads it via MAKA_PROVIDER_PROXY_URL.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'kimi-code',
+        backend: 'ai-sdk',
+        provider: 'kimi-coding-plan',
+        model: 'k3',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        kimiCodeToolchainPath: repo,
+        resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
+        providerProxyPort: 0,
+        providerProxyAdvertisedHost: '172.17.0.1',
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    await runner(runInput());
+    assert.match(captured.envFile?.MAKA_PROVIDER_PROXY_URL ?? '', /^http:\/\/172\.17\.0\.1:\d+$/);
+  });
+});
+
 /** One SEPARATE runner instance per port entry, one concurrent attempt each —
  * the lock's owner must be the shared host port, not a runner closure, or an
  * A/B with two Kimi arms in one process EADDRINUSEs. */
