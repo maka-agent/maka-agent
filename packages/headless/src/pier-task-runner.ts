@@ -366,11 +366,19 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
       );
       let completeTimedOutTrial = false;
       if (trialException && isBudgetExhaustedTrialException(trialException)) {
-        const [gradedReward, cellArtifact] = await Promise.all([
-          readOptionalPierReward(trialDir, input.task.id),
+        const [grade, cellArtifact] = await Promise.all([
+          readPierGrade(trialDir, input.task.id),
           readOptionalText(join(trialDir, TRIAL_CELL_OUTPUT)),
         ]);
-        if (gradedReward === null || cellArtifact === null) {
+        // Budget-gate context, distinct from the graded read path: the agent has
+        // already exhausted its budget, which is the authoritative fact. A
+        // verifier that crashed or wrote a corrupt reward here does NOT overturn
+        // it — an `invalid` grade is treated exactly like `ungraded` / a missing
+        // reward file, yielding budget_exhausted (no retry, Pass@1 evidence
+        // preserved) rather than an infra failure the controller would retry. In
+        // the graded read path a corrupt scoring authority IS infra; only when
+        // the budget is already spent does the agent fact take precedence.
+        if (grade.state !== 'graded' || cellArtifact === null) {
           // Recover attested evidence (identity/usage/cell output) via the shared
           // Harbor implementation so a budget-exhausted sample keeps its Pass@1
           // eligibility instead of being excluded as missing_execution_identity.
@@ -382,7 +390,10 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
           );
           throw new FixedPromptBudgetExhaustedError(
             `agent budget exhausted for task ${input.task.id}`,
-            trialException,
+            // Carry the invalid-grade detail alongside the exhaustion cause so a
+            // corrupt/crashed verifier is still diagnosable, without letting it
+            // count toward the score.
+            grade.state === 'invalid' ? `${trialException}; ${grade.detail}` : trialException,
             artifactRefs || providerTelemetry.length > 0
               ? {
                   ...(artifactRefs ?? {}),
@@ -731,36 +742,77 @@ async function readVerifierDurationMs(resultPath: string): Promise<number> {
     : 0;
 }
 
-/** The trial's graded reward, or null when the trial was never graded. Prefers
- * the DeepSWE task verifier's reward.json, falling back to the trial result's
- * verifier_result.rewards.reward (same value, present on a completed trial).
- * Unlike the Maka oracle verifier, Pier tasks write no structured
- * maka-verifier-outcome.json. A corrupt reward.json is infra, not "ungraded" —
- * the grading authority existed and cannot be read. */
-async function readOptionalPierReward(trialDir: string, taskId: string): Promise<number | null> {
-  const rewardJson = await readOptionalText(join(trialDir, TRIAL_REWARD_JSON));
-  if (rewardJson) {
+/** The trial's grading state, read as ONE discriminated value from both
+ * persisted mirrors of Pier's scoring authority. Callers interpret it per
+ * context (a corrupt authority is infra when reading a grade, but does not
+ * overturn an already-exhausted agent budget at the budget gate), so the read
+ * itself never throws — there is exactly one place that decides what each
+ * state means for each context.
+ *
+ *  - `graded`: an authoritative binary 0/1 reward. Either reward.json carried
+ *    it and the trial result mirror (verifier_result.rewards.reward), if
+ *    present, agreed; or reward.json was absent/empty and the result mirror
+ *    carried it.
+ *  - `ungraded`: neither mirror carried a numeric reward (the trial was never
+ *    graded).
+ *  - `invalid`: the grading authority existed but cannot be trusted as a grade
+ *    — reward.json is not valid JSON, or is valid JSON with no finite numeric
+ *    reward field, or a value is the crash sentinel / violates the binary 0/1
+ *    contract, or the two mirrors both carried a value and disagree. */
+type PierGrade =
+  | { readonly state: 'graded'; readonly reward: number }
+  | { readonly state: 'ungraded' }
+  | { readonly state: 'invalid'; readonly detail: string };
+
+/** Read both persisted mirrors of Pier's scoring authority and reduce them to a
+ * single discriminated grade. Prefers the DeepSWE task verifier's reward.json,
+ * cross-checking it against the trial result's verifier_result.rewards.reward
+ * (same value on a completed trial); when reward.json is absent or empty the
+ * result mirror stands alone. Unlike the Maka oracle verifier, Pier tasks write
+ * no structured maka-verifier-outcome.json. */
+async function readPierGrade(trialDir: string, taskId: string): Promise<PierGrade> {
+  const rewardJsonText = await readOptionalText(join(trialDir, TRIAL_REWARD_JSON));
+  let rewardJsonValue: number | null = null;
+  // An empty file is treated as absent (never written); a non-empty reward.json
+  // is the grading authority and, if it cannot be read as a numeric reward, is
+  // infra — the authority existed and cannot be trusted.
+  if (rewardJsonText && rewardJsonText.trim().length > 0) {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(rewardJson);
+      parsed = JSON.parse(rewardJsonText);
     } catch (error) {
-      throw new PierInfraError(
-        `verifier reward.json is not valid JSON for task ${taskId}`,
-        errorText(error),
-      );
+      return {
+        state: 'invalid',
+        detail: `verifier reward.json is not valid JSON for task ${taskId}: ${errorText(error)}`,
+      };
     }
     if (isRecord(parsed) && typeof parsed.reward === 'number' && Number.isFinite(parsed.reward)) {
-      return assertGradedPierReward(parsed.reward, taskId);
+      rewardJsonValue = parsed.reward;
+    } else {
+      return {
+        state: 'invalid',
+        detail: `verifier reward.json for task ${taskId} has no valid numeric reward field; a corrupt reward.json is infra — the grading authority existed and cannot be read`,
+      };
     }
   }
   const result = await readOptionalJson(join(trialDir, TRIAL_RESULT));
   const verifierResult = isRecord(result?.verifier_result) ? result.verifier_result : undefined;
   const rewards =
     verifierResult && isRecord(verifierResult.rewards) ? verifierResult.rewards : undefined;
-  if (rewards && typeof rewards.reward === 'number' && Number.isFinite(rewards.reward)) {
-    return assertGradedPierReward(rewards.reward, taskId);
+  const resultValue =
+    rewards && typeof rewards.reward === 'number' && Number.isFinite(rewards.reward)
+      ? rewards.reward
+      : null;
+
+  if (rewardJsonValue !== null && resultValue !== null && rewardJsonValue !== resultValue) {
+    return {
+      state: 'invalid',
+      detail: `verifier reward mirrors disagree for task ${taskId}: ${TRIAL_REWARD_JSON} reward ${rewardJsonValue} != ${TRIAL_RESULT} verifier_result.rewards.reward ${resultValue}; the two persisted mirrors of the grading authority must be identical`,
+    };
   }
-  return null;
+  const value = rewardJsonValue ?? resultValue;
+  if (value === null) return { state: 'ungraded' };
+  return classifyPierReward(value, taskId);
 }
 
 /** DeepSWE's grading contract is BINARY: grader.py documents the main reward
@@ -772,36 +824,39 @@ async function readOptionalPierReward(trialDir: string, taskId: string): Promise
  * come from corrupt or non-contract verifier output. Recording either as a
  * grade would poison the benchmark: a sentinel as a scored failure, a
  * fractional value as a pass (`reward > 0`). */
-function assertGradedPierReward(reward: number, taskId: string): number {
-  if (reward === 0 || reward === 1) return reward;
+function classifyPierReward(reward: number, taskId: string): PierGrade {
+  if (reward === 0 || reward === 1) return { state: 'graded', reward };
   if (reward < 0) {
-    throw new PierInfraError(
-      `verifier crashed for task ${taskId}: reward ${reward} is the DeepSWE test.sh crash sentinel, not a grade`,
-    );
+    return {
+      state: 'invalid',
+      detail: `verifier crashed for task ${taskId}: reward ${reward} is the DeepSWE test.sh crash sentinel, not a grade`,
+    };
   }
-  throw new PierInfraError(
-    `verifier reward ${reward} for task ${taskId} violates the DeepSWE binary 0/1 contract (grader.py); treating as infra, not a grade`,
-  );
+  return {
+    state: 'invalid',
+    detail: `verifier reward ${reward} for task ${taskId} violates the DeepSWE binary 0/1 contract (grader.py); treating as infra, not a grade`,
+  };
 }
 
+/** Graded read path (normal completion and non-budget exception fall-through):
+ * the scoring authority is authoritative here, so an invalid grade IS infra. */
 async function readPierReward(
   trialDir: string,
   taskId: string,
   trialException: string | null,
 ): Promise<number> {
-  const reward = await readOptionalPierReward(trialDir, taskId);
-  if (reward === null) {
-    // Mirror Harbor's readReward diagnostics: when the trial recorded an
-    // exception and grading never produced a reward, name the exception —
-    // that is the root cause, not the missing file.
-    if (trialException) {
-      throw new PierInfraError(
-        `pier trial failed before verifier reward for task ${taskId}: ${trialException}`,
-      );
-    }
-    throw new PierInfraError(`missing verifier reward for task ${taskId}`);
+  const grade = await readPierGrade(trialDir, taskId);
+  if (grade.state === 'graded') return grade.reward;
+  if (grade.state === 'invalid') throw new PierInfraError(grade.detail);
+  // ungraded — mirror Harbor's readReward diagnostics: when the trial recorded
+  // an exception and grading never produced a reward, name the exception, which
+  // is the root cause, not the missing file.
+  if (trialException) {
+    throw new PierInfraError(
+      `pier trial failed before verifier reward for task ${taskId}: ${trialException}`,
+    );
   }
-  return reward;
+  throw new PierInfraError(`missing verifier reward for task ${taskId}`);
 }
 
 /** Grace between SIGTERM and SIGKILL when the watchdog fires. Pier's SIGTERM

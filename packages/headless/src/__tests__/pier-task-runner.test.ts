@@ -118,6 +118,9 @@ function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput
 interface FakeOptions {
   reward?: number;
   rewardJson?: boolean;
+  /** Write reward.json verbatim (e.g. '{}' or malformed JSON), overriding the
+   * structured numeric-reward body. */
+  rewardJsonRaw?: string;
   verifierResultReward?: number;
   cell?: HarborCellOutput | null;
   executionIdentity?: Record<string, unknown>;
@@ -186,7 +189,9 @@ function fakePier(opts: FakeOptions): PierProcessRunner {
       await mkdir(sessionDir, { recursive: true });
       await writeFile(join(sessionDir, 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
     }
-    if (opts.reward !== undefined && opts.rewardJson !== false) {
+    if (opts.rewardJsonRaw !== undefined) {
+      await writeFile(join(trialDir, 'verifier', 'reward.json'), opts.rewardJsonRaw, 'utf8');
+    } else if (opts.reward !== undefined && opts.rewardJson !== false) {
       await writeFile(
         join(trialDir, 'verifier', 'reward.json'),
         JSON.stringify({ reward: opts.reward, f2p: 0, p2p: 1 }),
@@ -806,6 +811,117 @@ test('createPierTaskRunner classifies the verifier_result crash sentinel as infr
       assert.match(error.message, /crash sentinel/);
       return true;
     });
+  });
+});
+
+test('createPierTaskRunner scores a graded trial when both reward mirrors agree', async () => {
+  // The reward.json authority and its trial-result mirror
+  // (verifier_result.rewards.reward) carry the same value on a completed trial;
+  // an agreeing pair must score normally, not trip the mirror-consistency guard.
+  for (const reward of [0, 1]) {
+    await withDirs(async ({ jobsDir, repo }) => {
+      const runner = createPierTaskRunner(
+        baseOptions({
+          jobsDir,
+          makaRepoPath: repo,
+          runPier: fakePier({ reward, verifierResultReward: reward }),
+        }),
+      );
+      const output = await runner(runInput());
+      assert.equal(output.harbor.reward, reward);
+    });
+  }
+});
+
+test('createPierTaskRunner treats disagreeing reward mirrors as infra', async () => {
+  // The two persisted mirrors of the grading authority must be identical; a
+  // reward.json that disagrees with verifier_result.rewards.reward — in either
+  // direction — is infra, never a silently-preferred score.
+  for (const [rewardJsonValue, resultValue] of [
+    [1, 0],
+    [0, 1],
+  ] as const) {
+    await withDirs(async ({ jobsDir, repo }) => {
+      const runner = createPierTaskRunner(
+        baseOptions({
+          jobsDir,
+          makaRepoPath: repo,
+          runPier: fakePier({ reward: rewardJsonValue, verifierResultReward: resultValue }),
+        }),
+      );
+      await assert.rejects(runner(runInput()), (error: Error) => {
+        assert.ok(error instanceof PierInfraError);
+        assert.match(error.message, /mirrors disagree/);
+        return true;
+      });
+    });
+  }
+});
+
+test('createPierTaskRunner treats a reward.json without a reward field as infra', async () => {
+  // A reward.json that exists as valid JSON but carries no numeric reward field
+  // is corrupt grading authority — infra, not a fall-through to the result
+  // mirror or an ungraded miss.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({ jobsDir, makaRepoPath: repo, runPier: fakePier({ rewardJsonRaw: '{}' }) }),
+    );
+    await assert.rejects(runner(runInput()), (error: Error) => {
+      assert.ok(error instanceof PierInfraError);
+      assert.match(error.message, /no valid numeric reward field/);
+      return true;
+    });
+  });
+});
+
+test('createPierTaskRunner reports a budget exhaustion despite a crash-sentinel reward', async () => {
+  // Budget-gate context: the agent already exhausted its budget, so a verifier
+  // that crashed (result-mirror sentinel -1) does NOT overturn that fact. The
+  // trial is budget_exhausted (no retry), not infra — a graded read would call
+  // the sentinel infra, but here the spent agent budget takes precedence.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        runPier: fakePier({
+          verifierResultReward: -1,
+          exceptionInfo: {
+            exception_type: 'AgentTimeoutError',
+            exception_message: 'Agent execution timed out after 600 seconds',
+          },
+        }),
+      }),
+    );
+    await assert.rejects(
+      runner(runInput()),
+      (error: Error) => error instanceof FixedPromptBudgetExhaustedError,
+    );
+  });
+});
+
+test('createPierTaskRunner reports a budget exhaustion despite a corrupt reward.json', async () => {
+  // Same budget-gate precedence for a reward.json that is not valid JSON: a
+  // corrupt verifier artifact after the agent already spent its budget stays a
+  // budget_exhausted outcome, not an infra failure the controller would retry.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        runPier: fakePier({
+          rewardJsonRaw: 'not-json{',
+          exceptionInfo: {
+            exception_type: 'AgentTimeoutError',
+            exception_message: 'Agent execution timed out after 600 seconds',
+          },
+        }),
+      }),
+    );
+    await assert.rejects(
+      runner(runInput()),
+      (error: Error) => error instanceof FixedPromptBudgetExhaustedError,
+    );
   });
 });
 
