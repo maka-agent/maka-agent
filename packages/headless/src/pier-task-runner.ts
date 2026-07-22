@@ -204,40 +204,44 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
     const envFileEntries = providerRuntime?.envFile ?? {};
     const usesEnvFile = Object.keys(envFileEntries).length > 0;
     try {
-      const aeEnv = buildPierAgentEnv(input, options, agent, providerRuntime?.agentEnv ?? {});
-      const processEnv: Record<string, string> = {
-        PYTHONPATH: pythonPath,
-        // MAKA_BACKEND is a CliFlag whose env_fallback reads os.environ only, so
-        // `--ae MAKA_BACKEND=` is silently ignored — it must ride the pier process
-        // env. The Kimi adapter ignores it.
-        MAKA_BACKEND: options.backend ?? 'ai-sdk',
-        // Byte-safe channel for the prompt: pier's --ae parser strips leading and
-        // trailing whitespace from values (pier/cli/utils.py key.strip() /
-        // value.strip()), which would drop the prompt's trailing newline and break
-        // the execution-identity hash round-trip on every task. Both adapters fall
-        // back to os.environ (CliFlag env_fallback for Maka, _get_env for Kimi) and
-        // forward the exact bytes into the cell, so the value rides the pier
-        // process env verbatim — and must never also appear in --ae, where the
-        // stripped extra_env copy would take precedence in _get_env.
-        MAKA_SYSTEM_PROMPT: input.systemPrompt,
-      };
-      if (usesEnvFile) await writeEnvFile(envFilePath, envFileEntries);
-      const args = buildPierRunArgs({
-        agent,
-        // Provider-local bare id (same normalization contract as the Harbor
-        // runner): the adapter's model_name takes precedence over MAKA_MODEL, so
-        // a provider-prefixed `-m` would leak the prefixed id into the cell.
-        model: modelIdForProvider(options.model, options.provider ?? 'deepseek'),
-        taskPath: input.task.path,
-        jobsDir,
-        jobName,
-        environment: options.environment ?? 'docker',
-        timeoutMultiplier: options.timeoutMultiplier ?? 1,
-        mounts,
-        agentEnv: aeEnv,
-        ...(usesEnvFile ? { envFile: envFilePath } : {}),
-      });
+      // Everything from here until runPier returns lives under one finally that
+      // closes the proxy: a failure in this window (env-file write, arg
+      // assembly) must not leak the listening socket. Bind errors themselves
+      // happen above, before the proxy exists, and still surface raw.
       try {
+        const aeEnv = buildPierAgentEnv(input, options, agent, providerRuntime?.agentEnv ?? {});
+        const processEnv: Record<string, string> = {
+          PYTHONPATH: pythonPath,
+          // MAKA_BACKEND is a CliFlag whose env_fallback reads os.environ only, so
+          // `--ae MAKA_BACKEND=` is silently ignored — it must ride the pier process
+          // env. The Kimi adapter ignores it.
+          MAKA_BACKEND: options.backend ?? 'ai-sdk',
+          // Byte-safe channel for the prompt: pier's --ae parser strips leading and
+          // trailing whitespace from values (pier/cli/utils.py key.strip() /
+          // value.strip()), which would drop the prompt's trailing newline and break
+          // the execution-identity hash round-trip on every task. Both adapters fall
+          // back to os.environ (CliFlag env_fallback for Maka, _get_env for Kimi) and
+          // forward the exact bytes into the cell, so the value rides the pier
+          // process env verbatim — and must never also appear in --ae, where the
+          // stripped extra_env copy would take precedence in _get_env.
+          MAKA_SYSTEM_PROMPT: input.systemPrompt,
+        };
+        if (usesEnvFile) await writeEnvFile(envFilePath, envFileEntries);
+        const args = buildPierRunArgs({
+          agent,
+          // Provider-local bare id (same normalization contract as the Harbor
+          // runner): the adapter's model_name takes precedence over MAKA_MODEL, so
+          // a provider-prefixed `-m` would leak the prefixed id into the cell.
+          model: modelIdForProvider(options.model, options.provider ?? 'deepseek'),
+          taskPath: input.task.path,
+          jobsDir,
+          jobName,
+          environment: options.environment ?? 'docker',
+          timeoutMultiplier: options.timeoutMultiplier ?? 1,
+          mounts,
+          agentEnv: aeEnv,
+          ...(usesEnvFile ? { envFile: envFilePath } : {}),
+        });
         result = await runPier({
           pierBin,
           jobName,
