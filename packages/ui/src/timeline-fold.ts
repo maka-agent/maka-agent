@@ -21,7 +21,11 @@ import type { TurnTimelineItem } from './materialize.js';
  * is at most one block, so the id is unique per turn — and, unlike a key
  * guessed from the first child, it survives the first tool being projected
  * away (shell-run folding) without remounting the disclosure or dropping a
- * manual open/close.
+ * manual open/close. When projection removes a block's LAST tools group the
+ * block itself dissolves (the remaining run is pure thinking), so the bare
+ * 深度思考 entries remount and any manual open state inside is reset — the
+ * accepted cost of deriving block existence at render time instead of
+ * representing a tools-less block in the model.
  */
 
 /** An entry folded inside a processing block: reasoning or a tool group. */
