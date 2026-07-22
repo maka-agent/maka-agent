@@ -144,6 +144,13 @@ const STORE_AUTHORITY_SERVICES: ServiceCase[] = [
       refresh_token: 'antigravity-refresh',
       expires_at: NOW + 3_600_000,
     },
+    refresh: {
+      accessToken: 'antigravity-access-refreshed',
+      response: {
+        access_token: 'antigravity-access-refreshed',
+        expires_in: 3600,
+      },
+    },
     create: (input) =>
       new AntigravitySubscriptionService({
         ...input,
@@ -217,49 +224,48 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       assert.equal(fetchCalls, 1, 'a fresh shared token must not trigger a second refresh');
     });
 
-    it(`${serviceCase.name} does not overwrite a credential changed while refresh is in flight`, async () => {
-      const userDataDir = await makeUserDataDir();
-      const credentials = createMemoryCredentialStore();
-      credentials.set(
-        serviceCase.slug,
-        'oauth_token',
-        JSON.stringify({ ...serviceCase.initialTokens, expires_at: NOW - 1 }),
-      );
-      let markRefreshStarted!: () => void;
-      const refreshStarted = new Promise<void>((resolve) => {
-        markRefreshStarted = resolve;
-      });
-      let releaseRefresh!: () => void;
-      const refreshReleased = new Promise<void>((resolve) => {
-        releaseRefresh = resolve;
-      });
-      const service = serviceCase.create({
-        userDataDir,
-        credentialStore: credentials.store,
-        fetchFn: async () => {
-          markRefreshStarted();
-          await refreshReleased;
-          return Response.json(refresh.response);
-        },
-      });
+    for (const entryPoint of ['explicit', 'automatic'] as const) {
+      it(`${serviceCase.name} keeps a credential replaced during ${entryPoint} refresh`, async () => {
+        const userDataDir = await makeUserDataDir();
+        const credentials = createMemoryCredentialStore();
+        credentials.set(
+          serviceCase.slug,
+          'oauth_token',
+          JSON.stringify({ ...serviceCase.initialTokens, expires_at: NOW - 1 }),
+        );
+        const winner = {
+          ...serviceCase.initialTokens,
+          access_token: `${serviceCase.name.toLowerCase()}-winner-access`,
+          expires_at: NOW + 3_600_000,
+        };
+        credentials.replaceAfterNextRead(
+          serviceCase.slug,
+          'oauth_token',
+          JSON.stringify(winner),
+        );
+        let fetchCalls = 0;
+        const service = serviceCase.create({
+          userDataDir,
+          credentialStore: credentials.store,
+          fetchFn: async () => {
+            fetchCalls += 1;
+            return Response.json(refresh.response);
+          },
+        });
 
-      const refreshing = service.refreshTokens();
-      await refreshStarted;
-      const winner = {
-        ...serviceCase.initialTokens,
-        access_token: `${serviceCase.name.toLowerCase()}-winner-access`,
-        expires_at: NOW + 3_600_000,
-      };
-      credentials.set(serviceCase.slug, 'oauth_token', JSON.stringify(winner));
-      releaseRefresh();
+        const result = entryPoint === 'explicit'
+          ? await service.refreshTokens()
+          : await service.getAccessTokenInternal();
 
-      assert.deepEqual(await refreshing, { ok: true });
-      assert.deepEqual(
-        JSON.parse(credentials.get(serviceCase.slug, 'oauth_token') ?? 'null'),
-        winner,
-      );
-      assert.equal(await service.getAccessTokenInternal(), winner.access_token);
-    });
+        if (entryPoint === 'explicit') assert.deepEqual(result, { ok: true });
+        else assert.equal(result, winner.access_token);
+        assert.equal(fetchCalls, 1);
+        assert.deepEqual(
+          JSON.parse(credentials.get(serviceCase.slug, 'oauth_token') ?? 'null'),
+          winner,
+        );
+      });
+    }
   }
 
   for (const serviceCase of STORE_AUTHORITY_SERVICES.slice(0, 2)) {
@@ -521,12 +527,26 @@ function createMemoryCredentialStore(): {
   store: SharedOAuthCredentialStore;
   get(slug: string, kind: 'api_key' | 'oauth_token'): string | null;
   set(slug: string, kind: 'api_key' | 'oauth_token', value: string): void;
+  replaceAfterNextRead(
+    slug: string,
+    kind: 'api_key' | 'oauth_token',
+    value: string,
+  ): void;
 } {
   const secrets = new Map<string, string>();
   const key = (slug: string, kind: string): string => `${slug}\0${kind}`;
+  let replacementAfterNextRead: { key: string; value: string } | undefined;
   return {
     store: {
-      getSecret: async (slug, kind) => secrets.get(key(slug, kind)) ?? null,
+      getSecret: async (slug, kind) => {
+        const storedKey = key(slug, kind);
+        const current = secrets.get(storedKey) ?? null;
+        if (replacementAfterNextRead?.key === storedKey) {
+          secrets.set(storedKey, replacementAfterNextRead.value);
+          replacementAfterNextRead = undefined;
+        }
+        return current;
+      },
       setSecret: async (slug, kind, value) => {
         secrets.set(key(slug, kind), value);
       },
@@ -549,6 +569,9 @@ function createMemoryCredentialStore(): {
     get: (slug, kind) => secrets.get(key(slug, kind)) ?? null,
     set: (slug, kind, value) => {
       secrets.set(key(slug, kind), value);
+    },
+    replaceAfterNextRead: (slug, kind, value) => {
+      replacementAfterNextRead = { key: key(slug, kind), value };
     },
   };
 }
