@@ -14,12 +14,47 @@ import {
 import {
   buildPierRunArgs,
   createPierTaskRunner,
+  defaultPierProcessRunner,
   PierInfraError,
   type PierProcessRunner,
   type PierRunRequest,
   type PierRunResult,
   type PierTaskRunnerOptions,
 } from '../pier-task-runner.js';
+
+function terminationRequest(script: string, graceMs: number): PierRunRequest {
+  return {
+    pierBin: 'bash',
+    jobName: 'trial',
+    jobsDir: '/tmp',
+    args: ['-c', script],
+    cwd: '/tmp',
+    timeoutMs: 400,
+    terminationGraceMs: graceMs,
+  };
+}
+
+test('defaultPierProcessRunner terminates with SIGTERM first so pier can tear down', async () => {
+  // Pier converts SIGTERM into KeyboardInterrupt (pier/cli/jobs.py) and runs
+  // its finally-based docker teardown; a straight SIGKILL would leak the trial
+  // containers and orphan a host cell. The trap stands in for that handler.
+  const result = await defaultPierProcessRunner(
+    terminationRequest('trap \'echo got-term; exit 0\' TERM; echo ready; sleep 30 & wait', 5_000),
+  );
+  assert.equal(result.timedOut, true);
+  assert.match(result.stdout, /got-term/);
+  assert.notEqual(result.signal, 'SIGKILL');
+});
+
+test('defaultPierProcessRunner escalates to SIGKILL after the grace', async () => {
+  // The loop respawns children the group SIGTERM kills, while bash itself
+  // ignores TERM — only the SIGKILL escalation can end it.
+  const result = await defaultPierProcessRunner(
+    terminationRequest("trap '' TERM; while true; do sleep 1; done", 300),
+  );
+  assert.equal(result.timedOut, true);
+  assert.equal(result.signal, 'SIGKILL');
+});
 
 function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput {
   return {

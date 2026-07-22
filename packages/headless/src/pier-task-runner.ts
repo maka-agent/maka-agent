@@ -1,8 +1,7 @@
-import { execFile } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
-import { promisify } from 'node:util';
 import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { validateHarborCellOutput, type HarborCellOutput } from './cell-output.js';
@@ -40,8 +39,6 @@ import {
   type ProviderTokenUsage,
   type ProviderUpstreamCredentialResolver,
 } from './provider-auth-proxy.js';
-
-const execFileAsync = promisify(execFile);
 
 const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
@@ -146,6 +143,9 @@ export interface PierRunRequest {
    * CliFlag env_fallback reads only os.environ), and MAKA_SYSTEM_PROMPT (byte-
    * exact; pier's --ae parser would strip its whitespace). */
   env?: Record<string, string>;
+  /** SIGTERM-to-SIGKILL grace once the watchdog fires (default 120s: pier's
+   * SIGTERM-triggered finally chain must finish docker compose teardown). */
+  terminationGraceMs?: number;
 }
 
 export interface PierRunResult {
@@ -790,42 +790,90 @@ function withProviderTelemetryArtifact(
   return enriched;
 }
 
-const defaultPierProcessRunner: PierProcessRunner = async (request) => {
-  try {
-    const { stdout, stderr } = await execFileAsync(request.pierBin, [...request.args], {
+/** Grace between SIGTERM and SIGKILL when the watchdog fires. Pier's SIGTERM
+ * handler (pier/cli/jobs.py:771 -> :148 raises KeyboardInterrupt) unwinds its
+ * Python finally chain, which owns docker compose teardown — containers need
+ * real time to stop and delete, so the grace must cover a compose down. */
+const DEFAULT_TERMINATION_GRACE_MS = 120_000;
+const MAX_CAPTURED_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+/** Two-phase trial termination. A direct SIGKILL (execFile's timeout path)
+ * would skip every Python finally in pier — leaking docker compose containers
+ * — and, on the Maka host-cell arm, orphan the run-host-cell.mjs child, which
+ * would keep burning real tokens until its own cell deadline. Instead the
+ * child runs detached in its own process group; on timeout the whole group
+ * gets SIGTERM (triggering pier's own teardown — the teardown authority is
+ * pier's finally chain, never docker scanning here), then SIGKILL after the
+ * grace. Exported for the termination-contract tests. The Harbor runner shares
+ * this SIGKILL gap on main; its CLI's signal semantics are unverified, so that
+ * fix is deliberately out of this module's scope. */
+export const defaultPierProcessRunner: PierProcessRunner = async (request) => {
+  return await new Promise<PierRunResult>((resolvePromise) => {
+    const child = spawn(request.pierBin, [...request.args], {
       cwd: request.cwd,
-      maxBuffer: 64 * 1024 * 1024,
-      ...(request.timeoutMs !== undefined
-        ? { timeout: request.timeoutMs, killSignal: 'SIGKILL' as const }
-        : {}),
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
       ...(request.env ? { env: { ...process.env, ...request.env } } : {}),
     });
-    return { exitCode: 0, stdout, stderr };
-  } catch (error) {
-    const exitCode =
-      typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : 1;
-    return {
-      exitCode,
-      stdout: String((error as { stdout?: unknown }).stdout ?? ''),
-      stderr: String((error as { stderr?: unknown }).stderr ?? '') || errorText(error),
-      timedOut: isExecFileTimeout(error),
-      ...(typeof (error as { signal?: unknown }).signal === 'string'
-        ? { signal: (error as { signal: string }).signal }
-        : {}),
-    };
-  }
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let spawnError: Error | null = null;
+    let graceTimer: NodeJS.Timeout | undefined;
+    const watchdog =
+      request.timeoutMs !== undefined
+        ? setTimeout(() => {
+            timedOut = true;
+            killProcessGroup(child, 'SIGTERM');
+            graceTimer = setTimeout(
+              () => killProcessGroup(child, 'SIGKILL'),
+              request.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS,
+            );
+          }, request.timeoutMs)
+        : undefined;
+    child.stdout?.on('data', (chunk: Buffer) => {
+      if (stdout.length < MAX_CAPTURED_OUTPUT_BYTES) stdout += chunk.toString('utf8');
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      if (stderr.length < MAX_CAPTURED_OUTPUT_BYTES) stderr += chunk.toString('utf8');
+    });
+    child.once('error', (error) => {
+      spawnError = error;
+    });
+    child.once('close', (code, signal) => {
+      clearTimeout(watchdog);
+      clearTimeout(graceTimer);
+      resolvePromise({
+        exitCode: code ?? 1,
+        stdout,
+        stderr: stderr || (spawnError ? errorText(spawnError) : ''),
+        ...(timedOut ? { timedOut } : {}),
+        ...(signal ? { signal } : {}),
+      });
+    });
+  });
 };
 
-// The generic helpers below (isExecFileTimeout .. isRecord) intentionally stay
+function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) return;
+  try {
+    // Negative pid: signal the whole detached process group, so pier's own
+    // children (docker compose, the host cell) are reached too.
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+// The generic helpers below (readOptionalText .. isRecord) intentionally stay
 // local copies of their harbor-task-runner counterparts: they carry no
 // benchmark semantics, and exporting 3-line utilities would widen the Harbor
 // module's surface for no invariant. Everything with benchmark meaning is
 // imported from harbor-task-runner above.
-function isExecFileTimeout(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const record = error as { killed?: unknown; signal?: unknown };
-  return record.killed === true && record.signal === 'SIGKILL';
-}
 
 async function readOptionalText(path: string): Promise<string | null> {
   try {
