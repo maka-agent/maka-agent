@@ -12,6 +12,7 @@ import {
   type OperationResidency,
 } from './operation-dispatcher.js';
 import { BoundedSerialOutboundWriter } from './serial-outbound-writer.js';
+import { RuntimeHostTransportError } from '../transport/framed-transport.js';
 
 const MAX_IN_FLIGHT_REQUESTS = 64;
 
@@ -44,7 +45,12 @@ export class RuntimeHostConnectionSession {
 
   async run(): Promise<void> {
     try {
-      await this.#pumpInbound();
+      try {
+        await this.#pumpInbound();
+      } catch (error) {
+        if (!isReadEof(error)) throw error;
+        await this.#closeAfterDispatchedReplies();
+      }
     } catch {
       this.#teardown();
     } finally {
@@ -52,6 +58,24 @@ export class RuntimeHostConnectionSession {
       await Promise.allSettled(this.#requests.values());
       await Promise.all([this.#writer.settled(), this.#options.transport.closed]);
     }
+  }
+
+  async #closeAfterDispatchedReplies(): Promise<void> {
+    const outcome = await Promise.race([
+      Promise.allSettled([...this.#requests.values()]).then(() => 'drained' as const),
+      this.#options.transport.closed.then(() => 'closed' as const),
+    ]);
+    if (outcome === 'closed') {
+      this.#teardown();
+      return;
+    }
+    if (this.#closed) return;
+    await this.#writer.settled();
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#writer.close();
+    this.#options.transport.destroyAfterFlush();
+    this.#options.onTeardown();
   }
 
   async #pumpInbound(): Promise<void> {
@@ -111,4 +135,8 @@ export class RuntimeHostConnectionSession {
     this.#options.transport.destroy();
     this.#options.onTeardown();
   }
+}
+
+function isReadEof(error: unknown): boolean {
+  return error instanceof RuntimeHostTransportError && error.code === 'read_eof';
 }

@@ -25,7 +25,12 @@ interface ReadWaiter {
 
 export class RuntimeHostTransportError extends Error {
   constructor(
-    readonly code: 'closed' | 'read_timeout' | 'concurrent_read' | 'inbound_queue_full',
+    readonly code:
+      | 'closed'
+      | 'read_eof'
+      | 'read_timeout'
+      | 'concurrent_read'
+      | 'inbound_queue_full',
     message: string,
     options?: ErrorOptions,
   ) {
@@ -42,6 +47,7 @@ export class FramedTransport {
   #buffered = Buffer.alloc(0);
   #waiter: ReadWaiter | undefined;
   #failure: Error | undefined;
+  #readTerminal: RuntimeHostTransportError | undefined;
   #ended = false;
   #decoderEnded = false;
   #paused = false;
@@ -59,8 +65,10 @@ export class FramedTransport {
       this.#drainInbound();
     });
     socket.once('error', (error) => this.#fail(error));
-    socket.once('close', () => {
-      this.#fail(new RuntimeHostTransportError('closed', 'Runtime Host transport closed'));
+    socket.once('close', (hadError) => {
+      if (!this.#readTerminal || hadError) {
+        this.#fail(new RuntimeHostTransportError('closed', 'Runtime Host transport closed'));
+      }
       this.#resolveClosed();
     });
   }
@@ -73,6 +81,7 @@ export class FramedTransport {
       return queued.value;
     }
     if (this.#failure) throw this.#failure;
+    if (this.#readTerminal) throw this.#readTerminal;
     if (this.#waiter) {
       throw new RuntimeHostTransportError(
         'concurrent_read',
@@ -167,6 +176,7 @@ export class FramedTransport {
         }
         this.#decoder.end();
         this.#decoderEnded = true;
+        this.#endRead();
       }
     } catch (error) {
       this.#fail(asError(error));
@@ -213,6 +223,19 @@ export class FramedTransport {
       ),
     );
     this.socket.destroy();
+  }
+
+  #endRead(): void {
+    if (this.#readTerminal || this.#failure) return;
+    this.#readTerminal = new RuntimeHostTransportError(
+      'read_eof',
+      'Runtime Host transport read side ended',
+    );
+    if (!this.#waiter) return;
+    const waiter = this.#waiter;
+    this.#waiter = undefined;
+    if (waiter.timer) clearTimeout(waiter.timer);
+    waiter.reject(this.#readTerminal);
   }
 
   #fail(error: Error): void {

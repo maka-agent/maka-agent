@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
-import { connect, createServer, type Server, type Socket } from 'node:net';
+import { createServer, Socket, type Server } from 'node:net';
 import { test } from 'node:test';
 import { RUNTIME_HOST_MAX_FRAME_BYTES, RuntimeHostProtocolError } from '../protocol/index.js';
-import { FramedTransport } from '../transport/framed-transport.js';
+import { FramedTransport, RuntimeHostTransportError } from '../transport/framed-transport.js';
+
+test('drains clean half-open input before reporting typed read EOF', async () => {
+  await withSocketPair(async (transport, peer) => {
+    const ended = endSocket(peer, Buffer.from(`${JSON.stringify({ accepted: true })}\n`));
+    assert.deepEqual(await transport.read(1_000), { accepted: true });
+    await assert.rejects(
+      transport.read(1_000),
+      (error: unknown) => error instanceof RuntimeHostTransportError && error.code === 'read_eof',
+    );
+
+    const reply = Buffer.from(`${JSON.stringify({ reply: true })}\n`);
+    const received = readSocket(peer, reply.byteLength);
+    await transport.writeEncoded(reply);
+    assert.deepEqual(await received, reply);
+    await ended;
+
+    const failure = new Error('forced transport failure');
+    transport.destroy(failure);
+    await transport.closed;
+    await assert.rejects(transport.read(0), (error: unknown) => error === failure);
+  });
+});
 
 test('drains a paused frame burst before reporting a terminal partial frame', async () => {
   await withSocketPair(async (transport, peer) => {
@@ -66,7 +88,8 @@ async function withSocketPair(
   await listen(server);
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  const socket = connect(address.port, '127.0.0.1');
+  const socket = new Socket({ allowHalfOpen: true });
+  socket.connect(address.port, '127.0.0.1');
   await onceConnected(socket);
   const peer = await accepted.promise;
   const transport = new FramedTransport(socket);
@@ -78,6 +101,30 @@ async function withSocketPair(
     await transport.closed;
     await closeServer(server);
   }
+}
+
+function readSocket(socket: Socket, expectedBytes: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let receivedBytes = 0;
+    const onData = (chunk: Buffer) => {
+      chunks.push(Buffer.from(chunk));
+      receivedBytes += chunk.byteLength;
+      if (receivedBytes < expectedBytes) return;
+      cleanup();
+      resolve(Buffer.concat(chunks, receivedBytes));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      socket.off('data', onData);
+      socket.off('error', onError);
+    };
+    socket.on('data', onData);
+    socket.once('error', onError);
+  });
 }
 
 function writeSocket(socket: Socket, bytes: Uint8Array): Promise<void> {

@@ -20,7 +20,10 @@ import {
 import { RuntimeHostKernel, type RuntimeHostComposition } from '../server/index.js';
 import { RuntimeHostConnectionSession } from '../server/connection-session.js';
 import type { OperationHandlerMap } from '../server/operation-dispatcher.js';
-import { BoundedSerialOutboundWriter } from '../server/serial-outbound-writer.js';
+import {
+  BoundedSerialOutboundWriter,
+  RuntimeHostOutboundQueueError,
+} from '../server/serial-outbound-writer.js';
 import { FramedTransport } from '../transport/framed-transport.js';
 
 const CURRENT_PROTOCOL = {
@@ -120,6 +123,83 @@ test('serial outbound writer fails once when its real transport is closed', asyn
   }
 });
 
+test('serial outbound writer reports its 2 MiB byte bound before its frame bound', async () => {
+  const pair = await openTransportPair();
+  let failureCalls = 0;
+  const writer = new BoundedSerialOutboundWriter(pair.clientTransport, () => {
+    failureCalls += 1;
+  });
+  const settlements: Promise<{ status: 'fulfilled' } | { status: 'rejected'; error: Error }>[] = [];
+  let overload: unknown;
+  let acceptedFrames = 0;
+  try {
+    for (let index = 0; index < 64; index += 1) {
+      try {
+        const receipt = writer.enqueue(largeFailureResponse(`byte-bound-${index}`));
+        acceptedFrames += 1;
+        settlements.push(
+          receipt.flushed.then(
+            () => ({ status: 'fulfilled' as const }),
+            (error: unknown) => ({ status: 'rejected' as const, error: asError(error) }),
+          ),
+        );
+      } catch (error) {
+        overload = error;
+        break;
+      }
+    }
+
+    assert.ok(overload instanceof RuntimeHostOutboundQueueError);
+    assert.equal(overload.code, 'byte_limit');
+    assert.ok(acceptedFrames < 64, 'frame bound fired before the 2 MiB byte bound');
+    assert.equal(failureCalls, 1);
+    const results = await Promise.all(settlements);
+    assert.equal(results.length, acceptedFrames);
+    assert.equal(
+      results.every((result) => result.status === 'rejected' && result.error === overload),
+      true,
+    );
+  } finally {
+    writer.close();
+    await pair.close();
+  }
+});
+
+test('clean read EOF drains an already dispatched response before closing', async () => {
+  const fixture = await openHalfClosedDispatchedSession('half-close');
+  try {
+    fixture.releaseHandler.resolve();
+    const response = decodeHostFrame(await fixture.pair.clientTransport.read(1_000));
+    if ('kind' in response || response.operation !== 'turn.query') {
+      assert.fail('Expected the dispatched turn.query response');
+    }
+    assert.equal(response.ok, true);
+    await withTimeout(fixture.run, 1_000, 'connection did not close after draining its response');
+    assert.equal(fixture.teardownCalls(), 1);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('a fatal transport close during clean EOF drain tears down exactly once', async () => {
+  const fixture = await openHalfClosedDispatchedSession('fatal-close-after-eof');
+  try {
+    fixture.pair.serverTransport.destroy(new Error('forced transport failure'));
+    await withTimeout(
+      fixture.teardownObserved.promise,
+      1_000,
+      'fatal transport close did not interrupt EOF drain',
+    );
+    assert.equal(fixture.teardownCalls(), 1);
+
+    fixture.releaseHandler.resolve();
+    await withTimeout(fixture.run, 1_000, 'connection did not settle after its handler completed');
+    assert.equal(fixture.teardownCalls(), 1);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('a connection accepted before composition exists resolves ready handlers without reconnecting', async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-runtime-host-pre-ready-'));
   const root = join(base, 'root');
@@ -192,7 +272,7 @@ test('a connection accepted before composition exists resolves ready handlers wi
   }
 });
 
-test('disconnect while operation admission is pending does not execute the handler', async () => {
+test('connection reset while operation admission is pending does not execute the handler', async () => {
   const pair = await openTransportPair();
   const admissionEntered = deferred();
   const releaseAdmission = deferred();
@@ -248,7 +328,7 @@ test('disconnect while operation admission is pending does not execute the handl
       input: { sessionId: 'session', turnId: 'turn' },
     });
     await withTimeout(admissionEntered.promise, 1_000, 'operation did not enter admission');
-    pair.clientTransport.destroy();
+    pair.clientTransport.socket.resetAndDestroy();
     await withTimeout(
       teardownObserved.promise,
       1_000,
@@ -503,8 +583,17 @@ interface TransportPair {
   close(): Promise<void>;
 }
 
+interface HalfClosedDispatchedSession {
+  pair: TransportPair;
+  releaseHandler: Deferred;
+  teardownObserved: Deferred;
+  run: Promise<void>;
+  teardownCalls(): number;
+  close(): Promise<void>;
+}
+
 async function openTransportPair(): Promise<TransportPair> {
-  const listener = createServer();
+  const listener = createServer({ allowHalfOpen: true });
   const accepted = new Promise<Socket>((resolve) => listener.once('connection', resolve));
   await listenServer(listener);
   const address = listener.address();
@@ -527,6 +616,87 @@ async function openTransportPair(): Promise<TransportPair> {
       await closeServer(listener);
     },
   };
+}
+
+async function openHalfClosedDispatchedSession(
+  turnId: string,
+): Promise<HalfClosedDispatchedSession> {
+  const pair = await openTransportPair();
+  const handlerEntered = deferred();
+  const releaseHandler = deferred();
+  const teardownObserved = deferred();
+  let teardownCalls = 0;
+  const session = new RuntimeHostConnectionSession({
+    transport: pair.serverTransport,
+    connection: {
+      hostEpoch: 'host-epoch',
+      connectionId: `${turnId}-client`,
+      surface: 'tui',
+      principal: 'local_os_user',
+    },
+    resolveHandlers: () => ({
+      'host.status': async () => ({
+        ok: true,
+        result: {
+          hostEpoch: 'host-epoch',
+          state: 'ready',
+          connections: 1,
+          activeOperations: 1,
+          activeResidencies: 0,
+        },
+      }),
+      ...createHandlers(async (input) => {
+        handlerEntered.resolve();
+        await releaseHandler.promise;
+        return {
+          ok: true,
+          result: runningSnapshot(input.sessionId, input.turnId),
+        };
+      }),
+    }),
+    beginOperation: async () => ({
+      acquireResidency: () => ({ release() {} }),
+      seal() {},
+      finish() {},
+    }),
+    onTeardown: () => {
+      teardownCalls += 1;
+      teardownObserved.resolve();
+    },
+  });
+  const run = session.run();
+  try {
+    await pair.clientTransport.write({
+      requestId: `${turnId}-request`,
+      operation: 'turn.query',
+      input: { sessionId: 'session', turnId },
+    });
+    await withTimeout(handlerEntered.promise, 1_000, 'handler was not dispatched');
+    const readEnded = onceSocketEnd(pair.serverTransport.socket);
+    pair.clientTransport.socket.end();
+    await withTimeout(readEnded, 1_000, 'Host did not observe Client read EOF');
+    return {
+      pair,
+      releaseHandler,
+      teardownObserved,
+      run,
+      teardownCalls: () => teardownCalls,
+      close: async () => {
+        releaseHandler.resolve();
+        pair.clientTransport.destroy();
+        await Promise.allSettled([run, pair.close()]);
+      },
+    };
+  } catch (error) {
+    releaseHandler.resolve();
+    pair.clientTransport.destroy();
+    await Promise.allSettled([run, pair.close()]);
+    throw error;
+  }
+}
+
+function onceSocketEnd(socket: Socket): Promise<void> {
+  return new Promise((resolve) => socket.once('end', resolve));
 }
 
 function listenServer(server: Server): Promise<void> {
@@ -575,6 +745,18 @@ function statusResponse(requestId: string): ResponseFrame {
   };
 }
 
+function largeFailureResponse(requestId: string): ResponseFrame {
+  return {
+    requestId,
+    operation: 'host.status',
+    ok: false,
+    error: {
+      code: 'internal_failure',
+      message: 'x'.repeat(48 * 1024),
+    },
+  };
+}
+
 function runningSnapshot(sessionId: string, turnId: string): TurnSnapshot {
   return {
     sessionId,
@@ -609,6 +791,10 @@ function deferred(): Deferred {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

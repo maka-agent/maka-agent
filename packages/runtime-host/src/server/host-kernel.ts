@@ -105,7 +105,7 @@ export class RuntimeHostKernel {
       this.#resolveClosed = resolve;
       this.#rejectClosed = reject;
     });
-    this.#server = createServer((socket) => this.#accept(socket));
+    this.#server = createServer({ allowHalfOpen: true }, (socket) => this.#accept(socket));
   }
 
   static async start(options: RuntimeHostKernelOptions): Promise<RuntimeHostKernel> {

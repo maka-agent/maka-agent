@@ -14,6 +14,17 @@ export interface OutboundWriteReceipt {
   readonly flushed: Promise<void>;
 }
 
+export class RuntimeHostOutboundQueueError extends Error {
+  constructor(readonly code: 'frame_limit' | 'byte_limit') {
+    super(
+      code === 'frame_limit'
+        ? 'Runtime Host outbound queue exceeded its frame bound'
+        : 'Runtime Host outbound queue exceeded its byte bound',
+    );
+    this.name = 'RuntimeHostOutboundQueueError';
+  }
+}
+
 export class BoundedSerialOutboundWriter {
   readonly #transport: FramedTransport;
   readonly #onFailure: () => void;
@@ -41,11 +52,13 @@ export class BoundedSerialOutboundWriter {
       this.#fail(failure);
       throw failure;
     }
-    if (
-      this.#queue.length >= MAX_QUEUED_FRAMES ||
-      this.#queuedBytes + encoded.byteLength > MAX_QUEUED_BYTES
-    ) {
-      const failure = new Error('Runtime Host outbound queue exceeded its bound');
+    if (this.#queue.length >= MAX_QUEUED_FRAMES) {
+      const failure = new RuntimeHostOutboundQueueError('frame_limit');
+      this.#fail(failure);
+      throw failure;
+    }
+    if (this.#queuedBytes + encoded.byteLength > MAX_QUEUED_BYTES) {
+      const failure = new RuntimeHostOutboundQueueError('byte_limit');
       this.#fail(failure);
       throw failure;
     }
