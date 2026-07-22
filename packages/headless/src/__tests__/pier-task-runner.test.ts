@@ -448,6 +448,34 @@ test('pier-graded failed cells stay scored through the fixed-prompt controller',
   });
 });
 
+test('createPierTaskRunner scores a graded trial despite an AgentTimeoutError', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    // Pier records the agent exception and then unconditionally runs the
+    // verifier, so a timed-out agent can still earn its actual reward — for
+    // both outcomes, and even when pier itself exits non-zero.
+    for (const reward of [1, 0]) {
+      const runner = createPierTaskRunner(
+        baseOptions({
+          jobsDir,
+          makaRepoPath: repo,
+          runPier: fakePier({
+            reward,
+            exitCode: 3,
+            exceptionInfo: {
+              exception_type: 'AgentTimeoutError',
+              exception_message: 'Agent execution timed out after 600 seconds',
+            },
+          }),
+        }),
+      );
+      const output = await runner(runInput());
+      assert.equal(output.harbor.reward, reward);
+      assert.equal(output.harbor.verifier?.outcome, reward > 0 ? 'passed' : 'failed');
+      assert.equal(output.cell.status, 'completed');
+    }
+  });
+});
+
 test('createPierTaskRunner recovers execution identity from a budget-exhausted trial', async () => {
   await withDirs(async ({ jobsDir, repo }) => {
     const identity = {

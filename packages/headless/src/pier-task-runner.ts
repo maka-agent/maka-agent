@@ -330,12 +330,28 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
         );
       }
 
-      // A populated `exception_info` means the trial errored before/while the
-      // verifier graded it. A model budget exhaustion is a benchmark outcome the
-      // controller records separately; anything else is infra.
+      // A populated `exception_info` records how the agent phase ended, NOT
+      // whether the trial was graded: pier's trial.py records the exception and
+      // then unconditionally runs verification, so an AgentTimeoutError trial
+      // can still carry an authoritative reward. Mirror Harbor's
+      // completeTimedOutTrial semantics: when the grading authority and the
+      // cell output are both present, score the trial on its actual reward;
+      // only an ungraded budget exhaustion is a budget_exhausted outcome, and
+      // any other exception is infra.
       const trialException = await readTrialException(join(trialDir, TRIAL_RESULT));
+      let completeTimedOutTrial = false;
       if (trialException) {
-        if (isBudgetExhaustedTrialException(trialException)) {
+        if (!isBudgetExhaustedTrialException(trialException)) {
+          throw new PierInfraError(
+            `pier trial errored for task ${input.task.id}: ${trialException}`,
+            tail(result.stderr || result.stdout),
+          );
+        }
+        const [gradedReward, cellArtifact] = await Promise.all([
+          readOptionalPierReward(trialDir, input.task.id),
+          readOptionalText(join(trialDir, TRIAL_CELL_OUTPUT)),
+        ]);
+        if (gradedReward === null || cellArtifact === null) {
           // Recover attested evidence (identity/usage/cell output) via the shared
           // Harbor implementation so a budget-exhausted sample keeps its Pass@1
           // eligibility instead of being excluded as missing_execution_identity.
@@ -356,12 +372,9 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
               : undefined,
           );
         }
-        throw new PierInfraError(
-          `pier trial errored for task ${input.task.id}: ${trialException}`,
-          tail(result.stderr || result.stdout),
-        );
+        completeTimedOutTrial = true;
       }
-      if (result.exitCode !== 0) {
+      if (result.exitCode !== 0 && !completeTimedOutTrial) {
         throw new PierInfraError(
           `pier run exited ${result.exitCode} for task ${input.task.id}`,
           tail(result.stderr || result.stdout),
@@ -686,11 +699,13 @@ async function readVerifierDurationMs(resultPath: string): Promise<number> {
     : 0;
 }
 
-async function readPierReward(trialDir: string, taskId: string): Promise<number> {
-  // Prefer the DeepSWE task verifier's reward.json; fall back to the trial
-  // result's verifier_result.rewards.reward (same value, always present on a
-  // completed trial). Unlike the Maka oracle verifier, Pier tasks write no
-  // reward.txt and no structured maka-verifier-outcome.json.
+/** The trial's graded reward, or null when the trial was never graded. Prefers
+ * the DeepSWE task verifier's reward.json, falling back to the trial result's
+ * verifier_result.rewards.reward (same value, present on a completed trial).
+ * Unlike the Maka oracle verifier, Pier tasks write no reward.txt and no
+ * structured maka-verifier-outcome.json. A corrupt reward.json is infra, not
+ * "ungraded" — the grading authority existed and cannot be read. */
+async function readOptionalPierReward(trialDir: string, taskId: string): Promise<number | null> {
   const rewardJson = await readOptionalText(join(trialDir, TRIAL_REWARD_JSON));
   if (rewardJson) {
     let parsed: unknown;
@@ -713,7 +728,13 @@ async function readPierReward(trialDir: string, taskId: string): Promise<number>
   if (rewards && typeof rewards.reward === 'number' && Number.isFinite(rewards.reward)) {
     return rewards.reward;
   }
-  throw new PierInfraError(`missing verifier reward for task ${taskId}`);
+  return null;
+}
+
+async function readPierReward(trialDir: string, taskId: string): Promise<number> {
+  const reward = await readOptionalPierReward(trialDir, taskId);
+  if (reward === null) throw new PierInfraError(`missing verifier reward for task ${taskId}`);
+  return reward;
 }
 
 async function readCellOutput(cellOutputPath: string, taskId: string): Promise<HarborCellOutput> {
