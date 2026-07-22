@@ -93,6 +93,8 @@ describe('prepared file mutation runtime fact', () => {
       assert.equal(await git(root, 'status', '--porcelain=v1'), statusBefore);
       assert.equal(fact.before.kind, 'file');
       assert.equal(fact.expectedAfter.sha256.length, 64);
+      assert.ok(fact.expectedAfter.blobOid);
+      assert.ok(fact.carrier);
       assert.equal(
         await git(root, 'cat-file', '-p', fact.expectedAfter.blobOid),
         'before NEW after',
@@ -165,6 +167,112 @@ describe('prepared file mutation runtime fact', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  for (const failpoint of [
+    'after_temp_write',
+    'after_temp_fsync',
+    'before_replace',
+    'after_replace',
+    'after_parent_fsync',
+  ] as const) {
+    it(`recovers a ${failpoint} interruption to one complete file image`, async () => {
+      const root = await mkdtemp(join(tmpdir(), `maka-file-crash-${failpoint}-`));
+      try {
+        await git(root, 'init', '--quiet');
+        await writeFile(join(root, 'notes.txt'), 'before image');
+        const preparer = new GitFileCheckpointCarrier();
+        const fact = await preparer.prepare({
+          operationId: `operation-${failpoint}`,
+          workspaceRoot: root,
+          targetPath: 'notes.txt',
+          expectedContent: Buffer.from('after image'),
+          transform: { id: 'maka.write.utf8', version: 1, argsHash: 'f'.repeat(64) },
+        });
+        const interrupted = new GitFileCheckpointCarrier({
+          failpoint: (point) => {
+            if (point === failpoint) throw new Error(`crash:${point}`);
+          },
+        });
+
+        await assert.rejects(interrupted.redo(fact), new RegExp(`crash:${failpoint}`));
+        const contentAfterCrash = await readFile(join(root, 'notes.txt'), 'utf8');
+        assert.equal(
+          contentAfterCrash,
+          failpoint === 'after_replace' || failpoint === 'after_parent_fsync'
+            ? 'after image'
+            : 'before image',
+        );
+        assert.deepEqual(
+          (await readdir(root)).filter((name) => name.includes('.maka-')),
+          [],
+        );
+
+        const restarted = new GitFileCheckpointCarrier();
+        await restarted.redo(fact);
+        assert.equal(await readFile(join(root, 'notes.txt'), 'utf8'), 'after image');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it('never replaces an externally drifted file during redo', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-file-drift-'));
+    try {
+      await git(root, 'init', '--quiet');
+      await writeFile(join(root, 'notes.txt'), 'before image');
+      const carrier = new GitFileCheckpointCarrier();
+      const fact = await carrier.prepare({
+        operationId: 'operation-drift',
+        workspaceRoot: root,
+        targetPath: 'notes.txt',
+        expectedContent: Buffer.from('after image'),
+        transform: { id: 'maka.write.utf8', version: 1, argsHash: 'e'.repeat(64) },
+      });
+      await writeFile(join(root, 'notes.txt'), 'external edit');
+
+      await assert.rejects(carrier.redo(fact), /prepared_file_drifted/);
+      assert.equal(await readFile(join(root, 'notes.txt'), 'utf8'), 'external edit');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const failpoint of ['before_checkpoint_durable', 'after_checkpoint_durable'] as const) {
+    it(`keeps the live file unchanged at ${failpoint}`, async () => {
+      const root = await mkdtemp(join(tmpdir(), `maka-checkpoint-crash-${failpoint}-`));
+      try {
+        await git(root, 'init', '--quiet');
+        await writeFile(join(root, 'notes.txt'), 'before image');
+        const carrier = new GitFileCheckpointCarrier({
+          failpoint: (point) => {
+            if (point === failpoint) throw new Error(`crash:${point}`);
+          },
+        });
+
+        await assert.rejects(
+          carrier.prepare({
+            operationId: `operation-${failpoint}`,
+            workspaceRoot: root,
+            targetPath: 'notes.txt',
+            expectedContent: Buffer.from('after image'),
+            transform: { id: 'maka.write.utf8', version: 1, argsHash: 'd'.repeat(64) },
+          }),
+          new RegExp(`crash:${failpoint}`),
+        );
+        assert.equal(await readFile(join(root, 'notes.txt'), 'utf8'), 'before image');
+        const refs = await git(
+          root,
+          'for-each-ref',
+          '--format=%(refname)',
+          'refs/maka/checkpoints',
+        );
+        assert.equal(refs.length > 0, failpoint === 'after_checkpoint_durable');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 const execFileAsync = promisify(execFile);

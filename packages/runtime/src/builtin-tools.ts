@@ -50,7 +50,7 @@ import {
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
 import { acquireFileWriteLock, withFileWriteLock } from './file-write-lock.js';
-import type { PreparedFileMutationCarrier } from './git-file-checkpoint-carrier.js';
+import type { PreparedFileMutationCarrier } from './local-file-checkpoint-carrier.js';
 import {
   PREPARED_FILE_MUTATION_FACT_KIND,
   type PreparedFileMutationFact,
@@ -372,8 +372,8 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
                 ? canonicalExistingPath(context.cwd)
                 : context.cwd;
               if (
-                options.fileMutationCheckpointCarrier!.isAvailable &&
-                !(await options.fileMutationCheckpointCarrier!.isAvailable(canonicalCwd))
+                options.fileMutationCheckpointCarrier!.supports &&
+                !(await options.fileMutationCheckpointCarrier!.supports(canonicalCwd, path))
               ) {
                 return undefined;
               }
@@ -382,11 +382,12 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
                 : (await executor.writeLockKey({ cwd: canonicalCwd, path })).key;
               const lease = await acquireFileWriteLock(key);
               try {
+                const expectedContent = Buffer.from(content, 'utf8');
                 const fact = await options.fileMutationCheckpointCarrier!.prepare({
                   operationId: context.operationId,
                   workspaceRoot: canonicalCwd,
                   targetPath: path,
-                  expectedContent: Buffer.from(content, 'utf8'),
+                  expectedContent,
                   transform: {
                     ...WRITE_FILE_TRANSFORM,
                     argsHash: fileMutationArgsHash({ path, content }),
@@ -395,7 +396,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
                 return {
                   runtimeFacts: [preparedFileMutationEnvelope(fact)],
                   execute: async () => {
-                    await options.fileMutationCheckpointCarrier!.redo(fact);
+                    await options.fileMutationCheckpointCarrier!.apply(fact, expectedContent);
                     return {
                       ok: true as const,
                       path: fact.canonicalPath,
@@ -467,16 +468,13 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         : {}),
       ...(options.fileMutationCheckpointCarrier
         ? {
-            prepareDurableExecution: async (
-              { path, old_string, new_string },
-              context,
-            ) => {
+            prepareDurableExecution: async ({ path, old_string, new_string }, context) => {
               const canonicalCwd = options.filesystemWorker
                 ? canonicalExistingPath(context.cwd)
                 : context.cwd;
               if (
-                options.fileMutationCheckpointCarrier!.isAvailable &&
-                !(await options.fileMutationCheckpointCarrier!.isAvailable(canonicalCwd))
+                options.fileMutationCheckpointCarrier!.supports &&
+                !(await options.fileMutationCheckpointCarrier!.supports(canonicalCwd, path))
               ) {
                 return undefined;
               }
@@ -485,6 +483,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
                 : (await executor.writeLockKey({ cwd: canonicalCwd, path })).key;
               const lease = await acquireFileWriteLock(key);
               let editResult: ReturnType<typeof computeEditedSource> | undefined;
+              let expectedContent: Buffer | undefined;
               try {
                 const fact = await options.fileMutationCheckpointCarrier!.prepare({
                   operationId: context.operationId,
@@ -498,19 +497,23 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
                       new_string,
                       path,
                     );
-                    return Buffer.from(editResult.content, 'utf8');
+                    expectedContent = Buffer.from(editResult.content, 'utf8');
+                    return expectedContent;
                   },
                   transform: {
                     ...EDIT_FILE_TRANSFORM,
                     argsHash: fileMutationArgsHash({ path, old_string, new_string }),
                   },
                 });
-                if (!editResult) throw new Error('Edit checkpoint did not derive an after image');
+                if (!editResult || !expectedContent) {
+                  throw new Error('Edit checkpoint did not derive an after image');
+                }
                 const result = editResult;
+                const preparedContent = expectedContent;
                 return {
                   runtimeFacts: [preparedFileMutationEnvelope(fact)],
                   execute: async () => {
-                    await options.fileMutationCheckpointCarrier!.redo(fact);
+                    await options.fileMutationCheckpointCarrier!.apply(fact, preparedContent);
                     return {
                       ok: true as const,
                       path: fact.canonicalPath,

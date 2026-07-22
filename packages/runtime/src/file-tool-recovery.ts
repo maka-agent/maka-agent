@@ -5,6 +5,7 @@ import type {
 } from './tool-recovery-contract.js';
 import { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 import { acquireFileWriteLock } from './file-write-lock.js';
+import { computeEditedSource } from './edit-replace.js';
 import {
   EDIT_FILE_TRANSFORM,
   WRITE_FILE_TRANSFORM,
@@ -18,7 +19,8 @@ import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
 export interface PreparedFileRecoveryCarrier {
   inspect(fact: PreparedFileMutationFact): Promise<CurrentFileCheckpointState>;
-  redo(fact: PreparedFileMutationFact): Promise<void>;
+  readCurrentContent(fact: PreparedFileMutationFact): Promise<Uint8Array | undefined>;
+  apply(fact: PreparedFileMutationFact, expectedContent: Uint8Array): Promise<void>;
 }
 
 type PreparedFileRecoveryObservation =
@@ -110,7 +112,8 @@ async function reconcilePreparedFileOperation(
     }
 
     try {
-      await carrier.redo(fact);
+      const expectedContent = await regenerateExpectedContent(toolName, operation, fact, carrier);
+      await carrier.apply(fact, expectedContent);
     } catch (error) {
       const afterFailure = await carrier.inspect(fact);
       const afterFailureDecision = decidePreparedFileMutation(fact, afterFailure);
@@ -138,13 +141,41 @@ async function reconcilePreparedFileOperation(
   }
 }
 
+async function regenerateExpectedContent(
+  toolName: 'Write' | 'Edit',
+  operation: UnsettledToolOperation,
+  fact: PreparedFileMutationFact,
+  carrier: PreparedFileRecoveryCarrier,
+): Promise<Uint8Array> {
+  if (toolName === 'Write') {
+    const args = parseWriteArgs(operation.args);
+    if (!args) throw new Error('Write recovery arguments are invalid');
+    return Buffer.from(args.content, 'utf8');
+  }
+  const args = parseEditArgs(operation.args);
+  if (!args) throw new Error('Edit recovery arguments are invalid');
+  const current = await carrier.readCurrentContent(fact);
+  if (!current) throw new Error('Edit recovery before image is missing');
+  return Buffer.from(
+    computeEditedSource(
+      Buffer.from(current).toString('utf8'),
+      args.oldString,
+      args.newString,
+      args.path,
+    ).content,
+    'utf8',
+  );
+}
+
 function preparedFactMatchesOperation(
   toolName: 'Write' | 'Edit',
   fact: PreparedFileMutationFact,
   operation: UnsettledToolOperation,
 ): boolean {
   if (!operation.operationId || fact.operationId !== operation.operationId) return false;
-  if (normalizeRelativePath(fact.relativePath) !== normalizeRelativePath(filePath(operation.args))) {
+  if (
+    normalizeRelativePath(fact.relativePath) !== normalizeRelativePath(filePath(operation.args))
+  ) {
     return false;
   }
   if (toolName === 'Write') {
@@ -176,7 +207,8 @@ function synthesizedPreparedResult(
   fact: PreparedFileMutationFact,
   reasonCode: 'prepared_after_matches' | 'prepared_redone',
 ): ToolReconcileDecision {
-  const args = toolName === 'Write' ? parseWriteArgs(operation.args) : parseEditArgs(operation.args);
+  const args =
+    toolName === 'Write' ? parseWriteArgs(operation.args) : parseEditArgs(operation.args);
   return {
     result: 'applied',
     reasonCode,
@@ -233,4 +265,3 @@ function parseEditArgs(
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-

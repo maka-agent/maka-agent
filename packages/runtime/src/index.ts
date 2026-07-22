@@ -1121,11 +1121,20 @@ export {
   type PreparedFileMutationDisposition,
 } from './prepared-file-mutation.js';
 export {
+  LocalFileCheckpointCarrier,
+  LocalFileMutationConflictError,
+  type LocalFileCheckpointCarrierOptions,
+  type LocalFileCheckpointFailpoint,
+  type PrepareFileMutationInput,
+  type PreparedFileMutationCarrier,
+} from './local-file-checkpoint-carrier.js';
+
+export {
   GitFileCheckpointCarrier,
   PreparedFileMutationConflictError,
   type GitFileCheckpointCarrierOptions,
+  type GitFileCheckpointFailpoint,
   type PrepareGitFileMutationInput,
-  type PreparedFileMutationCarrier,
 } from './git-file-checkpoint-carrier.js';
 
 export {

@@ -2,10 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type {
-  PreparedFileMutationFact,
-  PreparedFileBeforeState,
-} from './tool-recovery-facts.js';
+import type { PreparedFileMutationFact, PreparedFileBeforeState } from './tool-recovery-facts.js';
 import {
   decidePreparedFileMutation,
   type CurrentFileCheckpointState,
@@ -42,19 +39,36 @@ export interface PreparedFileMutationCarrier {
 
 export interface GitFileCheckpointCarrierOptions {
   gitBinary?: string;
+  failpoint?: (point: GitFileCheckpointFailpoint, detail?: { tempPath?: string }) => void;
 }
+
+export type GitFileCheckpointFailpoint =
+  | 'before_checkpoint_durable'
+  | 'after_checkpoint_durable'
+  | 'after_temp_write'
+  | 'after_temp_fsync'
+  | 'before_replace'
+  | 'after_replace'
+  | 'after_parent_fsync';
 
 export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
   private readonly gitBinary: string;
+  private readonly failpoint?: (
+    point: GitFileCheckpointFailpoint,
+    detail?: { tempPath?: string },
+  ) => void;
 
   constructor(options: GitFileCheckpointCarrierOptions = {}) {
     this.gitBinary = options.gitBinary ?? 'git';
+    this.failpoint = options.failpoint;
   }
 
   async isAvailable(workspaceRoot: string): Promise<boolean> {
     try {
       const canonicalRoot = await realpath(workspaceRoot);
-      return (await this.git(canonicalRoot, ['rev-parse', '--is-inside-work-tree'])).trim() === 'true';
+      return (
+        (await this.git(canonicalRoot, ['rev-parse', '--is-inside-work-tree'])).trim() === 'true'
+      );
     } catch {
       return false;
     }
@@ -62,10 +76,7 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
 
   async prepare(input: PrepareGitFileMutationInput): Promise<PreparedFileMutationFact> {
     const workspaceRoot = await realpath(input.workspaceRoot);
-    const canonicalPath = resolve(workspaceRoot, input.targetPath);
-    if (!isPathWithin(workspaceRoot, canonicalPath)) {
-      throw new Error('Prepared file mutation target escapes the workspace');
-    }
+    const canonicalPath = await resolvePreparedTarget(workspaceRoot, input.targetPath);
     const relativePath = normalizeGitPath(relative(workspaceRoot, canonicalPath));
     if (!relativePath) throw new Error('Prepared file mutation target must be a file path');
 
@@ -118,7 +129,9 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
       mode,
     };
     const treeEntries = [
-      ...(before.kind === 'file' ? [`${before.mode.toString(8)} blob ${before.blobOid}\tbefore`] : []),
+      ...(before.kind === 'file'
+        ? [`${before.mode.toString(8)} blob ${before.blobOid}\tbefore`]
+        : []),
       `${expectedAfter.mode.toString(8)} blob ${expectedAfter.blobOid}\tafter`,
     ];
     const treeOid = (
@@ -138,6 +151,7 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
       .update(canonicalPath)
       .digest('hex');
     const retentionRef = `refs/maka/checkpoints/operations/${retentionKey}`;
+    this.failpoint?.('before_checkpoint_durable');
     await this.git(workspaceRoot, ['update-ref', retentionRef, commitOid]);
     const retainedCommit = (
       await this.git(workspaceRoot, ['rev-parse', '--verify', `${retentionRef}^{commit}`])
@@ -145,6 +159,7 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
     if (retainedCommit !== commitOid) {
       throw new Error('Git checkpoint retention ref did not resolve to the prepared commit');
     }
+    this.failpoint?.('after_checkpoint_durable');
 
     return {
       protocol: 'prepared_file_mutation_v1',
@@ -169,6 +184,7 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
     if (!isPathWithin(workspaceRoot, canonicalPath)) {
       throw new Error('Prepared file mutation target escapes its recorded workspace');
     }
+    await assertCanonicalParent(canonicalPath);
     try {
       const info = await lstat(canonicalPath);
       if (!info.isFile() || info.isSymbolicLink()) {
@@ -187,10 +203,14 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
     if (initial.disposition === 'park') {
       throw new PreparedFileMutationConflictError(initial.reasonCode);
     }
+    const expectedBlobOid = fact.expectedAfter.blobOid;
+    if (!expectedBlobOid) {
+      throw new Error('Prepared file mutation has no Git after blob');
+    }
     await this.validateCarrier(fact);
     const expectedContent = await runProcessBytes(
       this.gitBinary,
-      ['cat-file', 'blob', fact.expectedAfter.blobOid],
+      ['cat-file', 'blob', expectedBlobOid],
       fact.workspaceRoot,
     );
     if (
@@ -211,8 +231,17 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
       tempExists = true;
       try {
         await temp.writeFile(expectedContent);
+        this.failpoint?.('after_temp_write', { tempPath });
+        const installedTemp = await readFile(tempPath);
+        if (
+          installedTemp.byteLength !== fact.expectedAfter.byteLength ||
+          sha256(installedTemp) !== fact.expectedAfter.sha256
+        ) {
+          throw new Error('Prepared temporary file does not match its durable after identity');
+        }
         await temp.chmod(fact.expectedAfter.mode & 0o777);
         await temp.sync();
+        this.failpoint?.('after_temp_fsync');
       } finally {
         await temp.close();
       }
@@ -222,9 +251,12 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
       if (revalidated.disposition !== 'redo') {
         throw new PreparedFileMutationConflictError('prepared_file_drifted_before_replace');
       }
+      this.failpoint?.('before_replace');
       await rename(tempPath, fact.canonicalPath);
       tempExists = false;
+      this.failpoint?.('after_replace');
       await fsyncDirectory(targetDir);
+      this.failpoint?.('after_parent_fsync');
       const installed = decidePreparedFileMutation(fact, await this.inspect(fact));
       if (installed.disposition !== 'finalize') {
         throw new Error('Atomic replace did not install the prepared after image');
@@ -250,6 +282,8 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
   }
 
   private async validateCarrier(fact: PreparedFileMutationFact): Promise<void> {
+    const carrier = fact.carrier;
+    if (!carrier) throw new Error('Prepared file mutation has no Git carrier');
     const commonDir = await realpath(
       (
         await this.git(fact.workspaceRoot, [
@@ -259,14 +293,14 @@ export class GitFileCheckpointCarrier implements PreparedFileMutationCarrier {
         ])
       ).trim(),
     );
-    if (commonDir !== (await realpath(fact.carrier.repositoryCommonDir))) {
+    if (commonDir !== (await realpath(carrier.repositoryCommonDir))) {
       throw new Error('Prepared file mutation repository identity changed');
     }
     const retained = (
       await this.git(fact.workspaceRoot, [
         'rev-parse',
         '--verify',
-        `${fact.carrier.retentionRef}^{commit}`,
+        `${carrier.retentionRef}^{commit}`,
       ])
     ).trim();
     if (!retained) throw new Error('Prepared file mutation retention ref is missing');
@@ -373,4 +407,36 @@ function isPathWithin(root: string, candidate: string): boolean {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
+}
+
+async function resolvePreparedTarget(workspaceRoot: string, targetPath: string): Promise<string> {
+  const candidate = resolve(workspaceRoot, targetPath);
+  if (!isPathWithin(workspaceRoot, candidate)) {
+    throw new Error('Prepared file mutation target escapes the workspace');
+  }
+  try {
+    const info = await lstat(candidate);
+    if (info.isSymbolicLink()) {
+      throw new Error('Prepared file mutation target must not be a symlink');
+    }
+    const canonical = await realpath(candidate);
+    if (!isPathWithin(workspaceRoot, canonical)) {
+      throw new Error('Prepared file mutation target escapes the workspace');
+    }
+    return canonical;
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== 'ENOENT') throw error;
+    const canonicalParent = await realpath(dirname(candidate));
+    if (!isPathWithin(workspaceRoot, canonicalParent)) {
+      throw new Error('Prepared file mutation target escapes the workspace');
+    }
+    return join(canonicalParent, basename(candidate));
+  }
+}
+
+async function assertCanonicalParent(target: string): Promise<void> {
+  const canonicalParent = await realpath(dirname(target));
+  if (join(canonicalParent, basename(target)) !== target) {
+    throw new Error('Prepared file mutation target parent identity changed');
+  }
 }

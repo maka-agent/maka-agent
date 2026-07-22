@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 
 import { buildBuiltinTools } from '../builtin-tools.js';
 import type {
-  PrepareGitFileMutationInput,
+  PrepareFileMutationInput,
   PreparedFileMutationCarrier,
-} from '../git-file-checkpoint-carrier.js';
+} from '../local-file-checkpoint-carrier.js';
+import { LocalFileCheckpointCarrier } from '../local-file-checkpoint-carrier.js';
+import type { CurrentFileCheckpointState } from '../prepared-file-mutation.js';
 import type { DurableToolPreparationContext } from '../tool-runtime.js';
 import type { PreparedFileMutationFact } from '../tool-recovery-facts.js';
 
@@ -80,51 +82,55 @@ describe('builtin prepared file mutations', () => {
     });
   });
 
-  test('falls back to the legacy execution path when the cwd has no Git checkpoint carrier', async () => {
+  test('prepares and applies a recoverable Write in a directory with no Git repository', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-prepared-unavailable-'));
-    const carrier = new FakeCarrier(undefined, false);
+    const carrier = new LocalFileCheckpointCarrier();
     const write = buildBuiltinTools({ fileMutationCheckpointCarrier: carrier }).find(
       (candidate) => candidate.name === 'Write',
     );
     assert.ok(write?.prepareDurableExecution);
 
-    assert.equal(
-      await write.prepareDurableExecution(
-        { path: 'created.txt', content: 'hello' },
-        preparationContext(root),
-      ),
-      undefined,
+    const preparation = await write.prepareDurableExecution(
+      { path: 'created.txt', content: 'hello' },
+      preparationContext(root),
     );
-    assert.equal(carrier.prepared.length, 0);
+    assert.ok(preparation);
+    const payload = preparation.runtimeFacts[0]?.payload as PreparedFileMutationFact | undefined;
+    assert.ok(payload);
+    assert.equal(payload.carrier, undefined);
+    await preparation.execute();
+    assert.equal(await readFile(join(root, 'created.txt'), 'utf8'), 'hello');
+    await preparation.release();
   });
 });
 
 class FakeCarrier implements PreparedFileMutationCarrier {
-  readonly prepared: PrepareGitFileMutationInput[] = [];
+  readonly prepared: PrepareFileMutationInput[] = [];
   readonly redone: string[] = [];
 
-  constructor(
-    readonly beforeContent?: Uint8Array,
-    private readonly available = true,
-  ) {}
+  constructor(readonly beforeContent?: Uint8Array) {}
 
-  async isAvailable(): Promise<boolean> {
-    return this.available;
-  }
-
-  async prepare(input: PrepareGitFileMutationInput): Promise<PreparedFileMutationFact> {
+  async prepare(input: PrepareFileMutationInput): Promise<PreparedFileMutationFact> {
     this.prepared.push(input);
     expectedContent(input, this.beforeContent);
     return fact(input.operationId, input.workspaceRoot, input.targetPath);
   }
 
-  async redo(input: PreparedFileMutationFact): Promise<void> {
+  async inspect(): Promise<CurrentFileCheckpointState> {
+    return { kind: 'missing' };
+  }
+
+  async readCurrentContent(): Promise<Uint8Array | undefined> {
+    return this.beforeContent;
+  }
+
+  async apply(input: PreparedFileMutationFact): Promise<void> {
     this.redone.push(input.operationId);
   }
 }
 
 function expectedContent(
-  input: PrepareGitFileMutationInput,
+  input: PrepareFileMutationInput,
   before: Uint8Array | undefined,
 ): Uint8Array {
   return input.expectedContent !== undefined

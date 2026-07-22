@@ -55,7 +55,8 @@ export interface ToolReconcileResultFact {
 export interface PreparedFileBlobRef {
   kind: 'file';
   sha256: string;
-  blobOid: string;
+  /** Optional content-addressed carrier object; not required for local file transactions. */
+  blobOid?: string;
   byteLength: number;
   mode: number;
 }
@@ -75,7 +76,7 @@ export interface PreparedFileMutationFact {
     version: number;
     argsHash: string;
   };
-  carrier: {
+  carrier?: {
     kind: 'git_object_v1';
     repositoryCommonDir: string;
     retentionRef: string;
@@ -109,17 +110,20 @@ export function parseToolRecoveryFact(envelope: RuntimeFactEnvelope): ParsedTool
 
 function parsePreparedFileMutation(payload: unknown): ParsedToolRecoveryFact {
   if (
-    !hasExactKeys(payload, [
-      'protocol',
-      'operationId',
-      'workspaceRoot',
-      'canonicalPath',
-      'relativePath',
-      'before',
-      'expectedAfter',
-      'transform',
-      'carrier',
-    ])
+    !hasExactKeys(
+      payload,
+      [
+        'protocol',
+        'operationId',
+        'workspaceRoot',
+        'canonicalPath',
+        'relativePath',
+        'before',
+        'expectedAfter',
+        'transform',
+      ],
+      ['carrier'],
+    )
   ) {
     return { status: 'invalid' };
   }
@@ -132,7 +136,7 @@ function parsePreparedFileMutation(payload: unknown): ParsedToolRecoveryFact {
     !isPreparedBeforeState(payload.before) ||
     !isPreparedBlobRef(payload.expectedAfter) ||
     !isPreparedTransform(payload.transform) ||
-    !isPreparedCarrier(payload.carrier)
+    (payload.carrier !== undefined && !isPreparedCarrier(payload.carrier))
   ) {
     return { status: 'invalid' };
   }
@@ -143,17 +147,15 @@ function parsePreparedFileMutation(payload: unknown): ParsedToolRecoveryFact {
 }
 
 function isPreparedBeforeState(value: unknown): value is PreparedFileBeforeState {
-  return (
-    (hasExactKeys(value, ['kind']) && value.kind === 'missing') || isPreparedBlobRef(value)
-  );
+  return (hasExactKeys(value, ['kind']) && value.kind === 'missing') || isPreparedBlobRef(value);
 }
 
 function isPreparedBlobRef(value: unknown): value is PreparedFileBlobRef {
   return (
-    hasExactKeys(value, ['kind', 'sha256', 'blobOid', 'byteLength', 'mode']) &&
+    hasExactKeys(value, ['kind', 'sha256', 'byteLength', 'mode'], ['blobOid']) &&
     value.kind === 'file' &&
     isSha256(value.sha256) &&
-    isGitOid(value.blobOid) &&
+    (value.blobOid === undefined || isGitOid(value.blobOid)) &&
     Number.isSafeInteger(value.byteLength) &&
     Number(value.byteLength) >= 0 &&
     Number.isSafeInteger(value.mode) &&

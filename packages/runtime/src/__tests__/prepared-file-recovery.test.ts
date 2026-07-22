@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 
+import { computeEditedSource } from '../edit-replace.js';
 import { createPreparedWriteEditRecoveryContracts } from '../file-tool-recovery.js';
 import { fileMutationArgsHash } from '../file-mutation-transform.js';
+import { LocalFileCheckpointCarrier } from '../local-file-checkpoint-carrier.js';
 import type { CurrentFileCheckpointState } from '../prepared-file-mutation.js';
 import type { UnsettledToolOperation } from '../tool-recovery-contract.js';
 import type { PreparedFileMutationFact } from '../tool-recovery-facts.js';
@@ -25,19 +30,70 @@ describe('prepared Write/Edit recovery contracts', () => {
         recovered: true,
       },
     });
-    assert.equal(carrier.redoCalls, 0);
+    assert.equal(carrier.applyCalls, 0);
   });
 
-  test('current before image installs the retained after blob and then finalizes', async () => {
+  test('current before image regenerates and installs the prepared after image', async () => {
     const carrier = new RecoveryCarrier({ kind: 'missing' });
     const contract = createPreparedWriteEditRecoveryContracts(carrier).Write;
 
     const result = await contract.reconcile?.(writeOperation());
 
-    assert.equal(carrier.redoCalls, 1);
+    assert.equal(carrier.applyCalls, 1);
     assert.equal(result?.decision.result, 'applied');
     assert.equal(result?.decision.reasonCode, 'prepared_redone');
     assert.equal(result?.decision.nextAction, 'synthesize_response');
+  });
+
+  test('Edit recovery reruns the shared transform from the hash-matched before file without Git', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-edit-recovery-no-git-'));
+    try {
+      const path = 'source.txt';
+      const args = {
+        path,
+        old_string: 'alpha\nbeta',
+        new_string: 'changed',
+      };
+      await writeFile(join(root, path), 'alpha\n  beta\ngamma\n');
+      const carrier = new LocalFileCheckpointCarrier();
+      const fact = await carrier.prepare({
+        operationId: 'operation-edit-real',
+        workspaceRoot: root,
+        targetPath: path,
+        deriveExpectedContent: (before) =>
+          Buffer.from(
+            computeEditedSource(
+              Buffer.from(before ?? []).toString('utf8'),
+              args.old_string,
+              args.new_string,
+              path,
+            ).content,
+          ),
+        transform: {
+          id: 'maka.edit.compute_edited_source',
+          version: 1,
+          argsHash: fileMutationArgsHash(args),
+        },
+      });
+      const operation: UnsettledToolOperation = {
+        operationId: fact.operationId,
+        toolCallId: 'call-edit-real',
+        toolName: 'Edit',
+        args,
+        recoveryMode: 'reconcile',
+        workspaceCwd: root,
+        evidenceEventIds: ['call', 'prepared', 'dispatch'],
+        preparedFileMutation: fact,
+      };
+
+      const result =
+        await createPreparedWriteEditRecoveryContracts(carrier).Edit.reconcile(operation);
+
+      assert.equal(result.decision.reasonCode, 'prepared_redone');
+      assert.equal(await readFile(join(root, path), 'utf8'), 'changed\ngamma\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test('a current state matching neither before nor after parks without overwriting', async () => {
@@ -51,7 +107,7 @@ describe('prepared Write/Edit recovery contracts', () => {
       reasonCode: 'prepared_file_drifted',
       nextAction: 'park',
     });
-    assert.equal(carrier.redoCalls, 0);
+    assert.equal(carrier.applyCalls, 0);
   });
 
   test('legacy operations without a checkpoint park without inspecting the file', async () => {
@@ -72,7 +128,7 @@ describe('prepared Write/Edit recovery contracts', () => {
 
 class RecoveryCarrier {
   inspectCalls = 0;
-  redoCalls = 0;
+  applyCalls = 0;
 
   constructor(private state: CurrentFileCheckpointState) {}
 
@@ -81,8 +137,12 @@ class RecoveryCarrier {
     return this.state;
   }
 
-  async redo(fact: PreparedFileMutationFact): Promise<void> {
-    this.redoCalls += 1;
+  async readCurrentContent(): Promise<Uint8Array | undefined> {
+    return this.state.kind === 'missing' ? undefined : Buffer.from('before');
+  }
+
+  async apply(fact: PreparedFileMutationFact): Promise<void> {
+    this.applyCalls += 1;
     this.state = { kind: 'file', sha256: fact.expectedAfter.sha256 };
   }
 }
