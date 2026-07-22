@@ -28,6 +28,7 @@ export const AGENT_SWARM_DEFAULT_CONCURRENCY = 3;
 export const AGENT_SWARM_MAX_CONCURRENCY = 5;
 export const AGENT_SWARM_MAX_ITEMS = 32;
 export const AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
+export const AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 
 const AGENT_SWARM_WRITE_BACK_MODES = [AGENT_WRITE_BACK_SUMMARY, AGENT_WRITE_BACK_PATCH] as const;
 const AGENT_SWARM_ISOLATION_MODES = [
@@ -95,9 +96,16 @@ interface StartedChildRef {
 }
 
 export function buildAgentSwarmTool(
-  deps: { now?: () => number; adaptiveSwarmPolicy?: AdaptiveSwarmPolicy } = {},
+  deps: {
+    now?: () => number;
+    adaptiveSwarmPolicy?: AdaptiveSwarmPolicy;
+    itemTimeoutMs?: number;
+  } = {},
 ): MakaTool<AgentSwarmToolInput, AgentSwarmToolResult> {
   const now = deps.now ?? Date.now;
+  const itemTimeoutMs = normalizeItemTimeoutMs(
+    deps.itemTimeoutMs ?? AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS,
+  );
   return {
     name: AGENT_SWARM_TOOL_NAME,
     displayName: 'Agent Swarm',
@@ -158,6 +166,7 @@ export function buildAgentSwarmTool(
       >(
         prepared.items,
         async (item, { index, attempt, retry, markReady }) => {
+          const deadline = createItemDeadline(ctx.abortSignal, itemTimeoutMs);
           traceAgentSwarm(ctx, 'tool_started', 'item_started', {
             itemId: item.itemId,
             index: item.index,
@@ -181,6 +190,7 @@ export function buildAgentSwarmTool(
               ? ctx.retryChildAgent
                 ? ((await ctx.retryChildAgent({
                     sourceRunId: retry.sourceRunId,
+                    abortSignal: deadline.signal,
                     onReady,
                   })) as SpawnChildAgentResult)
                 : (() => {
@@ -190,6 +200,7 @@ export function buildAgentSwarmTool(
                 ? ((await ctx.resumeChildAgent!({
                     sourceRunId: item.resumedFromRunId!,
                     prompt: item.task,
+                    abortSignal: deadline.signal,
                     onReady,
                   })) as SpawnChildAgentResult)
                 : ((await ctx.spawnChildAgent!({
@@ -199,26 +210,34 @@ export function buildAgentSwarmTool(
                       systemPrompt: item.definition.systemPrompt,
                     },
                     prompt: item.task,
+                    abortSignal: deadline.signal,
                     onReady,
                   })) as SpawnChildAgentResult);
-            for (const artifactId of result.artifactIds) artifactIds[index]!.add(artifactId);
-            const observedResult = { ...result, artifactIds: [...artifactIds[index]!] };
+            const effectiveResult = deadline.timedOut()
+              ? timedOutChildResult(result, itemTimeoutMs)
+              : result;
+            for (const artifactId of effectiveResult.artifactIds)
+              artifactIds[index]!.add(artifactId);
+            const observedResult = {
+              ...effectiveResult,
+              artifactIds: [...artifactIds[index]!],
+            };
             childResults[index] = observedResult;
             if (
-              result.status === 'failed' &&
-              result.failureClass === 'RateLimit' &&
-              result.runId &&
+              effectiveResult.status === 'failed' &&
+              effectiveResult.failureClass === 'RateLimit' &&
+              effectiveResult.runId &&
               ctx.retryChildAgent
             ) {
               return {
                 status: 'rate_limited' as const,
-                retry: { sourceRunId: result.runId },
-                reason: new ProviderRateLimitRetry(result),
+                retry: { sourceRunId: effectiveResult.runId },
+                reason: new ProviderRateLimitRetry(effectiveResult),
               };
             }
             traceAgentSwarm(
               ctx,
-              result.status === 'failed' ? 'tool_failed' : 'tool_completed',
+              effectiveResult.status === 'failed' ? 'tool_failed' : 'tool_completed',
               'item_completed',
               {
                 itemId: item.itemId,
@@ -226,19 +245,25 @@ export function buildAgentSwarmTool(
                 profile: item.profile,
                 mode: item.mode,
                 ...(item.resumedFromRunId ? { resumedFromRunId: item.resumedFromRunId } : {}),
-                status: result.status,
-                turnId: result.turnId,
-                ...(result.runId ? { runId: result.runId } : {}),
-                durationMs: result.durationMs,
-                artifactCount: result.artifactIds.length,
+                status: effectiveResult.status,
+                turnId: effectiveResult.turnId,
+                ...(effectiveResult.runId ? { runId: effectiveResult.runId } : {}),
+                durationMs: effectiveResult.durationMs,
+                artifactCount: effectiveResult.artifactIds.length,
+                ...(effectiveResult.failureClass
+                  ? { failureClass: effectiveResult.failureClass }
+                  : {}),
               },
             );
             ctx.emitOutput(
-              result.status === 'failed' ? 'stderr' : 'stdout',
-              `Agent swarm item ${item.itemId}: ${result.status}\n`,
+              effectiveResult.status === 'failed' ? 'stderr' : 'stdout',
+              `Agent swarm item ${item.itemId}: ${effectiveResult.status}\n`,
             );
             return { status: 'fulfilled' as const, value: observedResult };
           } catch (error) {
+            const effectiveError = deadline.timedOut()
+              ? new AgentSwarmItemTimeoutError(itemTimeoutMs)
+              : error;
             traceAgentSwarm(ctx, 'tool_failed', 'item_completed', {
               itemId: item.itemId,
               index: item.index,
@@ -246,13 +271,15 @@ export function buildAgentSwarmTool(
               mode: item.mode,
               ...(item.resumedFromRunId ? { resumedFromRunId: item.resumedFromRunId } : {}),
               status: ctx.abortSignal.aborted ? 'cancelled' : 'failed',
-              failureClass: boundedFailureClass(error, 'ChildAgentError'),
+              failureClass: boundedFailureClass(effectiveError, 'ChildAgentError'),
             });
             ctx.emitOutput(
               'stderr',
-              `Agent swarm item ${item.itemId} failed: ${boundedSwarmError(error)}\n`,
+              `Agent swarm item ${item.itemId} failed: ${boundedSwarmError(effectiveError)}\n`,
             );
-            throw error;
+            throw effectiveError;
+          } finally {
+            deadline.cleanup();
           }
         },
         {
@@ -769,6 +796,81 @@ class ProviderRateLimitRetry extends Error {
     super(result.summary || 'Child agent provider rate limited');
     this.name = 'RateLimit';
   }
+}
+
+class AgentSwarmItemTimeoutError extends Error {
+  readonly failureClass = 'Timeout';
+
+  constructor(readonly timeoutMs: number) {
+    super(`Child agent timed out after ${formatDuration(timeoutMs)}.`);
+    this.name = 'Timeout';
+  }
+}
+
+function normalizeItemTimeoutMs(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error('Agent swarm item timeout must be a non-negative integer in milliseconds.');
+  }
+  return value;
+}
+
+function createItemDeadline(
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+): {
+  readonly signal: AbortSignal;
+  timedOut(): boolean;
+  cleanup(): void;
+} {
+  if (timeoutMs === 0) {
+    return { signal: parentSignal, timedOut: () => false, cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  let expired = false;
+  const abortFromParent = () => controller.abort(parentSignal.reason);
+  if (parentSignal.aborted) abortFromParent();
+  else parentSignal.addEventListener('abort', abortFromParent, { once: true });
+  const timer = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    expired = true;
+    controller.abort(new AgentSwarmItemTimeoutError(timeoutMs));
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    timedOut: () => expired,
+    cleanup: () => {
+      clearTimeout(timer);
+      parentSignal.removeEventListener('abort', abortFromParent);
+    },
+  };
+}
+
+function timedOutChildResult(
+  result: SpawnChildAgentResult,
+  timeoutMs: number,
+): SpawnChildAgentResult {
+  return {
+    ...result,
+    status: 'failed',
+    summary: `Child agent timed out after ${formatDuration(timeoutMs)}.`,
+    failureClass: 'Timeout',
+  };
+}
+
+function formatDuration(ms: number): string {
+  if (ms % 3_600_000 === 0) {
+    const hours = ms / 3_600_000;
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  if (ms % 60_000 === 0) {
+    const minutes = ms / 60_000;
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+  if (ms % 1_000 === 0) {
+    const seconds = ms / 1_000;
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  }
+  return `${ms} ms`;
 }
 
 function mapChildResult(

@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import type { LlmConnection, SessionEvent, SessionHeader, ToolInvocationRecord } from '@maka/core';
 import {
   AGENT_SWARM_DEFAULT_CONCURRENCY,
+  AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS,
   AGENT_SWARM_MAX_CONCURRENCY,
   AGENT_SWARM_MAX_ITEMS,
   AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER,
@@ -44,6 +45,7 @@ describe('AgentSwarm adapter', () => {
     assert.equal(tool.name, AGENT_SWARM_TOOL_NAME);
     assert.equal(tool.permissionRequired, true);
     assert.equal(tool.categoryHint, 'subagent');
+    assert.equal(AGENT_SWARM_DEFAULT_ITEM_TIMEOUT_MS, 2 * 60 * 60 * 1_000);
     assert.equal(([...AGENT_TOOL_NAMES] as string[]).includes(AGENT_SWARM_TOOL_NAME), true);
     assert.deepEqual(
       schema.safeParse({
@@ -655,6 +657,57 @@ describe('AgentSwarm adapter', () => {
     assert.equal(batchTrace?.cancelledItemCount, 4);
     assert.equal(batchTrace?.artifactCount, 2);
     assert.equal(typeof batchTrace?.durationMs, 'number');
+  });
+
+  test('fails only the timed-out item and continues queued siblings', async () => {
+    const parent = new AbortController();
+    const starts: string[] = [];
+    const traceEvents: TestTraceEvent[] = [];
+    const runtime = buildRuntime(
+      async (input) => {
+        starts.push(input.prompt);
+        const index = Number(input.prompt.slice('task-'.length));
+        await input.onReady?.({
+          turnId: `turn-${index}`,
+          agentId: input.spec.id,
+          agentName: input.spec.name,
+        });
+        if (index === 0) {
+          await onceAborted(input.abortSignal);
+          return childResult(index, 'cancelled');
+        }
+        return childResult(index);
+      },
+      { traceEvents },
+    );
+
+    const result = (await executeTool(
+      runtime,
+      {
+        ...buildAgentSwarmTool({ itemTimeoutMs: 20 }),
+        permissionRequired: false,
+      },
+      { items: [swarmItem(0), swarmItem(1)], max_concurrency: 1 },
+      parent,
+    )) as AgentSwarmToolResult;
+
+    assert.equal(parent.signal.aborted, false);
+    assert.deepEqual(starts, ['task-0', 'task-1']);
+    assert.equal(result.status, 'partial');
+    assert.deepEqual(
+      result.items.map((item) => ({ status: item.status, failureClass: item.failureClass })),
+      [
+        { status: 'failed', failureClass: 'Timeout' },
+        { status: 'completed', failureClass: undefined },
+      ],
+    );
+    assert.match(result.items[0]?.summary ?? '', /timed out after 20 ms/i);
+    assert.ok(
+      traceEvents.some(
+        (event) =>
+          event.data?.swarmStage === 'item_completed' && event.data?.failureClass === 'Timeout',
+      ),
+    );
   });
 
   test('composes local width with the shared child-run permit pool', async () => {

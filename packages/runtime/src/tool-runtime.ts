@@ -163,6 +163,8 @@ export interface MakaToolContext {
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
     onReady?: (input: {
       turnId: string;
       agentId: string;
@@ -179,6 +181,8 @@ export interface MakaToolContext {
   resumeChildAgent?: (input: {
     sourceRunId: string;
     prompt: string;
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
     onReady?: (input: {
       turnId: string;
       agentId: string;
@@ -188,6 +192,8 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   retryChildAgent?: (input: {
     sourceRunId: string;
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
     onReady?: (input: {
       turnId: string;
       agentId: string;
@@ -248,6 +254,14 @@ export const LOOP_GATE_IDENTICAL_THRESHOLD = 3;
 
 const SUBAGENT_TOOL_LIMIT_MESSAGE =
   '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。';
+
+function composeChildAbortSignal(
+  invocationSignal: AbortSignal,
+  childSignal: AbortSignal | undefined,
+): AbortSignal {
+  if (!childSignal || childSignal === invocationSignal) return invocationSignal;
+  return AbortSignal.any([invocationSignal, childSignal]);
+}
 
 export interface ToolRuntimeInput {
   sessionId: string;
@@ -1757,6 +1771,7 @@ export class ToolRuntime {
     const limiter = this.childAgentRunLimiter;
     const runWithPermit = async <T>(
       mode: 'spawn' | 'resume' | 'retry',
+      abortSignal: AbortSignal,
       execute: () => Promise<T>,
     ): Promise<T> => {
       const waitingForPermit = limiter.activeCount >= limiter.capacity || limiter.waitingCount > 0;
@@ -1774,7 +1789,7 @@ export class ToolRuntime {
       }
       let permit;
       try {
-        permit = await limiter.acquire(input.abortSignal);
+        permit = await limiter.acquire(abortSignal);
       } catch (error) {
         input.trace?.emit(
           'tool',
@@ -1786,7 +1801,7 @@ export class ToolRuntime {
             boundary: 'shared_child_run_permit',
             stage: 'cancelled_while_waiting',
             mode,
-            status: input.abortSignal.aborted ? 'aborted' : 'error',
+            status: abortSignal.aborted ? 'aborted' : 'error',
           },
         );
         throw error;
@@ -1804,9 +1819,9 @@ export class ToolRuntime {
         capacity: limiter.capacity,
       });
       try {
-        if (input.abortSignal.aborted) {
-          throw input.abortSignal.reason instanceof Error
-            ? input.abortSignal.reason
+        if (abortSignal.aborted) {
+          throw abortSignal.reason instanceof Error
+            ? abortSignal.reason
             : new Error('Child agent run cancelled before it started');
         }
         const result = await execute();
@@ -1827,7 +1842,7 @@ export class ToolRuntime {
           boundary: 'child_run_execution',
           stage: 'completed',
           mode,
-          status: input.abortSignal.aborted ? 'aborted' : 'error',
+          status: abortSignal.aborted ? 'aborted' : 'error',
           durationMs: Math.max(0, this.input.now() - childStartedAt),
         });
         throw error;
@@ -1843,19 +1858,25 @@ export class ToolRuntime {
     return {
       ...(spawnChildAgent
         ? {
-            spawnChildAgent: async (spawnInput) =>
-              await runWithPermit(
+            spawnChildAgent: async (spawnInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                spawnInput.abortSignal,
+              );
+              return await runWithPermit(
                 'spawn',
+                abortSignal,
                 async () =>
                   await spawnChildAgent({
                     parentRunId,
                     spec: spawnInput.spec,
                     prompt: spawnInput.prompt,
-                    abortSignal: input.abortSignal,
+                    abortSignal,
                     ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
                     ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
                   }),
-              ),
+              );
+            },
           }
         : {}),
       ...(prepareChildAgentResume
@@ -1863,35 +1884,47 @@ export class ToolRuntime {
         : {}),
       ...(resumeChildAgent
         ? {
-            resumeChildAgent: async (resumeInput) =>
-              await runWithPermit(
+            resumeChildAgent: async (resumeInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                resumeInput.abortSignal,
+              );
+              return await runWithPermit(
                 'resume',
+                abortSignal,
                 async () =>
                   await resumeChildAgent({
                     parentRunId,
                     sourceRunId: resumeInput.sourceRunId,
                     prompt: resumeInput.prompt,
-                    abortSignal: input.abortSignal,
+                    abortSignal,
                     ...(resumeInput.onReady ? { onReady: resumeInput.onReady } : {}),
                     ...(resumeInput.onEvent ? { onEvent: resumeInput.onEvent } : {}),
                   }),
-              ),
+              );
+            },
           }
         : {}),
       ...(retryChildAgent
         ? {
-            retryChildAgent: async (retryInput) =>
-              await runWithPermit(
+            retryChildAgent: async (retryInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                retryInput.abortSignal,
+              );
+              return await runWithPermit(
                 'retry',
+                abortSignal,
                 async () =>
                   await retryChildAgent({
                     parentRunId,
                     sourceRunId: retryInput.sourceRunId,
-                    abortSignal: input.abortSignal,
+                    abortSignal,
                     ...(retryInput.onReady ? { onReady: retryInput.onReady } : {}),
                     ...(retryInput.onEvent ? { onEvent: retryInput.onEvent } : {}),
                   }),
-              ),
+              );
+            },
           }
         : {}),
     };
