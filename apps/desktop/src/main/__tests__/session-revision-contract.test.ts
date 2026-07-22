@@ -50,8 +50,8 @@ describe('session revision (edit-and-resend) contract', () => {
     );
     assert.match(
       shell,
-      /send\(text, pending, skillIds\.length > 0 \? \{ skillIds \} : undefined\)/,
-      'revision sends preserve structured Skill ids in the shared send envelope',
+      /send\(text, pending, \{\s*\.\.\.\(skillIds\.length > 0 \? \{ skillIds \} : \{\}\),\s*\.\.\.\(quotes \? \{ quotes \} : \{\}\),\s*\}\)/,
+      'revision sends preserve structured Skill ids alongside quote refs in the shared send envelope',
     );
     assert.match(shell, /cancelRevisionDraft/);
     assert.match(
