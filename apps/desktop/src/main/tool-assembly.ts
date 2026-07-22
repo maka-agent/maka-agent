@@ -13,6 +13,7 @@ import {
   createSandboxDiagnosticsProvider,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
+  type PreparedFileMutationCarrier,
   resolveSkillDiscoveryPaths,
   ShellRunProcessManager,
   SKILL_TOOL_NAME,
@@ -63,6 +64,7 @@ export interface DesktopToolAssemblyDeps {
   snapshotReadImage: ToolArtifactPersistence['snapshotReadImage'];
   getWorkspacePrivacyContext: () => Promise<WorkspacePrivacyContext>;
   resolveDesktopSkillHost: HostCapabilitiesResolver;
+  fileMutationCheckpointCarrier?: PreparedFileMutationCarrier;
 }
 
 /**
@@ -88,6 +90,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
     settingsStore,
     shellRuns,
     snapshotReadImage,
+    fileMutationCheckpointCarrier,
     getWorkspacePrivacyContext,
     resolveDesktopSkillHost,
   } = deps;
@@ -203,6 +206,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
       backgroundTasks: shellRuns,
       ptyControls: shellRuns,
       snapshotImage: snapshotReadImage,
+      ...(fileMutationCheckpointCarrier ? { fileMutationCheckpointCarrier } : {}),
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(filesystemWorker ? {
         filesystemWorker,
@@ -261,6 +265,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
   const childAgentTools = buildChildAgentTools([
     ...buildBuiltinTools({
       snapshotImage: snapshotReadImage,
+      ...(fileMutationCheckpointCarrier ? { fileMutationCheckpointCarrier } : {}),
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(filesystemWorker ? {
         filesystemWorker,

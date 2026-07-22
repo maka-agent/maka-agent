@@ -23,8 +23,8 @@ import {
   createProviderRequestCaptureRecorder,
   createFilesystemWorkerLaunchSpecProvider,
   createLocalContinuationSafetyInspector,
-  createLocalReadOnlyFileRecoveryObserver,
-  createWriteEditRecoveryContractRegistry,
+  createPreparedWriteEditRecoveryContractRegistry,
+  GitFileCheckpointCarrier,
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
@@ -178,8 +178,11 @@ export async function createMakaCliRuntimeContext(
     sqliteCanonical: process.env.MAKA_RUNTIME_SQLITE_CANONICAL === '1',
   });
   const runtimeEventStore = runtimePersistence.runtimeEventStore;
-  const recoveryContracts = runtimePersistence.runtimeCommitStore
-    ? createWriteEditRecoveryContractRegistry(createLocalReadOnlyFileRecoveryObserver())
+  const fileMutationCheckpointCarrier = runtimePersistence.runtimeCommitStore
+    ? new GitFileCheckpointCarrier()
+    : undefined;
+  const recoveryContracts = fileMutationCheckpointCarrier
+    ? createPreparedWriteEditRecoveryContractRegistry(fileMutationCheckpointCarrier)
     : undefined;
   const shellRunStore = createShellRunStore(input.workspaceRoot);
   const artifactStore = createArtifactStore(input.workspaceRoot);
@@ -251,6 +254,7 @@ export async function createMakaCliRuntimeContext(
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
     snapshotImage: createReadImageSnapshotter(artifactStore),
+    ...(fileMutationCheckpointCarrier ? { fileMutationCheckpointCarrier } : {}),
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker
       ? {
@@ -268,6 +272,7 @@ export async function createMakaCliRuntimeContext(
       ? buildChildAgentTools(
           buildBuiltinTools({
             snapshotImage: createReadImageSnapshotter(artifactStore),
+            ...(fileMutationCheckpointCarrier ? { fileMutationCheckpointCarrier } : {}),
             ...(sandboxManager ? { sandboxManager } : {}),
             ...(filesystemWorker
               ? {
