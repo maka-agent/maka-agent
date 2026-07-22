@@ -230,7 +230,12 @@ function modelVisibleEvent(command: string): unknown {
     partial: false,
     role: 'model',
     author: 'agent',
-    content: { kind: 'function_call', id: 'call-1', name: 'Bash', args: { command } },
+    content: {
+      kind: 'function_call',
+      id: 'call-1',
+      name: 'Bash',
+      review: { kind: 'command', command, cwd: '/app' },
+    },
   };
 }
 

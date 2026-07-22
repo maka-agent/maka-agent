@@ -1,11 +1,18 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { BackendKind, PricingConfig, ProviderType } from '@maka/core';
-import { isThinkingLevel, resolveModelVisionSupport } from '@maka/core';
+import type {
+  AgentRunHeader,
+  BackendKind,
+  PricingConfig,
+  ProviderType,
+  RuntimeEvent,
+} from '@maka/core';
+import { isTerminalRuntimeEvent, isThinkingLevel, resolveModelVisionSupport } from '@maka/core';
 import {
   AiSdkBackend,
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   PermissionEngine,
   PiAgentBackend,
   SessionManager,
@@ -18,16 +25,13 @@ import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
   type InvocationResult,
+  type SynthesisCacheArtifactStore,
   type SynthesisCacheLoader,
   type SynthesisCacheWriter,
 } from '@maka/runtime';
 import {
-  createAgentRunStore,
   createAttachmentByteReader,
-  createArtifactStore,
   createReadImageSnapshotter,
-  createRuntimeEventStore,
-  createSessionStore,
   persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import { registerFakeBackend } from './backends.js';
@@ -44,6 +48,12 @@ import {
 import type { Config, Task } from './contracts.js';
 import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { resolveEconomyTaskMode } from './economy-task-policy.js';
+import {
+  authenticateHeadlessStorageWriter,
+  isStorageRootAuthorityError,
+  openHeadlessStorageForWrite,
+  type HeadlessStorageWriter,
+} from './headless-storage.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
@@ -251,6 +261,15 @@ const PI_PROVIDER_ENV_RULES = [
 ] satisfies Array<{ includes: string[]; keys?: string[]; prefixes?: string[] }>;
 
 export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarborCellResult> {
+  const storage = await openHeadlessStorageForWrite(input.storageRoot);
+  return runHarborCellWithStorage(input, storage);
+}
+
+export async function runHarborCellWithStorage(
+  input: RunHarborCellInput,
+  storage: HeadlessStorageWriter,
+): Promise<RunHarborCellResult> {
+  storage = authenticateHeadlessStorageWriter(storage);
   if (
     input.settleAfterMs !== undefined &&
     (!Number.isFinite(input.settleAfterMs) || input.settleAfterMs <= 0)
@@ -268,9 +287,9 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
 
   const now = input.now ?? Date.now;
   const newId = input.newId ?? randomId;
-  const sessionStore = createSessionStore(input.storageRoot);
-  const agentRunStore = createAgentRunStore(input.storageRoot);
-  const runtimeEventStore = createRuntimeEventStore(input.storageRoot);
+  const sessionStore = storage.executionStores.sessionStore;
+  const agentRunStore = storage.executionStores.agentRunStore;
+  const runtimeEventStore = storage.executionStores.runtimeEventStore;
   const backends = new BackendRegistry();
   const sessionCapabilities = createHeadlessSessionCapabilityBridge();
   const task: Task = {
@@ -290,6 +309,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     storageRoot: input.storageRoot,
     workspaceDir: input.cwd,
     ...sessionCapabilities.capabilities,
+    artifactStore: storage.artifactStore,
     ...(backendNeedsIsolation(input.config.backend)
       ? {
           realBackendIsolation: input.realBackendIsolation,
@@ -311,6 +331,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
 
   let invocation: InvocationResult | undefined;
   const manager = new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store: sessionStore,
     runStore: agentRunStore,
     runtimeEventStore,
@@ -370,13 +391,20 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   let nextText = input.instruction;
   let stepCapHits = 0;
   let attemptedTurnId: string | undefined;
+  let attemptedRunId: string | undefined;
   try {
     for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
       if (deadlineReached) break;
       const turnId = newId();
+      const runId = newId();
       attemptedTurnId = turnId;
+      attemptedRunId = runId;
       invocation = undefined;
-      for await (const event of manager.sendMessage(session.id, { turnId, text: nextText })) {
+      for await (const event of manager.sendMessage(
+        session.id,
+        { turnId, text: nextText },
+        { runId },
+      )) {
         if ((event as { type?: string }).type === 'permission_request') {
           const { requestId } = event as { requestId: string };
           await manager.respondToPermission(session.id, {
@@ -397,30 +425,40 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
       nextText = continuationPolicy.prompt;
     }
   } catch (error) {
+    if (isStorageRootAuthorityError(error)) throw error;
     sendMessageError = error;
   } finally {
     if (settlementTimer) clearTimeout(settlementTimer);
   }
   await settlementAttempt;
   if (settlementError) throw settlementError;
+  const deadlineRun =
+    deadlineReached && attemptedRunId
+      ? await agentRunStore.readRun(session.id, attemptedRunId).catch((error) => {
+          if (isStorageRootAuthorityError(error)) throw error;
+          return undefined;
+        })
+      : undefined;
+  const settledByDeadline =
+    deadlineRun?.status === 'cancelled' && deadlineRun.abortSource === 'benchmark.deadline';
   if (sendMessageError) {
     invocations.push(
-      failedInvocationFromError(sendMessageError, {
-        newId,
-        now,
-        sessionId: session.id,
-        turnId: attemptedTurnId ?? newId(),
-      }),
+      settledByDeadline
+        ? failedDeadlineInvocationFromRun(
+            deadlineRun,
+            await runtimeEventStore.readRuntimeEvents(session.id, deadlineRun.runId),
+          )
+        : failedInvocationFromError(sendMessageError, {
+            newId,
+            now,
+            sessionId: session.id,
+            turnId: attemptedTurnId ?? newId(),
+          }),
     );
   } else if (invocations.length === 0) {
     throw new Error('Harbor cell finished without a runtime invocation result');
   }
   const combinedInvocation = combineInvocations(invocations);
-  const terminalRun = deadlineReached
-    ? await agentRunStore.readRun(session.id, combinedInvocation.runId).catch(() => undefined)
-    : undefined;
-  const settledByDeadline =
-    terminalRun?.status === 'cancelled' && terminalRun.abortSource === 'benchmark.deadline';
   const continuationSummary = continuationPolicy.enabled
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;
@@ -489,23 +527,17 @@ export async function writeHarborCellArtifacts(
 
 export async function writeHarborTaskRunTrace(input: {
   outputDir: string;
-  storageRoot: string;
+  storage: HeadlessStorageWriter;
   invocations: readonly InvocationResult[];
 }): Promise<string> {
-  const chunks = await Promise.all(
+  const storage = authenticateHeadlessStorageWriter(input.storage);
+  const eventGroups = await Promise.all(
     input.invocations.map((invocation) =>
-      readFile(
-        join(
-          input.storageRoot,
-          'sessions',
-          invocation.sessionId,
-          'runs',
-          invocation.runId,
-          'events.jsonl',
-        ),
-        'utf8',
-      ),
+      storage.executionStores.agentRunStore.readEvents(invocation.sessionId, invocation.runId),
     ),
+  );
+  const chunks = eventGroups.map((events) =>
+    events.map((event) => JSON.stringify(event)).join('\n'),
   );
   const nonEmptyChunks = chunks.map((chunk) => chunk.trimEnd()).filter(Boolean);
   const traceEventsPath = join(input.outputDir, HARBOR_CELL_TRACE_EVENTS_FILENAME);
@@ -589,6 +621,7 @@ export async function runHarborCellFromEnv(
           'pi-agent',
           (ctx) =>
             new PiAgentBackend({
+              execution: ctx.execution,
               sessionId: ctx.sessionId,
               header: ctx.header,
               appendMessage:
@@ -765,6 +798,37 @@ function failedInvocationFromError(
   };
 }
 
+function failedDeadlineInvocationFromRun(
+  run: AgentRunHeader,
+  events: RuntimeEvent[],
+): InvocationResult {
+  let terminal: RuntimeEvent | undefined;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const candidate = events[index]!;
+    if (!isTerminalRuntimeEvent(candidate)) continue;
+    terminal = candidate;
+    break;
+  }
+  const terminalStatus =
+    terminal?.status === 'completed' ? 'cancelled' : (terminal?.status ?? 'cancelled');
+  const message = terminal?.content?.kind === 'error' ? terminal.content.message : undefined;
+  return {
+    invocationId: run.invocationId ?? events[0]?.invocationId ?? run.runId,
+    runId: run.runId,
+    sessionId: run.sessionId,
+    turnId: run.turnId,
+    status: 'failed',
+    failure: {
+      class: terminalStatus,
+      ...(message ? { message } : {}),
+      terminalStatus,
+    },
+    events,
+    startedAt: run.createdAt,
+    finishedAt: run.completedAt ?? run.updatedAt,
+  };
+}
+
 export function buildAiSdkCellBackendRegistration(input: {
   provider: ProviderType;
   model: string;
@@ -796,6 +860,8 @@ export function buildAiSdkCellBackendRegistration(input: {
     input.env.MAKA_STREAM_IDLE_TIMEOUT_MS,
     'MAKA_STREAM_IDLE_TIMEOUT_MS',
   );
+  const synthesisCacheEnabled =
+    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true;
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
@@ -804,12 +870,11 @@ export function buildAiSdkCellBackendRegistration(input: {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
     }
-    // FileArtifactStore owns an in-memory metadata index, so every artifact
-    // consumer under the run's authoritative storage root shares this instance.
-    const artifactStore = createArtifactStore(context.storageRoot);
+    // Artifact consumers share the same lease-bound store and metadata index.
+    const artifactStore = context.artifactStore;
     const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
       artifactStore,
-      contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
+      synthesisCacheEnabled,
     );
     registry.register('ai-sdk', (ctx) => {
       const subscriptionFetch = buildSubscriptionModelFetch({
@@ -827,6 +892,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         snapshotImage: createReadImageSnapshotter(artifactStore),
       });
       return new AiSdkBackend({
+        execution: ctx.execution,
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
         appendMessage:
@@ -870,6 +936,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           artifactStore,
           sessionId: ctx.sessionId,
         }),
+        isFatalArtifactError: isStorageRootAuthorityError,
         ...(streamConnectTimeoutMs !== undefined ? { streamConnectTimeoutMs } : {}),
         ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
         systemPrompt: context.config.systemPrompt,
@@ -953,7 +1020,7 @@ async function writeHarborCellArtifact(path: string, contents: string): Promise<
 }
 
 function buildHarborCellSynthesisCacheCallbacks(
-  artifactStore: ReturnType<typeof createArtifactStore>,
+  artifactStore: SynthesisCacheArtifactStore,
   enabled: boolean,
 ): { loadSynthesisCache?: SynthesisCacheLoader; writeSynthesisCache?: SynthesisCacheWriter } {
   if (!enabled) return {};

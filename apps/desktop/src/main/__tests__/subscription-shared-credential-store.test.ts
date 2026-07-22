@@ -314,9 +314,12 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
   }
 
   it('Claude does not report login success when the shared credential write fails', async () => {
+    let openedUrl: string | undefined;
     const service = new ClaudeSubscriptionService({
       userDataDir: await makeUserDataDir(),
-      openExternal: async () => undefined,
+      openExternal: async (url) => {
+        openedUrl = url;
+      },
       now: () => NOW,
       fetchFn: async () =>
         Response.json({
@@ -336,8 +339,13 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       },
     });
 
-    const verifier = 'a'.repeat(43);
-    const result = await service.completeAuthorization('recovered-from-paste', `code#${verifier}`);
+    const authorization = await service.getAuthorizationUrl();
+    assert.ok('authRequestId' in authorization);
+    assert.deepEqual(await service.openAuthorizationUrl(authorization.authRequestId), { ok: true });
+    assert.ok(openedUrl);
+    const state = new URL(openedUrl).searchParams.get('state');
+    assert.ok(state);
+    const result = await service.completeAuthorization(authorization.authRequestId, `code#${state}`);
 
     assert.equal(result.ok, false);
     assert.equal(result.ok ? undefined : result.reason, 'storage_failed');
@@ -346,9 +354,12 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
   it('Claude login writes the exchanged token to its shared credential', async () => {
     const credentials = createMemoryCredentialStore();
     const userDataDir = await makeUserDataDir();
+    let openedUrl: string | undefined;
     const service = new ClaudeSubscriptionService({
       userDataDir,
-      openExternal: async () => undefined,
+      openExternal: async (url) => {
+        openedUrl = url;
+      },
       now: () => NOW,
       fetchFn: async (input) => {
         if (String(input).includes('/v1/oauth/token')) {
@@ -366,9 +377,14 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       credentialStore: credentials.store,
     });
 
-    const verifier = 'b'.repeat(43);
+    const authorization = await service.getAuthorizationUrl();
+    assert.ok('authRequestId' in authorization);
+    assert.deepEqual(await service.openAuthorizationUrl(authorization.authRequestId), { ok: true });
+    assert.ok(openedUrl);
+    const state = new URL(openedUrl).searchParams.get('state');
+    assert.ok(state);
     assert.deepEqual(
-      await service.completeAuthorization('recovered-from-paste', `code#${verifier}`),
+      await service.completeAuthorization(authorization.authRequestId, `code#${state}`),
       { ok: true },
     );
     const stored = JSON.parse(

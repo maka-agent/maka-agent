@@ -1,154 +1,410 @@
+import { ARTIFACT_OPERATION_SPECS } from './artifact.js';
+import { AUTOMATION_OPERATION_SPECS } from './automation.js';
+import { requireExactRecord, requireId, requireRecord, requireString } from './codec.js';
 import { invalidProtocolFrame } from './errors.js';
+import { GOAL_OPERATION_SPECS } from './goal.js';
+import { HOST_STATUS_OPERATION_SPECS } from './host-status.js';
+import { INTERACTION_OPERATION_SPECS } from './interaction.js';
+import { MESSAGE_OPERATION_SPECS } from './message.js';
+import { MEMORY_OPERATION_SPECS } from './memory.js';
+import { NATIVE_PROVIDER_OPERATION_SPECS } from './native-provider.js';
+import { OAUTH_OPERATION_SPECS } from './oauth.js';
+import {
+  composeOperationSpecMaps,
+  type HostOperationError,
+  type HostOperationErrorCode,
+  type OperationSpec,
+} from './operation-spec.js';
+import { SESSION_CONTINUITY_OPERATION_SPECS } from './session-continuity.js';
+import { SESSION_MANAGEMENT_OPERATION_SPECS } from './session-management.js';
+import { TURN_OPERATION_SPECS } from './turn.js';
+import { RUNTIME_POLICY_OPERATION_SPECS } from './runtime-policy.js';
+import { RUNTIME_RESOURCE_OPERATION_SPECS } from './runtime-resource.js';
+import { SKILL_CATALOG_OPERATION_SPECS } from './skill-catalog.js';
+import { TASK_LEDGER_OPERATION_SPECS } from './task-ledger.js';
+import { USAGE_PRICING_OPERATION_SPECS } from './usage-pricing.js';
 
-export type HostLifecycleState = 'starting' | 'containing' | 'recovering' | 'ready' | 'draining';
-export type OperationMode = 'command' | 'query' | 'control';
-export type RetryPolicy = 'none' | 'safe' | 'semantic';
-export type AdmissionClass = 'bootstrap' | 'ready' | 'session';
+export {
+  TURN_MESSAGE_CONTENT_MAX_BYTES,
+  TURN_MESSAGE_TEXT_MAX_BYTES,
+} from './turn.js';
+export {
+  decodeMemoryMutateInput,
+  decodeMemoryMutateResult,
+  decodeMemoryQueryInput,
+  decodeMemoryQueryResult,
+  encodeMemoryMutateResult,
+  encodeMemoryQueryResult,
+  MEMORY_ENTRY_CONTENT_MAX_BYTES,
+  MEMORY_TITLE_MAX_BYTES,
+} from './memory.js';
 
-export type HostOperationErrorCode =
-  | 'host_not_ready'
-  | 'host_draining'
-  | 'operation_unavailable'
-  | 'not_found'
-  | 'session_archived'
-  | 'session_busy'
-  | 'operation_conflict'
-  | 'internal_failure';
+export type {
+  OAuthCredentialRefreshInput,
+  OAuthCredentialRefreshResult,
+  OAuthLoginAttemptInput,
+  OAuthLoginFailureCode,
+  OAuthLoginPhase,
+  OAuthLoginProjection,
+  OAuthLoginProvider,
+  OAuthLoginStartInput,
+} from './oauth.js';
+export type {
+  GoalClearInput,
+  GoalClearResult,
+  GoalProjection,
+  GoalQueryInput,
+  GoalQueryResult,
+  GoalStatus,
+} from './goal.js';
+export type {
+  AutomationCatalogRevision,
+  AutomationCurrentFireSummary,
+  AutomationDefinitionInput,
+  AutomationExecutionTarget,
+  AutomationLastFireSummary,
+  AutomationMutateInput,
+  AutomationMutateResult,
+  AutomationMutation,
+  AutomationProjection,
+  AutomationQueryInput,
+  AutomationQueryResult,
+  AutomationRevision,
+  AutomationSchedule,
+  AutomationThinkingLevel,
+} from './automation.js';
+export type {
+  MemoryBlockedReason,
+  MemoryEntryStatus,
+  MemoryExpectedRevision,
+  MemoryMutateInput,
+  MemoryMutateResult,
+  MemoryMutation,
+  MemoryMutationRejectedReason,
+  MemoryQueryInput,
+  MemoryQueryResult,
+  MemoryRevision,
+  MemorySafeModeReason,
+  MemoryScope,
+} from './memory.js';
+export type {
+  ArtifactBinaryPreview,
+  ArtifactDeleteInput,
+  ArtifactDeleteResult,
+  ArtifactProjection,
+  ArtifactQueryInput,
+  ArtifactQueryResult,
+  ArtifactRevision,
+  ArtifactTextPreview,
+} from './artifact.js';
+export type {
+  InFlightMessageSnapshot,
+  MessagePlacement,
+  MessageQueueEntrySnapshot,
+  QueueRetractInput,
+  QueueRetractResult,
+  QueuedMessageSnapshot,
+  RetractedMessageSnapshot,
+  SessionMessageQueueProjection,
+  SteeringMessageSnapshot,
+  TurnInterruptInput,
+  TurnInterruptResult,
+  TurnMessageSubmitInput,
+  TurnMessageSubmitResult,
+} from './message.js';
+export type {
+  HostLifecycleState,
+  HostStatusInput,
+  HostStatusResult,
+} from './host-status.js';
+export type {
+  AdmissionClass,
+  HostOperationError,
+  HostOperationErrorCode,
+  OperationMode,
+  OperationSpec,
+  RetryPolicy,
+} from './operation-spec.js';
+export type {
+  TurnQueryInput,
+  TurnRunStatus,
+  TurnSnapshot,
+  TurnStartInput,
+  TurnStopInput,
+} from './turn.js';
+export type {
+  ConnectionCatalogCursor,
+  ConnectionCatalogCreateInput,
+  ConnectionCatalogHeaderItem,
+  ConnectionCatalogPageItem,
+  ConnectionCatalogQueryInput,
+  ConnectionCatalogQueryResult,
+  ConnectionCatalogRemoveInput,
+  ConnectionCatalogSetDefaultTargetInput,
+  ConnectionCatalogUpdateInput,
+  CreateCatalogConnectionResult,
+  CredentialVaultQueryInput,
+  CredentialVaultQueryResult,
+  CredentialVaultDeleteInput,
+  CredentialVaultSetInput,
+  DeleteCredentialResult,
+  RemoveCatalogConnectionResult,
+  RuntimePolicyMutateResult,
+  RuntimePolicyMutateInput,
+  RuntimePolicyQueryInput,
+  RuntimePolicyQueryResult,
+  SetCredentialResult,
+  SetDefaultConnectionTargetResult,
+  UpdateCatalogConnectionResult,
+} from './runtime-policy.js';
+export type {
+  PtyAcquireInput,
+  PtyAcquireResult,
+  PtyControlInput,
+  PtyControlResult,
+  PtyCursor,
+  PtyReadInput,
+  PtyReadResult,
+  PtyReleaseInput,
+  PtyReleaseResult,
+  PtyShellRunMetadata,
+  PtyShellRunSnapshot,
+  RuntimeResourceQueryResult,
+  RuntimeResourceReadResult,
+  RuntimeResourceRefInput,
+  RuntimeResourceStopResult,
+} from './runtime-resource.js';
+export type {
+  SkillCatalogDiagnostic,
+  SkillCatalogEntry,
+  SkillCatalogItem,
+  SkillCatalogManagedUpdateStatus,
+  SkillCatalogMutateInput,
+  SkillCatalogMutateResult,
+  SkillCatalogMutation,
+  SkillCatalogMutationRejectedReason,
+  SkillCatalogPreviewRejectedReason,
+  SkillCatalogPreviewUpdateInput,
+  SkillCatalogPreviewUpdateResult,
+  SkillCatalogQueryInput,
+  SkillCatalogQueryResult,
+  SkillCatalogRefreshInput,
+  SkillCatalogRefreshResult,
+  SkillCatalogRevision,
+  SkillCatalogRevisionConflict,
+  SkillCatalogSourceEntry,
+  SkillCatalogValidationStatus,
+  SkillCatalogView,
+  SkillContentSha256,
+  SkillRuntimeStatus,
+  SkillSourceType,
+} from './skill-catalog.js';
+export type {
+  TaskLedgerQueryInput,
+  TaskLedgerQueryResult,
+  TaskLedgerRevision,
+  TaskLedgerTask,
+} from './task-ledger.js';
+export type {
+  PricingMutateInput,
+  PricingMutateResult,
+  PricingMutation,
+  PricingQueryInput,
+  PricingQueryResult,
+  UsageQueryInput,
+  UsageQueryResult,
+  UsageLogProjection,
+} from './usage-pricing.js';
+export {
+  decodeGoalClearInput,
+  decodeGoalClearResult,
+  decodeGoalQueryInput,
+  decodeGoalQueryResult,
+  encodeGoalClearResult,
+  encodeGoalQueryResult,
+  GOAL_CONDITION_MAX_BYTES,
+  GOAL_REASON_MAX_BYTES,
+  GOAL_RESULT_MAX_BYTES,
+} from './goal.js';
+export {
+  AUTOMATION_CRON_EXPRESSION_MAX_BYTES,
+  AUTOMATION_CURSOR_MAX_BYTES,
+  AUTOMATION_CWD_MAX_BYTES,
+  AUTOMATION_FIRE_FAILURE_MAX_BYTES,
+  AUTOMATION_MAX_FIRES,
+  AUTOMATION_NAME_MAX_BYTES,
+  AUTOMATION_MODEL_MAX_BYTES,
+  AUTOMATION_PAGE_MAX_BYTES,
+  AUTOMATION_PAGE_MAX_ITEMS,
+  AUTOMATION_PROMPT_MAX_BYTES,
+  AUTOMATION_SCHEDULE_SECONDS_MAX,
+  decodeAutomationMutateInput,
+  decodeAutomationMutateResult,
+  decodeAutomationQueryInput,
+  decodeAutomationQueryResult,
+  encodeAutomationMutateResult,
+  encodeAutomationQueryResult,
+} from './automation.js';
+export {
+  ARTIFACT_CURSOR_MAX_BYTES,
+  ARTIFACT_MIME_TYPE_MAX_BYTES,
+  ARTIFACT_NAME_MAX_BYTES,
+  ARTIFACT_PAGE_MAX_ITEMS,
+  ARTIFACT_PREVIEW_MAX_BYTES,
+  ARTIFACT_RESULT_MAX_BYTES,
+  ARTIFACT_SUMMARY_MAX_BYTES,
+  decodeArtifactDeleteInput,
+  decodeArtifactDeleteResult,
+  decodeArtifactQueryInput,
+  decodeArtifactQueryResult,
+  encodeArtifactDeleteResult,
+  encodeArtifactQueryResult,
+} from './artifact.js';
+export {
+  decodeTaskLedgerQueryInput,
+  decodeTaskLedgerQueryResult,
+  encodeTaskLedgerQueryResult,
+  TASK_LEDGER_CURSOR_MAX_BYTES,
+  TASK_LEDGER_PAGE_MAX_BYTES,
+  TASK_LEDGER_PAGE_MAX_ITEMS,
+} from './task-ledger.js';
+export {
+  SKILL_CATALOG_PAGE_MAX_BYTES,
+  SKILL_CATALOG_PAGE_MAX_ITEMS,
+  SKILL_CATALOG_PREVIEW_CONTENT_MAX_BYTES,
+  SKILL_CATALOG_PREVIEW_RESULT_MAX_BYTES,
+} from './skill-catalog.js';
+export {
+  CONNECTION_CATALOG_PAGE_MAX_BYTES,
+  CONNECTION_CATALOG_PAGE_MAX_ITEMS,
+  CREDENTIAL_SECRET_MAX_BYTES,
+  RUNTIME_POLICY_SNAPSHOT_MAX_BYTES,
+} from './runtime-policy.js';
+export {
+  decodePtyAcquireInput,
+  decodePtyAcquireResult,
+  decodePtyControlInput,
+  decodePtyControlResult,
+  decodePtyReadInput,
+  decodePtyReadResult,
+  decodePtyReleaseInput,
+  decodePtyReleaseResult,
+  decodeRuntimeResourceQueryResult,
+  decodeRuntimeResourceReadResult,
+  decodeRuntimeResourceRefInput,
+  decodeRuntimeResourceStopResult,
+  encodePtyAcquireResult,
+  encodePtyControlResult,
+  encodePtyReadResult,
+  encodePtyReleaseResult,
+  encodeRuntimeResourceQueryResult,
+  encodeRuntimeResourceReadResult,
+  encodeRuntimeResourceStopResult,
+  PTY_CONTROLLER_ID_MAX_BYTES,
+  PTY_CURSOR_MAX_BYTES,
+  PTY_INPUT_MAX_BYTES,
+  RUNTIME_RESOURCE_COMMAND_MAX_BYTES,
+  RUNTIME_RESOURCE_CWD_MAX_BYTES,
+  RUNTIME_RESOURCE_FAILURE_MAX_BYTES,
+  RUNTIME_RESOURCE_OUTPUT_FIELD_MAX_BYTES,
+  RUNTIME_RESOURCE_RESULT_MAX_BYTES,
+} from './runtime-resource.js';
+export {
+  decodePricingMutateInput,
+  decodePricingMutateResult,
+  decodePricingQueryInput,
+  decodePricingQueryResult,
+  decodeUsageQueryInput,
+  decodeUsageQueryResult,
+  encodePricingQueryResult,
+  encodeUsageQueryResult,
+  PRICING_CURSOR_MAX_BYTES,
+  PRICING_PAGE_MAX_BYTES,
+  PRICING_PAGE_MAX_ITEMS,
+  USAGE_PAGE_MAX_BYTES,
+  USAGE_PAGE_MAX_ITEMS,
+  USAGE_PROJECTION_TEXT_MAX_BYTES,
+} from './usage-pricing.js';
 
-export interface HostOperationError<C extends HostOperationErrorCode = HostOperationErrorCode> {
-  code: C;
-  message: string;
-}
+const HOST_AND_TURN_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_STATUS_OPERATION_SPECS,
+  TURN_OPERATION_SPECS,
+);
 
-export interface OperationSpec<Input, Output, ErrorCode extends HostOperationErrorCode> {
-  mode: OperationMode;
-  decodeInput(value: unknown): Input;
-  decodeOutput(value: unknown): Output;
-  errors: readonly ErrorCode[];
-  retry: RetryPolicy;
-  admission: AdmissionClass;
-}
+const HOST_TURN_AND_MESSAGE_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_AND_TURN_OPERATION_SPECS,
+  MESSAGE_OPERATION_SPECS,
+);
 
-export type HostStatusInput = Record<string, never>;
+const HOST_TURN_MESSAGE_AND_INTERACTION_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TURN_AND_MESSAGE_OPERATION_SPECS,
+  INTERACTION_OPERATION_SPECS,
+);
 
-export interface HostStatusResult {
-  hostEpoch: string;
-  state: HostLifecycleState;
-  connections: number;
-  activeOperations: number;
-  activeResidencies: number;
-}
+const HOST_TURN_MESSAGE_INTERACTION_AND_CONTINUITY_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TURN_MESSAGE_AND_INTERACTION_OPERATION_SPECS,
+  SESSION_CONTINUITY_OPERATION_SPECS,
+);
 
-export interface TurnStartInput {
-  sessionId: string;
-  turnId: string;
-  text: string;
-}
+const HOST_AND_SESSION_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TURN_MESSAGE_INTERACTION_AND_CONTINUITY_OPERATION_SPECS,
+  SESSION_MANAGEMENT_OPERATION_SPECS,
+);
 
-export interface TurnQueryInput {
-  sessionId: string;
-  turnId: string;
-}
+const HOST_AND_DOMAIN_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_AND_SESSION_OPERATION_SPECS,
+  RUNTIME_POLICY_OPERATION_SPECS,
+);
 
-export interface TurnStopInput {
-  sessionId: string;
-  turnId: string;
-  runId: string;
-}
+const HOST_AND_SKILL_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_AND_DOMAIN_OPERATION_SPECS,
+  SKILL_CATALOG_OPERATION_SPECS,
+);
 
-export type TurnRunStatus =
-  | 'admitted'
-  | 'created'
-  | 'running'
-  | 'waiting_permission'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+const HOST_SKILL_AND_TASK_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_AND_SKILL_OPERATION_SPECS,
+  TASK_LEDGER_OPERATION_SPECS,
+);
 
-interface TurnSnapshotBase {
-  sessionId: string;
-  turnId: string;
-  runId: string;
-}
+const HOST_TASK_AND_ARTIFACT_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_SKILL_AND_TASK_OPERATION_SPECS,
+  ARTIFACT_OPERATION_SPECS,
+);
 
-export type TurnSnapshot =
-  | (TurnSnapshotBase & {
-      status: Exclude<TurnRunStatus, 'completed' | 'failed' | 'cancelled'>;
-    })
-  | (TurnSnapshotBase & { status: 'completed'; terminalEventId: string })
-  | (TurnSnapshotBase & {
-      status: 'failed';
-      terminalEventId: string;
-      failureClass: string;
-    })
-  | (TurnSnapshotBase & {
-      status: 'cancelled';
-      terminalEventId: string;
-      abortSource: string;
-    });
+const HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_TASK_AND_ARTIFACT_OPERATION_SPECS,
+  MEMORY_OPERATION_SPECS,
+);
 
-function defineOperation<Input, Output, ErrorCode extends HostOperationErrorCode>(
-  spec: OperationSpec<Input, Output, ErrorCode>,
-): OperationSpec<Input, Output, ErrorCode> {
-  return spec;
-}
+const HOST_MEMORY_AND_AUTOMATION_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_ARTIFACT_AND_MEMORY_OPERATION_SPECS,
+  AUTOMATION_OPERATION_SPECS,
+);
 
-export const HOST_OPERATION_SPECS = {
-  'host.status': defineOperation({
-    mode: 'query',
-    decodeInput: decodeHostStatusInput,
-    decodeOutput: decodeHostStatusResult,
-    errors: ['host_draining', 'internal_failure'] as const,
-    retry: 'safe',
-    admission: 'bootstrap',
-  }),
-  'turn.start': defineOperation({
-    mode: 'command',
-    decodeInput: decodeTurnStartInput,
-    decodeOutput: decodeTurnSnapshot,
-    errors: [
-      'host_not_ready',
-      'host_draining',
-      'operation_unavailable',
-      'not_found',
-      'session_archived',
-      'session_busy',
-      'operation_conflict',
-      'internal_failure',
-    ] as const,
-    retry: 'semantic',
-    admission: 'session',
-  }),
-  'turn.query': defineOperation({
-    mode: 'query',
-    decodeInput: decodeTurnQueryInput,
-    decodeOutput: decodeTurnSnapshot,
-    errors: [
-      'host_not_ready',
-      'host_draining',
-      'operation_unavailable',
-      'not_found',
-      'internal_failure',
-    ] as const,
-    retry: 'safe',
-    admission: 'ready',
-  }),
-  'turn.stop': defineOperation({
-    mode: 'control',
-    decodeInput: decodeTurnStopInput,
-    decodeOutput: decodeTurnSnapshot,
-    errors: [
-      'host_not_ready',
-      'host_draining',
-      'operation_unavailable',
-      'not_found',
-      'operation_conflict',
-      'internal_failure',
-    ] as const,
-    retry: 'semantic',
-    admission: 'session',
-  }),
-} as const;
+const HOST_AUTOMATION_AND_GOAL_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_MEMORY_AND_AUTOMATION_OPERATION_SPECS,
+  GOAL_OPERATION_SPECS,
+);
+
+const HOST_GOAL_AND_NATIVE_PROVIDER_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_AUTOMATION_AND_GOAL_OPERATION_SPECS,
+  NATIVE_PROVIDER_OPERATION_SPECS,
+);
+
+const HOST_GOAL_NATIVE_PROVIDER_AND_OAUTH_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_GOAL_AND_NATIVE_PROVIDER_OPERATION_SPECS,
+  OAUTH_OPERATION_SPECS,
+);
+
+const HOST_GOAL_NATIVE_PROVIDER_AND_RESOURCE_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_GOAL_NATIVE_PROVIDER_AND_OAUTH_OPERATION_SPECS,
+  RUNTIME_RESOURCE_OPERATION_SPECS,
+);
+
+export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
+  HOST_GOAL_NATIVE_PROVIDER_AND_RESOURCE_OPERATION_SPECS,
+  USAGE_PRICING_OPERATION_SPECS,
+);
 
 export type OperationSpecMap = typeof HOST_OPERATION_SPECS;
 export type OperationKey = keyof OperationSpecMap;
@@ -199,17 +455,27 @@ export function decodeRequestFrame(value: unknown): RequestFrame {
 export function decodeResponseFrame(value: unknown): ResponseFrame {
   const record = requireRecord(value, 'operation response');
   if (record.ok === true) {
-    assertExactKeys(record, 'operation response', ['requestId', 'operation', 'ok', 'result']);
-    const requestId = requireId(record.requestId, 'requestId');
-    const operation = requireOperationKey(record.operation);
-    const result = HOST_OPERATION_SPECS[operation].decodeOutput(record.result);
+    const frame = requireExactRecord(record, 'operation response', [
+      'requestId',
+      'operation',
+      'ok',
+      'result',
+    ]);
+    const requestId = requireId(frame.requestId, 'requestId');
+    const operation = requireOperationKey(frame.operation);
+    const result = HOST_OPERATION_SPECS[operation].decodeOutput(frame.result);
     return { requestId, operation, ok: true, result } as ResponseFrame;
   }
   if (record.ok === false) {
-    assertExactKeys(record, 'operation response', ['requestId', 'operation', 'ok', 'error']);
-    const requestId = requireId(record.requestId, 'requestId');
-    const operation = requireOperationKey(record.operation);
-    const error = decodeOperationError(record.error, HOST_OPERATION_SPECS[operation].errors);
+    const frame = requireExactRecord(record, 'operation response', [
+      'requestId',
+      'operation',
+      'ok',
+      'error',
+    ]);
+    const requestId = requireId(frame.requestId, 'requestId');
+    const operation = requireOperationKey(frame.operation);
+    const error = decodeOperationError(frame.error, HOST_OPERATION_SPECS[operation].errors);
     return { requestId, operation, ok: false, error } as ResponseFrame;
   }
   throw invalidProtocolFrame('Invalid operation response outcome');
@@ -217,112 +483,6 @@ export function decodeResponseFrame(value: unknown): ResponseFrame {
 
 export function isOperationKey(value: unknown): value is OperationKey {
   return typeof value === 'string' && Object.hasOwn(HOST_OPERATION_SPECS, value);
-}
-
-function decodeHostStatusInput(value: unknown): HostStatusInput {
-  requireExactRecord(value, 'host.status input', []);
-  return {};
-}
-
-function decodeHostStatusResult(value: unknown): HostStatusResult {
-  const record = requireExactRecord(value, 'host.status result', [
-    'hostEpoch',
-    'state',
-    'connections',
-    'activeOperations',
-    'activeResidencies',
-  ]);
-  return {
-    hostEpoch: requireId(record.hostEpoch, 'hostEpoch'),
-    state: requireHostState(record.state),
-    connections: requireCount(record.connections, 'connections'),
-    activeOperations: requireCount(record.activeOperations, 'activeOperations'),
-    activeResidencies: requireCount(record.activeResidencies, 'activeResidencies'),
-  };
-}
-
-function decodeTurnStartInput(value: unknown): TurnStartInput {
-  const record = requireExactRecord(value, 'turn.start input', ['sessionId', 'turnId', 'text']);
-  return {
-    sessionId: requireEntityId(record.sessionId, 'sessionId'),
-    turnId: requireEntityId(record.turnId, 'turnId'),
-    text: requireString(record.text, 'text', 48 * 1024),
-  };
-}
-
-function decodeTurnQueryInput(value: unknown): TurnQueryInput {
-  const record = requireExactRecord(value, 'turn.query input', ['sessionId', 'turnId']);
-  return {
-    sessionId: requireEntityId(record.sessionId, 'sessionId'),
-    turnId: requireEntityId(record.turnId, 'turnId'),
-  };
-}
-
-function decodeTurnStopInput(value: unknown): TurnStopInput {
-  const record = requireExactRecord(value, 'turn.stop input', ['sessionId', 'turnId', 'runId']);
-  return {
-    sessionId: requireEntityId(record.sessionId, 'sessionId'),
-    turnId: requireEntityId(record.turnId, 'turnId'),
-    runId: requireEntityId(record.runId, 'runId'),
-  };
-}
-
-function decodeTurnSnapshot(value: unknown): TurnSnapshot {
-  const record = requireRecord(value, 'Turn snapshot');
-  const base = {
-    sessionId: requireEntityId(record.sessionId, 'sessionId'),
-    turnId: requireEntityId(record.turnId, 'turnId'),
-    runId: requireEntityId(record.runId, 'runId'),
-  };
-  const status = requireTurnRunStatus(record.status);
-  if (status === 'completed') {
-    assertExactKeys(record, 'completed Turn snapshot', [
-      'sessionId',
-      'turnId',
-      'runId',
-      'status',
-      'terminalEventId',
-    ]);
-    return {
-      ...base,
-      status,
-      terminalEventId: requireId(record.terminalEventId, 'terminalEventId'),
-    };
-  }
-  if (status === 'failed') {
-    assertExactKeys(record, 'failed Turn snapshot', [
-      'sessionId',
-      'turnId',
-      'runId',
-      'status',
-      'terminalEventId',
-      'failureClass',
-    ]);
-    return {
-      ...base,
-      status,
-      terminalEventId: requireId(record.terminalEventId, 'terminalEventId'),
-      failureClass: requireString(record.failureClass, 'failureClass', 128),
-    };
-  }
-  if (status === 'cancelled') {
-    assertExactKeys(record, 'cancelled Turn snapshot', [
-      'sessionId',
-      'turnId',
-      'runId',
-      'status',
-      'terminalEventId',
-      'abortSource',
-    ]);
-    return {
-      ...base,
-      status,
-      terminalEventId: requireId(record.terminalEventId, 'terminalEventId'),
-      abortSource: requireString(record.abortSource, 'abortSource', 128),
-    };
-  }
-  assertExactKeys(record, 'non-terminal Turn snapshot', ['sessionId', 'turnId', 'runId', 'status']);
-  return { ...base, status };
 }
 
 function decodeOperationError<C extends HostOperationErrorCode>(
@@ -342,96 +502,4 @@ function decodeOperationError<C extends HostOperationErrorCode>(
 function requireOperationKey(value: unknown): OperationKey {
   if (!isOperationKey(value)) throw invalidProtocolFrame('Unknown operation key');
   return value;
-}
-
-function requireHostState(value: unknown): HostLifecycleState {
-  if (
-    value === 'starting' ||
-    value === 'containing' ||
-    value === 'recovering' ||
-    value === 'ready' ||
-    value === 'draining'
-  )
-    return value;
-  throw invalidProtocolFrame('Invalid Host state');
-}
-
-function requireTurnRunStatus(value: unknown): TurnRunStatus {
-  if (
-    value === 'admitted' ||
-    value === 'created' ||
-    value === 'running' ||
-    value === 'waiting_permission' ||
-    value === 'completed' ||
-    value === 'failed' ||
-    value === 'cancelled'
-  )
-    return value;
-  throw invalidProtocolFrame('Invalid Turn run status');
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw invalidProtocolFrame(`Invalid ${label}`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function requireExactRecord(
-  value: unknown,
-  label: string,
-  keys: readonly string[],
-): Record<string, unknown> {
-  const record = requireRecord(value, label);
-  assertExactKeys(record, label, keys);
-  return record;
-}
-
-function assertExactKeys(
-  record: Record<string, unknown>,
-  label: string,
-  keys: readonly string[],
-): void {
-  assertAllowedKeys(record, label, keys);
-  if (
-    Object.keys(record).length !== keys.length ||
-    keys.some((key) => !Object.hasOwn(record, key))
-  ) {
-    throw invalidProtocolFrame(`Invalid ${label} fields`);
-  }
-}
-
-function assertAllowedKeys(
-  record: Record<string, unknown>,
-  label: string,
-  keys: readonly string[],
-): void {
-  const allowed = new Set(keys);
-  if (Object.keys(record).some((key) => !allowed.has(key))) {
-    throw invalidProtocolFrame(`Unknown ${label} field`);
-  }
-}
-
-function requireString(value: unknown, label: string, maxLength: number): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
-    throw invalidProtocolFrame(`Invalid ${label}`);
-  }
-  return value;
-}
-
-function requireId(value: unknown, label: string): string {
-  return requireString(value, label, 128);
-}
-
-function requireEntityId(value: unknown, label: string): string {
-  const id = requireId(value, label);
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw invalidProtocolFrame(`Invalid ${label}`);
-  return id;
-}
-
-function requireCount(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw invalidProtocolFrame(`Invalid ${label}`);
-  }
-  return value as number;
 }

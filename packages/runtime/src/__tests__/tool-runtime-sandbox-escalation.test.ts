@@ -55,9 +55,16 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
     let called = false;
     let reviews = 0;
     const h = harness({
-      review: async () => {
-        reviews += 1;
-        return { outcome: 'deny', riskLevel: 'critical', rationale: 'User intent is ambiguous.' };
+      review: async ({ request }) => {
+        if (request.kind === 'sandbox_escalation') {
+          reviews += 1;
+          return { outcome: 'deny', riskLevel: 'critical', rationale: 'User intent is ambiguous.' };
+        }
+        return {
+          outcome: 'allow',
+          riskLevel: 'high',
+          rationale: 'Base tool execution is allowed.',
+        };
       },
     });
     const execute = h.runtime.wrapToolExecute(
@@ -79,7 +86,7 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
     });
 
     assert.equal(called, false);
-    assert.deepEqual(first, { error: '自动审批已拒绝权限请求：User intent is ambiguous.' });
+    assert.deepEqual(first, { error: '自动审批已拒绝权限请求' });
     assert.deepEqual(repeated, {
       error:
         '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。',
@@ -92,12 +99,23 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
   });
 
   test('fails closed on reviewer failure and permits a new review next turn', async () => {
+    let sandboxReviewFailed = false;
     let reviews = 0;
     let executions = 0;
     const h = harness({
-      review: async () => {
+      review: async ({ request }) => {
+        if (request.kind !== 'sandbox_escalation') {
+          return {
+            outcome: 'allow',
+            riskLevel: 'high',
+            rationale: 'Base tool execution is allowed.',
+          };
+        }
         reviews += 1;
-        if (reviews === 1) throw new Error('reviewer unavailable');
+        if (!sandboxReviewFailed) {
+          sandboxReviewFailed = true;
+          throw new Error('reviewer unavailable');
+        }
         return { outcome: 'allow', riskLevel: 'high', rationale: 'Authorized in the new turn.' };
       },
     });
@@ -108,9 +126,7 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
     const first = await h.runtime.wrapToolExecute(tool, 'turn-1', {
       push: (event) => h.events.push(event),
     })(args, { toolCallId: 'tool-1', abortSignal: new AbortController().signal });
-    assert.deepEqual(first, {
-      error: '自动审批已拒绝权限请求：Automatic approval review failed closed.',
-    });
+    assert.deepEqual(first, { error: '自动审批已拒绝权限请求' });
 
     h.runtime.endTurn('turn-1');
     h.runtime.beginTurn('turn-2');
@@ -177,6 +193,7 @@ function harness(autoReviewer: AutoApprovalReviewer) {
     schemaVersion: 1,
   };
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header,
     connection: { providerType: 'openai', slug: 'c' } as never,

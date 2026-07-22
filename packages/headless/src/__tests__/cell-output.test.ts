@@ -35,16 +35,11 @@ describe('Harbor cell output contract', () => {
       }),
       runtimeEvent({
         id: 'call-read',
-        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'vm.js' } },
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read' },
       }),
       runtimeEvent({
         id: 'call-bash',
-        content: {
-          kind: 'function_call',
-          id: 'tool-2',
-          name: 'Bash',
-          args: { command: 'node vm.js' },
-        },
+        content: { kind: 'function_call', id: 'tool-2', name: 'Bash' },
       }),
       runtimeEvent({
         id: 'usage-2',
@@ -270,7 +265,7 @@ describe('Harbor cell output contract', () => {
         events: [
           runtimeEvent({
             id: 'tool-step',
-            content: { kind: 'function_call', id: 'call-1', name: 'Read', args: {} },
+            content: { kind: 'function_call', id: 'call-1', name: 'Read' },
             refs: { toolCallId: 'call-1', stepId: 'step-1' },
           }),
           runtimeEvent({
@@ -306,7 +301,7 @@ describe('Harbor cell output contract', () => {
           runtimeEvent({
             id: 'unmetered-tool-step',
             turnId: 'turn-2',
-            content: { kind: 'function_call', id: 'call-2', name: 'Read', args: {} },
+            content: { kind: 'function_call', id: 'call-2', name: 'Read' },
             refs: { toolCallId: 'call-2', stepId: 'step-2' },
           }),
         ],
@@ -444,9 +439,6 @@ describe('Harbor cell output contract', () => {
               kind: 'function_call',
               id: 'tool-6',
               name: 'todo_write',
-              args: {
-                todos: [{ content: 'Run focused check', status: 'pending', priority: 'high' }],
-              },
             },
           }),
         ],
@@ -472,12 +464,7 @@ describe('Harbor cell output contract', () => {
       events: [
         runtimeEvent({
           id: 'regular-tool',
-          content: {
-            kind: 'function_call',
-            id: 'tool-regular',
-            name: 'Read',
-            args: { path: 'README.md' },
-          },
+          content: { kind: 'function_call', id: 'tool-regular', name: 'Read' },
         }),
       ],
       startedAt: 100,

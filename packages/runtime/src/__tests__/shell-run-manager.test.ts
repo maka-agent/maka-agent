@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -7,6 +7,7 @@ import type { ShellRunRecord, ShellRunStore, ShellRunUpdate, ToolResultContent }
 import { createShellRunStore } from '@maka/storage';
 
 import { ShellRunProcessManager } from '../shell-run-manager.js';
+import type { ShellRunSettlementEvent } from '../shell-run-contract.js';
 import { defaultShellPlan, type ShellPlan } from '../shell-detect.js';
 import { PTY_PROTOCOL_REPLY_MAX_BYTES } from '../pty-screen-collector.js';
 
@@ -20,6 +21,196 @@ after(async () => {
 });
 
 describe('ShellRunProcessManager', () => {
+  test('creates the durable starting record before the real child executes user code', async () => {
+    const cwd = await workspace();
+    const backingStore = createShellRunStore(cwd);
+    const durablePath = join(
+      cwd,
+      'sessions',
+      'session-1',
+      'shell-runs',
+      'shell-run-1',
+      'shell-run.json',
+    );
+    const startingProofPath = join(cwd, 'starting-shell-run.json');
+    const runningRevisions: number[] = [];
+    const store: ShellRunStore = {
+      async createShellRun(record) {
+        const created = await backingStore.createShellRun(record);
+        await link(durablePath, startingProofPath);
+        return created;
+      },
+      async updateShellRun(...args) {
+        const updated = await backingStore.updateShellRun(...args);
+        if (updated.status === 'running') runningRevisions.push(updated.revision);
+        return updated;
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store);
+    const result = await manager.runForegroundBash(
+      shellInput({
+        cwd,
+        command: 'inspect durable startup state',
+        argv: [
+          process.execPath,
+          '-e',
+          `const {readFileSync}=require('node:fs');const record=JSON.parse(readFileSync(${JSON.stringify(startingProofPath)},'utf8'));process.stdout.write(record.status+':'+record.revision)`,
+        ],
+      }),
+    );
+
+    assert.equal(result.output.mode, 'pipes');
+    if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+    assert.equal(result.output.stdout, 'starting:1');
+    assert.deepEqual(runningRevisions, [2]);
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).status, 'completed');
+  });
+
+  test('persists and observes a real spawn failure before releasing its slot', async () => {
+    const cwd = await workspace();
+    const store = createShellRunStore(cwd);
+    const manager = createManager(store, undefined, { maxLiveShellRuns: 1 });
+
+    await assert.rejects(
+      () =>
+        manager.runBackgroundBash(
+          shellInput({
+            cwd,
+            command: 'missing executable',
+            argv: [join(cwd, 'does-not-exist')],
+          }),
+        ),
+      /ENOENT|spawn/,
+    );
+    const failed = await store.readShellRun('session-1', 'shell-run-1');
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.revision, 2);
+    assert.ok(failed.completedAt !== undefined);
+    assert.ok(failed.observedAt !== undefined);
+    assert.match(failed.failureMessage ?? '', /ENOENT|spawn/);
+    assert.equal(manager.liveCount(), 0);
+
+    const next = await manager.runForegroundBash(
+      shellInput({ cwd, command: 'next', argv: [process.execPath, '-e', 'process.exit(0)'] }),
+    );
+    assert.equal(next.status, 'completed');
+  });
+
+  test('closes startup latches when running persistence fails during shutdown', async () => {
+    const cwd = await workspace();
+    const backingStore = createShellRunStore(cwd);
+    const updateStarted = deferred<void>();
+    const releaseUpdate = deferred<void>();
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(...args) {
+        if (args[2].status === 'running') {
+          updateStarted.resolve();
+          await releaseUpdate.promise;
+          throw new Error('injected running update failure');
+        }
+        return backingStore.updateShellRun(...args);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store);
+    const startup = assert.rejects(
+      manager.runBackgroundBash(
+        shellInput({ cwd, command: waitForeverCommand(), timeoutMs: 5_000 }),
+      ),
+      /injected running update failure/,
+    );
+    await updateStarted.promise;
+
+    const shutdown = manager.terminateAll();
+    releaseUpdate.resolve();
+    await Promise.race([
+      Promise.all([startup, shutdown]),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('startup shutdown did not settle')), 2_000),
+      ),
+    ]);
+
+    const failed = await backingStore.readShellRun('session-1', 'shell-run-1');
+    assert.equal(failed.status, 'failed');
+    assert.ok(failed.observedAt !== undefined);
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('retries startup terminal persistence once after a transient failure', async () => {
+    const cwd = await workspace();
+    const backingStore = createShellRunStore(cwd);
+    let failedUpdates = 0;
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(...args) {
+        if (args[2].status === 'failed' && failedUpdates++ === 0) {
+          throw new Error('transient failed update');
+        }
+        return backingStore.updateShellRun(...args);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store);
+
+    await assert.rejects(
+      manager.runBackgroundBash(
+        shellInput({ cwd, command: 'missing', argv: [join(cwd, 'missing-transient')] }),
+      ),
+      /ENOENT|spawn/,
+    );
+    assert.equal(failedUpdates, 2);
+    const failed = await backingStore.readShellRun('session-1', 'shell-run-1');
+    assert.equal(failed.status, 'failed');
+    assert.ok(failed.observedAt !== undefined);
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('reports startup and persistent terminalization failures without leaking resources', async () => {
+    const cwd = await workspace();
+    const backingStore = createShellRunStore(cwd);
+    let failedUpdates = 0;
+    const settlements: ShellRunSettlementEvent[] = [];
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(...args) {
+        if (args[2].status === 'failed') {
+          failedUpdates += 1;
+          throw new Error('persistent failed update');
+        }
+        return backingStore.updateShellRun(...args);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store, undefined, {
+      onShellRunSettled: (event) => {
+        settlements.push(event);
+      },
+    });
+
+    await assert.rejects(
+      manager.runBackgroundBash(
+        shellInput({ cwd, command: 'missing', argv: [join(cwd, 'missing-persistent')] }),
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        /ENOENT|spawn/.test(error.message) &&
+        /persistent failed update/.test(error.message),
+    );
+    assert.equal(failedUpdates, 2);
+    assert.equal((await backingStore.readShellRun('session-1', 'shell-run-1')).status, 'starting');
+    assert.equal(manager.liveCount(), 0);
+    assert.equal(settlements.length, 1);
+    assert.equal(settlements[0]?.sessionId, 'session-1');
+    assert.equal(settlements[0]?.ref, 'maka://runtime/background-tasks/shell-run-1');
+    assert.match(settlements[0]?.terminalizationError?.message ?? '', /persistent failed update/);
+  });
+
   test('keeps the default pipe path separated, durable, redacted, and observed', async () => {
     const cwd = await workspace();
     const store = createShellRunStore(cwd);
@@ -106,7 +297,8 @@ describe('ShellRunProcessManager', () => {
 
     await waitUntil(async () => {
       try {
-        return (await store.readShellRun('session-1', 'shell-run-1')).timeoutMs === 120_000;
+        const record = await store.readShellRun('session-1', 'shell-run-1');
+        return record.status === 'running' && record.timeoutMs === 120_000;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
         throw error;
@@ -194,6 +386,96 @@ describe('ShellRunProcessManager', () => {
     );
   });
 
+  test('arms a real pipe timeout before a slow running update completes', async () => {
+    const cwd = await workspace();
+    const marker = join(cwd, 'pipe-timeout-fired');
+    const backingStore = createShellRunStore(cwd);
+    const updateStarted = deferred<void>();
+    let updateReleased = false;
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(...args) {
+        if (args[2].status === 'running') {
+          updateStarted.resolve();
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          updateReleased = true;
+        }
+        return backingStore.updateShellRun(...args);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store);
+    const running = manager.runForegroundBash(
+      shellInput({
+        cwd,
+        command: 'real delayed pipe startup',
+        argv: [
+          process.execPath,
+          '-e',
+          `const {writeFileSync}=require('node:fs');process.once('SIGTERM',()=>{writeFileSync(${JSON.stringify(marker)},'timeout');process.exit(0)});setInterval(()=>{},1000)`,
+        ],
+        timeoutMs: 50,
+      }),
+    );
+    await updateStarted.promise;
+    await waitUntil(async () => {
+      try {
+        return (await readFile(marker, 'utf8')) === 'timeout';
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    assert.equal(updateReleased, false);
+    assert.equal((await running).status, 'timed_out');
+  });
+
+  test('arms a real PTY timeout before a slow running update completes', {
+    skip: process.platform === 'win32' ? 'POSIX PTY signal marker required' : false,
+  }, async () => {
+    const cwd = await workspace();
+    const marker = join(cwd, 'pty-timeout-fired');
+    const backingStore = createShellRunStore(cwd);
+    const updateStarted = deferred<void>();
+    let updateReleased = false;
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(...args) {
+        if (args[2].status === 'running') {
+          updateStarted.resolve();
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          updateReleased = true;
+        }
+        return backingStore.updateShellRun(...args);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store);
+    const running = manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: `trap 'printf timeout > ${shellQuote(marker)}; exit 0' TERM; while :; do sleep 1; done`,
+        pty: true,
+        timeoutMs: 50,
+      }),
+    );
+    await updateStarted.promise;
+    await waitUntil(async () => {
+      try {
+        return (await readFile(marker, 'utf8')) === 'timeout';
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    assert.equal(updateReleased, false);
+    const initial = await running;
+    assert.equal(initial.status, 'timed_out');
+    assert.equal(manager.liveCount(), 0);
+  });
+
   test('aborting foreground Bash terminates the process without leaking a ref', async () => {
     const abort = new AbortController();
     const manager = await createTestManager();
@@ -278,6 +560,84 @@ describe('ShellRunProcessManager', () => {
     assert.equal(runtimeManager.liveCount(), 0);
   });
 
+  for (const kind of ['foreground', 'background'] as const) {
+    test(`Session close settlement waits for ${kind} startup before live ownership`, async () => {
+      const cwd = await workspace();
+      const backingStore = createShellRunStore(cwd);
+      const createEntered = deferred<void>();
+      const releaseCreate = deferred<void>();
+      const store: ShellRunStore = {
+        async createShellRun(record) {
+          createEntered.resolve();
+          await releaseCreate.promise;
+          return backingStore.createShellRun(record);
+        },
+        updateShellRun: (...args) => backingStore.updateShellRun(...args),
+        readShellRun: (...args) => backingStore.readShellRun(...args),
+        listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+      };
+      const manager = createManager(store);
+      const startup =
+        kind === 'foreground'
+          ? manager.runForegroundBash(
+              shellInput({ cwd, command: waitForeverCommand(), timeoutMs: 5_000 }),
+            )
+          : manager.runBackgroundBash(
+              shellInput({ cwd, command: waitForeverCommand(), timeoutMs: 5_000 }),
+            );
+      await createEntered.promise;
+
+      const closing = manager.terminateSession('session-1');
+      let closeSettled = false;
+      void closing.then(
+        () => {
+          closeSettled = true;
+        },
+        () => {
+          closeSettled = true;
+        },
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(closeSettled, false);
+
+      releaseCreate.resolve();
+      await assert.rejects(startup, /session lifecycle changed/);
+      const lease = await closing;
+      assert.equal(closeSettled, true);
+      assert.equal(manager.liveCount(), 0);
+      manager.rollbackSessionClose(lease);
+    });
+  }
+
+  test('prepare failure releases its Session close lease', async () => {
+    const cwd = await workspace();
+    const backingStore = createShellRunStore(cwd);
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(sessionId, shellRunId, patch) {
+        if (shellRunId === 'shell-run-1' && patch.status === 'cancelled') {
+          throw new Error('injected close persistence failure');
+        }
+        return backingStore.updateShellRun(sessionId, shellRunId, patch);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    const manager = createManager(store);
+    await manager.runBackgroundBash(shellInput({ cwd, command: waitForeverCommand() }));
+
+    await assert.rejects(
+      manager.terminateSession('session-1'),
+      /injected close persistence failure/,
+    );
+    const reopened = await manager.runForegroundBash(
+      shellInput({ cwd, command: nodeCommand("process.stdout.write('REOPENED')") }),
+    );
+    assert.equal(reopened.output.mode, 'pipes');
+    if (reopened.output.mode !== 'pipes') assert.fail('Expected pipe output');
+    assert.equal(reopened.output.stdout, 'REOPENED');
+  });
+
   test('keeps overlapping session close leases isolated through rollback and commit', async () => {
     const cwd = await workspace();
     const manager = await createTestManager();
@@ -357,6 +717,144 @@ describe('ShellRunProcessManager', () => {
         .sort(),
       [false, true],
     );
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('wire stop returns terminal state without marking it observed by the model', async () => {
+    const cwd = await workspace();
+    const store = createShellRunStore(cwd);
+    const manager = createManager(store);
+    const initial = await manager.runBackgroundBash(
+      shellInput({ cwd, command: waitForeverCommand('READY\n'), timeoutMs: 5_000 }),
+    );
+    assert.equal(initial.kind, 'shell_run');
+
+    const stopped = await manager.stopRuntimeResource('session-1', initial.ref, NO_ABORT);
+    assertShellRun(stopped);
+    assert.equal(stopped.status, 'cancelled');
+    const wireRecord = await store.readShellRun('session-1', 'shell-run-1');
+    assert.equal(wireRecord.observedAt, undefined);
+    const repeatedWireStop = await manager.stopRuntimeResource('session-1', initial.ref, NO_ABORT);
+    assertShellRun(repeatedWireStop);
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).observedAt, undefined);
+
+    const modelRead = await manager.readRuntimeResource('session-1', initial.ref, NO_ABORT);
+    assertShellRun(modelRead);
+    const observed = await store.readShellRun('session-1', 'shell-run-1');
+    assert.ok(observed.observedAt !== undefined);
+    assert.equal(observed.revision, wireRecord.revision + 1);
+    await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
+    assert.equal(
+      (await store.readShellRun('session-1', 'shell-run-1')).revision,
+      observed.revision,
+    );
+  });
+
+  test('wire PTY control on a terminal resource does not mark model observation', async () => {
+    const cwd = await workspace();
+    const store = createShellRunStore(cwd);
+    const manager = createManager(store);
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand('setTimeout(() => process.exit(0), 250)'),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
+    assert.equal(initial.kind, 'shell_run');
+    await waitForTerminalShellRun(manager, initial.ref);
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).observedAt, undefined);
+
+    const wireControl = await manager.controlPtyResource({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'x',
+      abortSignal: NO_ABORT,
+    });
+    assert.equal(wireControl.status, 'completed');
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).observedAt, undefined);
+
+    await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      input: 'x',
+      abortSignal: NO_ABORT,
+    });
+    assert.ok((await store.readShellRun('session-1', 'shell-run-1')).observedAt !== undefined);
+  });
+
+  test('notifies settlement once after final persistence failure and slot release', async () => {
+    const cwd = await workspace();
+    const backingStore = createShellRunStore(cwd);
+    const finalPersistenceFailure = new Error('injected final persistence failure');
+    const settled: Array<{ sessionId: string; ref: string; liveCount: number }> = [];
+    let terminalizationError: Error | undefined;
+    const store: ShellRunStore = {
+      createShellRun: (...args) => backingStore.createShellRun(...args),
+      async updateShellRun(...args) {
+        if (args[2].status === 'completed') {
+          throw finalPersistenceFailure;
+        }
+        return backingStore.updateShellRun(...args);
+      },
+      readShellRun: (...args) => backingStore.readShellRun(...args),
+      listSessionShellRuns: (...args) => backingStore.listSessionShellRuns(...args),
+    };
+    let manager!: ShellRunProcessManager;
+    manager = createManager(store, undefined, {
+      onShellRunSettled: (event) => {
+        terminalizationError = event.terminalizationError;
+        settled.push({
+          sessionId: event.sessionId,
+          ref: event.ref,
+          liveCount: manager.liveCount(),
+        });
+      },
+    });
+
+    await assert.rejects(
+      manager.runForegroundBash(
+        shellInput({ cwd, command: 'exit cleanly', argv: [process.execPath, '-e', ''] }),
+      ),
+      /injected final persistence failure/,
+    );
+    assert.deepEqual(settled, [
+      {
+        sessionId: 'session-1',
+        ref: 'maka://runtime/background-tasks/shell-run-1',
+        liveCount: 0,
+      },
+    ]);
+    assert.equal(terminalizationError, finalPersistenceFailure);
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('does not notify rejected startup and isolates async settlement observer rejection', async () => {
+    const cwd = await workspace();
+    const store = createShellRunStore(cwd);
+    let settledCalls = 0;
+    const manager = createManager(store, undefined, {
+      onShellRunSettled: async () => {
+        settledCalls += 1;
+        await Promise.resolve();
+        throw new Error('observer failure');
+      },
+    });
+
+    await assert.rejects(
+      manager.runBackgroundBash(
+        shellInput({ cwd, command: 'missing', argv: [join(cwd, 'missing-settled')] }),
+      ),
+      /ENOENT|spawn/,
+    );
+    assert.equal(settledCalls, 0);
+
+    const completed = await manager.runForegroundBash(
+      shellInput({ cwd, command: 'complete', argv: [process.execPath, '-e', ''] }),
+    );
+    assert.equal(completed.status, 'completed');
+    assert.equal(settledCalls, 1);
     assert.equal(manager.liveCount(), 0);
   });
 
@@ -598,12 +1096,22 @@ describe('ShellRunProcessManager', () => {
     assert.match(terminalText(completed.output), /VALUE:resumed/);
   });
 
-  test('recovers a durable running record without a live handle as orphaned', async () => {
+  test('recovers durable starting and running records idempotently without changing terminals', async () => {
     const store = createShellRunStore(await workspace());
+    await store.createShellRun(record({ shellRunId: 'orphan-starting', status: 'starting' }));
     await store.createShellRun(record({ shellRunId: 'orphan-1', status: 'running' }));
+    await store.createShellRun({
+      ...record({ shellRunId: 'completed-1', status: 'running' }),
+      status: 'completed',
+      exitCode: 0,
+      completedAt: 2,
+    });
     const manager = createManager(store);
 
-    assert.equal(await manager.recoverOrphanedSession('session-1'), 1);
+    assert.equal(await manager.recoverOrphanedSession('session-1'), 2);
+    assert.equal(await manager.recoverOrphanedSession('session-1'), 0);
+    assert.equal((await store.readShellRun('session-1', 'orphan-starting')).status, 'orphaned');
+    assert.equal((await store.readShellRun('session-1', 'completed-1')).status, 'completed');
     const detail = await manager.readRuntimeResource(
       'session-1',
       'maka://runtime/background-tasks/orphan-1',
@@ -613,6 +1121,45 @@ describe('ShellRunProcessManager', () => {
     assert.equal(detail.status, 'orphaned');
     assert.match(detail.failureMessage ?? '', /Runtime restarted/);
     assert.equal(detail.exitCode, undefined);
+  });
+
+  test('settles after root exit when a detached descendant holds inherited stdout', {
+    skip: process.platform === 'win32' ? 'POSIX detached process-group semantics required' : false,
+  }, async () => {
+    const cwd = await workspace();
+    const childPidPath = join(cwd, 'escaped-child.pid');
+    const manager = await createTestManager(undefined, { pipeOutputDrainMs: 100 });
+    let childPid: number | undefined;
+    try {
+      const startedAt = Date.now();
+      const result = await manager.runForegroundBash(
+        shellInput({
+          cwd,
+          command: 'root exits while detached child inherits stdout',
+          argv: [
+            process.execPath,
+            '-e',
+            `const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:['ignore',process.stdout,'ignore']});child.unref();writeFileSync(${JSON.stringify(childPidPath)},String(child.pid));process.stdout.write('ROOT\\n')`,
+          ],
+        }),
+      );
+      childPid = Number.parseInt(await readFile(childPidPath, 'utf8'), 10);
+      assert.ok(Date.now() - startedAt < 2_000);
+      assert.equal(result.status, 'failed');
+      assert.equal(result.output.mode, 'pipes');
+      if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
+      assert.equal(result.output.stdoutTruncated, true);
+      assert.match(result.failureMessage ?? '', /output pipes drained completely/);
+      assert.equal(manager.liveCount(), 0);
+    } finally {
+      if (childPid && isProcessAlive(childPid)) {
+        try {
+          process.kill(-childPid, 'SIGKILL');
+        } catch {
+          process.kill(childPid, 'SIGKILL');
+        }
+      }
+    }
   });
 
   test('keeps unauthorized refs non-disclosing and rejects malformed selectors before storage', async () => {
@@ -1715,6 +2262,8 @@ function createManager(
     maxLivePtyRuns?: number;
     killGraceMs?: number;
     flushIntervalMs?: number;
+    pipeOutputDrainMs?: number;
+    onShellRunSettled?: (event: ShellRunSettlementEvent) => void | Promise<void>;
   } = {},
 ): ShellRunProcessManager {
   let id = 0;
@@ -1738,6 +2287,8 @@ async function createTestManager(
     maxLivePtyRuns?: number;
     killGraceMs?: number;
     flushIntervalMs?: number;
+    pipeOutputDrainMs?: number;
+    onShellRunSettled?: (event: ShellRunSettlementEvent) => void | Promise<void>;
   },
 ): Promise<ShellRunProcessManager> {
   return createManager(createShellRunStore(await workspace()), onShellRunUpdate, options);
@@ -1950,4 +2501,15 @@ function isProcessAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T | PromiseLike<T>): void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
 }

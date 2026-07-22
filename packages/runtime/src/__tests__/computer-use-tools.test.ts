@@ -5,7 +5,10 @@ import { zodSchema } from 'ai';
 import {
   adaptToCuAction,
   buildComputerUseTools,
+  CuBackendError,
   snapshotComputerParams,
+  type CuBackendAffinity,
+  type CuBackendInvocationProvider,
   type CuDispatchBackend,
   type CuObservation,
   type CuRunContext,
@@ -187,7 +190,7 @@ describe('adaptToCuAction — flat Anthropic grammar → discriminated CuAction'
     const [tool] = buildComputerUseTools({ backend: fakeBackend() });
     assert.throws(
       () =>
-        tool.permissionArgs?.({ action: 'observe' } as never, {
+        tool.prepareIntentArgs?.({ action: 'observe' } as never, {
           sessionId: 's1',
           turnId: 't1',
           toolCallId: 'observe',
@@ -737,7 +740,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     });
   });
 
-  test('permission args bind mutations to the Runtime-owned observation target', async () => {
+  test('intent args bind mutations to the Runtime-owned observation target', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
     };
@@ -749,7 +752,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     )) as { text: string };
     const observationId = JSON.parse(observed.text).observation_id as string;
     assert.deepEqual(
-      tool.permissionArgs?.(
+      tool.prepareIntentArgs?.(
         {
           action: 'left_click',
           observation_id: observationId,
@@ -770,7 +773,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       },
     );
     assert.deepEqual(
-      tool.permissionArgs?.(
+      tool.prepareIntentArgs?.(
         {
           action: 'left_click',
           observation_id: 'wrong-frame',
@@ -943,6 +946,53 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     }
   });
 
+  test('semantic action preserves delivered semantics when typed fresh capture fails', async () => {
+    let semanticCalls = 0;
+    let captureCalls = 0;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+      captureObservation: NonNullable<CuDispatchBackend['captureObservation']>;
+    };
+    backend.observeApp = async () => observation();
+    backend.runSemantic = async () => {
+      semanticCalls += 1;
+      return { outcome: { ok: true, tier: 'ax', verified: true } };
+    };
+    backend.captureObservation = async () => {
+      captureCalls += 1;
+      throw new CuBackendError('outcome_unknown', 'native provider lost the fresh observation');
+    };
+    const invocationProvider: CuBackendInvocationProvider = {
+      async acquire() {
+        return { ok: true, invocation: { backend, release() {} } };
+      },
+    };
+    const tools = buildComputerUseTools({ invocationProvider });
+    const [tool] = tools;
+    const observed = (await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(undefined, { toolCallId: 'observe-call', operationId: 'durable-observe' }),
+    )) as { text: string };
+
+    const result = (await tool.impl(
+      {
+        action: 'click_element',
+        observation_id: JSON.parse(observed.text).observation_id,
+        element_id: '5',
+      } as never,
+      ctx(undefined, { toolCallId: 'semantic-call', operationId: 'durable-semantic' }),
+    )) as { text: string; error?: string };
+
+    assert.equal(semanticCalls, 1);
+    assert.equal(captureCalls, 1);
+    assert.equal(result.error, 'outcome_unknown');
+    assert.match(result.text, /computer\.click_element failed: outcome_unknown/);
+    assert.match(result.text, /do not retry blindly/);
+    assert.doesNotMatch(result.text, /native provider/);
+    assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
+  });
+
   test('coordinate action is bound to a window-local screenshot and consumes the observation', async () => {
     const backend = fakeBackend() as CuDispatchBackend & {
       observeApp: NonNullable<CuDispatchBackend['observeApp']>;
@@ -1013,6 +1063,55 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     )) as { text: string };
 
     assert.match(result.text, /outcome_unknown/);
+  });
+
+  test('generic action preserves delivered semantics when provider disconnects during fresh capture', async () => {
+    let captureCalls = 0;
+    const backend = fakeBackend() as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      captureObservation: NonNullable<CuDispatchBackend['captureObservation']>;
+      last?: CuAction;
+    };
+    backend.observeApp = async () => observation();
+    backend.captureObservation = async () => {
+      captureCalls += 1;
+      throw new CuBackendError(
+        'service_unavailable',
+        'native provider disconnected during fresh capture',
+      );
+    };
+    const invocationProvider: CuBackendInvocationProvider = {
+      async acquire() {
+        return { ok: true, invocation: { backend, release() {} } };
+      },
+    };
+    const tools = buildComputerUseTools({ invocationProvider });
+    const [tool] = tools;
+    const observed = (await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(undefined, { toolCallId: 'observe-call', operationId: 'durable-observe' }),
+    )) as { text: string };
+
+    const result = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: JSON.parse(observed.text).observation_id,
+        coordinate: [25, 30],
+      } as never,
+      ctx(undefined, { toolCallId: 'action-call', operationId: 'durable-action' }),
+    )) as { text: string; error?: string };
+
+    assert.deepEqual(backend.last, {
+      type: 'left_click',
+      coordinate: { x: 25, y: 30 },
+      text: undefined,
+    });
+    assert.equal(captureCalls, 1);
+    assert.equal(result.error, 'outcome_unknown');
+    assert.match(result.text, /computer\.left_click failed: outcome_unknown/);
+    assert.match(result.text, /do not retry blindly/);
+    assert.doesNotMatch(result.text, /service_unavailable|native provider/);
+    assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
   });
 
   test('bound mutating actions require Screen Recording before dispatch', async () => {
@@ -1239,14 +1338,275 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.match(r.text, /computer\.wait ok via ax/);
   });
 
-  test('passes the full runtime context to the dispatch backend', async () => {
+  test('keeps the local backend path and uses toolCallId as its process-local operation id', async () => {
     const backend = fakeBackend();
     await callComputer(backend, { action: 'wait' });
     assert.deepEqual(backend.lastContext, {
       sessionId: 's1',
       turnId: 't1',
       toolCallId: 'call1',
+      operationId: 'call1',
     });
+  });
+
+  test('rejects the invocation provider path without a durable operation id', async () => {
+    let acquireCount = 0;
+    let backendCallCount = 0;
+    const invocationProvider: CuBackendInvocationProvider = {
+      async acquire() {
+        acquireCount += 1;
+        return {
+          ok: true,
+          invocation: {
+            backend: {
+              async preflight() {
+                backendCallCount += 1;
+                return { accessibility: true, screenRecording: true };
+              },
+              async run() {
+                backendCallCount += 1;
+                return { outcome: { ok: true, tier: 'ax', verified: true } };
+              },
+            },
+            release() {},
+          },
+        };
+      },
+    };
+    const [tool] = buildComputerUseTools({ invocationProvider });
+
+    await assert.rejects(
+      () => Promise.resolve(tool.impl({ action: 'wait' } as never, ctx())),
+      /requires a durable operationId/,
+    );
+    assert.equal(acquireCount, 0);
+    assert.equal(backendCallCount, 0);
+  });
+
+  test('pins backend affinity and observation handle per invocation', async () => {
+    const events: string[] = [];
+    const acquisitions: Array<{ context: CuRunContext; affinity?: CuBackendAffinity }> = [];
+    const backendContexts: Array<{
+      invocation: number;
+      method: 'observe' | 'run' | 'capture';
+      context: CuRunContext;
+    }> = [];
+    const affinity: CuBackendAffinity = 'registration-generation-1';
+    let acquireCount = 0;
+    const invocationProvider: CuBackendInvocationProvider = {
+      async acquire(input) {
+        acquireCount += 1;
+        const invocation = acquireCount;
+        acquisitions.push(input);
+        events.push(`acquire:${invocation}`);
+        if (invocation === 4) {
+          return {
+            ok: false,
+            error: 'service_mismatch',
+            message: 'the observation provider registration is gone',
+          };
+        }
+        const backend: CuDispatchBackend = {
+          async preflight() {
+            events.push(`preflight:${invocation}`);
+            return { accessibility: true, screenRecording: true };
+          },
+          async observeApp(_input, _signal, context) {
+            events.push(`observe:${invocation}`);
+            backendContexts.push({ invocation, method: 'observe', context });
+            return observation();
+          },
+          async run(_action, _signal, context) {
+            events.push(`run:${invocation}:${context.operationId}`);
+            backendContexts.push({ invocation, method: 'run', context });
+            return { outcome: { ok: true, tier: 'ax', verified: true } };
+          },
+          async captureObservation(_input, _signal, context) {
+            events.push(`capture:${invocation}`);
+            backendContexts.push({ invocation, method: 'capture', context });
+            return observation({ observationId: 'backend-obs-2' });
+          },
+        };
+        return {
+          ok: true,
+          invocation: {
+            backend,
+            affinity,
+            release() {
+              events.push(`release:${invocation}`);
+              if (invocation === 2) throw new Error('release failed');
+            },
+          },
+        };
+      },
+    };
+    const tools = buildComputerUseTools({ invocationProvider });
+    const [tool] = tools;
+    const observed = (await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(undefined, { toolCallId: 'observe-call', operationId: 'durable-observe' }),
+    )) as { text: string };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+    assert.doesNotMatch(observed.text, /backend-obs-1/);
+    assert.equal(acquisitions[0]?.context.backendObservationId, undefined);
+    assert.equal(backendContexts[0]?.context.backendObservationId, undefined);
+
+    events.length = 0;
+    const result = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: observationId,
+        coordinate: [25, 30],
+      } as never,
+      ctx(undefined, { toolCallId: 'action-call', operationId: 'durable-action' }),
+    )) as { text: string; modelText?: string };
+
+    assert.strictEqual(acquisitions[1]?.affinity, affinity);
+    assert.equal(acquisitions[1]?.context.operationId, 'durable-action');
+    assert.equal(acquisitions[1]?.context.backendObservationId, 'backend-obs-1');
+    assert.deepEqual(
+      backendContexts
+        .filter(({ invocation }) => invocation === 2)
+        .map(({ context }) => context.backendObservationId),
+      ['backend-obs-1', 'backend-obs-1'],
+    );
+    assert.deepEqual(events, [
+      'acquire:2',
+      'preflight:2',
+      'run:2:durable-action',
+      'capture:2',
+      'release:2',
+    ]);
+    assert.match(result.text, /computer\.left_click ok/);
+    assert.doesNotMatch(JSON.stringify(result), /registration-generation-1/);
+    assert.doesNotMatch(JSON.stringify(result), /backend-obs-[12]/);
+
+    const freshObservationId = JSON.parse(
+      result.modelText?.split('Fresh observation:\n')[1] ?? '{}',
+    ).observation_id as string;
+    await tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { toolCallId: 'wait-call', operationId: 'durable-wait' }),
+    );
+    assert.equal(acquisitions[2]?.context.backendObservationId, undefined);
+    assert.equal(
+      backendContexts.find(({ invocation }) => invocation === 3)?.context.backendObservationId,
+      undefined,
+    );
+    const eventsBeforeFailure = events.length;
+    const failed = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: freshObservationId,
+        coordinate: [25, 30],
+      } as never,
+      ctx(undefined, { toolCallId: 'failed-action-call', operationId: 'durable-failed-action' }),
+    )) as { text: string; error?: string };
+
+    assert.equal(failed.error, 'service_mismatch');
+    assert.match(failed.text, /service_mismatch/);
+    assert.equal(acquisitions[3]?.affinity, affinity);
+    assert.equal(acquisitions[3]?.context.backendObservationId, 'backend-obs-2');
+    assert.deepEqual(events.slice(eventsBeforeFailure), ['acquire:4']);
+    assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
+
+    const blocked = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: freshObservationId,
+        coordinate: [25, 30],
+      } as never,
+      ctx(undefined, { toolCallId: 'blocked-action-call', operationId: 'durable-blocked-action' }),
+    )) as { error?: string };
+    assert.equal(blocked.error, 'reobserve_required');
+    assert.equal(acquireCount, 4);
+  });
+
+  test('maps only typed backend exceptions and always releases the invocation', async () => {
+    const releases: number[] = [];
+    const acquisitions: Array<{ context: CuRunContext; affinity?: CuBackendAffinity }> = [];
+    const ordinaryError = new Error('ordinary backend failure');
+    let acquireCount = 0;
+    const invocationProvider: CuBackendInvocationProvider = {
+      async acquire(input) {
+        acquireCount += 1;
+        const invocation = acquireCount;
+        acquisitions.push(input);
+        return {
+          ok: true,
+          invocation: {
+            affinity: 'registration-generation-1',
+            backend: {
+              async preflight() {
+                if (invocation === 2) {
+                  throw new CuBackendError('service_unavailable', 'provider unavailable');
+                }
+                return { accessibility: true, screenRecording: true };
+              },
+              async observeApp() {
+                if (invocation === 3) throw ordinaryError;
+                return observation();
+              },
+              async run() {
+                return { outcome: { ok: true, tier: 'ax', verified: true } };
+              },
+            },
+            release() {
+              releases.push(invocation);
+            },
+          },
+        };
+      },
+    };
+    const tools = buildComputerUseTools({ invocationProvider });
+    const [tool] = tools;
+    const observed = (await tool.impl(
+      { action: 'observe', app: 'Fixture' } as never,
+      ctx(undefined, { toolCallId: 'observe-call', operationId: 'durable-observe' }),
+    )) as { text: string };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const failed = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: observationId,
+        coordinate: [25, 30],
+      } as never,
+      ctx(undefined, { toolCallId: 'action-call', operationId: 'durable-action' }),
+    )) as { text: string; error?: string };
+
+    assert.equal(failed.error, 'service_unavailable');
+    assert.equal(failed.text, 'maka_computer failed: service_unavailable');
+    assert.equal(tools.sessionEvents.snapshot('s1').status, 'reobserve_required');
+    assert.deepEqual(releases, [1, 2]);
+
+    const blocked = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: observationId,
+        coordinate: [25, 30],
+      } as never,
+      ctx(undefined, { toolCallId: 'blocked-action-call', operationId: 'durable-blocked-action' }),
+    )) as { error?: string };
+    assert.equal(blocked.error, 'reobserve_required');
+    assert.equal(acquireCount, 2);
+
+    await assert.rejects(
+      () =>
+        Promise.resolve(
+          tool.impl(
+            { action: 'observe', app: 'Fixture' } as never,
+            ctx(undefined, {
+              toolCallId: 'ordinary-error-call',
+              operationId: 'durable-ordinary-error',
+            }),
+          ),
+        ),
+      (error) => error === ordinaryError,
+    );
+    assert.equal(acquisitions[2]?.affinity, undefined);
+    assert.equal(acquisitions[2]?.context.backendObservationId, undefined);
+    assert.deepEqual(releases, [1, 2, 3]);
   });
 
   test('serializes preflight and dispatch in tool-call arrival order', async () => {
@@ -1295,6 +1655,10 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     const firstPreflight = new Promise<void>((resolve) => {
       releaseFirstPreflight = resolve;
     });
+    let markSecondRunStarted!: () => void;
+    const secondRunStarted = new Promise<void>((resolve) => {
+      markSecondRunStarted = resolve;
+    });
     const backend: CuDispatchBackend = {
       async preflight(_signal) {
         const session = events.includes('preflight:s1:start') ? 's2' : 's1';
@@ -1305,6 +1669,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       },
       async run(action, _signal, context) {
         events.push(`run:${context.sessionId}:${action.type}`);
+        if (context.sessionId === 's2') markSecondRunStarted();
         return { outcome: { ok: true, tier: 'ax', verified: true } };
       },
     };
@@ -1317,8 +1682,7 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       { action: 'wait' } as never,
       ctx(undefined, { sessionId: 's2', toolCallId: 'call-s2' }),
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await secondRunStarted;
     assert.ok(events.includes('preflight:s2:end'), `events=${events.join(',')}`);
     assert.ok(events.includes('run:s2:wait'), `events=${events.join(',')}`);
 

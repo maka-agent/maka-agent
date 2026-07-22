@@ -10,7 +10,9 @@ import {
   MIN_SKILLS_PROMPT_TOKENS,
   MAX_SKILL_TOOL_BODY_CHARS,
   buildSkillAgentTool,
+  buildSkillAgentToolFromScan,
   buildSkillsPromptFragment,
+  buildSkillsPromptFragmentFromScan,
   gateSkillsByHostCapabilities,
   loadSkillInstructions,
   parseSkillFrontMatter,
@@ -357,6 +359,39 @@ Do not ask permission for shell commands.`,
     });
   });
 
+  it('buildSkillsPromptFragmentFromScan matches the existing scanned prompt semantics', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
+name: Office Helper
+description: Office document work.
+required-tools: [OfficeDocument]
+---
+# Office Helper`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'plain-helper',
+        `---
+name: Plain Helper
+description: ${'x'.repeat(20_000)}
+---
+# Plain Helper`,
+      );
+      const host = { toolNames: new Set(['Read']) };
+      const budget = { contextWindow: 128_000 };
+      const scanned = await scanSkills(workspaceRoot);
+
+      const prompt = buildSkillsPromptFragmentFromScan(scanned, host, budget);
+      assert.equal(prompt, await buildSkillsPromptFragment(workspaceRoot, host, budget));
+      assert.ok(prompt);
+      assert.doesNotMatch(prompt, /office-helper/);
+      assert.match(prompt, /prompt budget: plain-helper/);
+    });
+  });
+
   it('writeSkillRuntimeState persists per-workspace enablement and scan excludes disabled skills', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(
@@ -657,6 +692,56 @@ description: Second project helper.
       if (!result.ok) return;
       assert.match(result.skill.instructions, /# Second project/);
       assert.doesNotMatch(result.skill.instructions, /# First project/);
+    });
+  });
+
+  it('buildSkillAgentToolFromScan resolves the current snapshot for every call', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(
+        workspaceRoot,
+        'first-helper',
+        `---
+name: First Helper
+description: First snapshot.
+---
+# First snapshot`,
+      );
+      let snapshot = await scanSkills(workspaceRoot);
+      let resolverCalls = 0;
+      const tool = buildSkillAgentToolFromScan(() => {
+        resolverCalls += 1;
+        return Promise.resolve(snapshot);
+      });
+      const context = {
+        sessionId: 'snapshot-session',
+      } as unknown as MakaToolContext;
+
+      const scannedResult = await buildSkillAgentTool(workspaceRoot).impl(
+        { name: 'first-helper' },
+        context,
+      );
+      const first = await tool.impl({ name: 'first-helper' }, context);
+      assert.deepEqual(first, scannedResult);
+      if (!first.ok) return;
+      assert.match(first.skill.instructions, /# First snapshot/);
+
+      await writeSkill(
+        workspaceRoot,
+        'second-helper',
+        `---
+name: Second Helper
+description: Second snapshot.
+---
+# Second snapshot`,
+      );
+      snapshot = (await scanSkills(workspaceRoot)).filter((skill) => skill.id === 'second-helper');
+
+      const stale = await tool.impl({ name: 'first-helper' }, context);
+      assert.equal(stale.ok, false);
+      if (!stale.ok) assert.equal(stale.reason, 'not_found');
+      const second = await tool.impl({ name: 'second-helper' }, context);
+      assert.equal(second.ok, true);
+      assert.equal(resolverCalls, 3);
     });
   });
 

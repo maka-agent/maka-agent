@@ -81,6 +81,8 @@ export interface AgentRunHeader {
   continuationSource?: AgentRunContinuationSource;
   /** Non-user trigger for this run (e.g. a scheduled automation fire). */
   automationId?: string;
+  /** Durable identity of the Automation fire that admitted this Run. */
+  automationFireId?: string;
   failureClass?: string;
   failureMessage?: string;
   abortSource?: string;
@@ -186,6 +188,7 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'workspaceIdentity',
     'continuationSource',
     'automationId',
+    'automationFireId',
     'failureClass',
     'failureMessage',
     'abortSource',
@@ -239,6 +242,7 @@ export function decodeAgentRunHeader(value: unknown): AgentRunHeader {
       value.parentSessionId,
       value.workspaceIdentity,
       value.automationId,
+      value.automationFireId,
       value.failureClass,
       value.failureMessage,
       value.abortSource,

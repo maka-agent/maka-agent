@@ -10,6 +10,7 @@ import type {
 } from '@maka/core';
 
 import { PermissionEngine } from '../permission-engine.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
 
 function header(): SessionHeader {
@@ -68,6 +69,7 @@ function harness(
   let stepId = 'step-1';
   let id = 0;
   const runtime = new ToolRuntime({
+    execution: { ...EMBEDDED_RUNTIME_EXECUTION, getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: header(),
     connection: { providerType: 'openai', slug: 'c' } as never,

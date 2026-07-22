@@ -103,22 +103,31 @@ describe('RSI round analysis', () => {
       const heldOutTrace = join(dir, 'held-out-trace.jsonl');
 
       await writeJsonl(taskARuntime, [
-        functionCall('call-a', 'Bash', { command: 'exit 1', timeoutMs: 10 }),
+        functionCall('call-a', 'Bash', { kind: 'command', command: 'exit 1', cwd: '/app' }),
       ]);
       await writeJsonl(taskATrace, [
         toolFailed('call-a', 'Bash', 'TimeoutError'),
         toolFailed('call-a', 'Bash', 'TimeoutError'),
       ]);
-      await writeJsonl(taskBRuntime, [functionCall('call-b', 'Read', { path: '/app/file.txt' })]);
+      await writeJsonl(taskBRuntime, [
+        functionCall('call-b', 'Read', {
+          kind: 'path',
+          operation: 'read',
+          path: '/app/file.txt',
+          cwd: '/app',
+        }),
+      ]);
       await writeJsonl(taskBTrace, [
         toolFailed('call-b', 'Read', 'FileError'),
         toolFailed('call-b', 'Read', 'FileError'),
         toolFailed('call-b', 'Read', 'FileError'),
       ]);
-      await writeJsonl(taskCRuntime, [functionCall('call-c', '<unsafe tool>', { '<raw>': 'x' })]);
+      await writeJsonl(taskCRuntime, [
+        functionCall('call-c', '<unsafe tool>', { kind: 'skill', '<raw>': 'x' }),
+      ]);
       await writeJsonl(taskCTrace, [toolFailed('call-c', '<unsafe tool>', 'bad error')]);
       await writeJsonl(heldOutRuntime, [
-        functionCall('call-held-out', 'SecretTool', { secret: 'held-out' }),
+        functionCall('call-held-out', 'SecretTool', { kind: 'skill', name: 'held-out' }),
       ]);
       await writeJsonl(heldOutTrace, [
         toolFailed('call-held-out', 'SecretTool', 'SecretError'),
@@ -170,7 +179,7 @@ describe('RSI round analysis', () => {
         {
           name: 'Bash',
           errorClass: 'TimeoutError',
-          argsPreview: 'command,timeoutMs',
+          argsPreview: 'command',
           count: 2,
           taskIds: ['task-a'],
         },
@@ -188,10 +197,17 @@ describe('RSI round analysis', () => {
       const taskBTrace = join(dir, 'task-b-trace.jsonl');
 
       await writeJsonl(taskARuntime, [
-        functionCall('call-a', 'Write', { path: '/app/index.html' }),
+        functionCall('call-a', 'Write', {
+          kind: 'path',
+          operation: 'write',
+          path: '/app/index.html',
+          cwd: '/app',
+        }),
       ]);
       await writeJsonl(taskATrace, [toolFailed('call-a', 'Write', 'Validation')]);
-      await writeJsonl(taskBRuntime, [functionCall('call-b', 'Bash', { command: 'pytest -q' })]);
+      await writeJsonl(taskBRuntime, [
+        functionCall('call-b', 'Bash', { kind: 'command', command: 'pytest -q', cwd: '/app' }),
+      ]);
       await writeJsonl(taskBTrace, [toolFailed('call-b', 'Bash', 'RuntimeError')]);
 
       const analysis = await analyzeRsiRound({
@@ -266,11 +282,21 @@ describe('RSI round analysis', () => {
       const failedTrace = join(dir, 'failed-trace.jsonl');
 
       await writeJsonl(passedRuntime, [
-        functionCall('passed-call', 'Read', { path: '/app/input.txt' }),
+        functionCall('passed-call', 'Read', {
+          kind: 'path',
+          operation: 'read',
+          path: '/app/input.txt',
+          cwd: '/app',
+        }),
       ]);
       await writeJsonl(passedTrace, [toolFailed('passed-call', 'Read', 'Error')]);
       await writeJsonl(failedRuntime, [
-        functionCall('failed-call', 'Write', { path: '/app/output.txt' }),
+        functionCall('failed-call', 'Write', {
+          kind: 'path',
+          operation: 'write',
+          path: '/app/output.txt',
+          cwd: '/app',
+        }),
       ]);
       await writeJsonl(failedTrace, [toolFailed('failed-call', 'Write', 'Error')]);
 
@@ -334,6 +360,8 @@ describe('RSI round analysis', () => {
 
       await writeJsonl(runtimeEventsPath, [
         functionCall('call-a', 'Bash', {
+          kind: 'command',
+          cwd: '/app',
           j: 1,
           i: 1,
           h: 1,
@@ -414,7 +442,9 @@ describe('RSI round analysis', () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime.jsonl');
 
-      await writeJsonl(runtimeEventsPath, [functionCall('call-a', 'Bash', { command: 'exit 1' })]);
+      await writeJsonl(runtimeEventsPath, [
+        functionCall('call-a', 'Bash', { kind: 'command', command: 'exit 1', cwd: '/app' }),
+      ]);
 
       const analysis = await analyzeRsiRound({
         heldInTaskIds: ['task-a', 'task-b'],
@@ -450,14 +480,31 @@ describe('RSI round analysis', () => {
       const taskDRuntime = join(dir, 'task-d-runtime.jsonl');
       const taskDTrace = join(dir, 'task-d-trace.jsonl');
 
-      await writeJsonl(taskARuntime, [functionCall('call-a', 'Read', { path: '/app/file.txt' })]);
+      await writeJsonl(taskARuntime, [
+        functionCall('call-a', 'Read', {
+          kind: 'path',
+          operation: 'read',
+          path: '/app/file.txt',
+          cwd: '/app',
+        }),
+      ]);
       await writeFile(taskATrace, '{not-json}\n', 'utf8');
-      await writeJsonl(taskBRuntime, [functionCall('call-b', 'Bash', { command: 'exit 1' })]);
+      await writeJsonl(taskBRuntime, [
+        functionCall('call-b', 'Bash', { kind: 'command', command: 'exit 1', cwd: '/app' }),
+      ]);
       await writeJsonl(
         taskBTrace,
         Array.from({ length: 10001 }, () => toolFailed('call-b', 'Bash', 'TimeoutError')),
       );
-      await writeJsonl(taskDRuntime, [functionCall('call-d', 'Glob', { pattern: '*.ts' })]);
+      await writeJsonl(taskDRuntime, [
+        functionCall('call-d', 'Glob', {
+          kind: 'search',
+          operation: 'glob',
+          pattern: '*.ts',
+          root: '/app',
+          cwd: '/app',
+        }),
+      ]);
       await writeFile(taskDTrace, `${'x'.repeat(1_000_001)}\n`, 'utf8');
 
       const analysis = await analyzeRsiRound({
@@ -513,7 +560,12 @@ describe('RSI round analysis', () => {
 
       await writeJsonl(runtimeEventsPath, [
         ...Array.from({ length: 25 }, () => noisyPartial),
-        functionCall('call-a', 'Write', { path: '/app/output.txt', content: 'done' }),
+        functionCall('call-a', 'Write', {
+          kind: 'path',
+          operation: 'write',
+          path: '/app/output.txt',
+          cwd: '/app',
+        }),
       ]);
       await writeJsonl(traceEventsPath, [toolFailed('call-a', 'Write', 'Validation')]);
 
@@ -529,7 +581,7 @@ describe('RSI round analysis', () => {
         {
           name: 'Write',
           errorClass: 'Validation',
-          argsPreview: 'content,path',
+          argsPreview: 'path',
           count: 1,
           taskIds: ['task-a'],
         },
@@ -544,8 +596,13 @@ describe('RSI round analysis', () => {
       const traceEventsPath = join(dir, 'trace.jsonl');
 
       await writeJsonl(runtimeEventsPath, [
-        functionCall('call-a', 'Bash', { command: 'exit 1' }),
-        functionCall('call-b', 'Read', { path: '/app/file.txt' }),
+        functionCall('call-a', 'Bash', { kind: 'command', command: 'exit 1', cwd: '/app' }),
+        functionCall('call-b', 'Read', {
+          kind: 'path',
+          operation: 'read',
+          path: '/app/file.txt',
+          cwd: '/app',
+        }),
       ]);
       await writeJsonl(traceEventsPath, [
         toolFailed('call-a', 'Bash', 'TimeoutError'),
@@ -691,8 +748,8 @@ function plumbingFailed(input: {
   };
 }
 
-function functionCall(id: string, name: string, args: Record<string, unknown>): unknown {
-  return { content: { kind: 'function_call', id, name, args } };
+function functionCall(id: string, name: string, review: Record<string, unknown>): unknown {
+  return { content: { kind: 'function_call', id, name, review } };
 }
 
 function toolFailed(toolUseId: string, toolName: string, errorClass: string): unknown {

@@ -42,6 +42,7 @@ import type {
   SessionActivityLease,
   SessionActivityRegistry,
   SessionManager,
+  TelemetryRepoLite,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
   ToolResultArchiveRecorderInput,
@@ -100,6 +101,7 @@ export interface AiSdkBackendFactoryDeps {
   permissionEngine: PermissionEngine;
   taskLedgerStore: TaskLedgerStore;
   telemetryRepo: TelemetryRepo;
+  ensureUsageReady: () => Promise<void>;
   artifactStore: ArtifactStore;
   deepResearchTools: MakaTool[];
   desktopSessionSkillHosts: Map<string, HostCapabilities>;
@@ -124,8 +126,8 @@ export interface AiSdkBackendFactoryDeps {
  * seams that resolve AFTER the registration point are injected as accessors:
  * `getRuntime` (the SessionManager is constructed after registration) and
  * `getLookupPricing` (a mutable pricing lookup reassigned by usage IPC + startup;
- * read live per `recordLlmCall`, snapshotted once for the `lookupPricing` field —
- * matching the original module-`let` closure semantics exactly).
+ * read live per `recordLlmCall`, snapshotted once for the `lookupPricing` field
+ * after the shared usage stores are ready).
  */
 export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): BackendFactory {
   const {
@@ -138,6 +140,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     permissionEngine,
     taskLedgerStore,
     telemetryRepo,
+    ensureUsageReady,
     artifactStore,
     deepResearchTools,
     desktopSessionSkillHosts,
@@ -155,8 +158,22 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     getRuntime,
     getLookupPricing,
   } = deps;
+  const readyTelemetryRepo: TelemetryRepoLite = {
+    insertLlmCall: async (record) => {
+      await ensureUsageReady();
+      await telemetryRepo.insertLlmCall(record);
+    },
+    insertToolInvocation: async (record) => {
+      await ensureUsageReady();
+      await telemetryRepo.insertToolInvocation(record);
+    },
+  };
 
   return async (ctx) => {
+    // Window startup intentionally does not wait for non-critical usage I/O.
+    // A first turn must still wait before this backend snapshots pricing,
+    // otherwise its provider-step cost can preserve builtin pricing forever.
+    await ensureUsageReady();
     // MCP is optional. A corrupt mcp.json remains visible in the MCP module,
     // but must not prevent builtin-only conversations from creating a backend.
     await ensureMcpReady().catch(() => {});
@@ -237,6 +254,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       apiKey: apiKey ?? '',
       modelId: model,
       permissionEngine,
+      execution: ctx.execution,
       modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
       tools: selectedTools,
       sandboxDiagnosticsSnapshot,
@@ -295,10 +313,11 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       },
       shellRunContextSummary: ctx.shellRunContextSummary,
       lookupPricing: getLookupPricing(),
-      recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing: getLookupPricing() }, event),
+      recordLlmCall: (event: LlmCallRecord) =>
+        recordLlmCall({ repo: readyTelemetryRepo, lookupPricing: getLookupPricing() }, event),
       recordToolInvocation: (event: ToolInvocationRecord) =>
         recordToolInvocation(
-          { repo: telemetryRepo },
+          { repo: readyTelemetryRepo },
           // PR-AGENT-WEB-SEARCH-TOOL-0: scrub the query out of the
           // telemetry record. The agent passes the raw user query as
           // the tool argument; persisting it in `argsSummary` would

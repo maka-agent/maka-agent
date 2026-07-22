@@ -71,7 +71,7 @@ const runtime: MakaRunRuntime = {
         toolName: 'WebSearch',
         category: 'web_read',
         reason: 'network',
-        args: { query: 'example' },
+        review: { kind: 'web', targetKind: 'query', target: 'example' },
         rememberForTurnAllowed: true,
       };
       if (!permissionDenied) throw new Error('permission prompt was not denied');

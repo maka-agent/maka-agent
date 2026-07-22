@@ -82,7 +82,6 @@ interface ProjectionState {
       requestId: string;
       toolUseId: string;
       toolName: string;
-      hint?: string;
     }
   >;
   /**
@@ -158,7 +157,6 @@ export function projectRuntimeEventsToStoredMessages(
         requestId: request.requestId,
         toolUseId: request.toolUseId,
         toolName: request.toolName,
-        ...(request.hint !== undefined ? { hint: request.hint } : {}),
       });
       state.toolNameByUseId.set(request.toolUseId, request.toolName);
       projected = true;
@@ -602,14 +600,13 @@ function projectFunctionCall(
     ...(stringStateDelta(event, 'displayName') !== undefined
       ? { displayName: stringStateDelta(event, 'displayName') }
       : {}),
-    ...(stringStateDelta(event, 'intent') !== undefined
-      ? { intent: stringStateDelta(event, 'intent') }
-      : {}),
     // Carry the step pairing through the projection: without it, sessions
     // rebuilt from the runtime event log lose the tool↔step association and
     // the UI timeline falls back to legacy tools-before-text ordering.
     ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
-    args: event.content.args,
+    ...(event.content.review === undefined
+      ? {}
+      : { review: structuredClone(event.content.review) }),
   });
   return true;
 }
@@ -762,7 +759,8 @@ function projectPermissionDecision(
     ...(decision.rememberForTurn !== undefined
       ? { rememberForTurn: decision.rememberForTurn }
       : {}),
-    ...(request?.hint !== undefined ? { hint: request.hint } : {}),
+    ...(decision.reviewer !== undefined ? { reviewer: decision.reviewer } : {}),
+    ...(decision.riskLevel !== undefined ? { riskLevel: decision.riskLevel } : {}),
   });
   return true;
 }
@@ -1170,8 +1168,7 @@ function semanticMessage(message: StoredMessage): unknown {
         toolName: message.toolName,
         activityKind: message.activityKind,
         displayName: message.displayName,
-        intent: message.intent,
-        args: message.args,
+        review: message.review,
       };
     case 'tool_result':
       return {
@@ -1190,7 +1187,8 @@ function semanticMessage(message: StoredMessage): unknown {
         toolName: message.toolName,
         decision: message.decision,
         rememberForTurn: message.rememberForTurn,
-        hint: message.hint,
+        reviewer: message.reviewer,
+        riskLevel: message.riskLevel,
       };
     case 'token_usage':
       return {

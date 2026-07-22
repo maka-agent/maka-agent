@@ -15,7 +15,7 @@ import {
   type GoalTurnAdmission,
   type GoalTurnOutcome,
 } from '../goal-continuation.js';
-import type { GoalEvaluation } from '../goal-evaluator.js';
+import { GoalEvaluatorFatalError, type GoalEvaluation } from '../goal-evaluator.js';
 import type { MakaToolContext } from '../tool-runtime.js';
 
 const SESSION = 'sess-1';
@@ -91,11 +91,13 @@ function prepareAdmission(
   sessionId: string,
   prompt: string,
   turnId: string,
+  abandon: () => void | Promise<void> = () => {},
 ): GoalTurnAdmission {
   const completion = deferred<GoalTurnOutcome>();
   return {
     kind: 'prepared',
     turnId,
+    abandon,
     start: () => {
       admitted.push({ sessionId, prompt, turnId, completion });
       return completion.promise;
@@ -126,12 +128,10 @@ function setup(opts?: {
     reason: 'keep going',
   };
   const attemptedPrompts: string[] = [];
+  const attemptedGoalIds: string[] = [];
   const admitted: AdmittedTurn[] = [];
   let ownedTurnSequence = 0;
-  let admissionImpl: (sessionId: string, prompt: string) => GoalTurnAdmission = (
-    sessionId,
-    prompt,
-  ) => {
+  let admissionImpl: GoalContinuationDeps['admitTurn'] = (sessionId, prompt) => {
     const turnId = `turn-owned-${++ownedTurnSequence}`;
     return prepareAdmission(admitted, sessionId, prompt, turnId);
   };
@@ -145,9 +145,10 @@ function setup(opts?: {
     },
     getRecentContext: async () => 'recent context',
     getTokenCount: opts?.tokenCount !== undefined ? () => opts.tokenCount! : undefined,
-    admitTurn: (sessionId, prompt) => {
+    admitTurn: (sessionId, prompt, identity) => {
       attemptedPrompts.push(prompt);
-      return admissionImpl(sessionId, prompt);
+      attemptedGoalIds.push(identity.goalId);
+      return admissionImpl(sessionId, prompt, identity);
     },
     scheduler,
     ...(opts?.taskGate ? { taskGate: opts.taskGate } : {}),
@@ -159,6 +160,7 @@ function setup(opts?: {
     deps,
     coordinator,
     attemptedPrompts,
+    attemptedGoalIds,
     admitted,
     setAdmission: (next: typeof admissionImpl) => {
       admissionImpl = next;
@@ -512,10 +514,10 @@ describe('GoalContinuationCoordinator settlement', () => {
   });
 
   test('nonterminal settlement updates counters and admits one real continuation', async () => {
-    const { manager, coordinator, admitted } = setup({
+    const { manager, coordinator, admitted, attemptedGoalIds } = setup({
       evaluations: [{ progress: false, reason: 'one check remains' }],
     });
-    manager.create(SESSION, 'ship', { blockCap: 3 });
+    const goal = manager.create(SESSION, 'ship', { blockCap: 3 }).goal;
 
     await settleExternal(coordinator, SESSION, {
       kind: 'completed',
@@ -526,6 +528,7 @@ describe('GoalContinuationCoordinator settlement', () => {
     assert.equal(manager.get(SESSION)?.iterations, 1);
     assert.equal(manager.get(SESSION)?.consecutiveNoProgress, 1);
     assert.equal(admitted.length, 1);
+    assert.deepEqual(attemptedGoalIds, [goal.id]);
     assert.match(admitted[0]!.prompt, /one check remains/);
   });
 
@@ -545,6 +548,29 @@ describe('GoalContinuationCoordinator settlement', () => {
     assert.equal(manager.get(SESSION)?.status, 'active');
     assert.equal(manager.get(SESSION)?.consecutiveNoProgress, 0);
     assert.equal(admitted.length, 1);
+  });
+
+  test('typed evaluator fatal pauses without admitting a continuation', async () => {
+    const { manager, coordinator, deps, admitted, attemptedPrompts } = setup();
+    const cause = new Error('post-cut credential commit failed');
+    const fatal = new GoalEvaluatorFatalError('Goal evaluator entered fail-stop', cause);
+    deps.evaluator.evaluate = async () => {
+      throw fatal;
+    };
+    manager.create(SESSION, 'ship');
+
+    await settleExternal(coordinator, SESSION, {
+      kind: 'completed',
+      turnId: 'turn-fatal',
+    });
+
+    const goal = manager.get(SESSION);
+    assert.equal(goal?.status, 'paused');
+    assert.equal(goal?.iterations, 0);
+    assert.match(goal?.lastReason ?? '', /Goal evaluator entered fail-stop/);
+    assert.equal(fatal.fatalCause, cause);
+    assert.equal(attemptedPrompts.length, 0);
+    assert.equal(admitted.length, 0);
   });
 
   test('context failure pauses the exact Goal with a visible reason', async () => {
@@ -788,6 +814,98 @@ describe('GoalContinuationCoordinator settlement', () => {
   });
 });
 
+describe('GoalContinuationCoordinator generation settlement', () => {
+  test('clear waits for an evaluator already processing that generation', async () => {
+    const evaluation = controlledCall<string>();
+    const { manager, coordinator, deps, admitted } = setup();
+    deps.evaluator.evaluate = evaluation.invoke;
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    const settlement = settleExternal(coordinator, SESSION, {
+      kind: 'completed',
+      turnId: 'turn-evaluating',
+    });
+    await evaluation.started;
+    assert.ok(manager.clear(SESSION));
+    let idleSettled = false;
+    const idle = coordinator.whenGenerationIdle(SESSION, goal.id).then(() => {
+      idleSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(idleSettled, false);
+
+    evaluation.resolve(
+      '{"met":true,"impossible":false,"progress":true,"waiting":false,"reason":"late"}',
+    );
+    await Promise.all([settlement, idle]);
+
+    assert.equal(idleSettled, true);
+    assert.equal(admitted.length, 0);
+  });
+
+  test('clear waits for async prepared admission to finish abandoning', async () => {
+    const admission = controlledCall<GoalTurnAdmission>();
+    const abandoned = deferred<void>();
+    const { manager, coordinator, admitted, setAdmission } = setup();
+    setAdmission(() => admission.invoke());
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await admission.started;
+    assert.ok(manager.clear(SESSION));
+    let idleSettled = false;
+    const idle = coordinator.whenGenerationIdle(SESSION, goal.id).then(() => {
+      idleSettled = true;
+    });
+    let abandons = 0;
+    admission.resolve(
+      prepareAdmission(admitted, SESSION, 'stale prompt', 'turn-owned-stale', () => {
+        abandons++;
+        return abandoned.promise;
+      }),
+    );
+    await waitFor(() => abandons === 1, 'prepared reservation was not abandoned');
+    assert.equal(idleSettled, false);
+
+    abandoned.resolve();
+    await idle;
+
+    assert.equal(abandons, 1);
+    assert.equal(admitted.length, 0);
+  });
+
+  test('old generation idle does not wait for work retained by its replacement', async () => {
+    const evaluation = controlledCall<string>();
+    const { manager, coordinator, deps } = setup();
+    deps.evaluator.evaluate = evaluation.invoke;
+    const oldGoal = manager.create(SESSION, 'old').goal;
+
+    const oldSettlement = settleExternal(coordinator, SESSION, {
+      kind: 'completed',
+      turnId: 'turn-old',
+    });
+    await evaluation.started;
+    assert.ok(manager.clear(SESSION));
+    const oldIdle = coordinator.whenGenerationIdle(SESSION, oldGoal.id);
+    const replacement = manager.create(SESSION, 'replacement').goal;
+    registerExternalTurn(coordinator, SESSION, 'turn-replacement');
+    let replacementIdle = false;
+    const replacementWait = coordinator.whenGenerationIdle(SESSION, replacement.id).then(() => {
+      replacementIdle = true;
+    });
+
+    evaluation.resolve(
+      '{"met":true,"impossible":false,"progress":true,"waiting":false,"reason":"late"}',
+    );
+    await Promise.all([oldSettlement, oldIdle]);
+    assert.equal(replacementIdle, false);
+
+    coordinator.invalidateSession(SESSION);
+    await replacementWait;
+    assert.equal(replacementIdle, true);
+  });
+});
+
 describe('GoalContinuationCoordinator admission and completion', () => {
   test('aborted, suspended, and errored external turns pause the current Goal without evaluation', async (t) => {
     const outcomes: GoalTurnOutcome[] = [
@@ -846,6 +964,29 @@ describe('GoalContinuationCoordinator admission and completion', () => {
     assert.equal(attempts, 2);
     assert.equal(admitted.length, 1);
     assert.equal(attemptedPrompts.length, 2);
+  });
+
+  test('busy rejection releases its generation work and retries admission', async () => {
+    const busy = deferred<void>();
+    const { manager, coordinator, setAdmission } = setup();
+    let attempts = 0;
+    setAdmission(() => {
+      attempts++;
+      if (attempts === 1) return { kind: 'busy', whenIdle: busy.promise };
+      return { kind: 'unavailable', reason: 'host stopped accepting turns' };
+    });
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await waitFor(() => attempts === 1, 'busy admission was not attempted');
+    const idle = coordinator.whenGenerationIdle(SESSION, goal.id);
+
+    busy.reject(new Error('busy owner failed'));
+    await waitFor(() => attempts === 2, 'busy rejection did not retry admission');
+    await idle;
+
+    assert.equal(manager.get(SESSION)?.status, 'paused');
+    assert.equal(attempts, 2);
   });
 
   test('new completion evidence outranks an intent waiting on busy', async () => {
@@ -914,6 +1055,153 @@ describe('GoalContinuationCoordinator admission and completion', () => {
 
     assert.equal(manager.get(SESSION)?.status, 'paused');
     assert.equal(manager.get(SESSION)?.lastReason, 'TUI switched sessions');
+  });
+
+  test('awaits asynchronous admission before starting the prepared turn', async () => {
+    const admission = controlledCall<GoalTurnAdmission>();
+    const { manager, coordinator, admitted, setAdmission } = setup();
+    let abandons = 0;
+    setAdmission((sessionId, prompt) =>
+      admission.invoke().then((result) => {
+        assert.equal(sessionId, SESSION);
+        assert.match(prompt, /Goal: "ship"/);
+        return result;
+      }),
+    );
+    manager.create(SESSION, 'ship');
+
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await admission.started;
+    assert.equal(admitted.length, 0);
+
+    admission.resolve(
+      prepareAdmission(admitted, SESSION, 'async prompt', 'turn-owned-async', () => {
+        abandons++;
+      }),
+    );
+    await waitFor(() => admitted.length === 1, 'resolved async admission did not start');
+    assert.equal(admitted[0]?.turnId, 'turn-owned-async');
+    assert.equal(abandons, 0);
+  });
+
+  test('abandons synchronous prepared admission when its await microtask makes the lane stale', async () => {
+    const { manager, coordinator, admitted, setAdmission } = setup();
+    let abandons = 0;
+    setAdmission(() => {
+      queueMicrotask(() => coordinator.invalidateSession(SESSION));
+      return prepareAdmission(admitted, SESSION, 'sync prompt', 'turn-owned-sync', () => {
+        abandons++;
+      });
+    });
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await waitFor(() => abandons === 1, 'synchronous stale reservation was not abandoned');
+    await coordinator.whenGenerationIdle(SESSION, goal.id);
+
+    assert.equal(abandons, 1);
+    assert.equal(admitted.length, 0);
+  });
+
+  test('does not start an async prepared turn after its lane or Goal becomes stale', async (t) => {
+    await t.test('lane invalidation', async () => {
+      const admission = controlledCall<GoalTurnAdmission>();
+      const { manager, coordinator, admitted, setAdmission } = setup();
+      const abandoned = deferred<void>();
+      let abandons = 0;
+      setAdmission(() => admission.invoke());
+      manager.create(SESSION, 'ship');
+
+      await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+      await admission.started;
+      coordinator.invalidateSession(SESSION);
+      admission.resolve(
+        prepareAdmission(admitted, SESSION, 'stale prompt', 'turn-owned-stale-lane', () => {
+          abandons++;
+          return abandoned.promise;
+        }),
+      );
+      await waitFor(() => abandons === 1, 'stale lane reservation was not abandoned');
+      abandoned.resolve();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      assert.equal(abandons, 1);
+      assert.equal(admitted.length, 0);
+    });
+
+    await t.test('Goal generation change', async () => {
+      const admission = controlledCall<GoalTurnAdmission>();
+      const { manager, coordinator, admitted, setAdmission } = setup();
+      let abandons = 0;
+      setAdmission(() => admission.invoke());
+      manager.create(SESSION, 'ship');
+
+      await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+      await admission.started;
+      assert.ok(manager.pause(SESSION));
+      assert.ok(manager.resume(SESSION));
+      admission.resolve(
+        prepareAdmission(admitted, SESSION, 'stale prompt', 'turn-owned-stale-goal', () => {
+          abandons++;
+        }),
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      assert.equal(manager.get(SESSION)?.status, 'active');
+      assert.equal(abandons, 1);
+      assert.equal(admitted.length, 0);
+    });
+  });
+
+  test('an abandon failure follows the existing coordinator failure policy', async () => {
+    const admission = controlledCall<GoalTurnAdmission>();
+    const { manager, coordinator, admitted, setAdmission } = setup();
+    let abandons = 0;
+    setAdmission(() => admission.invoke());
+    manager.create(SESSION, 'ship');
+
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await admission.started;
+    assert.ok(manager.pause(SESSION));
+    assert.ok(manager.resume(SESSION));
+    admission.resolve(
+      prepareAdmission(admitted, SESSION, 'stale prompt', 'turn-owned-stale-goal', async () => {
+        abandons++;
+        throw new Error('reservation release failed');
+      }),
+    );
+    await waitFor(
+      () => manager.get(SESSION)?.status === 'paused',
+      'abandon failure did not pause the Goal',
+    );
+
+    assert.equal(abandons, 1);
+    assert.equal(admitted.length, 0);
+    assert.match(manager.get(SESSION)?.lastReason ?? '', /reservation release failed/);
+  });
+
+  test('reports abandon rejection even after the owning lane is invalidated', async () => {
+    const admission = controlledCall<GoalTurnAdmission>();
+    const { manager, coordinator, admitted, setAdmission } = setup();
+    let abandons = 0;
+    setAdmission(() => admission.invoke());
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    await settleExternal(coordinator, SESSION, { kind: 'completed', turnId: 'turn-1' });
+    await admission.started;
+    const idle = coordinator.whenGenerationIdle(SESSION, goal.id);
+    const rejected = assert.rejects(idle, /reservation release failed/);
+    coordinator.invalidateSession(SESSION);
+    admission.resolve(
+      prepareAdmission(admitted, SESSION, 'stale prompt', 'turn-owned-stale-lane', async () => {
+        abandons++;
+        throw new Error('reservation release failed');
+      }),
+    );
+
+    await rejected;
+    assert.equal(abandons, 1);
+    assert.equal(admitted.length, 0);
   });
 
   test('a checkpoint change during task inspection discards the stale intent', async () => {
@@ -1156,7 +1444,7 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
     assert.deepEqual(decisions, ['reminder_injected', 'reminder_limit_reached']);
   });
 
-  test('a pending diagnostic trace cannot block a completed owned turn behind it', async () => {
+  test('a pending diagnostic trace does not block a completed owned turn behind it', async () => {
     const trace = controlledCall<void>();
     const { manager, coordinator, admitted } = setup({
       taskGate: {
@@ -1164,9 +1452,9 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
         recordDecision: () => trace.invoke(),
       },
     });
-    manager.create(SESSION, 'ship');
+    const goal = manager.create(SESSION, 'ship').goal;
 
-    const settlement = settleExternal(coordinator, SESSION, {
+    await settleExternal(coordinator, SESSION, {
       kind: 'completed',
       turnId: 'turn-1',
     });
@@ -1176,8 +1464,102 @@ describe('GoalContinuationCoordinator waiting and task gate', () => {
       kind: 'completed',
       turnId: admitted[0]!.turnId,
     });
-    await waitFor(() => admitted.length === 2, 'pending trace retained the session lane');
+    await waitFor(() => admitted.length === 2, 'pending trace blocked the next owned turn');
 
-    await settlement;
+    trace.resolve();
+    coordinator.invalidateSession(SESSION);
+    await coordinator.whenGenerationIdle(SESSION, goal.id);
+  });
+
+  test('generation idle waits for the admission-start trace', async () => {
+    const trace = controlledCall<void>();
+    const { manager, coordinator, admitted } = setup({
+      taskGate: {
+        listActionableTaskKeys: async () => [],
+        recordDecision: () => trace.invoke(),
+      },
+    });
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    await settleExternal(coordinator, SESSION, {
+      kind: 'completed',
+      turnId: 'turn-1',
+    });
+    await trace.started;
+    await waitFor(() => admitted.length === 1, 'first continuation was not admitted');
+    let idleSettled = false;
+    const idle = coordinator.whenGenerationIdle(SESSION, goal.id).then(() => {
+      idleSettled = true;
+    });
+    coordinator.invalidateSession(SESSION);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(idleSettled, false);
+
+    trace.resolve();
+    await idle;
+    assert.equal(idleSettled, true);
+  });
+
+  test('generation idle waits for terminal task-gate traces', async (t) => {
+    for (const scenario of ['evaluator_terminal', 'goal_stopped'] as const) {
+      await t.test(scenario, async () => {
+        const trace = controlledCall<void>();
+        let decision: string | undefined;
+        const { manager, coordinator } = setup({
+          evaluations:
+            scenario === 'evaluator_terminal'
+              ? [{ met: true, reason: 'verified' }]
+              : [{ progress: true, reason: 'iteration exhausted' }],
+          taskGate: {
+            listActionableTaskKeys: async () => [],
+            recordDecision: (value) => {
+              decision = value.decision;
+              return trace.invoke();
+            },
+          },
+        });
+        const goal = manager.create(SESSION, 'ship', {
+          ...(scenario === 'goal_stopped' ? { maxIterations: 1 } : {}),
+        }).goal;
+
+        const settlement = settleExternal(coordinator, SESSION, {
+          kind: 'completed',
+          turnId: `turn-${scenario}`,
+        });
+        await trace.started;
+        let idleSettled = false;
+        const idle = coordinator.whenGenerationIdle(SESSION, goal.id).then(() => {
+          idleSettled = true;
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(idleSettled, false);
+
+        trace.resolve();
+        await Promise.all([settlement, idle]);
+        assert.equal(decision, scenario);
+        assert.equal(idleSettled, true);
+      });
+    }
+  });
+
+  test('task-gate trace failure does not change a committed Goal verdict', async () => {
+    const { manager, coordinator } = setup({
+      evaluations: [{ met: true, reason: 'verified' }],
+      taskGate: {
+        listActionableTaskKeys: async () => [],
+        recordDecision: async () => {
+          throw new Error('trace store unavailable');
+        },
+      },
+    });
+    const goal = manager.create(SESSION, 'ship').goal;
+
+    await settleExternal(coordinator, SESSION, {
+      kind: 'completed',
+      turnId: 'turn-terminal-trace-failure',
+    });
+    await coordinator.whenGenerationIdle(SESSION, goal.id);
+
+    assert.equal(manager.get(SESSION)?.status, 'achieved');
   });
 });

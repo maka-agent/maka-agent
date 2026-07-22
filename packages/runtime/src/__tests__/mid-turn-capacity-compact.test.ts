@@ -343,7 +343,7 @@ function call(id: string, callId: string, turnId: string): RuntimeEvent {
     ...base(id, turnId),
     role: 'model',
     author: 'agent',
-    content: { kind: 'function_call', id: callId, name: 'tool', args: {} },
+    content: { kind: 'function_call', id: callId, name: 'tool' },
   };
 }
 function result(id: string, callId: string, turnId: string, payload: string = 'ok'): RuntimeEvent {

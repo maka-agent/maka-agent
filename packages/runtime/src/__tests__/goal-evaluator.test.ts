@@ -1,6 +1,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGoalEvaluationPrompt, parseGoalEvaluation, evaluateGoal } from '../goal-evaluator.js';
+import {
+  buildGoalEvaluationPrompt,
+  parseGoalEvaluation,
+  evaluateGoal,
+  GoalEvaluatorFatalError,
+} from '../goal-evaluator.js';
 
 describe('buildGoalEvaluationPrompt', () => {
   test('includes condition, context, and field spec', () => {
@@ -126,18 +131,53 @@ describe('evaluateGoal', () => {
     assert.ok(r.reason.includes('failed'));
   });
 
-  test('fails open on timeout (evaluatorFailed=true, continue)', async () => {
+  test('does not fail open on a typed fatal evaluator rejection', async () => {
+    const cause = new Error('post-cut Store completion failed');
+    const fatal = new GoalEvaluatorFatalError('Goal evaluator entered fail-stop', cause);
+    await assert.rejects(
+      () =>
+        evaluateGoal(
+          {
+            evaluate: async () => {
+              throw fatal;
+            },
+          },
+          'finish',
+          'ctx',
+          'sess-1',
+        ),
+      (error: unknown) => error === fatal,
+    );
+  });
+
+  test('waits for responsive generation and transport cleanup before timeout verdict', async () => {
+    let evaluatorSignal: AbortSignal | undefined;
+    let abortObserved = false;
+    let transportClosed = false;
     const r = await evaluateGoal(
       {
-        // Never resolves — force the timeout branch.
-        evaluate: () => new Promise<string>(() => {}),
-        timeoutMs: 10,
-        // Injected timer fires immediately so the race resolves to timeout.
-        setTimeout: (fn) => {
-          fn();
-          return 1;
+        evaluate: async (_prompt, _sessionId, signal) => {
+          assert.ok(signal);
+          evaluatorSignal = signal;
+          try {
+            await new Promise<void>((_resolve, reject) => {
+              signal.addEventListener(
+                'abort',
+                () => {
+                  abortObserved = signal.aborted;
+                  reject(new Error('aborted'));
+                },
+                { once: true },
+              );
+            });
+            return '';
+          } finally {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            transportClosed = true;
+          }
         },
-        clearTimeout: () => {},
+        timeoutMs: 10,
+        abortCleanupGraceMs: 100,
       },
       'finish',
       'ctx',
@@ -147,6 +187,56 @@ describe('evaluateGoal', () => {
     assert.equal(r.progress, false);
     assert.equal(r.evaluatorFailed, true);
     assert.ok(r.reason.includes('timed out'));
+    assert.equal(evaluatorSignal?.aborted, true);
+    assert.equal(abortObserved, true);
+    assert.equal(transportClosed, true);
+  });
+
+  test('returns after cleanup grace when the aborted evaluator does not settle', async () => {
+    let evaluatorSignal: AbortSignal | undefined;
+    const startedAt = Date.now();
+    const r = await evaluateGoal(
+      {
+        evaluate: (_prompt, _sessionId, signal) => {
+          assert.ok(signal);
+          evaluatorSignal = signal;
+          return new Promise<string>(() => {});
+        },
+        timeoutMs: 5,
+        abortCleanupGraceMs: 30,
+      },
+      'finish',
+      'ctx',
+      'sess-1',
+    );
+    const elapsedMs = Date.now() - startedAt;
+    assert.equal(r.evaluatorFailed, true);
+    assert.ok(r.reason.includes('timed out'));
+    assert.equal(evaluatorSignal?.aborted, true);
+    assert.ok(elapsedMs >= 25, `cleanup grace returned too early after ${elapsedMs}ms`);
+    assert.ok(elapsedMs < 500, `cleanup grace did not bound the wait (${elapsedMs}ms)`);
+  });
+
+  test('does not abort an evaluator that completes normally', async () => {
+    let evaluatorSignal: AbortSignal | undefined;
+    const r = await evaluateGoal(
+      {
+        evaluate: async (_prompt, _sessionId, signal) => {
+          assert.ok(signal);
+          evaluatorSignal = signal;
+          await Promise.resolve();
+          assert.equal(signal.aborted, false);
+          return '{"met": true, "reason": "done"}';
+        },
+        timeoutMs: 10,
+      },
+      'finish',
+      'ctx',
+      'sess-1',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(r.met, true);
+    assert.equal(evaluatorSignal?.aborted, false);
   });
 
   test('successful parse sets evaluatorFailed=false', async () => {

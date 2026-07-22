@@ -617,7 +617,7 @@ describe('active full compact PR1 foundation', () => {
     );
   });
 
-  test('QEMU-style long process compact preserves state and archive refs without raw output', () => {
+  test('QEMU-style compact derives command attempts from public reviews without private tool input', () => {
     const messages = qemuStyleMessages();
     const runtimeEvents = qemuStyleRuntimeEvents();
 
@@ -668,6 +668,11 @@ describe('active full compact PR1 foundation', () => {
     assert.match(replacementJson, /maka_active_full_compact_block/);
     assert.doesNotMatch(replacementJson, /QEMU_RAW_BOOT_SPAM_DO_NOT_LEAK/);
     assert.doesNotMatch(replacementJson, /QEMU_RAW_VERIFY_SPAM_DO_NOT_LEAK/);
+    assert.doesNotMatch(replacementJson, /PROVIDER_COMMAND_SECRET/);
+    assert.doesNotMatch(replacementJson, /PRIVATE_WRITE_CONTENT/);
+    assert.doesNotMatch(replacementJson, /CUA_PRIVATE_TEXT/);
+    assert.doesNotMatch(replacementJson, /CUA_PRIVATE_OBSERVATION/);
+    assert.doesNotMatch(replacementJson, /791,313/);
     assert.match(replacementJson, /pid=4242/);
     assert.match(replacementJson, /127\.0\.0\.1:2222/);
     assert.match(replacementJson, /guest reached login prompt/);
@@ -693,6 +698,12 @@ describe('active full compact PR1 foundation', () => {
     assert.ok(
       rewritten.block.summary.commandsTried?.some(
         (command) => command.command.includes('qemu-system-x86_64') && command.sourceIds?.length,
+      ),
+    );
+    assert.ok(
+      rewritten.block.summary.commandsTried?.some(
+        (command) =>
+          command.command.includes('Runtime Target') && command.command.includes('"action":"type"'),
       ),
     );
   });
@@ -911,7 +922,7 @@ function fixtureRuntimeEvents(): RuntimeEvent[] {
       kind: 'function_call',
       id: 'call-1',
       name: 'Read',
-      args: { path: 'README.md' },
+      review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/workspace' },
     }),
     runtimeEvent('event-response', 'tool', 'tool', {
       kind: 'function_response',
@@ -979,7 +990,7 @@ function qemuStyleMessages(): ModelMessage[] {
           toolName: 'Bash',
           input: {
             command:
-              'qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid',
+              'PROVIDER_COMMAND_SECRET=1 qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid',
             cwd: '/workspace',
           },
         },
@@ -1014,7 +1025,10 @@ function qemuStyleMessages(): ModelMessage[] {
           type: 'tool-call',
           toolCallId: 'call-write-artifacts',
           toolName: 'Write',
-          input: { path: '/workspace/solution.sh', content: 'service ssh start\n' },
+          input: {
+            path: '/workspace/solution.sh',
+            content: 'service ssh start\nPRIVATE_WRITE_CONTENT\n',
+          },
         },
       ],
     } as unknown as ModelMessage,
@@ -1029,6 +1043,33 @@ function qemuStyleMessages(): ModelMessage[] {
             type: 'text',
             value: 'wrote /workspace/solution.sh and updated /etc/network/interfaces',
           },
+        },
+      ],
+    } as unknown as ModelMessage,
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-computer-type',
+          toolName: 'maka_computer',
+          input: {
+            action: 'type',
+            observation_id: 'CUA_PRIVATE_OBSERVATION',
+            text: 'CUA_PRIVATE_TEXT',
+            coordinate: [791, 313],
+          },
+        },
+      ],
+    } as unknown as ModelMessage,
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-computer-type',
+          toolName: 'maka_computer',
+          output: { type: 'text', value: 'typed into Runtime Target' },
         },
       ],
     } as unknown as ModelMessage,
@@ -1077,7 +1118,8 @@ function qemuStyleRuntimeEvents(): RuntimeEvent[] {
       kind: 'function_call',
       id: 'call-qemu-boot',
       name: 'Bash',
-      args: {
+      review: {
+        kind: 'command',
         command:
           'qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid',
         cwd: '/workspace',
@@ -1099,7 +1141,12 @@ function qemuStyleRuntimeEvents(): RuntimeEvent[] {
       kind: 'function_call',
       id: 'call-write-artifacts',
       name: 'Write',
-      args: { path: '/workspace/solution.sh', content: 'service ssh start\n' },
+      review: {
+        kind: 'path',
+        operation: 'write',
+        path: '/workspace/solution.sh',
+        cwd: '/workspace',
+      },
     }),
     runtimeEvent('event-qemu-write-result', 'tool', 'tool', {
       kind: 'function_response',
@@ -1107,11 +1154,27 @@ function qemuStyleRuntimeEvents(): RuntimeEvent[] {
       name: 'Write',
       result: 'wrote /workspace/solution.sh and updated /etc/network/interfaces',
     }),
+    runtimeEvent('event-computer-type-call', 'model', 'agent', {
+      kind: 'function_call',
+      id: 'call-computer-type',
+      name: 'maka_computer',
+      review: { kind: 'computer_use', action: 'type', app: 'Runtime Target', windowId: 42 },
+    }),
+    runtimeEvent('event-computer-type-result', 'tool', 'tool', {
+      kind: 'function_response',
+      id: 'call-computer-type',
+      name: 'maka_computer',
+      result: 'typed into Runtime Target',
+    }),
     runtimeEvent('event-qemu-verify-call', 'model', 'agent', {
       kind: 'function_call',
       id: 'call-qemu-verify',
       name: 'Bash',
-      args: { command: '/workspace/solution.sh && ./public-verifier.sh', cwd: '/workspace' },
+      review: {
+        kind: 'command',
+        command: '/workspace/solution.sh && ./public-verifier.sh',
+        cwd: '/workspace',
+      },
     }),
     runtimeEvent('event-qemu-verify-result', 'tool', 'tool', {
       kind: 'function_response',

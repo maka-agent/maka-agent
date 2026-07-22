@@ -8,7 +8,7 @@ record: the ledger tracks model-visible work items inside a session, while a
 ## Scope
 
 Maka has a session-scoped task ledger with `task_create`, `task_update`,
-`task_list`, `task_get`, `task-events.jsonl`, `tasks.json`, and turn-tail prompt
+`task_list`, `task_get`, `task-events.jsonl`, and turn-tail prompt
 injection. The implementation keeps lifecycle validation, event replay, storage
 projection, tool access, and recovery classification on one contract.
 
@@ -40,12 +40,17 @@ while any descendant remains non-terminal. A parent/child edge must advance the
 short key by exactly one segment (`T1` -> `T1.1`); skipped levels such as a
 direct `T1` -> `T1.1.1` edge invalidate the projection and fail closed.
 
-Old `tasks.json` snapshots and JSONL events without `key` or `endedAt` remain
-readable. Projection assigns stable keys in first-seen creation-event order
-(falling back to timestamps only when event order is unavailable) and derives
-missing terminal timestamps from `updatedAt`. The first later mutation appends
-compatibility events before the new mutation so the derived fields become
-durable without changing UUIDs.
+`task-events.jsonl` is the only task-ledger source of truth. Each domain mutation
+appends one complete `version: 1` record containing `recordId`, `sessionId`,
+`ts`, and the mutation's complete `events[]`. A batch create is therefore one
+record and cannot replay as a partially committed batch.
+
+The append is committed only after `appendJsonl` completes its durable file and
+directory sync. Strict reads fail closed on complete malformed lines, record or
+event session namespace mismatches, and projection diagnostics. A final
+unterminated incomplete JSON prefix is the sole ignored tail condition; the
+next durable append truncates that crash tail before appending the new record.
+The legacy `tasks.json` cache, import, and field-backfill paths do not exist.
 
 ## Task Status
 
@@ -92,8 +97,7 @@ New updates into these states require evidence:
 Evidence is compact text. Later work can replace or supplement it
 with first-class run, tool-call, artifact, verifier, or scorer references.
 
-Legacy completed or cancelled tasks that predate this contract may still be
-read from `tasks.json`. New updates must satisfy the evidence rules.
+Every persisted task must satisfy the current evidence contract.
 
 ## Resume Trust
 
@@ -199,6 +203,14 @@ owner, reason/evidence summary, and three recent terminal tasks. Session
 switches clear the old snapshot and revision guards discard late IPC responses.
 The panel provides loading, empty, error, and retry states, but no workflow
 editing controls.
+
+The raw-root `createTaskLedgerStore(root)` remains temporarily available for
+Desktop production wiring during M3. New interactive writers are opened from a
+live `StorageRootLease<'interactive', 'write'>`; the facade is authenticated,
+cached by lease identity, and runs every filesystem operation through
+`runWithStorageRootLease`. Releasing the lease invalidates subsequent I/O. The
+canonical list reader is strict, while the older render-oriented `list`/`get`
+surface may fail soft to an empty result.
 
 This interactive task ledger remains separate from:
 

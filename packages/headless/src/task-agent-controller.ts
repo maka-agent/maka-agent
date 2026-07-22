@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   isTerminalRuntimeEvent,
-  type AgentRunStore,
+  type PermissionRequestPayload,
   type RuntimeEvent,
   type RuntimeEventStore,
   type SessionBlockedReason,
@@ -13,12 +13,12 @@ import {
   AgentRun,
   AiSdkFlow,
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   RuntimeRunner,
   type AgentRunActiveSession,
   type InvocationResult,
   type SessionStore,
 } from '@maka/runtime';
-import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
 import {
@@ -33,6 +33,12 @@ import {
 import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import { MAX_NODE_TIMER_MS } from './headless-run-env.js';
+import {
+  authenticateHeadlessStorageWriter,
+  isStorageRootAuthorityError,
+  openHeadlessStorageForWrite,
+  type HeadlessStorageWriter,
+} from './headless-storage.js';
 import {
   createHeavyTaskProgressRecorder,
   HEAVY_TASK_PROGRESS_TOOL_NAMES,
@@ -94,17 +100,14 @@ import {
   type TaskRunResult,
   type VerifierResult,
 } from './task-contracts.js';
-import { createTaskRunStore, type TaskRunProjection, type TaskRunStore } from './task-run-store.js';
+import type { TaskRunProjection } from './task-run-projection.js';
+import type { TaskRunWriter } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
 import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 import { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
-  taskRunStore?: TaskRunStore;
-  runtimeEventStore?: RuntimeEventStore;
-  sessionStore?: SessionStore;
-  agentRunStore?: AgentRunStore;
   taskRunId?: string;
   attemptId?: string;
   createTaskRun?: boolean;
@@ -140,6 +143,17 @@ export async function runTaskOnce(
   task: Task,
   deps: RunTaskOnceDeps,
 ): Promise<RunTaskOnceResult> {
+  const storage = await openHeadlessStorageForWrite(deps.storageRoot);
+  return runTaskOnceWithStorage(config, task, deps, storage);
+}
+
+export async function runTaskOnceWithStorage(
+  config: Config,
+  task: Task,
+  deps: RunTaskOnceDeps,
+  storage: HeadlessStorageWriter,
+): Promise<RunTaskOnceResult> {
+  storage = authenticateHeadlessStorageWriter(storage);
   const isolationRequired = backendNeedsIsolation(config.backend);
   if (isolationRequired) {
     validateRealBackendIsolation(deps.realBackendIsolation);
@@ -158,10 +172,10 @@ export async function runTaskOnce(
   const createTaskRun = deps.createTaskRun ?? true;
   const closeTaskRun = deps.closeTaskRun ?? true;
   const interventionPolicy = deps.interventionPolicy ?? DEFAULT_INTERVENTION_POLICY;
-  const taskRunStore = deps.taskRunStore ?? createTaskRunStore(deps.storageRoot);
-  const sessionStore = deps.sessionStore ?? createSessionStore(deps.storageRoot);
-  const agentRunStore = deps.agentRunStore ?? createAgentRunStore(deps.storageRoot);
-  const runtimeEventStore = deps.runtimeEventStore ?? createRuntimeEventStore(deps.storageRoot);
+  const taskRunStore = storage.taskRunStore;
+  const sessionStore = storage.executionStores.sessionStore;
+  const agentRunStore = storage.executionStores.agentRunStore;
+  const runtimeEventStore = storage.executionStores.runtimeEventStore;
   const startedAt = now();
   const verifier = normalizeVerifier(task);
   const heavyTaskMode = resolveHeavyTaskMode(config, task);
@@ -295,6 +309,7 @@ export async function runTaskOnce(
       task,
       storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
+      artifactStore: storage.artifactStore,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
       ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
@@ -621,9 +636,10 @@ export async function runTaskOnce(
     });
     const finishedAt = now();
     const scoreResultId = newId();
-    const runEvidence = await agentRunStore
-      .readRun(header.id, invocation.runId)
-      .catch(() => undefined);
+    const runEvidence = await agentRunStore.readRun(header.id, invocation.runId).catch((error) => {
+      if (isStorageRootAuthorityError(error)) throw error;
+      return undefined;
+    });
     const invocationResultRecord = resultRecordFromInvocation({
       config,
       task,
@@ -749,7 +765,7 @@ export async function runTaskOnce(
 }
 
 async function appendHeavyTaskWorkspaceObservation(input: {
-  taskRunStore: TaskRunStore;
+  taskRunStore: TaskRunWriter;
   taskRunId: string;
   projection: TaskRunProjection;
   executor?: NonNullable<RunTaskOnceDeps['realBackendIsolation']>['toolExecutor'];
@@ -770,7 +786,7 @@ async function appendHeavyTaskWorkspaceObservation(input: {
 }
 
 async function appendHeavyTaskSelfCheckEvidenceLinks(input: {
-  store: TaskRunStore;
+  store: TaskRunWriter;
   runtimeEventStore: RuntimeEventStore;
   taskRunId: string;
   attemptId: string;
@@ -854,7 +870,7 @@ function toolNamesForIdentity(hasIsolatedExecutor: boolean, heavyTaskEnabled: bo
 }
 
 async function appendTaskAttemptExecutionLink(input: {
-  store: TaskRunStore;
+  store: TaskRunWriter;
   runtimeEventStore: RuntimeEventStore;
   taskRunId: string;
   attemptId: string;
@@ -920,7 +936,7 @@ async function appendTaskAttemptExecutionLink(input: {
 
 interface PermissionInterventionInput {
   invocation: InvocationResult;
-  store: TaskRunStore;
+  store: TaskRunWriter;
   taskRunId: string;
   attemptId: string;
   now: () => number;
@@ -1057,42 +1073,40 @@ async function handlePermissionIntervention(
 }
 
 function permissionRequestFromRuntime(input: {
-  rawRequest: {
-    requestId?: string;
-    toolUseId?: string;
-    toolName?: string;
-    reason?: string;
-    category?: string;
-    args?: unknown;
-  };
+  rawRequest: PermissionRequestPayload;
   taskRunId: string;
   attemptId: string;
   requestedAt: number;
   expiresAt: number;
 }): TaskPermissionRequest {
-  const args = input.rawRequest.args;
-  const toolName = input.rawRequest.toolName ?? 'unknown_tool';
-  const toolCallId =
-    input.rawRequest.toolUseId ?? input.rawRequest.requestId ?? 'unknown_tool_call';
+  const review = input.rawRequest.review;
+  // Headless command cwd is an attempt-local throwaway path. Grants do not authorize
+  // execution here, so persist a stable command identity for post-hoc diagnostics.
+  const reviewInput = review.kind === 'command' ? { command: review.command } : review;
+  const toolName = input.rawRequest.toolName;
+  const toolCallId = input.rawRequest.toolUseId;
   return {
     schemaVersion: 1,
-    requestId: input.rawRequest.requestId ?? `${input.taskRunId}:${input.attemptId}:${toolCallId}`,
+    requestId: input.rawRequest.requestId,
     taskRunId: input.taskRunId,
     attemptId: input.attemptId,
     toolCallId,
     toolName,
-    normalizedArgsHash: hashNormalizedArgs(args),
-    resourceScope: permissionScope(toolName, args),
-    reason: input.rawRequest.reason ?? input.rawRequest.category ?? 'permission required',
-    preview: permissionPreview(args),
+    normalizedArgsHash: hashNormalizedArgs(reviewInput),
+    resourceScope: permissionScope(toolName, review),
+    reason: input.rawRequest.reason,
+    preview: permissionPreview(reviewInput),
     requestedAt: input.requestedAt,
     expiresAt: input.expiresAt,
   };
 }
 
-function permissionScope(toolName: string, args: unknown): PermissionResourceScope {
-  if (toolName.toLowerCase() === 'bash' && isRecord(args) && typeof args.command === 'string') {
-    return commandResourceScope(args.command);
+function permissionScope(
+  toolName: string,
+  review: PermissionRequestPayload['review'],
+): PermissionResourceScope {
+  if (toolName.toLowerCase() === 'bash' && review.kind === 'command') {
+    return commandResourceScope(review.command);
   }
   return { kind: 'tool', value: toolName, mode: 'execute' };
 }
@@ -1161,6 +1175,15 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
     backend: begin.backend,
     drainAfterTerminal: true,
     onSessionEvent: async (sessionEvent, runtimeEvent) => {
+      if (sessionEvent.type === 'error') {
+        input.run.claimFailureTerminal(
+          Object.assign(new Error(sessionEvent.message), {
+            name: sessionEvent.reason ?? sessionEvent.code ?? 'RuntimeSessionError',
+          }),
+        );
+      } else if (isTerminalRuntimeEvent(runtimeEvent)) {
+        input.run.claimTerminalEvent(runtimeEvent);
+      }
       await input.run.acceptMappedEvent(sessionEvent, runtimeEvent, {
         requireTerminalWrite: input.requireTerminalRuntimeEventWrite,
       });
@@ -1274,6 +1297,7 @@ function createSingleRunActiveSession(
           return active;
         }
         const backend = await backends.build(header.backend, {
+          execution: EMBEDDED_RUNTIME_EXECUTION,
           sessionId,
           workspaceRoot: header.workspaceRoot,
           header,
@@ -1365,7 +1389,10 @@ async function turnHasRetainedOutput(
   sessionId: string,
   turnId: string,
 ): Promise<boolean> {
-  const messages = await store.readMessages(sessionId).catch((): StoredMessage[] => []);
+  const messages = await store.readMessages(sessionId).catch((error): StoredMessage[] => {
+    if (isStorageRootAuthorityError(error)) throw error;
+    return [];
+  });
   return messages.some(
     (message) =>
       (message.type === 'assistant' &&
@@ -1515,7 +1542,7 @@ function summarizeRuntime(
 }
 
 async function appendRuntimeFeedback(
-  store: TaskRunStore,
+  store: TaskRunWriter,
   taskRunId: string,
   attemptId: string,
   now: () => number,
@@ -1707,7 +1734,7 @@ function errorMessageFromTaxonomy(taxonomy: AutonomousResultTaxonomy): string {
   }
 }
 
-function appendTaskEvent(store: TaskRunStore, taskRunId: string, event: TaskEvent): Promise<void> {
+function appendTaskEvent(store: TaskRunWriter, taskRunId: string, event: TaskEvent): Promise<void> {
   return store.appendEvent(taskRunId, event);
 }
 

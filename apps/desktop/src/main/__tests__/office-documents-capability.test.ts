@@ -19,7 +19,6 @@ const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
 const PERMISSION = join(REPO_ROOT, 'packages', 'core', 'src', 'permission.ts');
 const CORE_EVENTS = join(REPO_ROOT, 'packages', 'core', 'src', 'events.ts');
 const TOOL_RESULT_PREVIEW = join(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity', 'tool-result-preview.tsx');
-const PERMISSION_DIALOG = join(REPO_ROOT, 'packages', 'ui', 'src', 'permission-dialog.tsx');
 
 describe('Office document capability contract', () => {
   it('surfaces Office 文档 as a capability backed by officecli probe', async () => {
@@ -176,18 +175,4 @@ describe('Office document capability contract', () => {
     assert.match(previewSource, /TOOL_OUTPUT_COMMAND_CLASS/, 'officecli args must use the shared command surface');
   });
 
-  it('keeps Office document edits compact until the user expands the change', async () => {
-    const components = await readFile(PERMISSION_DIALOG, 'utf8');
-    const summaryBlock = components.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
-
-    assert.match(summaryBlock, /case 'OfficeDocumentEdit'/, 'OfficeDocumentEdit permission requests need a dedicated summary branch');
-    assert.match(components, /request\.toolName === 'OfficeDocumentEdit'\) return copy\.editOffice/);
-    assert.doesNotMatch(summaryBlock, /即将编辑 Office 文档/, 'the exact title must not be repeated in the compact summary');
-    assert.match(summaryBlock, /return <p className="maka-permission-path"><code>\{redactSecrets\(path\)\}<\/code><\/p>/);
-    assert.match(summaryBlock, /operation && `\$\{copy\.officeField\.operation\}=\$\{redactSecrets\(operation\)\}`/, 'the expanded change must retain the operation');
-    assert.match(summaryBlock, /target && `\$\{copy\.officeField\.target\}=\$\{redactSecrets\(target\)\}`/, 'the expanded change must retain the selector target');
-    assert.match(summaryBlock, /permissionValuePreview\(value, copy\)/, 'Permission dialog must summarize bounded props without dumping raw JSON first');
-    assert.match(summaryBlock, /copy\.hiddenProperties\(hiddenProps\)/, 'Permission dialog must cap long prop lists');
-    assert.match(components, /function permissionValuePreview/, 'Permission prop rendering should use a bounded helper');
-  });
 });

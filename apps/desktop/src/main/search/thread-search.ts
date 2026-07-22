@@ -42,6 +42,7 @@ import {
   validateWorkspacePrivacyContext,
 } from '@maka/core';
 import type {
+  PublicToolIntentReview,
   SearchErrorReason,
   SearchResult,
   SessionSummary,
@@ -289,6 +290,71 @@ export function formatSearchResultSummary(message: StoredMessage): string {
   }
 }
 
+function projectPublicReviewSearchText(review: PublicToolIntentReview): string | undefined {
+  switch (review.kind) {
+    case 'command':
+      return `${review.command}\n${review.cwd}`;
+    case 'path':
+      return `${review.path}\n${review.cwd}`;
+    case 'search':
+      return review.operation === 'grep' && review.glob !== undefined
+        ? `${review.pattern}\n${review.root}\n${review.glob}\n${review.cwd}`
+        : `${review.pattern}\n${review.root}\n${review.cwd}`;
+    case 'stdin':
+      return review.input === undefined
+        ? review.ref
+        : `${review.ref}\n${review.input.text}`;
+    case 'web':
+      return review.target;
+    case 'browser':
+      switch (review.action) {
+        case 'navigate':
+          return review.url;
+        case 'snapshot':
+          return undefined;
+        case 'click':
+          return review.ref;
+        case 'type':
+          return `${review.ref}\n${review.text}`;
+        case 'wait':
+          return review.condition === 'duration' ? undefined : review.value;
+        case 'extract':
+          return review.selector;
+      }
+      const exhaustiveBrowserAction: never = review;
+      return exhaustiveBrowserAction;
+    case 'patch':
+      return `${review.path}\n${review.cwd}`;
+    case 'agent':
+      switch (review.operation) {
+        case 'spawn':
+          return review.taskId === undefined
+            ? review.profile
+            : `${review.profile}\n${review.taskId}`;
+        case 'dispatch':
+          return review.member;
+        case 'swarm':
+          return [
+            ...review.profiles,
+            ...review.writeBack,
+            ...review.isolation,
+          ].join('\n');
+      }
+      const exhaustiveAgentOperation: never = review;
+      return exhaustiveAgentOperation;
+    case 'runtime_resource':
+      return review.ref;
+    case 'skill':
+      return review.name;
+    case 'question':
+      return undefined;
+    case 'computer_use':
+      return 'app' in review ? review.app : undefined;
+  }
+  const exhaustive: never = review;
+  return exhaustive;
+}
+
 /**
  * Extract user-visible answer text from a stored message. Returns `undefined`
  * for excluded message kinds (system notes, token usage, turn state,
@@ -312,14 +378,11 @@ export function collectSearchableText(message: StoredMessage): string | undefine
       // but it is not answer text and must not leak into local search.
       return message.text;
     case 'tool_call':
-      // PR-SEARCH-2 review fixup (@xuan `2f1aba55`): index ONLY
-      // `intent` — the user-visible description of what the tool call
-      // is doing. `toolName` (e.g. `Bash`) and `displayName` are
-      // internal labels and would let searches for `Bash` match every
-      // bash invocation regardless of intent. The PR-SEARCH-1 plan
-      // already locked `intent` as the only searchable field on
-      // `ToolCallMessage`; the previous draft over-indexed by mistake.
-      return message.intent && message.intent.length > 0 ? message.intent : undefined;
+      // Closed public reviews are the only searchable invocation detail.
+      // Tool names and display labels remain excluded from transcript search.
+      return message.review === undefined
+        ? undefined
+        : projectPublicReviewSearchText(message.review);
     case 'tool_result': {
       // Bounded JSON-serialize. The cap protects against pathological
       // multi-MB tool outputs (file dumps, etc.).

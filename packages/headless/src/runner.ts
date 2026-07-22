@@ -2,13 +2,18 @@ import { randomUUID } from 'node:crypto';
 import type { BackendKind, OrchestrationMode, TurnOrchestration } from '@maka/core';
 import {
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   SessionManager,
   buildChildAgentTools,
   type InvocationResult,
 } from '@maka/runtime';
-import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
+import {
+  authenticateHeadlessStorageWriter,
+  openHeadlessStorageForWrite,
+  type HeadlessStorageWriter,
+} from './headless-storage.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
 import {
@@ -91,6 +96,17 @@ export async function runExperiment(
   task: Task,
   deps: RunExperimentDeps,
 ): Promise<ResultRecord> {
+  const storage = await openHeadlessStorageForWrite(deps.storageRoot);
+  return runExperimentWithStorage(config, task, deps, storage);
+}
+
+export async function runExperimentWithStorage(
+  config: Config,
+  task: Task,
+  deps: RunExperimentDeps,
+  storage: HeadlessStorageWriter,
+): Promise<ResultRecord> {
+  storage = authenticateHeadlessStorageWriter(storage);
   if (backendNeedsIsolation(config.backend)) {
     validateRealBackendIsolation(deps.realBackendIsolation);
     if (!deps.registerBackends) {
@@ -120,6 +136,7 @@ export async function runExperiment(
       storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
       ...sessionCapabilities.capabilities,
+      artifactStore: storage.artifactStore,
       ...(backendNeedsIsolation(config.backend)
         ? {
             realBackendIsolation: deps.realBackendIsolation,
@@ -129,11 +146,12 @@ export async function runExperiment(
     });
 
     let invocation: InvocationResult | undefined;
-    const runStore = createAgentRunStore(deps.storageRoot);
+    const runStore = storage.executionStores.agentRunStore;
     const manager = new SessionManager({
-      store: createSessionStore(deps.storageRoot),
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store: storage.executionStores.sessionStore,
       runStore,
-      runtimeEventStore: createRuntimeEventStore(deps.storageRoot),
+      runtimeEventStore: storage.executionStores.runtimeEventStore,
       backends,
       ...(deps.realBackendIsolation?.toolExecutor
         ? {
@@ -214,7 +232,7 @@ export async function runExperiment(
       });
       const finishedAt = now();
       const runEvidence = invocation
-        ? await runStore.readRun(session.id, invocation.runId).catch(() => undefined)
+        ? await runStore.readRun(session.id, invocation.runId)
         : undefined;
 
       return {

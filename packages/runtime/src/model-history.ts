@@ -44,7 +44,7 @@ import {
 } from '@maka/core/runtime-event';
 import { normalizeShellToolResultContent } from '@maka/core';
 import type { AttachmentRef, QuoteRef } from '@maka/core/events';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, UserContent, UserModelMessage } from 'ai';
 
 // ============================================================================
 // Output type
@@ -264,6 +264,25 @@ export interface BuildRuntimeEventModelReplayPlanOptions {
 }
 
 /**
+ * Runtime persistence wraps ordinary tool values in ToolResultContent. Replay
+ * removes only that persistence envelope so providers see the same value as
+ * the live tool loop; structured native results retain their existing shape.
+ */
+function projectProviderVisibleToolResult(result: unknown): unknown {
+  if (!result || typeof result !== 'object') return result;
+  if ((result as { kind?: unknown }).kind === 'json' && Object.hasOwn(result, 'value')) {
+    return (result as { value: unknown }).value;
+  }
+  if (
+    (result as { kind?: unknown }).kind === 'text' &&
+    typeof (result as { text?: unknown }).text === 'string'
+  ) {
+    return (result as { text: string }).text;
+  }
+  return result;
+}
+
+/**
  * Collect the turn ids that contain tool activity (function_call /
  * function_response) from a RuntimeEvent ledger. Pass the result as
  * `toolActivityTurnIds` when the events handed to the replay planner are a
@@ -288,14 +307,21 @@ export function buildRuntimeEventModelReplayPlan(
   const includeSystemEvents = options.includeSystemEvents ?? false;
   const items: RuntimeEventModelReplayItem[] = [];
   const diagnostics: RuntimeEventReplayDiagnostic[] = [];
+  type ToolCallReplayItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
   const callsById = new Map<
     string,
     {
       name: string;
       eventId: string;
-      item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
+      replayItem?: ToolCallReplayItem;
     }
   >();
+
+  const dropReplayCall = (call: { replayItem?: ToolCallReplayItem }): void => {
+    if (!call.replayItem) return;
+    const index = items.indexOf(call.replayItem);
+    if (index !== -1) items.splice(index, 1);
+  };
 
   // Signed thinking in a tool turn is only replayable when the turn's tool calls
   // carry a step id (RuntimeEventRefs.stepId, stamped from tool_start): the
@@ -522,17 +548,25 @@ export function buildRuntimeEventModelReplayPlan(
           );
           continue;
         }
-        const item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }> = {
-          kind: 'tool_call',
-          toolCallId: event.content.id,
-          toolName: event.content.name,
-          input: event.content.args,
-          ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
+        const replayItem = Object.hasOwn(event.content, 'args')
+          ? {
+              kind: 'tool_call' as const,
+              toolCallId: event.content.id,
+              toolName: event.content.name,
+              input: structuredClone(event.content.args),
+              ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
+              eventId: event.id,
+              ts: event.ts,
+            }
+          : undefined;
+        if (replayItem) items.push(replayItem);
+        // Calls without private args remain available for pair diagnostics, but
+        // their public review is never treated as executable provider input.
+        callsById.set(event.content.id, {
+          name: event.content.name,
           eventId: event.id,
-          ts: event.ts,
-        };
-        callsById.set(event.content.id, { name: event.content.name, eventId: event.id, item });
-        items.push(item);
+          ...(replayItem ? { replayItem } : {}),
+        });
         break;
       }
       case 'function_response': {
@@ -552,11 +586,8 @@ export function buildRuntimeEventModelReplayPlan(
         const normalizedShellResult = normalizeShellToolResultContent(event.content.result);
         if (normalizedShellResult.state === 'invalid') {
           const call = callsById.get(event.content.id);
-          if (call) {
-            const callIndex = items.indexOf(call.item);
-            if (callIndex >= 0) items.splice(callIndex, 1);
-            callsById.delete(event.content.id);
-          }
+          if (call) dropReplayCall(call);
+          callsById.delete(event.content.id);
           diagnostics.push(
             diagnostic(
               event,
@@ -579,6 +610,7 @@ export function buildRuntimeEventModelReplayPlan(
             ),
           );
         } else if (call.name !== event.content.name) {
+          dropReplayCall(call);
           diagnostics.push(
             diagnostic(
               event,
@@ -592,19 +624,21 @@ export function buildRuntimeEventModelReplayPlan(
               },
             ),
           );
-        }
-        items.push({
-          kind: 'tool_result',
-          toolCallId: event.content.id,
-          toolName: event.content.name,
-          output:
+        } else if (call.replayItem) {
+          const persistedResult =
             normalizedShellResult.state === 'valid'
               ? normalizedShellResult.content
-              : event.content.result,
-          isError: event.content.isError === true,
-          eventId: event.id,
-          ts: event.ts,
-        });
+              : event.content.result;
+          items.push({
+            kind: 'tool_result',
+            toolCallId: event.content.id,
+            toolName: event.content.name,
+            output: structuredClone(projectProviderVisibleToolResult(persistedResult)),
+            isError: event.content.isError ?? false,
+            eventId: event.id,
+            ts: event.ts,
+          });
+        }
         callsById.delete(event.content.id);
         break;
       }
@@ -623,12 +657,11 @@ export function buildRuntimeEventModelReplayPlan(
 
   // A call whose result never landed (the app died during tool execution;
   // recovery appends the terminal error but cannot invent the result) must not
-  // replay: a tool_use with no tool_result is a provider 400. Drop it — the
-  // deliberately non-blocking mirror of unmatched_tool_result — so consumers
-  // that read `items` directly (materializer, compact summarizer) stay valid.
+  // replay: a tool_use with no tool_result is a provider 400. Remove any
+  // staged provider-native call and retain a diagnostic so the ledger still
+  // exposes an interrupted call.
   for (const [toolCallId, call] of callsById) {
-    const index = items.indexOf(call.item);
-    if (index >= 0) items.splice(index, 1);
+    dropReplayCall(call);
     diagnostics.push({
       code: 'unmatched_tool_call',
       message: 'function_call has no matching function_response; dropped from model replay',
@@ -762,11 +795,14 @@ export function steeringProviderOptions(
   return { [STEERING_PROVIDER_OPTIONS_NAMESPACE]: { steeringEventId: eventId } };
 }
 
-/** The canonical injected/replayed form of one steered user message. */
-export function steeringModelMessage(eventId: string, text: string): ModelMessage {
+/** Add the structured identity to canonical provider content for one steering message. */
+export function steeringModelMessage(
+  eventId: string,
+  providerContent: UserContent,
+): UserModelMessage {
   return {
     role: 'user',
-    content: buildSteeringEnvelope(text),
+    content: providerContent,
     providerOptions: steeringProviderOptions(eventId),
   };
 }

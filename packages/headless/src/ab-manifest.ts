@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { AbRunManifest, AbRunManifestInput } from './ab-types.js';
-import { publishImmutableFile } from './immutable-file.js';
+import { publishFileExclusively } from './immutable-file.js';
 
 export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
   const manifestWithoutFingerprint = withoutUndefined({
@@ -58,7 +58,7 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
 ): Promise<T> {
   let existing = await readAbRunManifest<T>(path);
   if (existing === null) {
-    if (await publishImmutableFile(path, `${JSON.stringify(manifest, null, 2)}\n`)) {
+    if (await publishFileExclusively(path, `${JSON.stringify(manifest, null, 2)}\n`)) {
       return manifest;
     }
     existing = await readAbRunManifest<T>(path);

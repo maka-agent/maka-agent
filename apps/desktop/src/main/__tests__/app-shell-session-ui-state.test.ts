@@ -13,12 +13,18 @@ import {
 function permissionRequest(requestId: string): PermissionRequestEvent {
   return {
     type: 'permission_request',
+    kind: 'tool_permission',
     id: `event-${requestId}`,
+    turnId: 'turn-1',
     ts: 1,
     requestId,
     toolUseId: `tool-${requestId}`,
-    toolName: 'shell',
-  } as unknown as PermissionRequestEvent;
+    toolName: 'Bash',
+    category: 'shell_unsafe',
+    reason: 'shell_dangerous',
+    review: { kind: 'command', command: 'printf ok', cwd: '/workspace' },
+    rememberForTurnAllowed: true,
+  };
 }
 
 function seededState(): AppShellSessionUiState {

@@ -35,17 +35,33 @@ export interface GoalEvaluatorDeps {
   /**
    * Single-shot LLM call for goal evaluation, run on the session's own model
    * (the wiring resolves the session's connection from `sessionId`). The
-   * evaluator must not run tools or read files — it judges from text only.
+   * evaluator must not run tools or read files — it judges from text only. The
+   * signal aborts the in-flight call when the canonical evaluator timeout wins.
    */
-  evaluate: (prompt: string, sessionId: string) => Promise<string>;
+  evaluate: (prompt: string, sessionId: string, signal?: AbortSignal) => Promise<string>;
   /** Hard timeout for the evaluator call (ms). Defaults to 30_000 (CC's limit). */
   timeoutMs?: number;
+  /** Bounded wait for abort-responsive evaluator cleanup after a timeout. */
+  abortCleanupGraceMs?: number;
   /** Injectable timer for tests. Defaults to global setTimeout/clearTimeout. */
   setTimeout?: (fn: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
 }
 
+/** A post-cancellation-cut evaluator failure that requires Host fail-stop. */
+export class GoalEvaluatorFatalError extends Error {
+  readonly name = 'GoalEvaluatorFatalError';
+
+  constructor(
+    message: string,
+    readonly fatalCause: unknown,
+  ) {
+    super(message, { cause: fatalCause });
+  }
+}
+
 const DEFAULT_EVALUATOR_TIMEOUT_MS = 30_000;
+const DEFAULT_ABORT_CLEANUP_GRACE_MS = 1_000;
 
 const EVALUATOR_SYSTEM = `You are a goal evaluation judge for an autonomous coding agent. Given a GOAL CONDITION and recent CONVERSATION CONTEXT, judge the agent's progress.
 
@@ -109,9 +125,9 @@ export function parseGoalEvaluation(raw: string): GoalEvaluation {
 }
 
 /**
- * Race the evaluator against a hard timeout. On timeout or error, fail OPEN
- * for continuation (goal keeps working) but flag `evaluatorFailed` so the
- * caller does not treat the outage as either progress or a stall.
+ * Race the evaluator against a hard timeout. Ordinary timeout/error failures
+ * fail OPEN for continuation and set `evaluatorFailed`; typed fatal failures
+ * pass through so the coordinator applies its failure policy.
  */
 export async function evaluateGoal(
   deps: GoalEvaluatorDeps,
@@ -121,17 +137,24 @@ export async function evaluateGoal(
 ): Promise<GoalEvaluation> {
   const prompt = buildGoalEvaluationPrompt(condition, context);
   const timeoutMs = deps.timeoutMs ?? DEFAULT_EVALUATOR_TIMEOUT_MS;
+  const abortCleanupGraceMs = deps.abortCleanupGraceMs ?? DEFAULT_ABORT_CLEANUP_GRACE_MS;
   const setT = deps.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
   const clearT = deps.clearTimeout ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const controller = new AbortController();
 
   let timer: unknown;
   const timeout = new Promise<'__timeout__'>((resolve) => {
     timer = setT(() => resolve('__timeout__'), timeoutMs);
   });
+  const evaluationPromise = Promise.resolve().then(() =>
+    deps.evaluate(prompt, sessionId, controller.signal),
+  );
 
   try {
-    const result = await Promise.race([deps.evaluate(prompt, sessionId), timeout]);
+    const result = await Promise.race([evaluationPromise, timeout]);
     if (result === '__timeout__') {
+      controller.abort();
+      await waitForEvaluatorCleanup(evaluationPromise, abortCleanupGraceMs, setT, clearT);
       return {
         met: false,
         impossible: false,
@@ -142,7 +165,8 @@ export async function evaluateGoal(
       };
     }
     return parseGoalEvaluation(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof GoalEvaluatorFatalError) throw error;
     return {
       met: false,
       impossible: false,
@@ -153,6 +177,27 @@ export async function evaluateGoal(
     };
   } finally {
     clearT(timer);
+  }
+}
+
+async function waitForEvaluatorCleanup(
+  evaluationPromise: Promise<string>,
+  graceMs: number,
+  setTimer: (fn: () => void, ms: number) => unknown,
+  clearTimer: (handle: unknown) => void,
+): Promise<void> {
+  const settled = evaluationPromise.then(
+    () => undefined,
+    () => undefined,
+  );
+  let timer: unknown;
+  const graceElapsed = new Promise<void>((resolve) => {
+    timer = setTimer(resolve, graceMs);
+  });
+  try {
+    await Promise.race([settled, graceElapsed]);
+  } finally {
+    clearTimer(timer);
   }
 }
 

@@ -4,13 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { AgentRunHeader } from '@maka/core';
-import { createTaskRunStore } from '@maka/headless';
+import { createInMemoryTaskRunStore } from '@maka/headless';
 import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
-import {
-  inspectResolvedTarget,
-  resolveInspectTarget,
-  type InspectCommandStores,
-} from '../inspect-command.js';
+import { inspectResolvedTarget, resolveInspectTarget } from '../inspect-command.js';
 
 describe('unified inspect target resolution', () => {
   test('does not guess when one id names multiple entity kinds and AgentRuns', async () => {
@@ -84,7 +80,14 @@ describe('unified inspect target resolution', () => {
   });
 });
 
-async function createSession(stores: InspectCommandStores, name: string) {
+type InspectCommandTestStores = {
+  sessionStore: ReturnType<typeof createSessionStore>;
+  agentRunStore: ReturnType<typeof createAgentRunStore>;
+  runtimeEventStore: ReturnType<typeof createRuntimeEventStore>;
+  taskRunStore: ReturnType<typeof createInMemoryTaskRunStore>;
+};
+
+async function createSession(stores: InspectCommandTestStores, name: string) {
   return stores.sessionStore.create({
     cwd: '/tmp/workspace',
     name,
@@ -112,14 +115,14 @@ function runHeader(sessionId: string, runId: string): AgentRunHeader {
   };
 }
 
-async function withStores(run: (stores: InspectCommandStores) => Promise<void>): Promise<void> {
+async function withStores(run: (stores: InspectCommandTestStores) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'maka-unified-inspect-'));
   try {
     await run({
       sessionStore: createSessionStore(root),
       agentRunStore: createAgentRunStore(root),
       runtimeEventStore: createRuntimeEventStore(root),
-      taskRunStore: createTaskRunStore(root),
+      taskRunStore: createInMemoryTaskRunStore(),
     });
   } finally {
     await rm(root, { recursive: true, force: true });

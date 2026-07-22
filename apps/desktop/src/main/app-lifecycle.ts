@@ -1,11 +1,12 @@
 import { app, nativeImage, safeStorage } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { buildPricingLookup, setActiveProxy } from '@maka/runtime';
+import { setActiveProxy } from '@maka/runtime';
 import type { BotRegistry, SessionManager, ShellRunProcessManager } from '@maka/runtime';
 import type { McpClientManager } from '@maka/mcp';
 import type {
   createConnectionStore,
+  createPricingStore,
   createSettingsStore,
   createTelemetryRepo,
   openRuntimeEventPersistence,
@@ -29,8 +30,6 @@ import type { StreamEvents } from './session-stream.js';
 import type { SettingsIpcHandle } from './settings-ipc-main.js';
 
 type AssembledTools = ReturnType<typeof assembleDesktopTools>;
-type PricingLookup = ReturnType<typeof buildPricingLookup>;
-
 export interface AppLifecycleDeps {
   isIsolatedE2e: boolean;
   e2eFixture: ReturnType<typeof resolveE2eFixture>;
@@ -39,6 +38,8 @@ export interface AppLifecycleDeps {
   connectionStore: ReturnType<typeof createConnectionStore>;
   settingsStore: ReturnType<typeof createSettingsStore>;
   telemetryRepo: ReturnType<typeof createTelemetryRepo>;
+  pricingStore: ReturnType<typeof createPricingStore>;
+  ensureUsageReady: () => Promise<void>;
   keepSystemAwake: KeepSystemAwakeController;
   botRegistry: BotRegistry;
   openGateway: OpenGatewayService;
@@ -62,9 +63,6 @@ export interface AppLifecycleDeps {
   /** Accessor for the settings IPC handle, which is assigned inside
    *  main.ts's `registerIpc()`; teardown disposes it if present. */
   getSettingsIpc: () => SettingsIpcHandle | undefined;
-  /** Reassigns the module-scoped pricing lookup in main.ts, which is read
-   *  live by the session streamer and the usage IPC handler. */
-  setLookupPricing: (value: PricingLookup) => void;
 }
 
 /**
@@ -88,6 +86,8 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     connectionStore,
     settingsStore,
     telemetryRepo,
+    pricingStore,
+    ensureUsageReady,
     keepSystemAwake,
     botRegistry,
     openGateway,
@@ -107,7 +107,6 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     emitConnectionListChanged,
     handleExternalSettingsChange,
     getSettingsIpc,
-    setLookupPricing,
   } = deps;
 
   let configWatcher: ConfigFileWatcher | undefined;
@@ -261,8 +260,8 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
    * Non-critical startup work that must NOT block the first window paint.
    *
    * `setActiveProxy` must be applied before any network-bearing step
-   * (`botRegistry.applySettings`, `openGateway.sync`); pricing depends on
-   * `telemetryRepo.load()`. Everything here is best-effort and logged on
+   * (`botRegistry.applySettings`, `openGateway.sync`); pricing depends on both
+   * usage stores being loaded. Everything here is best-effort and logged on
    * failure — none of it should prevent the user from seeing and interacting
    * with the app shell.
    */
@@ -277,8 +276,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     // Re-hold the power-save blocker at launch if the user left it enabled, so
     // scheduled tasks survive machine sleep across restarts.
     keepSystemAwake.apply(settings.system.keepSystemAwake);
-    await telemetryRepo.load();
-    setLookupPricing(buildPricingLookup(telemetryRepo.listPricingOverrides()));
+    await ensureUsageReady();
     await recoverInterruptedSessionsOnStartup();
     await botRegistry.applySettings(settings.botChat);
     await openGateway.sync(settings.openGateway);
@@ -326,6 +324,8 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
       Promise.resolve(mainWindowController.disposeBrowserViews()),
       shellRuns.terminateAll(),
       mcpManager.close(),
+      telemetryRepo.close(),
+      pricingStore.close(),
     ]);
     for (const result of results) {
       if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);

@@ -3,11 +3,18 @@ import { test } from 'node:test';
 import type { SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
 import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '../fake-backend.js';
 import type { SessionStore } from '../session-manager.js';
+import type { RuntimeInteractionRunFacet } from '../interaction-authority.js';
+import {
+  EMBEDDED_RUNTIME_EXECUTION,
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeHostedRunControl,
+} from '../run-execution.js';
 
 test('text deltas preserve the exact completed response, including Markdown line breaks', async () => {
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
@@ -30,8 +37,9 @@ test('text deltas preserve the exact completed response, including Markdown line
 test('AskUserQuestion scenario parks the same turn until one response continues it', async () => {
   const appended: StoredMessage[] = [];
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async (message) => {
       appended.push(message);
@@ -70,18 +78,23 @@ test('AskUserQuestion scenario parks the same turn until one response continues 
 
 test('pullSteering drains queued messages at step boundaries as steering events', async () => {
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
   // Queue two steering messages, delivered one per step boundary, then dry up.
   const pending = [
-    { id: 'lease-1', text: 'do X' },
-    { id: 'lease-2', text: 'and Y' },
+    { id: 'lease-1', messageId: 'message-1', content: { text: 'do X' } },
+    {
+      id: 'lease-2',
+      messageId: 'message-2',
+      content: { text: 'and Y', displayText: 'shown Y' },
+    },
   ];
   const acked: string[] = [];
-  const steered: string[] = [];
+  const steered: Array<{ messageId: string; content: unknown }> = [];
   let completedText = '';
   for await (const event of backend.send({
     turnId: 'turn-1',
@@ -90,10 +103,15 @@ test('pullSteering drains queued messages at step boundaries as steering events'
     pullSteering: () => (pending.length > 0 ? [pending.shift()!] : []),
     ackSteering: (leaseIds) => acked.push(...leaseIds),
   })) {
-    if (event.type === 'steering_message') steered.push(event.text);
+    if (event.type === 'steering_message') {
+      steered.push({ messageId: event.messageId, content: event.content });
+    }
     if (event.type === 'text_complete') completedText = event.text;
   }
-  assert.deepEqual(steered, ['do X', 'and Y']);
+  assert.deepEqual(steered, [
+    { messageId: 'message-1', content: { text: 'do X' } },
+    { messageId: 'message-2', content: { text: 'and Y', displayText: 'shown Y' } },
+  ]);
   // Delivery is acknowledged lease by lease.
   assert.deepEqual(acked, ['lease-1', 'lease-2']);
   // The fake acknowledges the steering it saw, proving it reached the model side.
@@ -107,8 +125,9 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
   // consumer pulled past it), B did not. Batch settlement would nack both,
   // redelivering the already-delivered A.
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
@@ -124,8 +143,8 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
         if (pulled) return [];
         pulled = true;
         return [
-          { id: 'lease-a', text: 'A' },
-          { id: 'lease-b', text: 'B' },
+          { id: 'lease-a', messageId: 'message-a', content: { text: 'A' } },
+          { id: 'lease-b', messageId: 'message-b', content: { text: 'B' } },
         ];
       },
       ackSteering: (leaseIds) => acked.push(...leaseIds),
@@ -137,7 +156,7 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
   for (let i = 0; i < 20 && steered.length < 2; i += 1) {
     const result = await iterator.next();
     if (result.done) break;
-    if (result.value.type === 'steering_message') steered.push(result.value.text);
+    if (result.value.type === 'steering_message') steered.push(result.value.content.text);
   }
   assert.deepEqual(steered, ['A', 'B']);
 
@@ -152,12 +171,13 @@ test('a lease is acked only after its event is consumed, and nacked when the con
   // echoed event; acking at pull time marked messages delivered that a
   // detaching consumer never saw, silently dropping them.
   const backend = new FakeBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
-    header: { model: 'fake-model' } as SessionHeader,
+    header: fakeHeader(),
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
-  const pending = [{ id: 'lease-1', text: 'do X' }];
+  const pending = [{ id: 'lease-1', messageId: 'message-1', content: { text: 'do X' } }];
   const acked: string[] = [];
   const nacked: string[] = [];
   const iterator = backend
@@ -185,3 +205,58 @@ test('a lease is acked only after its event is consumed, and nacked when the con
   assert.deepEqual(acked, []);
   assert.deepEqual(nacked, ['lease-1']);
 });
+
+function fakeHeader(): SessionHeader {
+  return {
+    id: 'session-1',
+    workspaceRoot: '/tmp',
+    cwd: '/tmp',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Fake backend test',
+    titleIsManual: false,
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'fake',
+    llmConnectionSlug: 'fake',
+    connectionLocked: true,
+    model: 'fake-model',
+    permissionMode: 'ask',
+    schemaVersion: 1,
+  };
+}
+
+function bindHostedBackend(backend: FakeBackend, interactions: RuntimeInteractionRunFacet): void {
+  const control: RuntimeHostedRunControl = {
+    runId: 'run-1',
+    turnId: 'turn-1',
+    interactions,
+    hasStopClaim: () => false,
+    claimFailure: () => {},
+    fail: () => {},
+    runSuccessorEffect: (_kind, operation) => operation(),
+  };
+  backend[RUNTIME_BIND_HOSTED_RUN](control);
+}
+
+function testInteractionAuthority(
+  overrides: Partial<RuntimeInteractionRunFacet>,
+): RuntimeInteractionRunFacet {
+  const unexpected = async (): Promise<never> => {
+    throw new Error('Unexpected RuntimeInteractionAuthority call');
+  };
+  return {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    runId: 'run-1',
+    acceptPermissionRequest: unexpected,
+    commitPermissionAnswer: unexpected,
+    commitPermissionTimeout: unexpected,
+    acceptUserQuestionRequest: unexpected,
+    ...overrides,
+  };
+}

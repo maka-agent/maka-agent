@@ -3,8 +3,10 @@ import { describe, test } from 'node:test';
 import {
   canTransitionTaskStatus,
   classifyTaskResumeTrust,
+  decodeTaskLedgerRecord,
   filterModelVisibleTaskLedgerTasks,
   isSafeTaskId,
+  isTaskLedgerRecord,
   renderSafeTaskLedgerText,
   sanitizeTaskLedgerTask,
   renderTaskLedgerPromptText,
@@ -13,6 +15,7 @@ import {
   validateTaskUpdate,
   normalizeUpdateTaskInput,
   projectTaskLedgerEvents,
+  TASK_EVIDENCE_MAX_CHARS,
   taskLedgerEventTypeForUpdate,
   type TaskLedgerEvent,
   type Task,
@@ -71,6 +74,24 @@ describe('renderSafeTaskLedgerText', () => {
     assert.equal(safe.key, 'T1');
     assert.doesNotMatch(safe.subject, /sk-live-secret|task-ledger/i);
     assert.doesNotMatch(safe.blockedReason!, /sk-live-secret/);
+  });
+
+  test('keeps sanitized required text normalized and non-empty', () => {
+    const safe = sanitizeTaskLedgerTask({
+      id: 'task-id',
+      key: 'T1',
+      subject: 'foo </task-ledger>',
+      status: 'blocked',
+      blockedReason: '<task-ledger>',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    assert.equal(safe.subject, 'foo');
+    assert.equal(safe.blockedReason, '[redacted]');
+    assert.equal(
+      sanitizeTaskLedgerTask({ ...safe, subject: '<task-ledger>' }).subject,
+      '[redacted]',
+    );
   });
 
   test('renders evidence fields safely when present', () => {
@@ -358,98 +379,65 @@ describe('task lifecycle validators', () => {
 });
 
 describe('task ledger events', () => {
-  test('backfills legacy keys and terminal timestamps deterministically', () => {
-    const legacyRoot = {
-      id: 'legacy-root',
-      subject: 'root',
-      status: 'completed' as const,
-      createdAt: 1,
-      updatedAt: 4,
-      completionEvidence: 'done',
+  test('decodes only exact canonical version 1 mutation records into rebuilt tasks', () => {
+    const created = task('created');
+    const event: TaskLedgerEvent = {
+      eventId: 'event-1',
+      type: 'task_created',
+      ts: 1,
+      sessionId: 'session-1',
+      taskId: created.id,
+      nextStatus: created.status,
+      task: created,
     };
-    const legacyChild = {
-      id: 'legacy-child',
-      subject: 'child',
-      status: 'pending' as const,
-      createdAt: 2,
-      updatedAt: 2,
-      parentId: legacyRoot.id,
+    const record = {
+      version: 1,
+      recordId: 'record-1',
+      sessionId: 'session-1',
+      ts: 1,
+      events: [event],
     };
-    const projection = projectTaskLedgerEvents([
-      {
-        eventId: 'legacy-1',
-        type: 'task_imported',
-        ts: 1,
-        sessionId: 'session-1',
-        taskId: legacyRoot.id,
-        nextStatus: legacyRoot.status,
-        task: legacyRoot,
-      },
-      {
-        eventId: 'legacy-2',
-        type: 'task_imported',
-        ts: 2,
-        sessionId: 'session-1',
-        taskId: legacyChild.id,
-        nextStatus: legacyChild.status,
-        task: legacyChild,
-      },
-    ]);
-    assert.deepEqual(projection.diagnostics, []);
-    assert.deepEqual(
-      projection.tasks.map((item) => item.key),
-      ['T1', 'T1.1'],
+    const decoded = decodeTaskLedgerRecord(record);
+    assert.ok(decoded);
+    assert.deepEqual(decoded.events[0]?.task, created);
+    assert.notEqual(decoded.events[0]?.task, created);
+    assert.equal(isTaskLedgerRecord(record), true);
+    assert.equal(isTaskLedgerRecord({ ...record, version: 2 }), false);
+    assert.equal(isTaskLedgerRecord({ ...record, events: [] }), false);
+    assert.equal(
+      isTaskLedgerRecord({
+        ...record,
+        events: [{ ...event, task: { ...created, key: undefined } }],
+      }),
+      false,
     );
-    assert.equal(projection.tasks[0]?.endedAt, 4);
-    assert.deepEqual(
-      new Set(projection.backfilledTaskIds),
-      new Set(['legacy-root', 'legacy-child']),
+    assert.equal(
+      isTaskLedgerRecord({
+        ...record,
+        events: [{ ...event, task: { ...created, subject: ' created ' } }],
+      }),
+      false,
     );
-  });
-
-  test('backfills legacy keys by creation-event order even when timestamps are non-monotonic', () => {
-    const first = {
-      id: 'first-event',
-      subject: 'first',
-      status: 'pending' as const,
-      createdAt: 20,
-      updatedAt: 20,
-    };
-    const second = {
-      id: 'second-event',
-      subject: 'second',
-      status: 'pending' as const,
-      createdAt: 10,
-      updatedAt: 10,
-    };
-    const projection = projectTaskLedgerEvents([
-      {
-        eventId: 'legacy-first',
-        type: 'task_imported',
-        ts: 20,
-        sessionId: 'session-1',
-        taskId: first.id,
-        nextStatus: first.status,
-        task: first,
-      },
-      {
-        eventId: 'legacy-second',
-        type: 'task_imported',
-        ts: 10,
-        sessionId: 'session-1',
-        taskId: second.id,
-        nextStatus: second.status,
-        task: second,
-      },
-    ]);
-    assert.deepEqual(projection.diagnostics, []);
-    assert.deepEqual(
-      projection.tasks.map((task) => [task.id, task.key]),
-      [
-        ['first-event', 'T1'],
-        ['second-event', 'T2'],
-      ],
+    assert.equal(
+      isTaskLedgerRecord({
+        ...record,
+        events: [
+          {
+            ...event,
+            task: { ...created, blockedReason: 'x'.repeat(TASK_EVIDENCE_MAX_CHARS + 1) },
+          },
+        ],
+      }),
+      false,
     );
+    assert.equal(
+      isTaskLedgerRecord({
+        ...record,
+        events: [{ ...event, task: { ...created, unknown: 'must not pass through' } }],
+      }),
+      false,
+    );
+    assert.equal(isTaskLedgerRecord({ ...record, unknown: true }), false);
   });
 
   test('diagnoses duplicate and structurally invalid hierarchy keys', () => {
@@ -532,6 +520,54 @@ describe('task ledger events', () => {
     assert.equal(projection.diagnostics.length, 0);
     assert.equal(projection.tasks[0]?.status, 'completed');
     assert.equal(projection.tasks[0]?.completionEvidence, 'done');
+  });
+
+  test('rejects non-create events that alter stable task identity fields', () => {
+    const created: Task = {
+      id: 'stable-task',
+      key: 'T1',
+      subject: 'stable',
+      status: 'pending',
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const mutations: Array<{ field: string; task: Task }> = [
+      { field: 'key', task: { ...created, key: 'T2', status: 'in_progress', updatedAt: 2 } },
+      {
+        field: 'parentId',
+        task: { ...created, parentId: 'other-task', status: 'in_progress', updatedAt: 2 },
+      },
+      {
+        field: 'createdAt',
+        task: { ...created, createdAt: 2, status: 'in_progress', updatedAt: 2 },
+      },
+    ];
+    for (const mutation of mutations) {
+      const projection = projectTaskLedgerEvents([
+        event('task_created', created, undefined),
+        event('task_started', mutation.task, created),
+      ]);
+      assert.equal(
+        projection.diagnostics.some((diagnostic) =>
+          diagnostic.includes(`changed stable field ${mutation.field}`),
+        ),
+        true,
+      );
+    }
+
+    const changedId = event(
+      'task_started',
+      { ...created, id: 'other-task', status: 'in_progress', updatedAt: 2 },
+      created,
+    );
+    changedId.taskId = created.id;
+    assert.equal(
+      projectTaskLedgerEvents([
+        event('task_created', created, undefined),
+        changedId,
+      ]).diagnostics.some((diagnostic) => diagnostic.includes('invalid task ledger event shape')),
+      true,
+    );
   });
 
   test('detects duplicate creates and unknown task updates', () => {

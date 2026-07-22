@@ -3,7 +3,8 @@ import { describe, test } from 'node:test';
 
 import { computeCost } from '../telemetry/cost.js';
 import { recordLlmCall } from '../telemetry/record-llm-call.js';
-import type { PersistedLlmCallRecord } from '../telemetry/types.js';
+import { recordToolInvocation } from '../telemetry/record-tool-invocation.js';
+import type { PersistedLlmCallRecord, PersistedToolInvocationRecord } from '../telemetry/types.js';
 
 describe('computeCost', () => {
   test('charges full input price only for cache-miss input', () => {
@@ -36,7 +37,7 @@ describe('computeCost', () => {
       {
         inputTokens: 100,
         outputTokens: 0,
-        cachedInputTokens: 40,
+        cacheHitInputTokens: 40,
         cacheWriteInputTokens: 10,
       },
       {
@@ -78,13 +79,13 @@ describe('recordLlmCall', () => {
   test('preserves a runtime-provided cost fact instead of recomputing it', async () => {
     const inserted: PersistedLlmCallRecord[] = [];
 
-    recordLlmCall(
+    await recordLlmCall(
       {
         repo: {
-          insertLlmCall: (record) => {
+          insertLlmCall: async (record) => {
             inserted.push(record);
           },
-          insertToolInvocation: () => {},
+          insertToolInvocation: async () => {},
         },
         lookupPricing: () => {
           throw new Error('lookup should not run when costUsd is already present');
@@ -103,8 +104,106 @@ describe('recordLlmCall', () => {
       },
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
     assert.equal(inserted[0]?.costUsd, 0.123);
+  });
+
+  test('settles only after record publication completes', async () => {
+    let finishPublication!: () => void;
+    const publication = new Promise<void>((resolve) => {
+      finishPublication = resolve;
+    });
+    let settled = false;
+
+    const recording = recordLlmCall(
+      {
+        repo: {
+          insertLlmCall: () => publication,
+          insertToolInvocation: async () => {},
+        },
+        lookupPricing: () => null,
+      },
+      {
+        turnId: 'turn-barrier',
+        providerId: 'openai',
+        modelId: 'gpt-5',
+        inputTokens: 1,
+        outputTokens: 1,
+        latencyMs: 1,
+        status: 'success',
+        startedAt: 100,
+      },
+    );
+    void recording.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    assert.equal(settled, false);
+
+    finishPublication();
+    await recording;
+    assert.equal(settled, true);
+  });
+});
+
+describe('recordToolInvocation', () => {
+  test('normalizes the tool invocation before publishing it', async () => {
+    const inserted: PersistedToolInvocationRecord[] = [];
+
+    const recording = recordToolInvocation(
+      {
+        repo: {
+          insertLlmCall: async () => {},
+          insertToolInvocation: async (record) => {
+            inserted.push(record);
+          },
+        },
+      },
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        durationMs: 5,
+        status: 'success',
+        startedAt: 100,
+      },
+    );
+    await recording;
+
+    assert.equal(inserted[0]?.id, 'tool_call-1');
+    assert.equal(inserted[0]?.ts, 105);
+    assert.equal(inserted[0]?.bytesIn, 0);
+    assert.equal(inserted[0]?.bytesOut, 0);
+  });
+
+  test('settles only after record publication completes', async () => {
+    let finishPublication!: () => void;
+    const publication = new Promise<void>((resolve) => {
+      finishPublication = resolve;
+    });
+    let settled = false;
+
+    const recording = recordToolInvocation(
+      {
+        repo: {
+          insertLlmCall: async () => {},
+          insertToolInvocation: () => publication,
+        },
+      },
+      {
+        toolCallId: 'call-barrier',
+        toolName: 'Bash',
+        durationMs: 5,
+        status: 'success',
+        startedAt: 100,
+      },
+    );
+    void recording.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    assert.equal(settled, false);
+
+    finishPublication();
+    await recording;
+    assert.equal(settled, true);
   });
 });

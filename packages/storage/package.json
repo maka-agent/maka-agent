@@ -7,8 +7,15 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./artifact-stores": "./dist/artifact-stores.js",
     "./execution-stores": "./dist/execution-stores.js",
-    "./root-authority": "./dist/root-authority.js"
+    "./memory-store": "./dist/memory-store.js",
+    "./pricing-store": "./dist/pricing-store.js",
+    "./root-authority": "./dist/root-authority.js",
+    "./shell-run-store": "./dist/shell-run-store.js",
+    "./task-ledger-store": "./dist/task-ledger-store.js",
+    "./usage-stores": "./dist/usage-stores.js",
+    "./runtime-policy-stores": "./dist/runtime-policy-stores.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",

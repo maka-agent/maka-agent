@@ -4,7 +4,6 @@ import { z } from 'zod';
 import type { SessionEvent } from '@maka/core/events';
 import type { SessionHeader } from '@maka/core/session';
 import type { StoredMessage } from '@maka/core/session';
-import type { ToolExecutionFacts } from '@maka/core/permission';
 import { projectToolActivityArgs } from '@maka/core';
 
 import { ToolRuntime, formatDeferredNotLoadedText, type MakaTool } from '../tool-runtime.js';
@@ -59,12 +58,13 @@ function makeHarness(): Harness {
   const realEvaluate = engine.evaluate.bind(engine);
   // Spy: record whether the guard let execution reach permission evaluation.
   engine.evaluate = ((input: EvaluateInput) => {
-    evaluateCalls.push(input.toolName);
+    evaluateCalls.push(input.intent.toolName);
     evaluateInputs.push(input);
     return realEvaluate(input);
   }) as typeof engine.evaluate;
   let n = 0;
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: header(),
     connection: { providerType: 'openai', slug: 'c' } as never,
@@ -121,13 +121,13 @@ describe('tool-availability execute-boundary guard', () => {
     assert.equal(start.activityKind, 'command');
   });
 
-  test('keeps WriteStdin args exact across canonical ledgers and projects telemetry', async () => {
+  test('keeps WriteStdin execution exact while ledgers carry its closed review', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];
     const t = Object.assign(tool('WriteStdin', implCalls), { permissionRequired: false });
     const args = {
       ref: 'maka://runtime/background-tasks/pty-1',
-      input: 'password=ordinary-audited-input\r',
+      input: 'ordinary-audited-input\r',
       size: { cols: 100, rows: 30 },
     };
 
@@ -140,8 +140,14 @@ describe('tool-availability execute-boundary guard', () => {
     );
     assert.ok(call?.type === 'tool_call');
     assert.ok(start);
-    assert.deepEqual(call.args, args);
-    assert.deepEqual(start.args, args);
+    const review = {
+      kind: 'stdin' as const,
+      ref: 'maka://runtime/background-tasks/pty-1',
+      input: { text: 'ordinary-audited-input\\u{000D}', bytes: 23 },
+      size: { cols: 100, rows: 30 },
+    };
+    assert.deepEqual(call.review, review);
+    assert.deepEqual(start.review, review);
 
     const runtimeEvent = mapSessionEventToRuntimeEvent(start, {
       sessionId: 'session-1',
@@ -163,33 +169,13 @@ describe('tool-availability execute-boundary guard', () => {
     });
     assert.equal(runtimeEvent.content?.kind, 'function_call');
     assert.deepEqual(
-      runtimeEvent.content?.kind === 'function_call' ? runtimeEvent.content.args : undefined,
-      args,
+      runtimeEvent.content?.kind === 'function_call' ? runtimeEvent.content.review : undefined,
+      review,
     );
     assert.deepEqual(
       JSON.parse(h.invocationArgsSummaries[0] ?? 'null'),
       projectToolActivityArgs('WriteStdin', args),
     );
-  });
-
-  test('passes tool execution facts into permission evaluation', async () => {
-    const h = makeHarness();
-    const implCalls: string[] = [];
-    const facts: ToolExecutionFacts = {
-      isolation: 'container',
-      writesAffectHost: false,
-      writeBack: 'diff_review',
-      network: 'sandbox',
-      secrets: 'brokered',
-    };
-    const t = tool('CustomFactsTool', implCalls);
-    t.executionFacts = facts;
-
-    await run(h, t);
-
-    assert.equal(h.evaluateInputs.length, 1);
-    assert.equal(h.evaluateInputs[0]?.executionFacts, facts);
-    assert.deepEqual(implCalls, ['CustomFactsTool']);
   });
 
   test('rejects a gated tool absent from the step snapshot — no impl, no permission eval', async () => {

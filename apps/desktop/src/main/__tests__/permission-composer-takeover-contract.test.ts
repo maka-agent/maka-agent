@@ -48,25 +48,9 @@ describe('permission composer takeover', () => {
     );
   });
 
-  it('renders a non-modal permission region with an always-visible Stop action', async () => {
+  it('routes the in-flow permission region through the active session Stop owner', async () => {
     const appShell = await readFile(join(rendererRoot, 'app-shell.tsx'), 'utf8');
     const composerRegion = await readFile(join(rendererRoot, 'chat-composer-region.tsx'), 'utf8');
-    const permissionSource = await readFile(
-      join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
-      'utf8',
-    );
-    const prompt = permissionSource.match(
-      /export function PermissionPrompt[\s\S]*?function renderBrowserSummary/,
-    )?.[0] ?? '';
-
-    assert.doesNotMatch(prompt, /AlertDialog(Root|Content)/, 'the takeover must not enter the modal top layer');
-    assert.match(prompt, /<section[\s\S]*?role="region"[\s\S]*?className="maka-composer-interaction maka-permission-prompt composer"/);
-    assert.match(prompt, /onStop\(\): void \| Promise<void>/);
-    assert.match(prompt, /disabled=\{props\.stopPending\}/);
-    assert.match(prompt, /props\.stopPending \? copy\.stopping : copy\.stop/);
-    assert.match(prompt, /const denyButtonRef = useRef<HTMLButtonElement>\(null\)/);
-    assert.match(prompt, /denyButtonRef\.current\?\.focus\(\)/, 'focus must move from the hidden composer to the safe decision');
-    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?submit\('deny'\)/);
     assert.match(
       composerRegion,
       /<PermissionPrompt[\s\S]*?onStop=\{stop\}[\s\S]*?stopPending=\{activeId \? stopPendingBySession\[activeId\] === true : false\}/,
@@ -77,71 +61,6 @@ describe('permission composer takeover', () => {
       /const hasModalOpen = helpOpen \|\| paletteOpen \|\| searchModalOpen;/,
       'a permission prompt must not hide the live browser or make the workspace modal',
     );
-  });
-
-  it('presents one decision hierarchy without repeated risk or mixed-size action groups', async () => {
-    const permissionSource = await readFile(
-      join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
-      'utf8',
-    );
-    const prompt = permissionSource.match(
-      /export function PermissionPrompt[\s\S]*?function renderBrowserSummary/,
-    )?.[0] ?? '';
-
-    assert.doesNotMatch(prompt, /maka-permission-subtitle/, 'the decision title must not repeat tool and reason metadata');
-    assert.doesNotMatch(prompt, /maka-permission-danger-note/, 'destructive consequences must be stated once, not repeated');
-    assert.doesNotMatch(prompt, /maka-permission-stale-note/, 'wait age metadata must not add a second warning block');
-    assert.doesNotMatch(prompt, /maka-permission-icon|preset\.Icon/, 'the decision title does not need a second risk symbol');
-    assert.match(
-      prompt,
-      /\{health\.status !== 'fresh' && \([\s\S]*?className="maka-permission-age"/,
-      'fresh requests must not spend space saying that they just arrived',
-    );
-    assert.match(prompt, /const context = props\.request\.hint \?\? \(isDestructive/);
-    assert.match(prompt, /className="maka-permission-context"/);
-    assert.match(
-      prompt,
-      /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label=\{copy\.actionsAriaLabel\}>[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
-      'all three request actions belong to one adjacent group; disclosure and grant scope remain utilities',
-    );
-    assert.match(prompt, /variant="ghost"[\s\S]*?props\.onStop/);
-    assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?variant="ghost"[\s\S]*?submit\('deny'\)/);
-    assert.match(prompt, /variant=\{isDestructive \? 'destructive' : 'default'\}[\s\S]*?submit\('allow'\)/);
-    assert.doesNotMatch(
-      prompt,
-      /className="maka-button"/,
-      'shared Button variants must not inherit the retired CSS button shell',
-    );
-    assert.equal(
-      prompt.match(/size="md"/g)?.length,
-      3,
-      'all three high-stakes decisions must use the governed 13px control tier',
-    );
-    assert.doesNotMatch(prompt, /size="sm"/, 'caption-sized buttons are too small for high-stakes decisions');
-    assert.doesNotMatch(prompt, /oklch\(from_var\(--destructive\)|hover:bg-/, 'permission actions must use governed Button variants');
-  });
-
-  it('keeps general disclosures focused on information not already present in the summary', async () => {
-    const permissionSource = await readFile(
-      join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
-      'utf8',
-    );
-    const prompt = permissionSource.match(
-      /export function PermissionPrompt[\s\S]*?function renderBrowserSummary/,
-    )?.[0] ?? '';
-    const additionalArgs = permissionSource.match(
-      /function permissionAdditionalArgs[\s\S]*?function permissionTextPreview/,
-    )?.[0] ?? '';
-    const summary = permissionSource.match(
-      /function renderPermissionSummary[\s\S]*?function renderPermissionDetails/,
-    )?.[0] ?? '';
-
-    assert.match(prompt, /\{showDisclosure && \([\s\S]*?<CollapsiblePanel>/);
-    assert.match(prompt, /const disclosureLabel = permissionDisclosureLabel\(props\.request, additionalArgs, copy\);/);
-    assert.match(prompt, /\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}/);
-    assert.doesNotMatch(prompt, /formatRedactedJson\(props\.request\.args\)/, 'the disclosure must not repeat every summarized arg');
-    assert.match(summary, /const commandSummary = cwd[\s\S]*?copy\.inDirectory\(redactSecrets\(cwd\)\)/);
-    assert.match(additionalArgs, /case 'Bash':[\s\S]*?command: _command, cwd: _cwd[\s\S]*?return Object\.keys\(additional\)\.length > 0/);
   });
 
   it('uses the chat measure, compact composer geometry, and capped detail scrolling', async () => {
@@ -200,35 +119,4 @@ describe('permission composer takeover', () => {
     assert.match(css, /@container \(max-width: 460px\)[\s\S]*?\.permissionActions\.maka-question-actions\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
   });
 
-  it('keeps long previews and diffs inside the capped disclosure', async () => {
-    const permissionSource = await readFile(
-      join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
-      'utf8',
-    );
-    const prompt = permissionSource.match(
-      /export function PermissionPrompt[\s\S]*?function renderBrowserSummary/,
-    )?.[0] ?? '';
-    const summary = permissionSource.match(
-      /function renderPermissionSummary[\s\S]*?function renderPermissionDetails/,
-    )?.[0] ?? '';
-    const details = permissionSource.match(
-      /function renderPermissionDetails[\s\S]*?function permissionTextPreview/,
-    )?.[0] ?? '';
-
-    assert.match(prompt, /<CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>/);
-    assert.match(prompt, /const prompt = permissionPrompt\(props\.request, preset, copy\);/);
-    assert.match(prompt, /id="permissionTitle">\{prompt\}<\/h2>/);
-    assert.match(summary, /case 'Edit':[\s\S]*?countTextLines\(oldString\)[\s\S]*?copy\.editLineCount\(oldLines, newLines\)/);
-    assert.doesNotMatch(summary, /即将修改文件/);
-    assert.doesNotMatch(summary, /即将写入文件/);
-    assert.doesNotMatch(summary, /即将编辑 Office 文档/);
-    assert.doesNotMatch(summary, /case 'OfficeDocumentEdit':[\s\S]*?操作 <strong>/);
-    assert.match(summary, /case 'WebFetch':[\s\S]*?args\.url[\s\S]*?maka-permission-path/);
-    assert.match(summary, /default:[\s\S]*?request\.toolName[\s\S]*?maka-permission-line/);
-    assert.match(details, /case 'OfficeDocumentEdit':[\s\S]*?operation[\s\S]*?target[\s\S]*?propEntries/);
-    assert.doesNotMatch(summary, /maka-permission-diff/, 'diffs do not belong in the compact summary');
-    assert.match(details, /maka-permission-diff/, 'diffs remain inspectable in expanded details');
-    assert.doesNotMatch(details, /maka-permission-diff-tag/, 'expanded edits use one unified diff instead of stacked labeled cards');
-    assert.match(details, /maka-permission-preview/, 'long content previews remain inspectable in expanded details');
-  });
 });

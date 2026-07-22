@@ -9,6 +9,7 @@ import type {
 } from '@maka/core';
 import { PermissionEngine } from '../permission-engine.js';
 import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
+import { RuntimeInteractionAdmissionRejectedError } from '../interaction-authority.js';
 
 test('Computer Use snapshots execution args and persists only the approval summary', async () => {
   const messages: StoredMessage[] = [];
@@ -22,6 +23,7 @@ test('Computer Use snapshots execution args and persists only the approval summa
     release = resolve;
   });
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: header(),
     connection: connection(),
@@ -43,7 +45,7 @@ test('Computer Use snapshots execution args and persists only the approval summa
     parameters: {},
     categoryHint: 'computer_use',
     permissionRequired: true,
-    permissionArgs: (permissionInput, permissionContext) => {
+    prepareIntentArgs: (permissionInput, permissionContext) => {
       observedPermissionContexts.push(permissionContext);
       return {
         ...(permissionInput as Record<string, unknown>),
@@ -63,10 +65,8 @@ test('Computer Use snapshots execution args and persists only the approval summa
   };
   const args = {
     action: 'type',
-    app: 'Example',
     observation_id: 'frame-1',
     text: 'secret text',
-    coordinate: [123, 456],
   };
   const execution = runtime.wrapToolExecute(tool, 'turn-1', {
     push: (event) => events.push(event),
@@ -75,29 +75,23 @@ test('Computer Use snapshots execution args and persists only the approval summa
     abortSignal: new AbortController().signal,
   });
 
-  args.app = 'Mutated';
   args.observation_id = 'frame-999';
   args.text = 'changed secret';
-  args.coordinate[0] = 999;
   release();
   await execution;
 
   assert.deepEqual(observedImplArgs, [
     {
       action: 'type',
-      app: 'Example',
       observation_id: 'frame-1',
       text: 'secret text',
-      coordinate: [123, 456],
     },
   ]);
   assert.deepEqual(observedSandboxArgs, [
     {
       action: 'type',
-      app: 'Example',
       observation_id: 'frame-1',
       text: 'secret text',
-      coordinate: [123, 456],
     },
   ]);
   assert.deepEqual(observedPermissionContexts, [
@@ -108,27 +102,25 @@ test('Computer Use snapshots execution args and persists only the approval summa
     },
   ]);
   const expectedSummary = {
+    kind: 'computer_use',
     action: 'type',
-    approvalClass: 'keyboard_mutation',
-    rememberForTurnAllowed: true,
     app: 'Runtime Target',
     windowId: 42,
-    observationId: 'frame-1',
   };
   const call = messages.find((message) => message.type === 'tool_call');
-  assert.deepEqual(call?.type === 'tool_call' ? call.args : undefined, expectedSummary);
+  assert.deepEqual(call?.type === 'tool_call' ? call.review : undefined, expectedSummary);
   const start = events.find((event) => event.type === 'tool_start');
-  assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expectedSummary);
+  assert.deepEqual(start?.type === 'tool_start' ? start.review : undefined, expectedSummary);
   assert.equal(invocations.length, 1);
-  assert.match(invocations[0]!.argsSummary ?? '', /keyboard_mutation/);
-  assert.doesNotMatch(invocations[0]!.argsSummary ?? '', /secret|123|456/);
+  assert.deepEqual(JSON.parse(invocations[0]!.argsSummary ?? 'null'), expectedSummary);
 });
 
-test('Computer Use validation failures still persist a redacted call and result', async () => {
+test('Computer Use producer failures reject admission before durable events', async () => {
   const messages: StoredMessage[] = [];
   const events: SessionEvent[] = [];
   const invocations: ToolInvocationRecord[] = [];
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: header(),
     connection: connection(),
@@ -150,7 +142,7 @@ test('Computer Use validation failures still persist a redacted call and result'
     parameters: {},
     categoryHint: 'computer_use',
     permissionRequired: false,
-    permissionArgs: () => {
+    prepareIntentArgs: () => {
       throw new Error('AX label: Customer SSN 123-45-6789');
     },
     impl: async () => {
@@ -158,40 +150,31 @@ test('Computer Use validation failures still persist a redacted call and result'
     },
   };
 
-  const result = (await runtime.wrapToolExecute(tool, 'turn-1', {
-    push: (event) => events.push(event),
-  })(
-    {
-      action: 'type',
-      text: 'private text',
-      coordinate: [123, 456],
-    },
-    {
-      toolCallId: 'tool-invalid',
-      abortSignal: new AbortController().signal,
-    },
-  )) as { error?: string };
+  await assert.rejects(
+    runtime.wrapToolExecute(tool, 'turn-1', {
+      push: (event) => events.push(event),
+    })(
+      {
+        action: 'type',
+        text: 'private text',
+        coordinate: [123, 456],
+      },
+      {
+        toolCallId: 'tool-invalid',
+        abortSignal: new AbortController().signal,
+      },
+    ),
+    (error: unknown) =>
+      error instanceof RuntimeInteractionAdmissionRejectedError &&
+      error.reason === 'invalid_request',
+  );
 
-  assert.equal(result.error, 'Computer Use arguments failed validation');
   const serialized = JSON.stringify({ messages, events, invocations });
   assert.doesNotMatch(serialized, /Customer SSN|123-45-6789|private text|123|456/);
-  assert.equal(
-    messages.some((message) => message.type === 'tool_call'),
-    true,
+  assert.deepEqual(
+    { messages, events, invocations },
+    { messages: [], events: [], invocations: [] },
   );
-  assert.equal(
-    messages.some((message) => message.type === 'tool_result'),
-    true,
-  );
-  assert.equal(
-    events.some((event) => event.type === 'tool_start'),
-    true,
-  );
-  assert.equal(
-    events.some((event) => event.type === 'tool_result'),
-    true,
-  );
-  assert.equal(invocations[0]?.errorClass, 'InvalidArguments');
 });
 
 function nextId(): () => string {

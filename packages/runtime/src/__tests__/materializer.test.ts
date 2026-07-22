@@ -44,13 +44,17 @@ const assistant = (id: string, text: string): AssistantMessage => ({
   modelId: 'claude-sonnet-4-5',
 });
 
-const toolCall = (id: string, name: string, args: unknown = {}): ToolCallMessage => ({
+const toolCall = (
+  id: string,
+  name: string,
+  review?: ToolCallMessage['review'],
+): ToolCallMessage => ({
   type: 'tool_call',
   id,
   turnId,
   ts: ts + 3,
   toolName: name,
-  args,
+  ...(review === undefined ? {} : { review }),
 });
 
 const toolResult = (toolUseId: string, isError: boolean, text: string): ToolResultMessage => ({
@@ -113,7 +117,7 @@ describe('materializeSession', () => {
 
   test('completed tool: call + result paired into single ChatItem', () => {
     const vm = materializeSession([
-      toolCall('t-1', 'Read', { path: '/x' }),
+      toolCall('t-1', 'Read', { kind: 'path', operation: 'read', path: '/x', cwd: '/workspace' }),
       toolResult('t-1', false, 'contents'),
     ]);
     expect(vm.items).toHaveLength(1);

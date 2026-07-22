@@ -1,17 +1,19 @@
 import { resolve } from 'node:path';
 import type { AgentRunHeader, SessionHeader } from '@maka/core';
 import {
-  createTaskRunStore,
+  createTaskRunReader,
   inspectTaskRun,
   renderTaskRunInspectTree,
   type TaskRunInspectDocument,
-  type TaskRunStore,
+  type TaskRunReader,
 } from '@maka/headless';
 import {
   inspectAgentRunDocument,
   inspectSessionDocument,
   renderAgentRunInspectTree,
   renderSessionInspectTree,
+  type RuntimeEventInspectReader,
+  type SessionAgentRunInspectReader,
   type AgentRunInspectDocument,
   type SessionInspectDocument,
 } from '@maka/runtime';
@@ -21,7 +23,6 @@ import {
   createSessionStore,
   type SessionStore,
 } from '@maka/storage';
-import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
 
 export const INSPECT_RESOLUTION_SCHEMA_VERSION = 'maka.inspect_resolution.v1' as const;
@@ -51,11 +52,13 @@ export type InspectDocument =
   | AgentRunInspectDocument
   | TaskRunInspectDocument;
 
+type InspectSessionReader = Pick<SessionStore, 'list' | 'readHeaderSnapshot'>;
+
 export interface InspectCommandStores {
-  sessionStore: SessionStore;
-  agentRunStore: AgentRunStore;
-  runtimeEventStore: RuntimeEventStore;
-  taskRunStore: TaskRunStore;
+  sessionStore: InspectSessionReader;
+  agentRunStore: SessionAgentRunInspectReader;
+  runtimeEventStore: RuntimeEventInspectReader;
+  taskRunStore: TaskRunReader;
 }
 
 interface SessionCandidate extends InspectCandidateDescriptor {
@@ -174,7 +177,7 @@ export async function runMakaInspectCli(args: string[]): Promise<number> {
     sessionStore: createSessionStore(storageRoot),
     agentRunStore: createAgentRunStore(storageRoot),
     runtimeEventStore: createRuntimeEventStore(storageRoot),
-    taskRunStore: createTaskRunStore(storageRoot),
+    taskRunStore: createTaskRunReader(storageRoot),
   };
   const resolution = await resolveInspectTarget(stores, {
     id: parsed.id,
@@ -257,13 +260,19 @@ function isInspectEntityKind(value: string): value is InspectEntityKind {
   return value === 'session' || value === 'agent-run' || value === 'task-run';
 }
 
-async function findSessionCandidates(store: SessionStore, id: string): Promise<SessionCandidate[]> {
+async function findSessionCandidates(
+  store: InspectSessionReader,
+  id: string,
+): Promise<SessionCandidate[]> {
   const summaries = await store.list();
   if (!summaries.some((session) => session.id === id)) return [];
   return [{ kind: 'session', id, header: await store.readHeaderSnapshot(id) }];
 }
 
-async function findTaskRunCandidates(store: TaskRunStore, id: string): Promise<TaskRunCandidate[]> {
+async function findTaskRunCandidates(
+  store: TaskRunReader,
+  id: string,
+): Promise<TaskRunCandidate[]> {
   const records = await store.readEventRecords(id);
   return records.length > 0 ? [{ kind: 'task-run', id }] : [];
 }

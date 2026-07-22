@@ -5,6 +5,7 @@ import type {
   ShellRunToolResult,
   ShellRunUpdate,
   StoredMessage,
+  PublicToolIntentReview,
 } from '@maka/core';
 import { materializeTurns, overlayLiveTurn, overlayShellRunUpdates } from '../materialize.js';
 import type { LiveTurnProjection } from '../live-turn-projection.js';
@@ -14,11 +15,14 @@ const REF = 'maka://runtime/background-tasks/pty-1';
 describe('ShellRun UI projection', () => {
   test('reconciles WriteStdin into its Bash parent while retaining safe operation metadata', () => {
     const messages: StoredMessage[] = [
-      toolCall('bash-1', 'turn-1', 'Bash', { command: 'read value', pty: true }, 1),
+      toolCall('bash-1', 'turn-1', 'Bash', {
+        kind: 'command', command: 'read value', cwd: '/repo',
+      }, 1),
       toolResult('bash-1', 'turn-1', shellRun(1), 2),
       toolCall('write-1', 'turn-2', 'WriteStdin', {
+        kind: 'stdin',
         ref: REF,
-        input: 'private-value\n',
+        input: { text: 'private-value\\n', bytes: 14 },
         size: { cols: 100, rows: 30 },
       }, 3),
       toolResult('write-1', 'turn-2', shellRun(2, {
@@ -58,7 +62,7 @@ describe('ShellRun UI projection', () => {
 
   test('keeps a durable background update ahead of a stale live turn result', () => {
     const settled = materializeTurns([
-      toolCall('bash-1', 'turn-1', 'Bash', { command: 'job', pty: true }, 1),
+      toolCall('bash-1', 'turn-1', 'Bash', { kind: 'command', command: 'job', cwd: '/repo' }, 1),
       toolResult('bash-1', 'turn-1', shellRun(1), 2),
       { type: 'user', id: 'user-2', turnId: 'turn-2', ts: 3, text: 'next' },
     ]);
@@ -132,7 +136,7 @@ describe('ShellRun UI projection', () => {
 
   test('marks a running ShellRun inherited from a source session as detached', () => {
     const settled = materializeTurns([
-      toolCall('bash-1', 'turn-1', 'Bash', { command: 'job', pty: true }, 1),
+      toolCall('bash-1', 'turn-1', 'Bash', { kind: 'command', command: 'job', cwd: '/repo' }, 1),
       toolResult('bash-1', 'turn-1', shellRun(1), 2),
     ]);
     const turns = overlayShellRunUpdates(settled, [{
@@ -167,10 +171,10 @@ function toolCall(
   id: string,
   turnId: string,
   toolName: string,
-  args: unknown,
+  review: PublicToolIntentReview,
   ts: number,
 ): Extract<StoredMessage, { type: 'tool_call' }> {
-  return { type: 'tool_call', id, turnId, ts, toolName, args };
+  return { type: 'tool_call', id, turnId, ts, toolName, review };
 }
 
 function toolResult(

@@ -148,11 +148,16 @@ export {
   resourceScopeEquals,
   type NormalizedPermissionArgs,
 } from './permission-grants.js';
-export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
+export type { TaskRunProjection } from './task-run-projection.js';
+export { projectTaskRun } from './task-run-projection.js';
+export type {
+  TaskEventLedgerEntry,
+  TaskRunReader,
+  TaskRunWriter,
+} from './task-run-store.js';
 export {
   createInMemoryTaskRunStore,
-  createTaskRunStore,
-  projectTaskRun,
+  createTaskRunReader,
 } from './task-run-store.js';
 export {
   TASK_RUN_INSPECT_SCHEMA_VERSION,

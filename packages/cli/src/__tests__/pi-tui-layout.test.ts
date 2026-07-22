@@ -272,7 +272,7 @@ function addTool(state: MakaPiTranscriptState, toolUseId: string, command: strin
       type: 'tool_start',
       toolUseId,
       toolName: 'Bash',
-      args: { command },
+      review: { kind: 'command', command, cwd: '/repo' },
     }),
   );
   applyMakaSessionEventToTranscript(

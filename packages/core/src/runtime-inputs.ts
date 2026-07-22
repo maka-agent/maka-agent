@@ -2,8 +2,8 @@
  * Inputs to runtime APIs (create session, send message, list/filter).
  */
 
-import type { AttachmentRef, QuoteRef } from './events.js';
-import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
+import type { MessageContent, QuoteRef } from './events.js';
+import type { BackendKind, SessionBlockedReason, SessionStatus, TurnOrigin } from './session.js';
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
 import type { CollaborationMode } from './collaboration.js';
@@ -39,26 +39,12 @@ export interface CreateSessionInput {
   labels?: string[];
 }
 
-export interface UserMessageInput {
+export interface UserMessageInput extends MessageContent {
   /** Caller-generated uuid. Same id used in the UserMessage.turnId and in
    *  every event emitted by this turn. */
   turnId: string;
-  /**
-   * Model-facing turn text (and the default human-facing text). When the
-   * client wraps the user's typed input — e.g. explicit skill invocation
-   * injects `<invoked-skill>` blocks — put the composed envelope here and
-   * the original typed text in `displayText`.
-   */
-  text: string;
-  /**
-   * Human-facing text when it differs from `text`. Session title derivation,
-   * transcript restore, rewind refill, and sidebar previews should prefer
-   * this over `text`. Omit when the two are identical.
-   */
-  displayText?: string;
   /** Trusted host-supplied orchestration override for this turn only. */
   turnOrchestration?: TurnOrchestration;
-  attachments?: AttachmentRef[];
   /** Inline quoted excerpts; folded into model content, rendered as chips. */
   quotes?: QuoteRef[];
   parentRunId?: string;
@@ -77,9 +63,6 @@ export interface UserMessageInput {
    *  distinguish an automation-triggered run from a hand-typed one. */
   origin?: TurnOrigin;
 }
-
-/** Non-user trigger source for a turn (e.g. a scheduled automation fire). */
-export type TurnOrigin = { kind: 'automation'; automationId: string };
 
 export interface AgentSpec {
   id: string;

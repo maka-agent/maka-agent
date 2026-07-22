@@ -219,6 +219,7 @@ describe('PiCliJsonTransport', () => {
     );
 
     child.emit('close', 0, null);
+    await transport.isolateRegisteredSuccessorSideEffects();
     await done;
 
     assert.deepEqual(

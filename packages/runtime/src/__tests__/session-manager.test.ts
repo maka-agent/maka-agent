@@ -1,5 +1,5 @@
 import { describe, test } from 'node:test';
-import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
 import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords, isTerminalRuntimeEvent } from '@maka/core';
 import type {
   CreateSessionInput,
@@ -63,6 +63,359 @@ import {
   materializeExpertAgentDefinition,
 } from '../expert-catalog.js';
 import { AGENT_TEAM_CHILD_TOOL_NAMES } from '../agent-team-tool-names.js';
+import {
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionAuthority,
+} from '../interaction-authority.js';
+import type { RuntimeMessageAuthority } from '../message-authority.js';
+import {
+  EMBEDDED_RUNTIME_EXECUTION,
+  COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED,
+  RUNTIME_EXECUTION_SETTLED,
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeHostedBackendRunBinding,
+  type RuntimeHostedRunControl,
+} from '../run-execution.js';
+
+function unusedInteractionAuthority(): RuntimeInteractionAuthority {
+  const unexpectedCall = async (): Promise<never> => {
+    throw new Error('Interaction authority is not part of this lifecycle refusal');
+  };
+  return {
+    bindRun: (identity) => ({
+      ...identity,
+      acceptPermissionRequest: unexpectedCall,
+      commitPermissionAnswer: unexpectedCall,
+      commitPermissionTimeout: unexpectedCall,
+      acceptUserQuestionRequest: unexpectedCall,
+      close: unexpectedCall,
+      release: () => {},
+    }),
+  };
+}
+
+function unusedMessageAuthority(): RuntimeMessageAuthority {
+  return {
+    bindRun: (identity) => ({
+      ...identity,
+      pull: () => [],
+      ack: () => {},
+      nack: () => {},
+      release: () => {},
+    }),
+  };
+}
+
+function settledInteractionAuthority(): RuntimeInteractionAuthority {
+  const unexpectedCall = async (): Promise<never> => {
+    throw new Error('Interaction request is not part of this lifecycle test');
+  };
+  return {
+    bindRun: (identity) => ({
+      ...identity,
+      acceptPermissionRequest: unexpectedCall,
+      commitPermissionAnswer: unexpectedCall,
+      commitPermissionTimeout: unexpectedCall,
+      acceptUserQuestionRequest: unexpectedCall,
+      close: async () => {},
+      release: () => {},
+    }),
+  };
+}
+
+describe('SessionManager hosted lifecycle boundary', () => {
+  test('rejects archive and remove before mutating the canonical Session', async () => {
+    const store = new MemorySessionStore();
+    const interactions = unusedInteractionAuthority();
+    const messages = unusedMessageAuthority();
+    const manager = new SessionManager({
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: interactions,
+        messageAuthority: messages,
+      },
+      store,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(500),
+    });
+    const session = await manager.createSession(makeInput({ name: 'Hosted lifecycle' }));
+    const before = await store.readHeader(session.id);
+
+    await assert.rejects(manager.archive(session.id), RuntimeInteractionInvariantError);
+    assert.deepEqual(await store.readHeader(session.id), before);
+
+    await assert.rejects(manager.remove(session.id), RuntimeInteractionInvariantError);
+    assert.deepEqual(await store.readHeader(session.id), before);
+  });
+});
+
+describe('SessionManager Interaction fail-stop', () => {
+  test('separates exact logical failure from registered active-send isolation', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const interactions = unusedInteractionAuthority();
+    const messages = unusedMessageAuthority();
+    let resolveBackend!: (backend: FailStopBarrierBackend) => void;
+    const backendReady = new Promise<FailStopBarrierBackend>((resolve) => {
+      resolveBackend = resolve;
+    });
+    backends.register('fake', (ctx) => {
+      const backend = new FailStopBarrierBackend(ctx);
+      resolveBackend(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: interactions,
+        messageAuthority: messages,
+      },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(750),
+    });
+    const session = await manager.createSession(makeInput({ name: 'Fail-stop drain' }));
+    const iterator = manager
+      .sendMessage(session.id, {
+        turnId: 'turn-active',
+        text: 'hold the provider',
+      })
+      [Symbol.asyncIterator]();
+    const activeNext = iterator.next();
+    void activeNext.catch(() => undefined);
+    const backend = await backendReady;
+    await backend.entered.promise;
+    const eventsBefore = await runStore.readSessionRuntimeEvents(session.id);
+    const fatal = new RuntimeInteractionFailStopError(
+      'canonical Interaction failure',
+      new Error('authority unavailable'),
+    );
+
+    const first = manager.installInteractionFailStop(fatal);
+    const second = manager.installInteractionFailStop(
+      new RuntimeInteractionFailStopError('later failure', new Error('must not win')),
+    );
+
+    assert.equal(second, first);
+    assert.equal(second.error, fatal);
+    await assert.rejects(activeNext, (error: unknown) => {
+      assert.equal(error, fatal);
+      return true;
+    });
+    await assert.rejects(
+      manager
+        .sendMessage(session.id, {
+          turnId: 'turn-after-fatal',
+          text: 'must not start',
+        })
+        [Symbol.asyncIterator]()
+        .next(),
+      (error: unknown) => {
+        assert.equal(error, fatal);
+        return true;
+      },
+    );
+
+    let ownerIsolated = false;
+    let reclaimed = false;
+    void first.ownerIsolationDrain.then(() => {
+      ownerIsolated = true;
+    });
+    void first.reclaimDrain.then(
+      () => {
+        reclaimed = true;
+      },
+      () => {
+        reclaimed = true;
+      },
+    );
+    await Promise.resolve();
+    assert.equal(ownerIsolated, false);
+    assert.equal(reclaimed, false);
+
+    backend.releaseActiveSendExit();
+    await first.ownerIsolationDrain;
+    await assert.rejects(first.reclaimDrain, (error: unknown) => error === fatal);
+    assert.deepEqual(await runStore.readSessionRuntimeEvents(session.id), eventsBefore);
+  });
+});
+
+describe('SessionManager backend lifecycle', () => {
+  test('defers invalidation across pending backend activation and rebuilds after that turn', async () => {
+    const store = new MemorySessionStore();
+    const buildStarted = makeGate();
+    const buildRelease = makeGate();
+    const sendStarted = makeGate();
+    const sendRelease = makeGate();
+    const built: BackendLifecycleProbe[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', async (ctx) => {
+      const backend = new BackendLifecycleProbe(
+        ctx,
+        `backend-${built.length + 1}`,
+        built.length === 0 ? { sendStarted, sendRelease } : undefined,
+      );
+      built.push(backend);
+      if (built.length === 1) {
+        buildStarted.release();
+        await buildRelease.promise;
+      }
+      return backend;
+    });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(800),
+    });
+    const session = await manager.createSession(makeInput());
+
+    const firstTurn = drain(
+      manager.sendMessage(session.id, { turnId: 'turn-pending', text: 'first' }),
+    );
+    await buildStarted.promise;
+    await manager.refreshIdleBackends();
+    expect(built[0]?.identity).toBe('backend-1');
+    expect(built[0]?.disposed).toBe(false);
+
+    buildRelease.release();
+    await sendStarted.promise;
+    expect(built[0]?.disposed).toBe(false);
+
+    sendRelease.release();
+    await firstTurn;
+    expect(built[0]?.disposed).toBe(true);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-rebuilt', text: 'second' }));
+    expect(built.map((backend) => backend.identity)).toEqual(['backend-1', 'backend-2']);
+    assert.notEqual(built[1], built[0]);
+  });
+
+  test('clean drain disposes cached backend before reclaim completes', async () => {
+    const store = new MemorySessionStore();
+    const disposeStarted = makeGate();
+    const disposeRelease = makeGate();
+    const built: BackendLifecycleProbe[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      const backend = new BackendLifecycleProbe(ctx, 'cached-backend', undefined, {
+        disposeStarted,
+        disposeRelease,
+      });
+      built.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: settledInteractionAuthority(),
+        messageAuthority: unusedMessageAuthority(),
+      },
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(900),
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-complete', text: 'cache me' }));
+    const cachedBackend = built[0];
+    if (!cachedBackend) throw new Error('backend was not built');
+
+    const runtimeDrain = manager.beginRuntimeDrain();
+    let reclaimSettled = false;
+    void runtimeDrain.reclaimDrain.then(
+      () => {
+        reclaimSettled = true;
+      },
+      () => {
+        reclaimSettled = true;
+      },
+    );
+    await disposeStarted.promise;
+
+    expect(cachedBackend.identity).toBe('cached-backend');
+    expect(cachedBackend.disposed).toBe(false);
+    expect(reclaimSettled).toBe(false);
+
+    disposeRelease.release();
+    await runtimeDrain.reclaimDrain;
+    expect(cachedBackend.disposed).toBe(true);
+  });
+
+  test('clean drain disposes cached backend after admitted execution reclaim fails', async () => {
+    const store = new MemorySessionStore();
+    const reclaimFailure = new Error('admitted execution reclaim failed');
+    const disposalFailure = new Error('cached backend disposal failed');
+    const disposeStarted = makeGate();
+    const disposeRelease = makeGate();
+    let manager!: SessionManager;
+    let runtimeDrain: ReturnType<SessionManager['beginRuntimeDrain']> | undefined;
+    let cachedBackend: BackendLifecycleProbe | undefined;
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      if (ctx.header.name === 'Cached backend') {
+        cachedBackend = new BackendLifecycleProbe(ctx, 'cached-backend', undefined, {
+          disposeStarted,
+          disposeRelease,
+          failure: disposalFailure,
+        });
+        return cachedBackend;
+      }
+      runtimeDrain = manager.beginRuntimeDrain();
+      throw reclaimFailure;
+    });
+    manager = new SessionManager({
+      execution: {
+        kind: 'hosted',
+        interactionAuthority: settledInteractionAuthority(),
+        messageAuthority: unusedMessageAuthority(),
+      },
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(950),
+    });
+    const cachedSession = await manager.createSession(makeInput({ name: 'Cached backend' }));
+    await drain(manager.sendMessage(cachedSession.id, { turnId: 'turn-cached', text: 'cache me' }));
+    const failingSession = await manager.createSession(makeInput({ name: 'Failing execution' }));
+
+    const running = drain(
+      manager.sendMessage(failingSession.id, {
+        turnId: 'turn-reclaim-failure',
+        text: 'fail after admission',
+      }),
+    );
+    await assert.rejects(running, (error: unknown) => error === reclaimFailure);
+    assert.ok(runtimeDrain);
+    let reclaimSettled = false;
+    void runtimeDrain.reclaimDrain.then(
+      () => {
+        reclaimSettled = true;
+      },
+      () => {
+        reclaimSettled = true;
+      },
+    );
+
+    await disposeStarted.promise;
+    expect(cachedBackend?.disposed).toBe(false);
+    expect(reclaimSettled).toBe(false);
+
+    disposeRelease.release();
+    await assert.rejects(runtimeDrain.reclaimDrain, (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [reclaimFailure, disposalFailure]);
+      return true;
+    });
+  });
+});
 
 describe('SessionManager automatic titles', () => {
   test('starts after user persistence and does not block the turn', async () => {
@@ -74,6 +427,7 @@ describe('SessionManager automatic titles', () => {
     const titleChanged = makeGate();
     const callbackRuns: string[] = [];
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -122,6 +476,7 @@ describe('SessionManager automatic titles', () => {
     const changed = makeGate();
     let calls = 0;
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -153,6 +508,7 @@ describe('SessionManager automatic titles', () => {
     store.generatedTitleAttempted = attempted;
     let notifications = 0;
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -185,6 +541,7 @@ describe('SessionManager manual compaction', () => {
     const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
     backends.register('fake', (ctx) => new CompactingTestBackend(ctx, compactCalls));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -244,6 +601,7 @@ describe('SessionManager manual compaction', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new FailOpenCompactingBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -283,6 +641,7 @@ describe('SessionManager manual compaction', () => {
     const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
     backends.register('fake', (ctx) => new CompactingTestBackend(ctx, compactCalls));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -331,6 +690,7 @@ describe('SessionManager manual compaction', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -371,6 +731,7 @@ describe('SessionManager manual compaction', () => {
       (ctx) => new ActiveTurnBackend(ctx, { turnStarted, sendGate, compactCalls }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -421,6 +782,7 @@ describe('SessionManager manual compaction', () => {
       return new ActiveTurnBackend(ctx, { turnStarted, sendGate, compactCalls: [] });
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -452,7 +814,13 @@ describe('SessionManager permission mode updates', () => {
       builtModes.push(ctx.header.permissionMode);
       return new TestBackend(ctx);
     });
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(1_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -479,7 +847,13 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     const gate = makeGate();
     backends.register('fake', (ctx) => new TestBackend(ctx, gate));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(2_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(2_000),
+    });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     const iterator = manager
@@ -504,6 +878,7 @@ describe('SessionManager permission mode updates', () => {
     const gates = [firstGate, secondGate];
     backends.register('fake', (ctx) => new TestBackend(ctx, gates.shift()));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -554,7 +929,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(3_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(3_000),
+    });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     const summary = await manager.setPermissionMode(session.id, 'ask');
@@ -567,7 +948,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(4_500) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(4_500),
+    });
     const session = await manager.createSession(makeInput());
 
     const summary = await manager.setOrchestrationMode(session.id, 'swarm');
@@ -600,6 +987,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -641,7 +1029,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_000),
+    });
     const session = await manager.createSession(
       makeInput({
         permissionMode: 'explore',
@@ -679,7 +1073,13 @@ describe('SessionManager permission mode updates', () => {
       );
       return new TestBackend(ctx);
     });
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(5_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(5_000),
+    });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -711,7 +1111,13 @@ describe('SessionManager permission mode updates', () => {
       built.push(ctx.header.name);
       return new TestBackend(ctx);
     });
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_000),
+    });
     const session = await manager.createSession(makeInput({ name: 'Before' }));
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -726,6 +1132,7 @@ describe('SessionManager permission mode updates', () => {
   test('name updates cannot clear the manual-title marker', async () => {
     const store = new MemorySessionStore();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends: new BackendRegistry(),
       newId: nextId(),
@@ -759,6 +1166,7 @@ describe('SessionManager permission mode updates', () => {
       },
     ]);
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -787,6 +1195,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new FinalTextTestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -823,6 +1232,7 @@ describe('SessionManager permission mode updates', () => {
     let inspectionCalls = 0;
     backends.register('fake', (ctx) => new FinalTextTestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -862,6 +1272,7 @@ describe('SessionManager permission mode updates', () => {
       toolBoundaryProtocol: 't1_after_preflight_v1' as const,
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore,
@@ -892,6 +1303,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('ai-sdk', (ctx) => new CountingFinalTextBackend(ctx, () => {}));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -923,6 +1335,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -997,6 +1410,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     const lifecycleEvents: Array<{ type: string; rejectionReasons?: readonly string[] }> = [];
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       onContinuationLifecycleEvent: (event) => {
@@ -1027,6 +1441,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1095,6 +1510,7 @@ describe('SessionManager permission mode updates', () => {
     const observed: InvocationResult[] = [];
     backends.register('fake', (ctx) => new FinalTextTestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore,
@@ -1162,6 +1578,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1304,6 +1721,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1396,6 +1814,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new FinalTextTestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1478,6 +1897,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new FinalTextTestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1597,6 +2017,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1684,6 +2105,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1779,6 +2201,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1885,6 +2308,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1967,6 +2391,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2056,6 +2481,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2152,6 +2578,7 @@ describe('SessionManager permission mode updates', () => {
         }),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2225,6 +2652,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TextCompleteBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore,
@@ -2258,6 +2686,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2297,6 +2726,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2317,7 +2747,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_631) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_631),
+    });
     const session = await manager.createSession(makeInput());
     await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
 
@@ -2330,7 +2766,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_632) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_632),
+    });
     const session = await manager.createSession(makeInput());
     await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 250 });
 
@@ -2343,7 +2785,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_633) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_633),
+    });
     const session = await manager.createSession(makeInput());
     await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
     store.interleaveBeforeMarkSessionReadWriteFor.set(session.id, async () => {
@@ -2361,7 +2809,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_634) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_634),
+    });
     const session = await manager.createSession(makeInput());
     await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
     store.failUpdateHeaderFor.add(session.id);
@@ -2378,6 +2832,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2423,6 +2878,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: canonicalRuntimeStore,
@@ -2452,6 +2908,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2473,7 +2930,7 @@ describe('SessionManager permission mode updates', () => {
     const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
 
     expect(run.status).toBe('failed');
-    expect(run.failureClass).toBe('missing_terminal_event');
+    expect(run.failureClass).toBe('Error');
     expect(runtimeEvents.map((event) => event.role)).toEqual(['user', 'model', 'system']);
     expect(runtimeEvents[0]?.content).toEqual({ kind: 'text', text: 'hello' });
     expect(runtimeEvents[1]?.id).toBe('turn-1-delta');
@@ -2481,7 +2938,7 @@ describe('SessionManager permission mode updates', () => {
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('failed');
     expect(terminalEvents[0]?.invocationId).toBe(run.runId);
-    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('Error');
     expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
 
     const view = await new RuntimeReadModel({
@@ -2501,6 +2958,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2550,6 +3008,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2575,13 +3034,13 @@ describe('SessionManager permission mode updates', () => {
     expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
     const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
     expect(run.status).toBe('failed');
-    expect(run.failureClass).toBe('missing_terminal_event');
+    expect(run.failureClass).toBe('Error');
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('failed');
     expect(terminalEvents[0]?.invocationId).toBe(run.runId);
     expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
     expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBeUndefined();
-    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('Error');
 
     const view = await new RuntimeReadModel({
       runStore,
@@ -2604,6 +3063,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2683,6 +3143,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -2755,15 +3216,13 @@ describe('SessionManager permission mode updates', () => {
     );
     if (!currentRun) throw new Error('current AgentRunStore run was not created');
     expect(currentRun.status).toBe('failed');
-    expect(currentRun.failureClass).toBe('missing_terminal_event');
+    expect(currentRun.failureClass).toBe('Error');
     const currentTerminalEvents = (
       await runStore.readRuntimeEvents(session.id, currentRun.runId)
     ).filter(isTerminalRuntimeEvent);
     expect(currentTerminalEvents).toHaveLength(1);
     expect(currentTerminalEvents[0]?.status).toBe('failed');
-    expect(currentTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe(
-      'missing_terminal_event',
-    );
+    expect(currentTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('Error');
   });
 
   test('sendMessage resumes incomplete legacy backfill for prior context', async () => {
@@ -2776,6 +3235,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5029,6 +5489,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5069,6 +5530,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5184,6 +5646,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5347,7 +5810,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_760) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_760),
+    });
     const session = await manager.createSession(makeInput());
     const legacyMessages: StoredMessage[] = [
       { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'legacy only' },
@@ -5371,6 +5840,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5416,6 +5886,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5462,6 +5933,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5550,6 +6022,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5599,6 +6072,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5688,6 +6162,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5744,6 +6219,7 @@ describe('SessionManager permission mode updates', () => {
       testTool('ExploreAgent'),
     ];
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5815,6 +6291,7 @@ describe('SessionManager permission mode updates', () => {
       return new TestBackend(ctx);
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5892,6 +6369,7 @@ describe('SessionManager permission mode updates', () => {
       return new TestBackend(ctx);
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5944,6 +6422,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -5997,6 +6476,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6066,6 +6546,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6180,6 +6661,7 @@ describe('SessionManager permission mode updates', () => {
       async dispose(): Promise<void> {},
     }));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6285,6 +6767,7 @@ describe('SessionManager permission mode updates', () => {
       return new SeamProbeBackend(ctx);
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6328,6 +6811,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6385,6 +6869,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'step_limit' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
@@ -6411,6 +6896,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new HighVolumeDeltaBackend(ctx, 512));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6460,6 +6946,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6513,6 +7000,7 @@ describe('SessionManager permission mode updates', () => {
       return childBackend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6561,6 +7049,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6613,6 +7102,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6669,6 +7159,7 @@ describe('SessionManager permission mode updates', () => {
       return parentBackend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6719,6 +7210,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6769,6 +7261,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -6827,6 +7320,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7022,6 +7516,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7110,6 +7605,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7194,6 +7690,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7236,6 +7733,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7282,6 +7780,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7353,24 +7852,18 @@ describe('SessionManager permission mode updates', () => {
     expect(backendInstances[0]?.sendInputs.length ?? 0).toBe(1);
   });
 
-  test('RuntimeKernel turn runner uses AiSdkFlow instead of an inline mapper flow', async () => {
-    const source = await readFile(new URL('../../src/runtime-kernel.ts', import.meta.url), 'utf8');
-    const turnRunnerSource = source.slice(
-      source.indexOf('private async *runAgentTurn'),
-      source.indexOf('async stopSession'),
-    );
-
-    expect(turnRunnerSource.includes('new AiSdkFlow')).toBe(true);
-    expect(turnRunnerSource.includes('mapSessionEventToRuntimeEvent')).toBe(false);
-    expect(turnRunnerSource.includes('createSessionEventMapMemory')).toBe(false);
-  });
-
   test('rejects backend configuration updates while a turn is actively streaming', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     const gate = makeGate();
     backends.register('fake', (ctx) => new TestBackend(ctx, gate));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(7_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(7_000),
+    });
     const session = await manager.createSession(makeInput());
 
     const iterator = manager
@@ -7404,6 +7897,7 @@ describe('SessionManager permission mode updates', () => {
       throw new Error('backend init failed');
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7432,13 +7926,13 @@ describe('SessionManager permission mode updates', () => {
     const [run] = await runStore.listSessionRuns(session.id);
     if (!run) throw new Error('AgentRunStore run was not created');
     expect(run.status).toBe('failed');
-    expect(run.failureClass).toBe('missing_terminal_event');
+    expect(run.failureClass).toBe('Error');
     const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(
       isTerminalRuntimeEvent,
     );
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('failed');
-    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('Error');
     expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(
       true,
     );
@@ -7449,7 +7943,13 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     const gate = makeGate();
     backends.register('fake', (ctx) => new TestBackend(ctx, gate));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(8_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(8_000),
+    });
     const session = await manager.createSession(makeInput());
 
     const iterator = manager
@@ -7482,15 +7982,16 @@ describe('SessionManager permission mode updates', () => {
             requestId: 'pr-1',
             toolUseId: 'tool-1',
             toolName: 'Bash',
-            category: 'shell_safe',
-            reason: 'custom',
-            args: {},
+            category: 'shell_unsafe',
+            reason: 'shell_dangerous',
+            review: { kind: 'command', command: 'echo ready', cwd: '/workspace' },
             rememberForTurnAllowed: true,
           },
           { type: 'complete', stopReason: 'permission_handoff' },
         ]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7529,15 +8030,16 @@ describe('SessionManager permission mode updates', () => {
             requestId: 'pr-1',
             toolUseId: 'tool-1',
             toolName: 'Bash',
-            category: 'shell_safe',
-            reason: 'custom',
-            args: {},
+            category: 'shell_unsafe',
+            reason: 'shell_dangerous',
+            review: { kind: 'command', command: 'echo ready', cwd: '/workspace' },
             rememberForTurnAllowed: true,
           },
           { type: 'complete', stopReason: 'permission_handoff' },
         ]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7579,15 +8081,21 @@ describe('SessionManager permission mode updates', () => {
             requestId: 'pr-1',
             toolUseId: 'tool-1',
             toolName: 'Bash',
-            category: 'shell_safe',
-            reason: 'custom',
-            args: {},
+            category: 'shell_unsafe',
+            reason: 'shell_dangerous',
+            review: { kind: 'command', command: 'echo ready', cwd: '/workspace' },
             rememberForTurnAllowed: true,
           },
           { type: 'complete', stopReason: 'permission_handoff' },
         ]),
     );
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_500) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_500),
+    });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -7613,7 +8121,13 @@ describe('SessionManager permission mode updates', () => {
           { type: 'error', recoverable: false, reason: 'tool_failed', message: 'Tool failed' },
         ]),
     );
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(10_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(10_000),
+    });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -7639,6 +8153,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'error' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7666,6 +8181,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'step_limit' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7705,7 +8221,13 @@ describe('SessionManager permission mode updates', () => {
           { type: 'complete', stopReason: 'end_turn' },
         ]),
     );
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(10_500) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(10_500),
+    });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -7729,7 +8251,13 @@ describe('SessionManager permission mode updates', () => {
       'fake',
       (ctx) => new EventBackend(ctx, [{ type: 'abort', reason: 'user_stop' }]),
     );
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(11_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(11_000),
+    });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -7745,7 +8273,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new PartialAbortBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_000) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_000),
+    });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -7768,7 +8302,13 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     const gate = makeGate();
     backends.register('fake', (ctx) => new TestBackend(ctx, gate));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_500) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_500),
+    });
     const session = await manager.createSession(makeInput());
 
     const iterator = manager
@@ -7795,6 +8335,7 @@ describe('SessionManager permission mode updates', () => {
     const gate = makeGate();
     backends.register('fake', (ctx) => new TestBackend(ctx, gate));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7834,6 +8375,7 @@ describe('SessionManager permission mode updates', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7891,6 +8433,7 @@ describe('SessionManager permission mode updates', () => {
         ]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7936,6 +8479,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new ThrowAfterTerminalBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -7979,6 +8523,7 @@ describe('SessionManager permission mode updates', () => {
     const gate = makeGate();
     backends.register('fake', (ctx) => new LateErrorBackend(ctx, gate));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8017,6 +8562,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TraceBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8047,6 +8593,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new ProviderRequestTraceBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8093,6 +8640,7 @@ describe('SessionManager permission mode updates', () => {
         ),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8129,6 +8677,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new ProviderCaptureGateBackend(ctx, () => (providerDispatches += 1)),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8159,6 +8708,7 @@ describe('SessionManager permission mode updates', () => {
       return new FakeBackend(ctx);
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -8178,6 +8728,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new ActiveCompactBlockBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8208,6 +8759,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new HistoryCompactCheckpointBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8244,6 +8796,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new HistoryCompactCheckpointBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8283,6 +8836,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new HistoryCompactCheckpointBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8422,6 +8976,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new HistoryCompactCheckpointCacheProbeBackend(ctx, observedCheckpointIds),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8468,6 +9023,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new HistoryCompactCheckpointMonotonicProbeBackend(ctx, observedCoverage),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8523,6 +9079,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new SameCoverageCheckpointReplacementProbeBackend(ctx, writeOutcomes),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8581,6 +9138,7 @@ describe('SessionManager permission mode updates', () => {
         new SerializedCheckpointProbeBackend(ctx, childRecorderCalled, recorderReturnedPromises),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8654,6 +9212,7 @@ describe('SessionManager permission mode updates', () => {
         ),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8713,7 +9272,13 @@ describe('SessionManager permission mode updates', () => {
       recorderExposed = ctx.recordHistoryCompactCheckpoint !== undefined;
       return new TestBackend(ctx);
     });
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_799) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_799),
+    });
     const session = await manager.createSession(makeInput());
 
     await drain(
@@ -8744,6 +9309,7 @@ describe('SessionManager permission mode updates', () => {
         ),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8789,6 +9355,7 @@ describe('SessionManager permission mode updates', () => {
         ),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8856,6 +9423,7 @@ describe('SessionManager permission mode updates', () => {
         ),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -8953,6 +9521,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new CheckpointRecorderContractProbeBackend(ctx, async () => {}, writeOutcomes),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9025,7 +9594,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_800) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_800),
+    });
     const running = await manager.createSession(makeInput({ status: 'running' }));
     const waiting = await manager.createSession(makeInput({ status: 'waiting_for_user' }));
     const activeStuck = await manager.createSession(makeInput({ status: 'active' }));
@@ -9151,12 +9726,44 @@ describe('SessionManager permission mode updates', () => {
     expect(activeTurn?.status).toBe('completed');
   });
 
+  test('best-effort and strict recovery recover ShellRuns', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const shellRunRecoveryCalls: string[] = [];
+    const shellRuns = {
+      async recoverOrphanedSession(sessionId: string) {
+        shellRunRecoveryCalls.push(sessionId);
+        return 0;
+      },
+    } as unknown as ShellRunProcessManager;
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      shellRuns,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(12_805),
+    });
+    const session = await manager.createSession(makeInput());
+    const stores = { sessionStore: store, agentRunStore: runStore };
+
+    await manager.recoverInterruptedSessions();
+    expect(shellRunRecoveryCalls).toEqual([session.id]);
+
+    shellRunRecoveryCalls.length = 0;
+    await manager.recoverInterruptedSessionsStrict(stores);
+    expect(shellRunRecoveryCalls).toEqual([session.id]);
+  });
+
   test('startup recovery uses AgentRun ledger to fail stale running model-started runs', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9212,6 +9819,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9295,6 +9903,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9359,6 +9968,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9439,6 +10049,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9586,6 +10197,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const unreadableManager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store: unreadableStore,
       runStore: unreadableRunStore,
       runtimeEventStore: unreadableRunStore,
@@ -9594,6 +10206,7 @@ describe('SessionManager permission mode updates', () => {
       now: nextNow(12_818),
     });
     const incompleteManager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store: incompleteStore,
       runStore: incompleteRunStore,
       runtimeEventStore: incompleteRunStore,
@@ -9700,6 +10313,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9759,6 +10373,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9804,6 +10419,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9854,6 +10470,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -9907,6 +10524,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10025,7 +10643,13 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_900) });
+    const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_900),
+    });
     const running = await manager.createSession(makeInput({ status: 'running' }));
     const active = await manager.createSession(makeInput({ status: 'active' }));
     store.failReadMessagesFor.add(running.id);
@@ -10045,6 +10669,7 @@ describe('SessionManager permission mode updates', () => {
     const events: PartialEvent[] = [{ type: 'complete', stopReason: 'end_turn' }];
     backends.register('fake', (ctx) => new EventBackend(ctx, events));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10109,6 +10734,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10137,6 +10763,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10206,6 +10833,7 @@ describe('SessionManager permission mode updates', () => {
       },
     } as unknown as ShellRunProcessManager;
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10378,6 +11006,7 @@ describe('SessionManager permission mode updates', () => {
       return new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]);
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10419,6 +11048,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10461,6 +11091,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10499,6 +11130,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10569,6 +11201,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10608,6 +11241,7 @@ describe('SessionManager permission mode updates', () => {
       (ctx) => new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10637,6 +11271,7 @@ describe('SessionManager steering and followup queues', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new FakeBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10682,7 +11317,9 @@ describe('SessionManager steering and followup queues', () => {
     expect(steerOutcome).toEqual({ kind: 'queued' });
     // The interjection is echoed as a first-class user event…
     expect(
-      events.some((event) => event.type === 'steering_message' && event.text === 'also do X'),
+      events.some(
+        (event) => event.type === 'steering_message' && event.content.text === 'also do X',
+      ),
     ).toBe(true);
     // …the enqueue and the step-boundary consumption both push a queue snapshot…
     const queueUpdates = events.filter(
@@ -10774,6 +11411,7 @@ describe('SessionManager steering and followup queues', () => {
       return new FakeBackend(ctx);
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10810,7 +11448,9 @@ describe('SessionManager steering and followup queues', () => {
     });
     expect(outcome?.kind).toBe('queued');
     expect(
-      events.some((event) => event.type === 'steering_message' && event.text === 'now consumed'),
+      events.some(
+        (event) => event.type === 'steering_message' && event.content.text === 'now consumed',
+      ),
     ).toBe(true);
   });
 
@@ -10824,6 +11464,7 @@ describe('SessionManager steering and followup queues', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -10855,7 +11496,7 @@ describe('SessionManager steering and followup queues', () => {
     expect(backend?.pulls.get('turn-b')).toEqual([['for the owner']]);
     expect(
       secondEvents.some(
-        (event) => event.type === 'steering_message' && event.text === 'for the owner',
+        (event) => event.type === 'steering_message' && event.content.text === 'for the owner',
       ),
     ).toBe(true);
   });
@@ -11073,6 +11714,7 @@ describe('SessionManager steering and followup queues', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       backends,
       newId: nextId(),
@@ -11232,6 +11874,7 @@ describe('SessionManager steering and followup queues', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new ForgingQueueBackend(ctx));
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -11331,6 +11974,7 @@ describe('SessionManager steering and followup queues', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -11429,22 +12073,24 @@ async function steeringDeliverySession(
   const backends = new BackendRegistry();
   let manager!: SessionManager;
   let sessionId = '';
+  const connection: LlmConnection = {
+    slug: 'mock-main',
+    name: 'Mock',
+    providerType: 'anthropic',
+    defaultModel: 'mock-model-id',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
   backends.register(
     'fake',
     (ctx) =>
       new AiSdkBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: ctx.sessionId,
         header: ctx.header,
         appendMessage: async () => {},
-        connection: {
-          slug: 'mock-main',
-          name: 'Mock',
-          providerType: 'anthropic',
-          defaultModel: 'mock-model-id',
-          enabled: true,
-          createdAt: 1,
-          updatedAt: 1,
-        } satisfies LlmConnection,
+        connection,
         apiKey: 'sk-test',
         modelId: 'mock-model-id',
         permissionEngine: new PermissionEngine({ newId: () => 'perm-1', now: () => 1 }),
@@ -11466,6 +12112,7 @@ async function steeringDeliverySession(
       }),
   );
   manager = new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store,
     runStore,
     runtimeEventStore: runStore,
@@ -11505,7 +12152,7 @@ class GatedSteeringBackend implements AgentBackend {
     await gate.promise;
     const leases = input.pullSteering?.() ?? [];
     const record = this.pulls.get(input.turnId) ?? [];
-    record.push(leases.map((lease) => lease.text));
+    record.push(leases.map((lease) => lease.content.text));
     this.pulls.set(input.turnId, record);
     let seq = 0;
     for (const lease of leases) {
@@ -11516,7 +12163,7 @@ class GatedSteeringBackend implements AgentBackend {
         turnId: input.turnId,
         ts: seq,
         messageId: `${input.turnId}-steer-m-${seq}`,
-        text: lease.text,
+        content: lease.content,
       };
     }
     // Delivery for this fake is the echo itself; ack the leases.
@@ -11566,6 +12213,23 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
   cachedHeaders: SessionHeader[] = [];
 
   constructor(private readonly events: readonly SessionEvent[] = []) {}
+
+  installInteractionFailStop(
+    error: Parameters<RuntimeKernelLike['installInteractionFailStop']>[0],
+  ): ReturnType<RuntimeKernelLike['installInteractionFailStop']> {
+    return Object.freeze({
+      error,
+      ownerIsolationDrain: Promise.resolve(COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED),
+      reclaimDrain: Promise.resolve(RUNTIME_EXECUTION_SETTLED),
+    });
+  }
+
+  beginRuntimeDrain(): ReturnType<RuntimeKernelLike['beginRuntimeDrain']> {
+    return Object.freeze({
+      ownerIsolationDrain: Promise.resolve(COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED),
+      reclaimDrain: Promise.resolve(RUNTIME_EXECUTION_SETTLED),
+    });
+  }
 
   async *startTurn(
     sessionId: string,
@@ -11696,6 +12360,79 @@ class TestBackend implements AgentBackend {
     if (this.ctx.store instanceof MemorySessionStore) {
       this.ctx.store.disposeCount += 1;
     }
+  }
+}
+
+class BackendLifecycleProbe extends TestBackend {
+  disposed = false;
+
+  constructor(
+    ctx: BackendFactoryContext,
+    readonly identity: string,
+    private readonly sending?: { sendStarted: Gate; sendRelease: Gate },
+    private readonly disposal?: {
+      disposeStarted: Gate;
+      disposeRelease: Gate;
+      failure?: unknown;
+    },
+  ) {
+    super(ctx, sending?.sendRelease);
+  }
+
+  [RUNTIME_BIND_HOSTED_RUN](_control: RuntimeHostedRunControl): RuntimeHostedBackendRunBinding {
+    return {
+      isolateRegisteredSuccessorEffects: async () => {},
+      revoke: () => {},
+    };
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sending?.sendStarted.release();
+    yield* super.send(input);
+  }
+
+  override async dispose(): Promise<void> {
+    this.disposal?.disposeStarted.release();
+    await this.disposal?.disposeRelease.promise;
+    if (this.disposal?.failure !== undefined) throw this.disposal.failure;
+    await super.dispose();
+    this.disposed = true;
+  }
+}
+
+class FailStopBarrierBackend extends TestBackend {
+  readonly entered = makeGate();
+  private readonly activeSendExit = makeGate();
+
+  [RUNTIME_BIND_HOSTED_RUN](_control: RuntimeHostedRunControl): RuntimeHostedBackendRunBinding {
+    return {
+      isolateRegisteredSuccessorEffects: async () => this.activeSendExit.promise,
+      revoke: () => {},
+    };
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.entered.release();
+    await this.activeSendExit.promise;
+    yield {
+      type: 'text_delta',
+      id: `${input.turnId}-late-delta`,
+      turnId: input.turnId,
+      ts: 2,
+      messageId: `${input.turnId}-late-message`,
+      text: 'late',
+    };
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-late-complete`,
+      turnId: input.turnId,
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  releaseActiveSendExit(): void {
+    this.activeSendExit.release();
   }
 }
 
@@ -12066,12 +12803,18 @@ class StopControlledAbortBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-type PartialEvent =
-  | Omit<Extract<SessionEvent, { type: 'text_delta' }>, 'id' | 'turnId' | 'ts'>
-  | Omit<Extract<SessionEvent, { type: 'permission_request' }>, 'id' | 'turnId' | 'ts'>
-  | Omit<Extract<SessionEvent, { type: 'complete' }>, 'id' | 'turnId' | 'ts'>
-  | Omit<Extract<SessionEvent, { type: 'error' }>, 'id' | 'turnId' | 'ts'>
-  | Omit<Extract<SessionEvent, { type: 'abort' }>, 'id' | 'turnId' | 'ts'>;
+type WithoutEventIdentity<Event> = Event extends unknown
+  ? Omit<Event, 'id' | 'turnId' | 'ts'>
+  : never;
+
+type PartialEvent = WithoutEventIdentity<
+  Extract<
+    SessionEvent,
+    {
+      type: 'text_delta' | 'permission_request' | 'complete' | 'error' | 'abort';
+    }
+  >
+>;
 
 class TurnScriptBackend implements AgentBackend {
   readonly kind = 'fake' as const;
@@ -13045,6 +13788,10 @@ class MemorySessionStore implements SessionStore {
     return Array.from(this.headers.values()).map(headerToSummary);
   }
 
+  async listForRecovery(): Promise<SessionHeader[]> {
+    return Array.from(this.headers.values());
+  }
+
   async readHeader(sessionId: string): Promise<SessionHeader> {
     const gate = this.nextReadHeaderGate;
     if (gate) {
@@ -13072,6 +13819,10 @@ class MemorySessionStore implements SessionStore {
     if (this.failReadMessagesFor.has(sessionId))
       throw new Error(`Cannot read messages for ${sessionId}`);
     return [...(this.messages.get(sessionId) ?? [])];
+  }
+
+  async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
+    return this.readMessages(sessionId);
   }
 
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
@@ -13229,6 +13980,10 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
       .map((header) => ({ ...header }));
   }
 
+  async listSessionRunsForRecovery(sessionId: string): Promise<AgentRunHeader[]> {
+    return this.listSessionRuns(sessionId);
+  }
+
   async appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
     await this.options.beforeAgentRunEventAppend?.(sessionId, runId, event);
     const eventKey = key(sessionId, runId);
@@ -13239,6 +13994,10 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     this.readEventsCalls += 1;
     await this.options.beforeAgentRunEventRead?.(sessionId, runId);
     return (this.events.get(key(sessionId, runId)) ?? []).map(copyEvent);
+  }
+
+  async readEventsForRecovery(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
+    return this.readEvents(sessionId, runId);
   }
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
@@ -13556,6 +14315,7 @@ function makeManagerForReadCutover(
   const backends = new BackendRegistry();
   backends.register('fake', (ctx) => new TestBackend(ctx));
   return new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store,
     runStore,
     runtimeEventStore: runStore,

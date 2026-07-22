@@ -117,7 +117,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Read',
-        args: { path: 'package.json' },
+        review: { kind: 'path', operation: 'read', path: 'package.json', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -323,7 +323,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 3,
         toolName: 'Read',
-        args: { path: 'README.md' },
+        review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -370,7 +370,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -387,7 +387,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 3,
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       },
       {
         type: 'tool_result',
@@ -430,7 +430,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -453,7 +453,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 3,
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       },
       // isError is the call-level authoritative status: even with a well-formed
       // shell_run payload, a failed poll must survive replay as its own error
@@ -506,7 +506,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -529,7 +529,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 3,
         toolName: 'StopBackgroundTask',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'stop', ref: ref },
       },
       {
         type: 'tool_result',
@@ -570,7 +570,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-pty',
         toolName: 'Bash',
-        args: { command: 'interactive', pty: true },
+        review: { kind: 'command', command: 'interactive', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -609,7 +609,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-early',
         toolName: 'Bash',
-        args: { command: 'early-build' },
+        review: { kind: 'command', command: 'early-build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -637,7 +637,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-late',
         toolName: 'Bash',
-        args: { command: 'late-build' },
+        review: { kind: 'command', command: 'late-build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -692,7 +692,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-big',
         toolName: 'Bash',
-        args: { command: 'big-diff' },
+        review: { kind: 'command', command: 'big-diff', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -765,7 +765,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'first' },
+        review: { kind: 'command', command: 'first', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -785,7 +785,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-2',
         toolName: 'Bash',
-        args: { command: 'second' },
+        review: { kind: 'command', command: 'second', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -899,7 +899,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'interactive', pty: true },
+        review: { kind: 'command', command: 'interactive', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -921,7 +921,12 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-2',
         ts: 3,
         toolName: 'WriteStdin',
-        args: { ref, input: rawInput, size: { cols: 100, rows: 30 } },
+        review: {
+          kind: 'stdin',
+          ref: ref,
+          input: { text: 'echo hello\\u{000D}', bytes: Buffer.byteLength(rawInput, 'utf8') },
+          size: { cols: 100, rows: 30 },
+        },
       },
       {
         type: 'tool_result',
@@ -956,7 +961,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.deepEqual(tools[1]?.kind === 'tool' ? tools[1].input : undefined, {
       ref,
       inputPreview: {
-        text: 'echo hello\\r',
+        text: 'echo hello\\u{000D}',
         bytes: Buffer.byteLength(rawInput, 'utf8'),
         truncated: false,
       },
@@ -965,12 +970,12 @@ describe('Maka Pi TUI transcript', () => {
 
     assert.equal(toggleAllToolExpansion(state), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /Queued: echo hello\\r/);
+    assert.match(rendered, /Queued: echo hello\\u\{000D\}/);
     assert.match(rendered, /Resized to 100x30/);
     assert.equal(rendered.split('UNIQUE-PTY-FRAME').length - 1, 1);
   });
 
-  test('projects raw live WriteStdin args at the TUI transcript boundary', () => {
+  test('projects a live public WriteStdin review at the TUI transcript boundary', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/pty-live';
 
@@ -980,7 +985,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'write-live',
         toolName: 'WriteStdin',
-        args: { ref, input: 'echo live\r' },
+        review: { kind: 'stdin', ref: ref, input: { text: 'echo live\\u{000D}', bytes: 10 } },
       }),
     );
 
@@ -990,7 +995,7 @@ describe('Maka Pi TUI transcript', () => {
     );
     assert.deepEqual(entry?.input, {
       ref,
-      inputPreview: { text: 'echo live\\r', bytes: 10, truncated: false },
+      inputPreview: { text: 'echo live\\u{000D}', bytes: 10, truncated: false },
     });
   });
 
@@ -1003,7 +1008,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -1214,13 +1219,14 @@ describe('Maka Pi TUI transcript', () => {
       state,
       event({
         type: 'permission_request',
+        kind: 'tool_permission',
         requestId: 'permission-1',
         toolUseId: 'tool-1',
         toolName: 'Bash',
         category: 'shell_unsafe',
         reason: 'shell_dangerous',
-        args: { command: 'npm test' },
-        hint: 'Run tests before editing.',
+        review: { kind: 'command', command: 'npm test', cwd: '/tmp/project' },
+        rememberForTurnAllowed: true,
       }),
     );
 
@@ -1244,6 +1250,72 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
   });
 
+  test('summarizes swarm permission risk without task text', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(
+      state,
+      event({
+        type: 'permission_request',
+        kind: 'tool_permission',
+        requestId: 'permission-swarm',
+        toolUseId: 'tool-swarm',
+        toolName: 'agent_swarm',
+        category: 'subagent',
+        reason: 'custom',
+        review: {
+          kind: 'agent',
+          operation: 'swarm',
+          itemCount: 3,
+          resumeCount: 1,
+          concurrency: 2,
+          profiles: ['local_read', 'web_research'],
+          writeBack: ['summary'],
+          isolation: ['same_workspace', 'worktree'],
+        },
+        rememberForTurnAllowed: false,
+      }),
+    );
+
+    const visible = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(visible, /swarm 3 tasks/);
+    assert.match(visible, /concurrency 2/);
+    assert.match(visible, /resumed 1/);
+    assert.match(visible, /profiles local_read, web_research/);
+    assert.doesNotMatch(visible, /allow for turn/);
+  });
+
+  test('summarizes resume-only swarm permission risk without empty labels', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(
+      state,
+      event({
+        type: 'permission_request',
+        kind: 'tool_permission',
+        requestId: 'permission-resume-swarm',
+        toolUseId: 'tool-resume-swarm',
+        toolName: 'agent_swarm',
+        category: 'subagent',
+        reason: 'custom',
+        review: {
+          kind: 'agent',
+          operation: 'swarm',
+          itemCount: 2,
+          resumeCount: 2,
+          concurrency: 2,
+          profiles: [],
+          writeBack: [],
+          isolation: [],
+        },
+        rememberForTurnAllowed: false,
+      }),
+    );
+
+    const visible = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(visible, /swarm 2 tasks/);
+    assert.match(visible, /resumed 2/);
+    assert.doesNotMatch(visible, /profiles |write-back |isolation /);
+  });
+
   test('renders one-call additional permission paths and risks without turn-wide approval', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(
@@ -1256,18 +1328,15 @@ describe('Maka Pi TUI transcript', () => {
         toolName: 'Write',
         category: 'file_write',
         reason: 'additional_permissions',
-        args: undefined,
-        cwd: '/workspace',
-        justification: 'Write requires access to the requested path.',
-        intentHash: `sha256:${'1'.repeat(64)}`,
-        permissionsHash: `sha256:${'2'.repeat(64)}`,
-        additionalPermissions: {
-          fileSystem: { entries: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }] },
+        review: {
+          kind: 'additional_permissions',
+          cwd: '/workspace',
+          paths: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }],
+          networkEnabled: false,
         },
         risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
-        alsoApprovesToolExecution: true,
+        alsoApprovesToolExecution: false,
         availableDecisions: ['allow_once', 'deny'],
-        rememberForTurnAllowed: false,
       }),
     );
 
@@ -1302,12 +1371,11 @@ describe('Maka Pi TUI transcript', () => {
         toolName: 'Bash',
         category: 'shell_unsafe',
         reason: 'sandbox_escalation',
-        args: undefined,
-        command: 'printf retry-ok > /tmp/retry.txt',
-        cwd: '/workspace',
-        justification: 'The exact command must write outside the workspace.',
-        intentHash: `sha256:${'3'.repeat(64)}`,
-        commandHash: `sha256:${'4'.repeat(64)}`,
+        review: {
+          kind: 'command',
+          command: 'printf retry-ok > /tmp/retry.txt',
+          cwd: '/workspace',
+        },
         trigger: 'sandbox_denial',
         risk: {
           unsandboxedExecution: true,
@@ -1317,7 +1385,6 @@ describe('Maka Pi TUI transcript', () => {
         },
         alsoApprovesToolExecution: true,
         availableDecisions: ['allow_once', 'deny'],
-        rememberForTurnAllowed: false,
       }),
     );
 
@@ -1341,21 +1408,23 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(visible, /allow for turn/);
   });
 
-  test('keeps WriteStdin permission details bounded until explicitly expanded', () => {
+  test('keeps the public WriteStdin review bounded until explicitly expanded', () => {
     const state = createMakaPiTranscriptState();
-    const hiddenSuffix = '\u001b[31mrm -rf /tmp/hidden-suffix\r';
+    const stdinReviewText = `password=REDACTED ${'x'.repeat(200)}\\u{001B}[31mrm -rf /tmp/hidden-suffix\\u{000D}`;
     applyMakaSessionEventToTranscript(
       state,
       event({
         type: 'permission_request',
+        kind: 'tool_permission',
         requestId: 'permission-stdin',
         toolUseId: 'tool-stdin',
         toolName: 'WriteStdin',
         category: 'shell_unsafe',
         reason: 'shell_dangerous',
-        args: {
+        review: {
+          kind: 'stdin',
           ref: 'maka://runtime/background-tasks/pty-1',
-          input: `password=super-secret ${'x'.repeat(200)}${hiddenSuffix}`,
+          input: { text: stdinReviewText, bytes: 256 },
           size: { cols: 120, rows: 40 },
         },
         rememberForTurnAllowed: false,
@@ -1365,16 +1434,14 @@ describe('Maka Pi TUI transcript', () => {
     const collapsed = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
     assert.match(collapsed, /maka:\/\/runtime\/background-tasks\/pty-1/);
     assert.match(collapsed, /size: 120x40/);
-    assert.doesNotMatch(collapsed, /super-secret/);
     assert.doesNotMatch(collapsed, /hidden-suffix/);
 
     assert.equal(togglePendingPermissionDetails(state), true);
     const rawExpanded = renderMakaPiTranscript(state, meta(), 120).join('\n');
     const expanded = stripAnsi(rawExpanded);
-    assert.match(expanded, /super-secret/);
+    assert.match(expanded, /password=REDACTED/);
     assert.match(expanded, /\\u\{001B\}\[31mrm -rf/);
-    assert.match(expanded, /\/tmp\/hidden-suffix\\r/);
-    assert.doesNotMatch(rawExpanded, /\u001b\[31mrm -rf/);
+    assert.match(expanded, /\/tmp\/hidden-suffix\\u\{000D\}/);
 
     applyMakaSessionEventToTranscript(
       state,
@@ -1394,12 +1461,14 @@ describe('Maka Pi TUI transcript', () => {
       state,
       event({
         type: 'permission_request',
+        kind: 'tool_permission',
         requestId: 'permission-1',
         toolUseId: 'tool-1',
         toolName: 'Bash',
         category: 'shell_unsafe',
         reason: 'shell_dangerous',
-        args: {},
+        review: { kind: 'command', command: 'printf first', cwd: '/workspace' },
+        rememberForTurnAllowed: true,
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1435,12 +1504,14 @@ describe('Maka Pi TUI transcript', () => {
     const state = createMakaPiTranscriptState();
     const first = event({
       type: 'permission_request',
+      kind: 'tool_permission',
       requestId: 'permission-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
-      args: { command: 'printf first' },
+      review: { kind: 'command', command: 'printf first', cwd: '/workspace' },
+      rememberForTurnAllowed: true,
     });
     const question = event({
       type: 'user_question_request',
@@ -1450,21 +1521,25 @@ describe('Maka Pi TUI transcript', () => {
     });
     const second = event({
       type: 'permission_request',
+      kind: 'tool_permission',
       requestId: 'permission-2',
       toolUseId: 'tool-2',
       toolName: 'Bash',
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
-      args: { command: 'printf second' },
+      review: { kind: 'command', command: 'printf second', cwd: '/workspace' },
+      rememberForTurnAllowed: true,
     });
     const third = event({
       type: 'permission_request',
+      kind: 'tool_permission',
       requestId: 'permission-3',
       toolUseId: 'tool-3',
       toolName: 'Bash',
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
-      args: { command: 'printf third' },
+      review: { kind: 'command', command: 'printf third', cwd: '/workspace' },
+      rememberForTurnAllowed: true,
     });
 
     applyMakaSessionEventToTranscript(state, first);
@@ -1476,16 +1551,16 @@ describe('Maka Pi TUI transcript', () => {
       event({
         ...first,
         id: 'permission-request-replay',
-        args: { command: 'printf replayed-first' },
+        review: { kind: 'command', command: 'printf replayed-first', cwd: '/workspace' },
       }),
     );
 
     assert.equal(state.pendingInteraction?.requestId, 'permission-1');
     assert.deepEqual(
       state.pendingInteraction?.type === 'permission_request'
-        ? state.pendingInteraction.args
+        ? state.pendingInteraction.review
         : undefined,
-      { command: 'printf first' },
+      { kind: 'command', command: 'printf first', cwd: '/workspace' },
     );
     assert.deepEqual(
       state.queuedInteractions.map((item) => item.requestId),
@@ -1567,7 +1642,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Read',
-        args: { path: 'a.ts' },
+        review: { kind: 'path', operation: 'read', path: 'a.ts', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1623,7 +1698,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'ls' },
+        review: { kind: 'command', command: 'ls', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1649,7 +1724,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-2',
         toolName: 'Bash',
-        args: { command: 'pwd' },
+        review: { kind: 'command', command: 'pwd', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1667,7 +1742,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-3',
         toolName: 'Bash',
-        args: { command: 'whoami' },
+        review: { kind: 'command', command: 'whoami', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1747,7 +1822,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1787,7 +1862,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1821,7 +1896,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'true' },
+        review: { kind: 'command', command: 'true', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1846,7 +1921,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-fast',
         toolName: 'Bash',
-        args: { command: 'true' },
+        review: { kind: 'command', command: 'true', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1878,7 +1953,11 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: '# look for the setting\ngrep -n "setting" src/config.ts' },
+        review: {
+          kind: 'command',
+          command: '# look for the setting\ngrep -n "setting" src/config.ts',
+          cwd: '/workspace',
+        },
       }),
     );
 
@@ -1895,7 +1974,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'true' },
+        review: { kind: 'command', command: 'true', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1922,7 +2001,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Bash',
-        args: { command: 'npm run build' },
+        review: { kind: 'command', command: 'npm run build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -1974,7 +2053,13 @@ describe('Maka Pi TUI transcript', () => {
           type: 'tool_start',
           toolUseId,
           toolName: 'agent_spawn',
-          args: { profile, task: `Run ${profile}` },
+          review: {
+            kind: 'agent',
+            operation: 'spawn',
+            profile: profile,
+            writeBack: 'summary',
+            isolation: 'same_workspace',
+          },
         }),
       );
     }
@@ -2069,7 +2154,13 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'agent_spawn',
-        args: { profile: 'local_read', task: 'Inspect.' },
+        review: {
+          kind: 'agent',
+          operation: 'spawn',
+          profile: 'local_read',
+          writeBack: 'summary',
+          isolation: 'same_workspace',
+        },
       },
       {
         type: 'tool_result',
@@ -2101,7 +2192,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2138,7 +2229,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2170,7 +2261,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2215,7 +2306,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2233,7 +2324,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
 
@@ -2285,7 +2376,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2303,7 +2394,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     // isError is the call-level authoritative status: even with a well-formed
@@ -2351,7 +2442,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2360,7 +2451,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2410,7 +2501,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2428,7 +2519,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2464,7 +2555,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2482,7 +2573,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'stop-bg',
         toolName: 'StopBackgroundTask',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'stop', ref: ref },
       }),
     );
 
@@ -2521,7 +2612,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'top' },
+        review: { kind: 'command', command: 'top', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2539,7 +2630,11 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'stdin-bg',
         toolName: 'WriteStdin',
-        args: { ref, input: 'q' },
+        review: {
+          kind: 'stdin',
+          ref: ref,
+          input: { text: 'q', bytes: Buffer.byteLength('q', 'utf8') },
+        },
       }),
     );
 
@@ -2565,7 +2660,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -2616,7 +2711,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2661,7 +2756,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2681,7 +2776,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2734,7 +2829,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2815,7 +2910,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2890,7 +2985,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2931,7 +3026,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -2962,7 +3057,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm run build' },
+        review: { kind: 'command', command: 'npm run build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3011,7 +3106,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3055,7 +3150,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       },
       {
         type: 'tool_result',
@@ -3090,7 +3185,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3128,7 +3223,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3146,7 +3241,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     assert.equal(state.pendingShellRunPolls.size, 1);
@@ -3165,7 +3260,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm test' },
+        review: { kind: 'command', command: 'npm test', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3183,7 +3278,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3227,7 +3322,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3256,7 +3351,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3283,7 +3378,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     const result = shellRun({
@@ -3317,7 +3412,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'watch' },
+        review: { kind: 'command', command: 'watch', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3340,7 +3435,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-bg',
         toolName: 'Read',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'read', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3370,7 +3465,7 @@ describe('Maka Pi TUI transcript', () => {
           type: 'tool_start',
           toolUseId,
           toolName: 'Read',
-          args: { ref },
+          review: { kind: 'runtime_resource', operation: 'read', ref: ref },
         }),
       );
       applyMakaSessionEventToTranscript(
@@ -3401,7 +3496,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3419,7 +3514,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'stop-bg',
         toolName: 'StopBackgroundTask',
-        args: { ref },
+        review: { kind: 'runtime_resource', operation: 'stop', ref: ref },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3451,7 +3546,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-fail',
         toolName: 'Bash',
-        args: { command: 'false' },
+        review: { kind: 'command', command: 'false', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3487,7 +3582,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-long',
         toolName: 'Bash',
-        args: { command: 'npm run build ' + 'x'.repeat(60) },
+        review: { kind: 'command', command: 'npm run build ' + 'x'.repeat(60), cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3523,7 +3618,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-cap',
         toolName: 'Bash',
-        args: { command: 'npm run build ' + 'x'.repeat(60) },
+        review: { kind: 'command', command: 'npm run build ' + 'x'.repeat(60), cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3558,7 +3653,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'generic-duration',
         toolName: 'McpTool',
-        args: { target: 'x'.repeat(80) },
+        review: { kind: 'web', targetKind: 'url', target: 'x'.repeat(80) },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3578,7 +3673,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleWidth(row) <= 80, `row width ${visibleWidth(row)} exceeds 80`);
   });
 
-  test('reserves the fixed-shape generic annotation when the row overflows', () => {
+  test('uses the fixed generic tool summary when the row overflows', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(
       state,
@@ -3586,7 +3681,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'frob-1',
         toolName: 'Frobnicate',
-        args: { alpha: 'x'.repeat(50), beta: 'two' },
+        review: undefined,
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3601,9 +3696,10 @@ describe('Maka Pi TUI transcript', () => {
 
     const lines = renderMakaPiTranscript(state, meta(), 40).map(stripAnsi);
     const row = lines[1]!;
-    // The result content is no longer used as an annotation. Its fixed-shape
-    // summary remains available while the long input target is truncated.
-    assert.match(row, /alpha/);
+    // Raw invocation arguments are unavailable at this surface. The tool name
+    // and fixed-shape result summary remain readable without a JSON fallback.
+    assert.match(row, /Frobnicate/);
+    assert.doesNotMatch(row, /alpha|beta/);
     assert.match(row, /\(1 line · \d+ bytes\)$/);
     assert.ok(visibleWidth(row) <= 40, `row width ${visibleWidth(row)} exceeds 40`);
   });
@@ -3616,7 +3712,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-fast',
         toolName: 'Bash',
-        args: { command: 'true' },
+        review: { kind: 'command', command: 'true', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3649,7 +3745,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-1s',
         toolName: 'Bash',
-        args: { command: 'true' },
+        review: { kind: 'command', command: 'true', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3681,7 +3777,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'sleep 30' },
+        review: { kind: 'command', command: 'sleep 30', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3707,7 +3803,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-fg',
         toolName: 'Bash',
-        args: { command: 'fg' },
+        review: { kind: 'command', command: 'fg', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3725,7 +3821,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'bg' },
+        review: { kind: 'command', command: 'bg', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3761,7 +3857,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3801,7 +3897,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyShellRunUpdateToTranscript(
@@ -3840,7 +3936,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-1',
         toolName: 'Read',
-        args: { path: 'src/app.ts', offset: 10, limit: 20 },
+        review: { kind: 'path', operation: 'read', path: 'src/app.ts', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3856,7 +3952,8 @@ describe('Maka Pi TUI transcript', () => {
     const compactLines = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
     assert.equal(compactLines.length, 2);
     const compact = compactLines.join('\n');
-    assert.match(compact, /src\/app\.ts offset 10 limit 20/);
+    assert.match(compact, /src\/app\.ts/);
+    assert.doesNotMatch(compact, /offset|limit/);
     assert.match(compact, /\(4 lines\)/);
     assert.doesNotMatch(compact, /content-line-0/);
 
@@ -3876,7 +3973,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-nl',
         toolName: 'Read',
-        args: { path: 'one.txt' },
+        review: { kind: 'path', operation: 'read', path: 'one.txt', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3918,7 +4015,11 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-rt',
         toolName: 'Read',
-        args: { ref: 'maka://runtime/background-tasks/abc' },
+        review: {
+          kind: 'runtime_resource',
+          operation: 'read',
+          ref: 'maka://runtime/background-tasks/abc',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3951,7 +4052,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-arch',
         toolName: 'Read',
-        args: { path: 'README.md' },
+        review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -3978,7 +4079,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-count',
         toolName: 'Read',
-        args: { path: 'three.txt' },
+        review: { kind: 'path', operation: 'read', path: 'three.txt', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4010,7 +4111,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-blank',
         toolName: 'Read',
-        args: { path: 'blank.txt' },
+        review: { kind: 'path', operation: 'read', path: 'blank.txt', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4039,7 +4140,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'shell-1',
         toolName: 'StopBackgroundTask',
-        args: { ref: 'bg-42' },
+        review: { kind: 'runtime_resource', operation: 'stop', ref: 'bg-42' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4090,7 +4191,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'npm run watch' },
+        review: { kind: 'command', command: 'npm run watch', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4132,7 +4233,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-ml',
         toolName: 'Bash',
-        args: { command },
+        review: { kind: 'command', command: command, cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4173,7 +4274,13 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'sum-1',
         toolName: 'Task',
-        args: {},
+        review: {
+          kind: 'agent',
+          operation: 'spawn',
+          profile: 'task',
+          writeBack: 'summary',
+          isolation: 'same_workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4204,7 +4311,14 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'grep-1',
         toolName: 'Grep',
-        args: { pattern: 'TODO', path: 'packages', glob: '*.ts' },
+        review: {
+          kind: 'search',
+          operation: 'grep',
+          pattern: 'TODO',
+          root: 'packages',
+          glob: '*.ts',
+          cwd: '/workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4243,7 +4357,13 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'glob-1',
         toolName: 'Glob',
-        args: { pattern: '**/*.ts', cwd: 'packages' },
+        review: {
+          kind: 'search',
+          operation: 'glob',
+          pattern: '**/*.ts',
+          root: 'packages',
+          cwd: '/workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4277,7 +4397,13 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'grep-1',
         toolName: 'Grep',
-        args: { pattern: 'TODO' },
+        review: {
+          kind: 'search',
+          operation: 'grep',
+          pattern: 'TODO',
+          root: '/workspace',
+          cwd: '/workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4307,7 +4433,13 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'grep-1',
         toolName: 'Grep',
-        args: { pattern: 'TODO' },
+        review: {
+          kind: 'search',
+          operation: 'grep',
+          pattern: 'TODO',
+          root: '/workspace',
+          cwd: '/workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4332,7 +4464,13 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'glob-1',
         toolName: 'Glob',
-        args: { pattern: '**/*.ts' },
+        review: {
+          kind: 'search',
+          operation: 'glob',
+          pattern: '**/*.ts',
+          root: '/workspace',
+          cwd: '/workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4349,7 +4487,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(compact, /\d+ files/);
   });
 
-  test('keeps generic JSON input and result summaries on a single line', () => {
+  test('keeps a fixed generic tool and result summary on a single line', () => {
     const state = createMakaPiTranscriptState();
 
     applyMakaSessionEventToTranscript(
@@ -4358,7 +4496,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Frobnicate',
-        args: { alpha: 1, beta: 'two' },
+        review: undefined,
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4377,8 +4515,8 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(lines.length, 2);
     // #1086: generic results use a fixed-shape size summary instead of
     // leaking the first result line into the compact row.
-    assert.match(lines[1] ?? '', /● Frobnicate  alpha: 1 beta: two \(\d+ lines · \d+ bytes\)/);
-    assert.doesNotMatch(lines[1] ?? '', /\{"alpha"/);
+    assert.match(lines[1] ?? '', /● Frobnicate\s+\(\d+ lines · \d+ bytes\)/);
+    assert.doesNotMatch(lines[1] ?? '', /alpha|beta/);
     assert.doesNotMatch(lines[1] ?? '', /\{"gamma"/);
     assert.doesNotMatch(lines[1] ?? '', /gamma:/);
   });
@@ -4393,7 +4531,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'mcp-1',
         toolName: 'mcp__github__search',
-        args: { query: 'Maka' },
+        review: { kind: 'web', targetKind: 'query', target: 'Maka' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4428,7 +4566,7 @@ describe('Maka Pi TUI transcript', () => {
           type: 'tool_start',
           toolUseId,
           toolName: 'mcp__local__empty',
-          args: {},
+          review: undefined,
         }),
       );
       applyMakaSessionEventToTranscript(
@@ -4455,7 +4593,13 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'agent-summary',
         toolName: 'agent_spawn',
-        args: { profile: 'local_read', task: 'Inspect the repository.' },
+        review: {
+          kind: 'agent',
+          operation: 'spawn',
+          profile: 'local_read',
+          writeBack: 'summary',
+          isolation: 'same_workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4481,7 +4625,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'read-archived',
         toolName: 'Read',
-        args: { path: 'README.md' },
+        review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4523,7 +4667,7 @@ describe('Maka Pi TUI transcript', () => {
           type: 'tool_start',
           toolUseId: testCase.toolUseId,
           toolName: 'mcp__local__result',
-          args: {},
+          review: undefined,
         }),
       );
       applyMakaSessionEventToTranscript(
@@ -4565,7 +4709,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'mcp-replay',
         toolName: 'mcp__github__search',
-        args: { query: 'replay' },
+        review: { kind: 'web', targetKind: 'query', target: 'replay' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4584,7 +4728,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'mcp__github__search',
-        args: { query: 'replay' },
+        review: { kind: 'web', targetKind: 'query', target: 'replay' },
       },
       {
         type: 'tool_result',
@@ -4619,7 +4763,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'edit-1',
         toolName: 'Edit',
-        args: { path: 'file.ts' },
+        review: { kind: 'path', operation: 'edit', path: 'file.ts', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4660,7 +4804,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-1',
         toolName: 'Bash',
-        args: { command: 'seq 20' },
+        review: { kind: 'command', command: 'seq 20', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4695,7 +4839,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-nl',
         toolName: 'Bash',
-        args: { command: 'seq 7' },
+        review: { kind: 'command', command: 'seq 7', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4727,7 +4871,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-nl2',
         toolName: 'Bash',
-        args: { command: 'seq 10' },
+        review: { kind: 'command', command: 'seq 10', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4763,7 +4907,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'edit-2',
         toolName: 'Edit',
-        args: { path: 'file.ts' },
+        review: { kind: 'path', operation: 'edit', path: 'file.ts', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4793,7 +4937,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'write-1',
         toolName: 'Write',
-        args: { path: 'out.txt' },
+        review: { kind: 'path', operation: 'write', path: 'out.txt', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4823,7 +4967,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-a',
         toolName: 'Bash',
-        args: { command: 'echo a' },
+        review: { kind: 'command', command: 'echo a', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4843,7 +4987,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'tool-b',
         toolName: 'Bash',
-        args: { command: 'echo b' },
+        review: { kind: 'command', command: 'echo b', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -4949,7 +5093,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-1',
         toolName: 'Bash',
-        args: { command: 'run' },
+        review: { kind: 'command', command: 'run', cwd: '/workspace' },
       }),
     );
     // Out-of-order + duplicate seq + a redacted chunk.
@@ -5021,7 +5165,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'redacted-empty',
         toolName: 'Bash',
-        args: { command: 'secret' },
+        review: { kind: 'command', command: 'secret', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -5050,7 +5194,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-stream',
         toolName: 'Bash',
-        args: { command: 'seq 20' },
+        review: { kind: 'command', command: 'seq 20', cwd: '/workspace' },
       }),
     );
     // Ten single-line stdout chunks form one stream group; the expanded card
@@ -5085,7 +5229,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-bounded',
         toolName: 'Bash',
-        args: { command: 'verbose' },
+        review: { kind: 'command', command: 'verbose', cwd: '/workspace' },
       }),
     );
     const chunks = Array.from(
@@ -5122,7 +5266,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'bash-many-chunks',
         toolName: 'Bash',
-        args: { command: 'verbose' },
+        review: { kind: 'command', command: 'verbose', cwd: '/workspace' },
       }),
     );
     for (let i = 0; i < 513; i += 1) {
@@ -5153,7 +5297,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'output-empty',
         toolName: 'Bash',
-        args: { command: 'verbose' },
+        review: { kind: 'command', command: 'verbose', cwd: '/workspace' },
       }),
     );
     for (let i = 0; i < 512; i += 1) {
@@ -5195,7 +5339,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'progress-bounded',
         toolName: 'Workflow',
-        args: {},
+        review: undefined,
       }),
     );
     const chunks = Array.from(
@@ -5229,7 +5373,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'progress-many-chunks',
         toolName: 'Workflow',
-        args: {},
+        review: undefined,
       }),
     );
     for (let i = 0; i < 513; i += 1) {
@@ -5257,7 +5401,7 @@ describe('Maka Pi TUI transcript', () => {
         type: 'tool_start',
         toolUseId: 'progress-empty',
         toolName: 'Workflow',
-        args: {},
+        review: undefined,
       }),
     );
     for (let i = 0; i < 512; i += 1) {
@@ -5318,7 +5462,13 @@ describe('transcript entry render memoization', () => {
         type: 'tool_start',
         toolUseId: 'tool-1',
         toolName: 'Grep',
-        args: { pattern: 'beta' },
+        review: {
+          kind: 'search',
+          operation: 'grep',
+          pattern: 'beta',
+          root: '/workspace',
+          cwd: '/workspace',
+        },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -5346,7 +5496,7 @@ describe('transcript entry render memoization', () => {
         type: 'tool_start',
         toolUseId: 'progress-cache',
         toolName: 'Workflow',
-        args: {},
+        review: undefined,
       }),
     );
     for (let i = 0; i < 512; i += 1) {
@@ -5413,7 +5563,7 @@ describe('transcript entry render memoization', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(
@@ -5473,7 +5623,7 @@ describe('transcript entry render memoization', () => {
         type: 'tool_start',
         toolUseId: 'bash-bg',
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/workspace' },
       }),
     );
     applyMakaSessionEventToTranscript(

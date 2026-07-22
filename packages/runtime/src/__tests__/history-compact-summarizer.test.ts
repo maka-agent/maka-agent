@@ -41,7 +41,7 @@ function inputWith(events: RuntimeEvent[], abortSignal?: AbortSignal): HistoryCo
 }
 
 describe('buildLlmHistorySummarizer', () => {
-  test('returns the LLM summary and sends the tool-bearing conversation to generateText', async () => {
+  test('returns the LLM summary and sends the text-safe conversation to generateText', async () => {
     const seen: Array<{ instructions: string; messages: unknown[] }> = [];
     const generateText: AiSdkGenerateTextLike = async (opts) => {
       seen.push(opts);
@@ -55,7 +55,12 @@ describe('buildLlmHistorySummarizer', () => {
       ev({
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'fc1', name: 'read', args: { path: 'package.json' } },
+        content: {
+          kind: 'function_call',
+          id: 'fc1',
+          name: 'read',
+          review: { kind: 'path', operation: 'read', path: 'package.json', cwd: '/workspace' },
+        },
       }),
       ev({
         role: 'tool',
@@ -70,7 +75,7 @@ describe('buildLlmHistorySummarizer', () => {
     expect(result).toBe('## Goal\n做到 X');
     expect(seen.length).toBe(1);
     const serialized = JSON.stringify(seen[0]!.messages);
-    // summarizer 收到的是模型可见的含 tool 对话，而不是纯文本摘要
+    // The summarizer receives the safe user/model text around the omitted tool pair.
     expect(serialized).toContain('package.json');
     expect(serialized).toContain('maka');
   });
@@ -95,7 +100,7 @@ describe('buildLlmHistorySummarizer', () => {
     expect(seen?.maxOutputTokens).toBe(undefined);
   });
 
-  test('produces schema-valid tool-result messages (toolName + wrapped output) and does not fall back', async () => {
+  test('omits public-review tool pairs from summarizer provider history', async () => {
     const seen: Array<{ messages: unknown[] }> = [];
     const generateText: AiSdkGenerateTextLike = async (opts) => {
       seen.push(opts);
@@ -104,33 +109,147 @@ describe('buildLlmHistorySummarizer', () => {
     const summarize = buildLlmHistorySummarizer({ resolveModel: () => 'fake-model', generateText });
 
     const events: RuntimeEvent[] = [
-      ev({ role: 'user', author: 'user', content: { kind: 'text', text: '读 package.json' } }),
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'inspect the project' } }),
       ev({
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'fc1', name: 'read', args: { path: 'package.json' } },
+        content: {
+          kind: 'function_call',
+          id: 'fc1',
+          name: 'read',
+          review: {
+            kind: 'path',
+            operation: 'read',
+            path: 'PRIVATE_CONFIG_PATH',
+            cwd: '/workspace',
+          },
+        },
       }),
       ev({
         role: 'tool',
         author: 'tool',
-        content: { kind: 'function_response', id: 'fc1', name: 'read', result: { name: 'maka' } },
+        content: {
+          kind: 'function_response',
+          id: 'fc1',
+          name: 'read',
+          result: { secret: 'PRIVATE_TOOL_RESULT' },
+        },
       }),
-      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'ok' } }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'safe conclusion' } }),
     ];
 
     const result = await summarize(inputWith(events));
     expect(result).toBe('## Goal\nX');
 
-    const messages = seen[0]!.messages as Array<{
-      role: string;
-      content: Array<{ type: string; toolName?: string; output?: unknown }>;
-    }>;
-    const toolPart = messages.find((m) => m.role === 'tool')!.content[0]!;
-    expect(toolPart.type).toBe('tool-result');
-    // toolName must be present in AI SDK tool-result content.
-    expect(toolPart.toolName).toBe('read');
-    // output must be the {type, value} wrapper, not the raw result object
-    expect(toolPart.output).toEqual({ type: 'json', value: { name: 'maka' } });
+    expect(seen[0]!.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'inspect the project' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'safe conclusion' }] },
+    ]);
+    const serialized = JSON.stringify(seen[0]!.messages);
+    expect(serialized.includes('PRIVATE_CONFIG_PATH')).toBe(false);
+    expect(serialized.includes('PRIVATE_TOOL_RESULT')).toBe(false);
+  });
+
+  test('projects persisted tool-result envelopes to the original provider-visible values', async () => {
+    let seen: Parameters<AiSdkGenerateTextLike>[0] | undefined;
+    const summarize = buildLlmHistorySummarizer({
+      resolveModel: () => 'fake-model',
+      generateText: async (options) => {
+        seen = options;
+        return { text: '## Goal\nX' };
+      },
+    });
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'json-call',
+          name: 'read',
+          args: { path: 'data.json' },
+        },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'json-call',
+          name: 'read',
+          result: { kind: 'json', value: { content: { ok: true } } },
+        },
+      }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'text-call',
+          name: 'read',
+          args: { path: 'notes.txt' },
+        },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'text-call',
+          name: 'read',
+          result: { kind: 'text', text: 'file contents' },
+        },
+      }),
+    ];
+
+    await summarize(inputWith(events));
+
+    expect(seen?.messages).toEqual([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'json-call',
+            toolName: 'read',
+            input: { path: 'data.json' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'json-call',
+            toolName: 'read',
+            output: { type: 'json', value: { content: { ok: true } } },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'text-call',
+            toolName: 'read',
+            input: { path: 'notes.txt' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'text-call',
+            toolName: 'read',
+            output: { type: 'text', value: 'file contents' },
+          },
+        ],
+      },
+    ]);
   });
 
   test('surfaces provider failures so the runtime can report the real compact reason', async () => {

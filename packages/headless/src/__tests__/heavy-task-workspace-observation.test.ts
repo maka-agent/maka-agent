@@ -8,7 +8,7 @@ import {
 } from '../heavy-task-workspace-observation.js';
 import type { IsolatedCommandInput, IsolatedToolExecutor } from '../isolation.js';
 import type { HeavyTaskSelfCheckPlanState, TaskEvent } from '../task-contracts.js';
-import { projectTaskRun } from '../task-run-store.js';
+import { projectTaskRun } from '../task-run-projection.js';
 
 describe('heavy-task workspace observation', () => {
   test('records machine-observed one-level entries for task artifact directories', async () => {

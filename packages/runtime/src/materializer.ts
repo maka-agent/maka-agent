@@ -19,7 +19,6 @@ import type {
   ToolActivityKind,
   ToolResultContent,
 } from '@maka/core';
-import { projectToolActivityArgs } from '@maka/core';
 import { toolResultActivityStatus } from '@maka/core';
 
 // ============================================================================
@@ -149,9 +148,8 @@ function toolActivityFromPair(
       toolName: call.toolName,
       ...(call.activityKind !== undefined ? { activityKind: call.activityKind } : {}),
       ...(call.displayName !== undefined ? { displayName: call.displayName } : {}),
-      ...(call.intent !== undefined ? { intent: call.intent } : {}),
       status: 'interrupted',
-      args: projectToolActivityArgs(call.toolName, call.args),
+      args: structuredClone(call.review ?? {}),
       ts: call.ts,
     };
   }
@@ -160,9 +158,8 @@ function toolActivityFromPair(
     toolName: call.toolName,
     ...(call.activityKind !== undefined ? { activityKind: call.activityKind } : {}),
     ...(call.displayName !== undefined ? { displayName: call.displayName } : {}),
-    ...(call.intent !== undefined ? { intent: call.intent } : {}),
     status: toolResultActivityStatus(result.isError, result.content),
-    args: projectToolActivityArgs(call.toolName, call.args),
+    args: structuredClone(call.review ?? {}),
     result: result.content,
     isError: result.isError,
     ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
@@ -199,9 +196,8 @@ export function applyAppendedMessage(
         toolName: message.toolName,
         ...(message.activityKind !== undefined ? { activityKind: message.activityKind } : {}),
         ...(message.displayName !== undefined ? { displayName: message.displayName } : {}),
-        ...(message.intent !== undefined ? { intent: message.intent } : {}),
         status: 'pending',
-        args: projectToolActivityArgs(message.toolName, message.args),
+        args: structuredClone(message.review ?? {}),
         ts: message.ts,
       };
       return { items: [...items, { kind: 'tool', item }] };

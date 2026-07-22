@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
+  BUNDLED_SKILL_CATALOG,
+  getBundledSkillSource,
   isPathInside,
   isRecord,
   isSafeSkillId,
@@ -21,7 +23,6 @@ import {
   readManagedSkillSource,
   resolveManagedSkillSourcesRoot,
 } from './managed-skill-sources.js';
-import { BUNDLED_REVERSE_ENGINEERED_SKILLS } from './bundled-skill-catalog.generated.js';
 
 // Re-export runtime-facing skill exports so existing call sites and tests
 // keep importing from './skills.js' unchanged. Governance (lock, provenance,
@@ -162,49 +163,13 @@ interface ManagedSkillUpdateOptions {
   expectedSourceSha256?: string;
 }
 
-const BUNDLED_OFFICE_SKILLS: Array<{ id: string; body: string }> = [
-  { id: 'officecli-docx', body: officeCliDocxSkillTemplate() },
-  { id: 'officecli-xlsx', body: officeCliXlsxSkillTemplate() },
-  { id: 'officecli-pptx', body: officeCliPptxSkillTemplate() },
-];
-const BUNDLED_OFFICE_SKILL_IDS = new Set(BUNDLED_OFFICE_SKILLS.map((skill) => skill.id));
-const BUNDLED_OFFICE_SKILL_HASH_BY_ID = new Map(
-  BUNDLED_OFFICE_SKILLS.map((skill) => [skill.id, `sha256:${sha256(skill.body)}`]),
-);
-
-const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
-const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
-
-// Reverse-engineered built-in skills (shipped, install-on-demand). Distinct
-// from the auto-seeded Office skills above: these never auto-install — the 内置
-// tab offers a per-skill install action (installBundledSkill). Their installed
-// copies carry a trusted `bundled` lock (sourceName maka-bundled) validated
-// against these hashes.
+const BUNDLED_OFFICE_SKILL_IDS = ['officecli-docx', 'officecli-xlsx', 'officecli-pptx'] as const;
 const BUNDLED_CATALOG_SOURCE_NAME = 'maka-bundled';
 const BUNDLED_CATALOG_SOURCE_VERSION = '1';
-const BUNDLED_CATALOG_BODY_BY_ID = new Map(BUNDLED_REVERSE_ENGINEERED_SKILLS.map((skill) => [skill.id, skill.body]));
 const BUNDLED_CATALOG_HASH_BY_ID = new Map(
-  BUNDLED_REVERSE_ENGINEERED_SKILLS.map((skill) => [skill.id, `sha256:${sha256(skill.body)}`]),
+  BUNDLED_SKILL_CATALOG.map((skill) => [skill.id, `sha256:${sha256(skill.body)}`]),
 );
 const BUNDLED_CATALOG_CATEGORY_DEFAULT: ManagedSkillCategory = '效率工具';
-
-const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string[]> = {
-  // v1 (legacy `officecli open/close` template) — migrated by the first tool-routed release.
-  'officecli-docx': [
-    '63f1690d1e9dea0a4e574bc3644222279fcfee336371d842c9669fbc91e89821',
-    // v2 (tool-routed template without required-tools) — migrated to v3 so the
-    // host-compatibility gate can see the Office tool requirement.
-    'c0bcc16adcaa10329b4f3bbc7679f9e1c7bf99368af7fcbec8e870f5c0c5c039',
-  ],
-  'officecli-xlsx': [
-    'dca3471c36da0628b6764711bde714958fcced13008cd8dfd4d548a5f02eda82',
-    'cc13a4c0f17bb73d1fee6a0797cd4befa34ef1d8abcb7d6ea57bce26f5abd218',
-  ],
-  'officecli-pptx': [
-    '21a933a459c921c3d7b14c7fc1cad59c7f72b7752903cd7d4e9083a1c835d302',
-    'b9845739f855250fe55fb44efc4019856d566c7f8b299741df5c5c0fd70d6e5c',
-  ],
-};
 
 /**
  * Scan `{workspaceRoot}/skills/` for directories that contain a SKILL.md.
@@ -255,18 +220,23 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
     await mkdir(skillsDir, { recursive: true, mode: 0o700 });
     const skillsStat = await lstat(skillsDir);
     if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) {
-      return { created, updated, skipped, failed: BUNDLED_OFFICE_SKILLS.map((skill) => skill.id) };
+      return { created, updated, skipped, failed: [...BUNDLED_OFFICE_SKILL_IDS] };
     }
     [rootReal, skillsReal] = await Promise.all([realpath(root), realpath(skillsDir)]);
     if (!isPathInside(rootReal, skillsReal)) {
-      return { created, updated, skipped, failed: BUNDLED_OFFICE_SKILLS.map((skill) => skill.id) };
+      return { created, updated, skipped, failed: [...BUNDLED_OFFICE_SKILL_IDS] };
     }
   } catch {
-    return { created, updated, skipped, failed: BUNDLED_OFFICE_SKILLS.map((skill) => skill.id) };
+    return { created, updated, skipped, failed: [...BUNDLED_OFFICE_SKILL_IDS] };
   }
 
-  for (const skill of BUNDLED_OFFICE_SKILLS) {
-    const skillDir = join(skillsDir, skill.id);
+  for (const id of BUNDLED_OFFICE_SKILL_IDS) {
+    const skill = getBundledSkillSource(id);
+    if (!skill) {
+      failed.push(id);
+      continue;
+    }
+    const skillDir = join(skillsDir, id);
     const skillFile = join(skillDir, 'SKILL.md');
     try {
       await mkdir(skillDir, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
@@ -274,54 +244,29 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
       });
       const skillReal = await realpath(skillDir);
       if (!isPathInside(skillsReal, skillReal)) {
-        failed.push(skill.id);
+        failed.push(id);
         continue;
       }
       await writeFile(skillFile, skill.body, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-      if (!await writeBundledSkillLock(skillDir, skill.id, skill.body)) {
+      if (!await writeBundledSkillLock(skillDir, id, skill.body)) {
         throw new Error('failed to write bundled skill lock');
       }
-      created.push(skill.id);
+      created.push(id);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-        const migration = await migrateLegacyBundledOfficeSkill(skill.id, skillFile, skill.body);
-        if (migration === 'updated') {
-          updated.push(skill.id);
+        const existing = await readExistingRegularFile(skillFile);
+        if (existing.kind === 'file' && existing.content === skill.body && !await writeBundledSkillLock(skillDir, id, skill.body)) {
+          failed.push(id);
           continue;
         }
-        if (migration === 'failed') {
-          failed.push(skill.id);
-          continue;
-        }
-        skipped.push(skill.id);
+        skipped.push(id);
         continue;
       }
-      failed.push(skill.id);
+      failed.push(id);
     }
   }
 
   return { created, updated, skipped, failed };
-}
-
-async function migrateLegacyBundledOfficeSkill(id: string, skillFile: string, currentBody: string): Promise<'updated' | 'skipped' | 'failed'> {
-  const legacyHashes = LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id] ?? [];
-  if (legacyHashes.length === 0) return 'skipped';
-  try {
-    const existingStat = await lstat(skillFile);
-    if (!existingStat.isFile() || existingStat.isSymbolicLink()) return 'skipped';
-    const existing = await readFile(skillFile, 'utf8');
-    if (!legacyHashes.includes(sha256(existing))) {
-      if (sha256(existing) === sha256(currentBody)) {
-        if (!await writeBundledSkillLock(dirname(skillFile), id, currentBody)) return 'failed';
-      }
-      return 'skipped';
-    }
-    await writeFile(skillFile, currentBody, { encoding: 'utf8', mode: 0o600 });
-    if (!await writeBundledSkillLock(dirname(skillFile), id, currentBody)) return 'failed';
-    return 'updated';
-  } catch {
-    return 'failed';
-  }
 }
 
 function sha256(text: string): string {
@@ -330,7 +275,7 @@ function sha256(text: string): string {
 
 async function writeBundledSkillLock(skillDir: string, id: string, body: string): Promise<boolean> {
   const lockPath = join(skillDir, 'skill.lock.json');
-  const contentSha256 = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id) ?? `sha256:${sha256(body)}`;
+  const contentSha256 = BUNDLED_CATALOG_HASH_BY_ID.get(id) ?? `sha256:${sha256(body)}`;
   const existing = await readExistingRegularFile(lockPath);
   if (existing.kind === 'blocked') return false;
   if (existing.kind === 'file') {
@@ -346,8 +291,8 @@ async function writeBundledSkillLock(skillDir: string, id: string, body: string)
     schemaVersion: 1,
     id,
     sourceType: 'bundled',
-    sourceName: BUNDLED_OFFICE_SKILL_SOURCE_NAME,
-    sourceVersion: BUNDLED_OFFICE_SKILL_SOURCE_VERSION,
+    sourceName: BUNDLED_CATALOG_SOURCE_NAME,
+    sourceVersion: BUNDLED_CATALOG_SOURCE_VERSION,
     contentSha256,
     installedAt: new Date().toISOString(),
   });
@@ -387,8 +332,8 @@ function isMatchingBundledSkillLock(value: unknown, id: string, contentSha256: s
   return value.schemaVersion === 1 &&
     value.id === id &&
     value.sourceType === 'bundled' &&
-    value.sourceName === BUNDLED_OFFICE_SKILL_SOURCE_NAME &&
-    value.sourceVersion === BUNDLED_OFFICE_SKILL_SOURCE_VERSION &&
+    value.sourceName === BUNDLED_CATALOG_SOURCE_NAME &&
+    value.sourceVersion === BUNDLED_CATALOG_SOURCE_VERSION &&
     typeof value.installedAt === 'string' &&
     value.installedAt.length > 0 &&
     typeof value.contentSha256 === 'string' &&
@@ -620,14 +565,12 @@ function parseBundledSkillCategory(body: string): ManagedSkillCategory {
 }
 
 /**
- * The built-in (内置) catalog: the auto-seeded Office skills plus the
- * reverse-engineered skills. `installed` reflects whether the current workspace
- * already has skills/<id>. The renderer surfaces this under the 内置 tab with a
- * per-entry install action that calls `installBundledSkill`.
+ * The built-in (内置) catalog. `installed` reflects whether the current
+ * workspace already has skills/<id>.
  */
 export async function listBundledSkillCatalog(root: string): Promise<BundledSkillCatalogEntry[]> {
   const installedIds = new Set((await listInstalledSkills(root)).map((skill) => skill.id));
-  return [...BUNDLED_OFFICE_SKILLS, ...BUNDLED_REVERSE_ENGINEERED_SKILLS]
+  return BUNDLED_SKILL_CATALOG
     .map(({ id, body }) => {
       const { name, description, allowedTools } = parseSkillFrontMatter(body);
       return {
@@ -642,30 +585,16 @@ export async function listBundledSkillCatalog(root: string): Promise<BundledSkil
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function writeBundledCatalogLock(skillDir: string, id: string, body: string): Promise<boolean> {
-  const contentSha256 = BUNDLED_CATALOG_HASH_BY_ID.get(id) ?? `sha256:${sha256(body)}`;
-  return writeSkillLock(skillDir, {
-    schemaVersion: 1,
-    id,
-    sourceType: 'bundled',
-    sourceName: BUNDLED_CATALOG_SOURCE_NAME,
-    sourceVersion: BUNDLED_CATALOG_SOURCE_VERSION,
-    contentSha256,
-    installedAt: new Date().toISOString(),
-  });
-}
-
 /**
  * Install a built-in catalog skill into {root}/skills/<id> on demand. Mirrors
  * installManagedSkill's hardened write path (containment checks, fail-if-exists)
- * but sources the body from the shipped catalog. Office ids get the Office
- * bundled lock; reverse-engineered ids get the maka-bundled catalog lock.
+ * but sources the body from the shipped catalog.
  */
 export async function installBundledSkill(root: string, id: string): Promise<InstallBundledSkillResult> {
   if (!isSafeSkillId(id)) return { ok: false, reason: 'not_found' };
-  const officeBody = BUNDLED_OFFICE_SKILLS.find((skill) => skill.id === id)?.body;
-  const body = officeBody ?? BUNDLED_CATALOG_BODY_BY_ID.get(id);
-  if (body === undefined) return { ok: false, reason: 'not_found' };
+  const source = getBundledSkillSource(id);
+  if (!source) return { ok: false, reason: 'not_found' };
+  const { body } = source;
 
   const skillsDir = join(root, 'skills');
   let skillsReal: string;
@@ -692,9 +621,7 @@ export async function installBundledSkill(root: string, id: string): Promise<Ins
       return { ok: false, reason: 'blocked_path' };
     }
     await writeFile(skillFile, body, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-    const lockWritten = officeBody !== undefined
-      ? await writeBundledSkillLock(skillDir, id, body)
-      : await writeBundledCatalogLock(skillDir, id, body);
+    const lockWritten = await writeBundledSkillLock(skillDir, id, body);
     if (!lockWritten) {
       await rm(skillDir, { recursive: true, force: true }).catch(() => {});
       return { ok: false, reason: 'write_failed' };
@@ -1239,22 +1166,6 @@ async function managedStatusForLock(
 function isTrustedBundledSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
   if (lock.sourceType !== 'bundled' || typeof lock.contentSha256 !== 'string') return false;
   const lockHash = lock.contentSha256.replace(/^sha256:/i, '').toLowerCase();
-
-  if (BUNDLED_OFFICE_SKILL_IDS.has(id)) {
-    if (lock.sourceName !== BUNDLED_OFFICE_SKILL_SOURCE_NAME || lock.sourceVersion !== BUNDLED_OFFICE_SKILL_SOURCE_VERSION) return false;
-    // A bundled lock is trusted if its content hash matches the current bundled
-    // template or any legacy bundled template that desktop still migrates from.
-    // This keeps user-modified legacy skills at validationStatus 'modified'
-    // instead of 'metadata_error' across a template bump.
-    const newHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id)?.replace(/^sha256:/i, '').toLowerCase();
-    const trusted = new Set<string>([
-      ...(newHash ? [newHash] : []),
-      ...(LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id] ?? []),
-    ]);
-    return trusted.has(lockHash);
-  }
-
-  // Reverse-engineered built-in catalog skills.
   const catalogHash = BUNDLED_CATALOG_HASH_BY_ID.get(id)?.replace(/^sha256:/i, '').toLowerCase();
   if (!catalogHash) return false;
   return lock.sourceName === BUNDLED_CATALOG_SOURCE_NAME &&
@@ -1299,120 +1210,5 @@ allowed-tools:
 - 这个技能声明的工具只是需求提示，不会自动获得权限。
 - 不要把敏感内容写进这里；它会作为本地技能指令进入模型上下文。
 - 如果这个模板不适合你的工作流，可以直接改名或删除 ${id}。
-`;
-}
-
-function officeCliDocxSkillTemplate(): string {
-  return `---
-name: OfficeCLI DOCX
-description: Use when a .docx, Word document, report, memo, proposal, letter, tracked changes, comments, header/footer, table of contents, or Word template is involved.
-allowed-tools:
-  - OfficeDocument
-  - OfficeDocumentEdit
-  - Read
-required-tools:
-  - OfficeDocument
-  - OfficeDocumentEdit
----
-
-# OfficeCLI DOCX
-
-Use this skill for Word document work. Route document inspection and edits through Maka's bounded Office document tools.
-
-## Boundary
-
-- Use \`OfficeDocument\` for read-only inspection: \`help\`, \`view\`, \`get\`, \`query\`, and \`validate\`.
-- Use \`OfficeDocumentEdit\` only for supported writes: \`create\`, \`add\`, \`set\`, and \`remove\`. It is permission-gated and path-bound to the session cwd.
-- Do not call Bash or raw \`officecli\` directly unless the user explicitly asks for shell-level debugging and the normal permission flow allows it.
-- Prefer \`OfficeDocument\` \`help\` with \`topic: "docx"\` before guessing selectors or properties. Installed help is authoritative.
-- Quote semantic paths: \`"/body/p[1]"\`, \`"/footer[1]"\`.
-- Unsupported paths stay unsupported: no resident \`open\`/\`close\`, \`html\` view, \`raw\`, \`watch\`, or \`batch\`.
-
-## Workflow
-
-1. Orient with \`OfficeDocument\` \`view\` \`outline\`, then \`view\` \`text\` or \`get\` the needed paths.
-2. For edits, use \`OfficeDocumentEdit\` in small steps and verify each structural step with \`OfficeDocument\` \`get\` or \`view\`.
-3. For generated documents, build hierarchy first: Title, Heading 1, Heading 2, body; then tables/images/fields; then headers/footers.
-4. Use explicit typography. Body 11-12pt; H1 at least 18pt; H2 around 14pt; spacing via paragraph properties, not blank paragraphs.
-5. Add live page-number fields for documents longer than one page when the installed adapter supports the needed field properties. Verify fields with \`OfficeDocument\` \`get\` on \`"/footer[1]"\` at bounded depth.
-6. Final QA: \`OfficeDocument\` \`validate\` plus \`view\` \`outline\`, \`stats\`, \`issues\`, or \`annotated\`. Fix placeholder tokens, clipped tables, empty-paragraph spacing, static page numbers, and missing TOC on heading-heavy documents before reporting done.
-`;
-}
-
-function officeCliXlsxSkillTemplate(): string {
-  return `---
-name: OfficeCLI XLSX
-description: Use when a .xlsx, Excel workbook, spreadsheet, CSV/TSV import, tracker, dashboard, financial model, formula, chart, pivot table, or worksheet template is involved.
-allowed-tools:
-  - OfficeDocument
-  - OfficeDocumentEdit
-  - Read
-required-tools:
-  - OfficeDocument
-  - OfficeDocumentEdit
----
-
-# OfficeCLI XLSX
-
-Use this skill for spreadsheet work. Route workbook inspection and edits through Maka's bounded Office document tools.
-
-## Boundary
-
-- Use \`OfficeDocument\` for read-only inspection: \`help\`, \`view\`, \`get\`, \`query\`, and \`validate\`.
-- Use \`OfficeDocumentEdit\` only for supported writes: \`create\`, \`add\`, \`set\`, and \`remove\`. It is permission-gated and path-bound to the session cwd.
-- Do not call Bash or raw \`officecli\` directly unless the user explicitly asks for shell-level debugging and the normal permission flow allows it.
-- Prefer \`OfficeDocument\` \`help\` with \`topic: "xlsx"\` before guessing selectors or properties. Installed help is authoritative.
-- Quote paths such as \`"/Sheet1/A1"\`, \`"/Sheet1/col[B]"\`, and \`"/Sheet1/row[1]"\`.
-- Single-quote values containing \`$\`, especially number formats: \`--prop numFmt='$#,##0'\`.
-- Unsupported paths stay unsupported: no resident \`open\`/\`close\`, \`html\` view, \`raw\`, \`watch\`, or \`batch\`.
-
-## Workflow
-
-1. Orient with \`OfficeDocument\` \`view\` \`outline\`; use \`view\` \`text\`, \`get\`, and \`query\` for targeted inspection.
-2. For CSV/TSV, prefer native import, then set widths and number formats.
-3. For generated workbooks, create sheets, enter assumptions, formulas, formats, charts, then validate.
-4. Use formulas rather than hardcoded derived values. Put assumptions in cells and cite sources in adjacent notes or comments.
-5. Set readable widths explicitly; default Excel widths often render as \`###\`.
-6. Financial-model convention: blue font for hardcoded inputs, black for formulas, green for same-workbook links, red for external links, yellow fill for assumptions needing review.
-7. Final QA: \`OfficeDocument\` \`validate\` plus \`view\` \`outline\`, \`stats\`, \`issues\`, or \`annotated\`. Fix formula errors, \`###\`, truncated headers, hidden assumptions, placeholder tokens, and chart labels before reporting done.
-`;
-}
-
-function officeCliPptxSkillTemplate(): string {
-  return `---
-name: OfficeCLI PPTX
-description: Use when a .pptx, slide deck, presentation, pitch deck, speaker notes, layout, chart, template, or slides file is involved.
-allowed-tools:
-  - OfficeDocument
-  - OfficeDocumentEdit
-  - Read
-required-tools:
-  - OfficeDocument
-  - OfficeDocumentEdit
----
-
-# OfficeCLI PPTX
-
-Use this skill for presentation work. Route deck inspection and edits through Maka's bounded Office document tools.
-
-## Boundary
-
-- Use \`OfficeDocument\` for read-only inspection: \`help\`, \`view\`, \`get\`, \`query\`, and \`validate\`.
-- Use \`OfficeDocumentEdit\` only for supported writes: \`create\`, \`add\`, \`set\`, and \`remove\`. It is permission-gated and path-bound to the session cwd.
-- Do not call Bash or raw \`officecli\` directly unless the user explicitly asks for shell-level debugging and the normal permission flow allows it.
-- Prefer \`OfficeDocument\` \`help\` with \`topic: "pptx"\` before guessing selectors or properties. Installed help is authoritative.
-- Quote paths such as \`"/slide[1]"\` and \`"/slide[1]/shape[2]"\`.
-- Single-quote text containing \`$\`: \`--prop text='$15M ARR'\`.
-- Unsupported paths stay unsupported: no resident \`open\`/\`close\`, \`html\` view, \`raw\`, \`watch\`, or \`batch\`.
-
-## Workflow
-
-1. Orient with \`OfficeDocument\` \`view\` \`outline\`, \`view\` \`text\`, and targeted \`get\` calls.
-2. For generated decks, use one idea per slide. Dense multi-topic slides should be split.
-3. Set explicit type hierarchy: titles at least 36pt, body text at least 18pt, captions 10-12pt.
-4. Use two fonts max and one coherent palette. Every content slide should carry a non-text visual: chart, shape, icon, screenshot, or image region.
-5. Add speaker notes to content slides.
-6. Check layout math. For 16:9 slides, keep shapes inside 33.87cm x 19.05cm and maintain edge margins.
-7. Final QA: \`OfficeDocument\` \`validate\` plus \`view\` \`outline\`, \`stats\`, \`issues\`, or \`annotated\`. Fix placeholders, overflow, clipped text, low contrast, bullet-only slides, and missing notes before reporting done.
 `;
 }

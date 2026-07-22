@@ -37,6 +37,7 @@ describe('AskUserQuestion runtime round trip', () => {
     const events: SessionEvent[] = [];
     let id = 0;
     const runtime = new ToolRuntime({
+      execution: { kind: 'embedded', getCurrentRunId: () => undefined },
       sessionId: 'session-1',
       header: header(),
       connection: { providerType: 'openai', slug: 'c' } as never,
@@ -78,6 +79,16 @@ describe('AskUserQuestion runtime round trip', () => {
     assert.ok(request);
     assert.equal(request.toolUseId, 'tool-1');
     assert.equal(runtime.pendingUserQuestionCount('turn-1'), 1);
+    const call = appended.find((message) => message.type === 'tool_call');
+    const start = events.find((event) => event.type === 'tool_start');
+    assert.deepEqual(call?.type === 'tool_call' ? call.review : undefined, {
+      kind: 'question',
+      questionCount: 2,
+    });
+    assert.deepEqual(start?.type === 'tool_start' ? start.review : undefined, {
+      kind: 'question',
+      questionCount: 2,
+    });
 
     assert.equal(
       runtime.respondToUserQuestion('turn-1', {
@@ -110,6 +121,7 @@ describe('AskUserQuestion runtime round trip', () => {
     const events: SessionEvent[] = [];
     let id = 0;
     const runtime = new ToolRuntime({
+      execution: { kind: 'embedded', getCurrentRunId: () => undefined },
       sessionId: 'session-1',
       header: header(),
       connection: { providerType: 'openai', slug: 'c' } as never,

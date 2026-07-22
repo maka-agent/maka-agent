@@ -18,6 +18,7 @@ import {
   type CuSemanticAction,
 } from '../computer-use-tools.js';
 import { PermissionEngine } from '../permission-engine.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 
 const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
@@ -345,6 +346,7 @@ function createRuntime(input: {
 }): AiSdkBackend {
   const selectedConnection = input.connection ?? connection('openai');
   return new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async (message) => {

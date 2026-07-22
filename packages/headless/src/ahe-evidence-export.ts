@@ -61,7 +61,8 @@ import type {
   TaskRunArtifact,
   VerifierResult,
 } from './task-contracts.js';
-import type { TaskRunProjection } from './task-run-store.js';
+import { taskRunLocator } from './task-run-identity.js';
+import type { TaskRunProjection } from './task-run-projection.js';
 
 export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260714' as const;
 
@@ -366,7 +367,7 @@ export function makaAheEvidenceFromTaskRunProjections(
     const effectiveExport = official
       ? taskRunExportWithOfficialOverlay(exported, official)
       : exported;
-    const taskRunRef = `${traceBaseRef}/${safePathSegment(projection.taskRunId)}`;
+    const taskRunRef = `${traceBaseRef}/${taskRunLocator(projection.taskRunId)}`;
     const generatedRefs = generatedRefsFor(options.generatedRefs, projection.taskRunId);
     const result = runResultFromProjection(projection, effectiveExport, {
       snapshotId: options.snapshotId,
@@ -435,8 +436,9 @@ export async function writeMakaAheEvidenceExport(
   await writeStableJson(files.targetSnapshotJson, options.snapshot);
 
   for (const projection of sortProjections(options.projections)) {
-    const traceDir = join(outDir, 'traces', safePathSegment(projection.taskRunId));
-    const taskRunRef = `traces/${safePathSegment(projection.taskRunId)}`;
+    const locator = taskRunLocator(projection.taskRunId);
+    const traceDir = join(outDir, 'traces', locator);
+    const taskRunRef = `traces/${locator}`;
     files.traceDirs[projection.taskRunId] = traceDir;
     files.agentRunDirs[projection.taskRunId] = {};
     const taskRunWrite = await writeTaskRunExport(traceDir, projection, {
@@ -705,7 +707,7 @@ function failureDigestFromProjection(
   const authority = scoreAuthority(exported.score, exported.verifier, projection);
   const status = resultStatus(exported, projection, authority);
   if (status === 'official_pass') return undefined;
-  const taskRunRef = `traces/${safePathSegment(projection.taskRunId)}`;
+  const taskRunRef = `traces/${taskRunLocator(projection.taskRunId)}`;
   return {
     schemaVersion: 'maka.ahe.failure_digest.v1',
     taskRunId: projection.taskRunId,

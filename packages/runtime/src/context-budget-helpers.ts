@@ -29,7 +29,7 @@ export function estimateRuntimeEventChars(event: RuntimeEvent): number {
   const content = event.content;
   if (content?.kind === 'text' || content?.kind === 'thinking') total += content.text.length;
   else if (content?.kind === 'function_call')
-    total += content.name.length + stableJsonLength(content.args);
+    total += content.name.length + stableJsonLength(content.review ?? {});
   else if (content?.kind === 'function_response')
     total += content.name.length + stableJsonLength(content.result);
   else if (content?.kind === 'error') total += content.message.length;

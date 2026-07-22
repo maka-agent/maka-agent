@@ -12,7 +12,7 @@ import {
   type TaskRunResult,
   type VerifierResult,
 } from './task-contracts.js';
-import type { TaskRunProjection } from './task-run-store.js';
+import type { TaskRunProjection } from './task-run-projection.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 
 export interface TaskEventsFromResultRecordOptions {

@@ -4,15 +4,18 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  BUNDLED_SKILL_CATALOG,
+  getBundledSkillSource,
+} from '@maka/runtime';
+import {
   installBundledSkill,
   listBundledSkillCatalog,
   listInstalledSkills,
 } from '../skills.js';
-import { BUNDLED_REVERSE_ENGINEERED_SKILLS } from '../bundled-skill-catalog.generated.js';
 import { MANAGED_SKILL_CATEGORIES } from '../managed-skill-sources.js';
 
 const OFFICE_IDS = ['officecli-docx', 'officecli-xlsx', 'officecli-pptx'];
-const EXPECTED_COUNT = OFFICE_IDS.length + BUNDLED_REVERSE_ENGINEERED_SKILLS.length;
+const EXPECTED_COUNT = BUNDLED_SKILL_CATALOG.length;
 
 async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-bundled-catalog-'));
@@ -33,7 +36,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 describe('bundled skill catalog', () => {
-  it('ships the Office and reverse-engineered skills as an install-on-demand catalog', async () => {
+  it('ships every built-in skill through the unified install-on-demand catalog', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const catalog = await listBundledSkillCatalog(workspaceRoot);
       assert.equal(catalog.length, EXPECTED_COUNT);
@@ -53,6 +56,12 @@ describe('bundled skill catalog', () => {
         );
         assert.equal(entry.installed, false);
       }
+
+      assert.equal(
+        getBundledSkillSource('officecli-docx')?.body,
+        BUNDLED_SKILL_CATALOG.find((entry) => entry.id === 'officecli-docx')?.body,
+      );
+      assert.equal(getBundledSkillSource('not-bundled'), undefined);
     });
   });
 
@@ -128,8 +137,8 @@ describe('bundled skill catalog', () => {
     const fromDisk = gen.readBundledSkillSources();
     assert.deepEqual(
       fromDisk,
-      BUNDLED_REVERSE_ENGINEERED_SKILLS.map((skill) => ({ id: skill.id, body: skill.body })),
-      'resources/bundled-skills is out of sync with bundled-skill-catalog.generated.ts — run: node scripts/gen-bundled-skill-catalog.mjs',
+      BUNDLED_SKILL_CATALOG.map((skill) => ({ id: skill.id, body: skill.body })),
+      'resources/bundled-skills is out of sync with bundled-skill-catalog.generated.ts — run: node apps/desktop/scripts/gen-bundled-skill-catalog.mjs',
     );
   });
 });

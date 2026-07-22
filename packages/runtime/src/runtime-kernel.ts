@@ -5,7 +5,7 @@ import type {
   RuntimeEventStore,
   ToolBoundaryProtocol,
 } from '@maka/core';
-import { isSessionInlineRun } from '@maka/core';
+import { isSessionInlineRun, isTerminalRuntimeEvent } from '@maka/core';
 import type {
   CompleteEvent,
   QueueEnqueueOutcome,
@@ -78,8 +78,26 @@ import {
   matchingTerminalRuntimeEvents,
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
+import {
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+} from './interaction-authority.js';
+import {
+  COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED,
+  RunExecution,
+  RuntimeExecutionCoordinator,
+  type RuntimeExecutionCapability,
+  type RuntimeExecutionDrainHandle,
+  type RuntimeInteractionFailStopHandle,
+} from './run-execution.js';
+import { isRuntimeLifecycleFatal } from './runtime-lifecycle-errors.js';
+import { RuntimeMessageAuthorityInvariantError } from './message-authority.js';
 
 export interface RuntimeKernelLike {
+  installInteractionFailStop(
+    error: RuntimeInteractionFailStopError,
+  ): RuntimeInteractionFailStopHandle;
+  beginRuntimeDrain(): RuntimeExecutionDrainHandle;
   startTurn(
     sessionId: string,
     input: UserMessageInput,
@@ -87,8 +105,16 @@ export interface RuntimeKernelLike {
   ): AsyncIterable<SessionEvent>;
   resumeContinuation?(continuation: RuntimeContinuation): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
-  startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
-  startChildRetry?(sessionId: string, input: ChildAgentRetryInput): AsyncIterable<SessionEvent>;
+  startChildTurn(
+    sessionId: string,
+    input: ChildAgentTurnInput,
+    options?: ChildTurnStartOptions,
+  ): AsyncIterable<SessionEvent>;
+  startChildRetry?(
+    sessionId: string,
+    input: ChildAgentRetryInput,
+    options?: ChildTurnStartOptions,
+  ): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
@@ -119,17 +145,16 @@ export interface ChildAgentRetryInput {
   continuation: RuntimeContinuation;
 }
 
-/**
- * A session's two authoritative pending-message queues plus the sink that
- * pushes queue snapshots into the active turn's event stream. The runtime is
- * the single source of truth; UIs mirror it from `queue_update` events and the
- * enqueue results.
- */
-interface PendingSteeringMessage {
-  /** Queue/lease identity — NOT the ledger event id. */
-  id: string;
-  text: string;
+export interface ChildTurnStartOptions {
+  onRunStarted?: (runId: string) => void | Promise<void>;
 }
+
+/**
+ * An embedded session's pending-message queues plus its active event sink.
+ * Hosted runtimes never instantiate this state; the Runtime Host owns their
+ * admission, snapshots, leases, and follow-up drain.
+ */
+interface PendingSteeringMessage extends SteeringLease {}
 
 /**
  * A pulled lease is bound to the turn that pulled it: only the issuing turn's
@@ -180,6 +205,7 @@ export interface RuntimeKernelDeps {
   inspectContinuationSafety?: (sessionId: string) => Promise<RuntimeContinuationSafetyObservation>;
   safeBoundaryResumeEnabled?: boolean;
   continuationFailpoint?: (point: RuntimeContinuationFailpoint) => Promise<void>;
+  execution: RuntimeExecutionCapability;
 }
 
 export interface HistoryCompactCleanupRequest {
@@ -197,8 +223,7 @@ interface ActiveSession extends AgentRunActiveSession {
 }
 
 interface StopTarget {
-  active: ActiveSession;
-  runs: Set<AgentRun>;
+  execution: RunExecution;
   delivered: boolean;
 }
 
@@ -209,24 +234,19 @@ interface StopOperation {
   turnProjections: Map<AgentRun, { id: string; message?: TurnStateMessage; projected: boolean }>;
   abortNote: SystemNoteMessage;
   abortNoteProjected: boolean;
-  targets: Map<ActiveSession, StopTarget>;
-}
-
-interface PendingStopAttempt {
-  input: StopSessionInput;
-  promise: Promise<void>;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-  delivery: Promise<void>;
+  targets: Map<RunExecution, StopTarget>;
 }
 
 export class RuntimeKernel implements RuntimeKernelLike {
+  private readonly executionCoordinator: RuntimeExecutionCoordinator;
+  private runtimeDraining = false;
+  private runtimeDrain: RuntimeExecutionDrainHandle | undefined;
+  private readonly executionsBySession = new Map<string, Set<RunExecution>>();
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
   private readonly stopOperations = new Map<string, StopOperation>();
   private readonly stopAttempts = new Map<string, Promise<void>>();
   private readonly pendingTurnStarts = new Map<string, number>();
-  private readonly pendingStops = new Map<string, PendingStopAttempt>();
   private readonly historyCompactCheckpoints = new Map<
     string,
     HistoryCompactCheckpoint | undefined
@@ -241,11 +261,57 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly pendingContinuationSessions = new Set<string>();
   private readonly steeringBySession = new Map<string, SessionSteeringState>();
   private readonly backendInvalidations = new Set<string>();
+  private readonly backendDisposalFailures = new Map<string, { error: unknown }>();
+  private readonly backendDisposals = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
       throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
     }
+    this.executionCoordinator = new RuntimeExecutionCoordinator(deps.execution);
+  }
+
+  installInteractionFailStop(
+    error: RuntimeInteractionFailStopError,
+  ): RuntimeInteractionFailStopHandle {
+    return this.executionCoordinator.installFailStop(error);
+  }
+
+  beginRuntimeDrain(): RuntimeExecutionDrainHandle {
+    if (this.runtimeDrain) return this.runtimeDrain;
+    const fenced = this.executionCoordinator.beginCleanDrain();
+    this.runtimeDraining = true;
+    const isolation = fenced.executions.map((execution) => execution.beginCleanIsolation());
+    const stop = this.stopExecutions(fenced.executions, { source: undefined }, 'redirect');
+    const ownerIsolationDrain = settleRuntimeTasks([
+      stop,
+      ...isolation,
+      ...fenced.executions.map((execution) => execution.waitForHostOwnerRelease()),
+    ]).then(() => COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED);
+    const reclaimDrain = fenced.reclaimDrain.then(
+      async (settled) => {
+        await this.disposeCachedBackends();
+        return settled;
+      },
+      async (reclaimError: unknown) => {
+        try {
+          await this.disposeCachedBackends();
+        } catch (disposalError) {
+          throw new AggregateError(
+            [reclaimError, disposalError],
+            'Runtime reclaim and cached backend disposal failed',
+          );
+        }
+        throw reclaimError;
+      },
+    );
+    this.runtimeDrain = Object.freeze({
+      ownerIsolationDrain,
+      reclaimDrain,
+    });
+    observeRuntimeTask(this.runtimeDrain.ownerIsolationDrain);
+    observeRuntimeTask(this.runtimeDrain.reclaimDrain);
+    return this.runtimeDrain;
   }
 
   async *startTurn(
@@ -256,19 +322,23 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (this.pendingContinuationSessions.has(sessionId)) {
       throw new Error('Cannot start a turn while a runtime continuation is being claimed');
     }
+    const runId = options.runId ?? this.deps.newId();
+    const execution = this.enterExecution(sessionId, input.turnId, runId);
     this.pendingTurnStarts.set(sessionId, (this.pendingTurnStarts.get(sessionId) ?? 0) + 1);
     let pending = true;
     try {
-      const header = await this.deps.store.readHeader(sessionId);
+      execution.throwIfFailed();
+      const header = await execution.wait(this.deps.store.readHeader(sessionId));
+      execution.throwIfFailed();
       const workspaceIdentity =
         this.deps.safeBoundaryResumeEnabled === true && this.deps.inspectContinuationSafety
-          ? (await this.deps.inspectContinuationSafety(sessionId)).workspaceIdentity
+          ? (await execution.wait(this.deps.inspectContinuationSafety(sessionId))).workspaceIdentity
           : undefined;
       const run = new AgentRun({
         sessionId,
         header,
         userInput: input,
-        runId: options.runId,
+        runId,
         userMessageId: options.userMessageId,
         durability: options.durability,
         store: this.deps.store,
@@ -281,14 +351,17 @@ export class RuntimeKernel implements RuntimeKernelLike {
         newId: this.deps.newId,
         now: this.deps.now,
         ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        assertExecutionActive: () => execution.throwIfFailed(),
         hooks: {
           ensureActive: (targetSessionId, nextHeader) =>
-            this.ensureActive(targetSessionId, nextHeader),
+            this.ensureExecutionBackend(execution, () =>
+              this.ensureActive(targetSessionId, nextHeader),
+            ),
           registerRun: (active, activeRun) => {
-            this.registerRun(active, activeRun);
+            this.registerParentRun(active, activeRun);
             if (pending) {
               pending = false;
-              this.finishPendingTurnStart(sessionId, true);
+              this.finishPendingTurnStart(sessionId);
             }
           },
           unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
@@ -299,9 +372,25 @@ export class RuntimeKernel implements RuntimeKernelLike {
             this.appendTurnState(targetSessionId, turnId, status, lineage, options),
         },
       });
-      yield* this.runAgentTurn(sessionId, input, run, true, options.onRunStarted, header);
+      yield* this.runAgentTurn(
+        sessionId,
+        input,
+        run,
+        execution,
+        true,
+        options.onRunStarted
+          ? (startedRunId) => options.onRunStarted?.(startedRunId, header)
+          : undefined,
+      );
     } finally {
-      if (pending) this.finishPendingTurnStart(sessionId, false);
+      try {
+        if (pending) {
+          const remaining = this.finishPendingTurnStart(sessionId);
+          if (remaining === 0) await this.flushBackendInvalidation(sessionId);
+        }
+      } finally {
+        execution.release();
+      }
     }
   }
 
@@ -377,335 +466,434 @@ export class RuntimeKernel implements RuntimeKernelLike {
       );
     }
 
-    const userInput: UserMessageInput = {
-      turnId: continuation.turnId,
-      text: '',
-      parentRunId: continuation.sourceRunId,
-      parentTurnId: continuation.sourceTurnId,
-    };
-    const run = new AgentRun({
-      sessionId: continuation.sessionId,
-      header,
-      userInput,
-      runId: continuation.runId,
-      invocationId: continuation.invocationId,
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      runtimeEventStore: this.deps.runtimeEventStore,
-      ...(runtimeToolBoundaryProtocol(this.deps, header)
-        ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, header) }
-        : {}),
-      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      workspaceIdentity: continuation.safetySnapshot.workspaceIdentity,
-      effectiveOrchestration: effectiveOrchestrationForRun(sourceRun, header),
-      continuationFailpoint: this.deps.continuationFailpoint,
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) =>
-          this.ensureActive(targetSessionId, nextHeader),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
-        updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
-        updateStatus: (targetSessionId, status, blockedReason, ts) =>
-          this.updateStatus(targetSessionId, status, blockedReason, ts),
-        appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
-          this.appendTurnState(targetSessionId, turnId, status, lineage, options),
-      },
-    });
+    const execution = this.enterExecution(
+      continuation.sessionId,
+      continuation.turnId,
+      continuation.runId,
+    );
+    try {
+      const userInput: UserMessageInput = {
+        turnId: continuation.turnId,
+        text: '',
+        parentRunId: continuation.sourceRunId,
+        parentTurnId: continuation.sourceTurnId,
+      };
+      const run = new AgentRun({
+        sessionId: continuation.sessionId,
+        header,
+        userInput,
+        runId: continuation.runId,
+        invocationId: continuation.invocationId,
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        ...(runtimeToolBoundaryProtocol(this.deps, header)
+          ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, header) }
+          : {}),
+        repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        workspaceIdentity: continuation.safetySnapshot.workspaceIdentity,
+        effectiveOrchestration: effectiveOrchestrationForRun(sourceRun, header),
+        continuationFailpoint: this.deps.continuationFailpoint,
+        assertExecutionActive: () => execution.throwIfFailed(),
+        hooks: {
+          ensureActive: (targetSessionId, nextHeader) =>
+            this.ensureExecutionBackend(execution, () =>
+              this.ensureActive(targetSessionId, nextHeader),
+            ),
+          registerRun: (active, activeRun) => this.registerParentRun(active, activeRun),
+          unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
+          updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
+          updateStatus: (targetSessionId, status, blockedReason, ts) =>
+            this.updateStatus(targetSessionId, status, blockedReason, ts),
+          appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
+            this.appendTurnState(targetSessionId, turnId, status, lineage, options),
+        },
+      });
 
-    yield* this.runAgentContinuation(continuation, run);
+      yield* this.runAgentContinuation(continuation, run, execution);
+    } finally {
+      execution.release();
+    }
   }
 
   async *compactSession(
     sessionId: string,
     input: CompactSessionInput = {},
   ): AsyncIterable<SessionEvent> {
-    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
-      throw new Error('Runtime compaction requires AgentRunStore and RuntimeEventStore');
+    if (this.pendingContinuationSessions.has(sessionId)) {
+      throw new Error('Cannot compact while a runtime continuation is being claimed.');
     }
-    if (this.hasActiveRuns(sessionId)) {
-      throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
-    }
-
-    const header = await this.deps.store.readHeader(sessionId);
     const turnId = input.turnId ?? this.deps.newId();
-    const run = new AgentRun({
-      sessionId,
-      header,
-      userInput: { turnId, text: '' },
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      runtimeEventStore: this.deps.runtimeEventStore,
-      ...(runtimeToolBoundaryProtocol(this.deps, header)
-        ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, header) }
-        : {}),
-      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) =>
-          this.ensureActive(targetSessionId, nextHeader),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
-        updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
-        updateStatus: (targetSessionId, status, blockedReason, ts) =>
-          this.updateStatus(targetSessionId, status, blockedReason, ts),
-        appendTurnState: (targetSessionId, nextTurnId, status, lineage, options) =>
-          this.appendTurnState(targetSessionId, nextTurnId, status, lineage, options),
-      },
-    });
-
-    let begin: Awaited<ReturnType<typeof run.beginOperation>>;
+    const runId = this.deps.newId();
+    const execution = this.enterExecution(sessionId, turnId, runId);
     try {
-      begin = await run.beginOperation();
-    } catch (error) {
-      await run.recordFailure(error);
-      await run.finalize();
-      throw error;
-    }
+      execution.throwIfFailed();
+      if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+        throw new Error('Runtime compaction requires AgentRunStore and RuntimeEventStore');
+      }
+      if (this.hasActiveRuns(sessionId)) {
+        throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
+      }
 
-    try {
-      if (run.isStopped()) return;
-      if (!begin.backend.compactHistory)
-        throw new Error(`Backend ${header.backend} does not support runtime compaction`);
-      const result = await begin.backend.compactHistory({
-        turnId: run.turnId,
-        runtimeContext: begin.runtimeContext,
-      });
-      if (run.isStopped()) return;
-      const tokenUsageEvent: TokenUsageEvent = {
-        type: 'token_usage',
-        id: this.deps.newId(),
-        turnId: run.turnId,
-        ts: this.deps.now(),
-        input: 0,
-        output: 0,
-        ...(result.contextBudget ? { contextBudget: result.contextBudget } : {}),
-      };
-      const completeEvent: CompleteEvent = {
-        type: 'complete',
-        id: this.deps.newId(),
-        turnId: run.turnId,
-        ts: this.deps.now(),
-        stopReason: 'end_turn',
-      };
-      const invocation = this.compactInvocationContext({
+      const header = await execution.wait(this.deps.store.readHeader(sessionId));
+      const run = new AgentRun({
         sessionId,
-        runId: run.runId,
-        turnId: run.turnId,
-        startedAt: begin.startedAt,
+        header,
+        userInput: { turnId, text: '' },
+        runId,
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        ...(runtimeToolBoundaryProtocol(this.deps, header)
+          ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, header) }
+          : {}),
+        repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
+        assertExecutionActive: () => execution.throwIfFailed(),
+        hooks: {
+          ensureActive: (targetSessionId, nextHeader) =>
+            this.ensureExecutionBackend(execution, () =>
+              this.ensureActive(targetSessionId, nextHeader),
+            ),
+          registerRun: (active, activeRun) => this.registerParentRun(active, activeRun),
+          unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
+          updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
+          updateStatus: (targetSessionId, status, blockedReason, ts) =>
+            this.updateStatus(targetSessionId, status, blockedReason, ts),
+          appendTurnState: (targetSessionId, nextTurnId, status, lineage, options) =>
+            this.appendTurnState(targetSessionId, nextTurnId, status, lineage, options),
+        },
       });
-      await run.acceptMappedEvent(
-        tokenUsageEvent,
-        mapSessionEventToRuntimeEvent(tokenUsageEvent, invocation),
-        { requireTerminalWrite: true },
-      );
-      if (run.isStopped()) return;
-      await run.recordStoredSessionEvent(tokenUsageEvent);
-      if (run.isStopped()) return;
-      if (shouldAppendContextCompactionFailedOpenNote(result.contextBudget)) {
-        const note: SystemNoteMessage = {
-          type: 'system_note',
+
+      const begin = await execution.begin(run, () => run.beginOperation());
+
+      let terminalSettled = false;
+      try {
+        if (run.isStopped()) return;
+        if (!begin.backend.compactHistory)
+          throw new Error(`Backend ${header.backend} does not support runtime compaction`);
+        const result = await execution.wait(
+          execution.runReclaim(() =>
+            begin.backend.compactHistory!({
+              turnId: run.turnId,
+              runtimeContext: begin.runtimeContext,
+            }),
+          ),
+        );
+        if (run.isStopped()) return;
+        const tokenUsageEvent: TokenUsageEvent = {
+          type: 'token_usage',
           id: this.deps.newId(),
           turnId: run.turnId,
           ts: this.deps.now(),
-          kind: 'context_compaction_failed_open',
+          input: 0,
+          output: 0,
+          ...(result.contextBudget ? { contextBudget: result.contextBudget } : {}),
         };
-        await this.deps.store.appendMessage(sessionId, note).catch(() => {});
+        const completeEvent: CompleteEvent = {
+          type: 'complete',
+          id: this.deps.newId(),
+          turnId: run.turnId,
+          ts: this.deps.now(),
+          stopReason: 'end_turn',
+        };
+        const invocation = this.compactInvocationContext({
+          sessionId,
+          runId: run.runId,
+          turnId: run.turnId,
+          startedAt: begin.startedAt,
+        });
+        await execution.wait(
+          run.acceptMappedEvent(
+            tokenUsageEvent,
+            mapSessionEventToRuntimeEvent(tokenUsageEvent, invocation),
+            { requireTerminalWrite: true },
+          ),
+        );
+        if (run.isStopped()) return;
+        await execution.wait(run.recordStoredSessionEvent(tokenUsageEvent));
+        if (run.isStopped()) return;
+        if (shouldAppendContextCompactionFailedOpenNote(result.contextBudget)) {
+          execution.throwIfFailed();
+          const note: SystemNoteMessage = {
+            type: 'system_note',
+            id: this.deps.newId(),
+            turnId: run.turnId,
+            ts: this.deps.now(),
+            kind: 'context_compaction_failed_open',
+          };
+          await execution.wait(this.deps.store.appendMessage(sessionId, note).catch(() => {}));
+        }
+        yield tokenUsageEvent;
+        execution.throwIfFailed();
+        if (run.isStopped()) return;
+        const completeRuntimeEvent = mapSessionEventToRuntimeEvent(completeEvent, invocation);
+        const closureReason = execution.claimTerminalEvent(completeRuntimeEvent);
+        await execution.closeForClaim(closureReason);
+        await execution.wait(
+          run.acceptMappedEvent(completeEvent, completeRuntimeEvent, {
+            requireTerminalWrite: true,
+          }),
+        );
+        execution.throwIfFailed();
+        if (run.isStopped()) return;
+        terminalSettled = true;
+        yield completeEvent;
+      } catch (error) {
+        if (execution.canonicalError) throw execution.canonicalError;
+        if (isRuntimeLifecycleFatal(error)) throw error;
+        await execution.failRun(error);
+        terminalSettled = true;
+        throw error;
+      } finally {
+        if (!execution.canonicalError) {
+          if (!terminalSettled && !run.hasStopClaim()) {
+            await execution.failRun(new RuntimeEventConsumerAbandonedError(run.runId));
+          }
+          await execution.finalize();
+        }
       }
-      yield tokenUsageEvent;
-      if (run.isStopped()) return;
-      await run.acceptMappedEvent(
-        completeEvent,
-        mapSessionEventToRuntimeEvent(completeEvent, invocation),
-        { requireTerminalWrite: true },
-      );
-      if (run.isStopped()) return;
-      yield completeEvent;
-    } catch (error) {
-      await run.recordFailure(error);
-      throw error;
     } finally {
-      await run.finalize();
+      execution.release();
     }
   }
 
   async *startChildTurn(
     sessionId: string,
     input: ChildAgentTurnInput,
+    options: ChildTurnStartOptions = {},
   ): AsyncIterable<SessionEvent> {
-    const parentHeader = await this.deps.store.readHeader(sessionId);
-    const definition = requireResolvedAgentDefinition(input.spec.id);
-    const availableChildTools = this.deps.childTools ?? [];
-    assertAgentDefinitionRunnable({
-      parentPermissionMode: parentHeader.permissionMode,
-      definition,
-      tools: availableChildTools,
-    });
-    const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
-    const expertIdentity = parseExpertAgentId(definition.id);
-    const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
-      ? {
-          role: 'member',
-          teamId: expertIdentity.teamId,
-          agentId: definition.id,
-          parentRunId: input.parentRunId,
-        }
-      : undefined;
-    const childHeader: SessionHeader = {
-      ...parentHeader,
-      permissionMode: definition.permissionMode,
-      connectionLocked: true,
-    };
-    const userInput: UserMessageInput = {
-      turnId: input.turnId,
-      text: input.prompt,
-      parentRunId: input.parentRunId,
-      ...(input.resumedFromRunId ? { resumedFromRunId: input.resumedFromRunId } : {}),
-      agentId: definition.id,
-      agentName: definition.name,
-    };
-    const activeKey = childActiveKey(sessionId, input.turnId);
-    const run = new AgentRun({
-      sessionId,
-      header: childHeader,
-      userInput,
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      runtimeEventStore: this.deps.runtimeEventStore,
-      ...(runtimeToolBoundaryProtocol(this.deps, childHeader)
-        ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, childHeader) }
-        : {}),
-      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
-      recordSessionMessages: false,
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) =>
-          this.ensureChildActive(
-            activeKey,
-            targetSessionId,
-            nextHeader,
-            definition.systemPrompt,
-            childTools,
-            agentTeam,
-          ),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterChildRun(activeKey, active, activeRun),
-        updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
-        updateStatus: async () => {},
-        appendTurnState: async () => {},
-      },
-    });
+    if (this.pendingContinuationSessions.has(sessionId)) {
+      throw new Error('Cannot start a child turn while a runtime continuation is being claimed.');
+    }
+    const runId = this.deps.newId();
+    const execution = this.enterExecution(sessionId, input.turnId, runId);
+    try {
+      execution.throwIfFailed();
+      const parentHeader = await execution.wait(this.deps.store.readHeader(sessionId));
+      execution.throwIfFailed();
+      const definition = requireResolvedAgentDefinition(input.spec.id);
+      const availableChildTools = this.deps.childTools ?? [];
+      assertAgentDefinitionRunnable({
+        parentPermissionMode: parentHeader.permissionMode,
+        definition,
+        tools: availableChildTools,
+      });
+      const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
+      const expertIdentity = parseExpertAgentId(definition.id);
+      const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
+        ? {
+            role: 'member',
+            teamId: expertIdentity.teamId,
+            agentId: definition.id,
+            parentRunId: input.parentRunId,
+          }
+        : undefined;
+      const childHeader: SessionHeader = {
+        ...parentHeader,
+        permissionMode: definition.permissionMode,
+        connectionLocked: true,
+      };
+      const userInput: UserMessageInput = {
+        turnId: input.turnId,
+        text: input.prompt,
+        parentRunId: input.parentRunId,
+        ...(input.resumedFromRunId ? { resumedFromRunId: input.resumedFromRunId } : {}),
+        agentId: definition.id,
+        agentName: definition.name,
+      };
+      const activeKey = childActiveKey(sessionId, input.turnId);
+      const run = new AgentRun({
+        sessionId,
+        header: childHeader,
+        userInput,
+        runId,
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        ...(runtimeToolBoundaryProtocol(this.deps, childHeader)
+          ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, childHeader) }
+          : {}),
+        repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
+        recordSessionMessages: false,
+        assertExecutionActive: () => execution.throwIfFailed(),
+        hooks: {
+          ensureActive: (targetSessionId, nextHeader) =>
+            this.ensureExecutionBackend(execution, () =>
+              this.ensureChildActive(
+                activeKey,
+                targetSessionId,
+                nextHeader,
+                definition.systemPrompt,
+                childTools,
+                agentTeam,
+              ),
+            ),
+          registerRun: (active, activeRun) => {
+            this.registerChildRun(activeKey, active, activeRun);
+          },
+          unregisterRun: (active, activeRun) =>
+            this.unregisterChildRun(activeKey, active, activeRun),
+          updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
+          updateStatus: async () => {},
+          appendTurnState: async () => {},
+        },
+      });
 
-    yield* this.runAgentTurn(sessionId, userInput, run);
+      yield* this.runAgentTurn(sessionId, userInput, run, execution, false, options.onRunStarted);
+    } finally {
+      execution.release();
+    }
   }
 
   async *startChildRetry(
     sessionId: string,
     input: ChildAgentRetryInput,
+    options: ChildTurnStartOptions = {},
   ): AsyncIterable<SessionEvent> {
     const { continuation } = input;
     if (continuation.sessionId !== sessionId) {
       throw new Error('Child retry continuation belongs to a different session');
     }
-    const parentHeader = await this.deps.store.readHeader(sessionId);
-    const definition = requireResolvedAgentDefinition(input.spec.id);
-    const availableChildTools = this.deps.childTools ?? [];
-    assertAgentDefinitionRunnable({
-      parentPermissionMode: parentHeader.permissionMode,
-      definition,
-      tools: availableChildTools,
-    });
-    const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
-    const expertIdentity = parseExpertAgentId(definition.id);
-    const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
-      ? {
-          role: 'member',
-          teamId: expertIdentity.teamId,
-          agentId: definition.id,
-          parentRunId: input.parentRunId,
-        }
-      : undefined;
-    const childHeader: SessionHeader = {
-      ...parentHeader,
-      permissionMode: definition.permissionMode,
-      connectionLocked: true,
-    };
-    const userInput: UserMessageInput = {
-      turnId: continuation.turnId,
-      text: '',
-      parentRunId: input.parentRunId,
-      retriedFromRunId: continuation.sourceRunId,
-      agentId: definition.id,
-      agentName: definition.name,
-    };
-    const activeKey = childActiveKey(sessionId, continuation.turnId);
-    const run = new AgentRun({
-      sessionId,
-      header: childHeader,
-      userInput,
-      runId: continuation.runId,
-      invocationId: continuation.invocationId,
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      runtimeEventStore: this.deps.runtimeEventStore,
-      ...(runtimeToolBoundaryProtocol(this.deps, childHeader)
-        ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, childHeader) }
-        : {}),
-      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      workspaceIdentity: continuation.safetySnapshot.workspaceIdentity,
-      effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
-      recordSessionMessages: false,
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) =>
-          this.ensureChildActive(
-            activeKey,
-            targetSessionId,
-            nextHeader,
-            definition.systemPrompt,
-            childTools,
-            agentTeam,
-          ),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterChildRun(activeKey, active, activeRun),
-        updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
-        updateStatus: async () => {},
-        appendTurnState: async () => {},
-      },
-    });
+    if (this.pendingContinuationSessions.has(sessionId)) {
+      throw new Error('Cannot retry a child turn while a runtime continuation is being claimed.');
+    }
+    const execution = this.enterExecution(sessionId, continuation.turnId, continuation.runId);
+    try {
+      execution.throwIfFailed();
+      const parentHeader = await execution.wait(this.deps.store.readHeader(sessionId));
+      execution.throwIfFailed();
+      const definition = requireResolvedAgentDefinition(input.spec.id);
+      const availableChildTools = this.deps.childTools ?? [];
+      assertAgentDefinitionRunnable({
+        parentPermissionMode: parentHeader.permissionMode,
+        definition,
+        tools: availableChildTools,
+      });
+      const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
+      const expertIdentity = parseExpertAgentId(definition.id);
+      const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
+        ? {
+            role: 'member',
+            teamId: expertIdentity.teamId,
+            agentId: definition.id,
+            parentRunId: input.parentRunId,
+          }
+        : undefined;
+      const childHeader: SessionHeader = {
+        ...parentHeader,
+        permissionMode: definition.permissionMode,
+        connectionLocked: true,
+      };
+      const userInput: UserMessageInput = {
+        turnId: continuation.turnId,
+        text: '',
+        parentRunId: input.parentRunId,
+        retriedFromRunId: continuation.sourceRunId,
+        agentId: definition.id,
+        agentName: definition.name,
+      };
+      const activeKey = childActiveKey(sessionId, continuation.turnId);
+      const run = new AgentRun({
+        sessionId,
+        header: childHeader,
+        userInput,
+        runId: continuation.runId,
+        invocationId: continuation.invocationId,
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        ...(runtimeToolBoundaryProtocol(this.deps, childHeader)
+          ? { toolBoundaryProtocol: runtimeToolBoundaryProtocol(this.deps, childHeader) }
+          : {}),
+        repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        workspaceIdentity: continuation.safetySnapshot.workspaceIdentity,
+        effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
+        recordSessionMessages: false,
+        assertExecutionActive: () => execution.throwIfFailed(),
+        hooks: {
+          ensureActive: (targetSessionId, nextHeader) =>
+            this.ensureExecutionBackend(execution, () =>
+              this.ensureChildActive(
+                activeKey,
+                targetSessionId,
+                nextHeader,
+                definition.systemPrompt,
+                childTools,
+                agentTeam,
+              ),
+            ),
+          registerRun: (active, activeRun) => this.registerChildRun(activeKey, active, activeRun),
+          unregisterRun: (active, activeRun) =>
+            this.unregisterChildRun(activeKey, active, activeRun),
+          updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
+          updateStatus: async () => {},
+          appendTurnState: async () => {},
+        },
+      });
 
-    // A provider retry replays the source ledger without recording a second
-    // user prompt and without turning the child into a session continuation.
-    yield* this.runAgentContinuation(continuation, run, false);
+      // A provider retry replays the source ledger without recording a second
+      // user prompt and without turning the child into a session continuation.
+      yield* this.runAgentContinuation(continuation, run, execution, false, options.onRunStarted);
+    } finally {
+      execution.release();
+    }
   }
 
   private async *runAgentTurn(
     sessionId: string,
     input: UserMessageInput,
     run: AgentRun,
+    execution: RunExecution,
     steering = false,
-    onRunStarted?: (runId: string, initialHeader: SessionHeader) => void | Promise<void>,
-    initialHeader?: SessionHeader,
+    onRunStarted?: (runId: string) => void | Promise<void>,
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
-    const abortController = new AbortController();
     let flowDone = false;
-    let begin: AgentRunBeginResult;
-    try {
-      begin = await run.begin();
-      if (onRunStarted && initialHeader) await onRunStarted(run.runId, initialHeader);
-    } catch (error) {
-      await run.recordFailure(error);
-      await run.finalize();
-      throw error;
+    let interactionFailure:
+      | RuntimeInteractionFailStopError
+      | RuntimeInteractionInvariantError
+      | undefined;
+    let expectedInteractionStopCancellation = false;
+    execution.onFailStop((error) => {
+      interactionFailure ??= error;
+      sessionEvents.fail(error);
+    });
+    const begin: AgentRunBeginResult = await execution.begin(run, () => run.begin());
+    if (onRunStarted) {
+      try {
+        await execution.wait(
+          execution.runSuccessorEffect('run_started_callback', async () => {
+            execution.throwIfFailed();
+            if (run.hasStopClaim()) return;
+            await onRunStarted(run.runId);
+          }),
+        );
+      } catch (error) {
+        if (execution.canonicalError) throw execution.canonicalError;
+        if (isRuntimeLifecycleFatal(error)) throw error;
+        await execution.failRun(error);
+        await execution.finalize();
+        throw error;
+      }
     }
 
+    if (run.hasStopClaim()) {
+      await execution.waitLogical(run.waitForStopCompletion());
+      await execution.finalize();
+      return;
+    }
+    const hostedMessageOwner =
+      steering && this.deps.execution.kind === 'hosted' ? execution.bindMessageOwner() : undefined;
     // Steering is a top-level-turn affordance only; child agent turns run
     // without a queue. Ownership is established only AFTER run.begin()
     // succeeds (a failed begin must not leak a live owner into the next turn)
@@ -716,7 +904,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let pullSteering: (() => readonly SteeringLease[]) | undefined;
     let ackSteering: ((leaseIds: readonly string[]) => void) | undefined;
     let nackSteering: ((leaseIds: readonly string[]) => void) | undefined;
-    if (steering) {
+    if (steering && this.deps.execution.kind === 'embedded') {
       const state = this.ensureSteering(sessionId);
       state.sink = (event) => {
         void sessionEvents.push(event).catch(() => {});
@@ -765,7 +953,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
           // Back to the FRONT of the queue: a re-pull at the next step
           // boundary preserves the user's original ordering.
           current.steering = [
-            ...returned.map(({ id, text }) => ({ id, text })),
+            ...returned.map(({ id, messageId, content }) => ({ id, messageId, content })),
             ...current.steering,
           ];
         } else {
@@ -774,42 +962,108 @@ export class RuntimeKernel implements RuntimeKernelLike {
           // steering queue would strand the text ownerless. The followup
           // queue is its only safe home — the same direction a release-time
           // fold takes.
-          current.followup = [...returned.map((message) => message.text), ...current.followup];
+          current.followup = [
+            ...returned.map((message) => message.content.text),
+            ...current.followup,
+          ];
         }
         this.emitQueueUpdate(sessionId, current);
       };
     }
+    if (hostedMessageOwner) {
+      pullSteering = () => hostedMessageOwner.pull();
+      ackSteering = (leaseIds) => hostedMessageOwner.ack(leaseIds);
+      nackSteering = (leaseIds) => hostedMessageOwner.nack(leaseIds);
+    }
 
+    const finishFlow = async (): Promise<void> => {
+      if (flowDone) return;
+      flowDone = true;
+      try {
+        await execution.finalize();
+        execution.throwIfFailed();
+        // Release ownership before closing the stream so the final queue
+        // snapshot can still be delivered to its active sink.
+        if (steering && this.deps.execution.kind === 'embedded') {
+          this.releaseSteeringTurn(sessionId, run.turnId);
+        }
+        sessionEvents.close();
+      } catch (error) {
+        const failure = execution.canonicalError ?? error;
+        if (isRuntimeLifecycleFatal(failure)) {
+          interactionFailure ??= failure;
+        }
+        sessionEvents.fail(failure);
+        throw failure;
+      }
+    };
+
+    let terminalAccepted = false;
     const aiSdkFlow = new AiSdkFlow({
       backend: begin.backend,
       drainAfterTerminal: true,
+      ...(this.deps.execution.kind === 'hosted'
+        ? { interactionProjection: 'host-owned' as const }
+        : {}),
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
-        await run.acceptMappedEvent(sessionEvent, runtimeEvent, {
-          requireTerminalWrite: Boolean(this.deps.runtimeEventStore),
-        });
-        await sessionEvents.push(sessionEvent);
+        execution.throwIfFailed();
+        if (sessionEvent.type === 'error') {
+          const closureReason = run.claimFailureTerminal(
+            Object.assign(new Error(sessionEvent.message), {
+              name: sessionEvent.reason ?? sessionEvent.code ?? 'RuntimeSessionError',
+            }),
+          );
+          await execution.closeForClaim(closureReason);
+        } else if (isTerminalRuntimeEvent(runtimeEvent)) {
+          // The exact AgentRun claim is synchronous and therefore wins before
+          // the first durable Interaction closure await.
+          const closureReason = execution.claimTerminalEvent(runtimeEvent);
+          await execution.closeForClaim(closureReason);
+          terminalAccepted = true;
+        }
+        execution.throwIfFailed();
+        await execution.wait(
+          run.acceptMappedEvent(sessionEvent, runtimeEvent, {
+            requireTerminalWrite: Boolean(this.deps.runtimeEventStore),
+          }),
+        );
+        execution.throwIfFailed();
+        await execution.wait(sessionEvents.push(sessionEvent));
       },
       onError: async (error) => {
-        if (!isAsyncEventQueueClosed(error)) {
-          await run.recordFailure(error);
+        const canonicalError = execution.canonicalError;
+        if (canonicalError) {
+          interactionFailure ??= canonicalError;
+          sessionEvents.fail(canonicalError);
+          return;
+        }
+        if (execution.isExpectedStop(error, this.runtimeDraining)) {
+          expectedInteractionStopCancellation = true;
+          return;
+        }
+        if (isRuntimeLifecycleFatal(error)) {
+          interactionFailure ??= error;
           sessionEvents.fail(error);
+          return;
+        }
+        if (!isAsyncEventQueueClosed(error)) {
+          try {
+            await execution.failRun(error);
+            execution.throwIfFailed();
+            sessionEvents.fail(error);
+          } catch (callbackError) {
+            if (isRuntimeLifecycleFatal(callbackError)) {
+              interactionFailure ??= callbackError;
+              sessionEvents.fail(callbackError);
+            }
+            throw callbackError;
+          }
         }
       },
       onFinally: async () => {
-        flowDone = true;
-        try {
-          await run.finalize();
-          // Release ownership BEFORE the event stream closes: the stranded
-          // steering → followup migration emits a final queue snapshot through
-          // the sink, and a push after close() is a silent no-op. The release
-          // in the outer finally stays as an idempotent backstop for paths
-          // that never reach this hook (identity-checked, so it no-ops here).
-          if (steering) this.releaseSteeringTurn(sessionId, run.turnId);
-          sessionEvents.close();
-        } catch (error) {
-          sessionEvents.fail(error);
-          throw error;
-        }
+        if (interactionFailure || execution.canonicalError) return;
+        if (run.hasPendingStop()) return;
+        await finishFlow();
       },
     });
     const runner = new RuntimeRunner({
@@ -818,105 +1072,254 @@ export class RuntimeKernel implements RuntimeKernelLike {
       stopOnTerminal: false,
       ...(run.toolBoundaryProtocol ? { toolBoundaryProtocol: run.toolBoundaryProtocol } : {}),
     });
-    if (run.isStopped()) abortController.abort();
-    const runnerResult = runner
-      .run({
-        sessionId,
-        invocationId: begin.initialRuntimeEvent.invocationId,
-        runId: run.runId,
-        turnId: run.turnId,
-        ...(begin.backendInput.orchestration
-          ? { orchestration: begin.backendInput.orchestration }
-          : {}),
-        text: input.text,
-        ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
-        ...(begin.backendInput.quotes ? { quotes: begin.backendInput.quotes } : {}),
-        context: begin.backendInput.context,
-        ...(begin.backendInput.runtimeContext !== undefined
-          ? { runtimeContext: begin.backendInput.runtimeContext }
-          : {}),
-        initialRuntimeEvent: begin.initialRuntimeEvent,
-        source: this.deps.runtimeSource ?? 'desktop',
-        lineage: run.lineage,
-        ...(pullSteering ? { pullSteering } : {}),
-        ...(ackSteering ? { ackSteering } : {}),
-        ...(nackSteering ? { nackSteering } : {}),
-        abortSignal: abortController.signal,
-      })
-      .then(
-        async (result) => {
-          if (!flowDone) {
-            flowDone = true;
-            await run.finalize();
-            sessionEvents.close();
-          }
-          await this.deps.runtimeInvocationObserver?.(result);
-          return result;
-        },
-        (error) => {
-          sessionEvents.fail(error);
-          throw error;
-        },
-      );
+    const runnerResult = execution.runReclaim(() =>
+      runner
+        .run({
+          sessionId,
+          invocationId: begin.initialRuntimeEvent.invocationId,
+          runId: run.runId,
+          turnId: run.turnId,
+          ...(begin.backendInput.orchestration
+            ? { orchestration: begin.backendInput.orchestration }
+            : {}),
+          text: input.text,
+          ...(begin.backendInput.attachments
+            ? { attachments: begin.backendInput.attachments }
+            : {}),
+          ...(begin.backendInput.quotes ? { quotes: begin.backendInput.quotes } : {}),
+          context: begin.backendInput.context,
+          ...(begin.backendInput.runtimeContext !== undefined
+            ? { runtimeContext: begin.backendInput.runtimeContext }
+            : {}),
+          initialRuntimeEvent: begin.initialRuntimeEvent,
+          source: this.deps.runtimeSource ?? 'desktop',
+          lineage: run.lineage,
+          ...(pullSteering ? { pullSteering } : {}),
+          ...(ackSteering ? { ackSteering } : {}),
+          ...(nackSteering ? { nackSteering } : {}),
+        })
+        .then(
+          async (result) => {
+            if (execution.canonicalError) throw execution.canonicalError;
+            if (interactionFailure) throw interactionFailure;
+            await finishFlow();
+            if (!expectedInteractionStopCancellation) {
+              execution.throwIfFailed();
+              await this.deps.runtimeInvocationObserver?.(result);
+              execution.throwIfFailed();
+            }
+            return result;
+          },
+          async (error) => {
+            const failure = execution.canonicalError ?? error;
+            if (isRuntimeLifecycleFatal(failure)) {
+              interactionFailure ??= failure;
+              sessionEvents.fail(failure);
+              throw failure;
+            }
+            if (
+              !execution.canonicalError &&
+              !interactionFailure &&
+              expectedInteractionStopCancellation &&
+              execution.isExpectedStop(failure, this.runtimeDraining)
+            ) {
+              await finishFlow();
+              return undefined;
+            }
+            try {
+              await execution.failRun(failure);
+              if (run.hasStopClaim()) {
+                await finishFlow();
+                return undefined;
+              }
+              execution.throwIfFailed();
+              sessionEvents.fail(failure);
+              await finishFlow();
+            } catch (callbackError) {
+              const callbackFailure = execution.canonicalError ?? callbackError;
+              if (isRuntimeLifecycleFatal(callbackFailure)) {
+                interactionFailure ??= callbackFailure;
+              }
+              sessionEvents.fail(callbackFailure);
+              throw callbackFailure;
+            }
+            throw failure;
+          },
+        ),
+    );
+    // The event consumer may remain backpressured after the runner rejects.
+    // This observer always fulfills; the control flow below awaits runnerResult.
+    void runnerResult.catch(() => undefined);
 
+    let consumerCompleted = false;
+    let consumerFailure: unknown;
+    let abandonmentFailure: unknown;
+    let abandoned = false;
     try {
-      for await (const event of sessionEvents) {
-        yield event;
+      try {
+        for await (const event of sessionEvents) {
+          yield event;
+        }
+        consumerCompleted = true;
+        await execution.wait(runnerResult);
+      } catch (error) {
+        consumerFailure = error;
+        throw error;
       }
-      await runnerResult;
     } finally {
-      if (!flowDone) {
-        abortController.abort();
+      if (
+        !consumerCompleted &&
+        consumerFailure === undefined &&
+        !terminalAccepted &&
+        !interactionFailure &&
+        !execution.canonicalError
+      ) {
+        abandoned = true;
+        const abandonError = new RuntimeEventConsumerAbandonedError(run.runId);
+        try {
+          await execution.abandon(
+            abandonError,
+            () => sessionEvents.close(),
+            () => begin.backend.stop('redirect'),
+          );
+        } catch (error) {
+          abandonmentFailure = error;
+        }
+      } else if (!flowDone && !interactionFailure && !execution.canonicalError) {
         sessionEvents.close();
       }
-      await runnerResult.catch(() => undefined);
-      if (steering) this.releaseSteeringTurn(sessionId, run.turnId);
+      let runnerFailure: unknown;
+      if (!abandoned && !interactionFailure && !execution.canonicalError) {
+        try {
+          await execution.wait(runnerResult);
+        } catch (error) {
+          runnerFailure = error;
+        }
+      }
+      if (steering && this.deps.execution.kind === 'embedded') {
+        this.releaseSteeringTurn(sessionId, run.turnId);
+      }
+      if (execution.canonicalError) throw execution.canonicalError;
+      if (abandonmentFailure !== undefined) throw abandonmentFailure;
+      if (isRuntimeLifecycleFatal(runnerFailure)) {
+        throw runnerFailure;
+      }
     }
   }
 
   private async *runAgentContinuation(
     continuation: RuntimeContinuation,
     run: AgentRun,
+    execution: RunExecution,
     persistContinuationSource = true,
+    onRunStarted?: (runId: string) => void | Promise<void>,
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
-    const abortController = new AbortController();
     let flowDone = false;
-    let begin: Awaited<ReturnType<AgentRun['beginContinuation']>>;
-    try {
-      begin = persistContinuationSource
-        ? await run.beginContinuation(continuation)
-        : await run.beginOperation();
-    } catch (error) {
-      await run.recordFailure(error);
-      await run.finalize();
-      throw error;
+    let interactionFailure:
+      | RuntimeInteractionFailStopError
+      | RuntimeInteractionInvariantError
+      | undefined;
+    let expectedInteractionStopCancellation = false;
+    let terminalAccepted = false;
+    execution.onFailStop((error) => {
+      interactionFailure ??= error;
+      sessionEvents.fail(error);
+    });
+
+    const begin = await execution.begin(run, () =>
+      persistContinuationSource ? run.beginContinuation(continuation) : run.beginOperation(),
+    );
+    if (onRunStarted) {
+      try {
+        await execution.wait(
+          execution.runSuccessorEffect('run_started_callback', async () => {
+            execution.throwIfFailed();
+            if (run.hasStopClaim()) return;
+            await onRunStarted(run.runId);
+          }),
+        );
+      } catch (error) {
+        if (execution.canonicalError) throw execution.canonicalError;
+        if (isRuntimeLifecycleFatal(error)) throw error;
+        await execution.failRun(error);
+        await execution.finalize();
+        throw error;
+      }
     }
+    if (run.hasStopClaim()) {
+      await execution.waitLogical(run.waitForStopCompletion());
+      await execution.finalize();
+      return;
+    }
+
+    const finishFlow = async (): Promise<void> => {
+      if (flowDone) return;
+      flowDone = true;
+      try {
+        await execution.finalize();
+        execution.throwIfFailed();
+        sessionEvents.close();
+      } catch (error) {
+        const failure = execution.canonicalError ?? error;
+        if (isRuntimeLifecycleFatal(failure)) interactionFailure ??= failure;
+        sessionEvents.fail(failure);
+        throw failure;
+      }
+    };
 
     const aiSdkFlow = new AiSdkFlow({
       backend: begin.backend,
       drainAfterTerminal: true,
+      ...(this.deps.execution.kind === 'hosted'
+        ? { interactionProjection: 'host-owned' as const }
+        : {}),
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
-        await run.acceptMappedEvent(sessionEvent, runtimeEvent, {
-          requireTerminalWrite: true,
-        });
-        await sessionEvents.push(sessionEvent);
+        execution.throwIfFailed();
+        if (sessionEvent.type === 'error') {
+          const closureReason = run.claimFailureTerminal(
+            Object.assign(new Error(sessionEvent.message), {
+              name: sessionEvent.reason ?? sessionEvent.code ?? 'RuntimeSessionError',
+            }),
+          );
+          await execution.closeForClaim(closureReason);
+        } else if (isTerminalRuntimeEvent(runtimeEvent)) {
+          const closureReason = execution.claimTerminalEvent(runtimeEvent);
+          await execution.closeForClaim(closureReason);
+          terminalAccepted = true;
+        }
+        execution.throwIfFailed();
+        await execution.wait(
+          run.acceptMappedEvent(sessionEvent, runtimeEvent, { requireTerminalWrite: true }),
+        );
+        execution.throwIfFailed();
+        await execution.wait(sessionEvents.push(sessionEvent));
       },
       onError: async (error) => {
+        const canonicalError = execution.canonicalError;
+        if (canonicalError) {
+          interactionFailure ??= canonicalError;
+          sessionEvents.fail(canonicalError);
+          return;
+        }
+        if (execution.isExpectedStop(error, this.runtimeDraining)) {
+          expectedInteractionStopCancellation = true;
+          return;
+        }
+        if (isRuntimeLifecycleFatal(error)) {
+          interactionFailure ??= error;
+          sessionEvents.fail(error);
+          return;
+        }
         if (!isAsyncEventQueueClosed(error)) {
-          await run.recordFailure(error);
+          await execution.failRun(error);
+          execution.throwIfFailed();
           sessionEvents.fail(error);
         }
       },
       onFinally: async () => {
-        flowDone = true;
-        try {
-          await run.finalize();
-          sessionEvents.close();
-        } catch (error) {
-          sessionEvents.fail(error);
-          throw error;
-        }
+        if (interactionFailure || execution.canonicalError || run.hasPendingStop()) return;
+        await finishFlow();
       },
     });
     const runner = new RuntimeRunner({
@@ -925,44 +1328,105 @@ export class RuntimeKernel implements RuntimeKernelLike {
       stopOnTerminal: false,
       ...(run.toolBoundaryProtocol ? { toolBoundaryProtocol: run.toolBoundaryProtocol } : {}),
       commitContinuationStart: async (event) => {
-        await run.recordRuntimeEvents([event], { requireTerminalWrite: true });
+        execution.throwIfFailed();
+        await execution.wait(run.recordRuntimeEvents([event], { requireTerminalWrite: true }));
         if (persistContinuationSource) {
           await this.deps.continuationFailpoint?.('after_continuation_start_committed');
         }
+        execution.throwIfFailed();
       },
     });
-    let runnerFailure: unknown;
-    const runnerResult = runner
-      .resume(continuation, {
-        source: this.deps.runtimeSource ?? 'desktop',
-        orchestration: run.effectiveOrchestration,
-        abortSignal: abortController.signal,
-      })
-      .then(
-        async (result) => {
-          await this.deps.runtimeInvocationObserver?.(result);
-          return result;
-        },
-        (error) => {
-          runnerFailure = error;
-          sessionEvents.fail(error);
-          throw error;
-        },
-      );
+    const runnerResult = execution.runReclaim(() =>
+      runner
+        .resume(continuation, {
+          source: this.deps.runtimeSource ?? 'desktop',
+          orchestration: run.effectiveOrchestration,
+        })
+        .then(
+          async (result) => {
+            if (execution.canonicalError) throw execution.canonicalError;
+            if (interactionFailure) throw interactionFailure;
+            await finishFlow();
+            if (!expectedInteractionStopCancellation) {
+              execution.throwIfFailed();
+              await this.deps.runtimeInvocationObserver?.(result);
+              execution.throwIfFailed();
+            }
+            return result;
+          },
+          async (error) => {
+            const failure = execution.canonicalError ?? error;
+            if (isRuntimeLifecycleFatal(failure)) {
+              interactionFailure ??= failure;
+              sessionEvents.fail(failure);
+              throw failure;
+            }
+            if (
+              expectedInteractionStopCancellation &&
+              execution.isExpectedStop(failure, this.runtimeDraining)
+            ) {
+              await finishFlow();
+              return undefined;
+            }
+            await execution.failRun(failure);
+            if (run.hasStopClaim()) {
+              await finishFlow();
+              return undefined;
+            }
+            execution.throwIfFailed();
+            sessionEvents.fail(failure);
+            await finishFlow();
+            throw failure;
+          },
+        ),
+    );
+    void runnerResult.catch(() => undefined);
 
+    let consumerCompleted = false;
+    let consumerFailure: unknown;
+    let abandonmentFailure: unknown;
+    let abandoned = false;
     try {
-      for await (const event of sessionEvents) {
-        yield event;
+      try {
+        for await (const event of sessionEvents) yield event;
+        consumerCompleted = true;
+        await execution.wait(runnerResult);
+      } catch (error) {
+        consumerFailure = error;
+        throw error;
       }
-      await runnerResult;
     } finally {
-      if (!flowDone) {
-        abortController.abort();
+      if (
+        !consumerCompleted &&
+        consumerFailure === undefined &&
+        !terminalAccepted &&
+        !interactionFailure &&
+        !execution.canonicalError
+      ) {
+        abandoned = true;
+        try {
+          await execution.abandon(
+            new RuntimeEventConsumerAbandonedError(run.runId),
+            () => sessionEvents.close(),
+            () => begin.backend.stop('redirect'),
+          );
+        } catch (error) {
+          abandonmentFailure = error;
+        }
+      } else if (!flowDone && !interactionFailure && !execution.canonicalError) {
         sessionEvents.close();
-        if (runnerFailure !== undefined) await run.recordFailure(runnerFailure);
-        await run.finalize();
       }
-      await runnerResult.catch(() => undefined);
+      let runnerFailure: unknown;
+      if (!abandoned && !interactionFailure && !execution.canonicalError) {
+        try {
+          await execution.wait(runnerResult);
+        } catch (error) {
+          runnerFailure = error;
+        }
+      }
+      if (execution.canonicalError) throw execution.canonicalError;
+      if (abandonmentFailure !== undefined) throw abandonmentFailure;
+      if (isRuntimeLifecycleFatal(runnerFailure)) throw runnerFailure;
     }
   }
 
@@ -995,25 +1459,46 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
+    this.executionCoordinator.throwIfClosed();
     const existing = this.stopAttempts.get(sessionId);
     if (existing) return existing;
-    const attempt = this.stopSessionAttempt(sessionId, input).finally(() => {
+    const executions = [...(this.executionsBySession.get(sessionId) ?? [])];
+    const attempt = this.stopExecutions(executions, input, 'user_stop').finally(() => {
       if (this.stopAttempts.get(sessionId) === attempt) this.stopAttempts.delete(sessionId);
     });
     this.stopAttempts.set(sessionId, attempt);
     return attempt;
   }
 
-  private async stopSessionAttempt(sessionId: string, input: StopSessionInput): Promise<void> {
-    // Interrupt clears both queues before the abort lands; the emitted empty
-    // snapshot lets the UI collapse its pending bar, and callers refill their
-    // editor from the mirror captured before the clear.
-    this.clearSteering(sessionId);
-    const activeSessions = this.activeSessionsFor(sessionId);
-    if (activeSessions.length === 0 && (this.pendingTurnStarts.get(sessionId) ?? 0) > 0) {
-      await this.waitForPendingStop(sessionId, input);
-      return;
+  private async stopExecutions(
+    executions: readonly RunExecution[],
+    input: StopSessionInput,
+    reason: 'user_stop' | 'redirect',
+  ): Promise<void> {
+    const bySession = new Map<string, RunExecution[]>();
+    for (const execution of executions) {
+      const sessionExecutions = bySession.get(execution.sessionId) ?? [];
+      sessionExecutions.push(execution);
+      bySession.set(execution.sessionId, sessionExecutions);
     }
+    // Close every stop claim synchronously before the first Interaction await.
+    for (const execution of executions) {
+      execution.claimStop(input.source, reason, input.mode ?? 'immediate');
+    }
+    await settleRuntimeTasks(
+      [...bySession].map(([sessionId, sessionExecutions]) =>
+        this.stopSessionExecutions(sessionId, sessionExecutions, input, reason),
+      ),
+    );
+  }
+
+  private async stopSessionExecutions(
+    sessionId: string,
+    executions: readonly RunExecution[],
+    input: StopSessionInput,
+    reason: 'user_stop' | 'redirect',
+  ): Promise<void> {
+    this.clearSteering(sessionId);
     let operation = this.stopOperations.get(sessionId);
     if (!operation) {
       const abortSource = normalizeStopSessionSource(input.source);
@@ -1034,39 +1519,34 @@ export class RuntimeKernel implements RuntimeKernelLike {
         targets: new Map(),
       };
     }
-    for (const active of activeSessions) {
-      const stoppedRuns = [...active.activeRuns.values()].filter((run) => {
-        run.stop(input.source);
-        return run.hasPendingStop();
-      });
-      if (stoppedRuns.length === 0) continue;
-      const target = operation.targets.get(active) ?? { active, runs: new Set(), delivered: false };
-      for (const run of stoppedRuns) {
-        target.runs.add(run);
-        if (run.isSessionInline() && !operation.turnProjections.has(run)) {
-          operation.turnProjections.set(run, { id: this.deps.newId(), projected: false });
-        }
-      }
-      operation.targets.set(active, target);
+    for (const execution of executions) {
+      if (!execution.claimStop(input.source, reason, input.mode ?? 'immediate')) continue;
+      operation.targets.set(
+        execution,
+        operation.targets.get(execution) ?? { execution, delivered: false },
+      );
     }
     if (operation.targets.size === 0) return;
     this.stopOperations.set(sessionId, operation);
 
     const undelivered = [...operation.targets.values()].filter((target) => !target.delivered);
-    const results = await Promise.allSettled(
-      undelivered.map((target) => target.active.backend.stop('user_stop', input.mode)),
+    await settleRuntimeTasks(
+      undelivered.map(async (target) => {
+        await target.execution.deliverStop();
+        target.delivered = true;
+      }),
     );
-    let stopError: unknown;
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') undelivered[index]!.delivered = true;
-      else stopError ??= result.reason;
-    });
-    if (stopError !== undefined) throw stopError;
 
-    const stoppedRuns = [
-      ...new Set([...operation.targets.values()].flatMap((target) => [...target.runs])),
-    ];
-    if (!operation.statusProjected) {
+    const stoppedRuns = [...operation.targets.values()]
+      .map((target) => target.execution.agentRun)
+      .filter((run): run is AgentRun => run !== undefined && run.hasStopClaim());
+    for (const run of stoppedRuns) {
+      if (run.isSessionInline() && !operation.turnProjections.has(run)) {
+        operation.turnProjections.set(run, { id: this.deps.newId(), projected: false });
+      }
+    }
+
+    if (!operation.statusProjected && stoppedRuns.length > 0) {
       await this.updateStatus(sessionId, 'aborted', undefined, operation.ts);
       operation.statusProjected = true;
     }
@@ -1084,47 +1564,19 @@ export class RuntimeKernel implements RuntimeKernelLike {
       await this.appendStopProjection(sessionId, projection.message);
       projection.projected = true;
     }
-    if (!operation.abortNoteProjected) {
+    if (!operation.abortNoteProjected && stoppedRuns.length > 0) {
       await this.appendStopProjection(sessionId, operation.abortNote);
       operation.abortNoteProjected = true;
     }
-    for (const run of stoppedRuns) run.completeStop();
+    for (const target of operation.targets.values()) target.execution.completeStop();
     this.stopOperations.delete(sessionId);
   }
 
-  private waitForPendingStop(sessionId: string, input: StopSessionInput): Promise<void> {
-    const existing = this.pendingStops.get(sessionId);
-    if (existing) return existing.promise;
-    let resolve!: () => void;
-    let reject!: (error: unknown) => void;
-    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
-      resolve = resolvePromise;
-      reject = rejectPromise;
-    });
-    this.pendingStops.set(sessionId, {
-      input,
-      promise,
-      resolve,
-      reject,
-      delivery: Promise.resolve(),
-    });
-    return promise;
-  }
-
-  private finishPendingTurnStart(sessionId: string, registered: boolean): void {
+  private finishPendingTurnStart(sessionId: string): number {
     const remaining = Math.max(0, (this.pendingTurnStarts.get(sessionId) ?? 1) - 1);
     if (remaining === 0) this.pendingTurnStarts.delete(sessionId);
     else this.pendingTurnStarts.set(sessionId, remaining);
-    const pendingStop = this.pendingStops.get(sessionId);
-    if (!pendingStop) return;
-    if (registered) {
-      pendingStop.delivery = pendingStop.delivery.then(() =>
-        this.stopSessionAttempt(sessionId, pendingStop.input),
-      );
-    }
-    if (remaining > 0) return;
-    this.pendingStops.delete(sessionId);
-    pendingStop.delivery.then(pendingStop.resolve, pendingStop.reject);
+    return remaining;
   }
 
   private async appendStopProjection(sessionId: string, message: StoredMessage): Promise<void> {
@@ -1141,11 +1593,21 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted permission answers must use the captured continuation',
+      );
+    }
     const activeSessions = this.activeSessionsFor(sessionId);
     await Promise.all(activeSessions.map((active) => active.backend.respondToPermission(response)));
   }
 
   async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted question answers must use the captured continuation',
+      );
+    }
     const activeSessions = this.activeSessionsFor(sessionId);
     await Promise.all(
       activeSessions.map((active) => active.backend.respondToUserQuestion?.(response)),
@@ -1157,6 +1619,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   // --------------------------------------------------------------------------
 
   steer(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.assertEmbeddedMessageQueue('steer');
     // Steering's delivery contract is anchored to the runtime event ledger
     // (fail-closed persist + durable-consume ack). Without a RuntimeEventStore
     // that anchor does not exist — same condition as requireTerminalWrite —
@@ -1169,12 +1632,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
     // fresh turn instead so the message is never dropped.
     const state = this.liveSteeringState(sessionId);
     if (!state) return { kind: 'fallback' };
-    state.steering.push({ id: this.deps.newId(), text });
+    const messageId = this.deps.newId();
+    state.steering.push({ id: messageId, messageId, content: { text } });
     this.emitQueueUpdate(sessionId, state);
     return { kind: 'queued' };
   }
 
   queueMessage(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.assertEmbeddedMessageQueue('queueMessage');
     const state = this.liveSteeringState(sessionId);
     if (!state) return { kind: 'fallback' };
     state.followup.push(text);
@@ -1183,6 +1648,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   drainFollowup(sessionId: string): string | null {
+    this.assertEmbeddedMessageQueue('drainFollowup');
     const state = this.steeringBySession.get(sessionId);
     if (!state || state.followup.length === 0) return null;
     const drained = state.followup.splice(0);
@@ -1191,6 +1657,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   retractQueue(sessionId: string): string {
+    this.assertEmbeddedMessageQueue('retractQueue');
     const state = this.steeringBySession.get(sessionId);
     if (!state) return '';
     // Retract reclaims QUEUED messages only. pull() is the single atomic
@@ -1199,7 +1666,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     // handing its text back to the user here would refill AND execute the
     // same directive. An in-flight lease settles only by the persistence
     // fact (ack when the ledger owns it, nack back to a queue otherwise).
-    const all = [...state.steering.map((message) => message.text), ...state.followup];
+    const all = [...state.steering.map((message) => message.content.text), ...state.followup];
     state.steering = [];
     state.followup = [];
     this.emitQueueUpdate(sessionId, state);
@@ -1212,6 +1679,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const created: SessionSteeringState = { steering: [], inFlight: [], followup: [] };
     this.steeringBySession.set(sessionId, created);
     return created;
+  }
+
+  private assertEmbeddedMessageQueue(operation: string): void {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeMessageAuthorityInvariantError(
+        `Hosted Runtime cannot ${operation}; the Runtime Host owns message admission and queues`,
+      );
+    }
   }
 
   /**
@@ -1232,8 +1707,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
       turnId: state.activeTurnId ?? '',
       ts: this.deps.now(),
       steering: [
-        ...state.inFlight.map((message) => message.text),
-        ...state.steering.map((message) => message.text),
+        ...state.inFlight.map((message) => message.content.text),
+        ...state.steering.map((message) => message.content.text),
       ],
       followup: [...state.followup],
     });
@@ -1264,7 +1739,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       // backstop that keeps a never-settled lease from stranding invisibly.
       if (own.length === 0) return;
       state.inFlight = state.inFlight.filter((message) => message.issuingTurnId !== turnId);
-      state.followup = [...own.map((message) => message.text), ...state.followup];
+      state.followup = [...own.map((message) => message.content.text), ...state.followup];
       this.emitQueueUpdate(sessionId, state);
       return;
     }
@@ -1275,8 +1750,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
     // is cleared; otherwise observers stay on the stale pre-fold snapshot.
     if (state.steering.length > 0 || own.length > 0) {
       state.followup = [
-        ...own.map((message) => message.text),
-        ...state.steering.map((message) => message.text),
+        ...own.map((message) => message.content.text),
+        ...state.steering.map((message) => message.content.text),
         ...state.followup,
       ];
       state.inFlight = state.inFlight.filter((message) => message.issuingTurnId !== turnId);
@@ -1301,16 +1776,51 @@ export class RuntimeKernel implements RuntimeKernelLike {
     await this.flushBackendInvalidation(sessionId);
   }
 
-  async disposeBackend(sessionId: string): Promise<void> {
-    this.backendInvalidations.delete(sessionId);
+  disposeBackend(sessionId: string): Promise<void> {
+    const existing = this.backendDisposals.get(sessionId);
+    if (existing) return existing;
+    let resolveDisposition!: () => void;
+    let rejectDisposition!: (error: unknown) => void;
+    const disposition = new Promise<void>((resolve, reject) => {
+      resolveDisposition = resolve;
+      rejectDisposition = reject;
+    });
+    this.backendDisposals.set(sessionId, disposition);
+    void this.disposeBackendOnce(sessionId).then(
+      () => {
+        if (this.backendDisposals.get(sessionId) === disposition) {
+          this.backendDisposals.delete(sessionId);
+        }
+        resolveDisposition();
+      },
+      (error: unknown) => {
+        rejectDisposition(error);
+      },
+    );
+    return disposition;
+  }
+
+  private async disposeBackendOnce(sessionId: string): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
-    this.active.delete(sessionId);
-    this.steeringBySession.delete(sessionId);
-    this.historyCompactCheckpoints.delete(sessionId);
-    this.historyCompactCheckpointLoads.delete(sessionId);
-    for (const [key, active] of this.childActive.entries()) {
-      if (active.sessionId === sessionId) this.childActive.delete(key);
+    if (this.deps.execution.kind === 'hosted') {
+      this.backendInvalidations.add(sessionId);
+      try {
+        await settleRuntimeTasks(
+          activeSessions.map(async (active) => {
+            await active.backend.dispose();
+          }),
+        );
+      } catch (error) {
+        this.backendDisposalFailures.set(sessionId, { error });
+        throw error;
+      }
+      this.backendDisposalFailures.delete(sessionId);
+      this.backendInvalidations.delete(sessionId);
+      this.deleteBackendIdentity(sessionId);
+      return;
     }
+    this.backendInvalidations.delete(sessionId);
+    this.deleteBackendIdentity(sessionId);
     for (const active of activeSessions) {
       try {
         await active.backend.dispose();
@@ -1318,6 +1828,22 @@ export class RuntimeKernel implements RuntimeKernelLike {
         // best-effort
       }
     }
+  }
+
+  private deleteBackendIdentity(sessionId: string): void {
+    this.active.delete(sessionId);
+    this.steeringBySession.delete(sessionId);
+    this.historyCompactCheckpoints.delete(sessionId);
+    this.historyCompactCheckpointLoads.delete(sessionId);
+    for (const [key, active] of this.childActive.entries()) {
+      if (active.sessionId === sessionId) this.childActive.delete(key);
+    }
+  }
+
+  private async disposeCachedBackends(): Promise<void> {
+    const sessionIds = new Set(this.active.keys());
+    for (const active of this.childActive.values()) sessionIds.add(active.sessionId);
+    await settleRuntimeTasks([...sessionIds].map((sessionId) => this.disposeBackend(sessionId)));
   }
 
   private activeSessionsFor(sessionId: string): ActiveSession[] {
@@ -1343,7 +1869,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let guardedLoad: Promise<HistoryCompactCheckpoint | undefined>;
     guardedLoad = loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore, sessionId)
       .then((checkpoint) => {
-        if (checkpoint) this.scheduleHistoryCompactCleanup(sessionId, checkpoint);
         if (
           this.historyCompactCheckpointLoads.get(sessionId) === guardedLoad &&
           !this.historyCompactCheckpoints.has(sessionId)
@@ -1380,7 +1905,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         }
         await run.recordHistoryCompactCheckpoint(checkpoint);
         this.historyCompactCheckpoints.set(sessionId, checkpoint);
-        this.scheduleHistoryCompactCleanup(sessionId, checkpoint);
+        this.scheduleHistoryCompactCleanup(sessionId, checkpoint, run);
       })
       .finally(() => {
         if (this.historyCompactCheckpointWrites.get(sessionId) === tracked) {
@@ -1394,6 +1919,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private scheduleHistoryCompactCleanup(
     sessionId: string,
     checkpoint: HistoryCompactCheckpoint,
+    run: AgentRun,
   ): void {
     if (
       !this.deps.cleanupHistoryCompactArtifacts ||
@@ -1401,38 +1927,84 @@ export class RuntimeKernel implements RuntimeKernelLike {
       !this.deps.runtimeEventStore
     )
       return;
+    const execution = this.executionForRun(run);
     const previous = this.historyCompactCleanupWrites.get(sessionId) ?? Promise.resolve();
     let tracked: Promise<void>;
-    tracked = previous
-      .catch(() => {})
-      .then(async () => {
-        const runs = (await this.deps.runStore!.listSessionRuns(sessionId)).filter(
-          isSessionInlineRun,
-        );
-        const runtimeEvents: RuntimeEvent[] = [];
-        for (const run of runs) {
-          runtimeEvents.push(
-            ...(await this.deps.runtimeEventStore!.readRuntimeEvents(sessionId, run.runId)),
+    tracked = execution.runSuccessorEffect('history_cleanup', () =>
+      previous
+        .catch((error) => {
+          if (isRuntimeLifecycleFatal(error)) throw error;
+        })
+        .then(async () => {
+          const runs = (await this.deps.runStore!.listSessionRuns(sessionId)).filter(
+            isSessionInlineRun,
           );
-        }
-        await this.deps.cleanupHistoryCompactArtifacts!({
-          sessionId,
-          checkpoint,
-          runtimeEvents,
-        });
-      })
-      .catch(() => {
-        // Legacy cleanup is reclaim-only. Runtime replay must remain available on failure.
-      })
-      .finally(() => {
-        if (this.historyCompactCleanupWrites.get(sessionId) === tracked) {
-          this.historyCompactCleanupWrites.delete(sessionId);
-        }
-      });
+          const runtimeEvents: RuntimeEvent[] = [];
+          for (const run of runs) {
+            runtimeEvents.push(
+              ...(await this.deps.runtimeEventStore!.readRuntimeEvents(sessionId, run.runId)),
+            );
+          }
+          await this.deps.cleanupHistoryCompactArtifacts!({
+            sessionId,
+            checkpoint,
+            runtimeEvents,
+          });
+        })
+        .catch((error) => {
+          if (isRuntimeLifecycleFatal(error)) throw error;
+          // Cleanup is best-effort; Runtime replay remains available on ordinary failure.
+        })
+        .finally(() => {
+          if (this.historyCompactCleanupWrites.get(sessionId) === tracked) {
+            this.historyCompactCleanupWrites.delete(sessionId);
+          }
+        }),
+    );
     this.historyCompactCleanupWrites.set(sessionId, tracked);
   }
 
+  private enterExecution(sessionId: string, turnId: string, runId: string): RunExecution {
+    const execution = this.executionCoordinator.enter({ sessionId, turnId, runId });
+    const sessionExecutions = this.executionsBySession.get(sessionId) ?? new Set<RunExecution>();
+    sessionExecutions.add(execution);
+    this.executionsBySession.set(sessionId, sessionExecutions);
+    void execution.reclaimDrain
+      .finally(() => {
+        sessionExecutions.delete(execution);
+        if (
+          sessionExecutions.size === 0 &&
+          this.executionsBySession.get(sessionId) === sessionExecutions
+        ) {
+          this.executionsBySession.delete(sessionId);
+        }
+      })
+      .catch(() => undefined);
+    return execution;
+  }
+
+  private executionForRun(run: AgentRun): RunExecution {
+    const execution = [...(this.executionsBySession.get(run.sessionId) ?? [])].find(
+      (candidate) => candidate.runId === run.runId,
+    );
+    if (!execution) {
+      throw new RuntimeInteractionInvariantError(
+        `AgentRun ${run.runId} has no live RunExecution owner`,
+      );
+    }
+    return execution;
+  }
+
+  private ensureExecutionBackend(
+    execution: RunExecution,
+    build: () => Promise<ActiveSession>,
+  ): Promise<ActiveSession> {
+    return execution.wait(execution.activateBackend(build));
+  }
+
   private async ensureActive(sessionId: string, header: SessionHeader): Promise<ActiveSession> {
+    const disposalFailure = this.backendDisposalFailures.get(sessionId);
+    if (disposalFailure) throw disposalFailure.error;
     const existing = this.active.get(sessionId);
     if (existing) {
       existing.cachedHeader = header;
@@ -1443,6 +2015,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       workspaceRoot: header.workspaceRoot,
       header,
       store: this.deps.store,
+      execution: { kind: this.deps.execution.kind },
       recordRunTrace: (event) => {
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(event.turnId);
@@ -1519,6 +2092,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
     tools: readonly MakaTool[],
     agentTeam?: AgentTeamExecutionContext,
   ): Promise<ActiveSession> {
+    const disposalFailure = this.backendDisposalFailures.get(sessionId);
+    if (disposalFailure) throw disposalFailure.error;
     const existing = this.childActive.get(activeKey);
     if (existing) {
       existing.cachedHeader = header;
@@ -1529,6 +2104,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       workspaceRoot: header.workspaceRoot,
       header,
       store: this.deps.store,
+      execution: { kind: this.deps.execution.kind },
       appendMessage: async () => {},
       systemPrompt,
       tools,
@@ -1603,6 +2179,16 @@ export class RuntimeKernel implements RuntimeKernelLike {
     active.turnToRunId.set(run.turnId, run.runId);
   }
 
+  private registerParentRun(active: AgentRunActiveSession, run: AgentRun): void {
+    this.active.set(active.sessionId, active as ActiveSession);
+    this.registerRun(active, run);
+  }
+
+  private registerChildRun(activeKey: string, active: AgentRunActiveSession, run: AgentRun): void {
+    this.childActive.set(activeKey, active as ActiveSession);
+    this.registerRun(active, run);
+  }
+
   private unregisterRun(active: AgentRunActiveSession, run: AgentRun): void {
     active.activeRuns.delete(run.runId);
     if (active.turnToRunId.get(run.turnId) === run.runId) {
@@ -1620,9 +2206,22 @@ export class RuntimeKernel implements RuntimeKernelLike {
     active: AgentRunActiveSession,
     run: AgentRun,
   ): Promise<void> {
+    if (this.deps.execution.kind === 'hosted' && active.activeRuns.size === 1) {
+      try {
+        await active.backend.dispose();
+      } catch (error) {
+        this.backendInvalidations.add(active.sessionId);
+        this.backendDisposalFailures.set(active.sessionId, { error });
+        throw error;
+      }
+    }
     this.unregisterRun(active, run);
     if (active.activeRuns.size > 0) return;
     this.childActive.delete(activeKey);
+    if (this.deps.execution.kind === 'hosted') {
+      await this.flushBackendInvalidation(active.sessionId);
+      return;
+    }
     try {
       await active.backend.dispose();
     } catch {
@@ -1632,7 +2231,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   private async flushBackendInvalidation(sessionId: string): Promise<void> {
-    if (!this.backendInvalidations.has(sessionId) || this.hasActiveRuns(sessionId)) return;
+    if (
+      !this.backendInvalidations.has(sessionId) ||
+      (this.pendingTurnStarts.get(sessionId) ?? 0) > 0 ||
+      this.hasActiveRuns(sessionId)
+    )
+      return;
     await this.disposeBackend(sessionId);
   }
 
@@ -1829,6 +2433,33 @@ class AsyncEventQueueClosed extends Error {
     super('Async event queue closed');
     this.name = 'AsyncEventQueueClosed';
   }
+}
+
+class RuntimeEventConsumerAbandonedError extends Error {
+  constructor(runId: string) {
+    super(`Runtime event consumer abandoned run ${runId}`);
+    this.name = 'RuntimeEventConsumerAbandonedError';
+  }
+}
+
+async function settleRuntimeTasks(tasks: readonly Promise<unknown>[]): Promise<void> {
+  const outcomes = await Promise.all(
+    tasks.map((task) =>
+      task.then(
+        () => ({ kind: 'fulfilled' as const }),
+        (error: unknown) => ({ kind: 'rejected' as const, error }),
+      ),
+    ),
+  );
+  const failure = outcomes.find(
+    (outcome): outcome is Extract<typeof outcome, { kind: 'rejected' }> =>
+      outcome.kind === 'rejected',
+  );
+  if (failure) throw failure.error;
+}
+
+function observeRuntimeTask(task: Promise<unknown>): void {
+  void task.catch(() => undefined);
 }
 
 function isAsyncEventQueueClosed(error: unknown): boolean {

@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { setImmediate as flushMacrotask } from 'node:timers/promises';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
-import type { LlmConnection, SessionHeader } from '@maka/core';
+import type { LlmConnection, MessageContent, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { z } from 'zod';
@@ -11,6 +11,7 @@ import { AiSdkBackend } from '../ai-sdk-backend.js';
 import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 
 const RAW_SPAN_ONE = 'RAW_SPAN_ONE_'.repeat(24);
@@ -92,6 +93,8 @@ interface ReactiveFixtureOptions {
   activeToolResultPrune?: boolean;
   /** Test-only gate before a numbered provider request starts. */
   beforeStream?: (call: number) => Promise<void>;
+  /** Optional real image materialization for steering replay assertions. */
+  steeringImageBudget?: { bytes: Uint8Array; maxBytes: number };
 }
 
 interface ReactiveLlmCall {
@@ -323,6 +326,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     : {};
 
   const backend = new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async () => {
@@ -380,6 +384,16 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     ...(options.activeToolResultPrune
       ? { archiveToolResult: () => ({ artifactId: 'artifact-archived-1' }) }
       : {}),
+    ...(options.steeringImageBudget
+      ? {
+          supportsVision: true,
+          maxProviderImageRequestBytes: options.steeringImageBudget.maxBytes,
+          readAttachmentBytes: async () => ({
+            ok: true as const,
+            bytes: options.steeringImageBudget!.bytes,
+          }),
+        }
+      : {}),
     ...seams,
     recordLlmCall: (record) => {
       llmCalls.push(record as (typeof llmCalls)[number]);
@@ -406,7 +420,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
 async function runTurn(
   fixture: ReactiveFixture,
   consumer: 'immediate' | 'slow' = 'immediate',
-  pullSteering?: () => Array<{ id: string; text: string }>,
+  pullSteering?: () => Array<{ id: string; messageId: string; content: MessageContent }>,
 ): Promise<void> {
   for await (const event of fixture.backend.send({
     runId: 'run-1',
@@ -874,7 +888,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+      return [{ id: 'lease-1', messageId: 'lease-1', content: { text: STEER_SENTINEL } }];
     });
 
     assert.equal(fixture.model.doStreamCalls.length, 2);
@@ -902,7 +916,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+      return [{ id: 'lease-1', messageId: 'lease-1', content: { text: STEER_SENTINEL } }];
     });
 
     assert.equal(fixture.model.doStreamCalls.length, 2);
@@ -924,12 +938,37 @@ describe('reactive overflow recovery in the streaming backend', () => {
     // form; re-appending the accumulator on top would double it. Whether the
     // fold keeps the event verbatim in the tail or folds it into the summary
     // (envelope re-injected), the directive appears exactly once per request.
-    const fixture = buildReactiveFixture({ script: ['tool', 'overflow', 'done'], bigPriors: true });
+    // The image exactly fills the send budget. Initial injection and the
+    // overflow ledger rebuild materialize the same occurrence twice; charging
+    // it twice would omit the image from the rebuilt request.
+    const imageBytes = new Uint8Array(10);
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'overflow', 'done'],
+      bigPriors: true,
+      steeringImageBudget: { bytes: imageBytes, maxBytes: imageBytes.length },
+    });
+    const attachment = {
+      kind: 'image' as const,
+      name: 'steering.png',
+      mimeType: 'image/png',
+      bytes: imageBytes.length,
+      ref: {
+        kind: 'session_file' as const,
+        sessionId: 'session-1',
+        relativePath: 'steering.png',
+      },
+    };
     let pulled = false;
     await runTurn(fixture, 'immediate', () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+      return [
+        {
+          id: 'lease-1',
+          messageId: 'lease-1',
+          content: { text: STEER_SENTINEL, attachments: [attachment] },
+        },
+      ];
     });
 
     assert.equal(fixture.model.doStreamCalls.length, 3);
@@ -939,6 +978,8 @@ describe('reactive overflow recovery in the streaming backend', () => {
       const prompt = JSON.stringify(call.prompt);
       assert.equal(countOccurrences(prompt, STEER_SENTINEL), 1);
       assert.equal(countOccurrences(prompt, STEERING_ENVELOPE_PREFIX), 1);
+      assert.equal(countOccurrences(prompt, '"mediaType":"image/png"'), 1);
+      assert.equal(prompt.includes('image attachment(s) omitted'), false);
     }
     assert.equal(fixture.events.filter((event) => event.type === 'steering_message').length, 1);
   });
@@ -966,9 +1007,21 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       pullCount += 1;
       if (pullCount === 2)
-        return [{ id: 'lease-pin-1', text: `PIN_STEER_ONE ${'A'.repeat(6_000)}` }];
+        return [
+          {
+            id: 'lease-pin-1',
+            messageId: 'lease-pin-1',
+            content: { text: `PIN_STEER_ONE ${'A'.repeat(6_000)}` },
+          },
+        ];
       if (pullCount === 3)
-        return [{ id: 'lease-pin-2', text: `PIN_STEER_TWO ${'B'.repeat(12_000)}` }];
+        return [
+          {
+            id: 'lease-pin-2',
+            messageId: 'lease-pin-2',
+            content: { text: `PIN_STEER_TWO ${'B'.repeat(12_000)}` },
+          },
+        ];
       return [];
     });
 
@@ -1004,7 +1057,9 @@ describe('reactive overflow recovery in the streaming backend', () => {
       pullCount += 1;
       // Steer at the SECOND step boundary, after the tool step: the verdict
       // owner (step >= 1) must see the grown payload, not the step-0 baseline.
-      return pullCount === 2 ? [{ id: 'lease-bulk', text: bulkSteer }] : [];
+      return pullCount === 2
+        ? [{ id: 'lease-bulk', messageId: 'lease-bulk', content: { text: bulkSteer } }]
+        : [];
     });
 
     const outcome = complete(fixture);

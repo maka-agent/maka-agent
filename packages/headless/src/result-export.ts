@@ -15,7 +15,7 @@ import {
   type VerifierResult,
 } from './task-contracts.js';
 import { resultRecordFromTaskRunProjection } from './task-run-adapter.js';
-import type { TaskRunProjection } from './task-run-store.js';
+import type { TaskRunProjection } from './task-run-projection.js';
 
 export interface TaskRunExport {
   schemaVersion: 'maka.task_run_export.v1';

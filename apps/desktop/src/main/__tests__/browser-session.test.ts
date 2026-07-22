@@ -14,6 +14,7 @@ import {
   BrowserActionCanceledError,
   BrowserActionRevokedError,
   BrowserToolTimeoutError,
+  detachBrowserSession,
   releaseBrowserSession,
   resetBrowserSessionsForTest,
   revokeHiddenBrowserActions,
@@ -35,10 +36,18 @@ function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 function makeFakePage(url: string | null = null): IPage {
-  return {
+  const page = {
     getCurrentUrl: async () => url,
     evaluate: async () => '' as never,
-  } as unknown as IPage;
+  } as unknown as IPage & { documentId: string };
+  page.documentId = `loader-${nextDocumentId++}`;
+  return page;
+}
+
+let nextDocumentId = 1;
+
+function replaceDocument(page: IPage): void {
+  (page as IPage & { documentId: string }).documentId = `loader-${nextDocumentId++}`;
 }
 
 class FakeBridge implements BridgeLike {
@@ -52,7 +61,13 @@ class FakeBridge implements BridgeLike {
     this.closed = true;
   }
   async send(method: string): Promise<unknown> {
-    if (method === 'Page.reload') this.reloads += 1;
+    if (method === 'Page.getFrameTree') {
+      return { frameTree: { frame: { loaderId: (this.page as IPage & { documentId: string }).documentId } } };
+    }
+    if (method === 'Page.reload') {
+      this.reloads += 1;
+      replaceDocument(this.page);
+    }
     return {};
   }
   async waitForEvent(): Promise<unknown> {
@@ -179,6 +194,54 @@ describe('BrowserSession', () => {
     assert.equal(bridges[0]?.reloads, 0);
   });
 
+  it('retains hardened document identity across Turn detach and reconnect', async () => {
+    installHost();
+    const samePage = makeFakePage('https://example.com/feed');
+    const bridges = installBridges([samePage]);
+    const first = await withBrowserPage('s1', 'click', async (_p, info) => info.takeoverReloaded, {
+      takeover: 'mutate',
+    });
+    await detachBrowserSession('s1');
+    const nextTurn = await withBrowserPage('s1', 'click', async (_p, info) => info.takeoverReloaded, {
+      takeover: 'mutate',
+    });
+    assert.equal(first, true);
+    assert.equal(nextTurn, false);
+    assert.equal(bridges.length, 2);
+    assert.equal(bridges.reduce((total, bridge) => total + bridge.reloads, 0), 1);
+  });
+
+  it('reloads a document replaced while automation was detached', async () => {
+    installHost();
+    const page = makeFakePage('https://example.com/feed');
+    const bridges = installBridges([page]);
+    await withBrowserPage('s1', 'click', async () => undefined, { takeover: 'mutate' });
+    await detachBrowserSession('s1');
+    replaceDocument(page);
+    const nextTurn = await withBrowserPage('s1', 'click', async (_p, info) => info.takeoverReloaded, {
+      takeover: 'mutate',
+    });
+    assert.equal(nextTurn, true);
+    assert.equal(bridges.reduce((total, bridge) => total + bridge.reloads, 0), 2);
+  });
+
+  it('recognizes a replacement document created under a live connection as hardened', async () => {
+    installHost();
+    const page = makeFakePage('https://example.com/feed');
+    const bridges = installBridges([page]);
+    await withBrowserPage('s1', 'click', async () => undefined, { takeover: 'mutate' });
+    replaceDocument(page);
+    const observed = await withBrowserPage('s1', 'snapshot', async (_p, info) => info.takeoverReloaded, {
+      takeover: 'observe',
+    });
+    const mutated = await withBrowserPage('s1', 'click', async (_p, info) => info.takeoverReloaded, {
+      takeover: 'mutate',
+    });
+    assert.equal(observed, false);
+    assert.equal(mutated, false);
+    assert.equal(bridges[0]?.reloads, 1);
+  });
+
   it('never reloads a blank/non-web page, even before a mutate', async () => {
     installHost();
     const bridges = installBridges([makeFakePage(null)]);
@@ -249,6 +312,19 @@ describe('BrowserSession', () => {
     await releaseBrowserSession('s1');
     assert.equal(bridges[0]?.closed, true);
     assert.deepEqual(spy.disposed, ['s1']);
+  });
+
+  it('accepts canonical Turn release when the already-detached local bridge rejects close', async () => {
+    const spy = installHost();
+    const bridge = new FakeBridge(makeFakePage());
+    bridge.close = async () => {
+      throw new Error('local socket already closed');
+    };
+    setBridgeFactoryForTest(() => bridge);
+    await withBrowserPage('s1', 'snapshot', async () => 'ok');
+    await detachBrowserSession('s1');
+    assert.deepEqual(spy.released, ['s1']);
+    assert.deepEqual(spy.disposed, []);
   });
 
   it('unwinds an acquire when the session is released mid-connect', async () => {

@@ -1,10 +1,14 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type {
-  PermissionRequestEvent,
-  SessionHeader,
-  StoredMessage,
-  E2eFixtureState,
+import {
+  taskLedgerEventTypeForUpdate,
+  type E2eFixtureState,
+  type Task,
+  type TaskLedgerEvent,
+  type TaskLedgerRecord,
+  type PermissionRequestEvent,
+  type SessionHeader,
+  type StoredMessage,
 } from '@maka/core';
 import {
   ERROR_SESSION_ID,
@@ -33,7 +37,7 @@ const STREAMING_ANSWER_MARKDOWN = [
 ].join('\n');
 
 export async function writeTaskLedgerFixture(workspaceRoot: string, now: number): Promise<void> {
-  const tasks = [
+  const tasks: Task[] = [
     {
       id: 'task-root-implementation', key: 'T1', subject: '完成会话任务台账升级', status: 'in_progress',
       createdAt: now - 50 * 60_000, updatedAt: now - 2 * 60_000,
@@ -41,7 +45,7 @@ export async function writeTaskLedgerFixture(workspaceRoot: string, now: number)
     },
     {
       id: 'task-child-storage', key: 'T1.1', parentId: 'task-root-implementation',
-      subject: '验证旧 JSONL 迁移与并发短 key 分配', status: 'completed',
+      subject: '验证 JSONL 原子批次与并发短 key 分配', status: 'completed',
       createdAt: now - 45 * 60_000, updatedAt: now - 8 * 60_000, endedAt: now - 8 * 60_000,
       completionEvidence: 'Core 与 Storage 定向测试全部通过。',
     },
@@ -67,11 +71,57 @@ export async function writeTaskLedgerFixture(workspaceRoot: string, now: number)
       completionEvidence: 'Goal gate 定向测试覆盖空任务、阻塞任务、一次提醒和上限放行。',
     },
   ];
+  const events: TaskLedgerEvent[] = [];
+  for (const task of tasks) {
+    let current: Task = {
+      ...task,
+      status: 'pending',
+      updatedAt: task.createdAt,
+    };
+    delete current.endedAt;
+    delete current.blockedReason;
+    delete current.failureReason;
+    delete current.completionEvidence;
+    events.push(fixtureTaskEvent(TURN_SESSION_ID, current, undefined, events.length));
+    if (task.status !== 'pending') {
+      if (task.status !== 'cancelled' && task.status !== 'in_progress') {
+        const started: Task = { ...current, status: 'in_progress', updatedAt: task.updatedAt - 1 };
+        events.push(fixtureTaskEvent(TURN_SESSION_ID, started, current, events.length));
+        current = started;
+      }
+      events.push(fixtureTaskEvent(TURN_SESSION_ID, task, current, events.length));
+    }
+  }
+  const record: TaskLedgerRecord = {
+    version: 1,
+    recordId: 'e2e-fixture-task-ledger-record',
+    sessionId: TURN_SESSION_ID,
+    ts: now,
+    events,
+  };
   await writeFile(
-    join(workspaceRoot, 'sessions', TURN_SESSION_ID, 'tasks.json'),
-    `${JSON.stringify(tasks, null, 2)}\n`,
+    join(workspaceRoot, 'sessions', TURN_SESSION_ID, 'task-events.jsonl'),
+    `${JSON.stringify(record)}\n`,
     'utf8',
   );
+}
+
+function fixtureTaskEvent(
+  sessionId: string,
+  task: Task,
+  previous: Task | undefined,
+  index: number,
+): TaskLedgerEvent {
+  return {
+    eventId: `e2e-fixture-task-event-${index + 1}`,
+    type: previous ? taskLedgerEventTypeForUpdate(previous, task) : 'task_created',
+    ts: task.updatedAt,
+    sessionId,
+    taskId: task.id,
+    ...(previous ? { previousStatus: previous.status } : {}),
+    nextStatus: task.status,
+    task,
+  };
 }
 
 export function turnSession(now: number): SessionHeader {
@@ -96,8 +146,11 @@ export function turnMessages(now: number): StoredMessage[] {
       ts: now - 9 * 60_000 - 50_000,
       toolName: 'Bash',
       displayName: '检查测试状态',
-      intent: '运行测试摘要并读取失败输出',
-      args: { cmd: 'npm test --workspaces --if-present', cwd: '/workspace/maka' },
+      review: {
+        kind: 'command',
+        command: 'npm test --workspaces --if-present',
+        cwd: '/workspace/maka',
+      },
     },
     {
       type: 'tool_result',
@@ -130,8 +183,12 @@ export function turnMessages(now: number): StoredMessage[] {
       ts: now - 9 * 60_000 - 38_000,
       toolName: 'Read',
       displayName: '查看关键 diff',
-      intent: '确认启用模型名单是否有测试覆盖',
-      args: { path: 'apps/desktop/src/renderer/settings/provider-connection-detail.tsx' },
+      review: {
+        kind: 'path',
+        operation: 'read',
+        path: 'apps/desktop/src/renderer/settings/provider-connection-detail.tsx',
+        cwd: '/workspace/maka',
+      },
     },
     {
       type: 'tool_result',
@@ -220,9 +277,13 @@ function multiStepTurnMessages(now: number): StoredMessage[] {
       ts: now - 6 * 60_000 + 4_000,
       toolName: 'Read',
       displayName: '读取 stream-fade.ts',
-      intent: '读取淡入环实现，确认窗口滑动与上限',
       stepId: step1,
-      args: { file_path: 'packages/ui/src/stream-fade.ts' },
+      review: {
+        kind: 'path',
+        operation: 'read',
+        path: 'packages/ui/src/stream-fade.ts',
+        cwd: '/workspace/maka',
+      },
     },
     {
       type: 'tool_result',
@@ -250,9 +311,12 @@ function multiStepTurnMessages(now: number): StoredMessage[] {
       ts: now - 5 * 60_000 + 3_000,
       toolName: 'Bash',
       displayName: '运行 stream-fade 单测',
-      intent: '执行 node --test 跑淡入环与 tokenizer 单测',
       stepId: step2,
-      args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js', cwd: '/workspace/maka' },
+      review: {
+        kind: 'command',
+        command: 'node --test dist/main/__tests__/stream-fade.test.js',
+        cwd: '/workspace/maka',
+      },
     },
     {
       type: 'tool_result',
@@ -341,8 +405,7 @@ export function permissionMessages(now: number): StoredMessage[] {
       ts: now - 4 * 60_000 + 1_000,
       toolName: 'Bash',
       displayName: '模拟删除命令',
-      intent: '清理构建产物目录',
-      args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
+      review: { kind: 'command', command: 'rm -rf ./dist', cwd: '/workspace/maka' },
     },
   ];
 }
@@ -438,9 +501,9 @@ export function permissionLiveTurns(): NonNullable<E2eFixtureState['liveTurnBySe
           toolUseId: request.toolUseId,
           toolName: request.toolName,
           displayName: '模拟删除命令',
-          intent: request.hint,
+          intent: '这会删除构建产物目录；允许前请确认当前工作区。',
           status: 'waiting_permission',
-          args: request.args,
+          args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
         }],
       }],
     },
@@ -459,8 +522,7 @@ function permissionRequest(now: number): PermissionRequestEvent {
     toolName: 'Bash',
     category: 'fs_destructive',
     reason: 'fs_destructive',
-    args: { command: 'rm -rf ./dist', cwd: '/workspace/maka' },
+    review: { kind: 'command', command: 'rm -rf ./dist', cwd: '/workspace/maka' },
     rememberForTurnAllowed: true,
-    hint: '这会删除构建产物目录；允许前请确认当前工作区。',
   };
 }

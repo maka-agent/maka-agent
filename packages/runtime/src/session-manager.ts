@@ -125,6 +125,16 @@ import {
   type RuntimeContinuationSafetyObservation,
   type SafeBoundaryContinuationPlan,
 } from './runtime-resume.js';
+import {
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+} from './interaction-authority.js';
+import type {
+  RuntimeBackendExecutionCapability,
+  RuntimeExecutionCapability,
+  RuntimeExecutionDrainHandle,
+  RuntimeInteractionFailStopHandle,
+} from './run-execution.js';
 
 export interface StopSessionInput {
   source?: 'stop_button' | 'benchmark_deadline';
@@ -323,6 +333,7 @@ export interface BackendFactoryContext {
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
   shellRunContextSummary?: () => Promise<string | undefined>;
+  execution: RuntimeBackendExecutionCapability;
 }
 
 export type BackendFactory = (ctx: BackendFactoryContext) => AgentBackend | Promise<AgentBackend>;
@@ -376,6 +387,7 @@ export interface SessionManagerDeps {
     sourceText: string;
   }) => Promise<string | undefined>;
   onSessionTitleChanged?: (sessionId: string) => void;
+  execution: RuntimeExecutionCapability;
 }
 
 export type RuntimeContinuationLifecycleEvent =
@@ -433,6 +445,16 @@ export class SessionManager {
       });
   }
 
+  installInteractionFailStop(
+    error: RuntimeInteractionFailStopError,
+  ): RuntimeInteractionFailStopHandle {
+    return this.runtimeKernel.installInteractionFailStop(error);
+  }
+
+  beginRuntimeDrain(): RuntimeExecutionDrainHandle {
+    return this.runtimeKernel.beginRuntimeDrain();
+  }
+
   // --------------------------------------------------------------------------
   // Session lifecycle
   // --------------------------------------------------------------------------
@@ -450,6 +472,10 @@ export class SessionManager {
   async refreshIdleBackends(): Promise<void> {
     const sessions = await this.deps.store.list();
     await Promise.all(sessions.map((session) => this.runtimeKernel.invalidateBackend(session.id)));
+  }
+
+  async disposeSessionBackend(sessionId: string): Promise<void> {
+    await this.runtimeKernel.disposeBackend(sessionId);
   }
 
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
@@ -544,7 +570,10 @@ export class SessionManager {
     if (stores.sessionStore !== this.deps.store || stores.agentRunStore !== this.deps.runStore) {
       throw new Error('Strict recovery stores must match the SessionManager composition');
     }
-    return this.recoverInterruptedSessionsWithPolicy({ kind: 'strict', stores });
+    return this.recoverInterruptedSessionsWithPolicy({
+      kind: 'strict',
+      stores,
+    });
   }
 
   private async recoverInterruptedSessionsWithPolicy(policy: RecoveryPolicy): Promise<string[]> {
@@ -675,6 +704,11 @@ export class SessionManager {
   }
 
   async archive(sessionId: string): Promise<void> {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted session archive requires the cross-domain lifecycle coordinator',
+      );
+    }
     const shellRunClose = await this.deps.shellRuns?.terminateSession(sessionId);
     try {
       await this.deps.store.archive(sessionId);
@@ -916,6 +950,11 @@ export class SessionManager {
   }
 
   async remove(sessionId: string): Promise<void> {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted session removal requires the cross-domain lifecycle coordinator',
+      );
+    }
     const shellRunClose = await this.deps.shellRuns?.terminateSession(sessionId);
     try {
       await this.runtimeKernel.disposeBackend(sessionId);
@@ -1322,18 +1361,32 @@ export class SessionManager {
     const startedAt = this.deps.now();
     const summary = new ChildAgentSummaryAccumulator();
     let aborted = input.abortSignal?.aborted === true;
-    await input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name });
-    const iterator = this.startChildTurn(sessionId, {
-      turnId,
-      parentRunId: input.parentRunId,
-      spec: {
-        id: definition.id,
-        name: definition.name,
-        systemPrompt: definition.systemPrompt,
-      },
-      prompt: input.prompt,
-      ...(resumedFromRunId ? { resumedFromRunId } : {}),
-    })[Symbol.asyncIterator]();
+    const iterator = this.runtimeKernel
+      .startChildTurn(
+        sessionId,
+        {
+          turnId,
+          parentRunId: input.parentRunId,
+          spec: {
+            id: definition.id,
+            name: definition.name,
+            systemPrompt: definition.systemPrompt,
+          },
+          prompt: input.prompt,
+          ...(resumedFromRunId ? { resumedFromRunId } : {}),
+        },
+        input.onReady
+          ? {
+              onRunStarted: () =>
+                input.onReady?.({
+                  turnId,
+                  agentId: definition.id,
+                  agentName: definition.name,
+                }),
+            }
+          : undefined,
+      )
+      [Symbol.asyncIterator]();
     const onAbort = () => {
       aborted = true;
       void iterator.return?.();
@@ -1459,19 +1512,28 @@ export class SessionManager {
     const startedAt = this.deps.now();
     const summary = new ChildAgentSummaryAccumulator();
     let aborted = input.abortSignal?.aborted === true;
-    await input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name });
     const startChildRetry = this.runtimeKernel.startChildRetry;
     if (!startChildRetry) throw new Error('RuntimeKernel does not support child agent retry');
     const iterator = startChildRetry
-      .call(this.runtimeKernel, sessionId, {
-        parentRunId: input.parentRunId,
-        spec: {
-          id: definition.id,
-          name: definition.name,
-          systemPrompt: definition.systemPrompt,
+      .call(
+        this.runtimeKernel,
+        sessionId,
+        {
+          parentRunId: input.parentRunId,
+          spec: {
+            id: definition.id,
+            name: definition.name,
+            systemPrompt: definition.systemPrompt,
+          },
+          continuation,
         },
-        continuation,
-      })
+        input.onReady
+          ? {
+              onRunStarted: () =>
+                input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name }),
+            }
+          : undefined,
+      )
       [Symbol.asyncIterator]();
     const onAbort = () => {
       aborted = true;
@@ -1599,7 +1661,12 @@ export class SessionManager {
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
-    await this.runtimeKernel.stopSession(sessionId, input);
+    await this.claimSessionStop(sessionId, input);
+  }
+
+  /** Synchronously commits the Runtime stop claim and returns its terminal completion. */
+  claimSessionStop(sessionId: string, input: StopSessionInput = {}): Promise<void> {
+    return this.runtimeKernel.stopSession(sessionId, input);
   }
 
   /** Queue a user message for mid-turn injection at the next step boundary. */
@@ -1774,10 +1841,20 @@ export class SessionManager {
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted permission answers must use the captured continuation',
+      );
+    }
     await this.runtimeKernel.respondToPermission(sessionId, response);
   }
 
   async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+    if (this.deps.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted question answers must use the captured continuation',
+      );
+    }
     await this.runtimeKernel.respondToUserQuestion?.(sessionId, response);
   }
 
@@ -2228,7 +2305,12 @@ function continuationExecutionErrorClass(error: unknown): string {
   return error instanceof Error ? error.name : 'unknown';
 }
 
-type RecoveryPolicy = { kind: 'best_effort' } | { kind: 'strict'; stores: StrictRecoveryStores };
+type RecoveryPolicy =
+  | { kind: 'best_effort' }
+  | {
+      kind: 'strict';
+      stores: StrictRecoveryStores;
+    };
 
 function listSessionsForRecovery(
   store: SessionStore,

@@ -80,7 +80,7 @@ export interface TaskLedgerMutationContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
-  source?: 'tool' | 'system' | 'recovery' | 'import';
+  source?: 'tool' | 'system' | 'recovery';
   actor?: 'main_agent' | 'child_agent' | 'user' | 'system';
   reason?: string;
 }
@@ -492,9 +492,6 @@ export const TASK_LEDGER_EVENT_TYPES = [
   'task_failed',
   'task_cancelled',
   'task_reopened',
-  'task_resume_classified',
-  'task_repaired',
-  'task_imported',
 ] as const;
 export type TaskLedgerEventType = (typeof TASK_LEDGER_EVENT_TYPES)[number];
 
@@ -504,11 +501,6 @@ export interface TaskLedgerEventRefs {
   toolCallId?: string;
 }
 
-/** Persisted snapshots from before task-ledger v2 legitimately lack these fields. */
-export type TaskLedgerEventTaskSnapshot = Omit<Task, 'key'> & {
-  key?: string;
-};
-
 export interface TaskLedgerEvent {
   eventId: string;
   type: TaskLedgerEventType;
@@ -517,7 +509,7 @@ export interface TaskLedgerEvent {
   taskId: string;
   previousStatus?: TaskStatus;
   nextStatus: TaskStatus;
-  task: TaskLedgerEventTaskSnapshot;
+  task: Task;
   reason?: string;
   evidence?: string;
   refs?: TaskLedgerEventRefs;
@@ -525,10 +517,17 @@ export interface TaskLedgerEvent {
   actor?: TaskLedgerMutationContext['actor'];
 }
 
+export interface TaskLedgerRecord {
+  version: 1;
+  recordId: string;
+  sessionId: string;
+  ts: number;
+  events: TaskLedgerEvent[];
+}
+
 export interface TaskLedgerProjection {
   tasks: Task[];
   diagnostics: string[];
-  backfilledTaskIds: string[];
 }
 
 export function taskLedgerEventTypeForCreate(task: Task): TaskLedgerEventType {
@@ -548,7 +547,7 @@ export function taskLedgerEventTypeForUpdate(previous: Task, next: Task): TaskLe
 }
 
 export function projectTaskLedgerEvents(events: readonly TaskLedgerEvent[]): TaskLedgerProjection {
-  const tasks = new Map<string, TaskLedgerEventTaskSnapshot>();
+  const tasks = new Map<string, Task>();
   const firstSeen = new Map<string, number>();
   const diagnostics: string[] = [];
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
@@ -560,7 +559,7 @@ export function projectTaskLedgerEvents(events: readonly TaskLedgerEvent[]): Tas
     const current = tasks.get(event.taskId);
     const typeDiagnostic = validateTaskLedgerEventType(event, current);
     if (typeDiagnostic) diagnostics.push(typeDiagnostic);
-    if (event.type === 'task_created' || event.type === 'task_imported') {
+    if (event.type === 'task_created') {
       if (current) diagnostics.push(`duplicate ${event.type} for ${event.taskId}`);
       if (!firstSeen.has(event.taskId)) firstSeen.set(event.taskId, eventIndex);
       tasks.set(event.taskId, { ...event.task });
@@ -577,6 +576,9 @@ export function projectTaskLedgerEvents(events: readonly TaskLedgerEvent[]): Tas
         `task event ${event.type} for ${event.taskId} expected previous status ${event.previousStatus} but saw ${current.status}`,
       );
     }
+    for (const diagnostic of validateTaskLedgerStableFields(current, event.task)) {
+      diagnostics.push(`task event ${event.type} for ${event.taskId} ${diagnostic}`);
+    }
     if (
       !canTransitionTaskStatus(current.status, event.nextStatus, {
         explicitReopen: event.type === 'task_reopened',
@@ -588,13 +590,15 @@ export function projectTaskLedgerEvents(events: readonly TaskLedgerEvent[]): Tas
     }
     tasks.set(event.taskId, { ...event.task });
   }
-  const hydrated = hydrateTaskLedger([...tasks.values()], firstSeen, diagnostics);
-  return { tasks: hydrated.tasks, diagnostics, backfilledTaskIds: hydrated.backfilledTaskIds };
+  return {
+    tasks: validateAndSortTaskLedger([...tasks.values()], firstSeen, diagnostics),
+    diagnostics,
+  };
 }
 
 function validateTaskLedgerEventType(
   event: TaskLedgerEvent,
-  current: TaskLedgerEventTaskSnapshot | undefined,
+  current: Task | undefined,
 ): string | undefined {
   switch (event.type) {
     case 'task_created':
@@ -633,11 +637,28 @@ function validateTaskLedgerEventType(
         (current.status === 'failed' && event.nextStatus === 'pending')
         ? undefined
         : `task_reopened for ${event.taskId} must reopen completed -> in_progress, cancelled -> pending, or failed -> pending, saw ${current.status} -> ${event.nextStatus}`;
-    case 'task_resume_classified':
-    case 'task_repaired':
-    case 'task_imported':
-      return undefined;
   }
+}
+
+function validateTaskLedgerStableFields(previous: Task, next: Task): string[] {
+  const diagnostics: string[] = [];
+  if (previous.id !== next.id) {
+    diagnostics.push(`changed stable field id from ${previous.id} to ${next.id}`);
+  }
+  if (previous.key !== next.key) {
+    diagnostics.push(`changed stable field key from ${previous.key} to ${next.key}`);
+  }
+  if (previous.parentId !== next.parentId) {
+    diagnostics.push(
+      `changed stable field parentId from ${previous.parentId ?? '<root>'} to ${next.parentId ?? '<root>'}`,
+    );
+  }
+  if (previous.createdAt !== next.createdAt) {
+    diagnostics.push(
+      `changed stable field createdAt from ${previous.createdAt} to ${next.createdAt}`,
+    );
+  }
+  return diagnostics;
 }
 
 /**
@@ -844,39 +865,39 @@ export function filterModelVisibleTaskLedgerTasks(tasks: readonly Task[]): Task[
 }
 
 export function isTaskLedgerEvent(value: unknown): value is TaskLedgerEvent {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Partial<TaskLedgerEvent>;
+  return decodeTaskLedgerEvent(value) !== undefined;
+}
+
+export function isTaskLedgerRecord(value: unknown): value is TaskLedgerRecord {
+  return decodeTaskLedgerRecord(value) !== undefined;
+}
+
+export function decodeTaskLedgerRecord(value: unknown): TaskLedgerRecord | undefined {
+  if (!isObjectRecord(value) || !hasExactKeys(value, TASK_LEDGER_RECORD_FIELDS)) return undefined;
   if (
-    !isTaskLedgerEventTask(record.task, {
-      allowLegacyMissingEvidence: record.type === 'task_imported',
-    })
-  )
-    return false;
-  return (
-    typeof record.eventId === 'string' &&
-    (TASK_LEDGER_EVENT_TYPES as readonly string[]).includes(String(record.type)) &&
-    typeof record.ts === 'number' &&
-    Number.isFinite(record.ts) &&
-    typeof record.sessionId === 'string' &&
-    typeof record.taskId === 'string' &&
-    record.taskId === record.task.id &&
-    isTaskStatus(record.nextStatus) &&
-    record.nextStatus === record.task.status &&
-    (record.previousStatus === undefined || isTaskStatus(record.previousStatus)) &&
-    (record.reason === undefined || typeof record.reason === 'string') &&
-    (record.evidence === undefined || typeof record.evidence === 'string') &&
-    (record.refs === undefined || isTaskLedgerEventRefs(record.refs)) &&
-    (record.source === undefined ||
-      record.source === 'tool' ||
-      record.source === 'system' ||
-      record.source === 'recovery' ||
-      record.source === 'import') &&
-    (record.actor === undefined ||
-      record.actor === 'main_agent' ||
-      record.actor === 'child_agent' ||
-      record.actor === 'user' ||
-      record.actor === 'system')
-  );
+    value.version !== 1 ||
+    !isSafeTaskId(value.recordId) ||
+    typeof value.sessionId !== 'string' ||
+    typeof value.ts !== 'number' ||
+    !Number.isFinite(value.ts) ||
+    !Array.isArray(value.events) ||
+    value.events.length === 0
+  ) {
+    return undefined;
+  }
+  const events: TaskLedgerEvent[] = [];
+  for (const candidate of value.events) {
+    const event = decodeTaskLedgerEvent(candidate);
+    if (!event) return undefined;
+    events.push(event);
+  }
+  return {
+    version: 1,
+    recordId: value.recordId,
+    sessionId: value.sessionId,
+    ts: value.ts,
+    events,
+  };
 }
 
 function taskLedgerEventTypeForStatus(status: TaskStatus, create: boolean): TaskLedgerEventType {
@@ -897,42 +918,101 @@ function taskLedgerEventTypeForStatus(status: TaskStatus, create: boolean): Task
   }
 }
 
-function isTaskLedgerEventTask(
-  value: unknown,
-  options: { allowLegacyMissingEvidence?: boolean } = {},
-): value is TaskLedgerEventTaskSnapshot {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const task = value as Partial<Task>;
+function decodeTaskLedgerEvent(value: unknown): TaskLedgerEvent | undefined {
+  if (!isObjectRecord(value) || !hasExactKeys(value, TASK_LEDGER_EVENT_FIELDS)) return undefined;
+  const task = decodeTaskLedgerEventTask(value.task);
   if (
-    !isSafeTaskId(task.id) ||
-    !normalizeTaskSubject(task.subject).ok ||
-    !isTaskStatus(task.status) ||
-    typeof task.createdAt !== 'number' ||
-    !Number.isFinite(task.createdAt) ||
-    typeof task.updatedAt !== 'number' ||
-    !Number.isFinite(task.updatedAt) ||
-    (task.blockedReason !== undefined &&
-      !normalizeTaskEvidenceText(task.blockedReason, 'blockedReason').ok) ||
-    (task.failureReason !== undefined &&
-      !normalizeTaskEvidenceText(task.failureReason, 'failureReason').ok) ||
-    (task.completionEvidence !== undefined &&
-      !normalizeTaskEvidenceText(task.completionEvidence, 'completionEvidence').ok) ||
-    (task.resumeTrust !== undefined && !isResumeTrust(task.resumeTrust)) ||
-    (task.key !== undefined && !isTaskKey(task.key)) ||
-    (task.parentId !== undefined && !isSafeTaskId(task.parentId)) ||
-    (task.owner !== undefined && !isTaskOwner(task.owner)) ||
-    (task.endedAt !== undefined &&
-      (typeof task.endedAt !== 'number' || !Number.isFinite(task.endedAt)))
+    !task ||
+    typeof value.eventId !== 'string' ||
+    !(TASK_LEDGER_EVENT_TYPES as readonly unknown[]).includes(value.type) ||
+    typeof value.ts !== 'number' ||
+    !Number.isFinite(value.ts) ||
+    typeof value.sessionId !== 'string' ||
+    typeof value.taskId !== 'string' ||
+    value.taskId !== task.id ||
+    !isTaskStatus(value.nextStatus) ||
+    value.nextStatus !== task.status ||
+    (value.previousStatus !== undefined && !isTaskStatus(value.previousStatus)) ||
+    (value.reason !== undefined && typeof value.reason !== 'string') ||
+    (value.evidence !== undefined && typeof value.evidence !== 'string') ||
+    (value.source !== undefined &&
+      value.source !== 'tool' &&
+      value.source !== 'system' &&
+      value.source !== 'recovery') ||
+    (value.actor !== undefined &&
+      value.actor !== 'main_agent' &&
+      value.actor !== 'child_agent' &&
+      value.actor !== 'user' &&
+      value.actor !== 'system')
   ) {
-    return false;
+    return undefined;
   }
-  if (options.allowLegacyMissingEvidence === true) return true;
-  return validateTaskEvidence({
-    status: task.status,
-    blockedReason: task.blockedReason,
-    failureReason: task.failureReason,
-    completionEvidence: task.completionEvidence,
-  }).ok;
+  const refs = value.refs === undefined ? undefined : decodeTaskLedgerEventRefs(value.refs);
+  if (value.refs !== undefined && !refs) return undefined;
+  return {
+    eventId: value.eventId,
+    type: value.type as TaskLedgerEventType,
+    ts: value.ts,
+    sessionId: value.sessionId,
+    taskId: value.taskId,
+    ...(value.previousStatus !== undefined ? { previousStatus: value.previousStatus } : {}),
+    nextStatus: value.nextStatus,
+    task,
+    ...(value.reason !== undefined ? { reason: value.reason } : {}),
+    ...(value.evidence !== undefined ? { evidence: value.evidence } : {}),
+    ...(refs ? { refs } : {}),
+    ...(value.source !== undefined ? { source: value.source } : {}),
+    ...(value.actor !== undefined ? { actor: value.actor } : {}),
+  };
+}
+
+function decodeTaskLedgerEventTask(value: unknown): Task | undefined {
+  if (!isObjectRecord(value) || !hasExactKeys(value, TASK_FIELDS)) return undefined;
+  const subject = normalizeTaskSubject(value.subject);
+  if (
+    !isSafeTaskId(value.id) ||
+    !isTaskKey(value.key) ||
+    !subject.ok ||
+    subject.value !== value.subject ||
+    !isTaskStatus(value.status) ||
+    typeof value.createdAt !== 'number' ||
+    !Number.isFinite(value.createdAt) ||
+    typeof value.updatedAt !== 'number' ||
+    !Number.isFinite(value.updatedAt) ||
+    (value.parentId !== undefined && !isSafeTaskId(value.parentId)) ||
+    (value.endedAt !== undefined &&
+      (typeof value.endedAt !== 'number' || !Number.isFinite(value.endedAt))) ||
+    (value.resumeTrust !== undefined && !isResumeTrust(value.resumeTrust))
+  ) {
+    return undefined;
+  }
+  const owner = value.owner === undefined ? undefined : decodeTaskOwner(value.owner);
+  if (value.owner !== undefined && !owner) return undefined;
+  const blockedReason = decodeCanonicalTaskEvidence(value.blockedReason, 'blockedReason');
+  const failureReason = decodeCanonicalTaskEvidence(value.failureReason, 'failureReason');
+  const completionEvidence = decodeCanonicalTaskEvidence(
+    value.completionEvidence,
+    'completionEvidence',
+  );
+  if (blockedReason === false || failureReason === false || completionEvidence === false) {
+    return undefined;
+  }
+  const task: Task = {
+    id: value.id,
+    key: value.key,
+    subject: subject.value,
+    status: value.status,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    ...(value.parentId !== undefined ? { parentId: value.parentId } : {}),
+    ...(owner ? { owner } : {}),
+    ...(value.endedAt !== undefined ? { endedAt: value.endedAt } : {}),
+    ...(blockedReason !== undefined ? { blockedReason } : {}),
+    ...(failureReason !== undefined ? { failureReason } : {}),
+    ...(completionEvidence !== undefined ? { completionEvidence } : {}),
+    ...(value.resumeTrust !== undefined ? { resumeTrust: value.resumeTrust } : {}),
+  };
+  return validateTaskEvidence(task).ok ? task : undefined;
 }
 
 export function isTaskOwner(value: unknown): value is TaskOwner {
@@ -946,38 +1026,36 @@ export function isTaskOwner(value: unknown): value is TaskOwner {
   );
 }
 
-function hydrateTaskLedger(
-  snapshots: readonly TaskLedgerEventTaskSnapshot[],
+function validateAndSortTaskLedger(
+  snapshots: readonly Task[],
   firstSeen: ReadonlyMap<string, number>,
   diagnostics: string[],
-): { tasks: Task[]; backfilledTaskIds: string[] } {
+): Task[] {
   const byId = new Map(snapshots.map((task) => [task.id, task]));
   const used = new Set<string>();
-  const backfilled = new Set<string>();
 
   for (const task of snapshots) {
-    if (!task.key) continue;
     if (used.has(task.key)) diagnostics.push(`duplicate task key ${task.key}`);
     used.add(task.key);
   }
   for (const task of snapshots) {
     if (task.parentId && !byId.has(task.parentId))
       diagnostics.push(`task ${task.id} references missing parent ${task.parentId}`);
-    if (task.parentId && task.key) {
+    if (task.parentId) {
       const parent = byId.get(task.parentId);
-      if (parent?.key && !isDirectChildTaskKey(parent.key, task.key)) {
+      if (parent && !isDirectChildTaskKey(parent.key, task.key)) {
         diagnostics.push(
           `task ${task.id} key ${task.key} does not belong under parent key ${parent.key}`,
         );
       }
-    } else if (!task.parentId && task.key && task.key.includes('.')) {
+    } else if (task.key.includes('.')) {
       diagnostics.push(`root task ${task.id} cannot use child key ${task.key}`);
     }
   }
 
   const visiting = new Set<string>();
   const visited = new Set<string>();
-  const visit = (task: TaskLedgerEventTaskSnapshot): void => {
+  const visit = (task: Task): void => {
     if (visited.has(task.id)) return;
     if (visiting.has(task.id)) {
       diagnostics.push(`task hierarchy cycle includes ${task.id}`);
@@ -1000,51 +1078,16 @@ function hydrateTaskLedger(
       a.createdAt - b.createdAt ||
       a.id.localeCompare(b.id),
   );
-  const children = new Map<string | undefined, TaskLedgerEventTaskSnapshot[]>();
-  for (const task of stable) {
-    const bucket = children.get(task.parentId) ?? [];
-    bucket.push(task);
-    children.set(task.parentId, bucket);
-  }
-
-  const assign = (parentId: string | undefined, parentKey: string | undefined): void => {
-    const siblings = children.get(parentId) ?? [];
-    let next = 1;
-    for (const task of siblings) {
-      if (!task.key) {
-        let candidate = parentKey ? `${parentKey}.${next}` : `T${next}`;
-        while (used.has(candidate)) {
-          next += 1;
-          candidate = parentKey ? `${parentKey}.${next}` : `T${next}`;
-        }
-        task.key = candidate;
-        used.add(candidate);
-        backfilled.add(task.id);
-      }
-      if (isTerminalTaskStatus(task.status) && task.endedAt === undefined) {
-        task.endedAt = task.updatedAt;
-        backfilled.add(task.id);
-      }
-      const tail = Number(task.key.split('.').at(-1)?.replace(/^T/, ''));
-      if (Number.isFinite(tail)) next = Math.max(next, tail + 1);
-      assign(task.id, task.key);
-    }
-  };
-  assign(undefined, undefined);
-
   for (const task of snapshots) {
-    if (!task.parentId || !task.key) continue;
+    if (!task.parentId) continue;
     const parent = byId.get(task.parentId);
-    if (parent?.key && !isDirectChildTaskKey(parent.key, task.key)) {
+    if (parent && !isDirectChildTaskKey(parent.key, task.key)) {
       const diagnostic = `task ${task.id} key ${task.key} does not belong under parent key ${parent.key}`;
       if (!diagnostics.includes(diagnostic)) diagnostics.push(diagnostic);
     }
   }
 
-  const tasks = stable.flatMap((task): Task[] => (task.key ? [{ ...task, key: task.key }] : []));
-  if (tasks.length !== snapshots.length)
-    diagnostics.push('task hierarchy could not assign keys to every task');
-  return { tasks, backfilledTaskIds: [...backfilled] };
+  return stable.map((task) => ({ ...task }));
 }
 
 function isDirectChildTaskKey(parentKey: string, childKey: string): boolean {
@@ -1054,18 +1097,104 @@ function isDirectChildTaskKey(parentKey: string, childKey: string): boolean {
   );
 }
 
-function isTaskLedgerEventRefs(value: unknown): value is TaskLedgerEventRefs {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const refs = value as Partial<TaskLedgerEventRefs>;
-  return (
-    (refs.runId === undefined || typeof refs.runId === 'string') &&
-    (refs.turnId === undefined || typeof refs.turnId === 'string') &&
-    (refs.toolCallId === undefined || typeof refs.toolCallId === 'string')
-  );
+function decodeTaskOwner(value: unknown): TaskOwner | undefined {
+  if (!isObjectRecord(value) || !hasExactKeys(value, TASK_OWNER_FIELDS)) return undefined;
+  if (
+    (value.actor !== 'main_agent' && value.actor !== 'child_agent') ||
+    (value.agentId !== undefined && !isSafeTaskId(value.agentId)) ||
+    (value.runId !== undefined && !isSafeTaskId(value.runId)) ||
+    (value.turnId !== undefined && !isSafeTaskId(value.turnId))
+  ) {
+    return undefined;
+  }
+  return {
+    actor: value.actor,
+    ...(value.agentId !== undefined ? { agentId: value.agentId } : {}),
+    ...(value.runId !== undefined ? { runId: value.runId } : {}),
+    ...(value.turnId !== undefined ? { turnId: value.turnId } : {}),
+  };
 }
 
+function decodeTaskLedgerEventRefs(value: unknown): TaskLedgerEventRefs | undefined {
+  if (
+    !isObjectRecord(value) ||
+    Object.keys(value).length === 0 ||
+    !hasExactKeys(value, TASK_LEDGER_EVENT_REF_FIELDS)
+  ) {
+    return undefined;
+  }
+  if (
+    (value.runId !== undefined && typeof value.runId !== 'string') ||
+    (value.turnId !== undefined && typeof value.turnId !== 'string') ||
+    (value.toolCallId !== undefined && typeof value.toolCallId !== 'string')
+  ) {
+    return undefined;
+  }
+  return {
+    ...(value.runId !== undefined ? { runId: value.runId } : {}),
+    ...(value.turnId !== undefined ? { turnId: value.turnId } : {}),
+    ...(value.toolCallId !== undefined ? { toolCallId: value.toolCallId } : {}),
+  };
+}
+
+function decodeCanonicalTaskEvidence(
+  value: unknown,
+  field: 'blockedReason' | 'failureReason' | 'completionEvidence',
+): string | undefined | false {
+  if (value === undefined) return undefined;
+  const normalized = normalizeTaskEvidenceText(value, field);
+  return normalized.ok && normalized.value === value ? normalized.value : false;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, fields: readonly string[]): boolean {
+  return Object.keys(value).every((key) => fields.includes(key));
+}
+
+const TASK_LEDGER_RECORD_FIELDS = ['version', 'recordId', 'sessionId', 'ts', 'events'] as const;
+const TASK_LEDGER_EVENT_FIELDS = [
+  'eventId',
+  'type',
+  'ts',
+  'sessionId',
+  'taskId',
+  'previousStatus',
+  'nextStatus',
+  'task',
+  'reason',
+  'evidence',
+  'refs',
+  'source',
+  'actor',
+] as const;
+const TASK_FIELDS = [
+  'id',
+  'key',
+  'subject',
+  'status',
+  'createdAt',
+  'updatedAt',
+  'parentId',
+  'owner',
+  'endedAt',
+  'blockedReason',
+  'failureReason',
+  'completionEvidence',
+  'resumeTrust',
+] as const;
+const TASK_OWNER_FIELDS = ['actor', 'agentId', 'runId', 'turnId'] as const;
+const TASK_LEDGER_EVENT_REF_FIELDS = ['runId', 'turnId', 'toolCallId'] as const;
+
 function safeTaskLedgerField(value: string): string {
-  return redactSecrets(value).replace(/<\/?task-ledger[^\n>]*>/gi, '');
+  const safe = redactSecrets(value)
+    .replace(/<\/?task-ledger[^\n>]*>/gi, '')
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return safe || '[redacted]';
 }
 
 function evidenceReason(

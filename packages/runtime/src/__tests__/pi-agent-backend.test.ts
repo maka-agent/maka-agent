@@ -13,11 +13,18 @@ import {
   type PiAgentFrame,
   type PiAgentTransport,
 } from '../pi-agent-backend.js';
+import type { RuntimeInteractionRunFacet } from '../interaction-authority.js';
+import {
+  EMBEDDED_RUNTIME_EXECUTION,
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeHostedRunControl,
+} from '../run-execution.js';
 
 describe('PiAgentBackend skeleton', () => {
   test('normalizes fake transport text and tool frames to Maka events and storage records', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -65,6 +72,59 @@ describe('PiAgentBackend skeleton', () => {
     );
   });
 
+  test('hosted Pi storage and events omit provider args', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      execution: { kind: 'hosted' },
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
+      permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_100) }),
+      transport: frames([
+        {
+          type: 'tool_start',
+          toolUseId: 'tool-hosted',
+          toolName: 'Read',
+          args: { path: 'private.txt' },
+        },
+        {
+          type: 'tool_result',
+          toolUseId: 'tool-hosted',
+          content: { kind: 'text', text: 'body' },
+        },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(2_100),
+    });
+    bindHostedBackend(backend, testInteractionAuthority({}));
+
+    const events = await drain(
+      backend.send({
+        turnId: 'turn-1',
+        runId: 'run-1',
+        text: 'inspect',
+        context: [],
+      }),
+    );
+    const toolCall = messages.find((message) => message.type === 'tool_call');
+    const toolStart = events.find((event) => event.type === 'tool_start');
+
+    assert.ok(toolCall && toolCall.type === 'tool_call');
+    assert.ok(toolStart && toolStart.type === 'tool_start');
+    assert.equal(Object.hasOwn(toolCall, 'args'), false);
+    assert.equal(Object.hasOwn(toolStart, 'args'), false);
+    assert.deepEqual(toolCall.review, {
+      kind: 'path',
+      operation: 'read',
+      path: 'private.txt',
+      cwd: '/tmp/maka',
+    });
+    assert.deepEqual(toolStart.review, toolCall.review);
+  });
+
   test('normalizes noncanonical tool payloads before strict storage recovery', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-pi-canonical-'));
     try {
@@ -77,6 +137,7 @@ describe('PiAgentBackend skeleton', () => {
         permissionMode: 'execute',
       });
       const backend = new PiAgentBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: session.id,
         header: session,
         appendMessage: (message) => store.appendMessage(session.id, message),
@@ -120,6 +181,7 @@ describe('PiAgentBackend skeleton', () => {
   test('persists Pi text-tool-text as two stable assistant steps', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -160,6 +222,7 @@ describe('PiAgentBackend skeleton', () => {
   test('keeps sequential Pi tools in one step when no model text separates them', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -189,6 +252,7 @@ describe('PiAgentBackend skeleton', () => {
   test('rotates the local step id when Pi repeats a provider message id after tools', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -220,6 +284,7 @@ describe('PiAgentBackend skeleton', () => {
   test('normalizes token usage frames to Maka events and storage records', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -265,6 +330,7 @@ describe('PiAgentBackend skeleton', () => {
   test('parks ACP permission requests until respondToPermission resolves them', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
       appendMessage: async (message) => {
@@ -312,25 +378,27 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(third.value?.type === 'tool_result' ? third.value.isError : false, true);
   });
 
-  test('isolates canonical Pi args from transport, storage, permission, and event owners', async () => {
+  test('isolates embedded Pi private args and public reviews from transport owners', async () => {
     const initialArgs = {
       command: 'printf password=super-secret',
-      options: { columns: 120 },
     };
-    const projectedArgs = {
-      command: 'printf password=[redacted]',
-      options: { columns: 120 },
+    const projectedReview = {
+      kind: 'command',
+      command: 'printf password=REDACTED',
+      cwd: '/tmp/maka',
     };
     const permissionArgs = structuredClone(initialArgs);
     const toolStartArgs = structuredClone(initialArgs);
     let storedArgs: unknown;
+    let storedReview: unknown;
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
       appendMessage: async (message) => {
         if (message.type !== 'tool_call') return;
         storedArgs = structuredClone(message.args);
-        mutatePiArgs(message.args, 'storage');
+        storedReview = structuredClone(message.review);
       },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_100) }),
       transport: frames([
@@ -355,7 +423,9 @@ describe('PiAgentBackend skeleton', () => {
     const permission = await iterator.next();
     assert.equal(permission.value?.type, 'permission_request');
     if (permission.value?.type !== 'permission_request') return;
-    assert.deepEqual(permission.value.args, initialArgs);
+    assert.equal(permission.value.kind, 'tool_permission');
+    if (permission.value.kind !== 'tool_permission') return;
+    assert.deepEqual(permission.value.review, projectedReview);
     mutatePiArgs(permissionArgs, 'transport');
 
     await backend.respondToPermission({ requestId: permission.value.requestId, decision: 'allow' });
@@ -363,16 +433,20 @@ describe('PiAgentBackend skeleton', () => {
     const toolStart = await iterator.next();
     assert.equal(toolStart.value?.type, 'tool_start');
     assert.deepEqual(
-      toolStart.value?.type === 'tool_start' ? toolStart.value.args : undefined,
-      projectedArgs,
+      toolStart.value?.type === 'tool_start' ? toolStart.value.review : undefined,
+      projectedReview,
     );
-    if (toolStart.value?.type === 'tool_start') mutatePiArgs(toolStart.value.args, 'event');
+    assert.deepEqual(
+      toolStart.value?.type === 'tool_start' ? toolStart.value.args : undefined,
+      initialArgs,
+    );
 
     while (!(await iterator.next()).done) {
       // Drain the turn so the backend releases its permission state.
     }
 
-    assert.deepEqual(storedArgs, projectedArgs);
+    assert.deepEqual(storedArgs, initialArgs);
+    assert.deepEqual(storedReview, projectedReview);
     assert.equal(permissionArgs.command, 'transport');
     assert.deepEqual(toolStartArgs, initialArgs);
   });
@@ -389,6 +463,7 @@ describe('PiAgentBackend skeleton', () => {
       releaseAssistantAppend = resolve;
     });
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
       appendMessage: async (message) => {
@@ -447,7 +522,11 @@ describe('PiAgentBackend skeleton', () => {
           categoryHint: 'shell_unsafe' as const,
         },
         later: { toolName: 'Write', args: { command: 'printf approved' } },
-        expectedStoredArgs: { command: 'printf approved' },
+        expectedStoredReview: {
+          kind: 'command',
+          command: 'printf approved',
+          cwd: '/tmp/maka',
+        },
       },
       {
         name: 'arguments',
@@ -457,7 +536,11 @@ describe('PiAgentBackend skeleton', () => {
           categoryHint: 'shell_unsafe' as const,
         },
         later: { toolName: 'Bash', args: { command: 'printf changed' } },
-        expectedStoredArgs: { command: 'printf approved' },
+        expectedStoredReview: {
+          kind: 'command',
+          command: 'printf approved',
+          cwd: '/tmp/maka',
+        },
       },
       {
         name: 'private Computer Use arguments with the same approval summary',
@@ -466,9 +549,9 @@ describe('PiAgentBackend skeleton', () => {
           args: {
             action: 'type',
             app: 'Example',
+            window_id: 7,
             observation_id: 'frame-1',
             text: 'first secret',
-            coordinate: [10, 20],
           },
           categoryHint: 'computer_use' as const,
         },
@@ -477,17 +560,16 @@ describe('PiAgentBackend skeleton', () => {
           args: {
             action: 'type',
             app: 'Example',
+            window_id: 7,
             observation_id: 'frame-1',
             text: 'second secret',
-            coordinate: [30, 40],
           },
         },
-        expectedStoredArgs: {
+        expectedStoredReview: {
+          kind: 'computer_use',
           action: 'type',
-          approvalClass: 'keyboard_mutation',
-          rememberForTurnAllowed: true,
           app: 'Example',
-          observationId: 'frame-1',
+          windowId: 7,
         },
       },
     ];
@@ -496,6 +578,7 @@ describe('PiAgentBackend skeleton', () => {
       await t.test(drift.name, async () => {
         const messages: StoredMessage[] = [];
         const backend = new PiAgentBackend({
+          execution: EMBEDDED_RUNTIME_EXECUTION,
           sessionId: 'session-1',
           header: header({ permissionMode: 'ask' }),
           appendMessage: async (message) => {
@@ -558,11 +641,15 @@ describe('PiAgentBackend skeleton', () => {
         );
         const storedCall = messages.find((message) => message.type === 'tool_call');
         assert.deepEqual(
+          storedCall?.type === 'tool_call' ? storedCall.review : undefined,
+          drift.expectedStoredReview,
+        );
+        assert.deepEqual(
           storedCall?.type === 'tool_call' ? storedCall.args : undefined,
-          drift.expectedStoredArgs,
+          drift.first.args,
         );
         if (drift.first.categoryHint === 'computer_use') {
-          assert.doesNotMatch(JSON.stringify(messages), /first secret|10|20/);
+          assert.doesNotMatch(JSON.stringify(storedCall?.review), /first secret|10|20/);
         }
       });
     }
@@ -591,6 +678,7 @@ describe('PiAgentBackend skeleton', () => {
     for (const scenario of cases) {
       await t.test(scenario.name, async () => {
         const backend = new PiAgentBackend({
+          execution: EMBEDDED_RUNTIME_EXECUTION,
           sessionId: 'session-1',
           header: header({ permissionMode: scenario.permissionMode }),
           appendMessage: async () => {},
@@ -650,9 +738,10 @@ describe('PiAgentBackend skeleton', () => {
     }
   });
 
-  test('preserves the computer_use category and redacts Computer Use permission args', async () => {
+  test('preserves embedded Computer Use args beside a closed permission review', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
       appendMessage: async (message) => {
@@ -667,9 +756,9 @@ describe('PiAgentBackend skeleton', () => {
           args: {
             action: 'type',
             app: 'Example',
+            window_id: 7,
             observation_id: 'frame-1',
             text: 'secret text',
-            coordinate: [123, 456],
           },
           categoryHint: 'computer_use',
         },
@@ -687,21 +776,33 @@ describe('PiAgentBackend skeleton', () => {
     if (first.value?.type !== 'permission_request') return;
     assert.equal(first.value.category, 'computer_use');
     assert.equal(first.value.reason, 'computer_use');
-    assert.deepEqual(first.value.args, {
+    assert.equal(first.value.kind, 'tool_permission');
+    if (first.value.kind !== 'tool_permission') return;
+    assert.deepEqual(first.value.review, {
+      kind: 'computer_use',
       action: 'type',
-      approvalClass: 'keyboard_mutation',
-      rememberForTurnAllowed: true,
       app: 'Example',
-      observationId: 'frame-1',
+      windowId: 7,
     });
     const toolCall = messages.find((message) => message.type === 'tool_call');
-    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.args : undefined, first.value.args);
-    assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
+    assert.deepEqual(
+      toolCall?.type === 'tool_call' ? toolCall.review : undefined,
+      first.value.review,
+    );
+    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.args : undefined, {
+      action: 'type',
+      app: 'Example',
+      window_id: 7,
+      observation_id: 'frame-1',
+      text: 'secret text',
+    });
+    assert.doesNotMatch(JSON.stringify(toolCall?.review), /secret text|123|456/);
   });
 
-  test('projects raw Computer Use tool_start args before persistence or emission', async () => {
+  test('keeps raw embedded Computer Use args beside projected storage and event reviews', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'bypass' }),
       appendMessage: async (message) => {
@@ -722,7 +823,6 @@ describe('PiAgentBackend skeleton', () => {
             window_id: 42,
             observation_id: 'frame-1',
             text: 'secret text',
-            coordinate: [123, 456],
           },
         },
         { type: 'complete' },
@@ -741,23 +841,31 @@ describe('PiAgentBackend skeleton', () => {
     }
     const start = events.find((event) => event.type === 'tool_start');
     const expected = {
+      kind: 'computer_use',
       action: 'type',
-      approvalClass: 'keyboard_mutation',
-      rememberForTurnAllowed: true,
       app: 'Example',
       windowId: 42,
-      observationId: 'frame-1',
     };
-    assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expected);
+    assert.deepEqual(start?.type === 'tool_start' ? start.review : undefined, expected);
     const toolCall = messages.find((message) => message.type === 'tool_call');
-    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.args : undefined, expected);
-    assert.doesNotMatch(JSON.stringify(events), /secret text|123|456/);
-    assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
+    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.review : undefined, expected);
+    const expectedArgs = {
+      action: 'type',
+      app: 'Example',
+      window_id: 42,
+      observation_id: 'frame-1',
+      text: 'secret text',
+    };
+    assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expectedArgs);
+    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.args : undefined, expectedArgs);
+    assert.doesNotMatch(JSON.stringify(start?.review), /secret text|123|456/);
+    assert.doesNotMatch(JSON.stringify(toolCall?.review), /secret text|123|456/);
   });
 
   test('suppresses later child output for a denied permission request', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
       appendMessage: async (message) => {
@@ -820,6 +928,7 @@ describe('PiAgentBackend skeleton', () => {
     let stopReason: string | null = null;
     let disposed = false;
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
       appendMessage: async () => {},
@@ -868,6 +977,7 @@ describe('PiAgentBackend skeleton', () => {
       releaseTransport = resolve;
     });
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -911,6 +1021,7 @@ describe('PiAgentBackend skeleton', () => {
   test('persists partial Pi text before a reported terminal error', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -940,6 +1051,7 @@ describe('PiAgentBackend skeleton', () => {
   test('persists partial Pi text before a transport failure', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
       appendMessage: async (message) => {
@@ -987,6 +1099,41 @@ function frames(items: PiAgentFrame[]): PiAgentTransport {
     async *send() {
       for (const item of items) yield item;
     },
+    isolateRegisteredSuccessorSideEffects: async () => {},
+  };
+}
+
+function bindHostedBackend(
+  backend: PiAgentBackend,
+  interactions: RuntimeInteractionRunFacet,
+): void {
+  const control: RuntimeHostedRunControl = {
+    runId: 'run-1',
+    turnId: 'turn-1',
+    interactions,
+    hasStopClaim: () => false,
+    claimFailure: () => {},
+    fail: () => {},
+    runSuccessorEffect: (_kind, operation) => operation(),
+  };
+  backend[RUNTIME_BIND_HOSTED_RUN](control);
+}
+
+function testInteractionAuthority(
+  overrides: Partial<RuntimeInteractionRunFacet>,
+): RuntimeInteractionRunFacet {
+  const unexpected = async (): Promise<never> => {
+    throw new Error('Unexpected RuntimeInteractionAuthority call');
+  };
+  return {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    runId: 'run-1',
+    acceptPermissionRequest: unexpected,
+    commitPermissionAnswer: unexpected,
+    commitPermissionTimeout: unexpected,
+    acceptUserQuestionRequest: unexpected,
+    ...overrides,
   };
 }
 
@@ -1035,7 +1182,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 function mutatePiArgs(value: unknown, owner: string): void {
-  const mutable = value as { command: string; options: { columns: number } };
-  mutable.command = owner;
-  mutable.options.columns = owner.length;
+  const mutable = value as { command?: string };
+  if (mutable.command !== undefined) mutable.command = owner;
 }

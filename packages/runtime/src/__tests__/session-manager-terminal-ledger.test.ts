@@ -34,6 +34,7 @@ import {
 } from '../terminal-run-commit.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import { RuntimeKernel } from '../runtime-kernel.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 
 describe('SessionManager terminal ledger invariants', () => {
   test('error streams persist a failed terminal fact without non-terminal error ledger rows', async () => {
@@ -78,6 +79,7 @@ describe('SessionManager terminal ledger invariants', () => {
       return backend;
     });
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -129,6 +131,7 @@ describe('SessionManager terminal ledger invariants', () => {
       (ctx) => new ScriptBackend(ctx, [{ type: 'complete', stopReason: 'step_limit' }]),
     );
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -473,6 +476,7 @@ describe('SessionManager terminal ledger invariants', () => {
     assert.throws(
       () =>
         new SessionManager({
+          execution: EMBEDDED_RUNTIME_EXECUTION,
           store,
           runStore,
           backends,
@@ -484,6 +488,7 @@ describe('SessionManager terminal ledger invariants', () => {
     assert.throws(
       () =>
         new RuntimeKernel({
+          execution: EMBEDDED_RUNTIME_EXECUTION,
           store,
           runStore,
           backends,
@@ -873,6 +878,7 @@ describe('SessionManager terminal ledger invariants', () => {
     const store = new TinySessionStore();
     const runStore = new TinyAgentRunStore();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -933,6 +939,7 @@ describe('SessionManager terminal ledger invariants', () => {
     const store = new TinySessionStore();
     const runStore = new TinyAgentRunStore();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1162,6 +1169,7 @@ describe('SessionManager terminal ledger invariants', () => {
     const store = new TinySessionStore();
     const runStore = new TinyAgentRunStore();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1235,6 +1243,7 @@ describe('SessionManager terminal ledger invariants', () => {
     const store = new TinySessionStore();
     const runStore = new TinyAgentRunStore();
     const manager = new SessionManager({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       store,
       runStore,
       runtimeEventStore: runStore,
@@ -1358,6 +1367,7 @@ async function makeHarness(events: readonly ScriptEvent[]): Promise<{
   const backends = new BackendRegistry();
   backends.register('fake', (ctx) => new ScriptBackend(ctx, events));
   const manager = new SessionManager({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     store,
     runStore,
     runtimeEventStore: runStore,

@@ -142,6 +142,7 @@ function makeToolRuntime(overrides: Partial<ToolRuntimeInput> = {}): {
   permissionEngine.beginTurn('turn-1');
   const events: SessionEvent[] = [];
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => undefined },
     sessionId: 'session-1',
     header: testHeader(),
     connection: testConnection(),

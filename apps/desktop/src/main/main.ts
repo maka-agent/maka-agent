@@ -30,6 +30,7 @@ import type { WorkspacePrivacyContext } from '@maka/core/incognito';
 import { ok } from '@maka/core/settings/result';
 import {
   BackendRegistry,
+  EMBEDDED_RUNTIME_EXECUTION,
   FakeBackend,
   PermissionEngine,
   SessionManager,
@@ -64,6 +65,7 @@ import {
   createSessionStore,
   createSettingsStore,
   createMcpConfigStore,
+  createPricingStore,
   createShellRunStore,
   createTelemetryRepo,
 } from '@maka/storage';
@@ -222,6 +224,7 @@ function ensureMcpReady(): Promise<void> {
   return mcpStartup;
 }
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
+const pricingStore = createPricingStore(workspaceRoot);
 const dailyReviewArchiveStore = createDailyReviewArchiveStore(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
 const deepResearchStore = createDeepResearchStore(workspaceRoot);
@@ -419,6 +422,7 @@ const goalWiring = createMainGoalWiring({
     return {
       kind: 'prepared',
       turnId,
+      abandon: () => reservation.release(),
       start: async (): Promise<GoalTurnOutcome> => {
         try {
           await ensureSessionCanSend(sessionId);
@@ -607,6 +611,22 @@ const systemPromptService = createSystemPromptMainService({
   hostCapabilities: desktopHostCapabilities,
 });
 let lookupPricing = buildPricingLookup();
+let usageReadiness: Promise<void> | undefined;
+function ensureUsageReady(): Promise<void> {
+  if (!usageReadiness) {
+    const readiness = Promise.all([
+      telemetryRepo.load(),
+      pricingStore.load(),
+    ]).then(() => {
+      lookupPricing = buildPricingLookup(pricingStore.snapshot().overrides);
+    });
+    usageReadiness = readiness;
+    void readiness.catch(() => {
+      if (usageReadiness === readiness) usageReadiness = undefined;
+    });
+  }
+  return usageReadiness;
+}
 // Track the last status fields that affect persisted diagnostics. The reason
 // is part of the key because a running bridge can remain degraded while a
 // newer, more useful failure replaces the previous one.
@@ -693,6 +713,7 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
   permissionEngine,
   taskLedgerStore,
   telemetryRepo,
+  ensureUsageReady,
   artifactStore,
   deepResearchTools,
   desktopSessionSkillHosts,
@@ -712,7 +733,13 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
 }));
 
 backends.register('fake', (ctx) =>
-  new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+  new FakeBackend({
+    sessionId: ctx.sessionId,
+    header: ctx.header,
+    store: ctx.store,
+    appendMessage: ctx.appendMessage,
+    execution: ctx.execution,
+  }),
 );
 
 // E2E: also route 'ai-sdk' (requested by sessions:create and quickChat:start)
@@ -722,7 +749,13 @@ backends.register('fake', (ctx) =>
 // Production builds never set MAKA_E2E.
 if (isE2e) {
   backends.register('ai-sdk', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+    new FakeBackend({
+      sessionId: ctx.sessionId,
+      header: ctx.header,
+      store: ctx.store,
+      appendMessage: ctx.appendMessage,
+      execution: ctx.execution,
+    }),
   );
 }
 
@@ -737,6 +770,7 @@ const runtime = new SessionManager({
   shellRuns,
   backends,
   childTools: childAgentTools,
+  execution: EMBEDDED_RUNTIME_EXECUTION,
   safeBoundaryResumeEnabled: process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME === '1',
   onContinuationLifecycleEvent: (event) => {
     console.info('[runtime-resume]', JSON.stringify(event));
@@ -805,6 +839,7 @@ const dailyReview = createDailyReviewMainService({
   archiveStore: dailyReviewArchiveStore,
   connectionStore,
   telemetryRepo,
+  ensureUsageReady,
   listSessions: async () => collapseSessionRevisions(await runtime.listSessions()),
   resolveConnectionSecret,
   buildSubscriptionModelFetch,
@@ -950,6 +985,7 @@ function registerIpc(): void {
     settingsStore,
     connectionStore,
     telemetryRepo,
+    ensureUsageReady,
     botRegistry,
     getComputerUseCapabilityInput: computerUseCapabilityInput,
   });
@@ -975,8 +1011,10 @@ function registerIpc(): void {
   registerUsageIpc({
     settingsStore,
     telemetryRepo,
+    pricingStore,
+    ensureUsageReady,
     refreshPricingLookup: () => {
-      lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
+      lookupPricing = buildPricingLookup(pricingStore.snapshot().overrides);
     },
     sendToRenderer: safeSendToRenderer,
   });
@@ -1163,6 +1201,8 @@ wireAppLifecycle({
   connectionStore,
   settingsStore,
   telemetryRepo,
+  pricingStore,
+  ensureUsageReady,
   keepSystemAwake,
   botRegistry,
   openGateway,
@@ -1182,9 +1222,6 @@ wireAppLifecycle({
   emitConnectionListChanged,
   handleExternalSettingsChange,
   getSettingsIpc: () => settingsIpc,
-  setLookupPricing: (value) => {
-    lookupPricing = value;
-  },
 });
 
 function computerUseCapabilityInput() {

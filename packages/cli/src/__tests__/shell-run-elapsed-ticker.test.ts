@@ -38,7 +38,7 @@ test('runs the elapsed ticker only while a background Bash card is running', () 
       type: 'tool_start',
       toolUseId: 'bash-bg',
       toolName: 'Bash',
-      args: { command: 'sleep 30' },
+      review: { kind: 'command', command: 'sleep 30', cwd: '/repo' },
     }),
   );
   applyMakaSessionEventToTranscript(

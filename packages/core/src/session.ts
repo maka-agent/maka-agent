@@ -7,8 +7,9 @@
  */
 
 import {
+  normalizeMessageContent,
   TOOL_ACTIVITY_KINDS,
-  type AttachmentRef,
+  type MessageContent,
   type QuoteRef,
   type ToolActivityKind,
   type ToolResultContent,
@@ -30,6 +31,7 @@ import {
   isRecord,
 } from './record-schema.js';
 import { isAttachmentRef, isPermissionDecisionFields } from './interaction-record-schema.js';
+import { isPublicToolIntentReview, type PublicToolIntentReview } from './tool-intent.js';
 import { isTokenUsageFields } from './usage-record-schema.js';
 import {
   decodeCanonicalToolResultContent,
@@ -81,11 +83,32 @@ export function isTurnStatus(value: unknown): value is TurnStatus {
 // Header (JSONL line 1)
 // ============================================================================
 
+export type SessionOrigin = {
+  kind: 'automation';
+  automationId: string;
+  fireId: string;
+};
+
+/** Non-user trigger source durably associated with a turn. */
+export type TurnOrigin =
+  | {
+      kind: 'automation';
+      automationId: string;
+      /** Present when the caller has durably admitted a specific fire. */
+      fireId?: string;
+    }
+  | {
+      kind: 'goal';
+      /** Stable identity of the in-memory Goal generation that admitted this turn. */
+      goalId: string;
+    };
+
 export interface SessionHeader {
   // Identity
   id: string;
   workspaceRoot: string;
   cwd: string;
+  origin?: SessionOrigin;
   /** One-shot model context to inject after a CLI session cwd move. */
   pendingCwdReminder?: { from: string; to: string };
 
@@ -222,29 +245,15 @@ export type StoredMessage =
   | TurnStateMessage
   | SystemNoteMessage;
 
-export interface UserMessage {
+export interface UserMessage extends MessageContent {
   type: 'user';
   id: string;
   turnId: string;
   ts: number;
-  /**
-   * Model-facing turn text (and the default human-facing text). May be a
-   * composed envelope when the client injected content such as explicit
-   * skill instructions; see `displayText`.
-   */
-  text: string;
-  /**
-   * Human-facing text when it differs from `text`. Presentation layers
-   * (transcript, rewind, previews, search) should prefer this. Absent on
-   * legacy rows and on turns where the model text is what the user typed.
-   */
-  displayText?: string;
-  attachments?: AttachmentRef[];
   /** Inline quoted excerpts carried into this message; rendered as chips. */
   quotes?: QuoteRef[];
-  /** Non-user trigger source (automation fire). Lets the chat mark turns the
-   *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
-  origin?: { kind: 'automation'; automationId: string };
+  /** Non-user trigger source. Lets the chat mark turns the user did not hand-type. */
+  origin?: TurnOrigin;
 }
 
 /** Prefer the human-facing view of a user message when one was stored. */
@@ -284,11 +293,13 @@ export interface ToolCallMessage {
   turnId: string;
   ts: number;
   toolName: string;
+  /** Embedded-only provider input snapshot. Hosted persistence must omit it. */
+  args?: unknown;
   /** Stable semantic category for presentation; absent on legacy rows. */
   activityKind?: ToolActivityKind;
   displayName?: string;
-  intent?: string;
-  args: unknown;
+  /** Closed public projection available in every execution mode. */
+  review?: PublicToolIntentReview;
   /**
    * Assistant step this call belongs to (equals the step's AssistantMessage
    * id, stamped from the same source as ToolStartEvent.stepId). Optional for
@@ -324,9 +335,7 @@ export interface PermissionDecisionMessage {
   decision: 'allow' | 'deny';
   rememberForTurn?: boolean;
   reviewer?: import('./permission.js').ApprovalsReviewer;
-  rationale?: string;
   riskLevel?: import('./permission.js').ApprovalRiskLevel;
-  hint?: string;
 }
 
 export interface TokenUsageMessage {
@@ -421,8 +430,8 @@ const ASSISTANT_MESSAGE_SHAPE = defineObjectShape<AssistantMessage>()(
   ['thinking', 'contentOrder'],
 );
 const TOOL_CALL_MESSAGE_SHAPE = defineObjectShape<ToolCallMessage>()(
-  ['type', 'id', 'turnId', 'ts', 'toolName', 'args'],
-  ['activityKind', 'displayName', 'intent', 'stepId'],
+  ['type', 'id', 'turnId', 'ts', 'toolName'],
+  ['args', 'activityKind', 'displayName', 'review', 'stepId'],
 );
 const TOOL_RESULT_MESSAGE_SHAPE = defineObjectShape<ToolResultMessage>()(
   ['type', 'id', 'turnId', 'ts', 'toolUseId', 'isError', 'content'],
@@ -430,7 +439,7 @@ const TOOL_RESULT_MESSAGE_SHAPE = defineObjectShape<ToolResultMessage>()(
 );
 const PERMISSION_DECISION_MESSAGE_SHAPE = defineObjectShape<PermissionDecisionMessage>()(
   ['type', 'id', 'turnId', 'ts', 'toolUseId', 'toolName', 'decision'],
-  ['rememberForTurn', 'reviewer', 'rationale', 'riskLevel', 'hint'],
+  ['rememberForTurn', 'reviewer', 'riskLevel'],
 );
 const TOKEN_USAGE_MESSAGE_SHAPE = defineObjectShape<TokenUsageMessage>()(
   ['type', 'id', 'turnId', 'ts', 'input', 'output'],
@@ -475,8 +484,13 @@ const SYSTEM_NOTE_MESSAGE_SHAPE = defineObjectShape<SystemNoteMessage>()(
 );
 type AssistantThinking = NonNullable<AssistantMessage['thinking']>;
 const ASSISTANT_THINKING_SHAPE = defineObjectShape<AssistantThinking>()(['text'], ['signature']);
-type AutomationOrigin = NonNullable<UserMessage['origin']>;
-const AUTOMATION_ORIGIN_SHAPE = defineObjectShape<AutomationOrigin>()(['kind', 'automationId'], []);
+type AutomationOrigin = Extract<NonNullable<UserMessage['origin']>, { kind: 'automation' }>;
+const AUTOMATION_ORIGIN_SHAPE = defineObjectShape<AutomationOrigin>()(
+  ['kind', 'automationId'],
+  ['fireId'],
+);
+type GoalOrigin = Extract<NonNullable<UserMessage['origin']>, { kind: 'goal' }>;
+const GOAL_ORIGIN_SHAPE = defineObjectShape<GoalOrigin>()(['kind', 'goalId'], []);
 
 const SYSTEM_NOTE_KINDS = new Set([
   'session_start',
@@ -513,9 +527,18 @@ function decodeStoredMessage(
         isOptionalString(message.displayText) &&
         (message.attachments === undefined ||
           (Array.isArray(message.attachments) && message.attachments.every(isAttachmentRef))) &&
-        (message.origin === undefined || isAutomationOrigin(message.origin))
-      )
-        return message as unknown as UserMessage;
+        (message.origin === undefined || isTurnOrigin(message.origin))
+      ) {
+        const { displayText, attachments, ...envelope } = message;
+        return {
+          ...envelope,
+          ...normalizeMessageContent({
+            text: message.text as string,
+            displayText: displayText as string | undefined,
+            attachments: attachments as MessageContent['attachments'],
+          }),
+        } as unknown as UserMessage;
+      }
       break;
     case 'assistant':
       if (
@@ -537,11 +560,10 @@ function decodeStoredMessage(
         hasExactShape(message, TOOL_CALL_MESSAGE_SHAPE) &&
         hasMessageEnvelope(message, true) &&
         typeof message.toolName === 'string' &&
-        Object.hasOwn(message, 'args') &&
+        (message.review === undefined || isPublicToolIntentReview(message.review)) &&
         (message.activityKind === undefined ||
           (TOOL_ACTIVITY_KINDS as readonly unknown[]).includes(message.activityKind)) &&
         isOptionalString(message.displayName) &&
-        isOptionalString(message.intent) &&
         isOptionalString(message.stepId)
       )
         return message as unknown as ToolCallMessage;
@@ -562,7 +584,7 @@ function decodeStoredMessage(
         hasMessageEnvelope(message, true) &&
         typeof message.toolUseId === 'string' &&
         typeof message.toolName === 'string' &&
-        isPermissionDecisionFields(message, { allowHint: true })
+        isPermissionDecisionFields(message)
       )
         return message as unknown as PermissionDecisionMessage;
       break;
@@ -638,8 +660,22 @@ function isAutomationOrigin(value: unknown): value is AutomationOrigin {
     isRecord(value) &&
     hasExactShape(value, AUTOMATION_ORIGIN_SHAPE) &&
     value.kind === 'automation' &&
-    typeof value.automationId === 'string'
+    typeof value.automationId === 'string' &&
+    isOptionalString(value.fireId)
   );
+}
+
+function isGoalOrigin(value: unknown): value is GoalOrigin {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, GOAL_ORIGIN_SHAPE) &&
+    value.kind === 'goal' &&
+    typeof value.goalId === 'string'
+  );
+}
+
+function isTurnOrigin(value: unknown): value is TurnOrigin {
+  return isAutomationOrigin(value) || isGoalOrigin(value);
 }
 
 function isOptionalFiniteDuration(value: unknown): boolean {

@@ -90,6 +90,8 @@ import {
   planMidTurnCapacityCompaction,
 } from './mid-turn-capacity-compact.js';
 import { resolveSelectedModelContextWindow } from './context-budget-policy.js';
+import type { RuntimeSuccessorEffectKind } from './run-execution.js';
+import { isRuntimeLifecycleAdmissionOrFatal } from './runtime-lifecycle-errors.js';
 
 /** Constructor dependencies for AiSdkCompaction. */
 export interface AiSdkCompactionDeps {
@@ -104,6 +106,11 @@ export interface AiSdkCompactionDeps {
     content: ModelMessage['content'],
     turnTailPrompt?: string,
   ) => ModelMessage['content'];
+  throwIfInteractionFailed: () => void;
+  runSuccessorEffect: <T>(
+    kind: RuntimeSuccessorEffectKind,
+    operation: () => Promise<T>,
+  ) => Promise<T>;
 }
 
 export class AiSdkCompaction {
@@ -120,6 +127,11 @@ export class AiSdkCompaction {
     content: ModelMessage['content'],
     turnTailPrompt?: string,
   ) => ModelMessage['content'];
+  private readonly throwIfInteractionFailed: () => void;
+  private readonly runSuccessorEffect: <T>(
+    kind: RuntimeSuccessorEffectKind,
+    operation: () => Promise<T>,
+  ) => Promise<T>;
   private historyCompactAbortController: AbortController | null = null;
 
   constructor(deps: AiSdkCompactionDeps) {
@@ -131,11 +143,13 @@ export class AiSdkCompaction {
     this.materializeRuntimeReplayPlan = deps.materializeRuntimeReplayPlan;
     this.canReplayProviderNative = deps.canReplayProviderNative;
     this.appendTurnTailPrompt = deps.appendTurnTailPrompt;
+    this.throwIfInteractionFailed = deps.throwIfInteractionFailed;
+    this.runSuccessorEffect = deps.runSuccessorEffect;
   }
 
   /** Abort an in-flight manual history compaction (called by AiSdkBackend.stop). */
-  public abortHistoryCompact(): void {
-    this.historyCompactAbortController?.abort();
+  public abortHistoryCompact(reason?: unknown): void {
+    this.historyCompactAbortController?.abort(reason);
   }
 
   public async loadHistoryCompactBlocks(
@@ -278,7 +292,8 @@ export class AiSdkCompaction {
             : {}),
         },
       };
-    } catch {
+    } catch (error) {
+      if (this.input.isFatalArtifactError?.(error)) throw error;
       return {
         policy,
         diagnosticPatch: {
@@ -314,23 +329,25 @@ export class AiSdkCompaction {
       charsPerToken: input.contextBudget.charsPerToken ?? 4,
     };
     try {
-      const result = await Promise.resolve(
-        this.input.writeSynthesisCache({
-          sessionId: this.sessionId,
-          turnId: input.turnId,
-          source: {
-            createdFrom:
-              input.archiveRetrievalMode === 'history_search_gated'
-                ? 'gated_archive_retrieval'
-                : 'eager_archive_retrieval',
-            query: input.query,
-            hydratedRuntimeEvents: input.hydratedRuntimeEvents,
-            retrievedArchiveRefs: input.retrievedArchiveRefs,
-            archiveRetrievalMode: input.archiveRetrievalMode,
-          },
-          limits,
-          requestShapeHashBefore: input.requestShapeHashBefore,
-        }),
+      const result = await this.runSuccessorEffect(
+        'artifact_persistence',
+        async () =>
+          await this.input.writeSynthesisCache?.({
+            sessionId: this.sessionId,
+            turnId: input.turnId,
+            source: {
+              createdFrom:
+                input.archiveRetrievalMode === 'history_search_gated'
+                  ? 'gated_archive_retrieval'
+                  : 'eager_archive_retrieval',
+              query: input.query,
+              hydratedRuntimeEvents: input.hydratedRuntimeEvents,
+              retrievedArchiveRefs: input.retrievedArchiveRefs,
+              archiveRetrievalMode: input.archiveRetrievalMode,
+            },
+            limits,
+            requestShapeHashBefore: input.requestShapeHashBefore,
+          }),
       );
       const blocks = result?.blocks ?? [];
       const estimatedTokens = blocks.reduce(
@@ -358,7 +375,10 @@ export class AiSdkCompaction {
           ? { synthesisCacheWriteSkippedReasonCounts: result.skippedReasonCounts }
           : {}),
       };
-    } catch {
+    } catch (error) {
+      if (isRuntimeLifecycleAdmissionOrFatal(error) || this.input.isFatalArtifactError?.(error)) {
+        throw error;
+      }
       return {
         synthesisCacheEnabled: true,
         synthesisCacheMode: 'read_write',
@@ -449,6 +469,7 @@ export class AiSdkCompaction {
       };
     }
     try {
+      this.throwIfInteractionFailed();
       const summary = await Promise.resolve(
         summarizer({
           sessionId: this.sessionId,
@@ -460,6 +481,7 @@ export class AiSdkCompaction {
           abortSignal: input.abortSignal,
         }),
       );
+      this.throwIfInteractionFailed();
       if (!summary?.trim()) {
         return {
           ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
@@ -516,7 +538,9 @@ export class AiSdkCompaction {
           },
         };
       }
-      await Promise.resolve(recorder(checkpoint, input.turnId));
+      await this.runSuccessorEffect('artifact_persistence', async () => {
+        await recorder(checkpoint, input.turnId);
+      });
       return {
         replacementCheckpoint: checkpoint,
         diagnosticPatch: {
@@ -534,6 +558,8 @@ export class AiSdkCompaction {
         },
       };
     } catch (error) {
+      if (isRuntimeLifecycleAdmissionOrFatal(error)) throw error;
+      this.throwIfInteractionFailed();
       const failureReason =
         error instanceof HistoryCompactSummarizerError ? error.reason : 'write_failed';
       return {
@@ -589,6 +615,7 @@ export class AiSdkCompaction {
     const skippedReasonCounts: Record<string, number> = {};
     try {
       for (const draftBlock of input.draftBlocks.slice(0, limits.maxBlocks)) {
+        this.throwIfInteractionFailed();
         const foldedIds = new Set(draftBlock.coverage.runtimeEventIds);
         const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
           foldedIds.has(event.id),
@@ -599,19 +626,22 @@ export class AiSdkCompaction {
           continue;
         }
         writesAttempted += 1;
-        const result = await Promise.resolve(
-          this.input.writeHistoryCompact({
-            sessionId: this.sessionId,
-            turnId: input.turnId,
-            source: {
-              draftBlock,
-              foldedRuntimeEvents,
-            },
-            limits,
-            requestShapeHashBefore: input.requestShapeHashBefore,
-            abortSignal: input.abortSignal,
-          }),
+        const result = await this.runSuccessorEffect(
+          'artifact_persistence',
+          async () =>
+            await this.input.writeHistoryCompact?.({
+              sessionId: this.sessionId,
+              turnId: input.turnId,
+              source: {
+                draftBlock,
+                foldedRuntimeEvents,
+              },
+              limits,
+              requestShapeHashBefore: input.requestShapeHashBefore,
+              abortSignal: input.abortSignal,
+            }),
         );
+        this.throwIfInteractionFailed();
         const blocks = result?.blocks ?? [];
         if (result?.skipped && result.skipped > 0) {
           skipped += result.skipped;
@@ -689,7 +719,9 @@ export class AiSdkCompaction {
           ...replacementDecisionPatch,
         },
       };
-    } catch {
+    } catch (error) {
+      if (isRuntimeLifecycleAdmissionOrFatal(error)) throw error;
+      this.throwIfInteractionFailed();
       return {
         replacementBlocks: [],
         diagnosticPatch: {
@@ -713,6 +745,7 @@ export class AiSdkCompaction {
     input: BackendCompactHistoryInput,
     requestShapeHashBefore?: string,
   ): Promise<BackendCompactHistoryResult> {
+    this.throwIfInteractionFailed();
     const historyCompactAbortController = new AbortController();
     this.historyCompactAbortController = historyCompactAbortController;
     try {
@@ -751,8 +784,10 @@ export class AiSdkCompaction {
                 };
               }
             } catch {
+              this.throwIfInteractionFailed();
               // A missing previous checkpoint only loses rolling reuse; the current fold remains safe to summarize.
             }
+            this.throwIfInteractionFailed();
             const writePatch = await this.writeHistoryCompactCheckpoint({
               turnId: input.turnId,
               contextBudget: writeContextBudget,
@@ -761,7 +796,10 @@ export class AiSdkCompaction {
               abortSignal: historyCompactAbortController.signal,
               requestShapeHashBefore,
             });
-            if (historyCompactAbortController.signal.aborted) return {};
+            if (historyCompactAbortController.signal.aborted) {
+              this.throwIfInteractionFailed();
+              return {};
+            }
             contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
               contextBudgetDiagnostic ??
                 buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
@@ -776,7 +814,10 @@ export class AiSdkCompaction {
               abortSignal: historyCompactAbortController.signal,
               requestShapeHashBefore,
             });
-            if (historyCompactAbortController.signal.aborted) return {};
+            if (historyCompactAbortController.signal.aborted) {
+              this.throwIfInteractionFailed();
+              return {};
+            }
             if (writePatch.replacementBlocks.length === 0) {
               contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(
                 runtimeContext,
@@ -874,13 +915,20 @@ export class AiSdkCompaction {
         }
         for (const candidate of candidates) {
           const bodySha256 = sha256(candidate.serializedResult);
-          const archived = await Promise.resolve(
-            this.input.archiveToolResult?.({
-              ...candidate,
-              sessionId: this.sessionId,
-              bodySha256,
-            }),
-          ).catch(() => undefined);
+          const archived = this.input.archiveToolResult
+            ? await this.runSuccessorEffect(
+                'artifact_persistence',
+                async () =>
+                  await this.input.archiveToolResult?.({
+                    ...candidate,
+                    sessionId: this.sessionId,
+                    bodySha256,
+                  }),
+              ).catch((error) => {
+                if (isRuntimeLifecycleAdmissionOrFatal(error)) throw error;
+                return undefined;
+              })
+            : undefined;
           if (!archived?.artifactId) continue;
           archiveRefs.set(candidate.runtimeEventId, {
             runtimeEventId: candidate.runtimeEventId,
@@ -943,12 +991,15 @@ export class AiSdkCompaction {
         eligibleToolCallIds,
         archivedPlaceholders,
         archiveToolResult: async (candidate) => {
-          return await Promise.resolve(
-            this.input.archiveToolResult?.({
-              ...candidate,
-              sessionId: this.sessionId,
-              runtimeEventId: candidate.runtimeEventId ?? activeToolResultArchiveKey(candidate),
-            }),
+          if (!this.input.archiveToolResult) return undefined;
+          return await this.runSuccessorEffect(
+            'artifact_persistence',
+            async () =>
+              await this.input.archiveToolResult?.({
+                ...candidate,
+                sessionId: this.sessionId,
+                runtimeEventId: candidate.runtimeEventId ?? activeToolResultArchiveKey(candidate),
+              }),
           );
         },
       });
@@ -1027,7 +1078,7 @@ export class AiSdkCompaction {
               maxOutputTokens: request.maxOutputTokens,
               abortSignal: request.abortSignal,
             });
-            this.recordSemanticCompactSummaryCall({
+            await this.recordSemanticCompactSummaryCall({
               callId,
               turnId,
               modelId: summarizerModelId,
@@ -1039,7 +1090,7 @@ export class AiSdkCompaction {
             });
             return result;
           } catch (error) {
-            this.recordSemanticCompactSummaryCall({
+            await this.recordSemanticCompactSummaryCall({
               callId,
               turnId,
               modelId: summarizerModelId,
@@ -1058,7 +1109,7 @@ export class AiSdkCompaction {
         ...rewritten.diagnosticPatch,
       });
       if (!dryRun && rewritten.decision === 'replaced') {
-        if (rewritten.block) this.recordSemanticCompactBlock(rewritten.block);
+        if (rewritten.block) await this.recordSemanticCompactBlock(rewritten.block);
         acceptedProjection = {
           sourceSignatures: incomingMessages.map(projectionSourceMessageSignature),
           sourceSignatureMode: 'active_prune_lineage',
@@ -1094,7 +1145,7 @@ export class AiSdkCompaction {
       return undefined;
 
     let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
-    return (options) => {
+    return async (options) => {
       const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
         .activeTools;
       const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
@@ -1120,7 +1171,7 @@ export class AiSdkCompaction {
       });
       onDiagnosticPatch?.(rewritten.diagnosticPatch);
       if (!dryRun && rewritten.decision === 'replaced') {
-        if (rewritten.block) this.recordActiveFullCompactBlock(rewritten.block);
+        if (rewritten.block) await this.recordActiveFullCompactBlock(rewritten.block);
         acceptedProjection = {
           sourceSignatures: incomingMessages.map(modelMessageSignature),
           sourceSignatureMode: 'exact',
@@ -1132,7 +1183,7 @@ export class AiSdkCompaction {
     };
   }
 
-  private recordSemanticCompactSummaryCall(input: {
+  private async recordSemanticCompactSummaryCall(input: {
     callId: string;
     turnId: string;
     modelId: string;
@@ -1142,10 +1193,12 @@ export class AiSdkCompaction {
     finishReason?: string;
     status: LlmCallRecord['status'];
     errorClass?: string;
-  }): void {
+  }): Promise<void> {
     if (!input.usage) return;
     const costUsd = this.computeCostUsd(input.usage);
-    this.input.recordLlmCall?.({
+    const recorder = this.input.recordLlmCall;
+    if (!recorder) return;
+    const record: LlmCallRecord = {
       sessionId: this.sessionId,
       turnId: input.turnId,
       callKind: 'semantic_compact',
@@ -1160,7 +1213,6 @@ export class AiSdkCompaction {
       ...(input.usage.cacheMissInputSource !== undefined
         ? { cacheMissInputSource: input.usage.cacheMissInputSource }
         : {}),
-      cachedInputTokens: input.usage.cachedInputTokens,
       cacheWriteInputTokens: input.usage.cacheWriteInputTokens,
       reasoningTokens: input.usage.reasoningTokens,
       totalTokens: input.usage.totalTokens,
@@ -1171,12 +1223,21 @@ export class AiSdkCompaction {
       ...(input.errorClass ? { errorClass: input.errorClass } : {}),
       startedAt: input.startedAt,
       ...(costUsd !== undefined ? { costUsd } : {}),
+    };
+    await this.runSuccessorEffect('artifact_persistence', async () => {
+      await recorder(record);
     });
   }
 
-  private recordSemanticCompactBlock(block: SemanticCompactBlock): void {
+  private async recordSemanticCompactBlock(block: SemanticCompactBlock): Promise<void> {
     const recorder = this.input.recordSemanticCompactBlock;
     if (!recorder) return;
+    if (this.input.execution.kind === 'hosted') {
+      await this.runSuccessorEffect('artifact_persistence', async () => {
+        await recorder(block);
+      });
+      return;
+    }
     try {
       const result = recorder(block);
       if (result && typeof (result as PromiseLike<void>).then === 'function') {
@@ -1191,9 +1252,15 @@ export class AiSdkCompaction {
     }
   }
 
-  private recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void {
+  private async recordActiveFullCompactBlock(block: ActiveFullCompactBlock): Promise<void> {
     const recorder = this.input.recordActiveFullCompactBlock;
     if (!recorder) return;
+    if (this.input.execution.kind === 'hosted') {
+      await this.runSuccessorEffect('artifact_persistence', async () => {
+        await recorder(block);
+      });
+      return;
+    }
     try {
       const result = recorder(block);
       if (result && typeof (result as PromiseLike<void>).then === 'function') {
@@ -1662,8 +1729,11 @@ export class AiSdkCompaction {
     // applying the projection — the same order as the pre_turn path. A
     // persistence failure keeps raw messages and records write_failed.
     try {
-      await Promise.resolve(recorder(plan.checkpoint, turnId));
-    } catch {
+      await this.runSuccessorEffect('artifact_persistence', async () => {
+        await recorder(plan.checkpoint, turnId);
+      });
+    } catch (error) {
+      if (isRuntimeLifecycleAdmissionOrFatal(error)) throw error;
       return {
         decision: 'fail',
         detail: 'summarizer_failed',

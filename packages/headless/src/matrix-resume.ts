@@ -1,6 +1,8 @@
-import { readdir, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { StorageRootAuthorityError } from '@maka/storage/root-authority';
 import type { Config, ResultRecord, Task } from './contracts.js';
+import { openHeadlessStorageForRead, type HeadlessStorageReader } from './headless-storage.js';
 import { readResults } from './results.js';
 import {
   isTerminalTaskRunStatus,
@@ -8,7 +10,6 @@ import {
   type AutonomousResultTaxonomy,
 } from './task-contracts.js';
 import { resultRecordFromTaskRunProjection } from './task-run-adapter.js';
-import { createTaskRunStore } from './task-run-store.js';
 
 export const MATRIX_CELL_SEPARATOR = '\u0000';
 
@@ -141,21 +142,17 @@ export async function readMatrixPriorRecords(inputPath: string): Promise<ResultR
 }
 
 export async function readTaskRunStoreRecords(storageRoot: string): Promise<ResultRecord[]> {
-  const taskRunDir = join(storageRoot, 'task-runs');
-  let entries: string[];
+  let storage: HeadlessStorageReader;
   try {
-    entries = await readdir(taskRunDir);
+    storage = await openHeadlessStorageForRead(storageRoot);
   } catch (error) {
-    if (isNotFound(error)) return [];
+    if (error instanceof StorageRootAuthorityError && error.code === 'root_not_found') return [];
     throw error;
   }
-
-  const store = createTaskRunStore(storageRoot);
+  const { taskRunStore } = storage;
   const records: ResultRecord[] = [];
-  for (const entry of entries.sort()) {
-    if (!entry.endsWith('.jsonl')) continue;
-    const taskRunId = entry.slice(0, -'.jsonl'.length);
-    const projection = await store.project(taskRunId);
+  for (const taskRunId of await taskRunStore.listTaskRunIds()) {
+    const projection = await taskRunStore.project(taskRunId);
     if (!isTerminalTaskRunStatus(projection.status) && projection.status !== 'needs_approval')
       continue;
     records.push(resultRecordFromTaskRunProjection(projection));

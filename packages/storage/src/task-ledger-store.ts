@@ -1,5 +1,5 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   TASK_LEDGER_MAX_TASKS,
@@ -9,13 +9,9 @@ import {
   isTaskKey,
   isTaskOwner,
   isTerminalTaskStatus,
-  isTaskStatus,
-  isTaskLedgerEvent,
+  decodeTaskLedgerRecord,
   normalizeUpdateTaskInput,
   normalizeCreateTaskInput,
-  normalizeResumeTrust,
-  normalizeTaskEvidenceText,
-  normalizeTaskSubject,
   projectTaskLedgerEvents,
   taskLedgerEventTypeForCreate,
   taskLedgerEventTypeForUpdate,
@@ -26,33 +22,115 @@ import {
   type TaskAvailableClaimScope,
   type TaskLedgerChangedEvent,
   type TaskLedgerEvent,
-  type TaskLedgerEventTaskSnapshot,
   type TaskLedgerListOptions,
   type TaskLedgerMutationContext,
+  type TaskLedgerRecord,
   type TaskLedgerStore,
   type TaskOwner,
 } from '@maka/core/task-ledger';
 import { chainWrite } from './write-queue.js';
+import { classifyJsonRecord } from './json-prefix.js';
+import { appendJsonl } from './jsonl-append.js';
+import {
+  assertStorageRootLease,
+  runWithStorageRootLease,
+  StorageRootAuthorityError,
+  type StorageRootLease,
+} from './root-authority.js';
 import { assertSafeSessionId } from './session-store.js';
 
 export type { TaskLedgerStore } from '@maka/core/task-ledger';
 
-export function createTaskLedgerStore(workspaceRoot: string): TaskLedgerStore {
+const writerBrand: unique symbol = Symbol('InteractiveTaskLedgerWriter');
+const writers = new WeakSet<object>();
+const writerByLease = new WeakMap<object, InteractiveTaskLedgerWriterFacade>();
+
+export interface TaskLedgerCanonicalReader {
+  listCanonical(sessionId: string, options?: TaskLedgerListOptions): Promise<Task[]>;
+}
+
+export interface InteractiveTaskLedgerWriterFacade
+  extends TaskLedgerStore,
+    TaskLedgerCanonicalReader {
+  readonly kind: 'interactive';
+  readonly access: 'write';
+  readonly [writerBrand]: true;
+}
+
+export function authenticateInteractiveTaskLedgerWriter(
+  store: InteractiveTaskLedgerWriterFacade,
+): InteractiveTaskLedgerWriterFacade {
+  if (!writers.has(store)) {
+    throw new StorageRootAuthorityError(
+      'invalid_lease',
+      'Expected an authenticated interactive task ledger writer',
+    );
+  }
+  return store;
+}
+
+export async function openInteractiveTaskLedgerStoreForWrite(
+  lease: StorageRootLease<'interactive', 'write'>,
+): Promise<InteractiveTaskLedgerWriterFacade> {
+  await assertStorageRootLease(lease, 'interactive', 'write');
+  const existing = writerByLease.get(lease);
+  if (existing) return existing;
+
+  const store = new FileTaskLedgerStore(lease.canonicalPath);
+  const run = <T>(operation: () => Promise<T>) =>
+    runWithStorageRootLease(lease, 'interactive', 'write', operation);
+  const facade: InteractiveTaskLedgerWriterFacade = {
+    kind: 'interactive',
+    access: 'write',
+    [writerBrand]: true,
+    list: (sessionId, options) => run(() => store.list(sessionId, options)),
+    listCanonical: (sessionId, options) => run(() => store.listCanonical(sessionId, options)),
+    get: (sessionId, id, options) => run(() => store.get(sessionId, id, options)),
+    create: (sessionId, drafts, context) => run(() => store.create(sessionId, drafts, context)),
+    update: (sessionId, id, patch, context) =>
+      run(() => store.update(sessionId, id, patch, context)),
+    claim: (sessionId, id, owner, context) => run(() => store.claim(sessionId, id, owner, context)),
+    claimAvailable: (sessionId, id, owner, scope, context) =>
+      run(() => store.claimAvailable(sessionId, id, owner, scope, context)),
+    settleAgentOutcome: (sessionId, id, outcome, context) =>
+      run(() => store.settleAgentOutcome(sessionId, id, outcome, context)),
+    subscribe: (listener) => store.subscribe(listener),
+  };
+  Object.freeze(facade);
+  writers.add(facade);
+  writerByLease.set(lease, facade);
+  return facade;
+}
+
+export function createTaskLedgerStore(
+  workspaceRoot: string,
+): TaskLedgerStore & TaskLedgerCanonicalReader {
   return new FileTaskLedgerStore(workspaceRoot);
 }
 
 class FileTaskLedgerStore implements TaskLedgerStore {
+  private readonly durabilityRoot: string;
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
   private readonly listeners = new Set<(event: TaskLedgerChangedEvent) => void>();
 
   constructor(workspaceRoot: string) {
-    this.sessionsRoot = join(workspaceRoot, 'sessions');
+    this.durabilityRoot = resolve(workspaceRoot);
+    this.sessionsRoot = join(this.durabilityRoot, 'sessions');
   }
 
   async list(sessionId: string, options: TaskLedgerListOptions = {}): Promise<Task[]> {
     assertSafeSessionId(sessionId);
-    return this.applyListOptions(await this.readForRender(sessionId), options);
+    try {
+      return await this.listCanonical(sessionId, options);
+    } catch {
+      return [];
+    }
+  }
+
+  async listCanonical(sessionId: string, options: TaskLedgerListOptions = {}): Promise<Task[]> {
+    assertSafeSessionId(sessionId);
+    return this.applyListOptions(await this.readProjected(sessionId), options);
   }
 
   async get(
@@ -413,107 +491,11 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     return { updated, total: all.length };
   }
 
-  private filePath(sessionId: string): string {
-    return join(this.sessionsRoot, sessionId, 'tasks.json');
-  }
-
   private eventsPath(sessionId: string): string {
     return join(this.sessionsRoot, sessionId, 'task-events.jsonl');
   }
-
-  /**
-   * Render-path read: a damaged event ledger falls back to the projection cache
-   * as untrusted when possible, so resume/debug surfaces retain conservative
-   * state without allowing writes to proceed from that cache.
-   */
-  private async readForRender(sessionId: string): Promise<Task[]> {
-    try {
-      return (await this.readProjected(sessionId)).tasks;
-    } catch (eventError) {
-      try {
-        await readFile(this.eventsPath(sessionId), 'utf8');
-        return await this.readUntrustedCache(sessionId);
-      } catch (readEventError) {
-        if ((readEventError as NodeJS.ErrnoException).code !== 'ENOENT') {
-          return await this.readUntrustedCache(sessionId);
-        }
-      }
-      try {
-        return projectLegacySnapshots(
-          decodeTaskSnapshots(await readFile(this.filePath(sessionId), 'utf8')),
-        ).tasks;
-      } catch {
-        return [];
-      }
-    }
-  }
-
-  private async readUntrustedCache(sessionId: string): Promise<Task[]> {
-    try {
-      const tasks = projectLegacySnapshots(
-        decodeTaskSnapshots(await readFile(this.filePath(sessionId), 'utf8')),
-      ).tasks;
-      return tasks.map((task) => ({ ...task, resumeTrust: 'untrusted' }));
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Mutate-path read: only ENOENT means a legitimately fresh ledger. Any
-   * other read error, undecodable JSON, or a non-array payload throws so the
-   * mutation fails closed instead of rebuilding the ledger from [] and
-   * silently overwriting whatever is on disk.
-   */
-  private async readForMutateWithSource(sessionId: string): Promise<{
-    tasks: Task[];
-    source: 'events' | 'legacy';
-    backfilledTaskIds: string[];
-  }> {
-    try {
-      const projected = await this.readProjected(sessionId);
-      return {
-        tasks: projected.tasks,
-        source: 'events',
-        backfilledTaskIds: projected.backfilledTaskIds,
-      };
-    } catch (eventError) {
-      try {
-        await readFile(this.eventsPath(sessionId), 'utf8');
-        throw eventError;
-      } catch (readEventError) {
-        if ((readEventError as NodeJS.ErrnoException).code !== 'ENOENT') {
-          throw eventError;
-        }
-      }
-    }
-    let text: string;
-    try {
-      text = await readFile(this.filePath(sessionId), 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return { tasks: [], source: 'legacy', backfilledTaskIds: [] };
-      throw error;
-    }
-    try {
-      const projected = projectLegacySnapshots(decodeTaskSnapshots(text));
-      return {
-        tasks: projected.tasks,
-        source: 'legacy',
-        backfilledTaskIds: projected.backfilledTaskIds,
-      };
-    } catch (error) {
-      throw new Error(
-        `Task ledger file for session ${sessionId} is corrupt; refusing to overwrite it: ` +
-          (error instanceof Error ? error.message : String(error)),
-      );
-    }
-  }
-
-  private async readProjected(
-    sessionId: string,
-  ): Promise<{ tasks: Task[]; backfilledTaskIds: string[] }> {
-    const events = await this.readTaskEvents(sessionId);
+  private async readProjected(sessionId: string): Promise<Task[]> {
+    const events = (await this.readTaskRecords(sessionId)).flatMap((record) => record.events);
     const projection = projectTaskLedgerEvents(events);
     if (projection.diagnostics.length > 0) {
       throw new Error(
@@ -525,30 +507,53 @@ class FileTaskLedgerStore implements TaskLedgerStore {
         `task event ledger has ${projection.tasks.length} tasks, exceeding the ${TASK_LEDGER_MAX_TASKS}-task cap; refusing to load an unbounded ledger`,
       );
     }
-    return { tasks: projection.tasks, backfilledTaskIds: projection.backfilledTaskIds };
+    return projection.tasks;
   }
 
-  private async readTaskEvents(sessionId: string): Promise<TaskLedgerEvent[]> {
-    const text = await readFile(this.eventsPath(sessionId), 'utf8');
-    const events: TaskLedgerEvent[] = [];
-    const lines = text.split(/\n/);
+  private async readTaskRecords(sessionId: string): Promise<TaskLedgerRecord[]> {
+    let text: string;
+    try {
+      text = await readFile(this.eventsPath(sessionId), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    if (text.length === 0) return [];
+
+    const terminated = text.endsWith('\n');
+    const lines = text.split('\n');
+    if (terminated) lines.pop();
+    const records: TaskLedgerRecord[] = [];
     for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
-      if (line.trim().length === 0) continue;
+      const line = lines[index]!;
+      const isCrashTail = !terminated && index === lines.length - 1;
+      if (isCrashTail && classifyJsonRecord(line) === 'incomplete-prefix') break;
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
       } catch (error) {
         throw new Error(
-          `Invalid task event JSONL line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`,
+          `Invalid task ledger JSONL line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      if (!isTaskLedgerEvent(parsed)) {
-        throw new Error(`Invalid task event JSONL line ${index + 1}: unexpected event shape`);
+      const decoded = decodeTaskLedgerRecord(parsed);
+      if (!decoded) {
+        throw new Error(`Invalid task ledger JSONL line ${index + 1}: unexpected record shape`);
       }
-      events.push(parsed);
+      if (decoded.sessionId !== sessionId) {
+        throw new Error(
+          `Task ledger record ${decoded.recordId} belongs to session ${decoded.sessionId}, expected ${sessionId}`,
+        );
+      }
+      const mismatchedEvent = decoded.events.find((event) => event.sessionId !== sessionId);
+      if (mismatchedEvent) {
+        throw new Error(
+          `Task ledger event ${mismatchedEvent.eventId} belongs to session ${mismatchedEvent.sessionId}, expected ${sessionId}`,
+        );
+      }
+      records.push(decoded);
     }
-    return events;
+    return records;
   }
 
   private async mutate(
@@ -558,67 +563,36 @@ class FileTaskLedgerStore implements TaskLedgerStore {
   ): Promise<Task[]> {
     let next: Task[] = [];
     await chainWrite(this.writeQueues, sessionId, async () => {
-      const currentRead = await this.readForMutateWithSource(sessionId);
-      const current = currentRead.tasks;
+      const current = await this.readProjected(sessionId);
       next = fn(current);
       const mutationEvents = eventsForMutation(next);
-      const compatibilityEvents =
-        currentRead.source === 'legacy'
-          ? current.map((task) =>
-              buildTaskLedgerEvent({
-                type: 'task_imported',
-                sessionId,
-                task,
-                context: { source: 'import', actor: 'system' },
-              }),
-            )
-          : currentRead.backfilledTaskIds.flatMap((taskId) => {
-              const task = current.find((candidate) => candidate.id === taskId);
-              return task
-                ? [
-                    buildTaskLedgerEvent({
-                      type: 'task_updated',
-                      sessionId,
-                      task,
-                      previous: task,
-                      context: {
-                        source: 'recovery',
-                        actor: 'system',
-                        reason: 'backfilled task-ledger v2 fields',
-                      },
-                    }),
-                  ]
-                : [];
-            });
-      const appended = [...compatibilityEvents, ...mutationEvents];
-      await this.appendEvents(sessionId, appended);
-      this.emitChanged({
-        sessionId,
-        taskIds: [...new Set(appended.map((event) => event.taskId))],
-        at: Date.now(),
-      });
-      await this.write(sessionId, next);
+      await this.appendRecord(sessionId, mutationEvents);
+      if (mutationEvents.length > 0) {
+        this.emitChanged({
+          sessionId,
+          taskIds: [...new Set(mutationEvents.map((event) => event.taskId))],
+          at: Date.now(),
+        });
+      }
     });
     return next;
   }
 
-  private async appendEvents(sessionId: string, events: TaskLedgerEvent[]): Promise<void> {
+  private async appendRecord(sessionId: string, events: TaskLedgerEvent[]): Promise<void> {
     if (events.length === 0) return;
     const filePath = this.eventsPath(sessionId);
     await mkdir(dirname(filePath), { recursive: true });
-    await appendFile(
-      filePath,
-      events.map((event) => JSON.stringify(event)).join('\n') + '\n',
-      'utf8',
-    );
-  }
-
-  private async write(sessionId: string, tasks: Task[]): Promise<void> {
-    const filePath = this.filePath(sessionId);
-    await mkdir(dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, JSON.stringify(tasks, null, 2) + '\n', 'utf8');
-    await rename(tempPath, filePath);
+    const record: TaskLedgerRecord = {
+      version: 1,
+      recordId: `task-record-${randomUUID()}`,
+      sessionId,
+      ts: Date.now(),
+      events,
+    };
+    await appendJsonl(filePath, `${JSON.stringify(record)}\n`, {
+      durable: true,
+      durabilityRoot: this.durabilityRoot,
+    });
   }
 
   private applyListOptions(tasks: Task[], options: TaskLedgerListOptions): Task[] {
@@ -651,143 +625,6 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       }
     }
   }
-}
-
-function decodeTaskSnapshots(text: string): TaskLedgerEventTaskSnapshot[] {
-  const parsed = JSON.parse(text) as unknown;
-  if (!Array.isArray(parsed)) {
-    throw new Error('expected a JSON array of tasks');
-  }
-  const tasks: TaskLedgerEventTaskSnapshot[] = [];
-  const seenIds = new Set<string>();
-  for (const value of parsed) {
-    const task = normalizePersistedTask(value);
-    if (!task) continue;
-    // A tasks.json with two records sharing an id would render two
-    // indistinguishable tasks in the turn tail, and TaskUpdate's first-match
-    // lookup would only ever touch the first -- the second is unreachable and
-    // a mutate would silently keep both. Treat a duplicate id as corrupt so
-    // the render path degrades to empty and the mutate path stays fail-closed
-    // instead of rewriting a "half-correct" file.
-    if (seenIds.has(task.id)) {
-      throw new Error(
-        `task ledger has a duplicate id "${task.id}"; refusing to load an ambiguous ledger`,
-      );
-    }
-    seenIds.add(task.id);
-    tasks.push(task);
-  }
-  // Enforce the same total-task cap as the write path on read. A hand-edited,
-  // legacy, or externally-written tasks.json could otherwise carry an
-  // unbounded number of valid records, which `list()` would inject into the
-  // turn tail every turn. Treat over-cap as corrupt so the render path
-  // degrades to empty (its caller already try/catches) and the mutate path
-  // stays fail-closed instead of silently truncating-and-overwriting.
-  if (tasks.length > TASK_LEDGER_MAX_TASKS) {
-    throw new Error(
-      `task ledger has ${tasks.length} tasks, exceeding the ${TASK_LEDGER_MAX_TASKS}-task cap; refusing to load an unbounded ledger`,
-    );
-  }
-  return tasks;
-}
-
-function normalizePersistedTask(value: unknown): TaskLedgerEventTaskSnapshot | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const record = value as Partial<Task>;
-  // Timestamps must be finite: a hand-edited `1e999` parses to Infinity, and
-  // JSON.stringify(Infinity) writes null, so the record would silently vanish
-  // on the next write. Reject it up front (per-record drop) instead.
-  if (
-    typeof record.id !== 'string' ||
-    !isSafeTaskId(record.id) ||
-    typeof record.createdAt !== 'number' ||
-    !Number.isFinite(record.createdAt) ||
-    typeof record.updatedAt !== 'number' ||
-    !Number.isFinite(record.updatedAt) ||
-    !isTaskStatus(record.status)
-  ) {
-    return undefined;
-  }
-  // Re-apply the same subject normalization as the write path (NFC, whitespace
-  // collapse, trim, length cap, non-empty) so a manually-edited or legacy
-  // tasks.json cannot inject an overlong/blank subject into the turn tail
-  // every turn. Invalid subjects drop the whole record, matching the existing
-  // "single malformed entry discarded" semantic.
-  const subject = normalizeTaskSubject(record.subject);
-  if (!subject.ok) return undefined;
-  return {
-    id: record.id,
-    ...(record.key && isTaskKey(record.key) ? { key: record.key } : {}),
-    subject: subject.value,
-    status: record.status,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    ...(record.parentId && isSafeTaskId(record.parentId) ? { parentId: record.parentId } : {}),
-    ...normalizeOptionalOwner(record.owner),
-    ...(typeof record.endedAt === 'number' && Number.isFinite(record.endedAt)
-      ? { endedAt: record.endedAt }
-      : {}),
-    ...normalizeOptionalEvidence(record.blockedReason, 'blockedReason'),
-    ...normalizeOptionalEvidence(record.failureReason, 'failureReason'),
-    ...normalizeOptionalEvidence(record.completionEvidence, 'completionEvidence'),
-    ...normalizeOptionalResumeTrust(record.resumeTrust),
-  };
-}
-
-function normalizeOptionalEvidence(
-  value: unknown,
-  field: 'blockedReason' | 'failureReason' | 'completionEvidence',
-): Partial<Task> {
-  if (value === undefined) return {};
-  const normalized = normalizeTaskEvidenceText(value, field);
-  if (!normalized.ok) return {};
-  return { [field]: normalized.value } as Partial<Task>;
-}
-
-function normalizeOptionalResumeTrust(
-  value: unknown,
-): Pick<Task, 'resumeTrust'> | Record<string, never> {
-  if (value === undefined) return {};
-  const normalized = normalizeResumeTrust(value);
-  if (!normalized.ok) return {};
-  return { resumeTrust: normalized.value };
-}
-
-function normalizeOptionalOwner(value: unknown): Pick<Task, 'owner'> | Record<string, never> {
-  if (!isTaskOwner(value)) return {};
-  const owner = value;
-  return {
-    owner: {
-      actor: owner.actor,
-      ...(owner.agentId ? { agentId: owner.agentId } : {}),
-      ...(owner.runId ? { runId: owner.runId } : {}),
-      ...(owner.turnId ? { turnId: owner.turnId } : {}),
-    },
-  };
-}
-
-function projectLegacySnapshots(tasks: readonly TaskLedgerEventTaskSnapshot[]) {
-  const projection = projectTaskLedgerEvents(
-    tasks.map(
-      (task, index): TaskLedgerEvent => ({
-        eventId: `legacy-import-${index}`,
-        type: 'task_imported',
-        ts: task.createdAt,
-        sessionId: 'legacy',
-        taskId: task.id,
-        nextStatus: task.status,
-        task,
-        source: 'import',
-        actor: 'system',
-      }),
-    ),
-  );
-  if (projection.diagnostics.length > 0) {
-    throw new Error(
-      `legacy task ledger has projection diagnostics: ${projection.diagnostics.join('; ')}`,
-    );
-  }
-  return projection;
 }
 
 function nextTaskKey(tasks: readonly Task[], parent: Task | undefined): string {

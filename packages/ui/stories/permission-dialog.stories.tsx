@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, within } from 'storybook/test';
-import type { PermissionRequestEvent, PermissionResponse, ToolCategory } from '@maka/core';
+import type {
+  PermissionRequestEvent,
+  PermissionResponse,
+  PublicToolIntentReview,
+  ToolCategory,
+} from '@maka/core';
 import { PermissionPrompt } from '../src/permission-dialog.js';
 
 const meta = {
@@ -25,8 +30,7 @@ function makeRequest(input: {
   toolName: string;
   category: ToolCategory;
   reason: PermissionRequestEvent['reason'];
-  args: unknown;
-  hint?: string;
+  review: PublicToolIntentReview;
   ageMs?: number;
   rememberForTurnAllowed: boolean;
 }): PermissionRequestEvent {
@@ -40,9 +44,8 @@ function makeRequest(input: {
     toolName: input.toolName,
     category: input.category,
     reason: input.reason,
-    args: input.args,
+    review: input.review,
     ts: NOW - (input.ageMs ?? 0),
-    ...(input.hint ? { hint: input.hint } : {}),
     rememberForTurnAllowed: input.rememberForTurnAllowed,
   };
 }
@@ -73,9 +76,13 @@ const writeStdinRequest = makeRequest({
   toolName: 'WriteStdin',
   category: 'shell_unsafe',
   reason: 'shell_dangerous',
-  args: {
+  review: {
+    kind: 'stdin',
     ref: 'maka://runtime/background-tasks/pty-1',
-    input: `password=super-secret ${'diagnostic '.repeat(24)}\u001b[31mrm -rf /tmp/example\r`,
+    input: {
+      text: String.raw`password=REDACTED diagnostic \u{001B}[31mrm -rf /tmp/example\r`,
+      bytes: 74,
+    },
     size: { cols: 120, rows: 40 },
   },
   rememberForTurnAllowed: false,
@@ -101,8 +108,11 @@ export const ShellDangerous: Story = {
           category: 'shell_unsafe',
           reason: 'shell_dangerous',
           rememberForTurnAllowed: true,
-          args: { command: 'rm -rf node_modules dist && npm ci', timeout_ms: 120000 },
-          hint: '这条命令会删除目录再重装依赖，请确认在正确的项目根目录执行。',
+          review: {
+            kind: 'command',
+            command: 'rm -rf node_modules dist && npm ci',
+            cwd: '/workspace/maka-agent',
+          },
         })}
         onRespond={noop}
       />
@@ -127,14 +137,15 @@ export const WriteStdinInteraction: Story = {
     await expect(collapsedText).toContain('maka://runtime/background-tasks/pty-1');
     await expect(collapsedText).toContain('120x40');
     await expect(collapsedText).not.toContain('super-secret');
-    await expect(collapsedText).not.toContain('/tmp/example');
+    await expect(collapsedText).toContain('/tmp/example');
     await expect(body.queryByRole('checkbox')).toBeNull();
 
     await userEvent.click(body.getByRole('button', { name: '查看输入' }));
     const inspection = document.querySelector<HTMLElement>('.maka-permission-details .maka-code');
     await expect(inspection).not.toBeNull();
     const inspectionText = inspection?.textContent ?? '';
-    await expect(inspectionText).toContain('super-secret');
+    await expect(inspectionText).toContain('REDACTED');
+    await expect(inspectionText).not.toContain('super-secret');
     await expect(inspectionText).toContain(String.raw`\u{001B}[31mrm -rf /tmp/example\r`);
     await expect(inspectionText).not.toContain('\u001b');
     await expect(inspectionText).toContain('size: 120x40');
@@ -147,8 +158,6 @@ export const WriteStdinInteraction: Story = {
   },
 };
 
-const fileWriteSentinel = 'FILE_WRITE_PRIVATE_SENTINEL';
-
 export const FileWrite: Story = {
   render: () => (
     <ComposerSlotBackdrop>
@@ -159,23 +168,17 @@ export const FileWrite: Story = {
           category: 'file_write',
           reason: 'file_write',
           rememberForTurnAllowed: true,
-          args: {
+          review: {
+            kind: 'path',
+            operation: 'write',
             path: 'src/renderer/app-shell.tsx',
-            content: `import { AppShell } from "./app-shell";\n\n// ${fileWriteSentinel}\nexport function main() {\n  return <AppShell />;\n}\n`,
+            cwd: '/workspace/maka-agent',
           },
         })}
         onRespond={noop}
       />
     </ComposerSlotBackdrop>
   ),
-  play: async ({ canvasElement }) => {
-    const document = canvasElement.ownerDocument;
-    const body = within(document.body);
-
-    await expect(document.body.textContent ?? '').not.toContain(fileWriteSentinel);
-    await userEvent.click(body.getByRole('button', { name: '查看内容' }));
-    await expect(document.body.textContent ?? '').toContain(fileWriteSentinel);
-  },
 };
 
 export const FileEdit: Story = {
@@ -188,10 +191,11 @@ export const FileEdit: Story = {
           category: 'file_write',
           reason: 'file_write',
           rememberForTurnAllowed: true,
-          args: {
+          review: {
+            kind: 'path',
+            operation: 'edit',
             path: 'packages/ui/src/composer.tsx',
-            old_string: 'const placeholder = "给 Maka 发消息…";',
-            new_string: 'const placeholder = "问点什么…";',
+            cwd: '/workspace/maka-agent',
           },
         })}
         onRespond={noop}
@@ -210,22 +214,17 @@ export const FileEditExpanded: Story = {
           category: 'file_write',
           reason: 'file_write',
           rememberForTurnAllowed: true,
-          args: {
+          review: {
+            kind: 'path',
+            operation: 'edit',
             path: 'packages/ui/src/composer.tsx',
-            old_string: 'const placeholder = "给 Maka 发消息…";\n'.repeat(18),
-            new_string: 'const placeholder = "描述任务…";\n'.repeat(18),
+            cwd: '/workspace/maka-agent',
           },
         })}
         onRespond={noop}
       />
     </ComposerSlotBackdrop>
   ),
-  play: async ({ canvasElement }) => {
-    await wait(0);
-    const disclosure = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => (button.textContent ?? '').includes('查看变更'));
-    disclosure?.click();
-  },
 };
 
 export const FsDestructive: Story = {
@@ -238,8 +237,7 @@ export const FsDestructive: Story = {
           category: 'fs_destructive',
           reason: 'fs_destructive',
           rememberForTurnAllowed: true,
-          args: { command: 'git clean -fdx' },
-          hint: '将删除所有未跟踪的文件和目录。',
+          review: { kind: 'command', command: 'git clean -fdx', cwd: '/workspace/maka-agent' },
         })}
         onRespond={noop}
       />
@@ -257,7 +255,7 @@ export const GitDestructive: Story = {
           category: 'git_destructive',
           reason: 'git_destructive',
           rememberForTurnAllowed: true,
-          args: { command: 'git push --force origin main' },
+          review: { kind: 'command', command: 'git push --force origin main', cwd: '/workspace/maka-agent' },
         })}
         onRespond={noop}
       />
@@ -275,7 +273,11 @@ export const Network: Story = {
           category: 'web_read',
           reason: 'network',
           rememberForTurnAllowed: true,
-          args: { url: 'https://api.github.com/repos/maka-agent/maka/releases/latest' },
+          review: {
+            kind: 'web',
+            targetKind: 'url',
+            target: 'https://api.github.com/repos/maka-agent/maka/releases/latest',
+          },
         })}
         onRespond={noop}
       />
@@ -293,7 +295,11 @@ export const Privileged: Story = {
           category: 'privileged',
           reason: 'privileged',
           rememberForTurnAllowed: true,
-          args: { command: 'sudo systemctl restart maka-agent' },
+          review: {
+            kind: 'command',
+            command: 'sudo systemctl restart maka-agent',
+            cwd: '/workspace/maka-agent',
+          },
         })}
         onRespond={noop}
       />
@@ -311,7 +317,7 @@ export const Browser: Story = {
           category: 'browser',
           reason: 'browser',
           rememberForTurnAllowed: true,
-          args: { url: 'https://example.com', ref: 'main' },
+          review: { kind: 'browser', action: 'navigate', url: 'https://example.com' },
         })}
         onRespond={noop}
       />
@@ -329,12 +335,11 @@ export const ComputerUse: Story = {
           category: 'computer_use',
           reason: 'computer_use',
           rememberForTurnAllowed: true,
-          args: {
+          review: {
+            kind: 'computer_use',
             action: 'left_click',
-            approvalClass: 'pointer_mutation',
             app: 'Example App',
             windowId: 42,
-            observationId: 'frame-7',
           },
         })}
         onRespond={noop}
@@ -343,23 +348,22 @@ export const ComputerUse: Story = {
   ),
 };
 
-export const OfficeDocumentEdit: Story = {
+export const FormatJson: Story = {
   render: () => (
     <ComposerSlotBackdrop>
       <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-office',
-          toolName: 'OfficeDocumentEdit',
+          toolName: 'FormatJson',
           category: 'file_write',
           reason: 'file_write',
           rememberForTurnAllowed: true,
-          args: {
-            path: 'reports/Q3-roadmap.docx',
-            operation: 'replaceText',
-            target: 'paragraph-42',
-            elementType: 'paragraph',
-            index: 41,
-            props: { text: 'Q3 目标：补齐 Storybook 表面覆盖。' },
+          review: {
+            kind: 'path',
+            operation: 'format_json',
+            path: 'reports/Q3-roadmap.json',
+            cwd: '/workspace/maka-agent',
+            sortKeys: true,
           },
         })}
         onRespond={noop}
@@ -378,7 +382,11 @@ export const StaleRequest: Story = {
           category: 'shell_unsafe',
           reason: 'shell_dangerous',
           rememberForTurnAllowed: true,
-          args: { command: 'npm run build && npm run test' },
+          review: {
+            kind: 'command',
+            command: 'npm run build && npm run test',
+            cwd: '/workspace/maka-agent',
+          },
           ageMs: 3 * 60_000,
         })}
         onRespond={noop}
@@ -397,7 +405,7 @@ export const ExpiredRequest: Story = {
           category: 'file_write',
           reason: 'file_write',
           rememberForTurnAllowed: true,
-          args: { path: 'README.md', content: '# Maka' },
+          review: { kind: 'path', operation: 'write', path: 'README.md', cwd: '/workspace/maka-agent' },
           ageMs: 11 * 60_000,
         })}
         onRespond={noop}
@@ -412,11 +420,15 @@ export const CustomReason: Story = {
       <PermissionPromptStory
         request={makeRequest({
           requestId: 'req-custom',
-          toolName: 'MemoryWrite',
+          toolName: 'StopBackgroundTask',
           category: 'custom_tool',
           reason: 'custom',
-          rememberForTurnAllowed: true,
-          args: { scope: 'project', content: '本仓库使用 pnpm，不要调用 npm install。' },
+          rememberForTurnAllowed: false,
+          review: {
+            kind: 'runtime_resource',
+            operation: 'stop',
+            ref: 'maka://runtime/background-tasks/build-1',
+          },
         })}
         onRespond={noop}
       />
@@ -438,7 +450,7 @@ export const SubmitPending: Story = {
           category: 'shell_unsafe',
           reason: 'shell_dangerous',
           rememberForTurnAllowed: true,
-          args: { command: 'npm run deploy' },
+          review: { kind: 'command', command: 'npm run deploy', cwd: '/workspace/maka-agent' },
         })}
         onRespond={() => new Promise<void>(() => undefined)}
       />

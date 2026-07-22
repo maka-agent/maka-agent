@@ -13,12 +13,7 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
         runtimeEvent('call-event', {
           role: 'model',
           author: 'agent',
-          content: {
-            kind: 'function_call',
-            id: 'tool-1',
-            name: 'Bash',
-            args: { command: 'npm test' },
-          },
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash' },
           refs: { toolCallId: 'tool-1' },
         }),
         runtimeEvent('progress-event', {
@@ -67,7 +62,7 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
         runtimeEvent('call-event', {
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: {} },
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash' },
           refs: { toolCallId: 'tool-1' },
         }),
       ],

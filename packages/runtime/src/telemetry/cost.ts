@@ -5,8 +5,6 @@ export interface CostInput {
   outputTokens: number;
   cacheHitInputTokens?: number;
   cacheMissInputTokens?: number;
-  /** Backward-compatible alias for cacheHitInputTokens. */
-  cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
 }
 
@@ -22,7 +20,7 @@ export function computeCost(usage: CostInput, pricing: PricingConfig | null): Co
   if (!pricing) {
     return { inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 };
   }
-  const cacheHitInputTokens = usage.cacheHitInputTokens ?? usage.cachedInputTokens ?? 0;
+  const cacheHitInputTokens = usage.cacheHitInputTokens ?? 0;
   const cacheWriteInputTokens = usage.cacheWriteInputTokens ?? 0;
   const cacheMissInputTokens =
     usage.cacheMissInputTokens ??

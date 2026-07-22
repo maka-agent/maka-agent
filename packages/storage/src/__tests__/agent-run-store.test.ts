@@ -12,6 +12,8 @@ describe('AgentRunStore', () => {
       const first = makeHeader({
         runId: 'run-1',
         invocationId: 'invocation-1',
+        automationId: 'automation-1',
+        automationFireId: 'fire-1',
         createdAt: 1,
         updatedAt: 1,
       });
@@ -29,6 +31,8 @@ describe('AgentRunStore', () => {
       assert.equal(read.status, 'completed');
       assert.equal(read.completedAt, 10);
       assert.equal(read.invocationId, 'invocation-1');
+      assert.equal(read.automationId, 'automation-1');
+      assert.equal(read.automationFireId, 'fire-1');
       assert.deepEqual(
         (await store.listSessionRuns('session-1')).map((run) => run.runId),
         ['run-1', 'run-2'],
@@ -114,7 +118,11 @@ describe('AgentRunStore', () => {
   it('rejects malformed optional run header fields', async () => {
     await withStore(async (store, root) => {
       const runPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json');
-      for (const patch of [{ automationId: 42 }, { abortSource: false }]) {
+      for (const patch of [
+        { automationId: 42 },
+        { automationFireId: 42 },
+        { abortSource: false },
+      ]) {
         await mkdir(dirname(runPath), { recursive: true });
         await writeFile(runPath, JSON.stringify({ ...makeHeader(), ...patch }) + '\n', 'utf8');
         await assert.rejects(
@@ -1194,6 +1202,285 @@ describe('AgentRunStore', () => {
       );
     });
   });
+
+  it('durably appends the T1 call and dispatch in ledger order as one recoverable payload', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      const input = preparedCommit();
+
+      assert.deepEqual(await runtimeEventStore.commitToolPrepared(input), {
+        created: true,
+        runtimeEventSeq: 2,
+      });
+      const path = join(root, 'sessions/session-1/runs/run-1/runtime-events.jsonl');
+      const lines = (await readFile(path, 'utf8')).split('\n').filter(Boolean);
+      assert.deepEqual(
+        lines.map((line) => (JSON.parse(line) as RuntimeEvent).id),
+        ['call-event-1', 'dispatch-event-1'],
+      );
+
+      await writeFile(path, `${lines[0]}\n${lines[1]!.slice(0, 24)}`, 'utf8');
+      assert.deepEqual(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).map(
+          (event) => event.id,
+        ),
+        ['call-event-1'],
+      );
+    });
+  });
+
+  it('claims an exact permission-preexisting call and preserves its physical sequence', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      const input = preparedCommit();
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', input.runtimeEvent);
+
+      assert.deepEqual(await runtimeEventStore.commitToolPrepared(input), {
+        created: true,
+        runtimeEventSeq: 2,
+      });
+      assert.deepEqual(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).map(
+          (event) => event.id,
+        ),
+        ['call-event-1', 'dispatch-event-1'],
+      );
+    });
+  });
+
+  it('deduplicates ordinary T1 calls, rejects drift, and clears partials at T2', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      const prepared = preparedCommit();
+      const outcome = outcomeCommit();
+      await runtimeEventStore.commitToolPrepared(prepared);
+
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', prepared.runtimeEvent);
+      assert.deepEqual(await runtimeEventStore.commitToolPrepared(prepared), {
+        created: false,
+        runtimeEventSeq: 2,
+      });
+      await assert.rejects(
+        runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', {
+          ...prepared.runtimeEvent,
+          content: {
+            kind: 'function_call',
+            id: 'provider-call-1',
+            name: 'Read',
+            args: { x: 2 },
+          },
+        }),
+        /Ordinary RuntimeEvent tool boundary conflict/,
+      );
+      await assert.rejects(
+        runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', {
+          ...prepared.runtimeEvent,
+          content: {
+            kind: 'function_call',
+            id: 'provider-call-drift',
+            name: 'Write',
+            args: {},
+          },
+          refs: { operationId: 'operation-drift', toolCallId: 'provider-call-drift' },
+        }),
+        /Ordinary RuntimeEvent tool boundary conflict/,
+      );
+
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'tool-partial',
+          invocationId: 'invocation-1',
+          partial: true,
+          role: 'tool',
+          author: 'tool',
+          content: undefined,
+          refs: { toolCallId: 'provider-call-1' },
+        }),
+      );
+      const partialsDir = join(root, 'sessions/session-1/runs/run-1/runtime-partials');
+      assert.equal((await readdir(partialsDir)).length, 1);
+      await runtimeEventStore.commitToolOutcome(outcome);
+      assert.deepEqual(await readdir(partialsDir), []);
+      assert.deepEqual(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).map(
+          (event) => event.id,
+        ),
+        ['call-event-1', 'dispatch-event-1', 'response-event-1'],
+      );
+    });
+  });
+
+  it('keeps a correlated non-boundary immutable append after a tool boundary', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      await runtimeEventStore.commitToolPrepared(preparedCommit());
+      const ordinary = makeRuntimeEvent({
+        id: 'ordinary-text',
+        invocationId: 'invocation-1',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'still append this' },
+        refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+        actions: { stateDelta: { phase: 'permission_decided' } },
+      });
+
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', ordinary);
+      assert.deepEqual(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).map(
+          (event) => event.id,
+        ),
+        ['call-event-1', 'dispatch-event-1', 'ordinary-text'],
+      );
+    });
+  });
+
+  it('deduplicates exact T1 retries and fails closed on call or operation identity conflicts', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      const input = preparedCommit();
+      await runtimeEventStore.commitToolPrepared(input);
+
+      assert.deepEqual(await runtimeEventStore.commitToolPrepared(input), {
+        created: false,
+        runtimeEventSeq: 2,
+      });
+      await assert.rejects(
+        runtimeEventStore.commitToolPrepared({
+          ...input,
+          runtimeEvent: {
+            ...input.runtimeEvent,
+            content: { kind: 'function_call', id: 'provider-call-1', name: 'Read', args: { x: 2 } },
+          },
+        }),
+        /Tool call identity conflict/,
+      );
+      await assert.rejects(
+        runtimeEventStore.commitToolPrepared({
+          ...input,
+          canonicalArgsHash: 'sha256:different',
+          dispatchRuntimeEvent: {
+            ...input.dispatchRuntimeEvent,
+            actions: {
+              toolDispatch: {
+                ...input.dispatchRuntimeEvent.actions!.toolDispatch!,
+                canonicalArgsHash: 'sha256:different',
+              },
+            },
+          },
+        }),
+        /Tool operation identity conflict/,
+      );
+      assert.equal(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).length,
+        2,
+      );
+    });
+  });
+
+  it('commits only matching T2 outcomes and rejects unknown or conflicting outcomes', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      await runtimeEventStore.commitToolPrepared(preparedCommit());
+      const outcome = outcomeCommit();
+
+      assert.deepEqual(await runtimeEventStore.commitToolOutcome(outcome), {
+        created: true,
+        runtimeEventSeq: 3,
+      });
+      assert.deepEqual(await runtimeEventStore.commitToolOutcome(outcome), {
+        created: false,
+        runtimeEventSeq: 3,
+      });
+      await assert.rejects(
+        runtimeEventStore.commitToolOutcome({
+          ...outcome,
+          operationId: 'operation-unknown',
+          runtimeEvent: {
+            ...outcome.runtimeEvent,
+            id: 'response-unknown',
+            refs: { operationId: 'operation-unknown', toolCallId: 'provider-call-unknown' },
+            content: {
+              kind: 'function_response',
+              id: 'provider-call-unknown',
+              name: 'Read',
+              result: 'nope',
+            },
+          },
+        }),
+        /Unknown tool operation operation-unknown/,
+      );
+      await assert.rejects(
+        runtimeEventStore.commitToolOutcome({
+          ...outcome,
+          runtimeEvent: {
+            ...outcome.runtimeEvent,
+            id: 'response-conflict',
+            content: {
+              kind: 'function_response',
+              id: 'provider-call-1',
+              name: 'Write',
+              result: 'conflict',
+            },
+          },
+        }),
+        /outcome identity conflict/,
+      );
+      assert.equal(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).length,
+        3,
+      );
+    });
+  });
+
+  it('rejects terminal status and endInvocation facts at both durable tool boundaries', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'invocation-1' }));
+      const prepared = preparedCommit();
+      await assert.rejects(
+        runtimeEventStore.commitToolPrepared({
+          ...prepared,
+          runtimeEvent: { ...prepared.runtimeEvent, status: 'completed' },
+        }),
+        /non-terminal function_call/,
+      );
+      await assert.rejects(
+        runtimeEventStore.commitToolPrepared({
+          ...prepared,
+          dispatchRuntimeEvent: {
+            ...prepared.dispatchRuntimeEvent,
+            actions: { ...prepared.dispatchRuntimeEvent.actions, endInvocation: true },
+          },
+        }),
+        /matching tool-dispatch/,
+      );
+
+      await runtimeEventStore.commitToolPrepared(prepared);
+      const outcome = outcomeCommit();
+      await assert.rejects(
+        runtimeEventStore.commitToolOutcome({
+          ...outcome,
+          runtimeEvent: { ...outcome.runtimeEvent, status: 'failed' },
+        }),
+        /non-terminal function_response/,
+      );
+      await assert.rejects(
+        runtimeEventStore.commitToolOutcome({
+          ...outcome,
+          runtimeEvent: {
+            ...outcome.runtimeEvent,
+            actions: { ...outcome.runtimeEvent.actions, endInvocation: true },
+          },
+        }),
+        /non-terminal function_response/,
+      );
+      assert.equal(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).length,
+        2,
+      );
+    });
+  });
 });
 
 async function withStore(
@@ -1264,5 +1551,66 @@ function makeRuntimeEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
     author: 'user',
     content: { kind: 'text', text: 'hello' },
     ...overrides,
+  };
+}
+
+function preparedCommit() {
+  const runtimeEvent = makeRuntimeEvent({
+    id: 'call-event-1',
+    invocationId: 'invocation-1',
+    role: 'model',
+    author: 'agent',
+    content: { kind: 'function_call', id: 'provider-call-1', name: 'Read', args: { x: 1 } },
+    refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+  });
+  const dispatchRuntimeEvent = makeRuntimeEvent({
+    id: 'dispatch-event-1',
+    invocationId: 'invocation-1',
+    role: 'system',
+    author: 'system',
+    content: undefined,
+    actions: {
+      toolDispatch: {
+        protocol: 't1_after_preflight_v1',
+        operationId: 'operation-1',
+        providerToolCallId: 'provider-call-1',
+        toolName: 'Read',
+        canonicalArgsHash: 'sha256:args-1',
+        recoveryMode: 'replay_safe',
+      },
+    },
+    refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+  });
+  return {
+    operationId: 'operation-1',
+    journalEventId: 'journal-prepared-1',
+    runtimeEvent,
+    dispatchRuntimeEvent,
+    providerToolCallId: 'provider-call-1',
+    toolName: 'Read',
+    canonicalArgsHash: 'sha256:args-1',
+    recoveryMode: 'replay_safe' as const,
+    committedAt: 10,
+  };
+}
+
+function outcomeCommit() {
+  return {
+    operationId: 'operation-1',
+    journalEventId: 'journal-outcome-1',
+    runtimeEvent: makeRuntimeEvent({
+      id: 'response-event-1',
+      invocationId: 'invocation-1',
+      role: 'tool',
+      author: 'tool',
+      content: {
+        kind: 'function_response' as const,
+        id: 'provider-call-1',
+        name: 'Read',
+        result: 'ok',
+      },
+      refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+    }),
+    committedAt: 20,
   };
 }

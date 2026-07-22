@@ -1,5 +1,6 @@
 import { CDPBridge } from '@jackwener/opencli/browser/cdp';
 import type { IPage } from '@jackwener/opencli/types';
+import { BrowserBackendError } from '@maka/runtime';
 import { browserAutomationAvailable, browserViewHost } from './browser-host.js';
 import { type BrowserActionKind, parseNavigable } from './logic.js';
 
@@ -96,9 +97,11 @@ type Connection = {
    * connect() attached to an already-committed page that predates the stealth
    * script and still owes one hardening reload. Resolved lazily by
    * withBrowserPage: the first mutating action reloads (observe never does), and
-   * a navigation clears it without a reload (goto re-commits with the script).
+   * a successful navigation records the newly injected document.
    */
   pendingTakeover: boolean;
+  /** Main-frame loader observed when this CDP connection attached. */
+  documentId: string | null;
 };
 
 /**
@@ -119,6 +122,14 @@ const pendingAcquires = new Map<string, Promise<Connection>>();
 // resolveEndpoint would resurrect the just-disposed view and the connection
 // would outlive the conversation with nothing left to ever clean it up.
 const releaseEpochs = new Map<string, number>();
+// Turn cleanup uses a separate generation: it must unwind a late acquire while
+// preserving the conversation's view/page/history.
+const detachEpochs = new Map<string, number>();
+// Turn detach preserves the BrowserView, so retain the identity of its current
+// document when that document has already received the stealth script. A later
+// connection can then distinguish the same document from a user navigation
+// that happened while automation was detached.
+const hardenedDocuments = new Map<string, string>();
 // In-flight actions per conversation, so the visible lease can REVOKE — not just
 // preflight. canDrive gates the START on screen; this severs an action that was
 // still running when the user switched away (browser:active-session), so a
@@ -177,6 +188,18 @@ async function currentPageUrl(page: IPage): Promise<string | null> {
   }
 }
 
+async function currentMainDocumentId(bridge: BridgeLike): Promise<string | null> {
+  try {
+    const result = (await bridge.send('Page.getFrameTree')) as {
+      frameTree?: { frame?: { loaderId?: unknown } };
+    };
+    const loaderId = result.frameTree?.frame?.loaderId;
+    return typeof loaderId === 'string' && loaderId ? loaderId : null;
+  } catch {
+    return null;
+  }
+}
+
 async function connect(session: string, endpoint: string): Promise<Connection> {
   const bridge = createBridge();
   const page = await bridge.connect({ cdpEndpoint: endpoint });
@@ -185,8 +208,34 @@ async function connect(session: string, endpoint: string): Promise<Connection> {
   // is about to observe or mutate, and observing must never disturb a page the
   // user may have unsaved input on. withBrowserPage resolves the takeover.
   const url = await currentPageUrl(page);
-  const pendingTakeover = Boolean(url && parseNavigable(url));
-  return { session, bridge, page, closed: false, pendingTakeover };
+  const documentId = await currentMainDocumentId(bridge);
+  const alreadyHardened = documentId !== null && hardenedDocuments.get(session) === documentId;
+  const pendingTakeover = Boolean(url && parseNavigable(url) && !alreadyHardened);
+  return { session, bridge, page, closed: false, pendingTakeover, documentId };
+}
+
+async function refreshDocumentIdentity(conn: Connection): Promise<void> {
+  const documentId = await currentMainDocumentId(conn.bridge);
+  if (!documentId || documentId === conn.documentId) return;
+
+  if (conn.documentId !== null) {
+    // This document was created while addScriptToEvaluateOnNewDocument was
+    // registered on this live connection, whether by the user or an action.
+    hardenedDocuments.set(conn.session, documentId);
+    conn.pendingTakeover = false;
+  } else if (hardenedDocuments.get(conn.session) === documentId) {
+    conn.pendingTakeover = false;
+  }
+  conn.documentId = documentId;
+}
+
+async function markCurrentDocumentHardened(conn: Connection): Promise<void> {
+  const documentId = await currentMainDocumentId(conn.bridge);
+  if (documentId) {
+    conn.documentId = documentId;
+    hardenedDocuments.set(conn.session, documentId);
+  }
+  conn.pendingTakeover = false;
 }
 
 // Reload the taken-over page once so its current document gets the stealth
@@ -222,7 +271,8 @@ async function acquire(sessionId: string): Promise<Connection> {
   const inflight = pendingAcquires.get(sessionId);
   if (inflight) return inflight;
   const promise = (async () => {
-    const epoch = releaseEpochs.get(sessionId);
+    const releaseEpoch = releaseEpochs.get(sessionId);
+    const detachEpoch = detachEpochs.get(sessionId);
     const endpoint = await browserViewHost().resolveEndpoint(sessionId);
     let conn: Connection;
     try {
@@ -236,7 +286,7 @@ async function acquire(sessionId: string): Promise<Connection> {
         .catch(() => {});
       throw err;
     }
-    if (releaseEpochs.get(sessionId) !== epoch) {
+    if (releaseEpochs.get(sessionId) !== releaseEpoch) {
       // The conversation was deleted or archived while we were connecting —
       // resolveEndpoint resurrected its view after the release disposed it.
       // Unwind completely: close the socket, dispose the recreated view.
@@ -247,6 +297,14 @@ async function acquire(sessionId: string): Promise<Connection> {
         .catch(() => {});
       throw new Error('The conversation was deleted while the browser was connecting.');
     }
+    if (detachEpochs.get(sessionId) !== detachEpoch) {
+      conn.closed = true;
+      await conn.bridge.close().catch(() => {});
+      await browserViewHost()
+        .releaseSession(sessionId)
+        .catch(() => {});
+      throw new Error('Browser automation detached while the browser was connecting.');
+    }
     bySession.set(sessionId, conn);
     return conn;
   })().finally(() => pendingAcquires.delete(sessionId));
@@ -254,7 +312,39 @@ async function acquire(sessionId: string): Promise<Connection> {
   return promise;
 }
 
-export type BrowserPageRun<T> = (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>;
+/**
+ * Turn cleanup boundary: detach automation/CDP only. The BrowserView and its
+ * current page/history remain owned by the Desktop conversation.
+ */
+export async function detachBrowserSession(sessionId: string): Promise<void> {
+  detachEpochs.set(sessionId, (detachEpochs.get(sessionId) ?? 0) + 1);
+  const conn = bySession.get(sessionId);
+  let closeError: unknown;
+  if (conn) {
+    bySession.delete(sessionId);
+    conn.closed = true;
+    try {
+      await conn.bridge.close();
+    } catch (error) {
+      closeError = error;
+    }
+  }
+  if (browserAutomationAvailable()) {
+    // releaseSession is the canonical native-ownership handoff. Its success
+    // also tears down the host bridge, so a local close rejection alone does
+    // not block the release acknowledgement; a canonical rejection must.
+    await browserViewHost().releaseSession(sessionId);
+    return;
+  }
+  if (closeError) throw closeError;
+}
+
+export interface BrowserPageRunInfo {
+  takeoverReloaded: boolean;
+  markEffectStarted(): void;
+}
+
+export type BrowserPageRun<T> = (page: IPage, info: BrowserPageRunInfo) => Promise<T>;
 
 /**
  * Run one tool action against the session's embedded-browser page: lazy connect
@@ -266,7 +356,12 @@ export async function withBrowserPage<T>(
   sessionId: string,
   label: string,
   run: BrowserPageRun<T>,
-  opts?: { timeoutMs?: number; abort?: AbortSignal; takeover?: TakeoverMode },
+  opts?: {
+    timeoutMs?: number;
+    abort?: AbortSignal;
+    takeover?: TakeoverMode;
+    effectful?: boolean;
+  },
 ): Promise<T> {
   if (opts?.abort?.aborted) throw new BrowserActionCanceledError(label);
   const kind: TakeoverMode = opts?.takeover ?? 'observe';
@@ -287,6 +382,9 @@ export async function withBrowserPage<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   let onRevoke: (() => void) | undefined;
+  // Navigate/click/type mark this immediately before their first possibly
+  // effectful CDP command; failures before that point remain definite.
+  let effectStarted = false;
   // Track this action so a switch away from the conversation can revoke it (the
   // visible lease is continuous, not just the preflight canDrive above).
   // Registered AFTER canDrive resolved true, with no await between, so the
@@ -329,33 +427,53 @@ export async function withBrowserPage<T>(
     // rejection must not surface as an unhandled error.
     acquiring.catch(() => {});
     conn = await Promise.race([acquiring, interrupted]);
+    await Promise.race([refreshDocumentIdentity(conn), interrupted]);
     // Resolve a pending takeover by the action's kind: a mutating action hardens
-    // the page first (reload), a navigation just clears it (goto re-commits with
-    // the script), and a pure observe leaves it pending so a later mutate still
-    // hardens — observing never reloads the page the user has open.
+    // the page first (reload), navigation records its new injected document only
+    // after it succeeds, and observe leaves the takeover pending.
     let takeoverReloaded = false;
     if (conn.pendingTakeover) {
       if (kind === 'mutate') {
+        if (opts?.effectful) effectStarted = true;
         await Promise.race([applyTakeoverReload(conn), interrupted]);
-        conn.pendingTakeover = false;
+        await Promise.race([markCurrentDocumentHardened(conn), interrupted]);
         takeoverReloaded = true;
-      } else if (kind === 'navigate') {
-        conn.pendingTakeover = false;
       }
     }
-    return await Promise.race([run(conn.page, { takeoverReloaded }), interrupted]);
+    const result = await Promise.race([
+      run(conn.page, {
+        takeoverReloaded,
+        markEffectStarted: () => {
+          effectStarted = true;
+        },
+      }),
+      interrupted,
+    ]);
+    if (kind === 'navigate' || (kind === 'mutate' && opts?.effectful)) {
+      await Promise.race([markCurrentDocumentHardened(conn), interrupted]);
+    }
+    return result;
   } catch (err) {
-    if (conn && isConnectionLoss(err)) {
+    const connectionLost = Boolean(conn && isConnectionLoss(err));
+    let surfaced = err;
+    if (conn && connectionLost) {
       invalidate(conn);
       // The connection dying mid-action means the page was closed out from under
       // the tool — the user closed the browser tab, or the conversation was torn
       // down. The raw "CDP connection is not open" says neither what happened nor
       // what to do; say both. No automatic retry: a close is the user's call.
-      throw new Error(
+      surfaced = new Error(
         `The browser page was closed while ${label} was running. The next browser action starts over from a fresh blank page.`,
       );
     }
-    throw err;
+    if (effectStarted) {
+      if (conn) invalidate(conn);
+      throw new BrowserBackendError(
+        'outcome_unknown',
+        surfaced instanceof Error ? surfaced.message : `Browser ${label} may have taken effect.`,
+      );
+    }
+    throw surfaced;
   } finally {
     clearTimeout(timer);
     if (onAbort) opts?.abort?.removeEventListener('abort', onAbort);
@@ -374,6 +492,8 @@ export async function releaseBrowserSession(sessionId: string): Promise<void> {
   // it may not have registered in pendingAcquires yet, and a hung endpoint
   // resolution must not block the session's deletion.
   releaseEpochs.set(sessionId, (releaseEpochs.get(sessionId) ?? 0) + 1);
+  detachEpochs.set(sessionId, (detachEpochs.get(sessionId) ?? 0) + 1);
+  hardenedDocuments.delete(sessionId);
   const conn = bySession.get(sessionId);
   if (conn) {
     bySession.delete(sessionId);
@@ -402,5 +522,7 @@ export function resetBrowserSessionsForTest(): void {
   bySession.clear();
   pendingAcquires.clear();
   releaseEpochs.clear();
+  detachEpochs.clear();
+  hardenedDocuments.clear();
   inFlightBySession.clear();
 }

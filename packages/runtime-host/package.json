@@ -7,6 +7,9 @@
   "exports": {
     "./protocol": "./dist/protocol/index.js",
     "./client": "./dist/client/index.js",
+    "./native-provider/browser": "./dist/native-provider/browser.js",
+    "./native-provider/computer-use": "./dist/native-provider/computer-use.js",
+    "./native-provider/oauth-presentation": "./dist/native-provider/oauth-presentation.js",
     "./server": "./dist/server/index.js"
   },
   "scripts": {
@@ -19,7 +22,8 @@
   "dependencies": {
     "@maka/core": "0.1.0",
     "@maka/runtime": "0.1.0",
-    "@maka/storage": "0.1.0"
+    "@maka/storage": "0.1.0",
+    "ai": "^7.0.31"
   },
   "devDependencies": {
     "electron": "^43.1.1"

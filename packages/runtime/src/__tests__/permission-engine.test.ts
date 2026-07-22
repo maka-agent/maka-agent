@@ -5,21 +5,19 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expect } from '../test-helpers.js';
-import { PermissionEngine, type PermissionEngineDeps } from '../permission-engine.js';
-import type { PermissionResponse, ToolExecutionFacts } from '@maka/core/permission';
+import { expect, TestPermissionEngine } from '../test-helpers.js';
+import { type PermissionEngineDeps } from '../permission-engine.js';
+import { type PermissionResponse } from '@maka/core/permission';
 
-const LOCAL_EXECUTION_FACTS: ToolExecutionFacts = {
-  isolation: 'none',
-  writesAffectHost: true,
-  writeBack: 'direct',
-  network: 'host',
-  secrets: 'host_env',
-};
+const TEST_CWD = '/workspace/project';
 
-function makeEngine(): { engine: PermissionEngine; deps: TestDeps } {
+function writeArgs(path = '/x'): { path: string; content: string } {
+  return { path, content: 'test content' };
+}
+
+function makeEngine(): { engine: TestPermissionEngine; deps: TestDeps } {
   const deps = new TestDeps();
-  return { engine: new PermissionEngine(deps), deps };
+  return { engine: new TestPermissionEngine(deps, TEST_CWD), deps };
 }
 
 class TestDeps implements PermissionEngineDeps {
@@ -53,7 +51,7 @@ describe('PermissionEngine.evaluate — allow path', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     expect(r1.kind).toBe('prompt');
@@ -72,7 +70,7 @@ describe('PermissionEngine.evaluate — allow path', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     expect(r2.kind).toBe('allow');
@@ -84,7 +82,7 @@ describe('PermissionEngine.evaluate — allow path', () => {
       turnId: 't1',
       toolUseId: 'tu3',
       toolName: 'Write',
-      args: { path: '/y' },
+      args: writeArgs('/y'),
       mode: 'ask',
     });
     expect(r3.kind).toBe('prompt');
@@ -123,7 +121,7 @@ describe('PermissionEngine.evaluate — invocation-local rules', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/repo/file.ts' },
+      args: writeArgs('/repo/file.ts'),
       mode: 'explore',
       permissionRules: [{ effect: 'allow', kind: 'category', category: 'file_write' }],
     });
@@ -209,7 +207,7 @@ describe('PermissionEngine.evaluate — block path', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'explore',
     });
     expect(r.kind).toBe('block');
@@ -238,6 +236,26 @@ describe('PermissionEngine.evaluate — block path', () => {
 });
 
 describe('PermissionEngine.evaluate — prompt path', () => {
+  test('rejects a missing producer cwd before parking', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+
+    assert.throws(
+      () =>
+        engine.evaluate({
+          sessionId: 's1',
+          turnId: 't1',
+          toolUseId: 'tu-missing-cwd',
+          toolName: 'Write',
+          args: writeArgs('/workspace/project/missing.txt'),
+          cwd: '',
+          mode: 'ask',
+        }),
+      /canonical tool cwd/,
+    );
+    assert.equal(engine.pendingCount('t1'), 0);
+  });
+
   test('allows execute shell_unsafe when the runtime reports an enforceable sandbox', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
@@ -254,11 +272,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
     expect(r.kind).toBe('allow');
   });
 
-  test('execution facts are accepted but do not (yet) downgrade host-local shell to allow', () => {
-    // executionFacts is plumbed for forward-compat: a future sandbox-aware
-    // policy may auto-allow unsafe shell inside an isolated worktree. On the
-    // HOST (isolation: 'none') execute mode is fail-closed, so an unrecognized
-    // command prompts regardless of the facts being present.
+  test('execute shell_unsafe still prompts without an enforceable sandbox', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
     const r = engine.evaluate({
@@ -268,7 +282,6 @@ describe('PermissionEngine.evaluate — prompt path', () => {
       toolName: 'Bash',
       args: { command: 'npm install lodash' },
       mode: 'execute',
-      executionFacts: LOCAL_EXECUTION_FACTS,
     });
     expect(r.kind).toBe('prompt');
     if (r.kind === 'prompt') {
@@ -284,7 +297,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     expect(r.kind).toBe('prompt');
@@ -293,10 +306,18 @@ describe('PermissionEngine.evaluate — prompt path', () => {
     expect(r.event.turnId).toBe('t1');
     expect(r.event.toolUseId).toBe('tu1');
     expect(r.event.requestId).toMatch(/^id-/);
+    assert.equal(r.event.kind, 'tool_permission');
+    if (r.event.kind !== 'tool_permission') return;
+    expect(r.event.review).toEqual({
+      kind: 'path',
+      operation: 'write',
+      path: '/x',
+      cwd: TEST_CWD,
+    });
     expect(r.event.rememberForTurnAllowed).toBe(true);
   });
 
-  test('preserves exact WriteStdin permission args and disables turn memory', () => {
+  test('projects a bounded WriteStdin review and disables turn memory', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
     const args = {
@@ -315,7 +336,14 @@ describe('PermissionEngine.evaluate — prompt path', () => {
 
     assert.equal(r.kind, 'prompt');
     if (r.kind !== 'prompt') return;
-    assert.deepEqual(r.event.args, args);
+    assert.equal(r.event.kind, 'tool_permission');
+    if (r.event.kind !== 'tool_permission') return;
+    assert.deepEqual(r.event.review, {
+      kind: 'stdin',
+      ref: 'maka://runtime/background-tasks/pty-1',
+      input: { text: 'private input\\u{000D}', bytes: 14 },
+      size: { cols: 100, rows: 30 },
+    });
     assert.equal(r.event.rememberForTurnAllowed, false);
   });
 
@@ -327,7 +355,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     if (r.kind !== 'prompt') throw new Error('expected prompt');
@@ -372,7 +400,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     if (r.kind !== 'prompt') throw new Error('expected prompt');
@@ -397,7 +425,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     const parkedPromise =
@@ -416,7 +444,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     if (r.kind !== 'prompt') throw new Error('expected prompt');
@@ -445,7 +473,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     const r2 = engine.evaluate({
@@ -453,7 +481,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
@@ -481,7 +509,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     const r2 = engine.evaluate({
@@ -489,7 +517,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
@@ -505,11 +533,13 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'maka_computer',
-      args: { action: 'type', text: 'secret' },
+      args: { action: 'wait', duration: 1 },
       categoryHint: 'computer_use',
       mode: 'execute',
     });
     if (first.kind !== 'prompt') throw new Error('expected prompt');
+    assert.equal(first.event.kind, 'tool_permission');
+    if (first.event.kind !== 'tool_permission') return;
     assert.equal(first.event.rememberForTurnAllowed, false);
 
     assert.throws(
@@ -534,7 +564,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'maka_computer',
-      args: { action: 'type', text: 'other secret' },
+      args: { action: 'wait', duration: 2 },
       categoryHint: 'computer_use',
       mode: 'execute',
     });
@@ -549,6 +579,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       app: 'Example',
       observation_id: 'frame-1',
       coordinate: [10, 20],
+      window_id: 7,
     };
     const result = engine.evaluate({
       sessionId: 's1',
@@ -560,14 +591,15 @@ describe('PermissionEngine — turn lifecycle', () => {
       mode: 'execute',
     });
     if (result.kind !== 'prompt') throw new Error('expected prompt');
+    assert.equal(result.event.kind, 'tool_permission');
+    if (result.event.kind !== 'tool_permission') return;
     args.app = 'Mutated';
     args.observation_id = 'frame-999';
-    assert.deepEqual(result.event.args, {
+    assert.deepEqual(result.event.review, {
+      kind: 'computer_use',
       action: 'left_click',
-      approvalClass: 'pointer_mutation',
-      rememberForTurnAllowed: true,
       app: 'Example',
-      observationId: 'frame-1',
+      windowId: 7,
     });
   });
 
@@ -603,7 +635,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: '/x' },
+      args: writeArgs('/x'),
       mode: 'ask',
     });
     const r2 = engine.evaluate({
@@ -611,7 +643,7 @@ describe('PermissionEngine — turn lifecycle', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: { path: '/y' },
+      args: writeArgs('/y'),
       mode: 'ask',
     });
     if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
@@ -649,7 +681,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     if (r.kind !== 'prompt') throw new Error('expected prompt');
@@ -742,7 +774,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: { path: 'notes.md' },
+      args: writeArgs('notes.md'),
       mode: 'ask',
     });
     if (r1.kind !== 'prompt') throw new Error('expected prompt');
@@ -758,7 +790,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: { path: 'notes.md' },
+      args: writeArgs('notes.md'),
       mode: 'ask',
     });
     expect(r2.kind).toBe('allow');
@@ -768,7 +800,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu3',
       toolName: 'Edit',
-      args: { path: 'notes.md' },
+      args: { path: 'notes.md', old_string: 'old', new_string: 'new' },
       mode: 'ask',
     });
     expect(r3.kind).toBe('prompt');
@@ -783,7 +815,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     if (r1.kind !== 'prompt') throw new Error('expected prompt');
@@ -799,7 +831,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: {},
+      args: writeArgs(),
       mode: 'ask',
     });
     expect(r2.kind).toBe('prompt');

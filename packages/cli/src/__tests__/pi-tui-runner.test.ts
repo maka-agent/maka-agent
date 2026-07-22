@@ -12,6 +12,7 @@ import {
   type PermissionMode,
   type PermissionResponse,
   type OrchestrationMode,
+  type PublicToolIntentReview,
   type QueueEnqueueOutcome,
   type SessionEvent,
   type SessionSummary,
@@ -2088,15 +2089,16 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('inspects exact WriteStdin input and allows it without turn memory', async () => {
+  test('inspects the public WriteStdin review and allows it without turn memory', async () => {
     const terminal = new FakeTerminal();
-    const hiddenSuffix = '\u001b[31mrm -rf /tmp/hidden-suffix\r';
+    const stdinReviewText = `password=REDACTED ${'x'.repeat(200)}\\u{001B}[31mrm -rf /tmp/hidden-suffix\\u{000D}`;
     const driver = new PermissionPromptDriver([
       {
         toolName: 'WriteStdin',
-        args: {
+        review: {
+          kind: 'stdin',
           ref: 'maka://runtime/background-tasks/pty-1',
-          input: `password=super-secret ${'x'.repeat(200)}${hiddenSuffix}`,
+          input: { text: stdinReviewText, bytes: 256 },
           size: { cols: 120, rows: 40 },
         },
         rememberForTurnAllowed: false,
@@ -2119,16 +2121,15 @@ describe('Maka Pi TUI runner', () => {
       plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+O show full parameters'),
     );
     const collapsed = plainTerminalOutput(terminal.screenOutput());
-    assert.doesNotMatch(collapsed, /super-secret/);
     assert.doesNotMatch(collapsed, /hidden-suffix/);
     assert.doesNotMatch(collapsed, /allow for turn/);
 
     terminal.input('\x0f');
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('hidden-suffix\\r'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('hidden-suffix\\u{000D}'));
     const expanded = plainTerminalOutput(terminal.output());
-    assert.match(expanded, /super-secret/);
+    assert.match(expanded, /password=REDACTED/);
     assert.match(expanded, /\\u\{001B\}\[31mrm -rf/);
-    assert.match(expanded, /\/tmp\/hidden-suffix\\r/);
+    assert.match(expanded, /\/tmp\/hidden-suffix\\u\{000D\}/);
     assert.doesNotMatch(terminal.output(), /\u001b\[31mrm -rf/);
 
     terminal.input('y');
@@ -6021,7 +6022,7 @@ describe('Maka Pi TUI runner', () => {
               turnId: 'turn-1',
               ts: 1,
               toolName: 'Bash',
-              args: { command: 'build' },
+              review: { kind: 'command', command: 'build', cwd: '/repo' },
             },
             {
               type: 'tool_result',
@@ -6111,7 +6112,7 @@ describe('Maka Pi TUI runner', () => {
               turnId: 'turn-1',
               ts: 1,
               toolName: 'Bash',
-              args: { command: 'build' },
+              review: { kind: 'command', command: 'build', cwd: '/repo' },
             },
             {
               type: 'tool_result',
@@ -6803,7 +6804,7 @@ describe('Maka Pi TUI runner', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/repo' },
       },
       {
         type: 'tool_result',
@@ -6970,7 +6971,7 @@ describe('Maka Pi TUI runner', () => {
         turnId: 'turn-1',
         ts: 1,
         toolName: 'Bash',
-        args: { command: 'build' },
+        review: { kind: 'command', command: 'build', cwd: '/repo' },
       },
       {
         type: 'tool_result',
@@ -8605,7 +8606,7 @@ class RejectingStopDriver implements MakaSessionDriver {
 
 interface PermissionPromptRequest {
   toolName: string;
-  args: unknown;
+  review: PublicToolIntentReview;
   rememberForTurnAllowed: boolean;
 }
 
@@ -8625,7 +8626,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
       typeof request === 'string'
         ? {
             toolName: 'Bash',
-            args: { command: request },
+            review: { kind: 'command', command: request, cwd: '/repo' },
             rememberForTurnAllowed: true,
           }
         : request,
@@ -8657,20 +8658,15 @@ class PermissionPromptDriver implements MakaSessionDriver {
             toolName: 'Write',
             category: 'file_write',
             reason: 'additional_permissions',
-            args: undefined,
-            cwd: '/repo',
-            justification: 'Write requires access to the requested path.',
-            intentHash: `sha256:${'1'.repeat(64)}`,
-            permissionsHash: `sha256:${'2'.repeat(64)}`,
-            additionalPermissions: {
-              fileSystem: {
-                entries: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }],
-              },
+            review: {
+              kind: 'additional_permissions',
+              cwd: '/repo',
+              paths: [{ path: '/outside/file.txt', access: 'write', scope: 'exact' }],
+              networkEnabled: false,
             },
             risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
-            alsoApprovesToolExecution: true,
+            alsoApprovesToolExecution: false,
             availableDecisions: ['allow_once', 'deny'],
-            rememberForTurnAllowed: false,
           }
         : {
             type: 'permission_request',
@@ -8683,7 +8679,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
             toolName: request.toolName,
             category: 'shell_unsafe',
             reason: 'shell_dangerous',
-            args: request.args,
+            review: request.review,
             rememberForTurnAllowed: request.rememberForTurnAllowed,
           };
     }
@@ -9326,7 +9322,7 @@ class ToolOutputDriver implements MakaSessionDriver {
       ts: 1,
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: { command: 'npm test' },
+      review: { kind: 'command', command: 'npm test', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9387,7 +9383,7 @@ class BackgroundShellRunDriver extends ToolOutputDriver {
       ts: 1,
       toolUseId: 'tool-bg',
       toolName: 'Bash',
-      args: { command: 'build' },
+      review: { kind: 'command', command: 'build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9428,7 +9424,7 @@ class OffscreenToolDriver extends ToolOutputDriver {
       ts: 1,
       toolUseId: 'tool-early',
       toolName: 'Bash',
-      args: { command: 'early-build' },
+      review: { kind: 'command', command: 'early-build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9466,7 +9462,7 @@ class OffscreenToolDriver extends ToolOutputDriver {
       ts: 4,
       toolUseId: 'tool-late',
       toolName: 'Bash',
-      args: { command: 'late-build' },
+      review: { kind: 'command', command: 'late-build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9507,7 +9503,7 @@ class OffscreenTickerDriver extends ToolOutputDriver {
       ts: 1,
       toolUseId: 'tool-early',
       toolName: 'Bash',
-      args: { command: 'early-build' },
+      review: { kind: 'command', command: 'early-build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9544,7 +9540,7 @@ class OffscreenTickerDriver extends ToolOutputDriver {
       ts: 4,
       toolUseId: 'tool-late',
       toolName: 'Bash',
-      args: { command: 'late-build' },
+      review: { kind: 'command', command: 'late-build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9584,7 +9580,7 @@ class OffscreenSettleDriver extends ToolOutputDriver {
       ts: 1,
       toolUseId: 'tool-early',
       toolName: 'Bash',
-      args: { command: 'early-build' },
+      review: { kind: 'command', command: 'early-build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -9621,7 +9617,7 @@ class OffscreenSettleDriver extends ToolOutputDriver {
       ts: 4,
       toolUseId: 'tool-late',
       toolName: 'Bash',
-      args: { command: 'late-build' },
+      review: { kind: 'command', command: 'late-build', cwd: '/repo' },
     };
     yield {
       type: 'tool_result',
@@ -10213,7 +10209,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
       toolName: 'Bash',
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
-      args: { command: 'npm test' },
+      review: { kind: 'command', command: 'npm test', cwd: '/repo' },
       rememberForTurnAllowed: true,
     };
     // The turn stays parked while the permission is unresolved.
@@ -10298,7 +10294,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
       toolName: 'Bash',
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
-      args: { command: 'npm test' },
+      review: { kind: 'command', command: 'npm test', cwd: '/repo' },
       rememberForTurnAllowed: true,
     };
     await new Promise<void>((resolve) => {

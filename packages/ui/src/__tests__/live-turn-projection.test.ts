@@ -65,7 +65,6 @@ describe('applyLiveTurnEvent', () => {
       toolUseId: 'tool-1',
       toolName: 'Task List',
       activityKind: 'command',
-      args: {},
       ts: 101,
     });
 
@@ -76,7 +75,7 @@ describe('applyLiveTurnEvent', () => {
       activityKind: 'command',
       stepId: 'step-1',
       status: 'pending',
-      args: {},
+      args: undefined,
     }]);
   });
 
@@ -165,7 +164,6 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: {},
       ts: 100,
     });
     const projection = applyLiveTurnEvent(started, {
@@ -185,7 +183,7 @@ describe('applyLiveTurnEvent', () => {
       toolName: 'Bash',
       stepId: 'step-1',
       status: 'completed',
-      args: {},
+      args: undefined,
       result: { kind: 'text', text: 'ok' },
       durationMs: 12,
     });
@@ -199,7 +197,7 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: { command: 'sleep 99' },
+      review: { kind: 'command', command: 'sleep 99', cwd: '/repo' },
       ts: 100,
     });
     const projection = applyLiveTurnEvent(started, {
@@ -237,7 +235,6 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: {},
       ts: 100,
     });
     const projection = applyLiveTurnEvent(started, {
@@ -288,7 +285,7 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: { command: 'printf hello' },
+      review: { kind: 'command', command: 'printf hello', cwd: '/repo' },
       ts: 101,
     });
 
@@ -299,7 +296,7 @@ describe('applyLiveTurnEvent', () => {
       toolName: 'Bash',
       stepId: 'step-1',
       status: 'running',
-      args: { command: 'printf hello' },
+      args: { command: 'printf hello', cwd: '/repo' },
       outputChunks: [{
         seq: 0,
         stream: 'stdout',
@@ -319,7 +316,6 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: { command: 'rm file' },
       ts: 100,
     });
     const waiting = applyLiveTurnEvent(started, {
@@ -332,7 +328,7 @@ describe('applyLiveTurnEvent', () => {
       toolName: 'Bash',
       category: 'shell_unsafe',
       reason: 'shell_dangerous',
-      args: { command: 'rm file' },
+      review: { kind: 'command', command: 'rm file', cwd: '/repo' },
       rememberForTurnAllowed: true,
       ts: 101,
     });
@@ -347,6 +343,10 @@ describe('applyLiveTurnEvent', () => {
     });
 
     assert.equal(waiting?.steps[0]?.tools[0]?.status, 'waiting_permission');
+    assert.deepEqual(waiting?.steps[0]?.tools[0]?.args, {
+      command: 'rm file',
+      cwd: '/repo',
+    });
     assert.equal(allowed?.steps[0]?.tools[0]?.status, 'running');
     assert.equal(allowed?.steps[0]?.stepId, 'step-1');
   });
@@ -359,7 +359,7 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Read',
-      args: {},
+      review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/repo' },
       ts: 100,
     });
     const withLateThinking = applyLiveTurnEvent(tool, {
@@ -391,7 +391,6 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: {},
       ts: 101,
     });
     const terminal = applyLiveTurnEvent(running, {
@@ -432,7 +431,6 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      args: {},
       ts: 102,
     });
     const aborted = applyLiveTurnEvent(running, {
@@ -533,7 +531,7 @@ describe('reconcileTerminalLiveTurn', () => {
 
   it('settles a tool-only terminal step once persisted history covers it', () => {
     assert.equal(reconcileTerminalLiveTurn(toolOnly, [
-      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash' },
       { type: 'tool_result', id: 'result-1', turnId: 'turn-1', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' } },
     ]), undefined);
   });
@@ -545,7 +543,7 @@ describe('reconcileTerminalLiveTurn', () => {
       steps: toolOnly.steps,
     };
     assert.deepEqual(reconcileTerminalLiveTurn(inFlight, [
-      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash' },
       { type: 'tool_result', id: 'result-1', turnId: 'turn-1', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' } },
     ]), { turnId: 'turn-1', phase: 'streamed', steps: [] });
   });
@@ -567,7 +565,7 @@ describe('reconcileTerminalLiveTurn', () => {
       }],
     };
     const toolCallOnly = [
-      { type: 'tool_call' as const, id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_call' as const, id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash' },
     ];
 
     assert.equal(reconcileTerminalLiveTurn(withOutput, toolCallOnly), withOutput);
@@ -600,7 +598,7 @@ describe('reconcileTerminalLiveTurn', () => {
       revision: 1,
     };
     const emptyShellRun = [
-      { type: 'tool_call' as const, id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_call' as const, id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash' },
       {
         type: 'tool_result' as const,
         id: 'result-1',
@@ -649,7 +647,7 @@ describe('reconcileTerminalLiveTurn', () => {
     };
     assert.equal(reconcileTerminalLiveTurn(textTurn, [
       { type: 'assistant', id: 'step-1', turnId: 'turn-1', ts: 1, text: 'answer', modelId: 'm' },
-      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 2, toolName: 'Bash', args: {} },
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 2, toolName: 'Bash' },
     ]), textTurn);
   });
 
@@ -694,7 +692,7 @@ describe('reconcileTerminalLiveTurn', () => {
       ],
     };
     const persisted = ['old-1', 'old-2', 'old-3'].flatMap((toolUseId, index) => ([
-      { type: 'tool_call' as const, id: toolUseId, turnId: 'turn-1', stepId: 'step-1', ts: index * 2 + 1, toolName: 'Bash', args: {} },
+      { type: 'tool_call' as const, id: toolUseId, turnId: 'turn-1', stepId: 'step-1', ts: index * 2 + 1, toolName: 'Bash' },
       { type: 'tool_result' as const, id: `result-${toolUseId}`, turnId: 'turn-1', ts: index * 2 + 2, toolUseId, isError: false, content: { kind: 'text' as const, text: 'ok\n' } },
     ]));
 

@@ -10,7 +10,7 @@ import type {
   HeavyTaskWorkspaceObservationState,
   TaskEvent,
 } from '../task-contracts.js';
-import { projectTaskRun } from '../task-run-store.js';
+import { projectTaskRun } from '../task-run-projection.js';
 
 const heavyTaskMode: HeavyTaskModeFacts = {
   schemaVersion: 1,

@@ -72,7 +72,7 @@ describe('ToolRuntime durable boundary', () => {
     );
   });
 
-  it('commits T1 before implementation and T2 before publishing the result', async () => {
+  it('exposes the committed T1 operation to implementation before publishing the result', async () => {
     const order: string[] = [];
     const prepared: ToolPreparedCommit[] = [];
     const outcomes: ToolOutcomeCommit[] = [];
@@ -93,7 +93,9 @@ describe('ToolRuntime durable boundary', () => {
     );
 
     const result = await harness.execute(
-      tool(() => {
+      tool((_args, context) => {
+        assert.deepEqual(order, ['t1']);
+        assert.equal(context.operationId, prepared[0]?.operationId);
         order.push('impl');
         return { ok: true, text: 'done' };
       }),
@@ -111,6 +113,10 @@ describe('ToolRuntime durable boundary', () => {
     assert.equal(prepared[0]?.operationId, outcomes[0]?.operationId);
     assert.equal(prepared[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
     assert.equal(prepared[0]?.dispatchRuntimeEvent.refs?.operationId, prepared[0]?.operationId);
+    assert.equal(
+      prepared[0]?.dispatchRuntimeEvent.actions?.toolDispatch?.operationId,
+      prepared[0]?.operationId,
+    );
     assert.equal(outcomes[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
   });
 
@@ -155,20 +161,18 @@ describe('ToolRuntime durable boundary', () => {
         throw new Error('must not reach T2');
       },
     });
-    const execution = harness.execute({
-      ...tool(() => {
-        implementationCalls += 1;
-        return { ok: true };
-      }),
-      name: 'Bash',
-      permissionRequired: true,
-    });
-    while (!harness.events.some((event) => event.type === 'permission_request')) {
-      await Promise.resolve();
-    }
-    const request = harness.events.find((event) => event.type === 'permission_request');
-    if (!request || request.type !== 'permission_request')
-      throw new Error('expected permission request');
+    const execution = harness.execute(
+      {
+        ...tool(() => {
+          implementationCalls += 1;
+          return { ok: true };
+        }),
+        name: 'Bash',
+        permissionRequired: true,
+      },
+      { command: 'printf ok' },
+    );
+    const request = await harness.permissionRequest;
     harness.permissionEngine.recordResponse('turn-1', {
       requestId: request.requestId,
       decision: 'deny',
@@ -239,9 +243,18 @@ describe('ToolRuntime durable boundary', () => {
 function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
   const messages: StoredMessage[] = [];
   const events: SessionEvent[] = [];
+  let resolvePermissionRequest!: (
+    event: Extract<SessionEvent, { type: 'permission_request' }>,
+  ) => void;
+  const permissionRequest = new Promise<Extract<SessionEvent, { type: 'permission_request' }>>(
+    (resolve) => {
+      resolvePermissionRequest = resolve;
+    },
+  );
   const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
   permissionEngine.beginTurn('turn-1');
   const runtime = new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => 'run-1' },
     sessionId: 'session-1',
     header: header(),
     connection: connection(),
@@ -253,26 +266,24 @@ function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
     newId: nextId(),
     now: nextNow(),
     getPermissionPauseTarget: () => null,
-    getCurrentRunId: () => 'run-1',
     runtimeCommitSink: sink,
   });
   return {
     messages,
     events,
+    permissionRequest,
     permissionEngine,
-    execute: async (target: MakaTool) =>
+    execute: async (target: MakaTool, args: unknown = {}) =>
       runtime.wrapToolExecute(target, 'turn-1', {
         push: (event) => {
           events.push(event);
+          if (event.type === 'permission_request') resolvePermissionRequest(event);
           if (event.type === 'tool_result') order?.push('published-result');
         },
-      })(
-        {},
-        {
-          toolCallId: 'provider-call-1',
-          abortSignal: new AbortController().signal,
-        },
-      ),
+      })(args, {
+        toolCallId: 'provider-call-1',
+        abortSignal: new AbortController().signal,
+      }),
   };
 }
 

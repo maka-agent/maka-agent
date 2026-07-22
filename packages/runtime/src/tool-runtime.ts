@@ -1,7 +1,12 @@
 import {
+  canonicalToolExecutionArgs,
   decodeCanonicalToolResultContent,
+  InteractionPermissionProjectionError,
   projectAgentSwarmResult,
+  projectPublicToolIntentReview,
   projectToolActivityArgs,
+  type CanonicalToolIntent,
+  type PublicToolIntentReview,
 } from '@maka/core';
 import type {
   SessionEvent,
@@ -10,6 +15,7 @@ import type {
   ToolResultContent,
   ToolResultEvent,
   ToolStartEvent,
+  UserQuestionRequestEvent,
 } from '@maka/core/events';
 import type {
   PermissionDecisionMessage,
@@ -24,14 +30,13 @@ import type {
   ToolExecutionFacts,
   ToolPermissionRule,
 } from '@maka/core/permission';
-import { classifyToolUse } from '@maka/core/permission';
-import type { LlmConnection } from '@maka/core/llm-connections';
+import { createCanonicalToolIntent } from '@maka/core/permission';
+import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import type {
   UserQuestion,
   UserQuestionResponse,
   UserQuestionResult,
 } from '@maka/core/user-question';
-import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type { EffectiveOrchestration } from '@maka/core/orchestration';
@@ -68,6 +73,25 @@ import {
 } from './runtime-commit-sink.js';
 import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
 import { serializeSandboxError } from './sandbox/errors.js';
+import {
+  RuntimeInteractionClosedError,
+  RuntimeInteractionAdmissionRejectedError,
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionClosureReason,
+  type RuntimeInteractionFatalError,
+  type RuntimePermissionAnswer,
+  type RuntimePermissionContinuation,
+  type RuntimeUserQuestionAnswer,
+  type RuntimeUserQuestionContinuation,
+} from './interaction-authority.js';
+import type { RuntimeHostedRunControl, RuntimeSuccessorEffectKind } from './run-execution.js';
+import {
+  classifyRuntimeLifecycleError,
+  isRuntimeLifecycleAdmissionOrFatal,
+  isRuntimeLifecycleControlError,
+  isRuntimeLifecycleFatal,
+} from './runtime-lifecycle-errors.js';
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
@@ -81,6 +105,13 @@ export type ToolModelOutputPart =
 export interface ToolModelOutput {
   type: 'content';
   value: ToolModelOutputPart[];
+}
+
+export interface MakaToolExecutionReservation {
+  /** Enter the reserved execution slot and keep it until the real implementation settles. */
+  run<T>(execute: () => Promise<T> | T): Promise<T>;
+  /** Release a reservation that never reached the implementation. Must be idempotent. */
+  abandon(): void;
 }
 
 export interface MakaTool<P = any, R = unknown> {
@@ -108,10 +139,19 @@ export interface MakaTool<P = any, R = unknown> {
   /** Step-level admission contract. Exclusive tools cannot share an assistant step. */
   executionSemantics?: 'parallel' | 'exclusive_step';
   /** Optional permission/persistence projection derived from isolated execution args. */
-  permissionArgs?: (
+  prepareIntentArgs?: (
     args: P,
     context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId'>,
   ) => unknown;
+  /**
+   * Optional synchronous admission reservation. ToolRuntime creates it at the
+   * execute entrypoint, before persistence or permission work, then uses it to
+   * wrap only the real implementation.
+   */
+  reserveExecution?: (
+    args: P,
+    context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId' | 'abortSignal'>,
+  ) => MakaToolExecutionReservation;
   /** Optional trusted platform sandbox availability for this tool. */
   sandbox?:
     | {
@@ -144,6 +184,11 @@ export interface MakaToolContext {
   sessionId: string;
   runId?: string;
   turnId: string;
+  /**
+   * Durable Runtime Tool operation identity. Present only after T1 commits and
+   * the real implementation is entered; it is not a separate identity.
+   */
+  readonly operationId?: string;
   /** Session working directory. */
   cwd: string;
   permissionMode?: PermissionMode;
@@ -266,15 +311,23 @@ function composeChildAbortSignal(
 export interface ToolRuntimeInput {
   sessionId: string;
   header: SessionHeader;
-  connection: LlmConnection;
+  connection: RuntimeExecutionConnection;
   modelId: string;
   appendMessage: AppendMessageFn;
   permissionEngine: PermissionEngine;
+  execution:
+    | {
+        readonly kind: 'embedded';
+        readonly getCurrentRunId: () => string | undefined;
+      }
+    | {
+        readonly kind: 'hosted';
+        readonly requireRunControl: () => RuntimeHostedRunControl;
+      };
   newId: () => string;
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
   getCurrentInvocationId?: () => string | undefined;
-  getCurrentRunId?: () => string | undefined;
   agentTeam?: AgentTeamExecutionContext;
   /**
    * Id of the assistant step currently streaming, stamped onto each tool call's
@@ -398,6 +451,7 @@ export class ToolRuntime {
     { callCount: number; exclusiveToolName?: string }
   >();
   private readonly approvalCoordinator: ApprovalCoordinator;
+  private interactionFailure: RuntimeInteractionFatalError | undefined;
 
   constructor(private readonly input: ToolRuntimeInput) {
     this.approvalCoordinator = input.approvalCoordinator ?? new ApprovalCoordinator({});
@@ -405,6 +459,15 @@ export class ToolRuntime {
 
   beginTurn(turnId: string): void {
     this.resetTurnState();
+    this.interactionFailure = undefined;
+    if (this.input.execution.kind === 'hosted') {
+      const control = this.input.execution.requireRunControl();
+      if (control.turnId !== turnId) {
+        throw new RuntimeInteractionInvariantError(
+          `Hosted ToolRuntime turn ${turnId} does not match run ${control.runId}/${control.turnId}`,
+        );
+      }
+    }
     this.userQuestions.beginTurn(turnId);
   }
 
@@ -436,8 +499,41 @@ export class ToolRuntime {
     return this.userQuestions.resolve(turnId, response.requestId, response) !== null;
   }
 
+  closeUserQuestion(
+    turnId: string,
+    requestId: string,
+    reason: RuntimeInteractionClosedError['reason'],
+  ): boolean {
+    return (
+      this.userQuestions.reject(
+        turnId,
+        requestId,
+        new RuntimeInteractionClosedError(requestId, reason),
+      ) !== null
+    );
+  }
+
   pendingUserQuestionCount(turnId: string): number {
     return this.userQuestions.pendingCount(turnId);
+  }
+
+  installInteractionFailStop(
+    turnId: string,
+    error: RuntimeInteractionFailStopError,
+  ): Promise<void> {
+    this.interactionFailure = error;
+    let failure: { error: unknown } | undefined;
+    try {
+      this.input.permissionEngine.rejectPending(turnId, error);
+    } catch (cancellationError) {
+      failure ??= { error: cancellationError };
+    }
+    try {
+      this.userQuestions.rejectAll(turnId, error);
+    } catch (cancellationError) {
+      failure ??= { error: cancellationError };
+    }
+    return failure ? Promise.reject(failure.error) : Promise.resolve();
   }
 
   wrapToolExecute(
@@ -448,7 +544,30 @@ export class ToolRuntime {
     return async (
       args: unknown,
       ctx: { toolCallId: string; abortSignal: AbortSignal },
-    ): Promise<unknown> => this.executeTool(tool, turnId, queue, args, ctx);
+    ): Promise<unknown> => {
+      const reservation = tool.reserveExecution?.(args as never, {
+        sessionId: this.input.sessionId,
+        turnId,
+        toolCallId: ctx.toolCallId,
+        abortSignal: ctx.abortSignal,
+      });
+      try {
+        this.throwIfInteractionFailed();
+        const execution = this.runSuccessorEffect('tool_execution', async () => {
+          try {
+            return await this.executeTool(tool, turnId, queue, args, ctx, reservation);
+          } catch (error) {
+            if (isRuntimeLifecycleFatal(error)) {
+              this.hostedRunControl()?.fail(error);
+            }
+            throw error;
+          }
+        });
+        return await execution;
+      } finally {
+        reservation?.abandon();
+      }
+    };
   }
 
   /**
@@ -519,7 +638,7 @@ export class ToolRuntime {
       isError: true,
       content,
     };
-    await this.input.appendMessage(msg);
+    await this.appendMessage(msg);
     queue.push({
       type: 'tool_result',
       id: durableOutcome?.id ?? this.input.newId(),
@@ -538,37 +657,40 @@ export class ToolRuntime {
     queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
     args: unknown,
     ctx: { toolCallId: string; abortSignal: AbortSignal },
+    reservation?: MakaToolExecutionReservation,
   ): Promise<unknown> {
-    const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
+    const providerArgs = structuredClone(args);
     const stepId = this.input.getCurrentStepId?.();
     // Registration is synchronous and happens before the first await, so
     // parallel AI SDK execute callbacks cannot race past exclusive admission.
     const admissionFailure = this.admitToolForStep(tool, stepId);
-    let permissionArgs = executionArgs;
-    let permissionArgsError: unknown;
+    let intent: CanonicalToolIntent;
     try {
-      permissionArgs = tool.permissionArgs
-        ? snapshotToolArgs(
-            tool.permissionArgs(structuredClone(executionArgs) as never, {
-              sessionId: this.input.sessionId,
-              turnId,
-              toolCallId: toolUseId,
-            }),
-          )
-        : executionArgs;
+      const intentArgs = tool.prepareIntentArgs
+        ? tool.prepareIntentArgs(structuredClone(providerArgs) as never, {
+            sessionId: this.input.sessionId,
+            turnId,
+            toolCallId: toolUseId,
+          })
+        : providerArgs;
+      intent = createCanonicalToolIntent({
+        toolName: tool.name,
+        args: intentArgs,
+        cwd: this.input.header.cwd,
+        ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
+      });
     } catch (error) {
-      permissionArgsError = error;
+      const rejection = toolIntentAdmissionError(toolUseId, error);
+      this.claimInteractionRunFailure(turnId, rejection);
+      throw rejection;
     }
-    const persistedArgs =
-      tool.categoryHint === 'computer_use'
-        ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
-        : permissionArgs;
+    const executionArgs = canonicalToolExecutionArgs(intent);
+    const review = optionalPublicToolReview(intent);
     const now = this.input.now();
-    const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
 
-    const runId = this.input.getCurrentRunId?.();
+    const runId = this.currentRunId();
     const invocationId = this.input.getCurrentInvocationId?.() ?? runId;
     if (this.input.runtimeCommitSink && !runId) {
       throw new RuntimeCommitBoundaryError(
@@ -580,6 +702,21 @@ export class ToolRuntime {
       this.input.runtimeCommitSink && invocationId
         ? buildToolOperationId({ invocationId, providerToolCallId: toolUseId })
         : undefined;
+    const callMsg: ToolCallMessage = {
+      type: 'tool_call',
+      id: toolUseId,
+      turnId,
+      ts: now,
+      toolName: tool.name,
+      ...(this.input.execution.kind === 'embedded' ? { args: structuredClone(providerArgs) } : {}),
+      ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
+      ...(tool.displayName ? { displayName: tool.displayName } : {}),
+      ...(review ? { review } : {}),
+      // Persist the same step id the tool_start event carries so the UI
+      // timeline and post-restart backfill can pair this call with its step.
+      ...(stepId !== undefined ? { stepId } : {}),
+    };
+    await this.appendMessage(callMsg);
     const startEv: ToolStartEvent = {
       type: 'tool_start',
       id: operationId ? `${operationId}_call` : this.input.newId(),
@@ -588,27 +725,12 @@ export class ToolRuntime {
       toolUseId,
       toolName: tool.name,
       ...(operationId ? { operationId } : {}),
-      ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
-      args: structuredClone(persistedArgs),
-      ...(tool.displayName ? { displayName: tool.displayName } : {}),
-      ...(toolIntent ? { intent: toolIntent } : {}),
-      ...(stepId !== undefined ? { stepId } : {}),
-    };
-    const callMsg: ToolCallMessage = {
-      type: 'tool_call',
-      id: toolUseId,
-      turnId,
-      ts: now,
-      toolName: tool.name,
+      ...(this.input.execution.kind === 'embedded' ? { args: structuredClone(providerArgs) } : {}),
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
-      ...(toolIntent ? { intent: toolIntent } : {}),
-      args: structuredClone(persistedArgs),
-      // Persist the same step id the tool_start event carries so the UI
-      // timeline and post-restart backfill can pair this call with its step.
+      ...(review ? { review } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
     };
-    await this.input.appendMessage(callMsg);
     queue.push(startEv);
     trace?.emit('tool', 'tool_started', 'Tool execution started', {
       toolUseId,
@@ -630,42 +752,7 @@ export class ToolRuntime {
       return this.errorReturn(admissionFailure);
     }
     const computerSemanticSignature =
-      tool.categoryHint === 'computer_use'
-        ? computerUseSemanticSignature(permissionArgs)
-        : undefined;
-    if (permissionArgsError !== undefined) {
-      const msg =
-        tool.categoryHint === 'computer_use'
-          ? 'Computer Use arguments failed validation'
-          : formatSyntheticToolErrorText(permissionArgsError);
-      await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
-      this.input.recordToolInvocation?.({
-        sessionId: this.input.sessionId,
-        turnId,
-        toolCallId: toolUseId,
-        toolName: tool.name,
-        providerId: this.input.connection.providerType,
-        modelId: this.input.modelId,
-        durationMs: 0,
-        status: 'error',
-        errorClass: 'InvalidArguments',
-        argsSummary:
-          tool.categoryHint === 'computer_use'
-            ? summarizePersistedArgs(persistedArgs)
-            : summarizeArgs(tool.name, executionArgs),
-        bytesIn: byteLength(persistedArgs),
-        bytesOut: byteLength(msg),
-        startedAt: now,
-      });
-      trace?.emit('tool', 'tool_failed', 'Tool arguments failed validation', {
-        toolUseId,
-        toolName: tool.name,
-        status: 'error',
-        errorClass: 'InvalidArguments',
-      });
-      this.recordLoopGateOutcome(callSignature, true);
-      return this.errorReturn(msg);
-    }
+      tool.categoryHint === 'computer_use' ? computerUseSemanticSignature(intent) : undefined;
 
     // Loop-gate (#92): block this call up front — before the guards and the real
     // impl — if this exact call (tool + canonical args) has already FAILED
@@ -745,11 +832,7 @@ export class ToolRuntime {
           turnId,
           toolUseId,
           toolName: tool.name,
-          category: classifyToolUse({
-            toolName: tool.name,
-            args: executionArgs,
-            ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
-          }),
+          category: intent.category,
           cwd: this.input.header.cwd,
           mode: this.input.header.permissionMode,
           args: executionArgs,
@@ -795,11 +878,7 @@ export class ToolRuntime {
           turnId,
           toolUseId,
           toolName: tool.name,
-          category: classifyToolUse({
-            toolName: tool.name,
-            args: executionArgs,
-            ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
-          }),
+          category: intent.category,
           cwd: this.input.header.cwd,
           mode: this.input.header.permissionMode,
           args: executionArgs,
@@ -851,78 +930,119 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
 
-    let autoReviewEscalationKey: string | undefined;
-    if (this.input.header.permissionMode === 'execute' && escalationPlan.kind === 'request') {
-      autoReviewEscalationKey = `${turnId}\u0000${escalationPlan.proposal.commandHash}`;
-      const priorAttempt = this.autoReviewEscalationAttempts.get(autoReviewEscalationKey);
-      if (priorAttempt) {
-        const reason =
-          priorAttempt === 'pending'
-            ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
-            : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
-        trace?.emit(
-          'permission',
-          'sandbox_escalation_failed',
-          'Repeated automatic escalation review blocked',
-          {
+    const permissionRules = this.permissionRulesFor(tool.name);
+    const permissionStages: Array<{
+      kind: 'base' | 'additional_permissions' | 'sandbox_escalation';
+      evaluate: () => ReturnType<PermissionEngine['evaluate']>;
+    }> = [];
+    if (tool.permissionRequired !== false || permissionRules.length > 0) {
+      permissionStages.push({
+        kind: 'base',
+        evaluate: () =>
+          this.input.permissionEngine.evaluate({
+            stage: 'base',
+            sessionId: this.input.sessionId,
+            turnId,
             toolUseId,
-            toolName: tool.name,
-            reason: 'sandbox_escalation_denied',
-          },
-        );
-        await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
-        this.recordLoopGateOutcome(callSignature, true);
-        return this.errorReturn(reason);
-      }
-      this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'pending');
+            intent,
+            permissionRequired: tool.permissionRequired !== false,
+            ...(permissionRules.length > 0 ? { permissionRules } : {}),
+            ...(tool.sandbox !== undefined
+              ? {
+                  sandbox:
+                    typeof tool.sandbox === 'function'
+                      ? tool.sandbox({
+                          permissionMode: this.input.header.permissionMode,
+                          cwd: this.input.header.cwd,
+                          args: structuredClone(executionArgs),
+                        })
+                      : tool.sandbox,
+                }
+              : {}),
+            mode: this.input.header.permissionMode,
+          }),
+      });
+    }
+    if (additionalPlan.kind === 'request') {
+      permissionStages.push({
+        kind: 'additional_permissions',
+        evaluate: () =>
+          this.input.permissionEngine.evaluate({
+            stage: 'additional_permissions',
+            sessionId: this.input.sessionId,
+            turnId,
+            toolUseId,
+            intent,
+            mode: this.input.header.permissionMode,
+            proposal: additionalPlan.proposal,
+          }),
+      });
+    }
+    if (escalationPlan.kind === 'request') {
+      permissionStages.push({
+        kind: 'sandbox_escalation',
+        evaluate: () =>
+          this.input.permissionEngine.evaluate({
+            stage: 'sandbox_escalation',
+            sessionId: this.input.sessionId,
+            turnId,
+            toolUseId,
+            intent,
+            mode: this.input.header.permissionMode,
+            proposal: escalationPlan.proposal,
+          }),
+      });
     }
 
-    const permissionRules = this.permissionRulesFor(tool.name);
-    if (
-      tool.permissionRequired !== false ||
-      permissionRules.length > 0 ||
-      additionalPlan.kind === 'request' ||
-      escalationPlan.kind === 'request'
-    ) {
-      const verdict = this.input.permissionEngine.evaluate({
-        sessionId: this.input.sessionId,
-        turnId,
-        toolUseId,
-        toolName: tool.name,
-        args: structuredClone(additionalPlan.kind === 'request' ? executionArgs : permissionArgs),
-        ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
-        ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
-        permissionRequired: tool.permissionRequired !== false,
-        ...(permissionRules.length > 0 ? { permissionRules } : {}),
-        ...(tool.sandbox !== undefined
-          ? {
-              sandbox:
-                typeof tool.sandbox === 'function'
-                  ? tool.sandbox({
-                      permissionMode: this.input.header.permissionMode,
-                      cwd: this.input.header.cwd,
-                      args: structuredClone(executionArgs),
-                    })
-                  : tool.sandbox,
-            }
-          : {}),
-        mode: this.input.header.permissionMode,
-        cwd:
-          escalationPlan.kind === 'request' ? escalationPlan.proposal.cwd : this.input.header.cwd,
-        ...(additionalPlan.kind === 'request'
-          ? { additionalPermissionProposal: additionalPlan.proposal }
-          : {}),
-        ...(escalationPlan.kind === 'request'
-          ? { sandboxEscalationProposal: escalationPlan.proposal }
-          : {}),
-      });
+    for (const permissionStage of permissionStages) {
+      let autoReviewEscalationKey: string | undefined;
+      if (
+        this.input.header.permissionMode === 'execute' &&
+        permissionStage.kind === 'sandbox_escalation' &&
+        escalationPlan.kind === 'request'
+      ) {
+        autoReviewEscalationKey = `${turnId}\u0000${escalationPlan.proposal.commandHash}`;
+        const priorAttempt = this.autoReviewEscalationAttempts.get(autoReviewEscalationKey);
+        if (priorAttempt) {
+          const reason =
+            priorAttempt === 'pending'
+              ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
+              : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
+          trace?.emit(
+            'permission',
+            'sandbox_escalation_failed',
+            'Repeated automatic escalation review blocked',
+            {
+              toolUseId,
+              toolName: tool.name,
+              reason: 'sandbox_escalation_denied',
+            },
+          );
+          await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
+          this.recordLoopGateOutcome(callSignature, true);
+          return this.errorReturn(reason);
+        }
+        this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'pending');
+      }
+
+      const hostedRun = this.hostedRunControl();
+      const hostedRunId = hostedRun?.runId;
+      let verdict: ReturnType<PermissionEngine['evaluate']>;
+      try {
+        verdict = permissionStage.evaluate();
+      } catch (error) {
+        if (isRuntimeLifecycleControlError(error)) {
+          this.claimInteractionRunFailure(turnId, error);
+        }
+        throw error;
+      }
 
       if (verdict.kind === 'block') {
         if (autoReviewEscalationKey) {
           this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
         }
         if (verdict.decisionEvent) {
-          await this.input.appendMessage({
+          await this.appendMessage({
             type: 'permission_decision',
             id: verdict.decisionEvent.requestId,
             turnId,
@@ -960,38 +1080,94 @@ export class ToolRuntime {
           ...this.input.getAutoApprovalReviewContext?.(),
         };
         const isEscalation = verdict.event.kind === 'sandbox_escalation';
-        trace?.emit('permission', 'approval_routed', 'Permission request routed to reviewer', {
-          requestId: verdict.event.requestId,
-          toolUseId,
-          toolName: tool.name,
-          reviewer: this.input.header.permissionMode === 'execute' ? 'auto_review' : 'user',
-          requestKind: verdict.event.kind,
-        });
-        trace?.emit(
-          'permission',
-          isEscalation ? 'sandbox_escalation_requested' : 'permission_requested',
-          'Permission requested',
-          {
+        let permissionContinuation: RuntimePermissionContinuation | undefined;
+        let response: PermissionDecision;
+        try {
+          if (hostedRun) {
+            void verdict.parked.catch(() => undefined);
+            permissionContinuation = this.createPermissionContinuation(
+              hostedRunId!,
+              turnId,
+              verdict.event.requestId,
+            );
+            try {
+              await hostedRun.interactions.acceptPermissionRequest({
+                request: verdict.event,
+                ...(verdict.rememberScopeId ? { rememberScopeId: verdict.rememberScopeId } : {}),
+                continuation: permissionContinuation,
+              });
+            } catch (error) {
+              let rejected = false;
+              try {
+                rejected =
+                  this.input.permissionEngine.rejectRequest(
+                    turnId,
+                    verdict.event.requestId,
+                    error instanceof Error ? error : new Error(formatSyntheticToolErrorText(error)),
+                  ) !== null;
+              } catch {
+                // Admission authority is the primary failure; local cleanup is best-effort.
+              }
+              this.claimInteractionRunFailure(turnId, error);
+              if (rejected) await verdict.parked.catch(() => undefined);
+              if (isRuntimeLifecycleAdmissionOrFatal(error)) {
+                throw error;
+              }
+              throw new RuntimeInteractionFailStopError(
+                `Could not confirm admission for permission ${verdict.event.requestId}`,
+                error,
+              );
+            }
+          }
+          trace?.emit('permission', 'approval_routed', 'Permission request routed to reviewer', {
             requestId: verdict.event.requestId,
             toolUseId,
             toolName: tool.name,
-            category: verdict.event.category,
+            reviewer: this.input.header.permissionMode === 'execute' ? 'auto_review' : 'user',
             requestKind: verdict.event.kind,
-          },
-        );
-        let response: PermissionDecision;
-        try {
-          response = await this.awaitPermissionDecision(verdict, turnId, () =>
-            this.approvalCoordinator.resolve({
-              mode: this.input.header.permissionMode,
-              verdict,
-              permissionEngine: this.input.permissionEngine,
-              context: reviewContext,
-              emitUserRequest: (event) => queue.push(event),
-              abortSignal: ctx.abortSignal,
-            }),
+          });
+          trace?.emit(
+            'permission',
+            isEscalation ? 'sandbox_escalation_requested' : 'permission_requested',
+            'Permission requested',
+            {
+              requestId: verdict.event.requestId,
+              toolUseId,
+              toolName: tool.name,
+              category: verdict.event.category,
+              requestKind: verdict.event.kind,
+            },
+          );
+          const approvalExecution = hostedRun
+            ? {
+                kind: 'hosted' as const,
+                interactions: hostedRun.interactions,
+                continuation: requirePermissionContinuation(
+                  permissionContinuation,
+                  verdict.event.requestId,
+                ),
+              }
+            : { kind: 'embedded' as const };
+          response = await this.awaitPermissionDecision(
+            verdict,
+            turnId,
+            () =>
+              this.approvalCoordinator.resolve({
+                mode: this.input.header.permissionMode,
+                verdict,
+                permissionEngine: this.input.permissionEngine,
+                execution: approvalExecution,
+                context: reviewContext,
+                emitUserRequest: (event) => queue.push(event),
+                abortSignal: ctx.abortSignal,
+              }),
+            permissionContinuation,
           );
         } catch (err) {
+          if (isRuntimeLifecycleControlError(err)) {
+            this.claimInteractionRunFailure(turnId, err);
+            throw err;
+          }
           if (autoReviewEscalationKey) {
             this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
           }
@@ -1045,10 +1221,9 @@ export class ToolRuntime {
             ? { rememberForTurn: response.rememberForTurn }
             : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
-          ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         };
-        await this.input.appendMessage(decisionMsg);
+        await this.appendMessage(decisionMsg);
         queue.push({
           type: 'permission_decision_ack',
           id: this.input.newId(),
@@ -1061,7 +1236,6 @@ export class ToolRuntime {
             ? { rememberForTurn: response.rememberForTurn }
             : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
-          ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         });
         trace?.emit('permission', 'permission_decided', 'Permission decision recorded', {
@@ -1082,9 +1256,7 @@ export class ToolRuntime {
             this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
           }
           const reason =
-            response.reviewer === 'auto_review'
-              ? `自动审批已拒绝权限请求${response.rationale ? `：${response.rationale}` : ''}`
-              : '用户已拒绝权限请求';
+            response.reviewer === 'auto_review' ? '自动审批已拒绝权限请求' : '用户已拒绝权限请求';
           if (isEscalation) {
             trace?.emit('permission', 'sandbox_escalation_denied', 'Sandbox escalation denied', {
               requestId: response.requestId,
@@ -1113,7 +1285,7 @@ export class ToolRuntime {
             toolName: tool.name,
             reviewer: response.reviewer ?? 'user',
             commandHash:
-              verdict.event.kind === 'sandbox_escalation' ? verdict.event.commandHash : undefined,
+              escalationPlan.kind === 'request' ? escalationPlan.proposal.commandHash : undefined,
           });
         }
       } else {
@@ -1141,7 +1313,6 @@ export class ToolRuntime {
         toolUseId,
         toolName: tool.name,
         errorClass: 'RuntimeLimit',
-        boundary: 'subagent_tool_admission',
       });
       await this.writeSyntheticToolResult(toolUseId, turnId, SUBAGENT_TOOL_LIMIT_MESSAGE, queue);
       this.recordLoopGateOutcome(callSignature, true);
@@ -1241,7 +1412,7 @@ export class ToolRuntime {
     const durableAttempt = await this.prepareDurableToolAttempt({
       tool,
       startEvent: startEv,
-      persistedArgs,
+      persistedArgs: executionArgs,
       ...(invocationId ? { invocationId } : {}),
       ...(runId ? { runId } : {}),
     });
@@ -1274,44 +1445,48 @@ export class ToolRuntime {
       const pauseTarget = this.input.getPermissionPauseTarget();
       pauseTarget?.pause();
       try {
-        const runId = this.input.getCurrentRunId?.();
-        const result = await tool.impl(structuredClone(executionArgs) as never, {
-          sessionId: this.input.sessionId,
-          turnId,
-          ...(runId ? { runId } : {}),
-          cwd: this.input.header.cwd,
-          permissionMode: this.input.header.permissionMode,
-          toolCallId: toolUseId,
-          abortSignal: ctx.abortSignal,
-          emitOutput: output.emit,
-          ...(trace
-            ? {
-                emitRunTrace: (
-                  type: 'tool_started' | 'tool_completed' | 'tool_failed',
-                  message: string,
-                  data?: Record<string, unknown>,
-                ) =>
-                  trace.emit('tool', type, message, {
-                    toolUseId,
-                    toolName: tool.name,
-                    ...(data ?? {}),
-                  }),
-              }
-            : {}),
-          ...(this.input.agentTeam ? { agentTeam: this.input.agentTeam } : {}),
-          ...(permissionContext ? { permissionContext } : {}),
-          ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
-          ...(this.input.readChildAgentOutput
-            ? { readChildAgentOutput: this.input.readChildAgentOutput }
-            : {}),
-          ...this.buildChildAgentContext({
+        const runId = this.currentRunId();
+        const invokeImpl = () =>
+          tool.impl(structuredClone(executionArgs) as never, {
+            sessionId: this.input.sessionId,
+            turnId,
+            ...(runId ? { runId } : {}),
+            ...(durableAttempt ? { operationId: durableAttempt.operationId } : {}),
+            cwd: this.input.header.cwd,
+            permissionMode: this.input.header.permissionMode,
+            toolCallId: toolUseId,
             abortSignal: ctx.abortSignal,
-            trace,
-            toolUseId,
-            toolName: tool.name,
-          }),
-          askUserQuestion: (questions) => this.askUserQuestion(turnId, toolUseId, questions, queue),
-        });
+            emitOutput: output.emit,
+            ...(trace
+              ? {
+                  emitRunTrace: (
+                    type: 'tool_started' | 'tool_completed' | 'tool_failed',
+                    message: string,
+                    data?: Record<string, unknown>,
+                  ) =>
+                    trace.emit('tool', type, message, {
+                      toolUseId,
+                      toolName: tool.name,
+                      ...(data ?? {}),
+                    }),
+                }
+              : {}),
+            ...(this.input.agentTeam ? { agentTeam: this.input.agentTeam } : {}),
+            ...(permissionContext ? { permissionContext } : {}),
+            ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
+            ...(this.input.readChildAgentOutput
+              ? { readChildAgentOutput: this.input.readChildAgentOutput }
+              : {}),
+            ...this.buildChildAgentContext({
+              abortSignal: ctx.abortSignal,
+              trace,
+              toolUseId,
+              toolName: tool.name,
+            }),
+            askUserQuestion: (questions) =>
+              this.askUserQuestion(turnId, toolUseId, questions, queue),
+          });
+        const result = await (reservation ? reservation.run(invokeImpl) : invokeImpl());
         output.flush();
         const durationMs = this.input.now() - startedAt;
 
@@ -1351,7 +1526,7 @@ export class ToolRuntime {
           content,
           durationMs,
         };
-        await this.input.appendMessage(resultMsg);
+        await this.appendMessage(resultMsg);
         queue.push({
           type: 'tool_result',
           id: durableOutcome?.id ?? this.input.newId(),
@@ -1375,10 +1550,9 @@ export class ToolRuntime {
           status: toolResultStatus,
           argsSummary:
             tool.categoryHint === 'computer_use'
-              ? summarizePersistedArgs(persistedArgs)
+              ? summarizePersistedArgs(review ?? {})
               : summarizeArgs(tool.name, executionArgs),
-          resultSummary: summarizeToolResultForTelemetry(content),
-          bytesIn: byteLength(persistedArgs),
+          bytesIn: byteLength(executionArgs),
           bytesOut: byteLength(result),
           startedAt,
         });
@@ -1387,31 +1561,33 @@ export class ToolRuntime {
           toolName: tool.name,
           durationMs,
           status: toolResultStatus,
-          resultSummary: summarizeToolResultForTelemetry(content),
         });
 
-        void recordToolArtifactsSafely(
-          {
-            sessionId: this.input.sessionId,
-            turnId,
-            toolUseId,
-            toolName: tool.name,
-            cwd: this.input.header.cwd,
-            args: structuredClone(persistedArgs),
-            result,
-          },
-          this.input.recordToolArtifacts,
-          (message) => {
-            queue.push({
-              type: 'tool_progress',
-              id: this.input.newId(),
+        const artifactTask = this.runSuccessorEffect('artifact_persistence', () =>
+          recordToolArtifactsSafely(
+            {
+              sessionId: this.input.sessionId,
               turnId,
-              ts: this.input.now(),
               toolUseId,
-              chunk: message,
-            });
-          },
+              toolName: tool.name,
+              cwd: this.input.header.cwd,
+              args: structuredClone(executionArgs),
+              result,
+            },
+            this.input.recordToolArtifacts,
+            (message) => {
+              queue.push({
+                type: 'tool_progress',
+                id: this.input.newId(),
+                turnId,
+                ts: this.input.now(),
+                toolUseId,
+                chunk: message,
+              });
+            },
+          ),
         );
+        void artifactTask.catch(() => undefined);
 
         attemptFailed = toolResultStatus !== 'success';
         if (isAmbiguousComputerFailure(result)) {
@@ -1424,6 +1600,10 @@ export class ToolRuntime {
         pauseTarget?.resume();
       }
     } catch (err) {
+      if (isRuntimeLifecycleControlError(err)) {
+        this.claimInteractionRunFailure(turnId, err);
+        throw err;
+      }
       if (err instanceof RuntimeCommitBoundaryError) throw err;
       output.flush();
       const sandboxError = serializeSandboxError(err);
@@ -1464,7 +1644,7 @@ export class ToolRuntime {
           content: terminalFailure.content,
           durationMs,
         };
-        await this.input.appendMessage(resultMsg);
+        await this.appendMessage(resultMsg);
         queue.push({
           type: 'tool_result',
           id: durableOutcome?.id ?? this.input.newId(),
@@ -1488,10 +1668,9 @@ export class ToolRuntime {
           errorClass: classifyError(err),
           argsSummary:
             tool.categoryHint === 'computer_use'
-              ? summarizePersistedArgs(persistedArgs)
+              ? summarizePersistedArgs(review ?? {})
               : summarizeArgs(tool.name, executionArgs),
-          resultSummary: summarizeToolResultForTelemetry(terminalFailure.content),
-          bytesIn: byteLength(persistedArgs),
+          bytesIn: byteLength(executionArgs),
           bytesOut: byteLength(terminalFailure.content),
           startedAt,
         });
@@ -1522,9 +1701,9 @@ export class ToolRuntime {
         errorClass: classifyError(err),
         argsSummary:
           tool.categoryHint === 'computer_use'
-            ? summarizePersistedArgs(persistedArgs)
+            ? summarizePersistedArgs(review ?? {})
             : summarizeArgs(tool.name, executionArgs),
-        bytesIn: byteLength(persistedArgs),
+        bytesIn: byteLength(executionArgs),
         bytesOut: 0,
         startedAt,
       });
@@ -1574,7 +1753,6 @@ export class ToolRuntime {
       stateDelta.activityKind = input.startEvent.activityKind;
     if (input.startEvent.displayName !== undefined)
       stateDelta.displayName = input.startEvent.displayName;
-    if (input.startEvent.intent !== undefined) stateDelta.intent = input.startEvent.intent;
     const callEvent: RuntimeEvent = {
       id: input.startEvent.id,
       invocationId,
@@ -1589,7 +1767,10 @@ export class ToolRuntime {
         kind: 'function_call',
         id: input.startEvent.toolUseId,
         name: input.tool.name,
-        args: structuredClone(input.persistedArgs),
+        ...(this.input.execution.kind === 'embedded'
+          ? { args: structuredClone(input.persistedArgs) }
+          : {}),
+        ...(input.startEvent.review !== undefined ? { review: input.startEvent.review } : {}),
       },
       refs: {
         operationId,
@@ -1717,6 +1898,7 @@ export class ToolRuntime {
     verdict: Extract<ReturnType<PermissionEngine['evaluate']>, { kind: 'prompt' }>,
     turnId: string,
     resolve: () => Promise<PermissionDecision> = () => verdict.parked,
+    continuation?: RuntimePermissionContinuation,
   ): Promise<PermissionDecision> {
     const timeoutMs = this.input.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
     const pauseTarget = this.input.getPermissionPauseTarget();
@@ -1724,21 +1906,64 @@ export class ToolRuntime {
     try {
       if (timeoutMs <= 0) return await resolve();
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<never>((_resolve, reject) => {
+      const timeout = new Promise<PermissionDecision>((resolveTimeout, rejectTimeout) => {
         timer = setTimeout(() => {
-          const reason = `Permission request ${verdict.event.requestId} timed out after ${timeoutMs}ms`;
-          this.input.permissionEngine.expireRequest(turnId, verdict.event.requestId, reason);
-          reject(new Error(reason));
+          let timeoutTask: Promise<PermissionDecision>;
+          try {
+            timeoutTask = this.runSuccessorEffect('tool_execution', () =>
+              this.resolvePermissionTimeout(verdict, turnId, timeoutMs, continuation),
+            );
+          } catch (error) {
+            rejectTimeout(error);
+            return;
+          }
+          void timeoutTask.then(resolveTimeout, rejectTimeout);
         }, timeoutMs);
       });
       try {
-        return await Promise.race([resolve(), timeout]);
+        const decision = this.runSuccessorEffect('tool_execution', resolve);
+        return await Promise.race([decision, timeout]);
       } finally {
         if (timer !== undefined) clearTimeout(timer);
       }
     } finally {
       pauseTarget?.resume();
     }
+  }
+
+  private async resolvePermissionTimeout(
+    verdict: Extract<ReturnType<PermissionEngine['evaluate']>, { kind: 'prompt' }>,
+    turnId: string,
+    timeoutMs: number,
+    continuation?: RuntimePermissionContinuation,
+  ): Promise<PermissionDecision> {
+    const requestId = verdict.event.requestId;
+    const reason = `Permission request ${requestId} timed out after ${timeoutMs}ms`;
+    const hostedRun = this.hostedRunControl();
+    if (!hostedRun) {
+      this.input.permissionEngine.expireRequest(turnId, requestId, reason);
+      return await verdict.parked;
+    }
+
+    if (!continuation) {
+      throw new RuntimeInteractionInvariantError(
+        `Hosted permission timeout ${requestId} has no captured continuation`,
+      );
+    }
+    try {
+      await hostedRun.interactions.commitPermissionTimeout({
+        continuation,
+      });
+    } catch (error) {
+      if (isRuntimeLifecycleAdmissionOrFatal(error)) {
+        throw error;
+      }
+      throw new RuntimeInteractionFailStopError(
+        `Could not confirm the timeout winner for permission ${requestId}`,
+        error,
+      );
+    }
+    return await verdict.parked;
   }
 
   private reserveSubagentSlot(tool: MakaTool): boolean {
@@ -1766,7 +1991,7 @@ export class ToolRuntime {
     MakaToolContext,
     'spawnChildAgent' | 'prepareChildAgentResume' | 'resumeChildAgent' | 'retryChildAgent'
   > {
-    const parentRunId = this.input.getCurrentRunId?.();
+    const parentRunId = this.currentRunId();
     if (!parentRunId) return {};
     const limiter = this.childAgentRunLimiter;
     const runWithPermit = async <T>(
@@ -1936,9 +2161,12 @@ export class ToolRuntime {
     questions: UserQuestion[],
     queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
   ): Promise<UserQuestionResult> {
+    const hostedRun = this.hostedRunControl();
+    const hostedRunId = hostedRun?.runId;
     const requestId = this.input.newId();
     const parked = this.userQuestions.park(turnId, requestId, { toolUseId, questions });
-    queue.push({
+    if (hostedRun) void parked.catch(() => undefined);
+    const request: UserQuestionRequestEvent = {
       type: 'user_question_request',
       id: this.input.newId(),
       turnId,
@@ -1946,7 +2174,38 @@ export class ToolRuntime {
       requestId,
       toolUseId,
       questions,
-    });
+    };
+    if (hostedRun) {
+      const continuation = this.createUserQuestionContinuation(hostedRunId!, turnId, requestId);
+      try {
+        await hostedRun.interactions.acceptUserQuestionRequest({
+          request,
+          continuation,
+        });
+      } catch (error) {
+        let rejected = false;
+        try {
+          rejected =
+            this.userQuestions.reject(
+              turnId,
+              requestId,
+              error instanceof Error ? error : new Error(formatSyntheticToolErrorText(error)),
+            ) !== null;
+        } catch {
+          // Admission authority is the primary failure; local cleanup is best-effort.
+        }
+        this.claimInteractionRunFailure(turnId, error);
+        if (rejected) await parked.catch(() => undefined);
+        if (isRuntimeLifecycleAdmissionOrFatal(error)) {
+          throw error;
+        }
+        throw new RuntimeInteractionFailStopError(
+          `Could not confirm admission for question ${requestId}`,
+          error,
+        );
+      }
+    }
+    queue.push(request);
     const response = await parked;
     return {
       answers: questions.map((question, index) => ({
@@ -1955,6 +2214,135 @@ export class ToolRuntime {
       })),
     };
   }
+
+  private hostedRunControl(): RuntimeHostedRunControl | undefined {
+    return this.input.execution.kind === 'hosted'
+      ? this.input.execution.requireRunControl()
+      : undefined;
+  }
+
+  private currentRunId(): string | undefined {
+    return this.input.execution.kind === 'hosted'
+      ? this.input.execution.requireRunControl().runId
+      : this.input.execution.getCurrentRunId();
+  }
+
+  private createPermissionContinuation(
+    runId: string,
+    turnId: string,
+    requestId: string,
+  ): RuntimePermissionContinuation {
+    return Object.freeze({
+      runId,
+      turnId,
+      requestId,
+      applyAnswer: (answer: RuntimePermissionAnswer): void => {
+        if (Object.hasOwn(answer, 'requestId')) {
+          throw new RuntimeInteractionInvariantError(
+            `Permission continuation ${requestId} received a routed answer`,
+          );
+        }
+        const applied = this.input.permissionEngine.recordResponse(
+          turnId,
+          permissionResponse(requestId, answer),
+          { resolveRememberedSiblings: false },
+        );
+        if (!applied) {
+          throw new RuntimeInteractionInvariantError(
+            `Permission continuation did not take ${requestId} from turn ${turnId}`,
+          );
+        }
+      },
+      applyClosure: (reason: RuntimeInteractionClosureReason): void => {
+        const applied = this.input.permissionEngine.closeRequest(turnId, requestId, reason);
+        if (!applied) {
+          throw new RuntimeInteractionInvariantError(
+            `Permission closure did not take ${requestId} from turn ${turnId}`,
+          );
+        }
+      },
+    });
+  }
+
+  private createUserQuestionContinuation(
+    runId: string,
+    turnId: string,
+    requestId: string,
+  ): RuntimeUserQuestionContinuation {
+    return Object.freeze({
+      runId,
+      turnId,
+      requestId,
+      applyAnswer: (answer: RuntimeUserQuestionAnswer): void => {
+        if (Object.hasOwn(answer, 'requestId')) {
+          throw new RuntimeInteractionInvariantError(
+            `Question continuation ${requestId} received a routed answer`,
+          );
+        }
+        if (
+          !this.respondToUserQuestion(turnId, {
+            requestId,
+            answers: [...answer.answers],
+          })
+        ) {
+          throw new RuntimeInteractionInvariantError(
+            `Question continuation did not take ${requestId} from turn ${turnId}`,
+          );
+        }
+      },
+      applyClosure: (reason: RuntimeInteractionClosureReason): void => {
+        if (!this.closeUserQuestion(turnId, requestId, reason)) {
+          throw new RuntimeInteractionInvariantError(
+            `Question closure did not take ${requestId} from turn ${turnId}`,
+          );
+        }
+      },
+    });
+  }
+
+  private async appendMessage(message: Parameters<AppendMessageFn>[0]): Promise<void> {
+    this.throwIfInteractionFailed();
+    await this.input.appendMessage(message);
+    this.throwIfInteractionFailed();
+  }
+
+  private throwIfInteractionFailed(): void {
+    if (this.interactionFailure) throw this.interactionFailure;
+  }
+
+  private claimInteractionRunFailure(turnId: string, error: unknown): void {
+    const classified = classifyRuntimeLifecycleError(error);
+    if (classified.kind !== 'admission' && classified.kind !== 'closure') return;
+    const control = this.hostedRunControl();
+    if (!control) return;
+    if (control.turnId !== turnId) {
+      throw new RuntimeInteractionInvariantError(
+        `Interaction failure for turn ${turnId} has no matching hosted Run control`,
+      );
+    }
+    control.claimFailure(error);
+  }
+
+  private runSuccessorEffect<T>(
+    kind: RuntimeSuccessorEffectKind,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const control = this.hostedRunControl();
+    return control ? control.runSuccessorEffect(kind, operation) : operation();
+  }
+}
+
+function permissionResponse(
+  requestId: string,
+  answer: RuntimePermissionAnswer,
+): PermissionDecision {
+  return {
+    requestId,
+    decision: answer.decision,
+    ...(answer.rememberForTurn !== undefined ? { rememberForTurn: answer.rememberForTurn } : {}),
+    ...(answer.reviewer !== undefined ? { reviewer: answer.reviewer } : {}),
+    ...(answer.riskLevel !== undefined ? { riskLevel: answer.riskLevel } : {}),
+  };
 }
 
 /**
@@ -1985,9 +2373,14 @@ function loopGateArgsKey(args: unknown, callId: string): string {
   }
 }
 
-function computerUseSemanticSignature(args: unknown): string | undefined {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
-  const record = args as Record<string, unknown>;
+function computerUseSemanticSignature(intent: CanonicalToolIntent): string | undefined {
+  if (intent.kind !== 'computer_use') return undefined;
+  const computerUse = intent.computerUse as {
+    execution: Record<string, unknown>;
+    target?: { app: string; windowId: number };
+    elementIdentity?: unknown;
+  };
+  const record = computerUse.execution;
   if (
     record.action !== 'click_element' &&
     record.action !== 'set_value' &&
@@ -1996,11 +2389,11 @@ function computerUseSemanticSignature(args: unknown): string | undefined {
   )
     return undefined;
   try {
-    const elementIdentity = stableElementIdentity(record.element_identity);
+    const elementIdentity = stableElementIdentity(computerUse.elementIdentity);
     return stableHash({
       action: record.action,
-      app: record.app,
-      window_id: record.window_id,
+      app: computerUse.target?.app,
+      window_id: computerUse.target?.windowId,
       ...(elementIdentity === undefined
         ? { element_id: record.element_id }
         : { element_identity: elementIdentity }),
@@ -2275,15 +2668,30 @@ function summarizePersistedArgs(args: unknown): string {
   return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
 }
 
-function describeToolIntent(tool: MakaTool, args: unknown): string | undefined {
-  if (tool.categoryHint !== 'subagent' || tool.name !== 'ExploreAgent') return undefined;
-  if (!args || typeof args !== 'object') return undefined;
-  const objective = (args as { objective?: unknown }).objective;
-  if (typeof objective !== 'string') return undefined;
-  const normalized = redactSecrets(objective.replace(/\s+/g, ' ').trim());
-  if (normalized.length === 0) return undefined;
-  const capped = normalized.length <= 180 ? normalized : `${normalized.slice(0, 179)}…`;
-  return `只读探索：${capped}`;
+function optionalPublicToolReview(intent: CanonicalToolIntent): PublicToolIntentReview | undefined {
+  try {
+    return projectPublicToolIntentReview(intent);
+  } catch (error) {
+    if (error instanceof InteractionPermissionProjectionError) return undefined;
+    throw error;
+  }
+}
+
+function toolIntentAdmissionError(
+  toolUseId: string,
+  _error: unknown,
+): RuntimeInteractionAdmissionRejectedError {
+  return new RuntimeInteractionAdmissionRejectedError(toolUseId, 'invalid_request');
+}
+
+function requirePermissionContinuation(
+  continuation: RuntimePermissionContinuation | undefined,
+  requestId: string,
+): RuntimePermissionContinuation {
+  if (continuation) return continuation;
+  throw new RuntimeInteractionInvariantError(
+    `Hosted permission ${requestId} is missing its continuation`,
+  );
 }
 
 function isAdditionalPermissionPlanResult(value: unknown): value is AdditionalPermissionPlanResult {
@@ -2318,26 +2726,4 @@ function byteLength(value: unknown): number {
   if (value === undefined) return 0;
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
   return Buffer.byteLength(text, 'utf8');
-}
-
-function snapshotToolArgs(value: unknown): unknown {
-  return snapshotJsonValue(value, new WeakSet<object>());
-}
-
-function snapshotJsonValue(value: unknown, seen: WeakSet<object>): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) throw new Error('Tool arguments must not contain cycles');
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return Object.freeze(value.map((entry) => snapshotJsonValue(entry, seen)));
-  }
-  const output: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !('value' in descriptor)) {
-      throw new Error(`Tool argument ${key} must be a plain data property`);
-    }
-    output[key] = snapshotJsonValue(descriptor.value, seen);
-  }
-  return Object.freeze(output);
 }

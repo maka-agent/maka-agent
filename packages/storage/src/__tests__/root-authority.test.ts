@@ -11,6 +11,7 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,6 +21,7 @@ import {
   assertStorageRootCapability,
   assertStorageRootLease,
   createHeadlessRootLease,
+  discoverMarkedStorageRoot,
   prepareStorageRootControlDirectory,
   resolveExistingStorageRoot,
   resolveRootControlNamespace,
@@ -34,6 +36,66 @@ import {
 } from '../root-authority.js';
 
 describe('storage root authority', () => {
+  test('discovers only marked roots without creating or changing filesystem state', async () => {
+    await withRoots(async ({ base, root }) => {
+      for (const [kind, markedRoot] of [
+        ['interactive', root],
+        ['headless', join(base, 'headless')],
+      ] as const) {
+        await mkdir(markedRoot, { recursive: true });
+        const initialized = await resolveStorageRoot({ path: markedRoot, kind });
+        const payloadPath = join(markedRoot, 'payload.txt');
+        await writeFile(payloadPath, 'preserve me');
+        const fixedTime = new Date('2020-01-02T03:04:05.000Z');
+        await utimes(join(markedRoot, STORAGE_ROOT_MARKER_FILE), fixedTime, fixedTime);
+        await utimes(payloadPath, fixedTime, fixedTime);
+        await utimes(markedRoot, fixedTime, fixedTime);
+        const before = await snapshotFlatRoot(markedRoot);
+
+        const discovered = await discoverMarkedStorageRoot({ path: markedRoot });
+        assert.equal(discovered.kind, kind);
+        assert.equal(discovered.rootId, initialized.rootId);
+        assert.equal(discovered.canonicalPath, initialized.canonicalPath);
+        assert.deepEqual(await snapshotFlatRoot(markedRoot), before);
+      }
+
+      const unmarked = join(base, 'unmarked');
+      await mkdir(unmarked);
+      const unmarkedBefore = await snapshotFlatRoot(unmarked);
+      await assert.rejects(
+        () => discoverMarkedStorageRoot({ path: unmarked }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_unmarked',
+      );
+      assert.deepEqual(await snapshotFlatRoot(unmarked), unmarkedBefore);
+
+      const missing = join(base, 'missing');
+      await assert.rejects(
+        () => discoverMarkedStorageRoot({ path: missing }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_not_found',
+      );
+      await assert.rejects(lstat(missing), { code: 'ENOENT' });
+    });
+  });
+
+  test('rejects an existing wrong-kind root without transient marker writes', async () => {
+    await withRoots(async ({ root }) => {
+      await resolveStorageRoot({ path: root, kind: 'interactive' });
+      const fixedTime = new Date('2020-01-02T03:04:05.000Z');
+      await utimes(join(root, STORAGE_ROOT_MARKER_FILE), fixedTime, fixedTime);
+      await utimes(root, fixedTime, fixedTime);
+      const before = await snapshotFlatRoot(root);
+
+      await assert.rejects(
+        () => resolveStorageRoot({ path: root, kind: 'headless' }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_kind_mismatch',
+      );
+      assert.deepEqual(await snapshotFlatRoot(root), before);
+    });
+  });
+
   test('canonicalizes aliases and gives them one ownership identity', async () => {
     await withRoots(async ({ base, root }) => {
       const alias = join(base, 'alias');
@@ -81,7 +143,7 @@ describe('storage root authority', () => {
             expectedRootId: initialized.rootId,
           }),
         (error: unknown) =>
-          error instanceof StorageRootAuthorityError && error.code === 'invalid_marker',
+          error instanceof StorageRootAuthorityError && error.code === 'root_unmarked',
       );
       await assert.rejects(readFile(join(root, STORAGE_ROOT_MARKER_FILE)), { code: 'ENOENT' });
     });
@@ -311,7 +373,7 @@ describe('storage root authority', () => {
     });
   });
 
-  test('keeps the owner lock until an admitted lease operation drains', async () => {
+  test('fences new owner operations before draining and releasing the owner lock', async () => {
     await withRoots(async ({ root }) => {
       const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
       const owner = await tryAcquireInteractiveRootOwner(capability);
@@ -332,7 +394,8 @@ describe('storage root authority', () => {
       });
       await admitted;
 
-      const closing = owner.close();
+      owner.beginClose();
+      owner.beginClose();
       assert.equal(owner.closed, true);
       assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
       await assert.rejects(
@@ -341,8 +404,14 @@ describe('storage root authority', () => {
           error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
 
+      const closing = owner.close();
+      assert.equal(owner.close(), closing);
+      assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
+
       releaseOperation();
       await Promise.all([operation, closing]);
+      assert.equal(owner.close(), closing);
+      owner.beginClose();
       const successor = await tryAcquireInteractiveRootOwner(capability);
       assert.ok(successor);
       await successor?.close();
@@ -490,6 +559,26 @@ describe('storage root authority', () => {
     });
   });
 });
+
+async function snapshotFlatRoot(root: string): Promise<{
+  entries: Array<{ name: string; content: string; mtimeNs: bigint }>;
+  mtimeNs: bigint;
+}> {
+  const names = (await readdir(root)).sort();
+  const entries = await Promise.all(
+    names.map(async (name) => {
+      const path = join(root, name);
+      const stats = await lstat(path, { bigint: true });
+      return {
+        name,
+        content: stats.isFile() ? await readFile(path, 'utf8') : '',
+        mtimeNs: stats.mtimeNs,
+      };
+    }),
+  );
+  const rootStats = await lstat(root, { bigint: true });
+  return { entries, mtimeNs: rootStats.mtimeNs };
+}
 
 async function withRoots(
   run: (input: { base: string; root: string }) => Promise<void>,

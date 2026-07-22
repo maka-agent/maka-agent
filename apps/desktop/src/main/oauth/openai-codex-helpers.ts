@@ -4,28 +4,21 @@
  * import them without dragging in the `electron` ESM module
  * (which is not loadable from node --test directly).
  *
- * Endpoint constants live here too; the service module re-exports
- * them so there is exactly one source of truth.
+ * Provider constants come from Runtime; this file only adds the
+ * Desktop listener address and JWT account projection.
  */
 
 import { createHash } from 'node:crypto';
-import { base64urlEncode } from '@maka/core';
+import { pkceCodeChallenge, type Sha256Digest } from '@maka/core';
+import { buildOAuthLoginAuthorization } from '@maka/runtime';
 
 // =============================================================
-// Endpoints — pinned to the openai-codex-auth plugin pattern.
+// Desktop-owned loopback listener.
 // =============================================================
 export const CODEX_OAUTH_CONFIG = {
-  clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
-  authUrl: 'https://auth.openai.com/oauth/authorize',
-  tokenUrl: 'https://auth.openai.com/oauth/token',
   callbackHost: '127.0.0.1',
   callbackPort: 1455,
   redirectUri: 'http://localhost:1455/auth/callback',
-  scopes: 'openid profile email offline_access',
-  extras: [
-    ['codex_cli_simplified_flow', 'true'],
-    ['originator', 'codex_cli_rs'],
-  ] as ReadonlyArray<[string, string]>,
 } as const;
 
 // =============================================================
@@ -33,33 +26,28 @@ export const CODEX_OAUTH_CONFIG = {
 // =============================================================
 
 export interface CodexAuthorizationConfig {
-  clientId: string;
-  authorizeEndpoint: string;
   redirectUri: string;
-  scope: string;
+  verifier: string;
   state: string;
-  challenge: string;
-  extras: ReadonlyArray<[string, string]>;
 }
 
 export function buildCodexAuthorizationUrl(config: CodexAuthorizationConfig): string {
-  const url = new URL(config.authorizeEndpoint);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('client_id', config.clientId);
-  url.searchParams.set('redirect_uri', config.redirectUri);
-  url.searchParams.set('scope', config.scope);
-  url.searchParams.set('code_challenge', config.challenge);
-  url.searchParams.set('code_challenge_method', 'S256');
-  url.searchParams.set('state', config.state);
-  for (const [key, value] of config.extras) {
-    url.searchParams.set(key, value);
-  }
-  return url.toString();
+  return buildOAuthLoginAuthorization({
+    provider: 'openai-codex',
+    redirectUri: config.redirectUri,
+    verifier: config.verifier,
+    state: config.state,
+  }).authorizationUrl;
 }
 
+const nodeSha256: Sha256Digest = {
+  digest(input: string): Uint8Array {
+    return new Uint8Array(createHash('sha256').update(input, 'utf8').digest());
+  },
+};
+
 export function pkceChallengeFromVerifier(verifier: string): string {
-  const digest = createHash('sha256').update(verifier, 'utf8').digest();
-  return base64urlEncode(new Uint8Array(digest));
+  return pkceCodeChallenge(verifier, nodeSha256);
 }
 
 // =============================================================

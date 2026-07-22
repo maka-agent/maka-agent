@@ -13,6 +13,27 @@ import {
 import type { HostCapabilities } from './skills.js';
 import type { ToolGroup } from './tool-availability.js';
 
+function projectDeferredToolGroups(
+  boundToolNames: Iterable<string>,
+  includeSurface: (surface: (typeof MAKA_CATALOG_SURFACES)[number]) => boolean,
+): ToolGroup[] {
+  const bound = boundToolNames instanceof Set ? boundToolNames : new Set(boundToolNames);
+  const groups: ToolGroup[] = [];
+  for (const surface of MAKA_CATALOG_SURFACES) {
+    if (surface.economy !== 'deferred') continue;
+    if (!includeSurface(surface)) continue;
+    const toolNames = surface.toolNames.filter((name) => bound.has(name));
+    if (toolNames.length === 0) continue;
+    groups.push({
+      id: surface.id,
+      label: surface.label,
+      description: surface.description,
+      toolNames,
+    });
+  }
+  return groups;
+}
+
 /** Build skill-host capability surface from the tools this process actually bound. */
 export function buildHostCapabilitiesFromBinding(
   boundToolNames: Iterable<string>,
@@ -38,21 +59,15 @@ export function buildDeferredToolGroupsFromCatalog(
   host: ToolHostId,
   boundToolNames: Iterable<string>,
 ): ToolGroup[] {
-  const bound = boundToolNames instanceof Set ? boundToolNames : new Set(boundToolNames);
-  const groups: ToolGroup[] = [];
-  for (const surface of MAKA_CATALOG_SURFACES) {
-    if (surface.economy !== 'deferred') continue;
-    if (surface.hosts[host] !== 'supported') continue;
-    const toolNames = surface.toolNames.filter((name) => bound.has(name));
-    if (toolNames.length === 0) continue;
-    groups.push({
-      id: surface.id,
-      label: surface.label,
-      description: surface.description,
-      toolNames,
-    });
-  }
-  return groups;
+  return projectDeferredToolGroups(
+    boundToolNames,
+    (surface) => surface.hosts[host] === 'supported',
+  );
+}
+
+/** Deferred catalog surfaces intersected with the tools this runtime actually bound. */
+export function buildDeferredToolGroupsFromBinding(boundToolNames: Iterable<string>): ToolGroup[] {
+  return projectDeferredToolGroups(boundToolNames, () => true);
 }
 
 /**

@@ -226,9 +226,9 @@ const toolConversation: StoredMessage[] = [
     ts: NOW - 17 * 60_000,
     toolName: 'Bash',
     displayName: '构建 Storybook',
-    intent: '运行 desktop Storybook 静态构建，确认 stories 能离开 app shell 渲染',
-    args: {
-      cmd: 'npm run -w @maka/desktop build-storybook',
+    review: {
+      kind: 'command',
+      command: 'npm run -w @maka/desktop build-storybook',
       cwd: '/workspace/maka-agent',
     },
   },
@@ -314,9 +314,13 @@ const multiStepConversation: StoredMessage[] = [
     ts: NOW - 11 * 60_000,
     toolName: 'Read',
     displayName: '读取 stream-fade.ts',
-    intent: '读取淡入环的实现，确认窗口滑动与上限',
     stepId: 'msg-assistant-step-1',
-    args: { file_path: 'packages/ui/src/stream-fade.ts' },
+    review: {
+      kind: 'path',
+      operation: 'read',
+      path: 'packages/ui/src/stream-fade.ts',
+      cwd: '/workspace/maka-agent',
+    },
   },
   {
     type: 'tool_result',
@@ -349,9 +353,12 @@ const multiStepConversation: StoredMessage[] = [
     ts: NOW - 10 * 60_000 + 500,
     toolName: 'Bash',
     displayName: '运行 stream-fade 单测',
-    intent: '执行 node --test 跑淡入环与 tokenizer 的单测',
     stepId: 'msg-assistant-step-2',
-    args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js' },
+    review: {
+      kind: 'command',
+      command: 'node --test dist/main/__tests__/stream-fade.test.js',
+      cwd: '/workspace/maka-agent',
+    },
   },
   {
     type: 'tool_result',
@@ -406,9 +413,13 @@ const processingConversation: StoredMessage[] = [
     toolName: 'Read',
     activityKind: 'read',
     displayName: '读取 stream-fade.ts',
-    intent: '读取淡入环实现，确认窗口滑动与上限',
     stepId: 'proc-a1',
-    args: { file_path: 'packages/ui/src/stream-fade.ts' },
+    review: {
+      kind: 'path',
+      operation: 'read',
+      path: 'packages/ui/src/stream-fade.ts',
+      cwd: '/workspace/maka-agent',
+    },
   },
   {
     type: 'tool_result',
@@ -437,9 +448,14 @@ const processingConversation: StoredMessage[] = [
     toolName: 'Grep',
     activityKind: 'search',
     displayName: '搜索 updateFadeRing 调用点',
-    intent: '搜索环更新的调用点，确认边界处理是否一致',
     stepId: 'proc-a2',
-    args: { pattern: 'updateFadeRing' },
+    review: {
+      kind: 'search',
+      operation: 'grep',
+      pattern: 'updateFadeRing',
+      root: '/workspace/maka-agent',
+      cwd: '/workspace/maka-agent',
+    },
   },
   {
     type: 'tool_result',
@@ -459,9 +475,12 @@ const processingConversation: StoredMessage[] = [
     toolName: 'Bash',
     activityKind: 'command',
     displayName: '运行 stream-fade 单测',
-    intent: '执行 node --test 跑淡入环单测',
     stepId: 'proc-a2',
-    args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js' },
+    review: {
+      kind: 'command',
+      command: 'node --test dist/main/__tests__/stream-fade.test.js',
+      cwd: '/workspace/maka-agent',
+    },
   },
   {
     type: 'tool_result',

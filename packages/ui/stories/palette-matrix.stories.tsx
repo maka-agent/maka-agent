@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useSyncExternalStore } from 'react';
-import { THEME_PALETTES } from '../../../packages/core/src/settings.js';
+import { THEME_PALETTES } from '@maka/core/settings';
 
 const meta = {
   title: 'Design System/Palette Matrix',

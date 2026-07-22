@@ -9,7 +9,7 @@ import {
   writeTaskRunExport,
 } from '../result-export.js';
 import type { HeavyTaskTodoItem, TaskEvent } from '../task-contracts.js';
-import { projectTaskRun } from '../task-run-store.js';
+import { projectTaskRun } from '../task-run-projection.js';
 
 describe('task run export', () => {
   test('projects runtime, verifier, score, budget, isolation, inbox, and taxonomy', async () => {

@@ -68,7 +68,6 @@ export interface LocalMemoryPromptUpdate {
 export class LocalMemoryService {
   readonly dir: string;
   readonly file: string;
-  readonly pendingFile: string;
   private readonly now: () => number;
   private queue: Promise<unknown> = Promise.resolve();
   private pendingPromptUpdates: LocalMemoryPromptUpdate[] = [];
@@ -76,7 +75,6 @@ export class LocalMemoryService {
   constructor(private readonly deps: LocalMemoryServiceDeps) {
     this.dir = join(deps.workspaceRoot, 'memory');
     this.file = join(this.dir, 'MEMORY.md');
-    this.pendingFile = join(this.dir, 'PENDING.md');
     this.now = deps.now ?? Date.now;
   }
 
@@ -214,10 +212,7 @@ export class LocalMemoryService {
   async listProposals(): Promise<ReadonlyArray<LocalMemoryEntryPreview>> {
     const state = await this.getState();
     if (state.status !== 'ok') return [];
-    const content = await this.readPendingContent();
-    const parsed = parseLocalMemoryMarkdown(content);
-    if (parsed.safeMode) return [];
-    return parsed.entries.filter((entry) => entry.status === 'draft' || entry.status === 'review_required');
+    return state.entries.filter((entry) => entry.status === 'proposal');
   }
 
   async proposeMemory(input: LocalMemoryProposalInput): Promise<LocalMemoryMutationResult> {
@@ -234,9 +229,9 @@ export class LocalMemoryService {
     let proposal: LocalMemoryEntryPreview | undefined;
     const result = await this.enqueue(async () => {
       await this.ensure();
-      const current = await this.readPendingContent();
+      const current = await readFile(this.file, 'utf8');
       const draft = appendLocalMemoryProposalDraft(current, {
-        proposalId,
+        id: proposalId,
         title: input.title,
         content: redactSecrets(content.value),
         scope: scope.value,
@@ -244,9 +239,10 @@ export class LocalMemoryService {
         proposedAt: now,
       });
       if (!draft.ok) return draft;
-      await this.writePendingContent(draft.draft);
+      await this.backup('bak');
+      await this.writeMemoryContent(draft.draft);
       const parsed = parseLocalMemoryMarkdown(draft.draft);
-      proposal = parsed.entries.find((entry) => entry.proposalId === proposalId || entry.id === proposalId);
+      proposal = parsed.entries.find((entry) => entry.id === proposalId);
       return draft;
     });
     if (!result.ok) return this.mutationBlocked(result.reason, localMemoryMutationFailureMessage(result.reason));
@@ -304,10 +300,9 @@ export class LocalMemoryService {
     const result = await this.enqueue(async () => {
       await this.ensure();
       const memoryContent = await readFile(this.file, 'utf8');
-      const pendingContent = await this.readPendingContent();
-      const proposal = findLocalMemoryEntryDraft(pendingContent, proposalId);
+      const proposal = findLocalMemoryEntryDraft(memoryContent, proposalId);
       if (!proposal) return { ok: false as const, reason: 'not_found' as const };
-      if (proposal.status !== 'draft' && proposal.status !== 'review_required') {
+      if (proposal.status !== 'proposal') {
         return { ok: false as const, reason: 'not_pending' as const };
       }
       const validation = validateMemoryWriteRequest(
@@ -322,17 +317,14 @@ export class LocalMemoryService {
         { mode: 'manual_with_drafts', incognitoActive: gate.privacy.incognitoActive, originatedFromRenderer: false, now },
       );
       if (!validation.ok) return { ok: false as const, reason: validation.reason };
-      await this.backup('bak');
-      const entryId = stableLocalMemoryEntryId(validation.value.content, now);
-      const approved = approveLocalMemoryProposalDraft(memoryContent, pendingContent, {
-        proposalId,
-        entryId,
+      const approved = approveLocalMemoryProposalDraft(memoryContent, {
+        id: proposalId,
         confirmedAt: now,
         approvalSurface: 'settings_review_queue',
       });
       if (!approved.ok) return approved;
-      await this.writeMemoryContent(approved.memoryDraft);
-      await this.writePendingContent(approved.pendingDraft);
+      await this.backup('bak');
+      await this.writeMemoryContent(approved.draft);
       approvedEntry = approved.entry;
       return approved;
     });
@@ -347,10 +339,11 @@ export class LocalMemoryService {
 
     const result = await this.enqueue(async () => {
       await this.ensure();
-      const current = await this.readPendingContent();
-      const rejected = rejectLocalMemoryProposalDraft(current, { proposalId, rejectedAt: this.now() });
+      const current = await readFile(this.file, 'utf8');
+      const rejected = rejectLocalMemoryProposalDraft(current, { id: proposalId });
       if (!rejected.ok) return rejected;
-      await this.writePendingContent(rejected.draft);
+      await this.backup('bak');
+      await this.writeMemoryContent(rejected.draft);
       return rejected;
     });
     if (!result.ok) return this.mutationBlocked(result.reason, localMemoryMutationFailureMessage(result.reason));
@@ -643,34 +636,6 @@ export class LocalMemoryService {
     await chmod(file, 0o600);
   }
 
-  private async readPendingContent(): Promise<string> {
-    await this.ensure();
-    try {
-      const root = await realpath(this.deps.workspaceRoot);
-      const pending = await realpath(this.pendingFile);
-      if (!isInsideOrSamePath(root, pending)) throw new Error('PENDING.md file is outside the workspace.');
-      const pendingStat = await stat(pending);
-      if (!pendingStat.isFile()) throw new Error('PENDING.md is not a file.');
-      await chmod(pending, 0o600);
-      return readFile(pending, 'utf8');
-    } catch (error) {
-      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-        return '# Maka Pending Memory\n';
-      }
-      throw error;
-    }
-  }
-
-  private async writePendingContent(content: string): Promise<void> {
-    const redactedContent = redactSecrets(content);
-    const parsed = parseLocalMemoryMarkdown(redactedContent);
-    if (parsed.safeMode) throw new Error(parsed.reason ?? 'pending memory safe mode');
-    const tmp = `${this.pendingFile}.${this.now()}.tmp`;
-    await writeFile(tmp, redactedContent, { mode: 0o600 });
-    await rename(tmp, this.pendingFile);
-    await chmod(this.pendingFile, 0o600);
-  }
-
   private async writeMemoryContent(content: string): Promise<void> {
     const redactedContent = redactSecrets(content);
     const parsed = parseLocalMemoryMarkdown(redactedContent);
@@ -776,6 +741,8 @@ function localMemoryMutationFailureMessage(reason: string): string {
       return '找不到这条记忆。';
     case 'not_pending':
       return '这条记忆不在待审核状态。';
+    case 'invalid_transition':
+      return '这条记忆不能执行该状态变更。';
     case 'oversize':
       return 'MEMORY.md 超出安全上限。';
     case 'mode_off':

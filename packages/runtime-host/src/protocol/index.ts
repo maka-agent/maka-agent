@@ -1,4 +1,5 @@
 import { TextDecoder } from 'node:util';
+import { requireCount, requireId, requireRecord, requireString } from './codec.js';
 import { invalidProtocolFrame, RuntimeHostProtocolError } from './errors.js';
 import {
   decodeRequestFrame,
@@ -7,12 +8,37 @@ import {
   type RequestFrame,
   type ResponseFrame,
 } from './operations.js';
+import {
+  decodeNativeProviderClientEnvelopeFrame,
+  decodeNativeProviderHostFrame,
+  isNativeProviderClientFrameKind,
+  isNativeProviderHostFrameKind,
+  type NativeProviderClientFrame,
+  type NativeProviderClientEnvelopeFrame,
+  type NativeProviderHostFrame,
+} from './native-provider.js';
+import {
+  decodeSubscriptionFrame,
+  isSubscriptionFrameKind,
+  type SubscriptionFrame,
+} from './session-continuity.js';
 
 export { RuntimeHostProtocolError } from './errors.js';
+export * from './automation.js';
+export * from './goal.js';
+export * from './interaction.js';
+export * from './message.js';
+export * from './native-provider.js';
+export * from './native-provider-browser.js';
+export * from './native-provider-computer-use.js';
+export * from './oauth.js';
 export * from './operations.js';
+export * from './runtime-resource.js';
+export * from './session-continuity.js';
+export * from './session-management.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
-export const RUNTIME_HOST_PROTOCOL_VERSION = 2 as const;
+export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 export const RUNTIME_HOST_MAX_FRAME_BYTES = 64 * 1024;
 
 export type ClientSurface = 'desktop' | 'tui' | 'run' | 'bot' | 'open_gateway' | 'inspect';
@@ -54,8 +80,14 @@ export interface HostDraining {
 
 export type HostHandshakeResult = HostAccepted | HostIncompatible | HostDraining;
 
-export type ClientFrame = ClientHello | RequestFrame;
-export type HostFrame = HostHandshakeResult | ResponseFrame;
+export type ClientFrame = ClientHello | RequestFrame | NativeProviderClientFrame;
+/** Host-side decode output; Native Provider results remain opaque until binding validation. */
+export type InboundClientFrame = ClientHello | RequestFrame | NativeProviderClientEnvelopeFrame;
+export type HostFrame =
+  | HostHandshakeResult
+  | ResponseFrame
+  | SubscriptionFrame
+  | NativeProviderHostFrame;
 
 export interface HostRegistration {
   kind: 'maka-runtime-host';
@@ -81,7 +113,7 @@ export function validateProtocolRange(range: ProtocolRange): void {
   if (
     !Number.isSafeInteger(range.min) ||
     !Number.isSafeInteger(range.max) ||
-    range.min < 1 ||
+    range.min < 0 ||
     range.max < range.min
   ) {
     throw invalidFrame('Invalid protocol range');
@@ -92,7 +124,7 @@ export function requireClientInstanceId(value: unknown): string {
   return requireId(value, 'clientInstanceId');
 }
 
-export function decodeClientFrame(value: unknown): ClientFrame {
+export function decodeClientFrame(value: unknown): InboundClientFrame {
   const frame = requireRecord(value, 'client frame');
   if (frame.kind === 'hello') {
     const protocolMin = requireProtocolVersion(frame.protocolMin, 'protocolMin');
@@ -105,6 +137,9 @@ export function decodeClientFrame(value: unknown): ClientFrame {
       protocolMin,
       protocolMax,
     } satisfies ClientHello;
+  }
+  if (isNativeProviderClientFrameKind(frame.kind)) {
+    return decodeNativeProviderClientEnvelopeFrame(frame);
   }
   return decodeRequestFrame(frame);
 }
@@ -136,6 +171,8 @@ export function decodeHostFrame(value: unknown): HostFrame {
   if (frame.kind === 'draining') {
     return { kind: 'draining', hostEpoch: requireId(frame.hostEpoch, 'hostEpoch') };
   }
+  if (isNativeProviderHostFrameKind(frame.kind)) return decodeNativeProviderHostFrame(frame);
+  if (isSubscriptionFrameKind(frame.kind)) return decodeSubscriptionFrame(frame);
   return decodeResponseFrame(frame);
 }
 
@@ -233,29 +270,7 @@ export class ProtocolFrameDecoder {
   }
 }
 
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw invalidFrame(`Invalid ${label}`);
-  return value as Record<string, unknown>;
-}
-
-function requireString(value: unknown, label: string, maxLength: number): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
-    throw invalidFrame(`Invalid ${label}`);
-  }
-  return value;
-}
-
-function requireId(value: unknown, label: string): string {
-  return requireString(value, label, 128);
-}
-
 function requireProtocolVersion(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) throw invalidFrame(`Invalid ${label}`);
-  return value as number;
-}
-
-function requireCount(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw invalidFrame(`Invalid ${label}`);
   return value as number;
 }
@@ -274,13 +289,7 @@ function requireSurface(value: unknown): ClientSurface {
 }
 
 function requireHostState(value: unknown): HostLifecycleState {
-  if (
-    value === 'starting' ||
-    value === 'containing' ||
-    value === 'recovering' ||
-    value === 'ready' ||
-    value === 'draining'
-  )
+  if (value === 'starting' || value === 'recovering' || value === 'ready' || value === 'draining')
     return value;
   throw invalidFrame('Invalid Host state');
 }

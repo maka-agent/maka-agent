@@ -94,10 +94,10 @@ describe('runtime event backfill', () => {
         turnId: 'turn-1',
         ts: 120,
         toolName: 'Read',
+        args: { path: 'README.md', line: 10 },
         activityKind: 'read',
         displayName: 'Read file',
-        intent: 'inspect',
-        args: { path: 'README.md' },
+        review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/tmp/cwd' },
         stepId: 'step-1',
       },
       {
@@ -188,11 +188,11 @@ describe('runtime event backfill', () => {
       kind: 'function_call',
       id: 'tool-1',
       name: 'Read',
-      args: { path: 'README.md' },
+      args: { path: 'README.md', line: 10 },
+      review: { kind: 'path', operation: 'read', path: 'README.md', cwd: '/tmp/cwd' },
     });
     expect(result.events[3]?.actions?.stateDelta?.displayName).toBe('Read file');
     expect(result.events[3]?.actions?.stateDelta?.activityKind).toBe('read');
-    expect(result.events[3]?.actions?.stateDelta?.intent).toBe('inspect');
     expect(result.events[3]?.refs).toEqual({
       storedMessageId: 'tool-1',
       toolCallId: 'tool-1',
@@ -227,6 +227,28 @@ describe('runtime event backfill', () => {
         version: 1,
       });
     }
+  });
+
+  test('does not reconstruct private args from a stored public review', () => {
+    const result = backfillRuntimeEventsFromStoredMessages({
+      run,
+      messages: [
+        {
+          type: 'tool_call',
+          id: 'tool-review-only',
+          turnId: 'turn-1',
+          ts: 120,
+          toolName: 'Write',
+          review: { kind: 'path', operation: 'write', path: 'notes.md', cwd: '/tmp/cwd' },
+        },
+      ],
+      newId: nextIds(),
+      now: () => 999,
+    });
+
+    const call = result.events[0]?.content;
+    expect(call?.kind).toBe('function_call');
+    expect(call?.kind === 'function_call' && Object.hasOwn(call, 'args')).toBe(false);
   });
 
   test('skips high-risk legacy rows that cannot be reconstructed safely', () => {

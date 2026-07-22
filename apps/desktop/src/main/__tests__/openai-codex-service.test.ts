@@ -41,38 +41,30 @@ const HELPERS_SOURCE = resolve(
 );
 
 describe('Codex subscription OAuth config (upstream openai-codex-auth pattern)', () => {
-  it('pins clientId, endpoints, redirect URI, scopes and extras', () => {
-    assert.equal(CODEX_OAUTH_CONFIG.clientId, 'app_EMoamEEZ73f0CkXaXp7hrann');
-    assert.equal(CODEX_OAUTH_CONFIG.authUrl, 'https://auth.openai.com/oauth/authorize');
-    assert.equal(CODEX_OAUTH_CONFIG.tokenUrl, 'https://auth.openai.com/oauth/token');
-    assert.equal(CODEX_OAUTH_CONFIG.redirectUri, 'http://localhost:1455/auth/callback');
-    assert.equal(CODEX_OAUTH_CONFIG.scopes, 'openid profile email offline_access');
+  it('pins the Desktop-owned loopback listener', () => {
+    assert.equal(CODEX_OAUTH_CONFIG.callbackHost, '127.0.0.1');
     assert.equal(CODEX_OAUTH_CONFIG.callbackPort, 1455);
-    const extrasMap = new Map(CODEX_OAUTH_CONFIG.extras);
-    assert.equal(extrasMap.get('codex_cli_simplified_flow'), 'true');
-    assert.equal(extrasMap.get('originator'), 'codex_cli_rs');
+    assert.equal(CODEX_OAUTH_CONFIG.redirectUri, 'http://localhost:1455/auth/callback');
   });
 
-  it('built authorize URL includes every required parameter', () => {
+  it('builds the shared provider contract from closed helper input', () => {
+    const verifier = 'v'.repeat(43);
+    const state = 's'.repeat(32);
     const url = new URL(
       buildCodexAuthorizationUrl({
-        clientId: CODEX_OAUTH_CONFIG.clientId,
-        authorizeEndpoint: CODEX_OAUTH_CONFIG.authUrl,
         redirectUri: CODEX_OAUTH_CONFIG.redirectUri,
-        scope: CODEX_OAUTH_CONFIG.scopes,
-        state: 'pinned-state',
-        challenge: 'pinned-challenge',
-        extras: CODEX_OAUTH_CONFIG.extras,
+        verifier,
+        state,
       }),
     );
-    assert.equal(url.origin + url.pathname, CODEX_OAUTH_CONFIG.authUrl);
+    assert.equal(url.origin + url.pathname, 'https://auth.openai.com/oauth/authorize');
     assert.equal(url.searchParams.get('response_type'), 'code');
-    assert.equal(url.searchParams.get('client_id'), CODEX_OAUTH_CONFIG.clientId);
+    assert.equal(url.searchParams.get('client_id'), 'app_EMoamEEZ73f0CkXaXp7hrann');
     assert.equal(url.searchParams.get('redirect_uri'), CODEX_OAUTH_CONFIG.redirectUri);
-    assert.equal(url.searchParams.get('scope'), CODEX_OAUTH_CONFIG.scopes);
-    assert.equal(url.searchParams.get('code_challenge'), 'pinned-challenge');
+    assert.equal(url.searchParams.get('scope'), 'openid profile email offline_access');
+    assert.equal(url.searchParams.get('code_challenge'), pkceChallengeFromVerifier(verifier));
     assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-    assert.equal(url.searchParams.get('state'), 'pinned-state');
+    assert.equal(url.searchParams.get('state'), state);
     assert.equal(url.searchParams.get('codex_cli_simplified_flow'), 'true');
     assert.equal(url.searchParams.get('originator'), 'codex_cli_rs');
   });

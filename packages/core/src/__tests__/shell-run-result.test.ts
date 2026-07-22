@@ -74,6 +74,55 @@ describe('mergeShellRunState', () => {
       },
     ]);
   });
+
+  it('uses skipped revisions when checking projected status reachability', () => {
+    const starting = shellRun({ status: 'starting', revision: 1 });
+    const directCompleted = shellRun({
+      status: 'completed',
+      revision: 2,
+      completedAt: 2,
+      exitCode: 0,
+    });
+    const skippedRunning = shellRun({
+      ...directCompleted,
+      revision: 3,
+      updatedAt: 3,
+    });
+
+    assert.deepEqual(mergeShellRunState(starting, directCompleted), {
+      result: starting,
+      changed: false,
+      invariantViolation: 'invalid_status_transition',
+    });
+    assert.deepEqual(mergeShellRunState(starting, skippedRunning), {
+      result: skippedRunning,
+      changed: true,
+    });
+  });
+
+  it('rejects terminal outcome rewrites at a higher revision', () => {
+    const terminal = shellRun({
+      status: 'failed',
+      revision: 2,
+      updatedAt: 2,
+      completedAt: 2,
+      exitCode: 1,
+    });
+    const observed = shellRun({
+      ...terminal,
+      revision: 3,
+      updatedAt: 3,
+      output: pipeOutput('more output'),
+    });
+    const rewritten = shellRun({ ...observed, exitCode: 2 });
+
+    assert.deepEqual(mergeShellRunState(terminal, observed), { result: observed, changed: true });
+    assert.deepEqual(mergeShellRunState(terminal, rewritten), {
+      result: terminal,
+      changed: false,
+      invariantViolation: 'terminal_outcome_conflict',
+    });
+  });
 });
 
 describe('ShellRun view updates', () => {
@@ -270,6 +319,28 @@ describe('normalizeShellToolResultContent', () => {
     for (const value of invalid) {
       assert.equal(normalizeShellToolResultContent(value).state, 'invalid');
     }
+  });
+
+  it('accepts canonical starting state without terminal fields', () => {
+    const starting = shellRun({ status: 'starting' });
+    assert.equal(normalizeShellToolResultContent(starting).state, 'valid');
+    assert.equal(
+      normalizeShellToolResultContent({
+        kind: 'shell_run',
+        ref: starting.ref,
+        status: 'starting',
+        cwd: starting.cwd,
+        cmd: starting.cmd,
+        startedAt: starting.startedAt,
+        updatedAt: starting.updatedAt,
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      }).state,
+      'invalid',
+    );
+    assert.equal(normalizeShellToolResultContent({ ...starting, observedAt: 2 }).state, 'invalid');
   });
 
   it('accepts queued PTY input and rejects the superseded applied field', () => {

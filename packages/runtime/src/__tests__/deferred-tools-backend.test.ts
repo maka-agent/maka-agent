@@ -26,6 +26,7 @@ import {
   buildParentAgentTools,
 } from '../subagent-tools.js';
 import { buildDeferredToolGroupsFromCatalog } from '../tool-catalog-derive.js';
+import { EMBEDDED_RUNTIME_EXECUTION } from '../run-execution.js';
 
 // End-to-end through the live AiSdkBackend: the availability config drives the
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
@@ -82,6 +83,7 @@ function backend(
   let n = 0;
   const resolved = opts.toolAvailability === null ? undefined : (opts.toolAvailability ?? config);
   return new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async () => {},
@@ -107,6 +109,7 @@ function agentBackend(
   const resolved =
     opts.toolAvailability === null ? undefined : (opts.toolAvailability ?? agentConfig);
   return new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(opts.permissionMode),
     appendMessage: async () => {},
@@ -951,7 +954,7 @@ function priorBrowserLoad(turnId: string): RuntimeEvent[] {
         kind: 'function_response',
         id: 'tc-prev',
         name: LOAD_TOOLS_NAME,
-        result: { loaded: ['browser_click'] },
+        result: { kind: 'json', value: { loaded: ['browser_click'] } },
       },
     },
     {

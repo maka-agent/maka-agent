@@ -10,7 +10,13 @@ import { runMatrix, type ExperimentSpec } from '../matrix.js';
 const registerFakeBackend = (registry: BackendRegistry): void => {
   registry.register(
     'fake',
-    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        execution: ctx.execution,
+      }),
   );
 };
 

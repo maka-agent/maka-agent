@@ -70,6 +70,20 @@ export type CuDispatchOutcome =
       completedSubSteps?: number;
     };
 
+/** Typed backend failure. `message` must already be sanitized by the caller. */
+export class CuBackendError extends Error {
+  constructor(
+    readonly code: Extract<
+      ComputerUseErrorCode,
+      'service_unavailable' | 'service_mismatch' | 'outcome_unknown' | 'aborted' | 'capture_failed'
+    >,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CuBackendError';
+  }
+}
+
 export interface CuRunResult {
   outcome: CuDispatchOutcome;
   /** Final logical screen point resolved by the backend for pointer actions. */
@@ -158,7 +172,16 @@ export interface CuRunContext {
   sessionId: string;
   turnId: string;
   toolCallId: string;
+  /** Runtime operation identity when the caller owns one. */
+  operationId?: string;
+  /** Opaque process-local handle for the active backend observation. */
+  backendObservationId?: string;
   boundAction?: CuaBoundAction;
+}
+
+export interface CuBackendInvocationContext extends CuRunContext {
+  /** Explicit identity required to acquire one invocation-scoped backend. */
+  operationId: string;
 }
 
 export interface CuPresentationFence {
@@ -209,6 +232,31 @@ export interface CuDispatchBackend {
   /** Execute one normalized action; capture a fresh frame where applicable. */
   run(action: CuAction, signal: AbortSignal, context: CuRunContext): Promise<CuRunResult>;
   clearSession?(sessionId: string): void;
+}
+
+export type CuBackendAffinity = string;
+
+export interface CuBackendInvocation {
+  backend: CuDispatchBackend;
+  /** Opaque provider identity retained only for observation-bound acquisition. */
+  affinity?: CuBackendAffinity;
+  /** One-way cleanup; the runtime ignores release failures. */
+  release(): void;
+}
+
+export type CuBackendInvocationAcquisition =
+  | { ok: true; invocation: CuBackendInvocation }
+  | {
+      ok: false;
+      error: 'service_unavailable' | 'service_mismatch';
+      message: string;
+    };
+
+export interface CuBackendInvocationProvider {
+  acquire(
+    input: { context: CuBackendInvocationContext; affinity?: CuBackendAffinity },
+    signal: AbortSignal,
+  ): Promise<CuBackendInvocationAcquisition>;
 }
 
 const coordinate = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]);
@@ -683,12 +731,25 @@ function persistedObservationText(observation: CuObservation): string {
   });
 }
 
-export function buildComputerUseTools(deps: {
-  backend: CuDispatchBackend;
-  overlay?: CuOverlayHook;
-  presentationReadyTimeoutMs?: number;
-  presentationFinishedTimeoutMs?: number;
-}): ComputerUseToolSet {
+export function buildComputerUseTools(
+  deps: (
+    | {
+        backend: CuDispatchBackend;
+        invocationProvider?: never;
+      }
+    | {
+        backend?: never;
+        invocationProvider: CuBackendInvocationProvider;
+      }
+  ) & {
+    overlay?: CuOverlayHook;
+    presentationReadyTimeoutMs?: number;
+    presentationFinishedTimeoutMs?: number;
+  },
+): ComputerUseToolSet {
+  if (Boolean(deps.backend) === Boolean(deps.invocationProvider)) {
+    throw new Error('buildComputerUseTools requires exactly one backend source');
+  }
   const presentationReadyTimeoutMs = deps.presentationReadyTimeoutMs ?? 1_000;
   const presentationFinishedTimeoutMs = deps.presentationFinishedTimeoutMs ?? 1_500;
   const invocationQueues = new Map<string, Promise<void>>();
@@ -701,6 +762,7 @@ export function buildComputerUseTools(deps: {
     turnId: string;
     state: CuaFrameState;
     backendObservationId?: string;
+    backendAffinity?: CuBackendAffinity;
     appId?: string;
     windowId?: number;
     elements?: Map<string, CuObservedElement>;
@@ -755,6 +817,7 @@ export function buildComputerUseTools(deps: {
     if (!record) return;
     record.state.invalidate();
     record.backendObservationId = undefined;
+    record.backendAffinity = undefined;
     record.elements = undefined;
   }
 
@@ -843,6 +906,7 @@ export function buildComputerUseTools(deps: {
   function registerObservation(
     record: SessionObservationRecord,
     observation: CuObservation,
+    backendAffinity?: CuBackendAffinity,
   ): CuObservation {
     const normalized = {
       ...observation,
@@ -857,6 +921,7 @@ export function buildComputerUseTools(deps: {
     };
     const frame = record.state.observe(toObservationSnapshot(normalized));
     record.backendObservationId = observation.observationId;
+    record.backendAffinity = backendAffinity;
     record.appId = observation.appId;
     record.windowId = observation.windowId;
     record.elements = new Map(normalized.elements.map((element) => [element.elementId, element]));
@@ -978,6 +1043,7 @@ export function buildComputerUseTools(deps: {
   ): ComputerToolResult | undefined {
     const confirmation = record.state.confirmAction(action);
     record.backendObservationId = undefined;
+    record.backendAffinity = undefined;
     record.elements = undefined;
     return confirmation.ok ? undefined : bindingFailure(confirmation.reason);
   }
@@ -988,13 +1054,15 @@ export function buildComputerUseTools(deps: {
     result: CuRunResult,
     signal: AbortSignal,
     context: CuRunContext,
+    backend: CuDispatchBackend,
+    backendAffinity?: CuBackendAffinity,
   ): Promise<CuObservation | undefined> {
     const observationLease = state.beforeObservation();
     if (!observationLease.ok) return undefined;
     const captured =
       result.observation ??
-      (deps.backend.captureObservation && record.appId && record.windowId
-        ? await deps.backend.captureObservation(
+      (backend.captureObservation && record.appId && record.windowId
+        ? await backend.captureObservation(
             {
               app: record.appId,
               windowId: record.windowId,
@@ -1011,7 +1079,7 @@ export function buildComputerUseTools(deps: {
     if (!fresh || !state.validateObservationLease(observationLease.lease).ok) {
       return undefined;
     }
-    const registered = registerObservation(record, fresh);
+    const registered = registerObservation(record, fresh, backendAffinity);
     const snapshot = state.freshObservationSucceeded();
     return snapshot.status === 'active' ? registered : undefined;
   }
@@ -1020,6 +1088,7 @@ export function buildComputerUseTools(deps: {
     sessionId: string,
     signal: AbortSignal,
     operation: () => Promise<T>,
+    afterOperation?: () => void,
   ): Promise<T> {
     const previous = invocationQueues.get(sessionId) ?? Promise.resolve();
     let release!: () => void;
@@ -1033,11 +1102,36 @@ export function buildComputerUseTools(deps: {
       if (signal.aborted) throw new Error('aborted');
       return await operation();
     } finally {
+      try {
+        afterOperation?.();
+      } catch {
+        // Invocation release is one-way cleanup and cannot change the tool outcome.
+      }
       release();
       if (invocationQueues.get(sessionId) === current) {
         invocationQueues.delete(sessionId);
       }
     }
+  }
+
+  async function acquireBackendInvocation(
+    context: CuBackendInvocationContext,
+    signal: AbortSignal,
+    affinity?: CuBackendAffinity,
+  ): Promise<CuBackendInvocationAcquisition> {
+    if (deps.invocationProvider) {
+      return deps.invocationProvider.acquire(
+        { context, ...(affinity === undefined ? {} : { affinity }) },
+        signal,
+      );
+    }
+    return {
+      ok: true,
+      invocation: {
+        backend: deps.backend!,
+        release() {},
+      },
+    };
   }
 
   function presentationScreenPoint(boundAction: CuaBoundAction | undefined): CuPoint | undefined {
@@ -1235,7 +1329,7 @@ export function buildComputerUseTools(deps: {
       'Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerWireParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
-    permissionArgs: (args, context) => {
+    prepareIntentArgs: (args, context) => {
       const input = snapshotComputerParams(computerParams.parse(args));
       if (input.action === 'list_apps' || input.action === 'wait') return input;
       if (input.action === 'observe') return input;
@@ -1264,491 +1358,558 @@ export function buildComputerUseTools(deps: {
     },
     impl: async (
       args,
-      { abortSignal, sessionId, turnId, toolCallId },
+      { abortSignal, sessionId, turnId, toolCallId, operationId: durableOperationId },
     ): Promise<ComputerToolResult> => {
       if (abortSignal.aborted) return { text: 'computer aborted before start' };
       const input = snapshotComputerParams(computerParams.parse(args));
+      if (deps.invocationProvider && !durableOperationId) {
+        throw new Error('Native computer use provider requires a durable operationId');
+      }
       const invocationGeneration = presentationGenerations.get(sessionId) ?? 0;
       const releasePendingInvocation = trackPendingInvocation(sessionId, turnId);
+      let backendInvocation: CuBackendInvocation | undefined;
       try {
-        return await withInvocationQueue(sessionId, abortSignal, async () => {
-          if ((presentationGenerations.get(sessionId) ?? 0) !== invocationGeneration) {
-            return sessionFailure('user_stopped');
-          }
-          const state = sessionState(sessionId, turnId);
-          const requiresObservationLease =
-            input.action === 'observe' ||
-            input.action === 'screenshot' ||
-            input.action === 'list_apps' ||
-            input.action === 'cursor_position' ||
-            input.action === 'wait';
-          const observationLease = requiresObservationLease ? state.beforeObservation() : undefined;
-          if (observationLease && !observationLease.ok) {
-            return sessionFailure(observationLease.reason);
-          }
-          const requiresActionLease =
-            input.action === 'click_element' ||
-            input.action === 'set_value' ||
-            input.action === 'select_text' ||
-            input.action === 'secondary_action' ||
-            input.action === 'press_key' ||
-            input.action === 'mouse_move' ||
-            input.action === 'left_click' ||
-            input.action === 'right_click' ||
-            input.action === 'middle_click' ||
-            input.action === 'double_click' ||
-            input.action === 'triple_click' ||
-            input.action === 'left_mouse_down' ||
-            input.action === 'left_mouse_up' ||
-            input.action === 'left_click_drag' ||
-            input.action === 'scroll' ||
-            input.action === 'zoom' ||
-            input.action === 'type' ||
-            input.action === 'key' ||
-            input.action === 'hold_key';
-          const leaseResult = requiresActionLease ? state.beforeAction() : undefined;
-          if (leaseResult && !leaseResult.ok) {
-            return sessionFailure(leaseResult.reason);
-          }
-          const actionLease = leaseResult?.ok ? leaseResult.lease : undefined;
-
-          // S12: re-check TCC at action-start; cached "granted" is insufficient.
-          const tcc = await deps.backend.preflight(abortSignal);
-          if (!tcc.accessibility) {
-            return {
-              text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)',
+        return await withInvocationQueue(
+          sessionId,
+          abortSignal,
+          async () => {
+            if ((presentationGenerations.get(sessionId) ?? 0) !== invocationGeneration) {
+              return sessionFailure('user_stopped');
+            }
+            const state = sessionState(sessionId, turnId);
+            const requiresObservationLease =
+              input.action === 'observe' ||
+              input.action === 'screenshot' ||
+              input.action === 'list_apps' ||
+              input.action === 'cursor_position' ||
+              input.action === 'wait';
+            const observationLease = requiresObservationLease
+              ? state.beforeObservation()
+              : undefined;
+            if (observationLease && !observationLease.ok) {
+              return sessionFailure(observationLease.reason);
+            }
+            const requiresActionLease =
+              input.action === 'click_element' ||
+              input.action === 'set_value' ||
+              input.action === 'select_text' ||
+              input.action === 'secondary_action' ||
+              input.action === 'press_key' ||
+              input.action === 'mouse_move' ||
+              input.action === 'left_click' ||
+              input.action === 'right_click' ||
+              input.action === 'middle_click' ||
+              input.action === 'double_click' ||
+              input.action === 'triple_click' ||
+              input.action === 'left_mouse_down' ||
+              input.action === 'left_mouse_up' ||
+              input.action === 'left_click_drag' ||
+              input.action === 'scroll' ||
+              input.action === 'zoom' ||
+              input.action === 'type' ||
+              input.action === 'key' ||
+              input.action === 'hold_key';
+            const leaseResult = requiresActionLease ? state.beforeAction() : undefined;
+            if (leaseResult && !leaseResult.ok) {
+              return sessionFailure(leaseResult.reason);
+            }
+            const actionLease = leaseResult?.ok ? leaseResult.lease : undefined;
+            const referencedObservationId =
+              'observation_id' in input ? input.observation_id : undefined;
+            const observationRecord = observations.get(sessionId);
+            const activeObservation =
+              observationRecord?.turnId === turnId
+                ? observationRecord.state.activeObservation()
+                : undefined;
+            const referencesActiveObservation =
+              referencedObservationId !== undefined &&
+              activeObservation?.frameId === referencedObservationId;
+            const runCtx: CuBackendInvocationContext = {
+              sessionId,
+              turnId,
+              toolCallId,
+              operationId: durableOperationId ?? toolCallId,
+              ...(referencesActiveObservation && observationRecord?.backendObservationId
+                ? { backendObservationId: observationRecord.backendObservationId }
+                : {}),
             };
-          }
-          const runCtx: CuRunContext = { sessionId, turnId, toolCallId };
-          if (input.action === 'list_apps') {
-            if (!deps.backend.listApps) {
-              return { text: 'maka_computer.list_apps failed: unsupported_action' };
-            }
-            const apps = await deps.backend.listApps(abortSignal);
-            if (
-              !observationLease?.ok ||
-              !state.validateObservationLease(observationLease.lease).ok
-            ) {
-              const blocked = state.beforeAction();
-              return sessionFailure(blocked.ok ? 'reobserve_required' : blocked.reason);
-            }
-            return {
-              text: JSON.stringify({
-                app_count: apps.length,
-                window_count: apps.reduce((sum, app) => sum + app.windowCount, 0),
-              }),
-              modelText: JSON.stringify({
-                apps: apps.map((app) => ({
-                  app_id: app.appId,
-                  pid: app.pid,
-                  ...(app.name ? { name: app.name } : {}),
-                  window_count: app.windowCount,
-                  ...(app.windows
-                    ? {
-                        windows: app.windows.map((window) => ({
-                          window_id: window.windowId,
-                          ...(window.title ? { title: window.title } : {}),
-                        })),
-                      }
-                    : {}),
-                })),
-              }),
-            };
-          }
-          if (input.action === 'observe') {
-            if (!deps.backend.observeApp) {
-              return { text: 'maka_computer.observe failed: unsupported_action' };
-            }
-            const includeScreenshot = input.include_screenshot ?? true;
-            if (includeScreenshot && !tcc.screenRecording) {
-              return { text: 'maka_computer.observe failed: permission_missing' };
-            }
-            const backendObservation = await deps.backend.observeApp(
-              {
-                app: input.app,
-                windowId: input.window_id,
-                includeScreenshot,
-              },
-              abortSignal,
+            const acquisition = await acquireBackendInvocation(
               runCtx,
+              abortSignal,
+              referencesActiveObservation ? observationRecord?.backendAffinity : undefined,
             );
-            if (
-              !observationLease?.ok ||
-              !state.validateObservationLease(observationLease.lease).ok
-            ) {
-              const blocked = state.beforeAction();
-              return sessionFailure(blocked.ok ? 'reobserve_required' : blocked.reason);
-            }
-            const record = sessionObservation(sessionId, turnId);
-            const observation = registerObservation(record, backendObservation);
-            const activated = state.freshObservationSucceeded();
-            if (activated.status !== 'active') {
+            if (!acquisition.ok) {
+              state.reobserveRequired();
               invalidateObservation(sessionId);
-              return sessionFailure(
-                activated.status === 'blocked_url' ? 'blocked_url' : 'user_stopped',
-              );
-            }
-            const screenshot = observation.screenshot;
-            return screenshot
-              ? {
-                  text: persistedObservationText(observation),
-                  modelText: observationText({ ...observation, screenshot }),
-                  screenshot: { base64: screenshot.base64, mimeType: screenshot.mimeType },
-                }
-              : {
-                  text: persistedObservationText(observation),
-                  modelText: observationText(observation),
-                };
-          }
-          if (input.action === 'screenshot') {
-            if (!deps.backend.observeApp) {
-              return { text: 'maka_computer.screenshot failed: unsupported_action' };
-            }
-            if (!tcc.screenRecording) {
               return {
-                text:
-                  'maka_computer.screenshot failed: permission_missing — ' +
-                  'Screen Recording not granted ' +
-                  '(System Settings → Privacy & Security → Screen Recording)',
+                text: `maka_computer failed: ${acquisition.error} — ${acquisition.message}`,
+                error: acquisition.error,
               };
             }
-            const screenshotObservation = await deps.backend.observeApp(
-              {
-                app: input.app,
-                windowId: input.window_id,
-                includeScreenshot: true,
-              },
-              abortSignal,
-              runCtx,
-            );
-            if (
-              !observationLease?.ok ||
-              !state.validateObservationLease(observationLease.lease).ok
-            ) {
-              const blocked = state.beforeAction();
-              return sessionFailure(blocked.ok ? 'reobserve_required' : blocked.reason);
+            backendInvocation = acquisition.invocation;
+            const backend = backendInvocation.backend;
+            // S12: re-check TCC at action-start; cached "granted" is insufficient.
+            const tcc = await backend.preflight(abortSignal);
+            if (!tcc.accessibility) {
+              return {
+                text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)',
+              };
             }
-            if (!screenshotObservation.screenshot) {
-              return { text: 'maka_computer.screenshot failed: capture_failed' };
+            if (input.action === 'list_apps') {
+              if (!backend.listApps) {
+                return { text: 'maka_computer.list_apps failed: unsupported_action' };
+              }
+              const apps = await backend.listApps(abortSignal);
+              if (
+                !observationLease?.ok ||
+                !state.validateObservationLease(observationLease.lease).ok
+              ) {
+                const blocked = state.beforeAction();
+                return sessionFailure(blocked.ok ? 'reobserve_required' : blocked.reason);
+              }
+              return {
+                text: JSON.stringify({
+                  app_count: apps.length,
+                  window_count: apps.reduce((sum, app) => sum + app.windowCount, 0),
+                }),
+                modelText: JSON.stringify({
+                  apps: apps.map((app) => ({
+                    app_id: app.appId,
+                    pid: app.pid,
+                    ...(app.name ? { name: app.name } : {}),
+                    window_count: app.windowCount,
+                    ...(app.windows
+                      ? {
+                          windows: app.windows.map((window) => ({
+                            window_id: window.windowId,
+                            ...(window.title ? { title: window.title } : {}),
+                          })),
+                        }
+                      : {}),
+                  })),
+                }),
+              };
             }
-            return {
-              text: JSON.stringify({
-                app_id: screenshotObservation.appId,
-                pid: screenshotObservation.pid,
-                window_id: screenshotObservation.windowId,
-                screenshot: {
-                  mime_type: screenshotObservation.screenshot.mimeType,
-                  width_px: screenshotObservation.screenshot.widthPx,
-                  height_px: screenshotObservation.screenshot.heightPx,
+            if (input.action === 'observe') {
+              if (!backend.observeApp) {
+                return { text: 'maka_computer.observe failed: unsupported_action' };
+              }
+              const includeScreenshot = input.include_screenshot ?? true;
+              if (includeScreenshot && !tcc.screenRecording) {
+                return { text: 'maka_computer.observe failed: permission_missing' };
+              }
+              const backendObservation = await backend.observeApp(
+                {
+                  app: input.app,
+                  windowId: input.window_id,
+                  includeScreenshot,
                 },
-              }),
-              modelText: JSON.stringify({
-                app: screenshotObservation.appId,
-                pid: screenshotObservation.pid,
-                window_id: screenshotObservation.windowId,
-              }),
-              screenshot: {
-                base64: screenshotObservation.screenshot.base64,
-                mimeType: screenshotObservation.screenshot.mimeType,
-              },
-            };
-          }
-          if (
-            input.action === 'click_element' ||
-            input.action === 'set_value' ||
-            input.action === 'select_text' ||
-            input.action === 'secondary_action' ||
-            input.action === 'press_key'
-          ) {
-            if (!deps.backend.runSemantic) {
-              return { text: `maka_computer.${input.action} failed: unsupported_action` };
+                abortSignal,
+                runCtx,
+              );
+              if (
+                !observationLease?.ok ||
+                !state.validateObservationLease(observationLease.lease).ok
+              ) {
+                const blocked = state.beforeAction();
+                return sessionFailure(blocked.ok ? 'reobserve_required' : blocked.reason);
+              }
+              const record = sessionObservation(sessionId, turnId);
+              const observation = registerObservation(
+                record,
+                backendObservation,
+                backendInvocation.affinity,
+              );
+              const activated = state.freshObservationSucceeded();
+              if (activated.status !== 'active') {
+                invalidateObservation(sessionId);
+                return sessionFailure(
+                  activated.status === 'blocked_url' ? 'blocked_url' : 'user_stopped',
+                );
+              }
+              const screenshot = observation.screenshot;
+              return screenshot
+                ? {
+                    text: persistedObservationText(observation),
+                    modelText: observationText({ ...observation, screenshot }),
+                    screenshot: { base64: screenshot.base64, mimeType: screenshot.mimeType },
+                  }
+                : {
+                    text: persistedObservationText(observation),
+                    modelText: observationText(observation),
+                  };
             }
-            if (!tcc.screenRecording) {
+            if (input.action === 'screenshot') {
+              if (!backend.observeApp) {
+                return { text: 'maka_computer.screenshot failed: unsupported_action' };
+              }
+              if (!tcc.screenRecording) {
+                return {
+                  text:
+                    'maka_computer.screenshot failed: permission_missing — ' +
+                    'Screen Recording not granted ' +
+                    '(System Settings → Privacy & Security → Screen Recording)',
+                };
+              }
+              const screenshotObservation = await backend.observeApp(
+                {
+                  app: input.app,
+                  windowId: input.window_id,
+                  includeScreenshot: true,
+                },
+                abortSignal,
+                runCtx,
+              );
+              if (
+                !observationLease?.ok ||
+                !state.validateObservationLease(observationLease.lease).ok
+              ) {
+                const blocked = state.beforeAction();
+                return sessionFailure(blocked.ok ? 'reobserve_required' : blocked.reason);
+              }
+              if (!screenshotObservation.screenshot) {
+                return { text: 'maka_computer.screenshot failed: capture_failed' };
+              }
               return {
-                text: `maka_computer.${input.action} failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)`,
+                text: JSON.stringify({
+                  app_id: screenshotObservation.appId,
+                  pid: screenshotObservation.pid,
+                  window_id: screenshotObservation.windowId,
+                  screenshot: {
+                    mime_type: screenshotObservation.screenshot.mimeType,
+                    width_px: screenshotObservation.screenshot.widthPx,
+                    height_px: screenshotObservation.screenshot.heightPx,
+                  },
+                }),
+                modelText: JSON.stringify({
+                  app: screenshotObservation.appId,
+                  pid: screenshotObservation.pid,
+                  window_id: screenshotObservation.windowId,
+                }),
+                screenshot: {
+                  base64: screenshotObservation.screenshot.base64,
+                  mimeType: screenshotObservation.screenshot.mimeType,
+                },
               };
             }
-            const record = sessionObservation(sessionId, turnId);
-            const modelAction: CuSemanticAction =
-              input.action === 'click_element'
-                ? {
-                    type: 'click_element',
-                    observationId: input.observation_id,
-                    elementId: input.element_id,
-                    elementIdentity: record.elements?.get(input.element_id)?.identity,
-                  }
-                : input.action === 'set_value'
+            if (
+              input.action === 'click_element' ||
+              input.action === 'set_value' ||
+              input.action === 'select_text' ||
+              input.action === 'secondary_action' ||
+              input.action === 'press_key'
+            ) {
+              if (!backend.runSemantic) {
+                return { text: `maka_computer.${input.action} failed: unsupported_action` };
+              }
+              if (!tcc.screenRecording) {
+                return {
+                  text: `maka_computer.${input.action} failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)`,
+                };
+              }
+              const record = sessionObservation(sessionId, turnId);
+              const modelAction: CuSemanticAction =
+                input.action === 'click_element'
                   ? {
-                      type: 'set_value',
+                      type: 'click_element',
                       observationId: input.observation_id,
                       elementId: input.element_id,
-                      value: input.value,
                       elementIdentity: record.elements?.get(input.element_id)?.identity,
                     }
-                  : {
-                      ...(input.action === 'select_text'
-                        ? {
-                            type: 'select_text' as const,
-                            observationId: input.observation_id,
-                            elementId: input.element_id,
-                            text: input.text,
-                            elementIdentity: record.elements?.get(input.element_id)?.identity,
-                          }
-                        : input.action === 'secondary_action'
+                  : input.action === 'set_value'
+                    ? {
+                        type: 'set_value',
+                        observationId: input.observation_id,
+                        elementId: input.element_id,
+                        value: input.value,
+                        elementIdentity: record.elements?.get(input.element_id)?.identity,
+                      }
+                    : {
+                        ...(input.action === 'select_text'
                           ? {
-                              type: 'secondary_action' as const,
+                              type: 'select_text' as const,
                               observationId: input.observation_id,
                               elementId: input.element_id,
-                              action: input.text,
+                              text: input.text,
                               elementIdentity: record.elements?.get(input.element_id)?.identity,
                             }
-                          : {
-                              type: 'press_key' as const,
-                              observationId: input.observation_id,
-                              key: input.text,
-                            }),
-                    };
-            const binding = claimBoundAction(record, input.observation_id, modelAction);
-            if ('rejection' in binding) return bindingFailure(binding.rejection);
-            if (!record.backendObservationId) return bindingFailure('stale_frame');
-            const semanticAction: CuSemanticAction = {
-              ...modelAction,
-              observationId: record.backendObservationId,
-            };
-            const summaryAction: CuAction =
-              semanticAction.type === 'click_element'
-                ? {
-                    type: 'left_click',
-                    coordinate: binding.sourceCoordinate ?? { x: 0, y: 0 },
-                  }
-                : semanticAction.type === 'press_key'
-                  ? { type: 'key', text: semanticAction.key }
-                  : semanticAction.type === 'set_value'
-                    ? { type: 'type', text: semanticAction.value }
-                    : semanticAction.type === 'select_text'
-                      ? { type: 'type', text: semanticAction.text }
-                      : { type: 'key', text: semanticAction.action };
-            let result: CuRunResult | undefined;
-            let consumeFailure: ComputerToolResult | undefined;
-            let presentation: Awaited<ReturnType<typeof runWithPresentation>> | undefined;
-            try {
-              if (!actionLease) return sessionFailure('no_active_frame');
-              const leaseFailure = validateActionLease(state, actionLease);
-              if (leaseFailure) return leaseFailure;
-              const operationContext = { ...runCtx, boundAction: binding };
-              presentation = await runWithPresentation(
-                summaryAction,
-                operationContext,
-                abortSignal,
-                () => deps.backend.runSemantic!(semanticAction, abortSignal, operationContext),
-                () => validateActionLease(state, actionLease),
-                invocationGeneration,
-              );
-              if (presentation.blocked) return presentation.blocked;
-              if (!presentation.result) return bindingFailure('capture_failed');
-              result = preservePartialDelivery(presentation.result);
-              applyTypedOutcomeState(state, result.outcome);
-              if (result.outcome.ok) {
-                const postDispatchFailure = validateActionLease(state, actionLease);
-                if (postDispatchFailure) {
-                  presentation.finish();
-                  return postDispatchFailure;
-                }
-              }
-            } finally {
-              consumeFailure = consumeBoundAction(record, binding);
-              if (actionLease && state.validateLease(actionLease).ok) {
-                state.reobserveRequired();
-              }
-            }
-            if (consumeFailure && !hasUncertainDeliveredOutcome(result)) {
-              presentation?.finish();
-              return consumeFailure;
-            }
-            if (!result) {
-              presentation?.finish();
-              return bindingFailure('capture_failed');
-            }
-            let freshObservation: CuObservation | undefined;
-            try {
-              freshObservation = result.outcome.ok
-                ? await freshFullObservation(state, record, result, abortSignal, {
-                    ...runCtx,
-                    boundAction: binding,
-                  })
-                : undefined;
-            } catch {
-              presentation?.finish(result);
-              return deliveredWithoutFreshObservation(semanticAction, result);
-            }
-            if (result.outcome.ok && !freshObservation) {
-              presentation?.finish(result);
-              return deliveredWithoutFreshObservation(semanticAction, result);
-            }
-            presentation?.finish(result);
-            const text = summarize(semanticAction, result);
-            const failureClass =
-              !result.outcome.ok && /ambiguous/i.test(result.outcome.message)
-                ? ('ambiguous_target' as const)
-                : undefined;
-            const freshModelState = freshObservation
-              ? `\nFresh observation:\n${observationText(freshObservation)}`
-              : '';
-            const freshPersistedState = freshObservation
-              ? `\nFresh observation: ${persistedObservationText(freshObservation)}`
-              : '';
-            const screenshot = freshObservation?.screenshot ?? result.screenshot;
-            return screenshot
-              ? {
-                  text: `${text}${freshPersistedState}`,
-                  modelText: `${text}${freshModelState}`,
-                  ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
-                  ...(failureClass ? { failureClass } : {}),
-                  screenshot: {
-                    base64: screenshot.base64,
-                    mimeType: screenshot.mimeType,
-                  },
-                }
-              : {
-                  text: `${text}${freshPersistedState}`,
-                  modelText: `${text}${freshModelState}`,
-                  ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
-                  ...(failureClass ? { failureClass } : {}),
-                };
-          }
-          const modelAction = adaptToCuAction(input);
-          const action = modelAction;
-          const observationId = 'observation_id' in input ? input.observation_id : undefined;
-          const record = sessionObservation(sessionId, turnId);
-          let boundAction: CuaBoundAction | undefined;
-          if (requiresActionLease) {
-            if (!tcc.screenRecording) {
-              return {
-                text: `computer.${action.type} failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)`,
+                          : input.action === 'secondary_action'
+                            ? {
+                                type: 'secondary_action' as const,
+                                observationId: input.observation_id,
+                                elementId: input.element_id,
+                                action: input.text,
+                                elementIdentity: record.elements?.get(input.element_id)?.identity,
+                              }
+                            : {
+                                type: 'press_key' as const,
+                                observationId: input.observation_id,
+                                key: input.text,
+                              }),
+                      };
+              const binding = claimBoundAction(record, input.observation_id, modelAction);
+              if ('rejection' in binding) return bindingFailure(binding.rejection);
+              if (!record.backendObservationId) return bindingFailure('stale_frame');
+              const semanticAction: CuSemanticAction = {
+                ...modelAction,
+                observationId: record.backendObservationId,
               };
-            }
-            if (!observationId) return bindingFailure('no_active_frame');
-            const binding = claimBoundAction(record, observationId, action);
-            if ('rejection' in binding) return bindingFailure(binding.rejection);
-            boundAction = binding;
-          }
-          // A capture-bearing action additionally needs Screen Recording (S12).
-          const capturing = action.type === 'screenshot' || action.type === 'zoom';
-          if (capturing && !tcc.screenRecording) {
-            return {
-              text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)',
-            };
-          }
-          let result: CuRunResult | undefined;
-          let presentation: Awaited<ReturnType<typeof runWithPresentation>> | undefined;
-          {
-            try {
-              if (actionLease) {
+              const summaryAction: CuAction =
+                semanticAction.type === 'click_element'
+                  ? {
+                      type: 'left_click',
+                      coordinate: binding.sourceCoordinate ?? { x: 0, y: 0 },
+                    }
+                  : semanticAction.type === 'press_key'
+                    ? { type: 'key', text: semanticAction.key }
+                    : semanticAction.type === 'set_value'
+                      ? { type: 'type', text: semanticAction.value }
+                      : semanticAction.type === 'select_text'
+                        ? { type: 'type', text: semanticAction.text }
+                        : { type: 'key', text: semanticAction.action };
+              let result: CuRunResult | undefined;
+              let consumeFailure: ComputerToolResult | undefined;
+              let presentation: Awaited<ReturnType<typeof runWithPresentation>> | undefined;
+              try {
+                if (!actionLease) return sessionFailure('no_active_frame');
                 const leaseFailure = validateActionLease(state, actionLease);
                 if (leaseFailure) return leaseFailure;
-              }
-              const operationContext = {
-                ...runCtx,
-                ...(boundAction ? { boundAction } : {}),
-              };
-              presentation = await runWithPresentation(
-                action,
-                operationContext,
-                abortSignal,
-                () => deps.backend.run(action, abortSignal, operationContext),
-                actionLease ? () => validateActionLease(state, actionLease) : undefined,
-                invocationGeneration,
-              );
-              if (presentation.blocked) return presentation.blocked;
-              result = presentation.result
-                ? preservePartialDelivery(presentation.result)
-                : undefined;
-              if (observationLease?.ok) {
-                const validated = state.validateObservationLease(observationLease.lease);
-                if (!validated.ok && !hasUncertainDeliveredOutcome(result)) {
-                  presentation.finish();
-                  return sessionFailure(validated.reason);
+                const operationContext = { ...runCtx, boundAction: binding };
+                presentation = await runWithPresentation(
+                  summaryAction,
+                  operationContext,
+                  abortSignal,
+                  () => backend.runSemantic!(semanticAction, abortSignal, operationContext),
+                  () => validateActionLease(state, actionLease),
+                  invocationGeneration,
+                );
+                if (presentation.blocked) return presentation.blocked;
+                if (!presentation.result) return bindingFailure('capture_failed');
+                result = preservePartialDelivery(presentation.result);
+                applyTypedOutcomeState(state, result.outcome);
+                if (result.outcome.ok) {
+                  const postDispatchFailure = validateActionLease(state, actionLease);
+                  if (postDispatchFailure) {
+                    presentation.finish();
+                    return postDispatchFailure;
+                  }
+                }
+              } finally {
+                consumeFailure = consumeBoundAction(record, binding);
+                if (actionLease && state.validateLease(actionLease).ok) {
+                  state.reobserveRequired();
                 }
               }
-              if (result) applyTypedOutcomeState(state, result.outcome);
-              if (result?.outcome.ok && actionLease) {
-                const leaseFailure = validateActionLease(state, actionLease);
-                if (leaseFailure) {
-                  presentation.finish();
-                  return leaseFailure;
-                }
+              if (consumeFailure && !hasUncertainDeliveredOutcome(result)) {
+                presentation?.finish();
+                return consumeFailure;
               }
-            } finally {
-              if (actionLease && state.validateLease(actionLease).ok) {
-                state.reobserveRequired();
+              if (!result) {
+                presentation?.finish();
+                return bindingFailure('capture_failed');
               }
-            }
-            // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
-            // tool `output`) so `toModelOutput` below can hand the vision model an image
-            // block. Kept OFF `text`: coerceResultContent projects this object to a
-            // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
-            // bounded frame never bloats history.
-            let bindingResult: ComputerToolResult | undefined;
-            if (boundAction) bindingResult = consumeBoundAction(record, boundAction);
-            if (bindingResult && !hasUncertainDeliveredOutcome(result)) {
-              presentation?.finish();
-              return bindingResult;
-            }
-            if (!result) {
-              presentation?.finish();
-              return bindingFailure('capture_failed');
-            }
-            let freshObservation: CuObservation | undefined;
-            try {
-              freshObservation =
-                actionLease && result.outcome.ok
-                  ? await freshFullObservation(state, record, result, abortSignal, {
-                      ...runCtx,
-                      boundAction,
-                    })
+              let freshObservation: CuObservation | undefined;
+              try {
+                freshObservation = result.outcome.ok
+                  ? await freshFullObservation(
+                      state,
+                      record,
+                      result,
+                      abortSignal,
+                      { ...runCtx, boundAction: binding },
+                      backend,
+                      backendInvocation.affinity,
+                    )
                   : undefined;
-            } catch {
+              } catch {
+                presentation?.finish(result);
+                return deliveredWithoutFreshObservation(semanticAction, result);
+              }
+              if (result.outcome.ok && !freshObservation) {
+                presentation?.finish(result);
+                return deliveredWithoutFreshObservation(semanticAction, result);
+              }
               presentation?.finish(result);
-              return deliveredWithoutFreshObservation(modelAction, result);
-            }
-            if (actionLease && result.outcome.ok && !freshObservation) {
-              presentation?.finish(result);
-              return deliveredWithoutFreshObservation(modelAction, result);
-            }
-            presentation?.finish(result);
-            const modelRefresh = freshObservation
-              ? `\nFresh observation:\n${observationText(freshObservation)}`
-              : actionLease
-                ? '\nObservation consumed; call observe before the next coordinate or element action.'
+              const text = summarize(semanticAction, result);
+              const failureClass =
+                !result.outcome.ok && /ambiguous/i.test(result.outcome.message)
+                  ? ('ambiguous_target' as const)
+                  : undefined;
+              const freshModelState = freshObservation
+                ? `\nFresh observation:\n${observationText(freshObservation)}`
                 : '';
-            const persistedRefresh = freshObservation
-              ? `\nFresh observation: ${persistedObservationText(freshObservation)}`
-              : actionLease
-                ? '\nObservation consumed; call observe before the next action.'
+              const freshPersistedState = freshObservation
+                ? `\nFresh observation: ${persistedObservationText(freshObservation)}`
                 : '';
-            const text = `${summarize(modelAction, result)}${persistedRefresh}`;
-            const modelText = `${summarize(modelAction, result)}${modelRefresh}`;
-            const failureClass =
-              !result.outcome.ok && /ambiguous/i.test(result.outcome.message)
-                ? ('ambiguous_target' as const)
-                : undefined;
-            const screenshot = freshObservation?.screenshot ?? result.screenshot;
-            return screenshot
-              ? {
-                  text,
-                  modelText,
-                  ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
-                  ...(failureClass ? { failureClass } : {}),
-                  screenshot: { base64: screenshot.base64, mimeType: screenshot.mimeType },
-                }
-              : {
-                  text,
-                  modelText,
-                  ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
-                  ...(failureClass ? { failureClass } : {}),
+              const screenshot = freshObservation?.screenshot ?? result.screenshot;
+              return screenshot
+                ? {
+                    text: `${text}${freshPersistedState}`,
+                    modelText: `${text}${freshModelState}`,
+                    ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                    ...(failureClass ? { failureClass } : {}),
+                    screenshot: {
+                      base64: screenshot.base64,
+                      mimeType: screenshot.mimeType,
+                    },
+                  }
+                : {
+                    text: `${text}${freshPersistedState}`,
+                    modelText: `${text}${freshModelState}`,
+                    ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                    ...(failureClass ? { failureClass } : {}),
+                  };
+            }
+            const modelAction = adaptToCuAction(input);
+            const action = modelAction;
+            const observationId = 'observation_id' in input ? input.observation_id : undefined;
+            const record = sessionObservation(sessionId, turnId);
+            let boundAction: CuaBoundAction | undefined;
+            if (requiresActionLease) {
+              if (!tcc.screenRecording) {
+                return {
+                  text: `computer.${action.type} failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)`,
                 };
-          }
-        });
+              }
+              if (!observationId) return bindingFailure('no_active_frame');
+              const binding = claimBoundAction(record, observationId, action);
+              if ('rejection' in binding) return bindingFailure(binding.rejection);
+              boundAction = binding;
+            }
+            // A capture-bearing action additionally needs Screen Recording (S12).
+            const capturing = action.type === 'screenshot' || action.type === 'zoom';
+            if (capturing && !tcc.screenRecording) {
+              return {
+                text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)',
+              };
+            }
+            let result: CuRunResult | undefined;
+            let presentation: Awaited<ReturnType<typeof runWithPresentation>> | undefined;
+            {
+              try {
+                if (actionLease) {
+                  const leaseFailure = validateActionLease(state, actionLease);
+                  if (leaseFailure) return leaseFailure;
+                }
+                const operationContext = {
+                  ...runCtx,
+                  ...(boundAction ? { boundAction } : {}),
+                };
+                presentation = await runWithPresentation(
+                  action,
+                  operationContext,
+                  abortSignal,
+                  () => backend.run(action, abortSignal, operationContext),
+                  actionLease ? () => validateActionLease(state, actionLease) : undefined,
+                  invocationGeneration,
+                );
+                if (presentation.blocked) return presentation.blocked;
+                result = presentation.result
+                  ? preservePartialDelivery(presentation.result)
+                  : undefined;
+                if (observationLease?.ok) {
+                  const validated = state.validateObservationLease(observationLease.lease);
+                  if (!validated.ok && !hasUncertainDeliveredOutcome(result)) {
+                    presentation.finish();
+                    return sessionFailure(validated.reason);
+                  }
+                }
+                if (result) applyTypedOutcomeState(state, result.outcome);
+                if (result?.outcome.ok && actionLease) {
+                  const leaseFailure = validateActionLease(state, actionLease);
+                  if (leaseFailure) {
+                    presentation.finish();
+                    return leaseFailure;
+                  }
+                }
+              } finally {
+                if (actionLease && state.validateLease(actionLease).ok) {
+                  state.reobserveRequired();
+                }
+              }
+              // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
+              // tool `output`) so `toModelOutput` below can hand the vision model an image
+              // block. Kept OFF `text`: coerceResultContent projects this object to a
+              // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
+              // bounded frame never bloats history.
+              let bindingResult: ComputerToolResult | undefined;
+              if (boundAction) bindingResult = consumeBoundAction(record, boundAction);
+              if (bindingResult && !hasUncertainDeliveredOutcome(result)) {
+                presentation?.finish();
+                return bindingResult;
+              }
+              if (!result) {
+                presentation?.finish();
+                return bindingFailure('capture_failed');
+              }
+              let freshObservation: CuObservation | undefined;
+              try {
+                freshObservation =
+                  actionLease && result.outcome.ok
+                    ? await freshFullObservation(
+                        state,
+                        record,
+                        result,
+                        abortSignal,
+                        { ...runCtx, boundAction },
+                        backend,
+                        backendInvocation.affinity,
+                      )
+                    : undefined;
+              } catch {
+                presentation?.finish(result);
+                return deliveredWithoutFreshObservation(modelAction, result);
+              }
+              if (actionLease && result.outcome.ok && !freshObservation) {
+                presentation?.finish(result);
+                return deliveredWithoutFreshObservation(modelAction, result);
+              }
+              presentation?.finish(result);
+              const modelRefresh = freshObservation
+                ? `\nFresh observation:\n${observationText(freshObservation)}`
+                : actionLease
+                  ? '\nObservation consumed; call observe before the next coordinate or element action.'
+                  : '';
+              const persistedRefresh = freshObservation
+                ? `\nFresh observation: ${persistedObservationText(freshObservation)}`
+                : actionLease
+                  ? '\nObservation consumed; call observe before the next action.'
+                  : '';
+              const text = `${summarize(modelAction, result)}${persistedRefresh}`;
+              const modelText = `${summarize(modelAction, result)}${modelRefresh}`;
+              const failureClass =
+                !result.outcome.ok && /ambiguous/i.test(result.outcome.message)
+                  ? ('ambiguous_target' as const)
+                  : undefined;
+              const screenshot = freshObservation?.screenshot ?? result.screenshot;
+              return screenshot
+                ? {
+                    text,
+                    modelText,
+                    ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                    ...(failureClass ? { failureClass } : {}),
+                    screenshot: { base64: screenshot.base64, mimeType: screenshot.mimeType },
+                  }
+                : {
+                    text,
+                    modelText,
+                    ...(!result.outcome.ok ? { error: result.outcome.error } : {}),
+                    ...(failureClass ? { failureClass } : {}),
+                  };
+            }
+          },
+          () => {
+            backendInvocation?.release();
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof CuBackendError)) throw error;
+        sessionState(sessionId, turnId).reobserveRequired();
+        invalidateObservation(sessionId);
+        return {
+          text: `maka_computer failed: ${error.code}`,
+          error: error.code,
+        };
       } finally {
         releasePendingInvocation();
       }
@@ -1798,7 +1959,7 @@ export function buildComputerUseTools(deps: {
     }
     invalidateObservation(sessionId);
     observations.delete(sessionId);
-    deps.backend.clearSession?.(sessionId);
+    deps.backend?.clearSession?.(sessionId);
   };
   tools.sessionEvents = {
     snapshot: (sessionId) => sessionState(sessionId).snapshot(),

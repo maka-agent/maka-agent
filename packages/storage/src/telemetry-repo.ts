@@ -1,95 +1,123 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
-  PricingConfig,
   UsageBucket,
   UsageGroupBy,
   UsageLogRow,
   UsageQuery,
   UsageSummaryV2,
-  LlmCallRecord,
-  ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
+import {
+  decodePersistedLlmCallRecord,
+  decodePersistedToolInvocationRecord,
+  decodeTelemetryFile,
+  emptyTelemetryFile,
+  type PersistedLlmCallRecord,
+  type PersistedToolInvocationRecord,
+  type TelemetryFile,
+} from './telemetry-file-schema.js';
 
-type PersistedLlmCallRecord = LlmCallRecord & {
-  id: string;
-  cacheHitInputTokens: number;
-  cacheMissInputTokens: number;
-  cachedInputTokens: number;
-  cacheWriteInputTokens: number;
-  reasoningTokens: number;
-  totalTokens: number;
-  costUsd: number;
-  date: string;
-  ts: number;
-};
-
-type PersistedToolInvocationRecord = ToolInvocationRecord & {
-  id: string;
-  argsSummary?: string;
-  bytesIn: number;
-  bytesOut: number;
-  date: string;
-  ts: number;
-};
-
-interface TelemetryFile {
-  usageRecords: PersistedLlmCallRecord[];
-  toolInvocations: PersistedToolInvocationRecord[];
-  pricingOverrides: PricingConfig[];
-}
+export type {
+  PersistedLlmCallRecord,
+  PersistedToolInvocationRecord,
+} from './telemetry-file-schema.js';
 
 export interface TelemetryRepo {
-  insertLlmCall(record: PersistedLlmCallRecord): void;
-  insertToolInvocation(record: PersistedToolInvocationRecord): void;
+  insertLlmCall(record: PersistedLlmCallRecord): Promise<void>;
+  insertToolInvocation(record: PersistedToolInvocationRecord): Promise<void>;
   summary(query: UsageQuery): UsageSummaryV2;
   buckets(query: UsageQuery, groupBy: UsageGroupBy): UsageBucket[];
   logs(query: UsageQuery, offset?: number, limit?: number): { rows: UsageLogRow[]; total: number };
   latestLlmRuntimeProbe(connectionSlug: string, modelId?: string): UsageLogRow | undefined;
-  listPricingOverrides(): PricingConfig[];
-  upsertPricing(pricing: PricingConfig): Promise<void>;
-  deletePricing(modelKey: string): Promise<void>;
   load(): Promise<void>;
+  flush(): Promise<void>;
+  close(): Promise<void>;
 }
 
-export function createTelemetryRepo(workspaceRoot: string): TelemetryRepo {
-  return new FileTelemetryRepo(workspaceRoot);
+export interface CreateTelemetryRepoOptions {
+  readonly createIfMissing?: boolean;
+}
+
+export class TelemetryRepoClosedError extends Error {
+  constructor() {
+    super('Telemetry repository is closed');
+    this.name = 'TelemetryRepoClosedError';
+  }
+}
+
+export class TelemetryRepoNotLoadedError extends Error {
+  constructor() {
+    super('Telemetry repository has not been loaded');
+    this.name = 'TelemetryRepoNotLoadedError';
+  }
+}
+
+export class TelemetryRepoPublicationError extends Error {
+  readonly domain = 'telemetry_derived_index';
+
+  constructor(options: { cause: unknown }) {
+    super('Unable to publish telemetry derived index', options);
+    this.name = 'TelemetryRepoPublicationError';
+  }
+}
+
+export function createTelemetryRepo(
+  workspaceRoot: string,
+  options: CreateTelemetryRepoOptions = {},
+): TelemetryRepo {
+  return new FileTelemetryRepo(workspaceRoot, options.createIfMissing ?? true);
 }
 
 class FileTelemetryRepo implements TelemetryRepo {
   private readonly path: string;
-  private file: TelemetryFile = emptyFile();
+  private readonly createIfMissing: boolean;
+  private file: TelemetryFile = emptyTelemetryFile();
   private loaded = false;
   private queue: Promise<void> = Promise.resolve();
+  private writeFailure: TelemetryRepoPublicationError | undefined;
+  private state: 'open' | 'closing' | 'closed' = 'open';
+  private closePromise: Promise<void> | undefined;
 
-  constructor(workspaceRoot: string) {
+  constructor(workspaceRoot: string, createIfMissing: boolean) {
     this.path = join(workspaceRoot, 'telemetry.json');
+    this.createIfMissing = createIfMissing;
   }
 
   async load(): Promise<void> {
     if (this.loaded) return;
+    this.assertOpen();
     try {
       const text = await readFile(this.path, 'utf8');
-      this.file = normalizeFile(JSON.parse(text));
+      this.file = decodeTelemetryFile(JSON.parse(text));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      this.file = emptyFile();
-      await this.write();
+      this.file = emptyTelemetryFile();
+      if (this.createIfMissing) await this.write(this.file);
     }
     this.loaded = true;
   }
 
-  insertLlmCall(record: PersistedLlmCallRecord): void {
-    this.file.usageRecords = upsertById(this.file.usageRecords, record);
-    void this.enqueueWrite();
+  insertLlmCall(record: PersistedLlmCallRecord): Promise<void> {
+    this.assertReady();
+    return this.enqueueMutation((file) => ({
+      ...file,
+      usageRecords: upsertById(file.usageRecords, decodePersistedLlmCallRecord(record)),
+    }));
   }
 
-  insertToolInvocation(record: PersistedToolInvocationRecord): void {
-    this.file.toolInvocations = upsertById(this.file.toolInvocations, record);
-    void this.enqueueWrite();
+  insertToolInvocation(record: PersistedToolInvocationRecord): Promise<void> {
+    this.assertReady();
+    return this.enqueueMutation((file) => ({
+      ...file,
+      toolInvocations: upsertById(
+        file.toolInvocations,
+        decodePersistedToolInvocationRecord(record),
+      ),
+    }));
   }
 
   summary(query: UsageQuery): UsageSummaryV2 {
+    this.assertReady();
     const { from, to } = resolveRange(query.range);
     const rows = this.filteredUsageRows(query, from, to);
     const input = sum(rows.map((row) => row.inputTokens));
@@ -118,6 +146,7 @@ class FileTelemetryRepo implements TelemetryRepo {
   }
 
   buckets(query: UsageQuery, groupBy: UsageGroupBy): UsageBucket[] {
+    this.assertReady();
     const { from, to } = resolveRange(query.range);
     if (groupBy === 'tool') return toolBuckets(this.filteredToolRows(query, from, to));
     const rows = this.filteredUsageRows(query, from, to);
@@ -134,6 +163,7 @@ class FileTelemetryRepo implements TelemetryRepo {
   }
 
   logs(query: UsageQuery, offset = 0, limit = 100): { rows: UsageLogRow[]; total: number } {
+    this.assertReady();
     const { from, to } = resolveRange(query.range);
     const rows = this.filteredUsageRows(query, from, to)
       .sort((a, b) => b.ts - a.ts)
@@ -191,23 +221,18 @@ class FileTelemetryRepo implements TelemetryRepo {
     ).rows[0];
   }
 
-  listPricingOverrides(): PricingConfig[] {
-    return [...this.file.pricingOverrides];
+  async flush(): Promise<void> {
+    await this.queue;
+    if (this.writeFailure !== undefined) throw this.writeFailure;
   }
 
-  async upsertPricing(pricing: PricingConfig): Promise<void> {
-    this.file.pricingOverrides = [
-      ...this.file.pricingOverrides.filter((item) => item.modelKey !== pricing.modelKey),
-      pricing,
-    ].sort((a, b) => a.modelKey.localeCompare(b.modelKey));
-    await this.enqueueWrite();
-  }
-
-  async deletePricing(modelKey: string): Promise<void> {
-    this.file.pricingOverrides = this.file.pricingOverrides.filter(
-      (item) => item.modelKey !== modelKey,
-    );
-    await this.enqueueWrite();
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.state = 'closing';
+    this.closePromise = this.flush().finally(() => {
+      this.state = 'closed';
+    });
+    return this.closePromise;
   }
 
   private filteredUsageRows(query: UsageQuery, from: number, to: number): PersistedLlmCallRecord[] {
@@ -234,87 +259,40 @@ class FileTelemetryRepo implements TelemetryRepo {
     });
   }
 
-  private enqueueWrite(): Promise<void> {
-    const next = this.queue.then(
-      () => this.write(),
-      () => this.write(),
-    );
-    this.queue = next.catch(() => {});
+  private enqueueMutation(mutate: (file: TelemetryFile) => TelemetryFile): Promise<void> {
+    this.assertOpen();
+    if (this.writeFailure) return Promise.reject(this.writeFailure);
+    const next = this.queue.then(async () => {
+      if (this.writeFailure) throw this.writeFailure;
+      try {
+        const candidate = mutate(this.file);
+        await this.write(candidate);
+        this.file = candidate;
+      } catch (error) {
+        throw new TelemetryRepoPublicationError({ cause: error });
+      }
+    });
+    this.queue = next.catch((error: TelemetryRepoPublicationError) => {
+      if (this.writeFailure === undefined) this.writeFailure = error;
+    });
     return next;
   }
 
-  private async write(): Promise<void> {
+  private async write(file: TelemetryFile): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true });
     const tempPath = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, JSON.stringify(this.file, null, 2) + '\n', 'utf8');
+    await writeFile(tempPath, JSON.stringify(file, null, 2) + '\n', 'utf8');
     await rename(tempPath, this.path);
   }
-}
 
-function emptyFile(): TelemetryFile {
-  return { usageRecords: [], toolInvocations: [], pricingOverrides: [] };
-}
-
-function normalizeFile(input: unknown): TelemetryFile {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw new Error('Invalid telemetry file: expected an object');
+  private assertOpen(): void {
+    if (this.state !== 'open') throw new TelemetryRepoClosedError();
   }
-  const value = input as Partial<TelemetryFile>;
-  const hasKnownSection =
-    'usageRecords' in value || 'toolInvocations' in value || 'pricingOverrides' in value;
-  if (!hasKnownSection) {
-    throw new Error('Invalid telemetry file: expected known telemetry sections');
-  }
-  assertOptionalArraySection(value, 'usageRecords');
-  assertOptionalArraySection(value, 'toolInvocations');
-  assertOptionalArraySection(value, 'pricingOverrides');
-  return {
-    usageRecords: value.usageRecords ? value.usageRecords.map(normalizeLlmCallRecord) : [],
-    toolInvocations: value.toolInvocations ?? [],
-    pricingOverrides: value.pricingOverrides ?? [],
-  };
-}
 
-function assertOptionalArraySection<T extends object>(value: T, key: keyof T): void {
-  if (key in value && !Array.isArray(value[key])) {
-    throw new Error(`Invalid telemetry file: ${String(key)} must be an array`);
+  private assertReady(): void {
+    this.assertOpen();
+    if (!this.loaded) throw new TelemetryRepoNotLoadedError();
   }
-}
-
-function normalizeLlmCallRecord(input: unknown): PersistedLlmCallRecord {
-  const row = input as Partial<PersistedLlmCallRecord>;
-  const inputTokens = finiteNumber(row.inputTokens) ?? 0;
-  const outputTokens = finiteNumber(row.outputTokens) ?? 0;
-  const cacheHitInputTokens =
-    finiteNumber(row.cacheHitInputTokens) ?? finiteNumber(row.cachedInputTokens) ?? 0;
-  const cacheWriteInputTokens = finiteNumber(row.cacheWriteInputTokens) ?? 0;
-  const cacheMissInputTokens =
-    finiteNumber(row.cacheMissInputTokens) ??
-    Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
-  const reasoningTokens = finiteNumber(row.reasoningTokens) ?? 0;
-  return {
-    ...row,
-    id: typeof row.id === 'string' ? row.id : `usage_${row.turnId ?? row.ts ?? 'unknown'}`,
-    providerId: typeof row.providerId === 'string' ? row.providerId : 'unknown',
-    modelId: typeof row.modelId === 'string' ? row.modelId : 'unknown',
-    inputTokens,
-    outputTokens,
-    cacheHitInputTokens,
-    cacheMissInputTokens,
-    cachedInputTokens: cacheHitInputTokens,
-    cacheWriteInputTokens,
-    reasoningTokens,
-    totalTokens: finiteNumber(row.totalTokens) ?? inputTokens + outputTokens + reasoningTokens,
-    costUsd: finiteNumber(row.costUsd) ?? 0,
-    latencyMs: finiteNumber(row.latencyMs) ?? 0,
-    status: row.status === 'error' || row.status === 'aborted' ? row.status : 'success',
-    startedAt: finiteNumber(row.startedAt) ?? finiteNumber(row.ts) ?? 0,
-    date:
-      typeof row.date === 'string'
-        ? row.date
-        : new Date(finiteNumber(row.ts) ?? 0).toISOString().slice(0, 10),
-    ts: finiteNumber(row.ts) ?? 0,
-  };
 }
 
 function upsertById<T extends { id: string }>(rows: T[], row: T): T[] {
@@ -405,8 +383,4 @@ function toolBuckets(rows: PersistedToolInvocationRecord[]): UsageBucket[] {
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
-}
-
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }

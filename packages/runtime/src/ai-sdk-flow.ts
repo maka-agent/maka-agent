@@ -32,17 +32,14 @@
 
 import {
   failureClassFromCompleteStopReason,
+  normalizeMessageContent,
   type AnyPermissionRequestEvent,
   type CompleteEvent,
   type SessionEvent,
 } from '@maka/core/events';
+import { projectInteractionPermissionRequest } from '@maka/core/interaction';
 import type { PermissionDecision } from '@maka/core/backend-types';
-import type {
-  AdditionalPermissionRequest,
-  PermissionRequest,
-  PermissionRequestPayload,
-  SandboxEscalationRequest,
-} from '@maka/core/permission';
+import type { PermissionRequestPayload } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import {
   isTerminalRuntimeEvent,
@@ -53,6 +50,11 @@ import {
 import type { AgentBackend, BackendSessionEvent } from '@maka/core/backend-types';
 import { type AgentFlow, type AgentFlowControl, type FlowInput } from './agent-flow.js';
 import type { InvocationContext } from './invocation-context.js';
+import {
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+} from './interaction-authority.js';
+import { isRuntimeLifecycleFatal } from './runtime-lifecycle-errors.js';
 
 // ============================================================================
 // SessionEvent → RuntimeEvent mapping (placeholder, Phase 4)
@@ -86,6 +88,9 @@ export interface SessionEventMapMemory {
   failureClass?: string;
 }
 
+/** Controls execution-sensitive private args and interaction payload ownership. */
+export type InteractionProjectionMode = 'embedded' | 'host-owned';
+
 export function createSessionEventMapMemory(): SessionEventMapMemory {
   return { toolNameByUseId: new Map() };
 }
@@ -111,132 +116,13 @@ function resolveBase(event: SessionEvent, ctx: InvocationContext) {
 }
 
 function mapPermissionRequest(event: AnyPermissionRequestEvent): PermissionRequestPayload {
-  if (event.kind === 'tool_permission') {
-    const request: PermissionRequest = {
-      kind: 'tool_permission',
-      requestId: event.requestId,
-      toolUseId: event.toolUseId,
-      toolName: event.toolName,
-      category: event.category,
-      reason: event.reason,
-      args: structuredClone(event.args),
-      rememberForTurnAllowed: event.rememberForTurnAllowed,
-      ...(event.hint !== undefined ? { hint: event.hint } : {}),
-    };
-    return request;
-  }
-  return event.kind === 'additional_permissions'
-    ? mapAdditionalPermissionRequest(event)
-    : mapSandboxEscalationRequest(event);
-}
-
-function mapAdditionalPermissionRequest(
-  event: AnyPermissionRequestEvent,
-): AdditionalPermissionRequest {
-  const runtimeKind: unknown = event.kind;
-  if (runtimeKind !== 'additional_permissions') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'kind');
-  }
-  if (event.reason !== 'additional_permissions') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'reason');
-  }
-  if (!event.additionalPermissions || typeof event.additionalPermissions !== 'object') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'additionalPermissions');
-  }
-  if (typeof event.cwd !== 'string') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'cwd');
-  }
-  if (typeof event.justification !== 'string') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'justification');
-  }
-  if (typeof event.intentHash !== 'string') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'intentHash');
-  }
-  if (typeof event.permissionsHash !== 'string') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'permissionsHash');
-  }
-  if (!event.risk || typeof event.risk !== 'object') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'risk');
-  }
-  if (typeof event.alsoApprovesToolExecution !== 'boolean') {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'alsoApprovesToolExecution');
-  }
-  if (
-    event.availableDecisions?.length !== 2 ||
-    event.availableDecisions[0] !== 'allow_once' ||
-    event.availableDecisions[1] !== 'deny'
-  ) {
-    throw malformedAdditionalPermissionRequest(event.requestId, 'availableDecisions');
-  }
+  const { id: _eventId, turnId: _turnId, ts: _ts, type: _type, ...request } = event;
+  const projected = projectInteractionPermissionRequest(request as PermissionRequestPayload);
   return {
-    kind: 'additional_permissions',
     requestId: event.requestId,
-    toolUseId: event.toolUseId,
-    toolName: event.toolName,
-    category: event.category,
-    reason: 'additional_permissions',
-    additionalPermissions: structuredClone(event.additionalPermissions),
-    cwd: event.cwd,
-    justification: event.justification,
-    intentHash: event.intentHash,
-    permissionsHash: event.permissionsHash,
-    risk: structuredClone(event.risk),
-    alsoApprovesToolExecution: event.alsoApprovesToolExecution,
-    availableDecisions: ['allow_once', 'deny'],
-    ...(event.hint !== undefined ? { hint: event.hint } : {}),
-  };
-}
-
-function malformedAdditionalPermissionRequest(requestId: string, field: string): TypeError {
-  return new TypeError(
-    `Additional permission request ${requestId} has an invalid or missing ${field}.`,
-  );
-}
-
-function mapSandboxEscalationRequest(event: AnyPermissionRequestEvent): SandboxEscalationRequest {
-  if (event.kind !== 'sandbox_escalation') {
-    throw malformedSandboxEscalationRequest(event.requestId, 'kind');
-  }
-  if (
-    event.reason !== 'sandbox_escalation' ||
-    typeof event.command !== 'string' ||
-    typeof event.cwd !== 'string' ||
-    typeof event.justification !== 'string' ||
-    typeof event.intentHash !== 'string' ||
-    typeof event.commandHash !== 'string' ||
-    (event.trigger !== 'proactive' && event.trigger !== 'sandbox_denial') ||
-    !event.risk ||
-    typeof event.alsoApprovesToolExecution !== 'boolean' ||
-    event.availableDecisions?.length !== 2 ||
-    event.availableDecisions[0] !== 'allow_once' ||
-    event.availableDecisions[1] !== 'deny'
-  ) {
-    throw malformedSandboxEscalationRequest(event.requestId, 'payload');
-  }
-  return {
-    kind: 'sandbox_escalation',
-    requestId: event.requestId,
-    toolUseId: event.toolUseId,
-    toolName: 'Bash',
-    category: event.category,
-    reason: 'sandbox_escalation',
-    command: event.command,
-    cwd: event.cwd,
-    justification: event.justification,
-    intentHash: event.intentHash,
-    commandHash: event.commandHash,
-    trigger: event.trigger,
-    risk: structuredClone(event.risk),
-    alsoApprovesToolExecution: event.alsoApprovesToolExecution,
-    availableDecisions: ['allow_once', 'deny'],
-    ...(event.hint !== undefined ? { hint: event.hint } : {}),
-  };
-}
-
-function malformedSandboxEscalationRequest(requestId: string, field: string): TypeError {
-  return new TypeError(
-    `Sandbox escalation request ${requestId} has an invalid or missing ${field}.`,
-  );
+    toolUseId: projected.toolUseId,
+    ...projected.prompt,
+  } as PermissionRequestPayload;
 }
 
 /**
@@ -251,7 +137,7 @@ function malformedSandboxEscalationRequest(requestId: string, field: string): Ty
  *   - tool progress/output deltas  → role 'tool',    author 'tool' (partial)
  *   - tool_result (function resp)  → role 'tool',    author 'tool'
  *   - permission_request           → role 'system',  author 'system'
- *   - permission_decision_ack      → role 'system',  author 'user'
+ *   - permission_decision_ack      → embedded author 'user'; host-owned author 'system'
  *   - plan_submitted               → role 'system',  author 'agent'
  *   - token_usage                  → role 'system',  author 'system'
  *   - error                        → role 'system',  author 'system'
@@ -260,12 +146,14 @@ function malformedSandboxEscalationRequest(requestId: string, field: string): Ty
  *
  * `memory` is mutated for `tool_start` (records `toolName`) and read for
  * `tool_result`. Callers SHOULD pass one memory instance per invocation so
- * the `toolUseId → toolName` linkage is consistent across the stream.
+ * the `toolUseId → toolName` linkage is consistent across the stream. The
+ * interaction projection defaults to embedded payloads for existing callers.
  */
 export function mapSessionEventToRuntimeEvent(
   event: SessionEvent,
   ctx: InvocationContext,
   memory: SessionEventMapMemory = createSessionEventMapMemory(),
+  interactionProjection: InteractionProjectionMode = 'embedded',
 ): RuntimeEvent {
   if (event.type === 'queue_update') {
     // Not backend-mappable by design: the kernel is queue_update's only
@@ -275,13 +163,14 @@ export function mapSessionEventToRuntimeEvent(
     throw new Error('queue_update is not a backend event: the kernel is its only legal producer');
   }
   const narrowed: BackendSessionEvent = event;
-  return mapBackendSessionEvent(narrowed, ctx, memory);
+  return mapBackendSessionEvent(narrowed, ctx, memory, interactionProjection);
 }
 
 function mapBackendSessionEvent(
   event: BackendSessionEvent,
   ctx: InvocationContext,
   memory: SessionEventMapMemory,
+  interactionProjection: InteractionProjectionMode,
 ): RuntimeEvent {
   const base = resolveBase(event, ctx);
 
@@ -339,7 +228,10 @@ function mapBackendSessionEvent(
           kind: 'function_call',
           id: event.toolUseId,
           name: event.toolName,
-          args: structuredClone(event.args),
+          ...(interactionProjection === 'embedded' && Object.hasOwn(event, 'args')
+            ? { args: structuredClone(event.args) }
+            : {}),
+          ...(event.review === undefined ? {} : { review: structuredClone(event.review) }),
         },
         refs: {
           toolCallId: event.toolUseId,
@@ -347,15 +239,10 @@ function mapBackendSessionEvent(
           ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
         },
       };
-      if (
-        event.activityKind !== undefined ||
-        event.displayName !== undefined ||
-        event.intent !== undefined
-      ) {
+      if (event.activityKind !== undefined || event.displayName !== undefined) {
         const stateDelta: Record<string, unknown> = {};
         if (event.activityKind !== undefined) stateDelta.activityKind = event.activityKind;
         if (event.displayName !== undefined) stateDelta.displayName = event.displayName;
-        if (event.intent !== undefined) stateDelta.intent = event.intent;
         ev.actions = { stateDelta };
       }
       return ev;
@@ -403,8 +290,16 @@ function mapBackendSessionEvent(
       return ev;
     }
 
-    // ── Permission (first-class runtime action, not just a UI echo) ───────
+    // ── Permission / question interactions ──────────────
     case 'permission_request':
+      if (interactionProjection === 'host-owned') {
+        return {
+          ...base,
+          role: 'system',
+          author: 'system',
+          refs: { toolCallId: event.toolUseId, interactionId: event.requestId },
+        };
+      }
       return {
         ...base,
         role: 'system',
@@ -415,6 +310,14 @@ function mapBackendSessionEvent(
         refs: { toolCallId: event.toolUseId },
       };
     case 'permission_decision_ack':
+      if (interactionProjection === 'host-owned') {
+        return {
+          ...base,
+          role: 'system',
+          author: 'system',
+          refs: { toolCallId: event.toolUseId, interactionId: event.requestId },
+        };
+      }
       return {
         ...base,
         role: 'system',
@@ -427,13 +330,20 @@ function mapBackendSessionEvent(
               ? { rememberForTurn: event.rememberForTurn }
               : {}),
             ...(event.reviewer !== undefined ? { reviewer: event.reviewer } : {}),
-            ...(event.rationale !== undefined ? { rationale: event.rationale } : {}),
             ...(event.riskLevel !== undefined ? { riskLevel: event.riskLevel } : {}),
           },
         },
         refs: { toolCallId: event.toolUseId },
       };
     case 'user_question_request':
+      if (interactionProjection === 'host-owned') {
+        return {
+          ...base,
+          role: 'system',
+          author: 'system',
+          refs: { toolCallId: event.toolUseId, interactionId: event.requestId },
+        };
+      }
       return {
         ...base,
         role: 'system',
@@ -456,9 +366,9 @@ function mapBackendSessionEvent(
         ...base,
         role: 'user',
         author: 'user',
-        // Raw text + steering marker: read models render the text as-is,
-        // model replay wraps it in the canonical steering envelope.
-        content: { kind: 'text', text: event.text, steering: true },
+        // Canonical content + steering marker: read models may prefer
+        // displayText, while model replay uses text and materializes attachments.
+        content: { kind: 'text', ...normalizeMessageContent(event.content), steering: true },
         refs: { providerEventId: event.messageId },
       };
 
@@ -624,6 +534,8 @@ function completeRuntimeEvent(
 export interface AiSdkFlowInput {
   /** The wrapped stepping engine. Production: AiSdkBackend. Tests: any AgentBackend. */
   backend: AgentBackend;
+  /** Host-owned requests persist only Interaction Store identity references. */
+  interactionProjection?: InteractionProjectionMode;
   /**
    * Optional production projection hook. Called for every raw backend
    * SessionEvent after it has been mapped to a RuntimeEvent and before the
@@ -632,7 +544,7 @@ export interface AiSdkFlowInput {
   onSessionEvent?: (sessionEvent: SessionEvent, runtimeEvent: RuntimeEvent) => Promise<void> | void;
   /** Called if the wrapped backend stream throws. */
   onError?: (error: unknown) => Promise<void> | void;
-  /** Called after backend streaming finishes, errors, or is abandoned. */
+  /** Called after ordinary completion/error/abandonment, but never after a typed Interaction failure. */
   onFinally?: () => Promise<void> | void;
   /**
    * Keep consuming backend events after the first terminal RuntimeEvent.
@@ -663,6 +575,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
   private readonly onError: AiSdkFlowInput['onError'];
   private readonly onFinally: AiSdkFlowInput['onFinally'];
   private readonly drainAfterTerminal: boolean;
+  private readonly interactionProjection: InteractionProjectionMode;
 
   constructor(input: AiSdkFlowInput) {
     this.backend = input.backend;
@@ -672,6 +585,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
     this.onError = input.onError;
     this.onFinally = input.onFinally;
     this.drainAfterTerminal = input.drainAfterTerminal ?? false;
+    this.interactionProjection = input.interactionProjection ?? 'embedded';
   }
 
   /** The wrapped backend (exposed for runners that need the raw control surface). */
@@ -706,6 +620,10 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
     let terminalEmitted = false;
     let terminalAccepted = false;
     let errorEmitted = false;
+    let interactionFailure:
+      | RuntimeInteractionFailStopError
+      | RuntimeInteractionInvariantError
+      | undefined;
     try {
       for await (const sessionEvent of this.backend.send({
         invocationId: ctx.invocationId,
@@ -734,7 +652,12 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         // authoritative queue state: drop it here — not mapped, not
         // forwarded to observers, not persisted.
         if (sessionEvent.type === 'queue_update') continue;
-        const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+        const runtimeEvent = mapSessionEventToRuntimeEvent(
+          sessionEvent,
+          ctx,
+          memory,
+          this.interactionProjection,
+        );
         if (sessionEvent.type === 'error') errorEmitted = true;
         if (isTerminalRuntimeEvent(runtimeEvent)) {
           terminalEmitted = true;
@@ -751,21 +674,40 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         for (const sessionEvent of missingTerminalSessionEvents(ctx, {
           includeError: !errorEmitted,
         })) {
-          const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+          const runtimeEvent = mapSessionEventToRuntimeEvent(
+            sessionEvent,
+            ctx,
+            memory,
+            this.interactionProjection,
+          );
           await this.onSessionEvent?.(sessionEvent, runtimeEvent);
           if (isTerminalRuntimeEvent(runtimeEvent)) terminalEmitted = true;
           yield runtimeEvent;
         }
       }
     } catch (error) {
-      if (terminalAccepted) return;
-      await this.onError?.(error);
+      if (isRuntimeLifecycleFatal(error)) interactionFailure = error;
+      if (terminalAccepted && !interactionFailure) return;
+      if (interactionFailure) {
+        try {
+          await this.onError?.(error);
+        } catch {
+          // A callback failure cannot replace the exact fail-stop/invariant identity.
+        }
+      } else {
+        try {
+          await this.onError?.(error);
+        } catch (callbackError) {
+          if (isRuntimeLifecycleFatal(callbackError)) interactionFailure = callbackError;
+          throw callbackError;
+        }
+      }
       throw error;
     } finally {
       if (abortSignal && onAbort) {
         abortSignal.removeEventListener('abort', onAbort);
       }
-      await this.onFinally?.();
+      if (!interactionFailure) await this.onFinally?.();
     }
   }
 

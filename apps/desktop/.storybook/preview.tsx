@@ -1,6 +1,6 @@
 import type { Decorator, Preview } from '@storybook/react-vite';
 import '../src/renderer/styles.css';
-import { THEME_PALETTES } from '../../../packages/core/src/settings.js';
+import { THEME_PALETTES } from '@maka/core/settings';
 import { LocaleProvider } from '@maka/ui';
 
 const PALETTE_LABELS: Record<string, string> = {

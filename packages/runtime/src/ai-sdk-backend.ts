@@ -63,7 +63,7 @@ import type {
   PermissionDecision,
 } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { LlmConnection } from '@maka/core/llm-connections';
+import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
@@ -83,10 +83,28 @@ import type {
   ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
 import type { ContextBudgetDiagnostic, PromptSegmentEstimate } from '@maka/core/usage-stats/types';
-import type { JSONValue, ModelMessage } from 'ai';
+import type { JSONValue, ModelMessage, UserContent } from 'ai';
 import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
+import {
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionAdmissionRejectedError,
+  type RuntimeInteractionClosedError,
+  type RuntimeInteractionFailStopError,
+} from './interaction-authority.js';
+import {
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeBackendExecutionCapability,
+  type RuntimeHostedBackendRunBinding,
+  type RuntimeHostedRunControl,
+  type RuntimeSuccessorEffectKind,
+} from './run-execution.js';
+import {
+  isRuntimeLifecycleAdmission,
+  isRuntimeLifecycleClosure,
+  isRuntimeLifecycleFatal,
+} from './runtime-lifecycle-errors.js';
 import {
   AiSdkAutoApprovalReviewer,
   ApprovalCoordinator,
@@ -155,7 +173,6 @@ import {
   formatTextWithInlineRefs,
   steeringMessagesMissingFromBase,
   steeringModelMessage,
-  steeringProviderOptions,
   stripSteeringMessages,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
@@ -329,7 +346,7 @@ function formatSandboxCapability(capability: SandboxDiagnosticCapability): strin
  * Allows callers to inject a custom queueing/buffering strategy if needed.
  */
 export type AppendMessageFn = (m: StoredMessage) => Promise<void>;
-export type LlmTelemetryRecorder = (record: LlmCallRecord) => void;
+export type LlmTelemetryRecorder = (record: LlmCallRecord) => void | Promise<void>;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
 export type ToolResultArchiveRecorderInput = (
   | StaleToolResultArchiveCandidate
@@ -456,12 +473,13 @@ export interface AiSdkBackendInput {
   appendMessage: AppendMessageFn;
 
   // ── Provider / model resolution (resolved by BackendRegistry) ──────────
-  connection: LlmConnection;
+  connection: RuntimeExecutionConnection;
   apiKey: string;
   modelId: string;
 
   // ── Process-singleton deps ─────────────────────────────────────────────
   permissionEngine: PermissionEngine;
+  execution: RuntimeBackendExecutionCapability;
   /** Optional override for execute-mode automatic permission review. */
   autoApprovalReviewer?: AutoApprovalReviewer;
   modelFactory: ModelFactory;
@@ -607,6 +625,8 @@ export interface AiSdkBackendInput {
   loadSynthesisCache?: SynthesisCacheLoader;
   /** Optional best-effort source-bearing synthesis cache writer. */
   writeSynthesisCache?: SynthesisCacheWriter;
+  /** Identifies synthesis-cache or attachment artifact callback failures that must escape. */
+  isFatalArtifactError?: (error: unknown) => boolean;
   /** Optional best-effort source-bearing history compact block loader. */
   loadHistoryCompact?: HistoryCompactLoader;
   /** Optional best-effort source-bearing history compact block writer/summarizer. */
@@ -700,6 +720,11 @@ export class AiSdkBackend implements AgentBackend {
   private injectedSteeringMessages: ModelMessage[] = [];
   private currentRunId: string | null = null;
   private currentOrchestration: EffectiveOrchestration | undefined;
+  private turnStreamActive = false;
+  private interactionFailure:
+    | RuntimeInteractionFailStopError
+    | RuntimeInteractionInvariantError
+    | null = null;
   private imageRequestBudget: { used: number; decisions: Map<string, boolean> } | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
@@ -716,6 +741,7 @@ export class AiSdkBackend implements AgentBackend {
    * belongs to. Rotated at every step boundary in `send()`; null between turns.
    */
   private currentStepMessageId: string | null = null;
+  private hostedRun: RuntimeHostedRunControl | null = null;
 
   constructor(input: AiSdkBackendInput) {
     this.input = input;
@@ -743,6 +769,8 @@ export class AiSdkBackend implements AgentBackend {
       canReplayProviderNative: (plan) => this.canReplayProviderNative(plan),
       appendTurnTailPrompt: (content, turnTailPrompt) =>
         this.appendTurnTailPrompt(content, turnTailPrompt),
+      throwIfInteractionFailed: () => this.throwIfInteractionFailed(),
+      runSuccessorEffect: (kind, operation) => this.runSuccessorEffect(kind, operation),
     });
     this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
       input.tools,
@@ -760,13 +788,22 @@ export class AiSdkBackend implements AgentBackend {
       header: input.header,
       connection: input.connection,
       modelId: input.modelId,
-      appendMessage: input.appendMessage,
+      appendMessage: (message) => this.appendMessage(message),
       permissionEngine: input.permissionEngine,
+      execution:
+        input.execution.kind === 'embedded'
+          ? {
+              kind: 'embedded',
+              getCurrentRunId: () => this.currentRunId ?? undefined,
+            }
+          : {
+              kind: 'hosted',
+              requireRunControl: () => this.requireHostedRunControl(),
+            },
       newId: this.newId,
       now: this.now,
       getPermissionPauseTarget: () => this.currentWatchdog,
       getCurrentInvocationId: () => this.currentInvocationId ?? undefined,
-      getCurrentRunId: () => this.currentRunId ?? undefined,
       agentTeam: input.agentTeam,
       getCurrentStepId: () => this.currentStepMessageId ?? undefined,
       getCurrentOrchestration: () => this.currentOrchestration,
@@ -822,11 +859,61 @@ export class AiSdkBackend implements AgentBackend {
     });
   }
 
+  [RUNTIME_BIND_HOSTED_RUN](control: RuntimeHostedRunControl): RuntimeHostedBackendRunBinding {
+    if (this.input.execution.kind !== 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Cannot bind hosted control to embedded AI SDK backend',
+      );
+    }
+    if (this.hostedRun) {
+      throw new RuntimeInteractionInvariantError(
+        `AI SDK backend already owns hosted run ${this.hostedRun.runId}`,
+      );
+    }
+    this.hostedRun = control;
+    let revoked = false;
+    return {
+      isolateRegisteredSuccessorEffects: (cause) =>
+        cause.kind === 'fail_stop'
+          ? this.installInteractionFailStop(cause.error)
+          : Promise.resolve(),
+      revoke: () => {
+        if (revoked) return;
+        revoked = true;
+        if (this.hostedRun === control) this.hostedRun = null;
+      },
+    };
+  }
+
+  private installInteractionFailStop(error: RuntimeInteractionFailStopError): Promise<void> {
+    this.interactionFailure = error;
+    this.aborted = true;
+    const turnId = this.currentTurnId;
+    const isolationTasks: Promise<unknown>[] = [
+      turnId === null
+        ? Promise.resolve()
+        : this.toolRuntime.installInteractionFailStop(turnId, error),
+    ];
+    for (const cancel of [
+      () => this.abortController?.abort(error),
+      () => this.compaction.abortHistoryCompact(error),
+      () => this.currentQueue?.error(error),
+    ]) {
+      try {
+        cancel();
+      } catch (cancellationError) {
+        isolationTasks.push(Promise.reject(cancellationError));
+      }
+    }
+    return settleAiSdkIsolation(isolationTasks);
+  }
+
   // --------------------------------------------------------------------------
   // manual history compaction
   // --------------------------------------------------------------------------
 
   async compactHistory(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult> {
+    this.throwIfInteractionFailed();
     return this.compaction.compactHistory(input, this.priorRequestShape?.requestShapeHash);
   }
 
@@ -835,7 +922,25 @@ export class AiSdkBackend implements AgentBackend {
   // --------------------------------------------------------------------------
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const hostedRun =
+      this.input.execution.kind === 'hosted' ? this.requireHostedRunControl() : undefined;
+    if (hostedRun && !input.runId) {
+      throw new RuntimeInteractionInvariantError(
+        'Runtime Interaction authority requires an active AI SDK run',
+      );
+    }
+    if (hostedRun && (this.currentTurnId !== null || this.currentRunId !== null)) {
+      throw new RuntimeInteractionInvariantError(
+        `AI SDK backend still owns Interaction state for run ${this.currentRunId ?? 'unknown'}`,
+      );
+    }
+    if (hostedRun && (hostedRun.runId !== input.runId || hostedRun.turnId !== input.turnId)) {
+      throw new RuntimeInteractionInvariantError(
+        `AI SDK hosted control ${hostedRun.runId}/${hostedRun.turnId} does not match send ${input.runId}/${input.turnId}`,
+      );
+    }
     this.aborted = false;
+    this.interactionFailure = null;
     const turnId = input.turnId;
     this.currentTurnId = turnId;
     this.currentInvocationId = input.invocationId ?? input.runId ?? null;
@@ -843,6 +948,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentOrchestration =
       input.orchestration ??
       resolveEffectiveOrchestration(this.input.header.orchestrationMode, undefined);
+    this.turnStreamActive = true;
     this.currentUserIntent = input.text;
     this.input.permissionEngine.beginTurn(turnId);
     this.toolRuntime.beginTurn(turnId);
@@ -894,7 +1000,7 @@ export class AiSdkBackend implements AgentBackend {
             }
           : {}),
       };
-      await this.input.appendMessage(msg);
+      await this.appendMessage(msg);
       if (hasThinking) {
         queue.push({
           type: 'thinking_complete',
@@ -983,7 +1089,10 @@ export class AiSdkBackend implements AgentBackend {
           turnId,
           now: this.now,
           newId: this.newId,
-          persistCapture: recordProviderRequestCapture!,
+          persistCapture: (capture) =>
+            this.runSuccessorEffect('artifact_persistence', () =>
+              recordProviderRequestCapture!(capture),
+            ),
           recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
         })
       : undefined;
@@ -994,6 +1103,13 @@ export class AiSdkBackend implements AgentBackend {
       model = this.modelAdapter.resolveModel();
       trace.modelResolved();
     } catch (err) {
+      if (this.interactionFailure) throw this.interactionFailure;
+      if (isRuntimeLifecycleFatal(err)) {
+        this.interactionFailure ??= err;
+        queue.error(err);
+        throw err;
+      }
+      this.claimRunFailure(turnId, err);
       trace.modelResolveFailed(err);
       queue.push(this.makeErrorEvent(turnId, err));
       queue.push({
@@ -1004,7 +1120,11 @@ export class AiSdkBackend implements AgentBackend {
         stopReason: 'error',
       } satisfies CompleteEvent);
       queue.close();
-      this.cleanupAfterTurn(turnId);
+      try {
+        await this.cleanupAfterTurn(turnId);
+      } finally {
+        this.turnStreamActive = false;
+      }
       yield* this.drain(queue);
       return;
     }
@@ -1038,6 +1158,17 @@ export class AiSdkBackend implements AgentBackend {
 
     const aiSdkTools: Record<string, unknown> = {};
     let currentStepToolExecutions = 0;
+    let toolInteractionFailure:
+      | RuntimeInteractionAdmissionRejectedError
+      | RuntimeInteractionClosedError
+      | undefined;
+    const canonicalToolInteractionFailure = (
+      error: unknown,
+    ): RuntimeInteractionAdmissionRejectedError | RuntimeInteractionClosedError | undefined => {
+      if (toolInteractionFailure) return toolInteractionFailure;
+      if (isRuntimeLifecycleAdmission(error) || isRuntimeLifecycleClosure(error)) return error;
+      return undefined;
+    };
     for (const t of providerTools) {
       const execute = this.wrapToolExecute(t, turnId, queue);
       aiSdkTools[t.name] = {
@@ -1052,13 +1183,24 @@ export class AiSdkBackend implements AgentBackend {
           // external state. finish-step resets this guard at the next durable
           // provider-request boundary.
           currentStepToolExecutions += 1;
-          const output = await execute(args, context);
-          const providerError = providerToolError(output);
-          if (providerError) throw new Error(providerError);
-          if (isPlanToolResult(output)) {
-            this.handlePlanToolResult(output, turnId, queue);
+          try {
+            const output = await execute(args, context);
+            const providerError = providerToolError(output);
+            if (providerError) throw new Error(providerError);
+            if (isPlanToolResult(output)) {
+              this.handlePlanToolResult(output, turnId, queue);
+            }
+            return output;
+          } catch (error) {
+            if (
+              toolInteractionFailure === undefined &&
+              (isRuntimeLifecycleAdmission(error) || isRuntimeLifecycleClosure(error))
+            ) {
+              this.claimRunFailure(turnId, error);
+              toolInteractionFailure = error;
+            }
+            throw error;
           }
-          return output;
         },
         toModelOutput:
           t.toModelOutput ??
@@ -1069,9 +1211,11 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
     const priorReplay = await this.buildPriorMessages(input);
+    this.throwIfInteractionFailed();
     if (input.continuation && priorReplay.messages.length === 0) {
       const replay = priorReplayFailureTrace(priorReplay);
       const error = new ContinuationReplayEmptyError(replay.gate, replay.diagnosticCodes);
+      this.claimRunFailure(turnId, error);
       trace.modelStreamFailed(error.code, error, replay);
       queue.push(this.makeErrorEvent(turnId, error));
       queue.push({
@@ -1082,7 +1226,11 @@ export class AiSdkBackend implements AgentBackend {
         stopReason: 'error',
       } satisfies CompleteEvent);
       queue.close();
-      this.cleanupAfterTurn(turnId);
+      try {
+        await this.cleanupAfterTurn(turnId);
+      } finally {
+        this.turnStreamActive = false;
+      }
       yield* this.drain(queue);
       return;
     }
@@ -1104,6 +1252,7 @@ export class AiSdkBackend implements AgentBackend {
           onTimeout: (timeout) => {
             const message = formatStreamWatchdogError(timeout);
             watchdogTimeoutError = new Error(message);
+            this.claimRunFailure(turnId, watchdogTimeoutError);
             queue.push(this.makeErrorEvent(turnId, watchdogTimeoutError));
             trace.modelStreamFailed(
               'Timeout',
@@ -1398,6 +1547,7 @@ export class AiSdkBackend implements AgentBackend {
         let attemptObservedSteps: PrepareStepLike['steps'] = [];
         let attemptRequestMessages: ModelMessage[] = messages;
         const sendScopedPrepareStep: PrepareStepFunctionLike = async (options) => {
+          this.throwIfInteractionFailed();
           // prepareStep sees every completed step of its own attempt and the
           // exact messages for the next provider request. Keep that request
           // boundary even when no shaping hook is configured: a transient
@@ -1408,6 +1558,7 @@ export class AiSdkBackend implements AgentBackend {
           // user event, ack only after it is durably persisted AND in the
           // injection set (nack on any failure so the queue reclaims it).
           await this.drainSteeringInto(input, turnId, queue);
+          this.throwIfInteractionFailed();
           // Steering joins the request BEFORE shaping so the capacity owner's
           // verdict measures the payload the provider will actually receive.
           // AI SDK 7 carries a prepareStep messages override into later steps,
@@ -1453,6 +1604,7 @@ export class AiSdkBackend implements AgentBackend {
         let transportRetryUsed = false;
         let result!: StreamTextResult;
         for (;;) {
+          this.throwIfInteractionFailed();
           // The step limit is a SEND-level cap: `runtimeSteps` (this send's
           // completed steps across attempts) is its single counter, so a retry
           // attempt gets only the remaining budget — never a fresh full one.
@@ -1482,7 +1634,8 @@ export class AiSdkBackend implements AgentBackend {
             },
             system: systemPrompt,
             abortSignal: this.abortController!.signal,
-            stopAfterStep: () => this.stopAfterStepRequested,
+            stopAfterStep: () =>
+              this.stopAfterStepRequested || toolInteractionFailure !== undefined,
             prepareStep: sendScopedPrepareStep,
             ...(providerRequestTracker ? { providerRequestTracker } : {}),
             ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
@@ -1490,9 +1643,25 @@ export class AiSdkBackend implements AgentBackend {
 
           let streamErrorChunk: unknown;
           let sawStreamError = false;
+          let continuationClosedDuringStop = false;
           try {
             for await (const chunk of result.stream) {
+              const streamedError =
+                chunk.type === 'tool-error' || chunk.type === 'error' ? chunk.error : undefined;
+              const interactionStreamError =
+                streamedError === undefined
+                  ? undefined
+                  : canonicalToolInteractionFailure(streamedError);
+              if (isRuntimeLifecycleAdmission(interactionStreamError)) {
+                throw interactionStreamError;
+              }
               if (this.aborted) break;
+              if (isRuntimeLifecycleClosure(interactionStreamError)) {
+                if (!this.stopAfterStepRequested) throw interactionStreamError;
+                if (chunk.type === 'tool-error') continue;
+                continuationClosedDuringStop = true;
+                break;
+              }
               watchdog.markActivity();
               // A request-level error ends this stream; capture it and stop
               // consuming (the synthesized trailer carries no real step) so the
@@ -1526,10 +1695,16 @@ export class AiSdkBackend implements AgentBackend {
                     this.cumulativeUsageCheckpoint,
                     stepUsage,
                   );
-                  await this.input.recordUsageCheckpoint?.({
-                    ...this.cumulativeUsageCheckpoint,
-                    costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
-                  });
+                  const recorder = this.input.recordUsageCheckpoint;
+                  const checkpoint = this.cumulativeUsageCheckpoint;
+                  if (recorder && checkpoint) {
+                    await this.runSuccessorEffect('artifact_persistence', async () => {
+                      await recorder({
+                        ...checkpoint,
+                        costUsd: this.computeTokenUsageCostUsd(checkpoint),
+                      });
+                    });
+                  }
                 }
               }
               if (chunk.type === 'finish' || isStepFinishChunk) {
@@ -1576,10 +1751,29 @@ export class AiSdkBackend implements AgentBackend {
               }
             }
           } catch (error) {
-            streamErrorChunk = error;
-            sawStreamError = true;
+            const interactionError = canonicalToolInteractionFailure(error);
+            if (isRuntimeLifecycleAdmission(interactionError)) {
+              throw interactionError;
+            }
+            if (isRuntimeLifecycleClosure(interactionError)) {
+              if (!this.aborted && !this.stopAfterStepRequested) throw interactionError;
+              continuationClosedDuringStop = true;
+            } else {
+              streamErrorChunk = error;
+              sawStreamError = true;
+            }
           }
 
+          if (toolInteractionFailure) {
+            if (isRuntimeLifecycleAdmission(toolInteractionFailure)) {
+              throw toolInteractionFailure;
+            }
+            if (!this.aborted && !this.stopAfterStepRequested) {
+              throw toolInteractionFailure;
+            }
+            continuationClosedDuringStop = true;
+          }
+          if (continuationClosedDuringStop) break;
           if (sawStreamError && !this.aborted) {
             if (this.stopAfterStepRequested) throw streamErrorChunk;
             // A retry is a fresh provider request that would run at least one
@@ -1677,7 +1871,23 @@ export class AiSdkBackend implements AgentBackend {
 
         // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
         // model wanted another tool step but the configured budget stopped it.
-        const finishReason = await result.finishReason.catch(() => 'stop');
+        const finishReason = await result.finishReason.catch((error: unknown) => {
+          const interactionError = canonicalToolInteractionFailure(error);
+          const stopClaimed = this.hasHostedStopClaim();
+          if (isRuntimeLifecycleAdmission(interactionError)) {
+            this.claimRunFailure(turnId, interactionError);
+            throw interactionError;
+          }
+          if (isRuntimeLifecycleClosure(interactionError) && !stopClaimed) {
+            this.claimRunFailure(turnId, interactionError);
+            throw interactionError;
+          }
+          if (isRuntimeLifecycleClosure(interactionError) || stopClaimed) return 'stop';
+          // The provider has already decided this invocation failed. Claim the
+          // causal winner before any later stop can cross an await boundary.
+          this.claimRunFailure(turnId, error);
+          throw error;
+        });
         const stepLimit = this.maxSteps;
         const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReason);
@@ -1759,7 +1969,9 @@ export class AiSdkBackend implements AgentBackend {
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
               ...(providerRequestTraceId ? { providerRequestTraceId } : {}),
             };
-            await this.input.appendMessage(tu).catch(() => {});
+            await this.appendMessage(tu).catch(() => {
+              this.throwIfInteractionFailed();
+            });
             if (
               !contextCompactionFailedOpenNoteWritten &&
               shouldAppendContextCompactionFailedOpenNote(contextBudgetForUsage)
@@ -1772,7 +1984,9 @@ export class AiSdkBackend implements AgentBackend {
                 ts: this.now(),
                 kind: 'context_compaction_failed_open',
               };
-              await this.input.appendMessage(note).catch(() => {});
+              await this.appendMessage(note).catch(() => {
+                this.throwIfInteractionFailed();
+              });
             }
             if (
               !contextCompactedNoteWritten &&
@@ -1786,7 +2000,9 @@ export class AiSdkBackend implements AgentBackend {
                 ts: this.now(),
                 kind: 'context_compacted',
               };
-              await this.input.appendMessage(note).catch(() => {});
+              await this.appendMessage(note).catch(() => {
+                this.throwIfInteractionFailed();
+              });
             }
             const contextRemainingForUsage = (() => {
               const contextWindow = resolveSelectedModelContextWindow(
@@ -1856,15 +2072,45 @@ export class AiSdkBackend implements AgentBackend {
           stopReason,
         } satisfies CompleteEvent);
       } catch (err) {
-        streamStatus = this.aborted ? 'aborted' : 'error';
-        streamErrorClass = this.modelAdapter.classifyError(watchdogTimeoutError ?? err);
+        if (this.input.isFatalArtifactError?.(err)) throw err;
+        const interactionFailure = this.interactionFailure;
+        const terminalError = canonicalToolInteractionFailure(err) ?? err;
+        const admissionRejection = isRuntimeLifecycleAdmission(terminalError);
+        const continuationClosure = isRuntimeLifecycleClosure(terminalError);
+        const stopOwnedAtCatch = this.hasHostedStopClaim();
+        const continuationClosedDuringStop = continuationClosure && stopOwnedAtCatch;
+        if (!interactionFailure && !stopOwnedAtCatch && !continuationClosedDuringStop) {
+          this.claimRunFailure(turnId, terminalError);
+        }
+        streamStatus = interactionFailure
+          ? 'error'
+          : stopOwnedAtCatch
+            ? 'aborted'
+            : continuationClosedDuringStop
+              ? 'success'
+              : 'error';
+        streamErrorClass = this.modelAdapter.classifyError(
+          interactionFailure ?? watchdogTimeoutError ?? terminalError,
+        );
+        if (interactionFailure) {
+          trace.modelStreamFailed(streamErrorClass, interactionFailure);
+          throw interactionFailure;
+        }
         // Flush the in-flight step's partial text/thinking before the terminal
         // abort/error events. Earlier steps already flushed at their
         // `finish-step`; this keeps their and this step's streamed-out output on
         // BOTH exits — user stop and provider error / watchdog timeout — so
         // partialOutputRetained reflects what the user actually saw.
-        await flushStep().catch(() => {});
-        if (!this.aborted && midTurnState?.exhaustedDetail) {
+        await flushStep().catch(() => {
+          this.throwIfInteractionFailed();
+        });
+        if (admissionRejection) {
+          trace.modelStreamFailed(streamErrorClass, terminalError);
+          throw terminalError;
+        } else if (continuationClosure && !continuationClosedDuringStop) {
+          trace.modelStreamFailed(streamErrorClass, terminalError);
+          throw terminalError;
+        } else if (!stopOwnedAtCatch && midTurnState?.exhaustedDetail) {
           // Mid-turn compaction could not produce a provider-safe request: end
           // the turn with the explicit first-class outcome, not a raw error.
           streamErrorClass = 'ContextBudgetExhausted';
@@ -1877,7 +2123,7 @@ export class AiSdkBackend implements AgentBackend {
             stopReason: 'context_budget_exhausted',
             contextBudgetExhaustedDetail: midTurnState.exhaustedDetail,
           } satisfies CompleteEvent);
-        } else if (this.aborted) {
+        } else if (stopOwnedAtCatch) {
           queue.push({
             type: 'abort',
             id: this.newId(),
@@ -1892,10 +2138,23 @@ export class AiSdkBackend implements AgentBackend {
             ts: this.now(),
             stopReason: 'user_stop',
           } satisfies CompleteEvent);
+        } else if (continuationClosure) {
+          trace.modelStreamCompleted('end_turn');
+          queue.push({
+            type: 'complete',
+            id: this.newId(),
+            turnId,
+            ts: this.now(),
+            stopReason: 'end_turn',
+          } satisfies CompleteEvent);
         } else {
           if (!watchdogTimeoutError) {
-            queue.push(this.makeErrorEvent(turnId, err));
-            trace.modelStreamFailed(streamErrorClass, err, priorReplayFailureTrace(priorReplay));
+            queue.push(this.makeErrorEvent(turnId, terminalError));
+            trace.modelStreamFailed(
+              streamErrorClass,
+              terminalError,
+              priorReplayFailureTrace(priorReplay),
+            );
           }
           queue.push({
             type: 'complete',
@@ -1927,66 +2186,100 @@ export class AiSdkBackend implements AgentBackend {
           tokenUsage = completedStepUsage;
           tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
         }
-        if (tokenUsage)
-          this.input.recordLlmCall?.({
-            sessionId: this.sessionId,
-            turnId,
-            connectionSlug: this.input.connection.slug,
-            providerId: this.input.connection.providerType,
-            modelId: this.input.modelId,
-            inputTokens: tokenUsage.inputTokens,
-            outputTokens: tokenUsage.outputTokens,
-            cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
-            cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
-            ...(tokenUsage.cacheMissInputSource !== undefined
-              ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
-              : {}),
-            cachedInputTokens: tokenUsage.cachedInputTokens,
-            cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
-            reasoningTokens: tokenUsage.reasoningTokens,
-            totalTokens: tokenUsage.totalTokens,
-            ...(tokenUsage.rawFinishReason !== undefined
-              ? { rawFinishReason: tokenUsage.rawFinishReason }
-              : {}),
-            ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
-            latencyMs: Math.max(0, this.now() - startedAt),
-            status: streamStatus,
-            ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
-            startedAt,
-            ...(requestShapeForTelemetry !== undefined
-              ? {
-                  systemPromptHash: requestShapeForTelemetry.componentHashes.systemPromptHash,
-                  prefixHash: requestShapeForTelemetry.prefixHash,
-                  prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
-                  requestShapeHash: requestShapeForTelemetry.requestShapeHash,
-                  requestShapeChangeReason: requestShapeForTelemetry.requestShapeChangeReason,
-                  ...(requestShapeForTelemetry.toolSchemaChangeReason !== undefined
-                    ? { toolSchemaChangeReason: requestShapeForTelemetry.toolSchemaChangeReason }
-                    : {}),
-                  ...(requestShapeForTelemetry.toolAvailability !== undefined
-                    ? { toolAvailability: requestShapeForTelemetry.toolAvailability }
-                    : {}),
-                }
-              : {}),
-            ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
-            ...(promptSegmentsForTelemetry.length > 0
-              ? { promptSegments: promptSegmentsForTelemetry }
-              : {}),
-            ...(contextBudgetForTelemetry !== undefined
-              ? { contextBudget: contextBudgetForTelemetry }
-              : {}),
-          });
-        queue.close();
+        try {
+          const recorder = this.input.recordLlmCall;
+          if (!this.interactionFailure && tokenUsage && recorder) {
+            const record: LlmCallRecord = {
+              sessionId: this.sessionId,
+              turnId,
+              connectionSlug: this.input.connection.slug,
+              providerId: this.input.connection.providerType,
+              modelId: this.input.modelId,
+              inputTokens: tokenUsage.inputTokens,
+              outputTokens: tokenUsage.outputTokens,
+              cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
+              cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
+              ...(tokenUsage.cacheMissInputSource !== undefined
+                ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
+                : {}),
+              cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
+              reasoningTokens: tokenUsage.reasoningTokens,
+              totalTokens: tokenUsage.totalTokens,
+              ...(tokenUsage.rawFinishReason !== undefined
+                ? { rawFinishReason: tokenUsage.rawFinishReason }
+                : {}),
+              ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+              latencyMs: Math.max(0, this.now() - startedAt),
+              status: streamStatus,
+              ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
+              startedAt,
+              ...(requestShapeForTelemetry !== undefined
+                ? {
+                    systemPromptHash: requestShapeForTelemetry.componentHashes.systemPromptHash,
+                    prefixHash: requestShapeForTelemetry.prefixHash,
+                    prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
+                    requestShapeHash: requestShapeForTelemetry.requestShapeHash,
+                    requestShapeChangeReason: requestShapeForTelemetry.requestShapeChangeReason,
+                    ...(requestShapeForTelemetry.toolSchemaChangeReason !== undefined
+                      ? { toolSchemaChangeReason: requestShapeForTelemetry.toolSchemaChangeReason }
+                      : {}),
+                    ...(requestShapeForTelemetry.toolAvailability !== undefined
+                      ? { toolAvailability: requestShapeForTelemetry.toolAvailability }
+                      : {}),
+                  }
+                : {}),
+              ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
+              ...(promptSegmentsForTelemetry.length > 0
+                ? { promptSegments: promptSegmentsForTelemetry }
+                : {}),
+              ...(contextBudgetForTelemetry !== undefined
+                ? { contextBudget: contextBudgetForTelemetry }
+                : {}),
+            };
+            if (this.input.execution.kind === 'hosted') {
+              await this.runSuccessorEffect('artifact_persistence', async () => {
+                await recorder(record);
+              });
+            } else {
+              void recorder(record);
+            }
+          }
+        } finally {
+          queue.close();
+        }
       }
     })();
+
+    // Consumer backpressure can delay send()'s finally long after the pump
+    // rejects. This observer always fulfills; teardown still awaits pumpDone.
+    void pumpDone.catch(() => undefined);
 
     try {
       // drain() carries the seq-ack semantics (consumer pull = processed ack);
       // every consumer-facing path must go through it.
       yield* this.drain(queue);
     } finally {
-      await pumpDone.catch(() => {});
-      this.cleanupAfterTurn(turnId);
+      try {
+        let pumpRejected = false;
+        let pumpFailure: unknown;
+        let interactionFailure:
+          | RuntimeInteractionFailStopError
+          | RuntimeInteractionInvariantError
+          | undefined;
+        try {
+          await pumpDone;
+        } catch (error) {
+          pumpRejected = true;
+          pumpFailure = error;
+          if (isRuntimeLifecycleFatal(error)) interactionFailure = error;
+        }
+        interactionFailure ??= this.interactionFailure ?? undefined;
+        if (interactionFailure) throw interactionFailure;
+        await this.cleanupAfterTurn(turnId);
+        if (pumpRejected) throw pumpFailure;
+      } finally {
+        this.turnStreamActive = false;
+      }
     }
   }
 
@@ -2045,10 +2338,59 @@ export class AiSdkBackend implements AgentBackend {
   // Helpers
   // --------------------------------------------------------------------------
 
+  private async appendMessage(message: Parameters<AppendMessageFn>[0]): Promise<void> {
+    this.throwIfInteractionFailed();
+    await this.input.appendMessage(message);
+    this.throwIfInteractionFailed();
+  }
+
+  private throwIfInteractionFailed(): void {
+    if (this.interactionFailure) throw this.interactionFailure;
+  }
+
+  private runSuccessorEffect<T>(
+    kind: RuntimeSuccessorEffectKind,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    this.throwIfInteractionFailed();
+    if (this.input.execution.kind === 'embedded') return operation();
+    return this.requireHostedRunControl().runSuccessorEffect(kind, async () => {
+      this.throwIfInteractionFailed();
+      return await operation();
+    });
+  }
+
+  private claimRunFailure(turnId: string, error: unknown): void {
+    if (this.input.execution.kind === 'embedded') return;
+    const control = this.requireHostedRunControl();
+    if (control.turnId !== turnId) {
+      throw new RuntimeInteractionInvariantError(
+        `AI SDK failure turn ${turnId} does not match hosted run ${control.runId}/${control.turnId}`,
+      );
+    }
+    control.claimFailure(error);
+  }
+
+  private hasHostedStopClaim(): boolean {
+    return this.input.execution.kind === 'hosted'
+      ? this.requireHostedRunControl().hasStopClaim()
+      : this.aborted || this.stopAfterStepRequested;
+  }
+
+  private requireHostedRunControl(): RuntimeHostedRunControl {
+    if (!this.hostedRun) {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted AI SDK backend has no bound RunExecution control',
+      );
+    }
+    return this.hostedRun;
+  }
+
   async stop(
     _reason: 'user_stop' | 'redirect',
     mode: 'immediate' | 'after_step' = 'immediate',
   ): Promise<void> {
+    if (this.interactionFailure) throw this.interactionFailure;
     if (mode === 'after_step') {
       this.stopAfterStepRequested = true;
       this.currentRunTrace?.abortRequested(_reason);
@@ -2057,14 +2399,24 @@ export class AiSdkBackend implements AgentBackend {
     this.aborted = true;
     this.abortController?.abort();
     this.compaction.abortHistoryCompact();
-    if (this.currentTurnId !== null) {
-      this.input.permissionEngine.endTurn(this.currentTurnId, 'aborted');
-      this.toolRuntime.endTurn(this.currentTurnId, 'aborted');
+    const turnId = this.currentTurnId;
+    if (turnId !== null) {
+      if (!this.turnStreamActive && this.currentTurnId === turnId) {
+        this.finishTurn(turnId);
+      } else {
+        this.input.permissionEngine.endTurn(turnId, 'aborted');
+        this.toolRuntime.endTurn(turnId, 'aborted');
+      }
     }
     this.currentRunTrace?.abortRequested(_reason);
   }
 
   async respondToPermission(decision: PermissionDecision): Promise<void> {
+    if (this.input.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted permission answers must use the captured continuation',
+      );
+    }
     if (this.currentTurnId === null) return;
     this.input.permissionEngine.recordResponse(this.currentTurnId, decision);
     // PermissionDecisionMessage + ack event are written inside wrapToolExecute
@@ -2072,12 +2424,17 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
+    if (this.input.execution.kind === 'hosted') {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted question answers must use the captured continuation',
+      );
+    }
     if (this.currentTurnId === null) return;
     this.toolRuntime.respondToUserQuestion(this.currentTurnId, response);
   }
 
   async dispose(): Promise<void> {
-    if (!this.aborted) await this.stop('user_stop');
+    if (this.currentTurnId !== null) await this.stop('user_stop');
   }
 
   private writeSyntheticToolResult(
@@ -2625,13 +2982,17 @@ export class AiSdkBackend implements AgentBackend {
       case 'text':
         if (item.role === 'user') {
           if (item.steering) {
-            // Already envelope-wrapped by the plan; carry the structured
-            // identity so injection dedupe recognizes the replayed message.
-            return {
-              role: 'user',
-              content: item.content,
-              providerOptions: steeringProviderOptions(item.steering.eventId),
-            };
+            // The plan already envelope-wraps authoritative text. Materialize
+            // attachments through the same byte-reader path as initial input,
+            // then carry structured identity for injection dedupe.
+            return steeringModelMessage(
+              item.steering.eventId,
+              await this.appendImageParts(
+                item.content,
+                item.attachments,
+                `steering:${item.steering.eventId}`,
+              ),
+            );
           }
           return {
             role: 'user',
@@ -2696,7 +3057,16 @@ export class AiSdkBackend implements AgentBackend {
         // still presents steering exactly once, in its one provider form.
         const sidecar = steeringSidecar?.get(m.id);
         if (sidecar) {
-          out.push(steeringModelMessage(sidecar.eventId, formatTextWithInlineRefs(m.text, m)));
+          out.push(
+            steeringModelMessage(
+              sidecar.eventId,
+              await this.appendImageParts(
+                buildSteeringEnvelope(formatTextWithInlineRefs(m.text, m)),
+                m.attachments,
+                `steering:${sidecar.eventId}`,
+              ),
+            ),
+          );
           continue;
         }
         out.push({
@@ -2753,7 +3123,8 @@ export class AiSdkBackend implements AgentBackend {
   private async appendImageParts(
     textContent: string,
     attachments?: AttachmentRef[],
-  ): Promise<ModelMessage['content']> {
+    decisionKeyPrefix?: string,
+  ): Promise<UserContent> {
     const images = attachments?.filter((a) => a.kind === 'image') ?? [];
     if (images.length === 0) {
       return textContent;
@@ -2769,7 +3140,8 @@ export class AiSdkBackend implements AgentBackend {
       | { type: 'file'; data: { type: 'data'; data: Uint8Array }; mediaType: string }
     > = [{ type: 'text', text: textContent }];
     let omittedByBudget = 0;
-    for (const image of images) {
+    for (const [attachmentIndex, image] of (attachments ?? []).entries()) {
+      if (image.kind !== 'image') continue;
       const read = await this.input.readAttachmentBytes(image.ref);
       if (!read.ok) {
         parts.push({
@@ -2778,7 +3150,11 @@ export class AiSdkBackend implements AgentBackend {
         });
         continue;
       }
-      if (!this.chargeImageBudget(read.bytes.length)) {
+      const decisionKey =
+        decisionKeyPrefix === undefined
+          ? undefined
+          : `${decisionKeyPrefix}:attachment:${attachmentIndex}`;
+      if (!this.chargeImageBudget(read.bytes.length, decisionKey)) {
         omittedByBudget += 1;
         continue;
       }
@@ -2794,7 +3170,7 @@ export class AiSdkBackend implements AgentBackend {
         text: `[${omittedByBudget} image attachment(s) omitted: the per-request image budget was exceeded. Earlier images were sent; ask the user to send fewer or smaller images.]`,
       });
     }
-    return parts as ModelMessage['content'];
+    return parts as UserContent;
   }
 
   private async materializeToolResultOutput(
@@ -2816,7 +3192,8 @@ export class AiSdkBackend implements AgentBackend {
     let read: Awaited<ReturnType<AttachmentByteReader>>;
     try {
       read = await this.input.readAttachmentBytes(output.ref);
-    } catch {
+    } catch (error) {
+      if (this.input.isFatalArtifactError?.(error)) throw error;
       return toolResultText('Image could not be loaded from artifact storage: read_failed.');
     }
     if (!read.ok) {
@@ -2842,7 +3219,7 @@ export class AiSdkBackend implements AgentBackend {
     text: string,
     attachments?: AttachmentRef[],
     quotes?: QuoteRef[],
-  ): Promise<ModelMessage['content']> {
+  ): Promise<UserContent> {
     return this.appendImageParts(
       formatTextWithInlineRefs(text, {
         ...(attachments !== undefined ? { attachments } : {}),
@@ -2897,7 +3274,12 @@ export class AiSdkBackend implements AgentBackend {
     }
   }
 
-  private cleanupAfterTurn(turnId: string): void {
+  private async cleanupAfterTurn(turnId: string): Promise<void> {
+    this.finishTurn(turnId);
+  }
+
+  private finishTurn(turnId: string): void {
+    if (this.currentTurnId !== turnId) return;
     this.input.permissionEngine.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
     this.abortController = null;
     this.currentQueue = null;
@@ -2912,6 +3294,7 @@ export class AiSdkBackend implements AgentBackend {
     this.handoffStopReason = undefined;
     this.injectedSteeringMessages = [];
     this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
+    this.interactionFailure = null;
     this.aborted = false;
   }
 
@@ -2964,14 +3347,34 @@ export class AiSdkBackend implements AgentBackend {
         if (queue.consumerDetached) {
           throw new Error('steering message was not durably consumed: event consumer detached');
         }
+        // Allocate the final durable identity before materializing provider
+        // content so every replay of this attachment occurrence reuses the
+        // same send-scoped image-budget decision.
         const eventId = this.newId();
+        // Resolve provider content before publishing the durable event. Once
+        // the event is consumed there must be no fallible gap before the lease
+        // enters the injection set and is acked; otherwise a byte-read failure
+        // could nack content the ledger already owns.
+        const providerContent = await this.appendImageParts(
+          buildSteeringEnvelope(formatTextWithInlineRefs(lease.content.text, lease.content)),
+          lease.content.attachments,
+          `steering:${eventId}`,
+        );
+        if (this.aborted || abortSignal?.aborted) {
+          throw Object.assign(new Error('aborted before steering was pushed'), {
+            name: 'AbortError',
+          });
+        }
+        if (queue.consumerDetached) {
+          throw new Error('steering message was not durably consumed: event consumer detached');
+        }
         queue.push({
           type: 'steering_message',
           id: eventId,
           turnId,
           ts: this.now(),
-          messageId: this.newId(),
-          text: lease.text,
+          messageId: lease.messageId,
+          content: lease.content,
         } satisfies SessionEvent);
         const pushedThrough = queue.pushedCount;
         for (;;) {
@@ -2983,7 +3386,7 @@ export class AiSdkBackend implements AgentBackend {
         }
         // The mapped RuntimeEvent inherits this session event's id, so the
         // injected message and its future ledger replay share one identity.
-        this.injectedSteeringMessages.push(steeringModelMessage(eventId, lease.text));
+        this.injectedSteeringMessages.push(steeringModelMessage(eventId, providerContent));
         input.ackSteering?.([lease.id]);
         undelivered.shift();
         if (this.aborted || abortSignal?.aborted) {
@@ -3222,4 +3625,18 @@ function buildHistoryCompactCheckpointFailOpenContext(
   ).fits
     ? replayEvents
     : [...retainedCandidates];
+}
+
+async function settleAiSdkIsolation(tasks: readonly Promise<unknown>[]): Promise<void> {
+  let failure: { error: unknown } | undefined;
+  await Promise.all(
+    tasks.map(async (task) => {
+      try {
+        await task;
+      } catch (error) {
+        failure ??= { error };
+      }
+    }),
+  );
+  if (failure) throw failure.error;
 }

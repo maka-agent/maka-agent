@@ -27,7 +27,13 @@ const fakeConfig: Config = {
 const registerFakeBackend = (registry: BackendRegistry): void => {
   registry.register(
     'fake',
-    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        execution: ctx.execution,
+      }),
   );
 };
 
@@ -35,7 +41,10 @@ class PermissionRequestBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
 
-  constructor(sessionId: string) {
+  constructor(
+    sessionId: string,
+    private readonly cwd: string,
+  ) {
     this.sessionId = sessionId;
   }
 
@@ -50,9 +59,9 @@ class PermissionRequestBackend implements AgentBackend {
       requestId: 'permission-request-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
-      category: 'shell_unsafe',
-      reason: 'shell_dangerous',
-      args: { command: 'rm -rf /tmp/example' },
+      category: 'fs_destructive',
+      reason: 'fs_destructive',
+      review: { kind: 'command', command: 'rm -rf /tmp/example', cwd: this.cwd },
       rememberForTurnAllowed: true,
     };
     yield {
@@ -70,7 +79,7 @@ class PermissionRequestBackend implements AgentBackend {
 }
 
 const registerPermissionRequestBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) => new PermissionRequestBackend(ctx.sessionId));
+  registry.register('fake', (ctx) => new PermissionRequestBackend(ctx.sessionId, ctx.header.cwd));
 };
 
 class RuntimeContextCapturingBackend implements AgentBackend {

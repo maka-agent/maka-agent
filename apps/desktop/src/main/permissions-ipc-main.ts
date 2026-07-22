@@ -21,12 +21,20 @@ export interface PermissionsIpcDeps {
   settingsStore: SettingsStore;
   connectionStore: ConnectionStore;
   telemetryRepo: TelemetryRepo;
+  ensureUsageReady: () => Promise<void>;
   botRegistry: BotRegistry;
   getComputerUseCapabilityInput: () => ComputerUseCapabilityInput;
 }
 
 export function registerPermissionsIpc(deps: PermissionsIpcDeps): void {
-  const { settingsStore, connectionStore, telemetryRepo, botRegistry, getComputerUseCapabilityInput } = deps;
+  const {
+    settingsStore,
+    connectionStore,
+    telemetryRepo,
+    ensureUsageReady,
+    botRegistry,
+    getComputerUseCapabilityInput,
+  } = deps;
 
   ipcMain.handle('permissions:getSnapshot', () => buildPermissionSnapshot());
   ipcMain.handle('permissions:openSystemSettings', async (_event, permId: unknown) => {
@@ -49,6 +57,7 @@ export function registerPermissionsIpc(deps: PermissionsIpcDeps): void {
     });
   });
   ipcMain.handle('health:getSnapshot', async () => {
+    await ensureUsageReady();
     const now = Date.now();
     const permissions = buildPermissionSnapshot(now);
     const settings = await settingsStore.get();

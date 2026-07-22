@@ -3,10 +3,15 @@ import type { Config, ResultRecord, Task } from './contracts.js';
 import { validateRealBackendIsolation } from './isolation.js';
 import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { renderHeavyTaskProgressForPrompt } from './heavy-task-progress.js';
+import {
+  authenticateHeadlessStorageWriter,
+  openHeadlessStorageForWrite,
+  type HeadlessStorageWriter,
+} from './headless-storage.js';
 import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { budgetExtensionInboxItem } from './task-inbox.js';
 import {
-  runTaskOnce,
+  runTaskOnceWithStorage,
   type RunTaskOnceDeps,
   type RunTaskOnceResult,
 } from './task-agent-controller.js';
@@ -21,7 +26,8 @@ import {
   type TaskRunError,
   type TaskRunResult,
 } from './task-contracts.js';
-import { createTaskRunStore, type TaskRunProjection, type TaskRunStore } from './task-run-store.js';
+import type { TaskRunProjection } from './task-run-projection.js';
+import type { TaskRunWriter } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
 
 export interface AutonomousLoopBudget {
@@ -112,10 +118,21 @@ export async function runAutonomousTask(
   task: Task,
   options: RunAutonomousTaskOptions,
 ): Promise<RunAutonomousTaskResult> {
+  const storage = await openHeadlessStorageForWrite(options.storageRoot);
+  return runAutonomousTaskWithStorage(config, task, options, storage);
+}
+
+export async function runAutonomousTaskWithStorage(
+  config: Config,
+  task: Task,
+  options: RunAutonomousTaskOptions,
+  storage: HeadlessStorageWriter,
+): Promise<RunAutonomousTaskResult> {
+  storage = authenticateHeadlessStorageWriter(storage);
   const now = options.now ?? Date.now;
   const newId = options.newId ?? randomUUID;
   const taskRunId = options.taskRunId ?? newId();
-  const taskRunStore = options.taskRunStore ?? createTaskRunStore(options.storageRoot);
+  const taskRunStore = storage.taskRunStore;
   const startedAt = now();
   const attempts: RunTaskOnceResult[] = [];
 
@@ -242,16 +259,20 @@ export async function runAutonomousTask(
 
     const attemptNumber = attempts.length + 1;
     const attemptId = `${taskRunId}-attempt-${attemptNumber}`;
-    const attempt = await runTaskOnce(config, task, {
-      ...options,
-      taskRunStore,
-      taskRunId,
-      attemptId,
-      createTaskRun: false,
-      closeTaskRun: false,
-      ...(instructionOverride ? { instructionOverride } : {}),
-      ...(priorRuntimeContext.length > 0 ? { priorRuntimeContext } : {}),
-    });
+    const attempt = await runTaskOnceWithStorage(
+      config,
+      task,
+      {
+        ...options,
+        taskRunId,
+        attemptId,
+        createTaskRun: false,
+        closeTaskRun: false,
+        ...(instructionOverride ? { instructionOverride } : {}),
+        ...(priorRuntimeContext.length > 0 ? { priorRuntimeContext } : {}),
+      },
+      storage,
+    );
     attempts.push(attempt);
     latestResultRecord = attempt.resultRecord;
     runtimeStepsUsed += attempt.resultRecord.steps;
@@ -543,7 +564,7 @@ function isNonRetryable(taxonomy: AutonomousResultTaxonomy): boolean {
 async function maybeRecordSelfCheck(
   policy: false | SelfCheckPolicy | undefined,
   input: SelfCheckInput,
-  store: TaskRunStore,
+  store: TaskRunWriter,
   taskRunId: string,
   attemptId: string,
   now: () => number,
@@ -571,7 +592,7 @@ async function maybeRecordSelfCheck(
 }
 
 async function appendVerifierFeedback(
-  store: TaskRunStore,
+  store: TaskRunWriter,
   taskRunId: string,
   attemptId: string,
   now: () => number,
@@ -612,7 +633,7 @@ async function appendVerifierFeedback(
 }
 
 async function appendSystemFeedback(
-  store: TaskRunStore,
+  store: TaskRunWriter,
   taskRunId: string,
   attemptId: string | undefined,
   now: () => number,
@@ -640,7 +661,7 @@ async function appendSystemFeedback(
 }
 
 async function appendDecision(
-  store: TaskRunStore,
+  store: TaskRunWriter,
   taskRunId: string,
   attemptId: string,
   now: () => number,
@@ -679,7 +700,7 @@ async function appendDecision(
 }
 
 async function appendBudgetTerminal(
-  store: TaskRunStore,
+  store: TaskRunWriter,
   taskRunId: string,
   now: () => number,
   newId: () => string,
@@ -863,6 +884,6 @@ Verification exit code: ${attempt.resultRecord.exitCode ?? 'none'}.
 Continue from that feedback and produce a corrected solution.${selfCheckLine}${progressLine}`;
 }
 
-function appendTaskEvent(store: TaskRunStore, taskRunId: string, event: TaskEvent): Promise<void> {
+function appendTaskEvent(store: TaskRunWriter, taskRunId: string, event: TaskEvent): Promise<void> {
   return store.appendEvent(taskRunId, event);
 }

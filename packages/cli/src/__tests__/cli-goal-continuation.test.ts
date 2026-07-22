@@ -60,6 +60,7 @@ describe('CLI Goal continuation host', () => {
         return {
           kind: 'prepared',
           turnId: 'owned-turn',
+          abandon: () => {},
           start: () => ownedCompletion.promise,
         };
       },

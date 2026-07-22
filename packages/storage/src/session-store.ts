@@ -20,6 +20,7 @@ import {
   normalizeUserSessionName,
 } from '@maka/core';
 import type {
+  AutomationFreshSessionTemplate,
   CreateSessionInput,
   SessionHeader,
   SessionListFilter,
@@ -28,11 +29,51 @@ import type {
   TurnRecord,
   UserMessage,
 } from '@maka/core';
+import type { SessionOrigin } from '@maka/core/session';
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const STABLE_SESSION_SEMANTIC_KEY_PATTERN = /^sha256:[0-9a-f]{64}$/;
+const STABLE_SESSION_CREATE_IDENTITY_FILE = 'stable-create-identity.json';
+const STABLE_SESSION_TOMBSTONES_DIRECTORY = '.stable-session-tombstones';
+
+export type CreateAutomationSessionResult =
+  | { kind: 'created'; header: SessionHeader }
+  | { kind: 'existing'; header: SessionHeader }
+  | { kind: 'conflict'; header: SessionHeader };
+
+export type CreateStableSessionResult =
+  | { kind: 'created'; header: SessionHeader }
+  | { kind: 'existing'; header: SessionHeader }
+  | { kind: 'conflict'; reason: 'identity_mismatch'; header: SessionHeader }
+  | { kind: 'conflict'; reason: 'removed'; sessionId: string };
+
+export interface CreateStableSessionRequest {
+  readonly sessionId: string;
+  /** Opaque Host-derived identity of the immutable wire create request. */
+  readonly semanticKey: string;
+  readonly input: CreateSessionInput;
+}
+
+export interface CreateAutomationSessionRequest {
+  /** Durable identity and immutable execution inputs used for semantic retry. */
+  readonly sessionId: string;
+  readonly origin: SessionOrigin;
+  readonly execution: AutomationFreshSessionTemplate;
+  /** Presentation may change after creation without changing semantic identity. */
+  readonly presentation: {
+    readonly name: string;
+    readonly labels?: readonly string[];
+    readonly status?: CreateSessionInput['status'];
+    readonly blockedReason?: CreateSessionInput['blockedReason'];
+  };
+}
 
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
+  createStableSession(request: CreateStableSessionRequest): Promise<CreateStableSessionResult>;
+  createAutomationSession(
+    request: CreateAutomationSessionRequest,
+  ): Promise<CreateAutomationSessionResult>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
   listForRecovery(): Promise<SessionHeader[]>;
   /** Read only the durable header without triggering connection-lock self-healing. */
@@ -67,15 +108,65 @@ class FileSessionStore implements SessionStore {
   private static readonly MAX_HEADER_BYTES = 1024 * 1024;
   private static readonly TAIL_PREVIEW_BUDGET = 64 * 1024;
   private readonly sessionsRoot: string;
+  private readonly sessionCreateTempRoot: string;
+  private readonly stableSessionTombstonesRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
 
   constructor(private readonly workspaceRoot: string) {
     this.sessionsRoot = join(workspaceRoot, 'sessions');
+    this.sessionCreateTempRoot = join(workspaceRoot, '.session-create-tmp');
+    this.stableSessionTombstonesRoot = join(workspaceRoot, STABLE_SESSION_TOMBSTONES_DIRECTORY);
   }
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
-    const now = Date.now();
     const id = randomUUID();
+    const result = await this.publishSession(id, input);
+    if (result.kind !== 'created') {
+      throw new Error(`Generated session id already exists: ${id}`);
+    }
+    return result.header;
+  }
+
+  async createStableSession(
+    request: CreateStableSessionRequest,
+  ): Promise<CreateStableSessionResult> {
+    assertStableSessionSemanticKey(request.semanticKey);
+    return this.publishSession(request.sessionId, request.input, undefined, request.semanticKey);
+  }
+
+  async createAutomationSession(
+    request: CreateAutomationSessionRequest,
+  ): Promise<CreateAutomationSessionResult> {
+    const { sessionId, origin, execution, presentation } = request;
+    const result = await this.publishSession(
+      sessionId,
+      {
+        ...execution,
+        name: presentation.name,
+        ...(presentation.labels ? { labels: [...presentation.labels] } : {}),
+        ...(presentation.status ? { status: presentation.status } : {}),
+        ...(presentation.blockedReason ? { blockedReason: presentation.blockedReason } : {}),
+      },
+      origin,
+    );
+    if (result.kind !== 'conflict') return result;
+    if (result.reason === 'removed') {
+      throw new Error(`Automation session ${sessionId} unexpectedly matched a stable tombstone`);
+    }
+    return { kind: 'conflict', header: result.header };
+  }
+
+  private async publishSession(
+    id: string,
+    input: CreateSessionInput,
+    origin?: SessionOrigin,
+    stableSemanticKey?: string,
+  ): Promise<CreateStableSessionResult> {
+    assertSafeSessionId(id);
+    if (origin !== undefined && !isSessionOrigin(origin)) {
+      throw new Error('Invalid session origin');
+    }
+    const now = Date.now();
     // PR-UI-IPC-2 (@kenji msg 0474c3fe + @xuan msg 88d96a87):
     // session name write contract. If caller passed undefined,
     // use the canonical default; otherwise normalize the
@@ -98,12 +189,13 @@ class FileSessionStore implements SessionStore {
       id,
       workspaceRoot: this.workspaceRoot,
       cwd: input.cwd,
+      ...(origin ? { origin: { ...origin } } : {}),
       createdAt: now,
       lastUsedAt: now,
       name: resolvedName,
       titleIsManual: false,
       isFlagged: false,
-      labels: input.labels ?? [],
+      labels: [...(input.labels ?? [])],
       isArchived: false,
       status: input.status ?? 'active',
       ...(input.blockedReason ? { blockedReason: input.blockedReason } : {}),
@@ -135,12 +227,122 @@ class FileSessionStore implements SessionStore {
       throw new Error('Invalid session revision lineage');
     }
 
+    let result: CreateStableSessionResult | undefined;
     await this.withQueue(id, async () => {
-      await mkdir(this.sessionDir(id), { recursive: true });
-      await writeFile(this.sessionPath(id), JSON.stringify(header) + '\n', 'utf8');
+      if (stableSemanticKey !== undefined && (await this.compactStableSessionTombstone(id))) {
+        result = { kind: 'conflict', reason: 'removed', sessionId: id };
+        return;
+      }
+      await mkdir(this.sessionsRoot, { recursive: true });
+      await mkdir(this.sessionCreateTempRoot, { recursive: true });
+      const stagingDir = join(
+        this.sessionCreateTempRoot,
+        `${id}.${process.pid}.${randomUUID()}.tmp`,
+      );
+      await mkdir(stagingDir);
+      try {
+        await writeFile(join(stagingDir, 'session.jsonl'), JSON.stringify(header) + '\n', {
+          encoding: 'utf8',
+          flag: 'wx',
+        });
+        if (stableSemanticKey !== undefined) {
+          await writeFile(
+            join(stagingDir, STABLE_SESSION_CREATE_IDENTITY_FILE),
+            JSON.stringify({ semanticKey: stableSemanticKey }) + '\n',
+            { encoding: 'utf8', flag: 'wx' },
+          );
+        }
+        try {
+          await rename(stagingDir, this.sessionDir(id));
+        } catch (publishError) {
+          try {
+            const existing = await this.readHeaderOnly(id);
+            const matches =
+              stableSemanticKey === undefined
+                ? automationSessionCreationMatches(existing, header)
+                : (await this.readStableSessionSemanticKey(id)) === stableSemanticKey;
+            result = matches
+              ? { kind: 'existing', header: existing }
+              : { kind: 'conflict', reason: 'identity_mismatch', header: existing };
+            return;
+          } catch (readError) {
+            if ((readError as NodeJS.ErrnoException).code !== 'ENOENT') throw readError;
+          }
+
+          let finalEntries;
+          try {
+            finalEntries = await readdir(this.sessionDir(id));
+          } catch {
+            throw publishError;
+          }
+          if (finalEntries.length !== 0) throw publishError;
+          await rm(this.sessionDir(id), { recursive: true });
+          await rename(stagingDir, this.sessionDir(id));
+        }
+        result = { kind: 'created', header };
+      } finally {
+        await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+      }
     });
 
-    return header;
+    if (!result) throw new Error(`Failed to create session ${id}`);
+    return result;
+  }
+
+  private async readStableSessionSemanticKey(sessionId: string): Promise<string | undefined> {
+    return this.readStableSessionSemanticKeyAt(this.sessionDir(sessionId), sessionId);
+  }
+
+  private async readStableSessionSemanticKeyAt(
+    directory: string,
+    sessionId: string,
+  ): Promise<string | undefined> {
+    let contents: string;
+    try {
+      contents = await readFile(join(directory, STABLE_SESSION_CREATE_IDENTITY_FILE), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(contents);
+    } catch {
+      throw new Error(`Invalid stable create identity for session ${sessionId}`);
+    }
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.keys(value).length !== 1 ||
+      !('semanticKey' in value) ||
+      typeof value.semanticKey !== 'string' ||
+      !STABLE_SESSION_SEMANTIC_KEY_PATTERN.test(value.semanticKey)
+    ) {
+      throw new Error(`Invalid stable create identity for session ${sessionId}`);
+    }
+    return value.semanticKey;
+  }
+
+  private async compactStableSessionTombstone(sessionId: string): Promise<boolean> {
+    const tombstoneDir = this.stableSessionTombstoneDir(sessionId);
+    let entries: string[];
+    try {
+      entries = await readdir(tombstoneDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+
+    if ((await this.readStableSessionSemanticKeyAt(tombstoneDir, sessionId)) === undefined) {
+      throw new Error(`Invalid stable session tombstone for session ${sessionId}`);
+    }
+    for (const entry of entries) {
+      if (entry === STABLE_SESSION_CREATE_IDENTITY_FILE) continue;
+      await rm(join(tombstoneDir, entry), { recursive: true, force: true });
+    }
+    return true;
   }
 
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
@@ -387,7 +589,20 @@ class FileSessionStore implements SessionStore {
 
   async remove(sessionId: string): Promise<void> {
     await this.withQueue(sessionId, async () => {
-      await rm(this.sessionDir(sessionId), { recursive: true, force: true });
+      if (await this.compactStableSessionTombstone(sessionId)) return;
+
+      const sessionDir = this.sessionDir(sessionId);
+      if ((await this.readStableSessionSemanticKey(sessionId)) === undefined) {
+        await rm(sessionDir, { recursive: true, force: true });
+        return;
+      }
+
+      await mkdir(this.stableSessionTombstonesRoot, { recursive: true });
+      // This rename is the removal linearization point. Before it, the live Session and its
+      // identity remain intact; after it, the live namespace is empty and the tombstone wins.
+      // Compaction is retryable because it never removes the identity file.
+      await rename(sessionDir, this.stableSessionTombstoneDir(sessionId));
+      await this.compactStableSessionTombstone(sessionId);
     });
   }
 
@@ -398,6 +613,11 @@ class FileSessionStore implements SessionStore {
 
   private sessionPath(sessionId: string): string {
     return join(this.sessionDir(sessionId), 'session.jsonl');
+  }
+
+  private stableSessionTombstoneDir(sessionId: string): string {
+    assertSafeSessionId(sessionId);
+    return join(this.stableSessionTombstonesRoot, sessionId);
   }
 
   private async readHeaderOnly(sessionId: string): Promise<SessionHeader> {
@@ -701,6 +921,7 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
     header.id === sessionId &&
     typeof header.workspaceRoot === 'string' &&
     typeof header.cwd === 'string' &&
+    (header.origin === undefined || isSessionOrigin(header.origin)) &&
     (header.pendingCwdReminder === undefined || isCwdReminder(header.pendingCwdReminder)) &&
     isFiniteNumber(header.createdAt) &&
     isFiniteNumber(header.lastUsedAt) &&
@@ -755,6 +976,60 @@ function isValidRevisionLineage(header: SessionHeader): boolean {
     header.revisionIndex! >= 2 &&
     (header.revisionState === 'preparing' || header.revisionState === 'committed')
   );
+}
+
+function isSessionOrigin(value: unknown): value is SessionOrigin {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 3 &&
+    record.kind === 'automation' &&
+    typeof record.automationId === 'string' &&
+    isSafeSessionId(record.automationId) &&
+    typeof record.fireId === 'string' &&
+    isSafeSessionId(record.fireId)
+  );
+}
+
+function automationSessionCreationMatches(
+  existing: SessionHeader,
+  proposed: SessionHeader,
+): boolean {
+  return sessionExecutionIdentityMatches(existing, proposed);
+}
+
+function sessionExecutionIdentityMatches(
+  existing: SessionHeader,
+  proposed: SessionHeader,
+): boolean {
+  return (
+    existing.id === proposed.id &&
+    existing.workspaceRoot === proposed.workspaceRoot &&
+    existing.cwd === proposed.cwd &&
+    existing.backend === proposed.backend &&
+    existing.llmConnectionSlug === proposed.llmConnectionSlug &&
+    existing.model === proposed.model &&
+    existing.thinkingLevel === proposed.thinkingLevel &&
+    existing.permissionMode === proposed.permissionMode &&
+    existing.parentSessionId === proposed.parentSessionId &&
+    existing.branchOfTurnId === proposed.branchOfTurnId &&
+    sessionOriginsEqual(existing.origin, proposed.origin)
+  );
+}
+
+function sessionOriginsEqual(left: SessionOrigin | undefined, right: SessionOrigin | undefined) {
+  if (left === undefined || right === undefined) return left === right;
+  return (
+    left.kind === right.kind &&
+    left.automationId === right.automationId &&
+    left.fireId === right.fireId
+  );
+}
+
+function assertStableSessionSemanticKey(semanticKey: unknown): asserts semanticKey is string {
+  if (typeof semanticKey !== 'string' || !STABLE_SESSION_SEMANTIC_KEY_PATTERN.test(semanticKey)) {
+    throw new Error('Invalid stable session semantic key');
+  }
 }
 
 function isBackendKind(value: unknown): value is SessionHeader['backend'] {

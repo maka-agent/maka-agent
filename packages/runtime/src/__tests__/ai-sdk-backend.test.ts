@@ -15,6 +15,7 @@ import type {
 } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import { createCanonicalToolIntent } from '@maka/core/permission';
 import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-model.js';
 import { materializeSession } from '../materializer.js';
@@ -30,8 +31,10 @@ import {
   formatSyntheticToolErrorText,
   normalizeAiSdkUsage,
   repairMakaToolCall,
+  type AiSdkBackendInput,
   type RunTraceEvent,
 } from '../ai-sdk-backend.js';
+import type { AiSdkCompaction } from '../ai-sdk-compaction.js';
 import type { MakaTool } from '../tool-runtime.js';
 import { LOAD_TOOLS_NAME } from '../tool-availability.js';
 import { PermissionEngine } from '../permission-engine.js';
@@ -70,12 +73,193 @@ import type {
   ProviderRequestAttemptRecord,
   ProviderRequestCaptureRecord,
 } from '../provider-request-telemetry.js';
+import { buildAskUserQuestionTool } from '../ask-user-question-tool.js';
+import {
+  RuntimeInteractionAdmissionRejectedError,
+  RuntimeInteractionFailStopError,
+  type RuntimeInteractionRunFacet,
+} from '../interaction-authority.js';
+import {
+  EMBEDDED_RUNTIME_EXECUTION,
+  RUNTIME_BIND_HOSTED_RUN,
+  type RuntimeHostedBackendRunBinding,
+  type RuntimeHostedRunControl,
+} from '../run-execution.js';
+
+describe('AiSdkBackend Interaction failures', () => {
+  test('stops the real tool loop before a second provider request after admission rejection', async () => {
+    const rejection = new RuntimeInteractionAdmissionRejectedError(
+      'permission-1',
+      'capacity_exceeded',
+    );
+    let providerCalls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        providerCalls += 1;
+        const chunks: LanguageModelV4StreamPart[] =
+          providerCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Write',
+                  input: JSON.stringify({ path: 'notes.md', content: 'hello' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: emptyUsage(),
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: emptyUsage(),
+                },
+              ];
+        return {
+          stream: simulateReadableStream({
+            chunks,
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const interactions = testInteractionAuthority({
+      acceptPermissionRequest: async () => {
+        throw rejection;
+      },
+    });
+    const appended: StoredMessage[] = [];
+    const backend = new AiSdkBackend({
+      execution: { kind: 'hosted' },
+      sessionId: 'session-1',
+      header: header('ask'),
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-1', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [
+        {
+          name: 'Write',
+          description: 'Write a file',
+          parameters: z.object({ path: z.string(), content: z.string() }),
+          permissionRequired: true,
+          impl: async () => ({ ok: true }),
+        },
+      ],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    bindHostedBackend(backend, interactions);
+
+    await assert.rejects(
+      drain(backend.send({ turnId: 'turn-1', runId: 'run-1', text: 'write it', context: [] })),
+      (error: unknown) => {
+        assert.equal(error, rejection);
+        return true;
+      },
+    );
+    assert.equal(providerCalls, 1);
+    const hostedCall = appended.find((message) => message.type === 'tool_call');
+    assert.ok(hostedCall && hostedCall.type === 'tool_call');
+    assert.equal(Object.hasOwn(hostedCall, 'args'), false);
+  });
+
+  test('does not replay a hosted public review as executable provider input', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      execution: { kind: 'hosted' },
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: idGenerator(), now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    bindHostedBackend(backend, testInteractionAuthority({}));
+
+    await drain(
+      backend.send({
+        turnId: 'turn-1',
+        runId: 'run-1',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'user-prev',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'safe request',
+          }),
+          runtimeEvent({
+            id: 'call-prev',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'call-1',
+              name: 'Write',
+              review: {
+                kind: 'path',
+                operation: 'write',
+                path: 'PUBLIC_WRITE_PATH',
+                cwd: '/tmp/maka',
+              },
+            },
+          }),
+          runtimeEvent({
+            id: 'result-prev',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'call-1',
+              name: 'Write',
+              result: 'PRIVATE_TOOL_RESULT',
+            },
+          }),
+          runtimeTextEvent({
+            id: 'assistant-prev',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'safe conclusion',
+          }),
+        ],
+      }),
+    );
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /safe request/);
+    assert.match(prompt, /safe conclusion/);
+    assert.doesNotMatch(prompt, /PUBLIC_WRITE_PATH/);
+    assert.doesNotMatch(prompt, /PRIVATE_TOOL_RESULT/);
+  });
+});
 
 describe('AiSdkBackend model history', () => {
   test('exposes one active sandbox snapshot to the model and durable run trace', async () => {
     const model = completionModel();
     const traces: RunTraceEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -106,6 +290,7 @@ describe('AiSdkBackend model history', () => {
   test('passes the active sandbox snapshot into automatic approval review', async () => {
     let reviewContext: AutoApprovalReviewContext | undefined;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('execute'),
       appendMessage: async () => {},
@@ -165,6 +350,7 @@ describe('AiSdkBackend model history', () => {
   test('records structured sandbox failure metadata on tool failure traces', async () => {
     const traces: RunTraceEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('bypass'),
       appendMessage: async () => {},
@@ -237,6 +423,7 @@ describe('AiSdkBackend model history', () => {
   test('omits an empty system prompt from the provider request', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -267,17 +454,14 @@ describe('AiSdkBackend model history', () => {
   test('sends the selected Kimi model output limit instead of the Anthropic unknown-model default', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
       connection: {
         slug: 'kimi-coding-plan',
-        name: 'Kimi Coding Plan',
         providerType: 'kimi-coding-plan',
         defaultModel: 'k3',
-        enabled: true,
-        createdAt: 1,
-        updatedAt: 1,
       },
       apiKey: 'sk-test',
       modelId: 'k3',
@@ -302,18 +486,15 @@ describe('AiSdkBackend model history', () => {
   test('prefers the connection-advertised Kimi output limit over catalog metadata', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
       connection: {
         slug: 'kimi-coding-plan',
-        name: 'Kimi Coding Plan',
         providerType: 'kimi-coding-plan',
         defaultModel: 'k3',
         models: [{ id: 'k3', maxOutputTokens: 65_536 }],
-        enabled: true,
-        createdAt: 1,
-        updatedAt: 1,
       },
       apiKey: 'sk-test',
       modelId: 'k3',
@@ -338,12 +519,12 @@ describe('AiSdkBackend model history', () => {
   test('honors a Copilot account output limit on its Anthropic messages wire', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
       connection: {
         slug: 'github-copilot',
-        name: 'GitHub Copilot',
         providerType: 'github-copilot',
         defaultModel: 'future-claude-model',
         models: [
@@ -353,9 +534,6 @@ describe('AiSdkBackend model history', () => {
             maxOutputTokens: 128_000,
           },
         ],
-        enabled: true,
-        createdAt: 1,
-        updatedAt: 1,
       },
       apiKey: 'github-account-token',
       modelId: 'future-claude-model',
@@ -380,17 +558,14 @@ describe('AiSdkBackend model history', () => {
   test('reserves Kimi fixed thinking inside the provider wire output limit', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
       connection: {
         slug: 'kimi-coding-plan',
-        name: 'Kimi Coding Plan',
         providerType: 'kimi-coding-plan',
         defaultModel: 'kimi-for-coding',
-        enabled: true,
-        createdAt: 1,
-        updatedAt: 1,
       },
       apiKey: 'sk-test',
       modelId: 'kimi-for-coding',
@@ -422,17 +597,14 @@ describe('AiSdkBackend model history', () => {
   test('leaves OpenAI-compatible output limits to their provider adapter', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
       connection: {
         slug: 'mistral',
-        name: 'Mistral',
         providerType: 'mistral',
         defaultModel: 'mistral-large-latest',
-        enabled: true,
-        createdAt: 1,
-        updatedAt: 1,
       },
       apiKey: 'sk-test',
       modelId: 'mistral-large-latest',
@@ -457,6 +629,7 @@ describe('AiSdkBackend model history', () => {
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -521,6 +694,7 @@ describe('AiSdkBackend model history', () => {
   test('safe-boundary continuation does not append a duplicate current user message', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -565,6 +739,7 @@ describe('AiSdkBackend model history', () => {
   test('continuation replays the original user after diagnostic terminal errors with no StoredMessage context', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -619,6 +794,7 @@ describe('AiSdkBackend model history', () => {
     const trace: RunTraceEvent[] = [];
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -680,10 +856,15 @@ describe('AiSdkBackend model history', () => {
   test('continuation materializes validated RuntimeEvents when provider-native replay is unavailable', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
-      connection: { ...connection(), providerType: 'openai' },
+      connection: {
+        slug: 'anthropic-main',
+        providerType: 'openai',
+        defaultModel: 'claude-sonnet-4-5-20250929',
+      },
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
@@ -731,6 +912,7 @@ describe('AiSdkBackend model history', () => {
   test('continuation never substitutes StoredMessages when RuntimeEvent replay has blocking diagnostics', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -825,6 +1007,7 @@ describe('AiSdkBackend model history', () => {
   test('continuation replay may end with an assistant message without an active user head anchor', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -877,6 +1060,7 @@ describe('AiSdkBackend model history', () => {
   test('continuation replay may end at a paired tool boundary without an active user head anchor', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -945,6 +1129,7 @@ describe('AiSdkBackend model history', () => {
   test('uses StoredMessage projection when RuntimeEvent replay is empty', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1005,6 +1190,7 @@ describe('AiSdkBackend model history', () => {
     // permanently blocks every later turn of the session.
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1054,6 +1240,7 @@ describe('AiSdkBackend model history', () => {
   test('stored-message fallback keeps placeholder text when no reader is wired', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1134,6 +1321,7 @@ describe('AiSdkBackend model history', () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 5, 6]);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1215,6 +1403,7 @@ describe('AiSdkBackend model history', () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1271,6 +1460,7 @@ describe('AiSdkBackend model history', () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1327,6 +1517,7 @@ describe('AiSdkBackend model history', () => {
   test('reports unavailable attachment reads without consuming image budget', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1379,6 +1570,7 @@ describe('AiSdkBackend model history', () => {
   test('charges attachment image budget from the bytes actually read', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1424,6 +1616,7 @@ describe('AiSdkBackend model history', () => {
   test('degrades excess current-turn image attachments once the per-request budget is exceeded', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1475,6 +1668,7 @@ describe('AiSdkBackend model history', () => {
     const bytes = new Uint8Array(10);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1547,6 +1741,7 @@ describe('AiSdkBackend model history', () => {
     const bytes = new Uint8Array(10);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1641,6 +1836,7 @@ describe('AiSdkBackend model history', () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1709,6 +1905,7 @@ describe('AiSdkBackend model history', () => {
   test('preserves RuntimeEvent tool calls and results as structured AI SDK parts', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1817,6 +2014,7 @@ describe('AiSdkBackend model history', () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -1927,6 +2125,7 @@ describe('AiSdkBackend model history', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2017,9 +2216,23 @@ describe('AiSdkBackend model history', () => {
     assert.doesNotMatch(JSON.stringify(prompt), /private disk detail/);
   });
 
+  test('rethrows fatal artifact errors from replayed images through send', async () => {
+    const fatalError = new Error('fatal artifact authority failure');
+    const backend = imageReplayBackend(completionModel(), {
+      supportsVision: true,
+      readAttachmentBytes: async () => {
+        throw fatalError;
+      },
+      isFatalArtifactError: (error) => error === fatalError,
+    });
+
+    await assert.rejects(drain(backend.send(imageReplayInput())), (error) => error === fatalError);
+  });
+
   test('replays interleaved parallel RuntimeEvent tool calls as one provider tool-call block', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2190,6 +2403,7 @@ describe('AiSdkBackend model history', () => {
     }> = [];
     const oldResult = { body: 'x'.repeat(500) };
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2273,6 +2487,7 @@ describe('AiSdkBackend model history', () => {
     const newResult = { body: 'NEW_ARCHIVE_REF_PAYLOAD'.repeat(20) };
     const existingSerialized = JSON.stringify(existingResult);
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2384,6 +2599,7 @@ describe('AiSdkBackend model history', () => {
     const events: SessionEvent[] = [];
     const oldResult = { body: 'SECRET_PAYLOAD_SHOULD_NOT_RETURN'.repeat(20) };
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2473,6 +2689,7 @@ describe('AiSdkBackend model history', () => {
     let archivedBody = '';
     const oldResult = { body: 'retrieved 中文 archived payload 🙂'.repeat(3) };
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2619,6 +2836,7 @@ describe('AiSdkBackend model history', () => {
       originalBytes: utf8Bytes(serialized),
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2689,6 +2907,7 @@ describe('AiSdkBackend model history', () => {
             id: 'tool-alpha',
             name: 'Read',
             args: { path: 'key-alpha.txt' },
+            review: readReview('key-alpha.txt'),
           },
         }),
         runtimeEvent({
@@ -2758,6 +2977,7 @@ describe('AiSdkBackend model history', () => {
       const model = completionModel();
       const archivedBodies = new Map<string, string>();
       const backend = new AiSdkBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: 'session-1',
         header: header(),
         appendMessage: async () => {},
@@ -2816,6 +3036,7 @@ describe('AiSdkBackend model history', () => {
               id: 'tool-alpha',
               name: 'Read',
               args: { path: 'key-alpha.txt' },
+              review: readReview('key-alpha.txt'),
             },
           }),
           runtimeEvent({
@@ -2890,6 +3111,7 @@ describe('AiSdkBackend model history', () => {
     });
     let loadCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -2959,6 +3181,7 @@ describe('AiSdkBackend model history', () => {
             id: 'tool-alpha',
             name: 'Read',
             args: { path: 'key-alpha.txt' },
+            review: readReview('key-alpha.txt'),
           },
         }),
         runtimeEvent({
@@ -2999,6 +3222,70 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.synthesisCacheBlocksSelected, 1);
   });
 
+  test('keeps ordinary synthesis load and write failures best-effort', async () => {
+    const compaction = synthesisCompaction({
+      loadSynthesisCache: async () => {
+        throw new Error('ordinary artifact read failure');
+      },
+      writeSynthesisCache: async () => {
+        throw new Error('ordinary artifact write failure');
+      },
+      isFatalArtifactError: () => false,
+    });
+
+    const loadResult = await compaction.loadSynthesisCacheBlocks({
+      synthesisCache: { enabled: true },
+    });
+    const writeResult = await compaction.writeSynthesisCacheBlocks({
+      turnId: 'turn-1',
+      query: 'query',
+      hydratedRuntimeEvents: [],
+      retrievedArchiveRefs: [],
+      archiveRetrievalMode: 'history_search_gated',
+      contextBudget: { synthesisCache: { enabled: true, mode: 'read_write' } },
+    });
+
+    assert.equal(loadResult.diagnosticPatch?.synthesisCacheLoadFailures, 1);
+    assert.equal(writeResult.synthesisCacheWriteFailures, 1);
+  });
+
+  test('rethrows fatal artifact errors from synthesis loads', async () => {
+    const fatalError = new Error('fatal synthesis load');
+    const compaction = synthesisCompaction({
+      loadSynthesisCache: async () => {
+        throw fatalError;
+      },
+      isFatalArtifactError: (error) => error === fatalError,
+    });
+
+    await assert.rejects(
+      compaction.loadSynthesisCacheBlocks({ synthesisCache: { enabled: true } }),
+      (error) => error === fatalError,
+    );
+  });
+
+  test('rethrows fatal artifact errors from synthesis writes', async () => {
+    const fatalError = new Error('fatal synthesis write');
+    const compaction = synthesisCompaction({
+      writeSynthesisCache: async () => {
+        throw fatalError;
+      },
+      isFatalArtifactError: (error) => error === fatalError,
+    });
+
+    await assert.rejects(
+      compaction.writeSynthesisCacheBlocks({
+        turnId: 'turn-1',
+        query: 'query',
+        hydratedRuntimeEvents: [],
+        retrievedArchiveRefs: [],
+        archiveRetrievalMode: 'history_search_gated',
+        contextBudget: { synthesisCache: { enabled: true, mode: 'read_write' } },
+      }),
+      (error) => error === fatalError,
+    );
+  });
+
   test('writes synthesis cache after successful gated archive retrieval without injecting it into the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
@@ -3017,6 +3304,7 @@ describe('AiSdkBackend model history', () => {
       originalBytes: utf8Bytes(serialized),
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3091,6 +3379,7 @@ describe('AiSdkBackend model history', () => {
             id: 'tool-alpha',
             name: 'Read',
             args: { path: 'key-alpha.txt' },
+            review: readReview('key-alpha.txt'),
           },
         }),
         runtimeEvent({
@@ -3150,6 +3439,7 @@ describe('AiSdkBackend model history', () => {
       originalBytes: utf8Bytes(serialized),
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3220,6 +3510,7 @@ describe('AiSdkBackend model history', () => {
             id: 'tool-alpha',
             name: 'Read',
             args: { path: 'key-alpha.txt' },
+            review: readReview('key-alpha.txt'),
           },
         }),
         runtimeEvent({
@@ -3286,6 +3577,7 @@ describe('AiSdkBackend model history', () => {
       }),
     ];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3352,6 +3644,7 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory still folds small histories with the default automatic compact policy', async () => {
     const writeInputs: string[][] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3419,6 +3712,7 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory writes a V2 checkpoint without the legacy artifact writer', async () => {
     const recorded: HistoryCompactCheckpoint[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3502,6 +3796,7 @@ describe('AiSdkBackend model history', () => {
     const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
     const recorded: HistoryCompactCheckpoint[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3582,6 +3877,7 @@ describe('AiSdkBackend model history', () => {
     let summarizeCalls = 0;
     let recordCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3662,6 +3958,7 @@ describe('AiSdkBackend model history', () => {
       let summarizeCalls = 0;
       const recorded: HistoryCompactCheckpoint[] = [];
       const backend = new AiSdkBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: 'session-1',
         header: header(),
         appendMessage: async () => {},
@@ -3716,6 +4013,7 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory does not record a rebuilt checkpoint whose envelope exceeds current limits', async () => {
     let recordCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3774,6 +4072,7 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory rejects a complete summary that makes the full replay larger', async () => {
     let recordCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3835,6 +4134,7 @@ describe('AiSdkBackend model history', () => {
 
   test('manual compactHistory reports output-length exhaustion instead of empty_summary', async () => {
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3914,6 +4214,7 @@ describe('AiSdkBackend model history', () => {
     let loadCalls = 0;
     const writeInputs: string[][] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -3982,6 +4283,7 @@ describe('AiSdkBackend model history', () => {
   test('manual compactHistory is a no-op when context budget is disabled', async () => {
     let writes = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4025,6 +4327,7 @@ describe('AiSdkBackend model history', () => {
 
   test('manual compactHistory is a no-op when no durable writer is configured', async () => {
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4092,6 +4395,7 @@ describe('AiSdkBackend model history', () => {
       }),
     ];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4139,6 +4443,7 @@ describe('AiSdkBackend model history', () => {
       writeStarted = resolve;
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4226,6 +4531,7 @@ describe('AiSdkBackend model history', () => {
       writeStarted = resolve;
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4309,6 +4615,7 @@ describe('AiSdkBackend model history', () => {
 
   test('stopping after manual compactHistory returns does not poison the next backend turn', async () => {
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4410,6 +4717,7 @@ describe('AiSdkBackend model history', () => {
     });
     const appended: string[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message: StoredMessage) => {
@@ -4469,6 +4777,7 @@ describe('AiSdkBackend model history', () => {
       },
     };
     backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4502,6 +4811,7 @@ describe('AiSdkBackend model history', () => {
     const gate = makeGate();
     let usagePersistenceStarted = false;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -4563,6 +4873,7 @@ describe('AiSdkBackend model history', () => {
     });
     const assistants: AssistantMessage[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -4622,6 +4933,7 @@ describe('AiSdkBackend model history', () => {
       }),
     ];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -4751,6 +5063,7 @@ describe('AiSdkBackend model history', () => {
     const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
     const firstModel = completionModel();
     const firstBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4809,6 +5122,7 @@ describe('AiSdkBackend model history', () => {
     let reuseSummaryCalls = 0;
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -4858,6 +5172,7 @@ describe('AiSdkBackend model history', () => {
     const storedMessages: StoredMessage[] = [];
     let recordCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -4962,6 +5277,7 @@ describe('AiSdkBackend model history', () => {
       charsPerToken: 1,
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5046,6 +5362,7 @@ describe('AiSdkBackend model history', () => {
       charsPerToken: 1,
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5117,6 +5434,7 @@ describe('AiSdkBackend model history', () => {
     });
     assert.ok(previous.estimatedTokens > 100);
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5182,6 +5500,7 @@ describe('AiSdkBackend model history', () => {
       }),
     ];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -5287,6 +5606,7 @@ describe('AiSdkBackend model history', () => {
     let loadCalls = 0;
     let writeCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -5394,6 +5714,7 @@ describe('AiSdkBackend model history', () => {
     });
     let v1LoadCalls = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5504,6 +5825,7 @@ describe('AiSdkBackend model history', () => {
     );
 
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5571,6 +5893,7 @@ describe('AiSdkBackend model history', () => {
     const model = completionModel();
     let imageReads = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5644,6 +5967,7 @@ describe('AiSdkBackend model history', () => {
   test('keeps RuntimeEvent replay when a system error fact is diagnostic-only', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5705,6 +6029,7 @@ describe('AiSdkBackend model history', () => {
     const model = completionModel();
     const openAiConnection = { ...connection(), providerType: 'openai' as const };
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5772,6 +6097,7 @@ describe('AiSdkBackend model history', () => {
 describe('AiSdkBackend error surfaces', () => {
   test('generalizes model setup errors before emitting renderer events', async () => {
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5813,6 +6139,7 @@ describe('AiSdkBackend error surfaces', () => {
     const messages: ToolResultMessage[] = [];
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -5856,6 +6183,7 @@ describe('AiSdkBackend error surfaces', () => {
     const messages: ToolResultMessage[] = [];
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -5936,6 +6264,7 @@ describe('AiSdkBackend error surfaces', () => {
 
   test('model stream timeout errors carry a stable reason for turn-history UI', () => {
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -5965,11 +6294,15 @@ describe('AiSdkBackend stop', () => {
     const permissionEngine = new PermissionEngine({ newId: () => 'permission-id', now: () => 1 });
     permissionEngine.beginTurn('turn-1');
     const verdict = permissionEngine.evaluate({
+      stage: 'base',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
-      toolName: 'Write',
-      args: { path: 'notes.md', content: 'hello' },
+      intent: createCanonicalToolIntent({
+        toolName: 'Write',
+        args: { path: 'notes.md', content: 'hello' },
+        cwd: '/tmp/maka',
+      }),
       mode: 'ask',
     });
     assert.equal(verdict.kind, 'prompt');
@@ -5982,6 +6315,7 @@ describe('AiSdkBackend stop', () => {
           )
         : Promise.resolve('not-prompt');
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6036,6 +6370,7 @@ describe('AiSdkBackend usage telemetry', () => {
   test('lets an unconfigured turn continue past the former 50-step default', async () => {
     const loop = countingToolLoopModel(51);
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6061,6 +6396,7 @@ describe('AiSdkBackend usage telemetry', () => {
   test('keeps an explicitly configured step limit', async () => {
     const loop = countingToolLoopModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6129,6 +6465,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -6238,6 +6575,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message: StoredMessage) => {
@@ -6343,6 +6681,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6386,6 +6725,7 @@ describe('AiSdkBackend usage telemetry', () => {
       }),
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6474,6 +6814,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -6593,6 +6934,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -6714,6 +7056,7 @@ describe('AiSdkBackend usage telemetry', () => {
   test('active full compact durable recorder is invoked synchronously', () => {
     const recordedBlocks: ActiveFullCompactBlock[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6742,6 +7085,7 @@ describe('AiSdkBackend usage telemetry', () => {
   test('does not record semantic compact usage when provider usage is unavailable', () => {
     const llmRecords: LlmCallRecord[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -6869,6 +7213,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -7090,6 +7435,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -7192,6 +7538,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -7316,6 +7663,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -7418,7 +7766,6 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(llmRecords[0]?.cacheHitInputTokens, 3);
     assert.equal(llmRecords[0]?.cacheMissInputTokens, 5);
     assert.equal(llmRecords[0]?.cacheMissInputSource, 'explicit');
-    assert.equal(llmRecords[0]?.cachedInputTokens, 3);
     assert.equal(llmRecords[0]?.cacheWriteInputTokens, 2);
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 17);
@@ -7725,6 +8072,7 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     const model = completionModel();
     const llmRecords: LlmCallRecord[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -7761,6 +8109,7 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     const models: MockLanguageModelV4[] = [];
     let date = '2026-05-29';
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8006,6 +8355,7 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8184,6 +8534,7 @@ describe('AiSdkBackend RunTrace', () => {
         },
       });
       const backend = new AiSdkBackend({
+        execution: EMBEDDED_RUNTIME_EXECUTION,
         sessionId: 'session-1',
         header: header(),
         appendMessage: async () => {},
@@ -8267,6 +8618,7 @@ describe('AiSdkBackend RunTrace', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8308,6 +8660,7 @@ describe('AiSdkBackend RunTrace', () => {
   test('does not call the provider when prepared-request persistence fails', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8368,6 +8721,7 @@ describe('AiSdkBackend RunTrace', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8409,6 +8763,7 @@ describe('AiSdkBackend RunTrace', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8493,6 +8848,7 @@ describe('AiSdkBackend RunTrace', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8573,6 +8929,7 @@ describe('AiSdkBackend RunTrace', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8606,6 +8963,7 @@ describe('AiSdkBackend RunTrace', () => {
     const events: SessionEvent[] = [];
     const permissionEngine = new PermissionEngine({ newId: idGenerator(), now: () => 1 });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async () => {},
@@ -8714,11 +9072,15 @@ describe('AiSdkBackend RunTrace', () => {
     const permissionEngine = new PermissionEngine({ newId: () => 'permission-id', now: () => 1 });
     permissionEngine.beginTurn('turn-1');
     const verdict = permissionEngine.evaluate({
+      stage: 'base',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
-      toolName: 'Write',
-      args: { path: 'notes.md', content: 'hello' },
+      intent: createCanonicalToolIntent({
+        toolName: 'Write',
+        args: { path: 'notes.md', content: 'hello' },
+        cwd: '/tmp/maka',
+      }),
       mode: 'ask',
     });
     assert.equal(verdict.kind, 'prompt');
@@ -8730,6 +9092,7 @@ describe('AiSdkBackend RunTrace', () => {
           )
         : Promise.resolve('not-prompt');
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -8745,9 +9108,15 @@ describe('AiSdkBackend RunTrace', () => {
     (
       backend as unknown as {
         currentTurnId: string;
+        turnStreamActive: boolean;
         currentRunTrace: { abortRequested(reason: string): void };
       }
     ).currentTurnId = 'turn-1';
+    (
+      backend as unknown as {
+        turnStreamActive: boolean;
+      }
+    ).turnStreamActive = true;
     (
       backend as unknown as {
         currentRunTrace: { abortRequested(reason: string): void };
@@ -8787,6 +9156,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const telemetry: Array<{ status: string; toolCallId?: string; argsSummary?: string }> = [];
     let implCalled = false;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async (message) => {
@@ -8877,6 +9247,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const events: SessionEvent[] = [];
     let implCalled = false;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('bypass'),
       appendMessage: async (message) => {
@@ -8941,6 +9312,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     let pauseCount = 0;
     let resumeCount = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async (message) => {
@@ -9037,6 +9409,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     let pauseCount = 0;
     let resumeCount = 0;
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async (message) => {
@@ -9146,6 +9519,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const events: SessionEvent[] = [];
     const telemetry: Array<{ status: string; errorClass?: string; bytesOut: number }> = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async (message) => {
@@ -9213,6 +9587,7 @@ describe('AiSdkBackend tool permission category hints', () => {
   test('flushes output deltas before successful and failed tool results', async () => {
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async () => {},
@@ -9293,6 +9668,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('explore'),
       appendMessage: async (message) => {
@@ -9346,23 +9722,11 @@ describe('AiSdkBackend tool permission category hints', () => {
       messages.some((message) => (message as { type?: string }).type === 'tool_result'),
       true,
     );
-    assert.equal(
-      (
-        messages.find((message) => (message as { type?: string }).type === 'tool_call') as
-          | { intent?: string }
-          | undefined
-      )?.intent,
-      '只读探索：map PawWork subagent lifecycle',
-    );
-    assert.equal(
-      (events.find((event) => event.type === 'tool_start') as { intent?: string } | undefined)
-        ?.intent,
-      '只读探索：map PawWork subagent lifecycle',
-    );
   });
 
   test('pauses stream watchdog while a foreground subagent tool is running', async () => {
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('explore'),
       appendMessage: async () => {},
@@ -9443,6 +9807,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     // A long Bash command (apt-get install, a build) must not trip the model
     // stream idle timeout: the model is between steps while the tool runs.
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('explore'),
       appendMessage: async () => {},
@@ -9528,6 +9893,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('explore'),
       appendMessage: async (message) => {
@@ -9605,6 +9971,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const events: SessionEvent[] = [];
     const telemetry: Array<{ status: string; toolCallId?: string }> = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('explore'),
       appendMessage: async (message) => {
@@ -9706,6 +10073,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const events: SessionEvent[] = [];
     const telemetry: Array<{ status: string; toolCallId?: string }> = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('explore'),
       appendMessage: async (message) => {
@@ -9814,6 +10182,7 @@ describe('AiSdkBackend tool permission category hints', () => {
     const events: SessionEvent[] = [];
     const telemetry: Array<{ status: string; toolCallId?: string }> = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header('ask'),
       appendMessage: async () => {},
@@ -9927,6 +10296,7 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
   test('send() resets ToolRuntime per turn (at turn start and at cleanup)', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -9996,6 +10366,7 @@ describe('AiSdkBackend thinking persistence', () => {
       },
     });
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10094,6 +10465,7 @@ describe('AiSdkBackend thinking persistence', () => {
     });
     const appended: unknown[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -10213,6 +10585,7 @@ describe('AiSdkBackend thinking persistence', () => {
       },
     });
     const firstBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10248,6 +10621,7 @@ describe('AiSdkBackend thinking persistence', () => {
     // Turn 2: replay the prior ledger and capture the outgoing provider request.
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10337,6 +10711,7 @@ describe('AiSdkBackend thinking persistence', () => {
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10423,6 +10798,7 @@ describe('AiSdkBackend thinking persistence', () => {
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10534,6 +10910,7 @@ describe('AiSdkBackend thinking persistence', () => {
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10624,6 +11001,7 @@ describe('AiSdkBackend thinking persistence', () => {
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10693,6 +11071,7 @@ describe('AiSdkBackend thinking persistence', () => {
     });
     const persisted: AssistantMessage[] = [];
     const firstBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (m) => {
@@ -10741,6 +11120,7 @@ describe('AiSdkBackend thinking persistence', () => {
 
     const secondModel = completionModel();
     const secondBackend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -10776,6 +11156,7 @@ describe('AiSdkBackend thinking persistence', () => {
     const appended: StoredMessage[] = [];
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (message) => {
@@ -10916,6 +11297,7 @@ describe('AiSdkBackend thinking persistence', () => {
     const assistants: AssistantMessage[] = [];
     const events: SessionEvent[] = [];
     const backend = new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async (m) => {
@@ -10985,6 +11367,7 @@ async function runArchiveGatedReplay(input: {
   const archivedBodies = new Map<string, string>();
   const readRuntimeEventIds: string[] = [];
   const backend = new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async () => {},
@@ -11076,7 +11459,13 @@ function archiveGatedTurnEvents(suffix: 'a' | 'b', path: string, result: unknown
       turnId: `turn-${suffix}`,
       role: 'model',
       author: 'agent',
-      content: { kind: 'function_call', id: `tool-${suffix}`, name: 'Read', args: { path } },
+      content: {
+        kind: 'function_call',
+        id: `tool-${suffix}`,
+        name: 'Read',
+        args: { path },
+        review: readReview(path),
+      },
     }),
     runtimeEvent({
       id: `rt-result-${suffix}`,
@@ -11095,8 +11484,12 @@ function archiveGatedTurnEvents(suffix: 'a' | 'b', path: string, result: unknown
 }
 
 describe('AiSdkBackend steering durability and identity', () => {
-  const steeringBackend = (model: MockLanguageModelV4): AiSdkBackend =>
+  const steeringBackend = (
+    model: MockLanguageModelV4,
+    options: Partial<Pick<AiSdkBackendInput, 'supportsVision' | 'readAttachmentBytes'>> = {},
+  ): AiSdkBackend =>
     new AiSdkBackend({
+      execution: EMBEDDED_RUNTIME_EXECUTION,
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
@@ -11108,14 +11501,17 @@ describe('AiSdkBackend steering durability and identity', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
+      ...options,
     });
 
-  const pullOnce = (text: string): (() => Array<{ id: string; text: string }>) => {
+  const pullOnce = (
+    text: string,
+  ): (() => Array<{ id: string; messageId: string; content: { text: string } }>) => {
     let pulled = false;
     return () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: `lease-${text}`, text }];
+      return [{ id: `lease-${text}`, messageId: `message-${text}`, content: { text } }];
     };
   };
 
@@ -11148,7 +11544,11 @@ describe('AiSdkBackend steering durability and identity', () => {
 
     // The generator suspends at the steering yield: the event is delivered
     // but not yet acked, so the persist boundary has not been crossed.
-    await nextSteeringEvent(iterator);
+    const steeringEvent = await nextSteeringEvent(iterator);
+    assert.equal(
+      steeringEvent.type === 'steering_message' ? steeringEvent.messageId : undefined,
+      'message-persist me first',
+    );
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(model.doStreamCalls.length, 0);
 
@@ -11164,6 +11564,84 @@ describe('AiSdkBackend steering durability and identity', () => {
       events.some((event) => event.type === 'complete' && event.stopReason === 'end_turn'),
       true,
     );
+  });
+
+  test('persists complete steering content and sends only authoritative text plus real images', async () => {
+    const model = textCompletionModel('done');
+    const pngBytes = new Uint8Array([137, 80, 78, 71]);
+    const image = {
+      kind: 'image' as const,
+      name: 'first.png',
+      mimeType: 'image/png',
+      bytes: pngBytes.length,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'first.png' },
+    };
+    const document = {
+      kind: 'pdf' as const,
+      name: 'second.pdf',
+      mimeType: 'application/pdf',
+      bytes: 12,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'second.pdf' },
+    };
+    const backend = steeringBackend(model, {
+      supportsVision: true,
+      readAttachmentBytes: async (ref) => {
+        assert.deepEqual(ref, image.ref);
+        return { ok: true, bytes: pngBytes };
+      },
+    });
+    const content = {
+      text: 'inspect the authoritative inputs',
+      displayText: 'human-only command',
+      attachments: [image, document],
+    };
+    let pulled = false;
+    const acked: string[] = [];
+    const iterator = backend
+      .send({
+        turnId: 'turn-1',
+        text: 'start',
+        context: [],
+        pullSteering: () => {
+          if (pulled) return [];
+          pulled = true;
+          return [{ id: 'lease-content', messageId: 'message-content', content }];
+        },
+        ackSteering: (leaseIds) => acked.push(...leaseIds),
+      })
+      [Symbol.asyncIterator]();
+
+    const steeringEvent = await nextSteeringEvent(iterator);
+    assert.equal(steeringEvent.type, 'steering_message');
+    if (steeringEvent.type !== 'steering_message') assert.fail('expected steering event');
+    assert.deepEqual(steeringEvent.content, content);
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.deepEqual(acked, []);
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next()) {}
+    assert.deepEqual(acked, ['lease-content']);
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const steeringPrompt = prompt.at(-1);
+    assert.equal(steeringPrompt?.role, 'user');
+    const parts = steeringPrompt?.content as Array<{
+      type: string;
+      text?: string;
+      mediaType?: string;
+      data?: unknown;
+    }>;
+    assert.deepEqual(
+      parts.map((part) => part.type),
+      ['text', 'file'],
+    );
+    assert.equal(
+      parts[0]?.text,
+      buildSteeringEnvelope(
+        'inspect the authoritative inputs\n\n[attachment: first.png (image/png)] [attachment: second.pdf (application/pdf)]',
+      ),
+    );
+    assert.equal(parts[1]?.mediaType, 'image/png');
+    assert.notEqual(parts[1]?.data, undefined);
+    assert.equal(JSON.stringify(prompt).includes('human-only command'), false);
   });
 
   test('a steering message never reaches the provider when the consumer detaches before the ack', async () => {
@@ -11451,8 +11929,8 @@ describe('AiSdkBackend steering durability and identity', () => {
           if (pulled) return [];
           pulled = true;
           return [
-            { id: 'lease-1', text: 'do it' },
-            { id: 'lease-2', text: 'do it' },
+            { id: 'lease-1', messageId: 'message-1', content: { text: 'do it' } },
+            { id: 'lease-2', messageId: 'message-2', content: { text: 'do it' } },
           ];
         },
       }),
@@ -11589,9 +12067,11 @@ function emptyUsage() {
 
 function imageReplayBackend(
   model: MockLanguageModelV4,
-  options: { supportsVision: boolean; readAttachmentBytes: AttachmentByteReader },
+  options: Pick<AiSdkBackendInput, 'supportsVision' | 'readAttachmentBytes'> &
+    Partial<Pick<AiSdkBackendInput, 'isFatalArtifactError'>>,
 ): AiSdkBackend {
   return new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
     sessionId: 'session-1',
     header: header(),
     appendMessage: async () => {},
@@ -11605,6 +12085,32 @@ function imageReplayBackend(
     now: monotonicClock(),
     ...options,
   });
+}
+
+function synthesisCompaction(
+  options: Pick<AiSdkBackendInput, 'isFatalArtifactError'> &
+    Partial<Pick<AiSdkBackendInput, 'loadSynthesisCache' | 'writeSynthesisCache'>>,
+): Pick<AiSdkCompaction, 'loadSynthesisCacheBlocks' | 'writeSynthesisCacheBlocks'> {
+  const backend = new AiSdkBackend({
+    execution: EMBEDDED_RUNTIME_EXECUTION,
+    sessionId: 'session-1',
+    header: header(),
+    appendMessage: async () => {},
+    connection: connection(),
+    apiKey: 'sk-test',
+    modelId: 'mock-model-id',
+    permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+    modelFactory: () => completionModel(),
+    tools: [],
+    newId: idGenerator(),
+    now: monotonicClock(),
+    ...options,
+  });
+  return (
+    backend as unknown as {
+      compaction: Pick<AiSdkCompaction, 'loadSynthesisCacheBlocks' | 'writeSynthesisCacheBlocks'>;
+    }
+  ).compaction;
 }
 
 function imageReplayInput(): BackendSendInput {
@@ -11913,10 +12419,52 @@ function testTool(name: string, parameters: unknown): MakaTool {
   };
 }
 
+function bindHostedBackend(backend: AiSdkBackend, interactions: RuntimeInteractionRunFacet): void {
+  let binding: RuntimeHostedBackendRunBinding | undefined;
+  const control: RuntimeHostedRunControl = {
+    runId: 'run-1',
+    turnId: 'turn-1',
+    interactions,
+    hasStopClaim: () => false,
+    claimFailure: () => {},
+    fail: (error) => {
+      const fatal =
+        error instanceof RuntimeInteractionFailStopError
+          ? error
+          : new RuntimeInteractionFailStopError(error.message, error);
+      void binding?.isolateRegisteredSuccessorEffects({ kind: 'fail_stop', error: fatal });
+    },
+    runSuccessorEffect: (_kind, operation) => operation(),
+  };
+  binding = backend[RUNTIME_BIND_HOSTED_RUN](control);
+}
+
+function testInteractionAuthority(
+  overrides: Partial<RuntimeInteractionRunFacet>,
+): RuntimeInteractionRunFacet {
+  const unexpected = async (): Promise<never> => {
+    throw new Error('Unexpected RuntimeInteractionAuthority call');
+  };
+  return {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    runId: 'run-1',
+    acceptPermissionRequest: unexpected,
+    commitPermissionAnswer: unexpected,
+    commitPermissionTimeout: unexpected,
+    acceptUserQuestionRequest: unexpected,
+    ...overrides,
+  };
+}
+
 async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _ of iterable) {
     // consume
   }
+}
+
+function readReview(path: string) {
+  return { kind: 'path' as const, operation: 'read' as const, path, cwd: '/tmp/maka' };
 }
 
 function makeGate(): { promise: Promise<void>; release: () => void } {

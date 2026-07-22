@@ -28,6 +28,9 @@ export interface BrowserViewRect {
 
 export type BrowserAddressInputFailureReason = 'empty' | 'unsupported_scheme' | 'invalid_url';
 
+/** Browser text that can be persisted and rendered in a public permission review. */
+export const BROWSER_REVIEW_TEXT_MAX_UTF8_BYTES = 8 * 1024;
+
 export type BrowserAddressInputResult =
   | { ok: true; url: string }
   | { ok: false; reason: BrowserAddressInputFailureReason };

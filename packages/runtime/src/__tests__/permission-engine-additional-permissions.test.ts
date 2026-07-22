@@ -8,19 +8,22 @@ import {
   buildAdditionalPermissionProposal,
   type AdditionalPermissionProposal,
 } from '../additional-permissions.js';
-import { PermissionEngine } from '../permission-engine.js';
+import { TestPermissionEngine } from '../test-helpers.js';
 
 function createFixture(): {
-  engine: PermissionEngine;
+  engine: TestPermissionEngine;
   setNow(value: number): void;
 } {
   let id = 0;
   let now = 100;
   return {
-    engine: new PermissionEngine({
-      newId: () => `id-${++id}`,
-      now: () => now,
-    }),
+    engine: new TestPermissionEngine(
+      {
+        newId: () => `id-${++id}`,
+        now: () => now,
+      },
+      '/workspace',
+    ),
     setNow: (value) => {
       now = value;
     },
@@ -48,6 +51,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
     const proposal = createNetworkProposal({ toolName: 'Write', args });
 
     const verdict = engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -55,7 +59,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       args,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: proposal,
+      proposal,
     });
 
     assert.equal(verdict.kind, 'prompt');
@@ -65,16 +69,21 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       assert.fail('expected an additional permission request');
     }
     assert.equal(verdict.event.reason, 'additional_permissions');
-    assert.equal(verdict.event.args, undefined);
-    assert.equal(verdict.event.permissionsHash, proposal.permissionsHash);
+    assert.deepEqual(verdict.event.review, {
+      kind: 'additional_permissions',
+      cwd: '/workspace',
+      paths: [],
+      networkEnabled: true,
+    });
     assert.equal(verdict.event.alsoApprovesToolExecution, false);
     assert.deepEqual(verdict.event.availableDecisions, ['allow_once', 'deny']);
   });
 
-  test('one additional approval can also approve the base ask-mode tool call', () => {
+  test('ask-mode base approval and one-shot additional approval settle separately', async () => {
     const { engine } = createFixture();
     const args = { path: '/workspace/output.txt', content: 'ok' };
-    const verdict = engine.evaluate({
+    const proposal = createNetworkProposal({ toolName: 'Write', args });
+    const base = engine.evaluate({
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -82,23 +91,37 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       args,
       mode: 'ask',
       cwd: '/workspace',
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
     });
 
-    assert.equal(verdict.kind, 'prompt');
-    if (verdict.kind === 'prompt') {
-      if (verdict.event.kind !== 'additional_permissions') {
-        assert.fail('expected an additional permission request');
-      }
-      assert.equal(verdict.event.alsoApprovesToolExecution, true);
-      assert.equal(engine.pendingCount('turn-1'), 1);
-    }
+    assert.equal(base.kind, 'prompt');
+    if (base.kind !== 'prompt') return;
+    assert.equal(base.event.kind, 'tool_permission');
+    engine.recordResponse('turn-1', { requestId: base.event.requestId, decision: 'allow' });
+    await base.parked;
+
+    const additional = engine.evaluate({
+      stage: 'additional_permissions',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'ask',
+      cwd: '/workspace',
+      proposal,
+    });
+    assert.equal(additional.kind, 'prompt');
+    if (additional.kind !== 'prompt') return;
+    assert.equal(additional.event.kind, 'additional_permissions');
+    if (additional.event.kind !== 'additional_permissions') return;
+    assert.equal(additional.event.alsoApprovesToolExecution, false);
+    assert.equal(engine.pendingCount('turn-1'), 1);
   });
 
   test('an explicit tool allow does not bypass the additional permission request', () => {
     const { engine } = createFixture();
     const args = { path: '/workspace/output.txt', content: 'ok' };
-    const verdict = engine.evaluate({
+    const base = engine.evaluate({
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -107,9 +130,20 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       mode: 'ask',
       cwd: '/workspace',
       permissionRules: [{ effect: 'allow', kind: 'tool', toolName: 'Write' }],
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
     });
+    assert.equal(base.kind, 'allow');
 
+    const verdict = engine.evaluate({
+      stage: 'additional_permissions',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'ask',
+      cwd: '/workspace',
+      proposal: createNetworkProposal({ toolName: 'Write', args }),
+    });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind === 'prompt') {
       if (verdict.event.kind !== 'additional_permissions') {
@@ -124,6 +158,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
     const proposal = createNetworkProposal({ toolName: 'Write', args });
 
     const tampered = createFixture().engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -131,7 +166,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       args,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: {
+      proposal: {
         ...proposal,
         permissionsHash: `sha256:${'0'.repeat(64)}`,
       },
@@ -139,6 +174,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
     assert.equal(tampered.kind, 'block');
 
     const explore = createFixture().engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -146,11 +182,12 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       args,
       mode: 'explore',
       cwd: '/workspace',
-      additionalPermissionProposal: proposal,
+      proposal,
     });
     assert.equal(explore.kind, 'block');
 
     const denied = createFixture().engine.evaluate({
+      stage: 'base',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -159,7 +196,6 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       mode: 'execute',
       cwd: '/workspace',
       permissionRules: [{ effect: 'deny', kind: 'tool', toolName: 'Write' }],
-      additionalPermissionProposal: proposal,
     });
     assert.equal(denied.kind, 'block');
   });
@@ -167,6 +203,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
   test('requires an absolute cwd for the approval context', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const verdict = createFixture().engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -174,7 +211,7 @@ describe('PermissionEngine one-shot additional permission requests', () => {
       args,
       mode: 'execute',
       cwd: 'workspace',
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
+      proposal: createNetworkProposal({ toolName: 'Write', args }),
     });
 
     assert.equal(verdict.kind, 'block');
@@ -188,6 +225,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { command: 'curl https://example.test' };
     const proposal = createNetworkProposal({ toolName: 'Bash', args });
     const verdict = engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -195,7 +233,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args,
       mode: 'ask',
       cwd: '/workspace',
-      additionalPermissionProposal: proposal,
+      proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
@@ -239,6 +277,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const proposal = createNetworkProposal({ toolName: 'Write', args });
     const verdict = engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -246,7 +285,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: proposal,
+      proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
@@ -280,6 +319,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const proposal = createNetworkProposal({ toolName: 'Write', args });
     const verdict = engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -287,7 +327,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: proposal,
+      proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
@@ -330,20 +370,10 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       toolName: 'Write',
       args,
       mode: 'ask',
-    });
-    const additionalPermission = engine.evaluate({
-      sessionId: 'session-1',
-      turnId: 'turn-1',
-      toolUseId: 'tool-2',
-      toolName: 'Write',
-      args,
-      mode: 'ask',
       cwd: '/workspace',
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
     });
     assert.equal(toolPermission.kind, 'prompt');
-    assert.equal(additionalPermission.kind, 'prompt');
-    if (toolPermission.kind !== 'prompt' || additionalPermission.kind !== 'prompt') return;
+    if (toolPermission.kind !== 'prompt') return;
 
     engine.recordResponse('turn-1', {
       requestId: toolPermission.event.requestId,
@@ -352,6 +382,20 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     });
     await toolPermission.parked;
 
+    const additionalPermission = engine.evaluate({
+      stage: 'additional_permissions',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-2',
+      toolName: 'Write',
+      args,
+      mode: 'ask',
+      cwd: '/workspace',
+      proposal: createNetworkProposal({ toolName: 'Write', args }),
+    });
+    assert.equal(additionalPermission.kind, 'prompt');
+    if (additionalPermission.kind !== 'prompt') return;
+    assert.equal(additionalPermission.event.kind, 'additional_permissions');
     assert.equal(engine.pendingCount('turn-1'), 1);
     engine.recordResponse('turn-1', {
       requestId: additionalPermission.event.requestId,
@@ -365,6 +409,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const proposal = createNetworkProposal({ toolName: 'Write', args });
     const verdict = engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -372,7 +417,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: proposal,
+      proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
@@ -397,6 +442,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const first = createFixture();
     const firstArgs = { path: '/workspace/first.txt', content: 'ok' };
     const timed = first.engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -404,7 +450,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args: firstArgs,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args: firstArgs }),
+      proposal: createNetworkProposal({ toolName: 'Write', args: firstArgs }),
     });
     assert.equal(timed.kind, 'prompt');
     if (timed.kind !== 'prompt') return;
@@ -427,6 +473,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const second = createFixture();
     const secondArgs = { path: '/workspace/second.txt', content: 'ok' };
     const aborted = second.engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-2',
       turnId: 'turn-2',
       toolUseId: 'tool-2',
@@ -434,7 +481,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args: secondArgs,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args: secondArgs }),
+      proposal: createNetworkProposal({ toolName: 'Write', args: secondArgs }),
     });
     assert.equal(aborted.kind, 'prompt');
     if (aborted.kind !== 'prompt') return;
@@ -452,6 +499,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const { engine } = createFixture();
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const verdict = engine.evaluate({
+      stage: 'additional_permissions',
       sessionId: 'session-1',
       turnId: 'turn-1',
       toolUseId: 'tool-1',
@@ -459,7 +507,7 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       args,
       mode: 'execute',
       cwd: '/workspace',
-      additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
+      proposal: createNetworkProposal({ toolName: 'Write', args }),
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;

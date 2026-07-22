@@ -99,6 +99,23 @@ it('names terminal controls, redacts secrets, escapes invisible input, and caps 
   assert.equal(long.truncated, true);
 });
 
+it('keeps later WriteStdin preview content after partially proven secret spans', () => {
+  const input = [
+    'token=alpha/opaque-tail',
+    'visible after first',
+    'password=beta*opaque-tail',
+    'visible after second',
+  ].join('\n');
+
+  const preview = projectWriteStdinInput(input);
+
+  assert.equal(
+    preview.text,
+    'token=[redacted]\\nvisible after first\\npassword=[redacted]\\nvisible after second',
+  );
+  assert.equal(preview.truncated, false);
+});
+
 it('rejects projected previews that bypass the display safety boundary', () => {
   const ref = 'maka://runtime/background-tasks/one';
   for (const text of [

@@ -564,7 +564,12 @@ function permissionRequestEvent(id: string, toolCallId: string): RuntimeEvent {
         toolName: 'Write',
         category: 'file_write',
         reason: 'file_write',
-        args: { path: 'README.md' },
+        review: {
+          kind: 'path',
+          operation: 'write',
+          path: 'README.md',
+          cwd: '/workspace',
+        },
         rememberForTurnAllowed: true,
       },
     },

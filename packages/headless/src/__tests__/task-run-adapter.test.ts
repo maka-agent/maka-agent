@@ -7,7 +7,7 @@ import {
   taskDefinitionFromTask,
   taskEventsFromResultRecord,
 } from '../task-run-adapter.js';
-import { projectTaskRun } from '../task-run-store.js';
+import { projectTaskRun } from '../task-run-projection.js';
 
 const task: Task = {
   id: 'task-1',

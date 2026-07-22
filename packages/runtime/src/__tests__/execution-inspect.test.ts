@@ -40,7 +40,12 @@ describe('versioned execution inspect documents', () => {
             kind: 'function_call',
             id: 'tool-pending',
             name: 'Write',
-            args: { path: 'private.txt', content: 'DO_NOT_COPY' },
+            review: {
+              kind: 'path',
+              operation: 'write',
+              path: 'private.txt',
+              cwd: '/tmp/workspace',
+            },
           },
         }),
       );

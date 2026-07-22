@@ -18,8 +18,8 @@
  *   - The authorization URL is held in-process; the renderer only
  *     receives an opaque `authRequestId` plus an 8-char `stateHint`.
  *
- * Reference: openai-codex-auth plugin pattern (external reference);
- * endpoint constants pinned to that file's values.
+ * Provider configuration and exchange validation are owned by Runtime;
+ * this module only owns the Desktop loopback presentation and storage UI.
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -36,6 +36,7 @@ import {
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
+  exchangeOAuthAuthorizationCode,
   proxiedFetch,
   refreshAndPersistOAuthSubscriptionTokens,
   refreshOAuthSubscriptionTokens,
@@ -53,22 +54,14 @@ import {
   CODEX_OAUTH_CONFIG,
   buildCodexAuthorizationUrl,
   extractAccountClaims,
-  pkceChallengeFromVerifier,
   safeExtractAccountClaims,
 } from './openai-codex-helpers.js';
 
 // Endpoint shortcuts so the existing class body keeps reading
 // like the Claude service (constants at the top, lookups inline).
-const CODEX_CLIENT_ID = CODEX_OAUTH_CONFIG.clientId;
-const CODEX_AUTHORIZE_ENDPOINT = CODEX_OAUTH_CONFIG.authUrl;
-const CODEX_TOKEN_ENDPOINT = CODEX_OAUTH_CONFIG.tokenUrl;
 const CODEX_CALLBACK_HOST = CODEX_OAUTH_CONFIG.callbackHost;
 const CODEX_CALLBACK_PORT = CODEX_OAUTH_CONFIG.callbackPort;
 const CODEX_REDIRECT_URI = CODEX_OAUTH_CONFIG.redirectUri;
-const CODEX_SCOPES = CODEX_OAUTH_CONFIG.scopes;
-const CODEX_EXTRA_PARAMS = CODEX_OAUTH_CONFIG.extras;
-
-const PLAIN_USER_AGENT = 'maka-desktop/0.1.0 (oauth-subscription)';
 
 // =============================================================
 // Persisted tokens — INTERNAL TO THIS MODULE. Never crosses IPC.
@@ -164,15 +157,10 @@ export class OpenAiCodexService {
     const state = base64urlEncode(randomBytes(16));
     const authRequestId = randomUUID();
 
-    const challenge = pkceChallengeFromVerifier(verifier);
     const url = buildCodexAuthorizationUrl({
-      clientId: CODEX_CLIENT_ID,
-      authorizeEndpoint: CODEX_AUTHORIZE_ENDPOINT,
       redirectUri: CODEX_REDIRECT_URI,
-      scope: CODEX_SCOPES,
+      verifier,
       state,
-      challenge,
-      extras: CODEX_EXTRA_PARAMS,
     });
 
     let resolveCode!: (value: { code: string; state: string }) => void;
@@ -259,7 +247,7 @@ export class OpenAiCodexService {
         this.authorizing = false;
         return { ok: false, reason: 'invalid_paste_code', message: '回调 state 校验失败，请重新登录。' };
       }
-      const tokens = await this.exchangeCodeForTokens(code, pending.verifier);
+      const tokens = await this.exchangeCodeForTokens(code, pending.verifier, pending.state);
       // Storage failures are not exchange failures: the one-time code
       // was consumed successfully, so tell the user to fix the store
       // instead of implying the code was bad.
@@ -560,37 +548,27 @@ export class OpenAiCodexService {
     pending.rejectCode(new Error('Authorization cancelled.'));
   }
 
-  private async exchangeCodeForTokens(code: string, verifier: string): Promise<PersistedTokens> {
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: CODEX_CLIENT_ID,
+  private async exchangeCodeForTokens(
+    code: string,
+    verifier: string,
+    state: string,
+  ): Promise<PersistedTokens> {
+    const tokens = await exchangeOAuthAuthorizationCode({
+      provider: 'openai-codex',
       code,
-      code_verifier: verifier,
-      redirect_uri: CODEX_REDIRECT_URI,
+      verifier,
+      state,
+      redirectUri: CODEX_REDIRECT_URI,
+      signal: new AbortController().signal,
+      fetchFn: this.fetchFn,
+      now: this.now,
     });
-    const response = await this.fetchFn(CODEX_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': PLAIN_USER_AGENT,
-      },
-      body: body.toString(),
-    });
-    if (!response.ok) {
-      throw new Error(`Token exchange failed (${response.status}).`);
-    }
-    const payload = (await response.json()) as {
-      access_token: string;
-      refresh_token: string;
-      id_token?: string;
-      expires_in: number;
-    };
-    const claims = extractAccountClaims(payload.access_token, payload.id_token);
+    const claims = extractAccountClaims(tokens.access_token, tokens.id_token);
     return {
-      access_token: payload.access_token,
-      refresh_token: payload.refresh_token,
-      id_token: payload.id_token,
-      expires_at: this.now() + 1000 * payload.expires_in,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      id_token: tokens.id_token,
+      expires_at: tokens.expires_at,
       account_id: claims.accountId,
     };
   }
@@ -677,7 +655,7 @@ export interface CodexAccountStateSnapshot {
 // Re-exports for the IPC handler + focused protocol tests. The pure
 // helpers keep URL, PKCE, and claim logic independent of service state.
 // =============================================================
-export { buildCodexAuthorizationUrl, extractAccountClaims, pkceChallengeFromVerifier };
+export { buildCodexAuthorizationUrl, extractAccountClaims, pkceChallengeFromVerifier } from './openai-codex-helpers.js';
 
 function callbackSuccessHtml(): string {
   return `<!doctype html>
@@ -709,7 +687,5 @@ function callbackErrorHtml(error: string): string {
 </body></html>`;
 }
 
-// `isOpenAiCodexExperimentalEnabled` and `CODEX_OAUTH_CONFIG`
-// live in `openai-codex-helpers.ts` — re-export so the IPC
-// handler in main.ts and contract tests have a single import path.
+// The experimental gate and Desktop loopback config live in the helper.
 export { CODEX_OAUTH_CONFIG, isOpenAiCodexExperimentalEnabled } from './openai-codex-helpers.js';

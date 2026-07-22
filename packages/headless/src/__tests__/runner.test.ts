@@ -22,7 +22,13 @@ import { runExperiment } from '../runner.js';
 const registerFakeBackend = (registry: BackendRegistry): void => {
   registry.register(
     'fake',
-    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        execution: ctx.execution,
+      }),
   );
 };
 
@@ -34,6 +40,7 @@ function registerTestPiAgentBackend(
     'pi-agent',
     (ctx) =>
       new PiAgentBackend({
+        execution: ctx.execution,
         sessionId: ctx.sessionId,
         header: ctx.header,
         appendMessage:
@@ -449,7 +456,7 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
                 type: 'tool_start',
                 toolUseId: 'tool-1',
                 toolName: 'Bash',
-                args: { command: 'touch solved.txt' },
+                review: { kind: 'command', command: 'touch solved.txt', cwd: header.cwd },
               };
               await writeFile(join(header.cwd, 'solved.txt'), 'ok\n', 'utf8');
               yield {
@@ -587,7 +594,12 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
       registry.register(
         'fake',
         (ctx) =>
-          new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+          new FakeBackend({
+            sessionId: ctx.sessionId,
+            header: ctx.header,
+            store: ctx.store,
+            execution: ctx.execution,
+          }),
       );
     };
 

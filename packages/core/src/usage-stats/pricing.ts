@@ -41,20 +41,17 @@ export type NormalizePricingModelKeyResult =
   | { ok: true; value: string }
   | { ok: false; error: string };
 
-/**
- * Max code-point length for `modelKey`. 128 chars is well past
- * any provider key Maka ships (`anthropic:claude-sonnet-4-5` =
- * ~30 chars) but bounds adversarial input.
- */
-export const PRICING_MODEL_KEY_MAX_CHARS = 128;
+/** Maximum UTF-8 size of a canonical pricing model key. */
+export const PRICING_MODEL_KEY_MAX_BYTES = 2048;
 
 /**
  * Validate + canonicalize a pricing `modelKey`.
  *
  *   - typeof guard: non-string → reject (IPC payload runtime safety)
+ *   - C0 control characters and DEL → reject
  *   - trim
  *   - empty after trim → reject
- *   - > 128 chars → reject (defense against adversarial / typo)
+ *   - > 2048 UTF-8 bytes → reject
  *
  * Used by `usage:pricing:put` (for the embedded modelKey) AND
  * `usage:pricing:reset` (the standalone arg). Both call sites
@@ -64,14 +61,20 @@ export function normalizePricingModelKey(input: unknown): NormalizePricingModelK
   if (typeof input !== 'string') {
     return { ok: false, error: 'modelKey must be a string' };
   }
+  for (let index = 0; index < input.length; index += 1) {
+    const codeUnit = input.charCodeAt(index);
+    if (codeUnit <= 0x1f || codeUnit === 0x7f) {
+      return { ok: false, error: 'modelKey cannot contain control characters' };
+    }
+  }
   const trimmed = input.trim();
   if (trimmed === '') {
     return { ok: false, error: 'modelKey cannot be empty' };
   }
-  if (trimmed.length > PRICING_MODEL_KEY_MAX_CHARS) {
+  if (new TextEncoder().encode(trimmed).byteLength > PRICING_MODEL_KEY_MAX_BYTES) {
     return {
       ok: false,
-      error: `modelKey must be ${PRICING_MODEL_KEY_MAX_CHARS} characters or fewer`,
+      error: `modelKey must be ${PRICING_MODEL_KEY_MAX_BYTES} UTF-8 bytes or fewer`,
     };
   }
   return { ok: true, value: trimmed };

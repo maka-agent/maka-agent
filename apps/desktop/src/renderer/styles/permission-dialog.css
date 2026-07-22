@@ -231,33 +231,6 @@
   line-height: var(--leading-normal);
 }
 
-.maka-permission-diff {
-  display: grid;
-  gap: 0;
-  overflow: hidden;
-  border-radius: var(--radius-control);
-  background: var(--foreground-2);
-}
-
-.maka-permission-diff-lines {
-  margin: 0;
-  padding: var(--space-1) var(--space-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-}
-
-.maka-permission-diff-lines[data-side="old"] {
-  background: oklch(from var(--destructive) l c h / 0.10);
-}
-
-.maka-permission-diff-lines[data-side="new"] {
-  background: oklch(from var(--success) l c h / 0.10);
-}
-
 .maka-permission-raw {
   display: grid;
   gap: var(--space-2);

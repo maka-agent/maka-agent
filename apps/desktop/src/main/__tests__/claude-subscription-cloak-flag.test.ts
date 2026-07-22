@@ -4,7 +4,8 @@
  * xuan `2c5aa125` G-X4: the cloak header logic MUST live in
  * runtime request construction, not in the desktop OAuth service.
  *
- * This test scans source files; it does not execute the cloak path.
+ * Narrow source checks retain the cloak isolation contract; OAuth
+ * provider and exchange behavior is exercised through public APIs.
  */
 
 import { strict as assert } from 'node:assert';
@@ -12,6 +13,15 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  OAUTH_LOGIN_PROVIDER_CONFIG,
+  OAuthTokenEndpointError,
+  exchangeOAuthAuthorizationCode,
+} from '@maka/runtime';
+import {
+  CODEX_OAUTH_CONFIG,
+  buildCodexAuthorizationUrl,
+} from '../oauth/openai-codex-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -99,118 +109,52 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     assert.doesNotMatch(src, /Copilot-Vision-Request/, 'GitHub Copilot vision headers belong in runtime');
   });
 
-  it('token exchange uses the pasted OAuth state and can recover the verifier from Claude Code state', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /const parsed = parsePastedAuthorization\(rawPasted\);[\s\S]*?const pending = this\.pending\.get\(authRequestId\)/,
-      'completeAuthorization must parse the pasted code#state before treating missing pending state as fatal',
-    );
-    assert.match(
-      src,
-      /const recoverFromPastedState = !pending \|\| pendingExpired;/,
-      'Claude Code state is the PKCE verifier, so Maka must recover from a lost in-memory pending map',
-    );
-    assert.match(
-      src,
-      /const verifier = recoverFromPastedState \? parsed\.state : pending!\.verifier;/,
-      'recovered Claude OAuth attempts must use pasted state as code_verifier',
-    );
-    assert.match(
-      src,
-      /exchangeCodeForTokens\(parsed\.code,\s*verifier,\s*parsed\.state\)/,
-      'completeAuthorization must pass the user-pasted state into token exchange after validating it',
-    );
-    assert.doesNotMatch(
-      src,
-      /state:\s*verifier/,
-      'token exchange body must not send the PKCE verifier as OAuth state when state and verifier are distinct',
-    );
+  it('uses the Runtime-owned Claude OAuth provider contract', () => {
+    const config = OAUTH_LOGIN_PROVIDER_CONFIG['claude-subscription'];
+    assert.equal(config.authorizationEndpoint, 'https://claude.com/cai/oauth/authorize');
+    assert.equal(config.redirectUri, 'https://platform.claude.com/oauth/code/callback');
+    assert.equal(config.tokenEndpoint, 'https://platform.claude.com/v1/oauth/token');
+    assert.equal(config.scope, 'user:sessions:claude_code user:mcp_servers user:file_upload');
+    assert.match(config.tokenUserAgent, /^claude-cli\/\d+\.\d+\.\d+ \(external, cli\)$/);
   });
 
-  it('OAuth authorize flow tracks current Claude Code subscription endpoints and scopes', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /CLAUDE_AUTHORIZE_ENDPOINT\s*=\s*'https:\/\/claude\.com\/cai\/oauth\/authorize'/,
-      'Claude subscription auth must use Claude Code subscription authorize route, not the stale claude.ai endpoint',
-    );
-    assert.match(
-      src,
-      /CLAUDE_REDIRECT_URI\s*=\s*'https:\/\/platform\.claude\.com\/oauth\/code\/callback'/,
-      'Claude subscription auth must use the current platform callback route',
-    );
-    assert.match(
-      src,
-      /CLAUDE_TOKEN_ENDPOINT\s*=\s*'https:\/\/platform\.claude\.com\/v1\/oauth\/token'/,
-      'Claude subscription token exchange must use the current platform token endpoint',
-    );
-    assert.match(
-      src,
-      /CLAUDE_SCOPE\s*=\s*'user:sessions:claude_code user:mcp_servers user:file_upload'/,
-      'Claude subscription auth must request the current Claude Code account scopes',
-    );
-    assert.doesNotMatch(
-      src,
-      /https:\/\/console\.anthropic\.com\/(?:oauth\/code\/callback|v1\/oauth\/token)|org:create_api_key user:profile user:inference/,
-      'Claude subscription auth must not regress to the stale console Anthropic OAuth route',
-    );
+  it('builds the Desktop Codex URL through the closed shared contract', () => {
+    const verifier = 'v'.repeat(43);
+    const state = 's'.repeat(43);
+    const url = new URL(buildCodexAuthorizationUrl({
+      redirectUri: CODEX_OAUTH_CONFIG.redirectUri,
+      verifier,
+      state,
+    }));
+    const shared = OAUTH_LOGIN_PROVIDER_CONFIG['openai-codex'];
+    assert.equal(url.origin + url.pathname, shared.authorizationEndpoint);
+    assert.equal(url.searchParams.get('client_id'), shared.clientId);
+    assert.equal(url.searchParams.get('redirect_uri'), CODEX_OAUTH_CONFIG.redirectUri);
+    assert.equal(url.searchParams.get('state'), state);
   });
 
-  it('token exchange failures do not consume pending authorization or collapse into generic auth copy', async () => {
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    const completeStart = src.indexOf('async completeAuthorization(');
-    assert.ok(completeStart > 0, 'completeAuthorization must exist');
-    const completeRegion = src.slice(completeStart, completeStart + 2600);
-    const exchangeIdx = completeRegion.indexOf('exchangeCodeForTokens(parsed.code, verifier, parsed.state)');
-    const deleteIdx = completeRegion.indexOf('this.pending.delete(authRequestId)', exchangeIdx);
-    assert.ok(exchangeIdx > 0 && deleteIdx > exchangeIdx, 'pending authorization should be consumed only after token exchange succeeds');
-    assert.match(
-      completeRegion,
-      /failureFromError\('token_exchange_failed', err, '授权码已过期、已使用或与本次登录不匹配，请重新点击“登录订阅”获取新的授权码。'\)/,
-      'token exchange failures should tell the user to get a fresh authorization code, not surface generic 鉴权失败',
+  it('does not retain provider response details in typed exchange errors', async () => {
+    const providerDetail = 'authorization code belongs to private account';
+    await assert.rejects(
+      exchangeOAuthAuthorizationCode({
+        provider: 'claude-subscription',
+        code: 'authorization-code',
+        verifier: 'v'.repeat(43),
+        state: 's'.repeat(43),
+        signal: new AbortController().signal,
+        fetchFn: async () => new Response(JSON.stringify({
+          error: 'invalid_grant',
+          error_description: providerDetail,
+        }), { status: 400 }),
+      }),
+      (error) => {
+        assert.ok(error instanceof OAuthTokenEndpointError);
+        assert.equal(error.category, 'invalid_grant');
+        assert.equal(error.status, 400);
+        assert.doesNotMatch(error.message, new RegExp(providerDetail));
+        assert.equal('body' in error, false);
+        return true;
+      },
     );
-    assert.match(
-      src,
-      /class ClaudeTokenExchangeError extends Error[\s\S]*readonly status: number/,
-      'token endpoint non-2xx responses should be typed before mapping to user copy',
-    );
-  });
-
-  it('OAuth token endpoint UA matches the claude-cli/X.Y.Z shape Anthropic accepts (PR-CLAUDE-CARD-MOVE-0)', async () => {
-    // WAWQAQ msg a62a4c1c reported "Authorization failed / Invalid
-    // request format" after login. Root cause was that the OAuth
-    // token endpoint (https://platform.claude.com/v1/oauth/token)
-    // rejected our `maka-desktop/0.1.0 (oauth-subscription)` UA. The
-    // The upstream Claude Code OAuth path sends
-    // `claude-cli/X.Y.Z (external, cli)`. This is distinct from the
-    // SEND-PATH cloak UA tested above; OAuth must use this UA
-    // unconditionally for the endpoint to accept the request.
-    const src = await readFile(SERVICE_SOURCE, 'utf8');
-    assert.match(
-      src,
-      /OAUTH_USER_AGENT\s*=\s*`claude-cli\/\$\{CLAUDE_SUBSCRIPTION_PRODUCT_VERSION\}\s+\(external,\s*cli\)`/,
-      'OAuth UA constant must match claude-cli/X.Y.Z (external, cli) shape',
-    );
-    assert.match(
-      src,
-      /CLAUDE_SUBSCRIPTION_PRODUCT_VERSION\s*=\s*'2\.1\.153'/,
-      'OAuth UA product version should track the current installed Claude Code OAuth contract',
-    );
-    assert.doesNotMatch(
-      src,
-      /'maka-desktop\/[^']*\(oauth-subscription\)'/,
-      'OAuth UA must NOT advertise maka-desktop — Anthropic rejects non-claude-cli UAs',
-    );
-    // Every OAuth-related fetch (token exchange, usage, profile)
-    // must reference the OAUTH_USER_AGENT constant, not any inline
-    // literal. Refresh lives in the runtime's shared refresher
-    // (subscription-credentials.ts), which pins the same UA.
-    const uaUses = src.match(/'User-Agent':\s*\w+/g) ?? [];
-    assert.ok(uaUses.length >= 3,
-      `expected at least 3 OAuth fetches to set User-Agent (token / usage / profile), got ${uaUses.length}`);
-    for (const u of uaUses) {
-      assert.match(u, /OAUTH_USER_AGENT/, `${u} must reference the OAUTH_USER_AGENT constant`);
-    }
   });
 });

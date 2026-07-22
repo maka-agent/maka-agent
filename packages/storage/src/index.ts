@@ -2,6 +2,7 @@ export * from './session-store.js';
 export * from './agent-run-store.js';
 export * from './shell-run-store.js';
 export * from './connection-store.js';
+export * from './interaction-store.js';
 // Narrow public surface: only the typed store + the one-time migration. The
 // file lock and atomic writer stay internal so callers can't bypass the
 // CredentialStore contract and drive the low-level lock directly.
@@ -18,9 +19,13 @@ export type {
 } from './credential-store.js';
 export * from './settings-store.js';
 export * from './telemetry-repo.js';
+export * from './memory-store.js';
+export * from './pricing-store.js';
+export * from './usage-stores.js';
 export * from './artifact-store.js';
 export * from './artifact-attachments.js';
 export * from './provider-request-capture-artifact.js';
+export * from './artifact-stores.js';
 export * from './plan-reminder-store.js';
 export * from './plan-store.js';
 export * from './task-ledger-store.js';
@@ -28,6 +33,7 @@ export * from './foreign-session-store.js';
 export * from './deep-research-store.js';
 export * from './agent-mailbox-store.js';
 export * from './config-transfer.js';
+export * from './embedded-automation-store.js';
 export * from './automation-store.js';
 export * from './sqlite-runtime-store.js';
 export * from './runtime-event-transfer.js';

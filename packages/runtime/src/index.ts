@@ -37,6 +37,63 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 export { renderSwarmModePrompt } from './swarm-mode.js';
+export {
+  RuntimeInteractionAdmissionRejectedError,
+  RuntimeInteractionClosedError,
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+} from './interaction-authority.js';
+export { RuntimeMessageAuthorityInvariantError } from './message-authority.js';
+export {
+  COMPOSITION_SUCCESSOR_EFFECTS_ISOLATED,
+  EMBEDDED_RUNTIME_EXECUTION,
+  RUNTIME_BIND_HOSTED_RUN,
+  RUNTIME_EXECUTION_SETTLED,
+} from './run-execution.js';
+export {
+  classifyRuntimeLifecycleError,
+  isRuntimeLifecycleAdmission,
+  isRuntimeLifecycleAdmissionOrFatal,
+  isRuntimeLifecycleClosure,
+  isRuntimeLifecycleControlError,
+  isRuntimeLifecycleFatal,
+} from './runtime-lifecycle-errors.js';
+export type {
+  RuntimeCompositionSuccessorEffectsIsolated,
+  RuntimeBackendExecutionCapability,
+  RuntimeExecutionCapability,
+  RuntimeExecutionDrainHandle,
+  RuntimeHostedBackend,
+  RuntimeHostedBackendRunBinding,
+  RuntimeHostedRunControl,
+  RuntimeInteractionFailStopHandle,
+  RuntimeExecutionSettled,
+  RuntimeSuccessorEffectKind,
+  RuntimeSuccessorEffectIsolationCause,
+} from './run-execution.js';
+export type {
+  RuntimeInteractionAdmissionRejectionReason,
+  RuntimeInteractionAuthority,
+  RuntimeInteractionContinuationAuthority,
+  RuntimeInteractionClosureReason,
+  RuntimeInteractionContinuationIdentity,
+  RuntimeInteractionFatalError,
+  RuntimeInteractionRunClosureReason,
+  RuntimeInteractionRunFacet,
+  RuntimeInteractionRunIdentity,
+  RuntimeInteractionRunOwner,
+  RuntimePermissionAnswer,
+  RuntimePermissionContinuation,
+  RuntimePermissionOutcome,
+  RuntimeUserQuestionAnswer,
+  RuntimeUserQuestionContinuation,
+  RuntimeUserQuestionOutcome,
+} from './interaction-authority.js';
+export type {
+  RuntimeMessageAuthority,
+  RuntimeMessageRunIdentity,
+  RuntimeMessageRunOwner,
+} from './message-authority.js';
 
 export {
   MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
@@ -128,7 +185,11 @@ export type {
   ProviderRequestCaptureRecorderInput,
   ProviderRequestUsage,
 } from './provider-request-telemetry.js';
-export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export type {
+  MakaTool,
+  MakaToolContext,
+  MakaToolExecutionReservation,
+} from './tool-runtime.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
@@ -190,7 +251,40 @@ export type {
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
-export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
+export { buildComputerUseTools, adaptToCuAction, CuBackendError } from './computer-use-tools.js';
+export {
+  BrowserBackendError,
+  boundBrowserSnapshotForWire,
+  buildBrowserTools,
+  MAX_BROWSER_ADDRESS_INPUT_CHARS,
+  MAX_BROWSER_SELECTOR_CHARS,
+  MAX_BROWSER_SNAPSHOT_CHARS,
+  MAX_BROWSER_SNAPSHOT_ELEMENTS,
+  MAX_BROWSER_TYPE_TEXT_UTF8_BYTES,
+  MAX_BROWSER_URL_CHARS,
+  MAX_BROWSER_WAIT_TEXT_UTF8_BYTES,
+} from './browser-tools.js';
+export type {
+  BrowserBackend,
+  BrowserBackendOperations,
+  BrowserBackendAffinity,
+  BrowserBackendErrorCode,
+  BrowserBackendInvocation,
+  BrowserBackendInvocationAcquisition,
+  BrowserBackendInvocationProvider,
+  BrowserClickResult,
+  BrowserExtractResult,
+  BrowserInvocationContext,
+  BrowserNavigateResult,
+  BrowserSnapshotElement,
+  BrowserSnapshotResult,
+  BrowserTakeoverInfo,
+  BrowserTarget,
+  BrowserToolSet,
+  BrowserTurnIdentity,
+  BrowserTypeResult,
+  BrowserWaitCondition,
+} from './browser-tools.js';
 export {
   convertOpenAIComputerAction,
   openAIComputerActionSchema,
@@ -233,6 +327,11 @@ export {
 export type { OpenAIResponsesTransportOptions } from './openai-responses-transport.js';
 export type {
   ComputerUseToolSet,
+  CuBackendAffinity,
+  CuBackendInvocation,
+  CuBackendInvocationAcquisition,
+  CuBackendInvocationContext,
+  CuBackendInvocationProvider,
   CuAppSummary,
   CuDispatchBackend,
   CuDispatchEvidence,
@@ -318,6 +417,7 @@ export type {
   ShellRunWriteInput,
 } from './shell-run-contract.js';
 export { ShellRunProcessManager } from './shell-run-manager.js';
+export { projectPtyOutputForModel } from './shell-run-tool-result.js';
 export type { ShellRunUpdate } from '@maka/core';
 export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
@@ -636,6 +736,21 @@ export type {
   ResolveAndPersistOAuthSubscriptionTokensInput,
   ResolveOAuthSubscriptionAccessTokenInput,
 } from './subscription-credentials.js';
+export {
+  OAUTH_LOGIN_PROVIDER_CONFIG,
+  OAuthTokenEndpointError,
+  buildOAuthLoginAuthorization,
+  exchangeOAuthAuthorizationCode,
+  isDeterministicOAuthCredentialRejection,
+} from './oauth-login.js';
+export type {
+  ExchangeOAuthAuthorizationCodeInput,
+  OAuthLoginAuthorization,
+  OAuthLoginAuthorizationInput,
+  OAuthLoginPresentationKind,
+  OAuthLoginProvider,
+  OAuthTokenEndpointErrorCategory,
+} from './oauth-login.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';
 export type { SubscriptionModelFetchInput } from './subscription-model-fetch.js';
 export { extractCodexAccountId, openAiCodexHeaders } from './subscription-auth.js';
@@ -893,6 +1008,9 @@ export {
   testWechatIlinkCredentials,
   WechatBridge,
 } from './bots/index.js';
+export { createProxiedFetchTransport } from './bots/proxied-fetch.js';
+export type { ProxiedFetchProxy, ProxiedFetchTransport } from './bots/proxied-fetch.js';
+export { TOKEN_REFRESH_SKEW_MS, isModelExplicitlyUnsupportedForChat } from '@maka/core';
 export { setActiveProxy, resolveActiveProxy } from './network/active-proxy-state.js';
 export type {
   BotBridge,
@@ -982,6 +1100,7 @@ export type {
 } from './runtime-read-model.js';
 export { RuntimeKernel } from './runtime-kernel.js';
 export type {
+  ChildTurnStartOptions,
   RuntimeKernelDeps,
   RuntimeKernelLike,
   TurnStartOptions,
@@ -1001,10 +1120,13 @@ export {
 export type {
   AgentRunInspectDiagnostic,
   AgentRunInspectDiagnosticCode,
+  AgentRunInspectReader,
   AgentRunInspectModel,
   AgentRunInspectProjectionSummary,
   AgentRunInspectSourceHealth,
   InspectAgentRunOptions,
+  RuntimeEventInspectReader,
+  SessionAgentRunInspectReader,
 } from './agent-run-inspect.js';
 
 // execution-inspect.ts — payload-safe, versioned CLI inspection documents.
@@ -1139,6 +1261,7 @@ export type {
 // tool-catalog-derive.ts — HostCapabilities + deferred groups from catalog ∩ binding (#1099).
 export {
   assertProductBindingCatalogClean,
+  buildDeferredToolGroupsFromBinding,
   buildDeferredToolGroupsFromCatalog,
   buildHostCapabilitiesFromBinding,
 } from './tool-catalog-derive.js';
@@ -1198,8 +1321,26 @@ export {
   DEFER_WINDOW_MS,
 } from './automation-scheduler.js';
 export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
-export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
-export type { AutomationToolDeps } from './automation-tools.js';
+export {
+  buildAutomationTool,
+  buildAutomationToolFromService,
+  AUTOMATION_TOOL_NAME,
+} from './automation-tools.js';
+export type { AutomationServiceToolDeps, AutomationToolDeps } from './automation-tools.js';
+export { createAutomationManagerToolService } from './automation-tool-service.js';
+export type {
+  AutomationManagerToolServiceDeps,
+  AutomationToolByIdRequest,
+  AutomationToolCreateRequest,
+  AutomationToolCreateResult,
+  AutomationToolDeleteResult,
+  AutomationToolListRequest,
+  AutomationToolPauseResult,
+  AutomationToolProjection,
+  AutomationToolRequester,
+  AutomationToolResumeResult,
+  AutomationToolService,
+} from './automation-tool-service.js';
 export { evaluateAutomationCanFire, HEARTBEAT_IDLE_STATUSES } from './automation-can-fire.js';
 export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './automation-can-fire.js';
 
@@ -1224,6 +1365,7 @@ export {
   buildGoalEvaluationPrompt,
   parseGoalEvaluation,
   DEFAULT_EVALUATOR_TIMEOUT_MS,
+  GoalEvaluatorFatalError,
 } from './goal-evaluator.js';
 export type { GoalEvaluation, GoalEvaluatorDeps } from './goal-evaluator.js';
 export {
@@ -1250,6 +1392,7 @@ export type {
   GoalTaskGateDeps,
   GoalTaskGateTrace,
   GoalTurnAdmission,
+  GoalTurnIdentity,
   GoalTurnOutcome,
 } from './goal-continuation.js';
 export {
@@ -1275,8 +1418,10 @@ export {
   scanSkillsWithDiagnostics,
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
+  buildSkillsPromptFragmentFromScan,
   loadSkillInstructions,
   buildSkillAgentTool,
+  buildSkillAgentToolFromScan,
   SKILL_TOOL_NAME,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,
@@ -1326,3 +1471,5 @@ export type {
   SkillSourceResolver,
   SkillDiscoveryEntry,
 } from './skills.js';
+export { BUNDLED_SKILL_CATALOG, getBundledSkillSource } from './bundled-skill-catalog.js';
+export type { BundledSkillSource } from './bundled-skill-catalog.js';

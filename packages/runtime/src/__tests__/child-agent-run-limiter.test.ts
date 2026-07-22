@@ -303,6 +303,7 @@ function buildRuntime(
   const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
   permissionEngine.beginTurn('turn-1');
   return new ToolRuntime({
+    execution: { kind: 'embedded', getCurrentRunId: () => 'parent-run' },
     sessionId: 'session-1',
     header: testHeader(),
     connection: testConnection(),
@@ -312,7 +313,6 @@ function buildRuntime(
     newId: nextId(),
     now: () => 1,
     getPermissionPauseTarget: () => null,
-    getCurrentRunId: () => 'parent-run',
     spawnChildAgent,
   });
 }

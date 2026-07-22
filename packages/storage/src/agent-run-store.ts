@@ -24,23 +24,39 @@ import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js
 import { chainWrite } from './write-queue.js';
 import {
   DurableStoreWriteError,
+  TOOL_BOUNDARY_PROTOCOL_V1,
+  decodeMessageContent,
+  isAttachmentRef,
   isTerminalRuntimeEvent,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_COUNT,
+  messageContentsEqual,
   type AgentRunEvent,
   type AgentRunEventType,
   type AgentRunHeader,
   type AgentRunStore,
+  type MessageContent,
   type RuntimeEvent,
   type RuntimeEventStore,
+  type ToolRecoveryMode,
+  type TurnOrigin,
 } from '@maka/core';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
-export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 1 as const;
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 5 as const;
+export const ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES = 64;
+export const ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES = 64 * 1024;
+const ROOT_TURN_ADMISSION_MAX_AGGREGATED_ATTACHMENTS =
+  ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES * MAX_ATTACHMENT_COUNT;
 
-export interface RootTurnAdmissionInput {
-  text: string;
+export interface RootTurnSourceMessage {
+  messageId: string;
+  content: MessageContent;
+  placement: 'current_turn' | 'next_turn';
+  disposition: 'steering' | 'followup' | 'turn_started';
 }
 
 export interface RootTurnAdmission {
@@ -49,7 +65,10 @@ export interface RootTurnAdmission {
   turnId: string;
   runId: string;
   userMessageId: string;
-  normalizedInput: RootTurnAdmissionInput;
+  previousRootTurnId: string | null;
+  normalizedInput: MessageContent;
+  sourceMessages: readonly RootTurnSourceMessage[];
+  origin?: TurnOrigin;
   admittedAt: number;
 }
 
@@ -58,8 +77,16 @@ export interface AdmitRootTurnInput {
   turnId: string;
   proposedRunId: string;
   proposedUserMessageId: string;
-  normalizedInput: RootTurnAdmissionInput;
+  previousRootTurnId: string | null;
+  normalizedInput: MessageContent;
+  sourceMessages: readonly RootTurnSourceMessage[];
+  origin?: TurnOrigin;
   admittedAt: number;
+}
+
+export interface RootTurnSourceMessageReceipt {
+  admission: RootTurnAdmission;
+  sourceMessage: RootTurnSourceMessage;
 }
 
 export type AdmitRootTurnResult =
@@ -70,6 +97,10 @@ export type AdmitRootTurnResult =
 export interface RootTurnAdmissionStore {
   admitRootTurn(input: AdmitRootTurnInput): Promise<AdmitRootTurnResult>;
   readRootTurnAdmission(sessionId: string, turnId: string): Promise<RootTurnAdmission | undefined>;
+  readRootTurnSourceMessageReceipt(
+    sessionId: string,
+    sourceMessageId: string,
+  ): Promise<RootTurnSourceMessageReceipt | undefined>;
   listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]>;
 }
 
@@ -88,7 +119,36 @@ export interface DurableAgentRunStore extends AgentRunStore, RootTurnAdmissionSt
   ): Promise<void>;
 }
 
-export interface DurableRuntimeEventStore extends RuntimeEventStore {
+export interface FileToolPreparedCommit {
+  operationId: string;
+  journalEventId: string;
+  runtimeEvent: RuntimeEvent;
+  dispatchRuntimeEvent: RuntimeEvent;
+  providerToolCallId: string;
+  toolName: string;
+  canonicalArgsHash: string;
+  recoveryMode: ToolRecoveryMode;
+  committedAt: number;
+}
+
+export interface FileToolOutcomeCommit {
+  operationId: string;
+  journalEventId: string;
+  runtimeEvent: RuntimeEvent;
+  committedAt: number;
+}
+
+export interface FileRuntimeCommitResult {
+  created: boolean;
+  runtimeEventSeq: number;
+}
+
+export interface FileRuntimeCommitSink {
+  commitToolPrepared(input: FileToolPreparedCommit): Promise<FileRuntimeCommitResult>;
+  commitToolOutcome(input: FileToolOutcomeCommit): Promise<FileRuntimeCommitResult>;
+}
+
+export interface DurableRuntimeEventStore extends RuntimeEventStore, FileRuntimeCommitSink {
   readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
 }
 
@@ -153,19 +213,32 @@ class FileAgentRunStore implements DurableAgentRunStore {
     assertSafeId(input.turnId, 'Invalid turn id');
     assertSafeId(input.proposedRunId, 'Invalid run id');
     assertSafeId(input.proposedUserMessageId, 'Invalid user message id');
-    const normalizedInput = normalizeRootTurnAdmissionInput(input.normalizedInput);
+    if (input.previousRootTurnId !== null) {
+      assertSafeId(input.previousRootTurnId, 'Invalid previous root turn id');
+      if (input.previousRootTurnId === input.turnId) {
+        throw new Error('Root turn admission cannot reference itself');
+      }
+    }
+    const { normalizedInput, sourceMessages } = normalizeRootTurnAdmissionPayload(
+      input.normalizedInput,
+      input.sourceMessages,
+    );
+    const origin = normalizeRootTurnOrigin(input.origin);
     if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
       throw new Error('Invalid root turn admission timestamp');
     }
-    const admission: RootTurnAdmission = {
+    const admission = deepFreezeRootTurnAdmission({
       schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
       sessionId: input.sessionId,
       turnId: input.turnId,
       runId: input.proposedRunId,
       userMessageId: input.proposedUserMessageId,
+      previousRootTurnId: input.previousRootTurnId,
       normalizedInput,
+      sourceMessages,
+      ...(origin ? { origin } : {}),
       admittedAt: input.admittedAt,
-    };
+    });
     const path = this.rootTurnAdmissionPath(input.sessionId, input.turnId);
     const created = await writeExclusiveAtomic(
       path,
@@ -176,7 +249,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
     if (created) return { kind: 'admitted', admission };
     const existing = await this.readRootTurnAdmission(input.sessionId, input.turnId);
     if (!existing) throw new Error(`Root turn admission disappeared: ${input.turnId}`);
-    return existing.normalizedInput.text === normalizedInput.text
+    return rootTurnAdmissionPayloadsEqual(existing, admission)
       ? { kind: 'existing', admission: existing }
       : { kind: 'conflict', admission: existing };
   }
@@ -195,6 +268,46 @@ class FileAgentRunStore implements DurableAgentRunStore {
       throw error;
     }
     return normalizeRootTurnAdmission(JSON.parse(raw), sessionId, turnId);
+  }
+
+  async readRootTurnSourceMessageReceipt(
+    sessionId: string,
+    sourceMessageId: string,
+  ): Promise<RootTurnSourceMessageReceipt | undefined> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(sourceMessageId, 'Invalid source message id');
+    const admissionsRoot = this.rootTurnAdmissionsRoot(sessionId);
+    let entries;
+    try {
+      entries = await readdir(admissionsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+
+    let receipt: RootTurnSourceMessageReceipt | undefined;
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        throw new Error(`Invalid root turn admission entry: ${entry.name}`);
+      }
+      const turnId = turnIdFromAdmissionFile(entry.name);
+      if (!turnId) {
+        if (isRootTurnAdmissionTemp(entry.name)) continue;
+        throw new Error(`Invalid root turn admission entry: ${entry.name}`);
+      }
+      const admission = (await this.readRootTurnAdmission(sessionId, turnId)) as RootTurnAdmission;
+      const sourceMessage = admission.sourceMessages.find(
+        (source) => source.messageId === sourceMessageId,
+      );
+      if (!sourceMessage) continue;
+      if (receipt) {
+        throw new Error(
+          `Ambiguous root turn source message receipt for session ${sessionId}: ${sourceMessageId}`,
+        );
+      }
+      receipt = Object.freeze({ admission, sourceMessage });
+    }
+    return receipt;
   }
 
   async listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]> {
@@ -226,9 +339,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       throw new Error(`Invalid root turn admission entry: ${entry.name}`);
     }
     if (removedStagingFile) await syncDirectory(admissionsRoot);
-    return admissions.sort(
-      (a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId),
-    );
+    return orderRootTurnAdmissionChain(sessionId, admissions);
   }
 
   async updateRun(
@@ -712,20 +823,100 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
         }
         return;
       }
-      await appendJsonl(
-        this.runtimeEventsPath(sessionId, runId),
-        JSON.stringify(event, sanitizeJson) + '\n',
-        { ...options, durabilityRoot: this.durabilityRoot },
-      );
-      const completedPartialKey = completedPartialRuntimeStreamKey(event);
-      if (completedPartialKey) {
-        await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), {
-          force: true,
-        }).catch(() => {
-          // The immutable final is already durable. Reads suppress any stale snapshot.
-        });
+      const path = this.runtimeEventsPath(sessionId, runId);
+      if (isToolBoundaryShapedRuntimeEvent(event)) {
+        const immutableEvents = await readRuntimeEventJsonl(
+          path,
+          await this.readRunHeader(sessionId, runId),
+        );
+        const canonical = JSON.parse(JSON.stringify(event, sanitizeJson)) as RuntimeEvent;
+        if (reconcileOrdinaryBoundaryAppend(immutableEvents, canonical) === 'noop') {
+          await this.cleanupCompletedRuntimePartial(sessionId, runId, canonical);
+          return;
+        }
       }
+      await appendJsonl(path, JSON.stringify(event, sanitizeJson) + '\n', {
+        ...options,
+        durabilityRoot: this.durabilityRoot,
+      });
+      await this.cleanupCompletedRuntimePartial(sessionId, runId, event);
     });
+  }
+
+  async commitToolPrepared(input: FileToolPreparedCommit): Promise<FileRuntimeCommitResult> {
+    assertFilePreparedInput(input);
+    const { sessionId, runId } = input.runtimeEvent;
+    let result: FileRuntimeCommitResult | undefined;
+    await this.withQueue(sessionId, runId, async () => {
+      const header = await this.readRunHeader(sessionId, runId);
+      const call = canonicalRuntimeEvent(input.runtimeEvent, header);
+      const dispatch = canonicalRuntimeEvent(input.dispatchRuntimeEvent, header);
+      const path = this.runtimeEventsPath(sessionId, runId);
+      const events = await readRuntimeEventJsonl(path, header);
+      const callSeq = findPreparedCallSequence(events, input, call);
+      const dispatchSeq = findPreparedDispatchSequence(events, input, dispatch);
+
+      if (dispatchSeq !== undefined) {
+        if (callSeq === undefined || callSeq >= dispatchSeq) {
+          throw new Error(`Tool operation ${input.operationId} has a dispatch without its call`);
+        }
+        await syncRuntimeEventLedgerDurably(
+          path,
+          this.durabilityRoot,
+          `Tool operation ${input.operationId} T1 did not reach stable storage`,
+        );
+        result = { created: false, runtimeEventSeq: dispatchSeq };
+        return;
+      }
+      if (hasOutcomeForIdentity(events, input.operationId, input.providerToolCallId)) {
+        throw new Error(`Tool operation identity conflict for ${input.operationId}`);
+      }
+
+      const appended = callSeq === undefined ? [call, dispatch] : [dispatch];
+      await appendJsonl(
+        path,
+        appended.map((event) => JSON.stringify(event, sanitizeJson)).join('\n') + '\n',
+        { durable: true, durabilityRoot: this.durabilityRoot },
+      );
+      result = { created: true, runtimeEventSeq: events.length + appended.length };
+    });
+    if (!result) throw new Error(`Tool operation ${input.operationId} did not commit`);
+    return result;
+  }
+
+  async commitToolOutcome(input: FileToolOutcomeCommit): Promise<FileRuntimeCommitResult> {
+    assertFileOutcomeInput(input);
+    const { sessionId, runId } = input.runtimeEvent;
+    let result: FileRuntimeCommitResult | undefined;
+    await this.withQueue(sessionId, runId, async () => {
+      const header = await this.readRunHeader(sessionId, runId);
+      const response = canonicalRuntimeEvent(input.runtimeEvent, header);
+      const path = this.runtimeEventsPath(sessionId, runId);
+      const events = await readRuntimeEventJsonl(path, header);
+      const dispatchSeq = assertOutcomeDispatchIdentity(events, input, response);
+      const responseSeq = findOutcomeResponseSequence(events, input, response);
+      if (responseSeq !== undefined) {
+        if (responseSeq <= dispatchSeq) {
+          throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
+        }
+        await syncRuntimeEventLedgerDurably(
+          path,
+          this.durabilityRoot,
+          `Tool operation ${input.operationId} T2 did not reach stable storage`,
+        );
+        await this.cleanupCompletedRuntimePartial(sessionId, runId, response);
+        result = { created: false, runtimeEventSeq: responseSeq };
+        return;
+      }
+      await appendJsonl(path, JSON.stringify(response, sanitizeJson) + '\n', {
+        durable: true,
+        durabilityRoot: this.durabilityRoot,
+      });
+      await this.cleanupCompletedRuntimePartial(sessionId, runId, response);
+      result = { created: true, runtimeEventSeq: events.length + 1 };
+    });
+    if (!result) throw new Error(`Tool operation ${input.operationId} outcome did not commit`);
+    return result;
   }
 
   async ensureTerminalRuntimeEventDurable(
@@ -910,6 +1101,20 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     return partials;
   }
 
+  private async cleanupCompletedRuntimePartial(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    const completedPartialKey = completedPartialRuntimeStreamKey(event);
+    if (!completedPartialKey) return;
+    await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), {
+      force: true,
+    }).catch(() => {
+      // The immutable final is already durable. Reads suppress any stale snapshot.
+    });
+  }
+
   private withQueue(
     sessionId: string,
     runId: string,
@@ -918,6 +1123,356 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
+  }
+}
+
+function canonicalRuntimeEvent(event: RuntimeEvent, expected: AgentRunHeader): RuntimeEvent {
+  return decodeRuntimeEvent(JSON.parse(JSON.stringify(event, sanitizeJson)), expected);
+}
+
+function assertFilePreparedInput(input: FileToolPreparedCommit): void {
+  const content = input.runtimeEvent.content;
+  if (
+    content?.kind !== 'function_call' ||
+    input.runtimeEvent.partial ||
+    isTerminalRuntimeEvent(input.runtimeEvent)
+  ) {
+    throw new Error('T1 requires a final non-terminal function_call RuntimeEvent');
+  }
+  if (content.id !== input.providerToolCallId || content.name !== input.toolName) {
+    throw new Error('T1 RuntimeEvent identity does not match the tool operation');
+  }
+  const dispatch = input.dispatchRuntimeEvent.actions?.toolDispatch;
+  if (
+    !dispatch ||
+    dispatch.protocol !== TOOL_BOUNDARY_PROTOCOL_V1 ||
+    input.dispatchRuntimeEvent.content !== undefined ||
+    input.dispatchRuntimeEvent.partial ||
+    isTerminalRuntimeEvent(input.dispatchRuntimeEvent) ||
+    dispatch.operationId !== input.operationId ||
+    dispatch.providerToolCallId !== input.providerToolCallId ||
+    dispatch.toolName !== input.toolName ||
+    dispatch.canonicalArgsHash !== input.canonicalArgsHash ||
+    dispatch.recoveryMode !== input.recoveryMode ||
+    input.runtimeEvent.refs?.operationId !== input.operationId ||
+    input.runtimeEvent.refs?.toolCallId !== input.providerToolCallId ||
+    input.dispatchRuntimeEvent.refs?.operationId !== input.operationId ||
+    input.dispatchRuntimeEvent.refs?.toolCallId !== input.providerToolCallId
+  ) {
+    throw new Error('T1 requires a matching tool-dispatch RuntimeEvent');
+  }
+  assertSameFileRuntimeIdentity(input.runtimeEvent, input.dispatchRuntimeEvent, 'T1');
+}
+
+function assertFileOutcomeInput(input: FileToolOutcomeCommit): void {
+  const content = input.runtimeEvent.content;
+  if (
+    content?.kind !== 'function_response' ||
+    input.runtimeEvent.partial ||
+    isTerminalRuntimeEvent(input.runtimeEvent)
+  ) {
+    throw new Error('T2 requires a final non-terminal function_response RuntimeEvent');
+  }
+  if (
+    input.runtimeEvent.refs?.operationId !== input.operationId ||
+    input.runtimeEvent.refs?.toolCallId !== content.id
+  ) {
+    throw new Error(
+      'T2 requires operation and tool-call refs on the function_response RuntimeEvent',
+    );
+  }
+}
+
+function reconcileOrdinaryBoundaryAppend(
+  events: readonly RuntimeEvent[],
+  candidate: RuntimeEvent,
+): 'append' | 'noop' {
+  const candidateIdentity = toolBoundaryIdentityClaims(candidate);
+  const dispatchEvents: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  const dispatchMatches: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  const sameIdOperationIds = new Set<string>();
+  const sameIdToolCallIds = new Set<string>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    const dispatch = event.actions?.toolDispatch;
+    if (dispatch) {
+      const entry = { event, sequence: index + 1 };
+      dispatchEvents.push(entry);
+      if (
+        event.id === candidate.id ||
+        candidateIdentity.operationIds.has(dispatch.operationId) ||
+        candidateIdentity.toolCallIds.has(dispatch.providerToolCallId)
+      ) {
+        dispatchMatches.push(entry);
+      }
+    }
+    if (event.id === candidate.id && isToolBoundaryShapedRuntimeEvent(event)) {
+      const identity = toolBoundaryIdentityClaims(event);
+      for (const operationId of identity.operationIds) sameIdOperationIds.add(operationId);
+      for (const toolCallId of identity.toolCallIds) sameIdToolCallIds.add(toolCallId);
+    }
+  }
+  if (dispatchMatches.length === 0) {
+    const sameIdCommittedBoundary = dispatchEvents.some(({ event }) => {
+      const dispatch = event.actions?.toolDispatch;
+      return (
+        dispatch !== undefined &&
+        (sameIdOperationIds.has(dispatch.operationId) ||
+          sameIdToolCallIds.has(dispatch.providerToolCallId))
+      );
+    });
+    if (sameIdCommittedBoundary) throw ordinaryBoundaryConflict(candidate);
+    if (candidate.actions?.toolDispatch) {
+      throw new Error('Ordinary RuntimeEvent append cannot create a tool dispatch boundary');
+    }
+    return 'append';
+  }
+  if (dispatchMatches.length !== 1) throw ordinaryBoundaryConflict(candidate);
+
+  const dispatchMatch = dispatchMatches[0]!;
+  const dispatch = dispatchMatch.event.actions?.toolDispatch;
+  if (!dispatch) throw ordinaryBoundaryConflict(candidate);
+  const calls: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  const responses: Array<{ event: RuntimeEvent; sequence: number }> = [];
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    const content = event.content;
+    if (
+      content?.kind === 'function_call' &&
+      (content.id === dispatch.providerToolCallId ||
+        event.refs?.operationId === dispatch.operationId ||
+        event.refs?.toolCallId === dispatch.providerToolCallId)
+    ) {
+      calls.push({ event, sequence: index + 1 });
+    } else if (
+      content?.kind === 'function_response' &&
+      (content.id === dispatch.providerToolCallId ||
+        event.refs?.operationId === dispatch.operationId ||
+        event.refs?.toolCallId === dispatch.providerToolCallId)
+    ) {
+      responses.push({ event, sequence: index + 1 });
+    }
+  }
+  const call = calls[0];
+  const response = responses[0];
+  if (
+    calls.length !== 1 ||
+    !call ||
+    call.sequence >= dispatchMatch.sequence ||
+    call.event.content?.kind !== 'function_call' ||
+    call.event.content.id !== dispatch.providerToolCallId ||
+    call.event.content.name !== dispatch.toolName ||
+    call.event.refs?.operationId !== dispatch.operationId ||
+    call.event.refs?.toolCallId !== dispatch.providerToolCallId ||
+    dispatchMatch.event.refs?.operationId !== dispatch.operationId ||
+    dispatchMatch.event.refs?.toolCallId !== dispatch.providerToolCallId ||
+    responses.length > 1 ||
+    (response !== undefined &&
+      (response.sequence <= dispatchMatch.sequence ||
+        response.event.content?.kind !== 'function_response' ||
+        response.event.content.id !== dispatch.providerToolCallId ||
+        response.event.content.name !== dispatch.toolName ||
+        response.event.refs?.operationId !== dispatch.operationId ||
+        response.event.refs?.toolCallId !== dispatch.providerToolCallId))
+  ) {
+    throw ordinaryBoundaryConflict(candidate);
+  }
+  assertSameFileRuntimeIdentity(call.event, dispatchMatch.event, 'Tool boundary');
+  if (response) assertSameFileRuntimeIdentity(dispatchMatch.event, response.event, 'Tool boundary');
+
+  if (
+    isDeepStrictEqual(candidate, call.event) ||
+    isDeepStrictEqual(candidate, dispatchMatch.event) ||
+    (response !== undefined && isDeepStrictEqual(candidate, response.event))
+  ) {
+    return 'noop';
+  }
+  throw ordinaryBoundaryConflict(candidate);
+}
+
+function isToolBoundaryShapedRuntimeEvent(event: RuntimeEvent): boolean {
+  return (
+    event.content?.kind === 'function_call' ||
+    event.content?.kind === 'function_response' ||
+    event.actions?.toolDispatch !== undefined
+  );
+}
+
+function toolBoundaryIdentityClaims(event: RuntimeEvent): {
+  operationIds: ReadonlySet<string>;
+  toolCallIds: ReadonlySet<string>;
+} {
+  const operationIds = new Set<string>();
+  const toolCallIds = new Set<string>();
+  if (event.refs?.operationId) operationIds.add(event.refs.operationId);
+  if (event.refs?.toolCallId) toolCallIds.add(event.refs.toolCallId);
+  const content = event.content;
+  if (content?.kind === 'function_call' || content?.kind === 'function_response') {
+    toolCallIds.add(content.id);
+  }
+  const dispatch = event.actions?.toolDispatch;
+  if (dispatch) {
+    operationIds.add(dispatch.operationId);
+    toolCallIds.add(dispatch.providerToolCallId);
+  }
+  return { operationIds, toolCallIds };
+}
+
+function ordinaryBoundaryConflict(event: RuntimeEvent): Error {
+  return new Error(`Ordinary RuntimeEvent tool boundary conflict for ${event.id}`);
+}
+
+async function syncRuntimeEventLedgerDurably(
+  path: string,
+  durabilityRoot: string,
+  message: string,
+): Promise<void> {
+  try {
+    await syncFile(path);
+    await syncDirectoryChain(dirname(path), durabilityRoot);
+  } catch (error) {
+    throw new DurableStoreWriteError(`${message}: ${path}`, error);
+  }
+}
+
+function findPreparedCallSequence(
+  events: readonly RuntimeEvent[],
+  input: FileToolPreparedCommit,
+  expected: RuntimeEvent,
+): number | undefined {
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(
+      ({ event }) =>
+        event.id === expected.id ||
+        (event.content?.kind === 'function_call' && event.content.id === input.providerToolCallId),
+    );
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1 || !isDeepStrictEqual(candidates[0]!.event, expected)) {
+    throw new Error(`Tool call identity conflict for ${input.providerToolCallId}`);
+  }
+  return candidates[0]!.sequence;
+}
+
+function findPreparedDispatchSequence(
+  events: readonly RuntimeEvent[],
+  input: FileToolPreparedCommit,
+  expected: RuntimeEvent,
+): number | undefined {
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(({ event }) => {
+      const dispatch = event.actions?.toolDispatch;
+      return (
+        event.id === expected.id ||
+        dispatch?.operationId === input.operationId ||
+        dispatch?.providerToolCallId === input.providerToolCallId
+      );
+    });
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1 || !isDeepStrictEqual(candidates[0]!.event, expected)) {
+    throw new Error(`Tool operation identity conflict for ${input.operationId}`);
+  }
+  return candidates[0]!.sequence;
+}
+
+function assertOutcomeDispatchIdentity(
+  events: readonly RuntimeEvent[],
+  input: FileToolOutcomeCommit,
+  response: RuntimeEvent,
+): number {
+  const content = response.content;
+  if (content?.kind !== 'function_response') throw new Error('Invalid T2 response');
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(({ event }) => {
+      const dispatch = event.actions?.toolDispatch;
+      return (
+        dispatch?.operationId === input.operationId || dispatch?.providerToolCallId === content.id
+      );
+    });
+  if (candidates.length === 0) throw new Error(`Unknown tool operation ${input.operationId}`);
+  const { event: dispatchEvent, sequence: dispatchSeq } = candidates[0]!;
+  const dispatch = dispatchEvent.actions?.toolDispatch;
+  if (
+    candidates.length !== 1 ||
+    !dispatch ||
+    dispatch.operationId !== input.operationId ||
+    dispatch.providerToolCallId !== content.id ||
+    dispatch.toolName !== content.name ||
+    dispatchEvent.refs?.operationId !== input.operationId ||
+    dispatchEvent.refs?.toolCallId !== content.id
+  ) {
+    throw new Error(`Tool operation outcome identity conflict for ${input.operationId}`);
+  }
+  assertSameFileRuntimeIdentity(dispatchEvent, response, 'T2');
+  const calls = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(
+      ({ event }) => event.content?.kind === 'function_call' && event.content.id === content.id,
+    );
+  const call = calls[0];
+  if (
+    calls.length !== 1 ||
+    !call ||
+    call.sequence >= dispatchSeq ||
+    call.event.content?.kind !== 'function_call' ||
+    call.event.content.name !== content.name ||
+    call.event.refs?.operationId !== input.operationId ||
+    call.event.refs?.toolCallId !== content.id
+  ) {
+    throw new Error(`Tool operation outcome identity conflict for ${input.operationId}`);
+  }
+  assertSameFileRuntimeIdentity(call.event, response, 'T2');
+  return dispatchSeq;
+}
+
+function hasOutcomeForIdentity(
+  events: readonly RuntimeEvent[],
+  operationId: string,
+  providerToolCallId: string,
+): boolean {
+  return events.some(
+    (event) =>
+      event.content?.kind === 'function_response' &&
+      (event.refs?.operationId === operationId || event.content.id === providerToolCallId),
+  );
+}
+
+function findOutcomeResponseSequence(
+  events: readonly RuntimeEvent[],
+  input: FileToolOutcomeCommit,
+  expected: RuntimeEvent,
+): number | undefined {
+  const content = expected.content;
+  if (content?.kind !== 'function_response') throw new Error('Invalid T2 response');
+  const candidates = events
+    .map((event, index) => ({ event, sequence: index + 1 }))
+    .filter(
+      ({ event }) =>
+        event.id === expected.id ||
+        (event.content?.kind === 'function_response' &&
+          (event.refs?.operationId === input.operationId || event.content.id === content.id)),
+    );
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1 || !isDeepStrictEqual(candidates[0]!.event, expected)) {
+    throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
+  }
+  return candidates[0]!.sequence;
+}
+
+function assertSameFileRuntimeIdentity(
+  first: RuntimeEvent,
+  second: RuntimeEvent,
+  boundary: string,
+): void {
+  if (
+    first.sessionId !== second.sessionId ||
+    first.invocationId !== second.invocationId ||
+    first.runId !== second.runId ||
+    first.turnId !== second.turnId
+  ) {
+    throw new Error(`${boundary} RuntimeEvents do not share one execution identity`);
   }
 }
 
@@ -1219,10 +1774,10 @@ function normalizeRootTurnAdmission(
   sessionId: string,
   turnId: string,
 ): RootTurnAdmission {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainRecord(value)) {
     throw new Error(`Invalid root turn admission for turn ${turnId}: expected an object`);
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const valid =
     record.schemaVersion === ROOT_TURN_ADMISSION_SCHEMA_VERSION &&
     record.sessionId === sessionId &&
@@ -1231,6 +1786,10 @@ function normalizeRootTurnAdmission(
     isSafeId(record.runId) &&
     typeof record.userMessageId === 'string' &&
     isSafeId(record.userMessageId) &&
+    (record.previousRootTurnId === null ||
+      (typeof record.previousRootTurnId === 'string' &&
+        isSafeId(record.previousRootTurnId) &&
+        record.previousRootTurnId !== turnId)) &&
     Number.isSafeInteger(record.admittedAt) &&
     (record.admittedAt as number) >= 0 &&
     hasExactKeys(record, [
@@ -1239,36 +1798,330 @@ function normalizeRootTurnAdmission(
       'turnId',
       'runId',
       'userMessageId',
+      'previousRootTurnId',
       'normalizedInput',
+      'sourceMessages',
+      ...(record.origin === undefined ? [] : ['origin']),
       'admittedAt',
     ]);
   if (!valid) {
     throw new Error(`Invalid root turn admission for turn ${turnId}: malformed fields`);
   }
-  return {
+  const { normalizedInput, sourceMessages } = normalizeRootTurnAdmissionPayload(
+    record.normalizedInput,
+    record.sourceMessages,
+  );
+  const origin = normalizeRootTurnOrigin(record.origin);
+  return deepFreezeRootTurnAdmission({
     schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
     sessionId,
     turnId,
     runId: record.runId as string,
     userMessageId: record.userMessageId as string,
-    normalizedInput: normalizeRootTurnAdmissionInput(record.normalizedInput),
+    previousRootTurnId: record.previousRootTurnId as string | null,
+    normalizedInput,
+    sourceMessages,
+    ...(origin ? { origin } : {}),
     admittedAt: record.admittedAt as number,
-  };
+  });
 }
 
-function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Invalid root turn normalized input: expected an object');
+function normalizeRootTurnOrigin(value: unknown): TurnOrigin | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainRecord(value)) throw new Error('Invalid root turn origin');
+  if (value.kind === 'automation') {
+    if (
+      typeof value.automationId !== 'string' ||
+      !isSafeId(value.automationId) ||
+      typeof value.fireId !== 'string' ||
+      !isSafeId(value.fireId) ||
+      !hasExactKeys(value, ['kind', 'automationId', 'fireId'])
+    ) {
+      throw new Error('Invalid root turn origin');
+    }
+    return Object.freeze({
+      kind: 'automation' as const,
+      automationId: value.automationId,
+      fireId: value.fireId,
+    });
   }
-  const record = value as Record<string, unknown>;
   if (
-    !hasExactKeys(record, ['text']) ||
-    typeof record.text !== 'string' ||
-    record.text.length === 0
+    value.kind === 'goal' &&
+    typeof value.goalId === 'string' &&
+    isSafeId(value.goalId) &&
+    hasExactKeys(value, ['kind', 'goalId'])
   ) {
-    throw new Error('Invalid root turn normalized input');
+    return Object.freeze({ kind: 'goal' as const, goalId: value.goalId });
   }
-  return { text: record.text };
+  throw new Error('Invalid root turn origin');
+}
+
+function orderRootTurnAdmissionChain(
+  sessionId: string,
+  admissions: readonly RootTurnAdmission[],
+): RootTurnAdmission[] {
+  if (admissions.length === 0) return [];
+  const byTurnId = new Map(admissions.map((admission) => [admission.turnId, admission]));
+  if (byTurnId.size !== admissions.length) {
+    throw new Error(`Session ${sessionId} has duplicate root turn admissions`);
+  }
+
+  for (const admission of admissions) {
+    const previous = admission.previousRootTurnId;
+    if (previous !== null && !byTurnId.has(previous)) {
+      throw new Error(
+        `Root turn admission ${admission.turnId} has missing predecessor ${previous}`,
+      );
+    }
+  }
+
+  assertAcyclicRootTurnAdmissions(sessionId, byTurnId);
+  const roots = admissions.filter((admission) => admission.previousRootTurnId === null);
+  if (roots.length !== 1) {
+    throw new Error(`Session ${sessionId} must have exactly one root turn admission root`);
+  }
+
+  const childByTurnId = new Map<string, RootTurnAdmission>();
+  for (const admission of admissions) {
+    const previous = admission.previousRootTurnId;
+    if (previous === null) continue;
+    const existing = childByTurnId.get(previous);
+    if (existing) {
+      throw new Error(
+        `Root turn admission ${previous} branches to ${existing.turnId} and ${admission.turnId}`,
+      );
+    }
+    childByTurnId.set(previous, admission);
+  }
+
+  const ordered: RootTurnAdmission[] = [];
+  let current: RootTurnAdmission | undefined = roots[0];
+  while (current) {
+    ordered.push(current);
+    current = childByTurnId.get(current.turnId);
+  }
+  if (ordered.length !== admissions.length) {
+    throw new Error(
+      `Session ${sessionId} root turn admission chain does not cover every admission`,
+    );
+  }
+  const tips = admissions.filter((admission) => !childByTurnId.has(admission.turnId));
+  if (tips.length !== 1 || tips[0] !== ordered.at(-1)) {
+    throw new Error(`Session ${sessionId} must have exactly one root turn admission tip`);
+  }
+  return ordered;
+}
+
+function assertAcyclicRootTurnAdmissions(
+  sessionId: string,
+  byTurnId: ReadonlyMap<string, RootTurnAdmission>,
+): void {
+  const complete = new Set<string>();
+  for (const admission of byTurnId.values()) {
+    const path = new Set<string>();
+    let current: RootTurnAdmission | undefined = admission;
+    while (current && !complete.has(current.turnId)) {
+      if (path.has(current.turnId)) {
+        throw new Error(`Session ${sessionId} root turn admission chain contains a cycle`);
+      }
+      path.add(current.turnId);
+      current =
+        current.previousRootTurnId === null ? undefined : byTurnId.get(current.previousRootTurnId);
+    }
+    for (const turnId of path) complete.add(turnId);
+  }
+}
+
+function normalizeRootTurnMessageContent(
+  value: unknown,
+  description: string,
+  maxAttachments: number,
+): MessageContent {
+  let normalized: MessageContent;
+  try {
+    normalized = decodeMessageContent(value);
+  } catch {
+    if (isPlainRecord(value) && Array.isArray(value.attachments)) {
+      const invalidAttachmentIndex = value.attachments.findIndex(
+        (attachment) => !isAttachmentRef(attachment),
+      );
+      if (invalidAttachmentIndex >= 0) {
+        throw new Error(`Invalid ${description} attachment at index ${invalidAttachmentIndex}`);
+      }
+    }
+    throw new Error(`Invalid ${description}`);
+  }
+  if (normalized.text.length === 0 || (normalized.attachments?.length ?? 0) > maxAttachments) {
+    throw new Error(`Invalid ${description}`);
+  }
+  for (const [index, attachment] of (normalized.attachments ?? []).entries()) {
+    const invalid =
+      attachment.name.length === 0 ||
+      attachment.mimeType.length === 0 ||
+      attachment.bytes > MAX_ATTACHMENT_BYTES ||
+      (attachment.ref.kind === 'session_file' && attachment.ref.sessionId.length === 0) ||
+      (attachment.ref.kind === 'external_file'
+        ? attachment.ref.absolutePath.length === 0
+        : attachment.ref.relativePath.length === 0);
+    if (invalid) throw new Error(`Invalid ${description} attachment at index ${index}`);
+  }
+  if (
+    Buffer.byteLength(JSON.stringify(normalized), 'utf8') > ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES
+  ) {
+    throw new Error(`Invalid ${description}: content exceeds size limit`);
+  }
+  deepFreezeRootTurnMessageContent(normalized);
+  return normalized;
+}
+
+function normalizeRootTurnAdmissionPayload(
+  normalizedInputValue: unknown,
+  sourceMessagesValue: unknown,
+): {
+  normalizedInput: MessageContent;
+  sourceMessages: readonly RootTurnSourceMessage[];
+} {
+  const sourceMessages = normalizeRootTurnSourceMessages(sourceMessagesValue);
+  const normalizedInputMaxAttachments =
+    sourceMessages.length > 1
+      ? ROOT_TURN_ADMISSION_MAX_AGGREGATED_ATTACHMENTS
+      : MAX_ATTACHMENT_COUNT;
+  const normalizedInput = normalizeRootTurnMessageContent(
+    normalizedInputValue,
+    'root turn normalized input',
+    normalizedInputMaxAttachments,
+  );
+  if (sourceMessages.length > 0) {
+    const sourceText = sourceMessages.map((source) => source.content.text).join('\n\n');
+    const sourceDisplayText = sourceMessages
+      .map((source) => source.content.displayText ?? source.content.text)
+      .join('\n\n');
+    const sourceAttachments = sourceMessages.flatMap((source) => source.content.attachments ?? []);
+    const expectedInput = normalizeRootTurnMessageContent(
+      {
+        text: sourceText,
+        ...(sourceDisplayText !== sourceText ? { displayText: sourceDisplayText } : {}),
+        ...(sourceAttachments.length > 0 ? { attachments: sourceAttachments } : {}),
+      },
+      'root turn aggregated source content',
+      normalizedInputMaxAttachments,
+    );
+    if (!messageContentsEqual(normalizedInput, expectedInput)) {
+      throw new Error('Root turn admission input content does not match source messages');
+    }
+  }
+  const turnStartedCount = sourceMessages.filter(
+    (source) => source.disposition === 'turn_started',
+  ).length;
+  if (turnStartedCount > 0 && (turnStartedCount !== 1 || sourceMessages.length !== 1)) {
+    throw new Error('Root turn admission turn_started source must be the only source message');
+  }
+  return { normalizedInput, sourceMessages };
+}
+
+function normalizeRootTurnSourceMessages(value: unknown): readonly RootTurnSourceMessage[] {
+  if (!Array.isArray(value) || value.length > ROOT_TURN_ADMISSION_MAX_SOURCE_MESSAGES) {
+    throw new Error('Invalid root turn source messages: expected a bounded array');
+  }
+  const messageIds = new Set<string>();
+  const normalized = value.map((item, index): RootTurnSourceMessage => {
+    if (
+      !isPlainRecord(item) ||
+      !hasExactKeys(item, ['messageId', 'content', 'placement', 'disposition'])
+    ) {
+      throw new Error(`Invalid root turn source message at index ${index}`);
+    }
+    const { messageId, content, placement, disposition } = item;
+    if (
+      typeof messageId !== 'string' ||
+      !isSafeId(messageId) ||
+      (placement !== 'current_turn' && placement !== 'next_turn') ||
+      (disposition !== 'steering' &&
+        disposition !== 'followup' &&
+        disposition !== 'turn_started') ||
+      (disposition === 'steering' && placement !== 'current_turn')
+    ) {
+      throw new Error(`Invalid root turn source message at index ${index}`);
+    }
+    const normalizedContent = normalizeRootTurnMessageContent(
+      content,
+      `root turn source message content at index ${index}`,
+      MAX_ATTACHMENT_COUNT,
+    );
+    if (messageIds.has(messageId)) {
+      throw new Error(`Duplicate root turn source message id: ${messageId}`);
+    }
+    messageIds.add(messageId);
+    return Object.freeze({
+      messageId,
+      content: normalizedContent,
+      placement,
+      disposition,
+    });
+  });
+  return Object.freeze(normalized);
+}
+
+function rootTurnAdmissionPayloadsEqual(
+  left: RootTurnAdmission,
+  right: RootTurnAdmission,
+): boolean {
+  return (
+    messageContentsEqual(left.normalizedInput, right.normalizedInput) &&
+    rootTurnOriginsEqual(left.origin, right.origin) &&
+    left.sourceMessages.length === right.sourceMessages.length &&
+    left.sourceMessages.every((source, index) => {
+      const other = right.sourceMessages[index];
+      return (
+        other !== undefined &&
+        source.messageId === other.messageId &&
+        source.placement === other.placement &&
+        source.disposition === other.disposition &&
+        messageContentsEqual(source.content, other.content)
+      );
+    })
+  );
+}
+
+function rootTurnOriginsEqual(
+  left: TurnOrigin | undefined,
+  right: TurnOrigin | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  if (left.kind === 'automation') {
+    return (
+      right.kind === 'automation' &&
+      left.automationId === right.automationId &&
+      left.fireId === right.fireId
+    );
+  }
+  return right.kind === 'goal' && left.goalId === right.goalId;
+}
+
+function deepFreezeRootTurnAdmission(admission: RootTurnAdmission): RootTurnAdmission {
+  deepFreezeRootTurnMessageContent(admission.normalizedInput);
+  for (const sourceMessage of admission.sourceMessages) {
+    deepFreezeRootTurnMessageContent(sourceMessage.content);
+    Object.freeze(sourceMessage);
+  }
+  if (admission.origin) Object.freeze(admission.origin);
+  Object.freeze(admission.sourceMessages);
+  return Object.freeze(admission);
+}
+
+function deepFreezeRootTurnMessageContent(content: MessageContent): void {
+  for (const attachment of content.attachments ?? []) {
+    Object.freeze(attachment.ref);
+    Object.freeze(attachment);
+  }
+  if (content.attachments) Object.freeze(content.attachments);
+  Object.freeze(content);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function turnIdFromAdmissionFile(name: string): string | undefined {

@@ -63,8 +63,12 @@ export class GoalTaskGatePolicy {
     if (plan.decision === 'reminder_injected') this.remindedGoalIds.add(goalId);
   }
 
-  record(trace: GoalTaskGateTrace): void {
+  async record(trace: GoalTaskGateTrace): Promise<void> {
     if (!this.deps?.recordDecision) return;
-    void this.deps.recordDecision(trace).catch(() => {});
+    try {
+      await this.deps.recordDecision(trace);
+    } catch {
+      // Tracing is best effort and cannot change a committed Goal decision.
+    }
   }
 }

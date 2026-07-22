@@ -119,6 +119,28 @@ export function buildAgentSwarmTool(
     permissionRequired: true,
     executionSemantics: 'exclusive_step',
     categoryHint: 'subagent',
+    prepareIntentArgs: (input) => ({
+      items: normalizeAgentSwarmItems(input).map((item) => {
+        const definition = requireBuiltinAgentDefinitionByProfile(item.profile);
+        return {
+          ...item,
+          profile: definition.profile,
+          write_back: item.write_back ?? definition.contract.defaultWriteBack,
+          isolation: item.isolation ?? definition.contract.workspace,
+        };
+      }),
+      ...(input.resume_run_ids
+        ? {
+            resume_run_ids: Object.fromEntries(
+              Object.entries(input.resume_run_ids).map(([sourceRunId, prompt]) => [
+                sourceRunId.trim(),
+                prompt.trim(),
+              ]),
+            ),
+          }
+        : {}),
+      max_concurrency: input.max_concurrency ?? AGENT_SWARM_DEFAULT_CONCURRENCY,
+    }),
     impl: async (input, ctx) => {
       const prepared = await prepareAgentSwarmInput(input, ctx);
       if (prepared.items.some((item) => item.mode === 'spawn') && !ctx.spawnChildAgent) {

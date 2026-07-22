@@ -1,9 +1,10 @@
 import type { SessionEvent, StoredMessage, UiLocale } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
-import { projectToolActivityArgs, toolResultActivityStatus } from '@maka/core';
+import { toolResultActivityStatus } from '@maka/core';
 import type { ToolActivityItem } from './materialize.js';
 import { applyThinkingComplete, applyThinkingDelta } from './thinking-stream.js';
 import { applyToolOutputChunk } from './tool-output-stream.js';
+import { projectToolReviewPresentation } from './tool-review-presentation.js';
 
 type LiveTurnContentEvent = Extract<SessionEvent, { type: 'thinking_delta' | 'thinking_complete' | 'text_delta' | 'text_complete' | 'tool_start' | 'tool_output_delta' | 'tool_result' | 'permission_request' | 'permission_decision_ack' }>;
 
@@ -176,10 +177,9 @@ export function applyLiveTurnEvent(
       toolName: event.toolName,
       ...(event.activityKind !== undefined ? { activityKind: event.activityKind } : {}),
       ...(event.displayName !== undefined ? { displayName: event.displayName } : {}),
-      ...(event.intent !== undefined ? { intent: event.intent } : {}),
       ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
       status: 'pending',
-      args: projectToolActivityArgs(event.toolName, event.args),
+      args: projectToolReviewPresentation(event.review),
     };
     const existingTool = existingToolStep?.tools.find((candidate) => candidate.toolUseId === event.toolUseId);
     const tool: ToolActivityItem = existingTool
@@ -235,18 +235,22 @@ export function applyLiveTurnEvent(
     };
   } else {
     const toolIndex = step.tools.findIndex((candidate) => candidate.toolUseId === event.toolUseId);
+    const permissionArgs = event.type === 'permission_request'
+      ? projectToolReviewPresentation(
+          event.kind === 'tool_permission' ? event.review : undefined,
+        )
+      : undefined;
     const base: ToolActivityItem = toolIndex >= 0
       ? step.tools[toolIndex]!
       : {
           toolUseId: event.toolUseId,
           toolName: event.type === 'permission_request' ? event.toolName : 'Tool',
           status: 'pending',
-          args: event.type === 'permission_request'
-            ? projectToolActivityArgs(event.toolName, event.args)
-            : undefined,
+          args: permissionArgs,
         };
     const tool: ToolActivityItem = {
       ...base,
+      ...(permissionArgs === undefined ? {} : { args: permissionArgs }),
       status: event.type === 'permission_request'
         ? 'waiting_permission'
         : event.decision === 'allow' ? 'running' : 'errored',
