@@ -31,6 +31,8 @@ describe('/compact routing contract', () => {
     assert.match(send, /return true;/);
     // non-compact text still goes through the normal send path
     assert.match(send, /const ok = await send\(text, pending, \{/);
+    assert.match(send, /\.\.\.\(skillIds\.length > 0 \? \{ skillIds \} : \{\}\)/);
+    assert.match(send, /\.\.\.\(quotes \? \{ quotes \} : \{\}\)/);
   });
 
   it('main sessions:compact IPC drives runtime.compactSession via streamEvents', async () => {

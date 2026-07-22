@@ -187,12 +187,14 @@ describe('permission response IPC boundary', () => {
         type: 'send',
         turnId: 'turn-swarm',
         text: 'inspect the repository',
+        skillIds: ['weekly-report'],
         turnOrchestration: { mode: 'swarm', source: 'slash_command', ignored: true },
       }),
       {
         type: 'send',
         turnId: 'turn-swarm',
         text: 'inspect the repository',
+        skillIds: ['weekly-report'],
         turnOrchestration: { mode: 'swarm', source: 'slash_command' },
       },
     );
