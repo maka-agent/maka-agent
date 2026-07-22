@@ -1271,18 +1271,6 @@ def _normalize_cli_env(env: dict[str, str]) -> None:
     provider = env.get("MAKA_PROVIDER") or env.get("MAKA_PROVIDER_TYPE")
     if provider:
         env.setdefault("MAKA_PROVIDER", provider)
-    host_api_key = env.get("MAKA_HOST_API_KEY")
-    host_api_key_env_name = env.get("MAKA_HOST_API_KEY_ENV_NAME")
-    if (
-        host_api_key
-        and host_api_key_env_name
-        and re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", host_api_key_env_name)
-    ):
-        env.setdefault(host_api_key_env_name, host_api_key)
-    if env.get("MAKA_HOST_BASE_URL"):
-        env.setdefault("MAKA_BASE_URL", env["MAKA_HOST_BASE_URL"])
-    if env.get("MAKA_HOST_MODEL_API_PROTOCOL"):
-        env.setdefault("MAKA_MODEL_API_PROTOCOL", env["MAKA_HOST_MODEL_API_PROTOCOL"])
     if env.get("MAKA_API_KEY"):
         env.setdefault(
             _provider_api_key_env(env.get("MAKA_PROVIDER") or provider or "deepseek"),

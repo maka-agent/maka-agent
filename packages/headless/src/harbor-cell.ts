@@ -91,6 +91,7 @@ export {
 } from './harbor-cell-tool-executor.js';
 export {
   providerApiKeyEnvName,
+  resolveHostProviderAuthorityEnv,
   resolveHarborCellAiSdkEnv,
   type ResolvedHarborCellAiSdkEnv,
 } from './provider-env.js';

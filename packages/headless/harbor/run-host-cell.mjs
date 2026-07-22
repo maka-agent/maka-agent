@@ -13,8 +13,8 @@ import {
   harborCellMaxStepsFromEnv,
   harborCellSoftTimeoutMsFromEnv,
   normalizeHarborCellContextEnv,
-  providerApiKeyEnvName,
   reasoningEffortFromEnv,
+  resolveHostProviderAuthorityEnv,
   runHarborCell,
   writeHarborCellUsageCheckpoint,
 } from '#harbor-cell';
@@ -124,24 +124,16 @@ export async function backendEnv(env, provider) {
     providerAuthRequiresSecret(provider) ||
     (providerAuthSupportsApiKey(provider) && hasHostApiKey)
   ) {
-    const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
-    result[keyEnvName] = await hostApiKey(env);
+    if (!hasHostApiKey) {
+      throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
+    }
   }
-  if (env.MAKA_HOST_BASE_URL) result.MAKA_BASE_URL = env.MAKA_HOST_BASE_URL;
-  if (env.MAKA_HOST_MODEL_API_PROTOCOL)
-    result.MAKA_MODEL_API_PROTOCOL = env.MAKA_HOST_MODEL_API_PROTOCOL;
+  Object.assign(result, resolveHostProviderAuthorityEnv({ provider, env }));
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];
   }
   Object.assign(result, contextEnv);
   return result;
-}
-
-async function hostApiKey(env) {
-  if (env.MAKA_HOST_API_KEY) return env.MAKA_HOST_API_KEY;
-  if (env.MAKA_HOST_API_KEY_FILE)
-    return (await readFile(env.MAKA_HOST_API_KEY_FILE, 'utf8')).trim();
-  throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
 }
 
 async function instructionFromEnv(env) {

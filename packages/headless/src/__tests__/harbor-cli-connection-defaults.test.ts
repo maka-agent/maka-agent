@@ -477,6 +477,46 @@ describe('applyConnectionDefaults', () => {
 });
 
 describe('resolveHarborRunOptions backend guard', () => {
+  test('explicit host authority overrides stale ambient provider authority', async () => {
+    const opts = await resolveHarborRunOptions(
+      ['--instruction', 'test', '--isolation', 'harbor-local'],
+      {
+        MAKA_MODEL: 'openai-codex/gpt-5.6-codex',
+        MAKA_HOST_API_KEY: 'selected-host-token',
+        MAKA_HOST_API_KEY_ENV_NAME: 'OPENAI_CODEX_OAUTH_TOKEN',
+        MAKA_HOST_BASE_URL: 'http://127.0.0.1:43210/v1',
+        MAKA_HOST_MODEL_API_PROTOCOL: 'openai-responses',
+        OPENAI_CODEX_OAUTH_TOKEN: 'stale-ambient-token',
+        MAKA_BASE_URL: 'https://stale.example/v1',
+        MAKA_MODEL_API_PROTOCOL: 'openai-chat',
+      },
+    );
+
+    assert.equal(opts.env.OPENAI_CODEX_OAUTH_TOKEN, 'selected-host-token');
+    assert.equal(opts.env.MAKA_BASE_URL, 'http://127.0.0.1:43210/v1');
+    assert.equal(opts.env.MAKA_MODEL_API_PROTOCOL, 'openai-responses');
+  });
+
+  test('file-based host authority overrides stale ambient provider credentials', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'maka-host-authority-'));
+    cleanupDirs.push(dir);
+    const keyFile = join(dir, 'deepseek-key');
+    writeFileSync(keyFile, 'selected-file-token\n', 'utf8');
+
+    const opts = await resolveHarborRunOptions(
+      ['--instruction', 'test', '--isolation', 'harbor-local'],
+      {
+        MAKA_MODEL: 'deepseek/deepseek-chat',
+        MAKA_HOST_API_KEY_FILE: keyFile,
+        MAKA_HOST_API_KEY_ENV_NAME: 'DEEPSEEK_API_KEY',
+        DEEPSEEK_API_KEY: 'stale-deepseek-token',
+        OPENAI_API_KEY: 'stale-fallback-token',
+      },
+    );
+
+    assert.equal(opts.env.DEEPSEEK_API_KEY, 'selected-file-token');
+  });
+
   test('--backend fake flag skips applyConnectionDefaults (no desktop connection pollution)', async () => {
     // cliEnv does not forward the --backend flag into env.MAKA_BACKEND, so the
     // in-function guard inside applyConnectionDefaults only covers the

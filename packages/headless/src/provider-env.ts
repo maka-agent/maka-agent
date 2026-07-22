@@ -129,6 +129,38 @@ export function providerApiKeyEnvName(provider: string): string {
   return requireProviderCredentialEnv(provider).apiKeys[0]!;
 }
 
+export function resolveHostProviderAuthorityEnv(input: {
+  provider: string;
+  env: RunHarborCellEnv;
+}): RunHarborCellEnv {
+  const authority: RunHarborCellEnv = {};
+  if (input.env.MAKA_HOST_API_KEY || input.env.MAKA_HOST_API_KEY_FILE) {
+    const keyEnvName = hostApiKeyEnvName(input.env, input.provider);
+    authority[keyEnvName] = input.env.MAKA_HOST_API_KEY ?? readHostApiKeyFile(input.env);
+  }
+  if (input.env.MAKA_HOST_BASE_URL) {
+    authority.MAKA_BASE_URL = input.env.MAKA_HOST_BASE_URL;
+  }
+  if (input.env.MAKA_HOST_MODEL_API_PROTOCOL) {
+    authority.MAKA_MODEL_API_PROTOCOL = input.env.MAKA_HOST_MODEL_API_PROTOCOL;
+  }
+  return authority;
+}
+
+function readHostApiKeyFile(env: RunHarborCellEnv): string {
+  const path = env.MAKA_HOST_API_KEY_FILE;
+  if (!path) throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
+  return readFileSync(path, 'utf8').trim();
+}
+
+function hostApiKeyEnvName(env: RunHarborCellEnv, provider: string): string {
+  const name = env.MAKA_HOST_API_KEY_ENV_NAME ?? providerApiKeyEnvName(provider);
+  if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) {
+    throw new Error(`invalid MAKA_HOST_API_KEY_ENV_NAME: ${name}`);
+  }
+  return name;
+}
+
 export function providerFromEnv(value: string | undefined): ProviderType {
   if (!value || !(value in PROVIDER_DEFAULTS)) {
     throw new Error(`unsupported MAKA_PROVIDER: ${value ?? ''}`);
