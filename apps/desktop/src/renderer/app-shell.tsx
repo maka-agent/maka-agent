@@ -10,7 +10,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import type { PermissionMode, PlanReminder, SessionSummary, UiLocale, UiLocalePreference } from '@maka/core';
+import type { PermissionMode, PlanReminder, QuoteRef, SessionSummary, UiLocale, UiLocalePreference } from '@maka/core';
 import {
   buildDeepResearchImplementationPrompt,
   collapseSessionRevisions,
@@ -300,6 +300,17 @@ function AppShellContent({
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const [viewMode, setViewMode] = useState<SessionViewMode>('status');
   const composerRef = useRef<ComposerHandle>(null);
+  // Codex-style quote side panel: a companion (fork of the main session) opened
+  // from text selections in the transcript, surfaced as a transient workbar tab.
+  // `quotes` accumulates excerpts staged for the next follow-up — selecting more
+  // text adds to the SAME panel rather than opening a new one; `sourceSessionId`
+  // pins it to the main session the companion forks from.
+  const [quotePanel, setQuotePanel] = useState<
+    { sourceSessionId: string; quotes: QuoteRef[] } | null
+  >(null);
+  // The quote companion's ephemeral fork id, while its panel is open — hidden
+  // from the main session list (the fork is removed on panel dismiss).
+  const [companionForkId, setCompanionForkId] = useState<string | undefined>(undefined);
   const [revisionDraft, setRevisionDraft] = useState<TurnRevisionDraft | null>(null);
   const revisionDraftRef = useRef<TurnRevisionDraft | null>(null);
   const commitRevisionDraft = useCallback((draft: TurnRevisionDraft | null) => {
@@ -352,10 +363,12 @@ function AppShellContent({
   );
   const visibleSessionTree = useMemo(
     () =>
+      // Exclude the quote companion's ephemeral fork so it stays hidden from the
+      // main session list while its panel is open.
       filterLinkedSessionTree(sidebarSessionTree, (session) =>
-        sessionMatchesNavSelection(session, navSelection),
+        session.id !== companionForkId ? sessionMatchesNavSelection(session, navSelection) : false,
       ),
-    [sidebarSessionTree, navSelection],
+    [sidebarSessionTree, navSelection, companionForkId],
   );
   const visibleSessions = visibleSessionTree.roots;
   const sessionStatusGroups = useMemo(
@@ -924,6 +937,15 @@ function AppShellContent({
     workbarWidth,
     setWorkbarWidth,
   });
+
+  // The companion panel unmounts (and its fork is removed) when the workbar
+  // collapses or the active session moves off the panel's source; clear the
+  // stale panel state too, so returning doesn't reopen a blank companion tab.
+  useEffect(() => {
+    if (quotePanel && (workbarCollapsed || quotePanel.sourceSessionId !== activeId)) {
+      setQuotePanel(null);
+    }
+  }, [quotePanel, workbarCollapsed, activeId]);
 
   function isAutomationsSurfaceActive(): boolean {
     return navSelectionRef.current.section === 'automations';
@@ -1748,6 +1770,27 @@ function AppShellContent({
                   addQuote(selection);
                   composerRef.current?.focus();
                 }}
+                onAskAboutSelection={
+                  activeId
+                    ? (input) => {
+                        const quote: QuoteRef = {
+                          text: input.text,
+                          ...(input.turnId ? { sourceTurnId: input.turnId } : {}),
+                        };
+                        // Accumulate onto the open panel for this session rather
+                        // than spawning a new one; otherwise start a fresh panel.
+                        setQuotePanel((prev) =>
+                          prev && prev.sourceSessionId === activeId
+                            ? { ...prev, quotes: [...prev.quotes, quote] }
+                            : { sourceSessionId: activeId, quotes: [quote] },
+                        );
+                        // Surface it inside the session workbar (as a tab) rather
+                        // than a second right column — open the bar on the quote tab.
+                        setWorkbarCollapsed(false);
+                        setWorkbarTab('quote');
+                      }
+                    : undefined
+                }
                 onContinueDeepResearchHandoff={(run) => {
                   const prompt = buildDeepResearchImplementationPrompt(run);
                   void createSession().then(() => {
@@ -1969,6 +2012,16 @@ function AppShellContent({
                 onActiveTabChange={setWorkbarTab}
                 startWorkbarResize={startWorkbarResize}
                 onWorkbarResizeHandleKeyDown={onWorkbarResizeHandleKeyDown}
+                quote={
+                  quotePanel && quotePanel.sourceSessionId === activeId ? quotePanel : null
+                }
+                onClearQuote={() => setQuotePanel(null)}
+                onQuotesConsumed={() =>
+                  setQuotePanel((prev) => (prev ? { ...prev, quotes: [] } : prev))
+                }
+                onForkChange={setCompanionForkId}
+                sourceSession={activeSessionForView}
+                modelChoices={chatModelChoices}
               />
             )}
           </div>

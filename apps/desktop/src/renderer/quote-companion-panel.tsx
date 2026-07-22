@@ -1,0 +1,123 @@
+import { useRef } from 'react';
+import {
+  ChatView,
+  Composer,
+  PermissionPrompt,
+  UserQuestionPrompt,
+  useUiLocale,
+  type ChatModelChoice,
+  type ComposerHandle,
+} from '@maka/ui';
+import type { QuoteRef, SessionSummary } from '@maka/core';
+import { useQuoteCompanion } from './use-quote-companion';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+
+/**
+ * The "追问引用" workbar tab: a follow-up thread about the selected excerpt(s).
+ * It renders with the SAME surface as the main conversation — the real
+ * `ChatView` transcript (markdown, tool activity, token streaming) and the real
+ * `Composer` — bound to a read-only companion fork of the main session (see
+ * useQuoteCompanion). The fork KNOWS the main conversation's context and inherits
+ * its model (shown read-only — no independent picker). It explains and explores;
+ * writes/shell are blocked, and web/custom tools prompt here. Selecting more text
+ * in the main transcript adds another quote chip to THIS thread.
+ */
+export function QuoteCompanionPanel(props: {
+  /** Excerpts staged for the next send (accumulated as the user adds more). */
+  quotes: readonly QuoteRef[];
+  sourceSession: SessionSummary | undefined;
+  /** Shared global choice list, only used to render the inherited model's label. */
+  modelChoices: readonly ChatModelChoice[];
+  onClear?: () => void;
+  onQuotesConsumed: () => void;
+  onForkChange?: (forkId: string | undefined) => void;
+}) {
+  const locale = useUiLocale();
+  const copy = getDesktopConversationCopy(locale).quoteCompanion;
+  const composerRef = useRef<ComposerHandle>(null);
+  const companion = useQuoteCompanion({
+    pendingQuotes: props.quotes,
+    sourceSession: props.sourceSession,
+    locale,
+    onQuotesConsumed: props.onQuotesConsumed,
+    onForkChange: props.onForkChange,
+  });
+
+  // The companion inherits the source model and does not switch it; look up a
+  // friendly label from the shared choice list purely for a read-only display.
+  const activeModel = companion.activeModel;
+  const activeModelLabel =
+    (activeModel
+      ? props.modelChoices.find(
+          (choice) =>
+            choice.connectionSlug === activeModel.llmConnectionSlug &&
+            choice.model === activeModel.model,
+        )?.label
+      : undefined) ?? activeModel?.model;
+
+  const activeInteraction = companion.activePermission ?? companion.activeQuestion;
+
+  return (
+    <div className="maka-quote-companion">
+      <ChatView
+        messages={companion.messages}
+        liveTurn={companion.liveTurn}
+        processingIndicator={companion.processing}
+        activeSession={companion.companionSession}
+        emptyOverride={
+          <div className="maka-quote-companion-intro">
+            {props.quotes.map((quote, index) => (
+              <blockquote key={`${index}:${quote.text}`} className="maka-quote-panel-quote">
+                {quote.text}
+              </blockquote>
+            ))}
+            <p className="maka-quote-panel-hint">{copy.hint}</p>
+          </div>
+        }
+        onNew={() => {}}
+      />
+      {companion.error && <div className="maka-quote-companion-error">{companion.error}</div>}
+      {/* `explore` blocks writes, but a web/custom-tool call still prompts — it
+          must be resolvable here since the companion forks a real run. */}
+      {(companion.activePermission || companion.activeQuestion) && (
+        <div className="maka-composer-interaction-slot">
+          {companion.activePermission && (
+            <PermissionPrompt
+              request={companion.activePermission}
+              onRespond={companion.respondToPermission}
+              onStop={() => void companion.stop()}
+            />
+          )}
+          {companion.activeQuestion && (
+            <UserQuestionPrompt
+              request={companion.activeQuestion}
+              onRespond={companion.respondToUserQuestion}
+              onStop={() => void companion.stop()}
+            />
+          )}
+        </div>
+      )}
+      <Composer
+        ref={composerRef}
+        onSend={(text) => companion.send(text)}
+        onStop={() => void companion.stop()}
+        hidden={Boolean(activeInteraction)}
+        streaming={companion.streaming}
+        processing={companion.processing}
+        draftKey={companion.companionSession?.id ?? `quote-companion:${props.sourceSession?.id ?? 'none'}`}
+        disabled={!props.sourceSession}
+        pendingQuotes={props.quotes}
+        // No activeSession / onModelChange → the model shows as a read-only chip
+        // (the companion has no independent picker; it inherits the source model).
+        modelLabel={activeModelLabel}
+      />
+      {props.onClear && (
+        <div className="maka-quote-companion-actions">
+          <button type="button" className="maka-quote-panel-clear" onClick={props.onClear}>
+            {copy.exit}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

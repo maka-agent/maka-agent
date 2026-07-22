@@ -1,0 +1,255 @@
+/**
+ * Focused unit tests for the quote companion's fork/guard/send orchestration and
+ * event routing (extracted from `useQuoteCompanion` so the React hook stays a
+ * thin shell — same pattern as `use-onboarding-snapshot.test.ts`). Covers the
+ * review gaps: the read-only guardrail must fail CLOSED to `explore`, an unmount
+ * mid-create must not leak a hidden fork, a failed OR `{ ok: false }` send must
+ * be retryable (quotes kept), the fork branches at the latest settled turn, and
+ * the interaction routing must resolve web/custom-tool approvals.
+ */
+
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
+import type { SessionEvent, SessionSummary, StoredMessage, TurnRecord, TurnStatus } from '@maka/core';
+import {
+  applyCompanionInteractionEvent,
+  isCompanionTurnTerminal,
+  latestSettledTurnId,
+  performCompanionTurn,
+  type CompanionSessionApi,
+} from '../../renderer/quote-companion-core.js';
+
+function summary(id: string, permissionMode: string, model = 'm', slug = 'conn'): SessionSummary {
+  return {
+    id,
+    name: id,
+    permissionMode,
+    model,
+    llmConnectionSlug: slug,
+    backend: 'anthropic',
+    labels: [],
+  } as unknown as SessionSummary;
+}
+
+function turn(turnId: string, status: TurnStatus): TurnRecord {
+  return { turnId, status, partialOutputRetained: false };
+}
+
+interface FakeControl {
+  turns?: TurnRecord[];
+  /** permissionMode `setPermissionMode` returns (default = the requested mode). */
+  afterSetMode?: string;
+  setModeThrows?: boolean;
+  sendThrows?: boolean;
+  sendResult?: { ok: true } | { ok: false; reason?: string };
+  /** Runs right after the fork is created (e.g. to flip `disposed`). */
+  afterCreate?: () => void;
+}
+
+function makeApi(control: FakeControl = {}) {
+  const calls = {
+    removed: [] as string[],
+    sent: [] as { id: string; cmd: { turnId: string; text: string; quotes?: unknown } }[],
+    setMode: [] as [string, string][],
+    branchedFrom: [] as string[],
+    created: 0,
+  };
+  const forge = (): SessionSummary => {
+    calls.created++;
+    const forked = summary('fork-1', 'execute'); // inherits the parent's elevated mode
+    control.afterCreate?.();
+    return forked;
+  };
+  const api: CompanionSessionApi = {
+    readMessages: async () => [{ turnId: 'x' } as unknown as StoredMessage],
+    listTurns: async () => control.turns ?? [turn('main-turn-1', 'completed')],
+    branchFromTurn: async (_id, input) => {
+      calls.branchedFrom.push(input.sourceTurnId);
+      return forge();
+    },
+    create: async () => forge(),
+    setPermissionMode: async (id, mode) => {
+      calls.setMode.push([id, mode]);
+      if (control.setModeThrows) throw new Error('setPermissionMode failed');
+      return summary(id, control.afterSetMode ?? mode);
+    },
+    remove: async (id) => {
+      calls.removed.push(id);
+    },
+    send: async (id, cmd) => {
+      calls.sent.push({ id, cmd });
+      if (control.sendThrows) throw new Error('send failed');
+      return control.sendResult ?? { ok: true };
+    },
+  };
+  return { api, calls };
+}
+
+function recorder() {
+  const events: string[] = [];
+  return {
+    events,
+    onForkCommitted: (session: SessionSummary) => events.push(`committed:${session.id}`),
+    onBeforeSend: (forkId: string) => events.push(`beforeSend:${forkId}`),
+    onQuotesConsumed: () => events.push('consumed'),
+  };
+}
+
+const base = {
+  sourceSession: summary('main', 'execute'),
+  name: '追问：excerpt',
+  turnId: 'T1',
+  text: 'hello',
+  quotes: [{ text: 'excerpt' }] as { text: string }[],
+  existingForkId: null as string | null,
+};
+
+describe('latestSettledTurnId', () => {
+  it('picks the latest non-running turn (skips a trailing running turn)', () => {
+    assert.equal(
+      latestSettledTurnId([turn('a', 'completed'), turn('b', 'completed'), turn('c', 'running')]),
+      'b',
+    );
+    assert.equal(latestSettledTurnId([turn('a', 'running')]), undefined);
+    assert.equal(latestSettledTurnId([]), undefined);
+  });
+});
+
+describe('performCompanionTurn', () => {
+  it('happy path: forks at the settled turn, confirms explore, sends, then commits + consumes', async () => {
+    const { api, calls } = makeApi({
+      turns: [turn('t-old', 'completed'), turn('t-settled', 'completed'), turn('t-running', 'running')],
+      afterSetMode: 'explore',
+    });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'sent', forkId: 'fork-1' });
+    assert.deepEqual(calls.branchedFrom, ['t-settled']); // NOT the running turn
+    assert.deepEqual(calls.setMode, [['fork-1', 'explore']]);
+    assert.equal(calls.sent.length, 1);
+    assert.deepEqual(calls.sent[0].cmd.quotes, [{ text: 'excerpt' }]);
+    assert.deepEqual(calls.removed, []);
+    // Quotes are consumed only AFTER the send is accepted.
+    assert.deepEqual(rec.events, ['committed:fork-1', 'beforeSend:fork-1', 'consumed']);
+  });
+
+  it('fail-closed: setPermissionMode throwing removes the fork and never sends', async () => {
+    const { api, calls } = makeApi({ setModeThrows: true });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'permission_pin_failed' });
+    assert.deepEqual(calls.removed, ['fork-1']);
+    assert.equal(calls.sent.length, 0);
+    assert.deepEqual(rec.events, []);
+  });
+
+  it('fail-closed: a fork not confirmed `explore` is removed and never sends', async () => {
+    const { api, calls } = makeApi({ afterSetMode: 'execute' }); // stayed elevated
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'permission_pin_failed' });
+    assert.deepEqual(calls.removed, ['fork-1']);
+    assert.equal(calls.sent.length, 0);
+  });
+
+  it('unmount during create: removes the just-created fork and aborts (no send)', async () => {
+    let disposed = false;
+    const { api, calls } = makeApi({ afterSetMode: 'explore', afterCreate: () => {
+      disposed = true;
+    } });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => disposed, ...base, ...rec });
+    assert.equal(result.status, 'disposed');
+    assert.deepEqual(calls.removed, ['fork-1']);
+    assert.deepEqual(calls.setMode, []); // bailed before pinning
+    assert.equal(calls.sent.length, 0);
+    assert.deepEqual(rec.events, []);
+  });
+
+  it('send rejection (thrown) is retryable: arms but does NOT consume the staged quotes', async () => {
+    const { api } = makeApi({ afterSetMode: 'explore', sendThrows: true });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'send_failed' });
+    assert.equal(rec.events.includes('consumed'), false);
+    assert.deepEqual(rec.events, ['committed:fork-1', 'beforeSend:fork-1']);
+  });
+
+  it('non-throwing send rejection ({ ok: false }) surfaces an error and keeps quotes', async () => {
+    const { api, calls } = makeApi({ afterSetMode: 'explore', sendResult: { ok: false } });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'send_rejected' });
+    assert.equal(calls.sent.length, 1); // the send resolved, just not ok
+    assert.equal(rec.events.includes('consumed'), false);
+  });
+
+  it('existing fork: skips creation + permission pin and sends directly', async () => {
+    const { api, calls } = makeApi();
+    const rec = recorder();
+    const result = await performCompanionTurn({
+      api,
+      isDisposed: () => false,
+      ...base,
+      existingForkId: 'fork-existing',
+      ...rec,
+    });
+    assert.deepEqual(result, { status: 'sent', forkId: 'fork-existing' });
+    assert.equal(calls.created, 0);
+    assert.deepEqual(calls.setMode, []);
+    assert.deepEqual(rec.events, ['beforeSend:fork-existing', 'consumed']);
+  });
+});
+
+describe('isCompanionTurnTerminal', () => {
+  it('error / abort / plain complete are terminal; permission_handoff is not', () => {
+    assert.equal(isCompanionTurnTerminal({ type: 'error' } as SessionEvent), true);
+    assert.equal(isCompanionTurnTerminal({ type: 'abort' } as SessionEvent), true);
+    assert.equal(
+      isCompanionTurnTerminal({ type: 'complete', stopReason: 'end_turn' } as SessionEvent),
+      true,
+    );
+    assert.equal(
+      isCompanionTurnTerminal({ type: 'complete', stopReason: 'permission_handoff' } as SessionEvent),
+      false,
+    );
+    assert.equal(isCompanionTurnTerminal({ type: 'text_delta' } as SessionEvent), false);
+  });
+});
+
+describe('applyCompanionInteractionEvent', () => {
+  const req = { type: 'permission_request', requestId: 'r1', toolUseId: 'tu1' } as unknown as SessionEvent;
+
+  it('enqueues a request and ignores a duplicate requestId', () => {
+    let queues = applyCompanionInteractionEvent({}, 'S', req);
+    assert.equal(queues.S.length, 1);
+    queues = applyCompanionInteractionEvent(queues, 'S', req);
+    assert.equal(queues.S.length, 1);
+  });
+
+  it('a permission_handoff complete keeps the pending prompt; an ack clears it', () => {
+    const withPrompt = applyCompanionInteractionEvent({}, 'S', req);
+    const afterHandoff = applyCompanionInteractionEvent(
+      withPrompt,
+      'S',
+      { type: 'complete', stopReason: 'permission_handoff' } as SessionEvent,
+    );
+    assert.equal(afterHandoff.S.length, 1); // survives the handoff
+    const afterAck = applyCompanionInteractionEvent(
+      afterHandoff,
+      'S',
+      { type: 'permission_decision_ack', requestId: 'r1' } as SessionEvent,
+    );
+    assert.equal(afterAck.S.length, 0);
+  });
+
+  it('a terminal complete clears the queue', () => {
+    const withPrompt = applyCompanionInteractionEvent({}, 'S', req);
+    const cleared = applyCompanionInteractionEvent(
+      withPrompt,
+      'S',
+      { type: 'complete', stopReason: 'end_turn' } as SessionEvent,
+    );
+    assert.equal(cleared.S.length, 0);
+  });
+});

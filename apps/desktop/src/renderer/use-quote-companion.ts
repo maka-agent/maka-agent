@@ -1,0 +1,310 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  activeInteractionFor,
+  applyLiveTurnEvent,
+  armLiveTurn,
+  reconcileTerminalLiveTurn,
+  useMountedRef,
+  type InteractionQueues,
+  type LiveTurnProjection,
+} from '@maka/ui';
+import type {
+  AnyPermissionRequestEvent,
+  PermissionResponse,
+  QuoteRef,
+  SessionEvent,
+  SessionSummary,
+  StoredMessage,
+  UiLocale,
+  UserQuestionRequestEvent,
+  UserQuestionResponse,
+} from '@maka/core';
+import {
+  applyCompanionInteractionEvent,
+  isCompanionTurnTerminal,
+  performCompanionTurn,
+  type CompanionErrorCode,
+} from './quote-companion-core';
+import { readSettledMessages } from './session-message-settlement';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+
+export interface UseQuoteCompanionInput {
+  /** Excerpts staged for the next send; accumulates as the user adds more from
+   *  the main transcript. Attached to the next turn, then cleared by the host. */
+  pendingQuotes: readonly QuoteRef[];
+  /** The main session the panel is attached to. The companion FORKS from it (via
+   *  branchFromTurn) so it inherits the full conversation context + model / cwd —
+   *  Codex `/side` style. */
+  sourceSession: SessionSummary | undefined;
+  locale: UiLocale;
+  /** Called once a send has consumed the staged quotes, so the host clears them. */
+  onQuotesConsumed: () => void;
+  /** Reports the companion fork's id (or undefined) so the host can hide it from
+   *  the main session list while the panel is open — the fork is ephemeral. */
+  onForkChange?: (forkId: string | undefined) => void;
+}
+
+export interface UseQuoteCompanionResult {
+  companionSession: SessionSummary | undefined;
+  /** The companion's OWN turns only — the forked parent history is context for
+   *  the model but stays hidden from this side transcript (separate transcript,
+   *  like Codex /side), so the panel isn't a duplicate of the main conversation. */
+  messages: StoredMessage[];
+  liveTurn: LiveTurnProjection | undefined;
+  streaming: boolean;
+  processing: boolean;
+  /** A localized, retryable error (fork setup, run error, or a rejected send). */
+  error: string | null;
+  /** The model the companion inherited from the source (shown read-only). */
+  activeModel: { llmConnectionSlug: string; model: string } | undefined;
+  /** Pending permission / user-question prompt raised by the companion's run.
+   *  `explore` hard-blocks writes/shell, but web / custom tools still follow the
+   *  normal permission path, so the panel surfaces these to resolve them. */
+  activePermission: AnyPermissionRequestEvent | undefined;
+  activeQuestion: UserQuestionRequestEvent | undefined;
+  /** Returns whether the send was accepted; false leaves the draft + staged
+   *  quotes in place so the user can retry. */
+  send: (text: string) => Promise<boolean>;
+  stop: () => Promise<void>;
+  respondToPermission: (response: PermissionResponse) => Promise<void>;
+  respondToUserQuestion: (response: UserQuestionResponse) => Promise<void>;
+}
+
+/** The last streamed assistant message id of a turn — the settlement anchor. */
+function requiredAssistantMessageId(projection: LiveTurnProjection | undefined): string | undefined {
+  return [...(projection?.steps ?? [])].reverse().find((step) => step.text)?.stepId;
+}
+
+/**
+ * Companion for the quote side panel. On the first question it FORKS the main
+ * session (`branchFromTurn` from the latest SETTLED turn) into a child that
+ * carries the whole main conversation as context and inherits its model / cwd.
+ * The fork is pinned read-only (`explore`): it explains and explores the selected
+ * context — writes / shell / destructive operations are hard-blocked, while web /
+ * custom tools follow the normal permission path (surfaced here as a prompt).
+ * Follow-ups stream through the SAME live-turn reducer the main shell uses, and
+ * hand off from the live projection only once the persisted message settles (the
+ * shared `readSettledMessages` + `reconcileTerminalLiveTurn` rule) so a completed
+ * exchange never flickers away. Asking never writes back to the main conversation;
+ * inherited history is hidden from the side transcript. The subscription is
+ * established the moment the fork commits — before the run starts — so no
+ * prompt/complete is missed. Reset only by unmount (退出 / switch / collapse),
+ * which removes the ephemeral fork.
+ */
+export function useQuoteCompanion(input: UseQuoteCompanionInput): UseQuoteCompanionResult {
+  const { locale, sourceSession, pendingQuotes, onQuotesConsumed, onForkChange } = input;
+  const copy = getDesktopConversationCopy(locale).quoteCompanion;
+  const [companion, setCompanion] = useState<SessionSummary | undefined>(undefined);
+  const companionIdRef = useRef<string | null>(null);
+  const onForkChangeRef = useRef(onForkChange);
+  onForkChangeRef.current = onForkChange;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
+  const copyRef = useRef(copy);
+  copyRef.current = copy;
+  const ownTurnIdsRef = useRef<Set<string>>(new Set());
+  const [allMessages, setAllMessages] = useState<StoredMessage[]>([]);
+  const [liveTurn, setLiveTurn] = useState<LiveTurnProjection | undefined>(undefined);
+  const liveTurnRef = useRef(liveTurn);
+  liveTurnRef.current = liveTurn;
+  const [interactions, setInteractions] = useState<InteractionQueues>({});
+  const [turnInFlight, setTurnInFlight] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Bumped whenever the own-turn set changes so the render picks up the new
+  // filter result (the set lives in a ref to stay stable for the event handler).
+  const [, setOwnTurnTick] = useState(0);
+  // The live event subscription's unsubscribe, established at fork-commit time.
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  // StrictMode-safe mounted guard (re-arms on the dev mount → unmount → remount
+  // double-invoke; a hand-rolled disposed flag would stay tripped after replay).
+  const mountedRef = useMountedRef();
+
+  // Subscribe to the fork's event stream + load its transcript. Called
+  // synchronously the moment the fork is committed, BEFORE the run starts, so
+  // no permission_request / complete can be missed (the stream has no replay).
+  const subscribeToFork = useCallback((forkId: string) => {
+    void readSettledMessages(forkId)
+      .then(({ messages }) => {
+        if (mountedRef.current) setAllMessages(messages);
+      })
+      .catch(() => {});
+    unsubscribeRef.current = window.maka.sessions.subscribeEvents(forkId, (event: SessionEvent) => {
+      // Interaction queue (so a web/custom-tool approval surfaces) + live stream.
+      setInteractions((current) => applyCompanionInteractionEvent(current, forkId, event));
+      setLiveTurn((prev) => applyLiveTurnEvent(prev, event, localeRef.current));
+      if (event.type === 'error') setError(copyRef.current.errors.runError);
+      // A `permission_handoff` complete is NOT terminal — the turn resumes once
+      // the pending approval is resolved, so keep the interaction + live turn.
+      if (isCompanionTurnTerminal(event)) {
+        // Settlement: wait for the assistant message to persist before handing
+        // off from the live projection, then reconcile (shared with the main chat)
+        // so the finished exchange never flickers away.
+        void readSettledMessages(forkId, {
+          ...(requiredAssistantMessageId(liveTurnRef.current)
+            ? { requiredAssistantMessageId: requiredAssistantMessageId(liveTurnRef.current) }
+            : {}),
+        })
+          .then(({ messages: next }) => {
+            if (!mountedRef.current) return;
+            setAllMessages(next);
+            setLiveTurn((prev) => (prev ? reconcileTerminalLiveTurn(prev, next) : prev));
+            setTurnInFlight(false);
+          })
+          .catch(() => {
+            if (mountedRef.current) setTurnInFlight(false);
+          });
+      }
+    });
+  }, [mountedRef]);
+
+  // The fork is ephemeral (用完即弃): when the panel is dismissed — 退出,
+  // switching source session, or collapsing the workbar — unsubscribe and remove
+  // the fork so it never lingers in the session list. Runs only on unmount.
+  useEffect(() => {
+    return () => {
+      unsubscribeRef.current?.();
+      const id = companionIdRef.current;
+      if (id) {
+        window.maka.sessions.remove(id).catch(() => {});
+        onForkChangeRef.current?.(undefined);
+      }
+    };
+  }, []);
+
+  const send = useCallback(
+    async (text: string): Promise<boolean> => {
+      const trimmed = text.trim();
+      if (!trimmed || turnInFlight || !sourceSession) return false;
+      setError(null);
+      const turnId = crypto.randomUUID();
+      const label = (pendingQuotes[0]?.text ?? trimmed).slice(0, 24);
+      const result = await performCompanionTurn({
+        api: window.maka.sessions,
+        sourceSession,
+        name: `${copyRef.current.namePrefix}${label}`,
+        isDisposed: () => !mountedRef.current,
+        existingForkId: companionIdRef.current,
+        turnId,
+        text: trimmed,
+        quotes: pendingQuotes.length > 0 ? [...pendingQuotes] : undefined,
+        onForkCommitted: (session) => {
+          companionIdRef.current = session.id;
+          setCompanion(session);
+          // Establish the event subscription BEFORE the send starts (fixes the
+          // pre-subscription race), then report the fork up so the host hides it.
+          subscribeToFork(session.id);
+          onForkChangeRef.current?.(session.id);
+        },
+        // Arm the optimistic live turn right before the send.
+        onBeforeSend: () => {
+          setTurnInFlight(true);
+          setLiveTurn(armLiveTurn(turnId));
+          ownTurnIdsRef.current.add(turnId);
+          setOwnTurnTick((tick) => tick + 1);
+        },
+        onQuotesConsumed,
+      });
+      if (result.status === 'sent') {
+        // Surface the just-sent user message immediately, and reflect any
+        // automatic connection/model rebound in the read-only model label.
+        void readSettledMessages(result.forkId)
+          .then(({ messages: next }) => {
+            if (mountedRef.current) setAllMessages(next);
+          })
+          .catch(() => {});
+        void window.maka.sessions
+          .list()
+          .then((sessions) => {
+            const updated = sessions.find((session) => session.id === result.forkId);
+            if (updated && mountedRef.current) setCompanion(updated);
+          })
+          .catch(() => {});
+        return true;
+      }
+      if (result.status === 'error') {
+        const errors = copyRef.current.errors;
+        const byCode: Record<CompanionErrorCode, string> = {
+          permission_pin_failed: errors.permissionPinFailed,
+          send_failed: errors.sendFailed,
+          send_rejected: errors.sendRejected,
+        };
+        setError(byCode[result.code]);
+        setTurnInFlight(false);
+        setLiveTurn(undefined);
+      }
+      // 'disposed' → the panel unmounted mid-create; nothing to update.
+      return false;
+    },
+    [turnInFlight, sourceSession, pendingQuotes, onQuotesConsumed, subscribeToFork, mountedRef],
+  );
+
+  const stop = useCallback(async (): Promise<void> => {
+    const id = companionIdRef.current;
+    if (!id) return;
+    try {
+      await window.maka.sessions.stop(id);
+    } catch {
+      // best-effort; the terminal event still reconciles state
+    }
+  }, []);
+
+  const respondToPermission = useCallback(async (response: PermissionResponse): Promise<void> => {
+    const id = companionIdRef.current;
+    if (!id) return;
+    try {
+      await window.maka.sessions.respondToPermission(id, response);
+    } catch {
+      setError(copyRef.current.errors.respondFailed);
+    }
+  }, []);
+
+  const respondToUserQuestion = useCallback(
+    async (response: UserQuestionResponse): Promise<void> => {
+      const id = companionIdRef.current;
+      if (!id) return;
+      try {
+        await window.maka.sessions.respondToUserQuestion(id, response);
+      } catch {
+        setError(copyRef.current.errors.respondFailed);
+      }
+    },
+    [],
+  );
+
+  // Only the companion's own turns render; the forked parent history stays as
+  // hidden model context.
+  const messages = allMessages.filter(
+    (message) => message.turnId !== undefined && ownTurnIdsRef.current.has(message.turnId),
+  );
+  const streaming = Boolean(liveTurn && !liveTurn.terminal && liveTurn.phase === 'streamed');
+  const processing = turnInFlight && (!liveTurn || liveTurn.phase === 'waiting');
+  // Inherited model (read-only): the fork's once created, else the source's.
+  const activeModel = companion
+    ? { llmConnectionSlug: companion.llmConnectionSlug, model: companion.model }
+    : sourceSession
+      ? { llmConnectionSlug: sourceSession.llmConnectionSlug, model: sourceSession.model }
+      : undefined;
+  const activeInteraction = companionIdRef.current
+    ? activeInteractionFor(interactions, companionIdRef.current)
+    : undefined;
+  const activePermission =
+    activeInteraction?.type === 'permission_request' ? activeInteraction : undefined;
+  const activeQuestion =
+    activeInteraction?.type === 'user_question_request' ? activeInteraction : undefined;
+
+  return {
+    companionSession: companion,
+    messages,
+    liveTurn,
+    streaming,
+    processing,
+    error,
+    activeModel,
+    activePermission,
+    activeQuestion,
+    send,
+    stop,
+    respondToPermission,
+    respondToUserQuestion,
+  };
+}

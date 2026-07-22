@@ -7,9 +7,12 @@ import {
   TaskLedgerPanel,
   deriveTaskLedgerPanelModel,
   useUiLocale,
+  type ChatModelChoice,
 } from '@maka/ui';
+import type { QuoteRef, SessionSummary } from '@maka/core';
 import { ArtifactPane } from './artifact-pane';
 import { BrowserPanel } from './browser-panel';
+import { QuoteCompanionPanel } from './quote-companion-panel';
 import type { SessionWorkbarTab } from './session-workbar-layout';
 import { useSessionTasks } from './use-session-tasks';
 import { getDesktopConversationCopy } from './locales/conversation-copy.js';
@@ -22,6 +25,16 @@ export function SessionWorkbar(props: {
   onDismiss: () => void;
   activeTab: SessionWorkbarTab;
   onActiveTabChange: (tab: SessionWorkbarTab) => void;
+  /** Active quote side panel: staged excerpts for the source session, or null
+   *  when no panel is open. Renders a transient "追问引用" tab. */
+  quote?: { sourceSessionId: string; quotes: QuoteRef[] } | null;
+  onClearQuote?: () => void;
+  onQuotesConsumed?: () => void;
+  onForkChange?: (forkId: string | undefined) => void;
+  /** The main session the companion forks from (inherits context + model). */
+  sourceSession?: SessionSummary;
+  /** Shared global choice list, used to label the companion's inherited model. */
+  modelChoices?: readonly ChatModelChoice[];
 }) {
   const locale = useUiLocale();
   const copy = getDesktopConversationCopy(locale).workbar;
@@ -32,6 +45,11 @@ export function SessionWorkbar(props: {
   useEffect(() => {
     if (props.activeTab === 'browser' && !props.browserLive) props.onActiveTabChange('tasks');
   }, [props.activeTab, props.browserLive, props.onActiveTabChange]);
+
+  // The quote tab only exists while an excerpt is active; fall back when cleared.
+  useEffect(() => {
+    if (props.activeTab === 'quote' && !props.quote) props.onActiveTabChange('tasks');
+  }, [props.activeTab, props.quote, props.onActiveTabChange]);
 
   return (
     <aside
@@ -52,6 +70,11 @@ export function SessionWorkbar(props: {
             <span>{copy.files}</span>
             <span className="maka-session-workbar-count">{artifactCount}</span>
           </PrimitiveTabsTrigger>
+          {props.quote && (
+            <PrimitiveTabsTrigger value="quote">
+              <span>{copy.quoteTab}</span>
+            </PrimitiveTabsTrigger>
+          )}
         </PrimitiveTabsList>
         <PrimitiveTabsPanel value="tasks" className="maka-session-workbar-panel" keepMounted>
           <TaskLedgerPanel
@@ -67,6 +90,22 @@ export function SessionWorkbar(props: {
         <PrimitiveTabsPanel value="files" className="maka-session-workbar-panel" keepMounted>
           <ArtifactPane sessionId={props.sessionId} onCountChange={setArtifactCount} onDismiss={props.onDismiss} />
         </PrimitiveTabsPanel>
+        {props.quote && (
+          <PrimitiveTabsPanel
+            value="quote"
+            className="maka-session-workbar-panel maka-quote-workbar-panel"
+            keepMounted
+          >
+            <QuoteCompanionPanel
+              quotes={props.quote.quotes}
+              sourceSession={props.sourceSession}
+              modelChoices={props.modelChoices ?? []}
+              onClear={props.onClearQuote}
+              onQuotesConsumed={props.onQuotesConsumed ?? (() => {})}
+              onForkChange={props.onForkChange}
+            />
+          </PrimitiveTabsPanel>
+        )}
       </PrimitiveTabs>
     </aside>
   );
