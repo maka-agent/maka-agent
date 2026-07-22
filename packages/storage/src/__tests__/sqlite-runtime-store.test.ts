@@ -146,6 +146,54 @@ describe('SqliteRuntimeStore', () => {
     });
   });
 
+  it('commits prepared mutation facts inside the same T1 transaction before dispatch', async () => {
+    await withStore(async (store) => {
+      const call = functionCallEvent();
+      const preparedMutation: RuntimeEvent = {
+        id: 'prepared-file-mutation-1',
+        invocationId: 'invocation-1',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        ts: 9,
+        partial: false,
+        role: 'system',
+        author: 'system',
+        actions: {
+          runtimeFact: {
+            kind: 'maka.file.prepared_mutation',
+            version: 1,
+            legacyProjection: 'invisible',
+            payload: { operationId: 'operation-1' },
+          },
+        },
+        refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+      };
+      const dispatch = toolDispatchEvent();
+      const input = {
+        operationId: 'operation-1',
+        journalEventId: 'journal-prepared-1',
+        runtimeEvent: call,
+        preparationRuntimeEvents: [preparedMutation],
+        dispatchRuntimeEvent: dispatch,
+        providerToolCallId: 'provider-call-1',
+        toolName: 'Read',
+        canonicalArgsHash: 'sha256:args-1',
+        recoveryMode: 'replay_safe' as const,
+        committedAt: 10,
+      };
+
+      const result = await store.commitToolPrepared(input);
+
+      assert.equal(result.runtimeEventSeq, 3);
+      assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), [
+        call,
+        preparedMutation,
+        dispatch,
+      ]);
+    });
+  });
+
   it('claims an exact function_call that was committed while permission was pending', async () => {
     await withStore(async (store) => {
       const call = functionCallEvent();

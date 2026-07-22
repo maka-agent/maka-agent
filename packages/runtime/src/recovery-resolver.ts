@@ -133,6 +133,12 @@ export function resolveRuntimeRecovery(
       recoveryFacts.push({ kind: parsed.status, eventId: event.id, fact: parsed.fact });
       continue;
     }
+    if (parsed.status === 'prepared_file_mutation') {
+      // Phase 3B preparation evidence is associated with its operation below;
+      // recognizing it here keeps the ledger readable and prevents an unknown-
+      // fact park while older operations continue to use Phase 3A decisions.
+      continue;
+    }
     if (parsed.status === 'invalid') {
       issues.push({
         code: 'recovery_fact_corruption',

@@ -1100,6 +1100,7 @@ export type {
 } from './tool-recovery-contract.js';
 
 export {
+  PREPARED_FILE_MUTATION_FACT_KIND,
   TOOL_RECOVERY_DECISION_FACT_KIND,
   TOOL_RECOVERY_FACT_VERSION,
   TOOL_RECONCILE_RESULT_FACT_KIND,
@@ -1107,9 +1108,24 @@ export {
 } from './tool-recovery-facts.js';
 export type {
   ParsedToolRecoveryFact,
+  PreparedFileBlobRef,
+  PreparedFileBeforeState,
+  PreparedFileMutationFact,
   ToolReconcileResultFact,
   ToolRecoveryDecisionFact,
 } from './tool-recovery-facts.js';
+
+export {
+  decidePreparedFileMutation,
+  type CurrentFileCheckpointState,
+  type PreparedFileMutationDisposition,
+} from './prepared-file-mutation.js';
+export {
+  GitFileCheckpointCarrier,
+  PreparedFileMutationConflictError,
+  type GitFileCheckpointCarrierOptions,
+  type PrepareGitFileMutationInput,
+} from './git-file-checkpoint-carrier.js';
 
 export {
   commitToolReconcileResultFact,

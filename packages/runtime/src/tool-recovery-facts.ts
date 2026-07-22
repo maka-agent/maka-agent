@@ -3,6 +3,7 @@ import type { RecoveryDisposition, RecoveryReasonCode } from './recovery-resolve
 
 export const TOOL_RECOVERY_DECISION_FACT_KIND = 'maka.tool.recovery_decision' as const;
 export const TOOL_RECONCILE_RESULT_FACT_KIND = 'maka.tool.reconcile_result' as const;
+export const PREPARED_FILE_MUTATION_FACT_KIND = 'maka.file.prepared_mutation' as const;
 export const TOOL_RECOVERY_FACT_VERSION = 1 as const;
 
 const RECOVERY_DISPOSITIONS = new Set<RecoveryDisposition>([
@@ -51,16 +52,48 @@ export interface ToolReconcileResultFact {
   nextAction: 'synthesize_response' | 'retry_allowed' | 'reattach' | 'park';
 }
 
+export interface PreparedFileBlobRef {
+  kind: 'file';
+  sha256: string;
+  blobOid: string;
+  byteLength: number;
+  mode: number;
+}
+
+export type PreparedFileBeforeState = { kind: 'missing' } | PreparedFileBlobRef;
+
+export interface PreparedFileMutationFact {
+  protocol: 'prepared_file_mutation_v1';
+  operationId: string;
+  workspaceRoot: string;
+  canonicalPath: string;
+  relativePath: string;
+  before: PreparedFileBeforeState;
+  expectedAfter: PreparedFileBlobRef;
+  transform: {
+    id: string;
+    version: number;
+    argsHash: string;
+  };
+  carrier: {
+    kind: 'git_object_v1';
+    repositoryCommonDir: string;
+    retentionRef: string;
+  };
+}
+
 export type ParsedToolRecoveryFact =
   | { status: 'unsupported' }
   | { status: 'invalid' }
   | { status: 'recovery_decision'; fact: ToolRecoveryDecisionFact }
-  | { status: 'reconcile_result'; fact: ToolReconcileResultFact };
+  | { status: 'reconcile_result'; fact: ToolReconcileResultFact }
+  | { status: 'prepared_file_mutation'; fact: PreparedFileMutationFact };
 
 export function parseToolRecoveryFact(envelope: RuntimeFactEnvelope): ParsedToolRecoveryFact {
   if (
     envelope.kind !== TOOL_RECOVERY_DECISION_FACT_KIND &&
-    envelope.kind !== TOOL_RECONCILE_RESULT_FACT_KIND
+    envelope.kind !== TOOL_RECONCILE_RESULT_FACT_KIND &&
+    envelope.kind !== PREPARED_FILE_MUTATION_FACT_KIND
   ) {
     return { status: 'unsupported' };
   }
@@ -68,7 +101,96 @@ export function parseToolRecoveryFact(envelope: RuntimeFactEnvelope): ParsedTool
   if (envelope.kind === TOOL_RECOVERY_DECISION_FACT_KIND) {
     return parseRecoveryDecision(envelope.payload);
   }
+  if (envelope.kind === PREPARED_FILE_MUTATION_FACT_KIND) {
+    return parsePreparedFileMutation(envelope.payload);
+  }
   return parseReconcileResult(envelope.payload);
+}
+
+function parsePreparedFileMutation(payload: unknown): ParsedToolRecoveryFact {
+  if (
+    !hasExactKeys(payload, [
+      'protocol',
+      'operationId',
+      'workspaceRoot',
+      'canonicalPath',
+      'relativePath',
+      'before',
+      'expectedAfter',
+      'transform',
+      'carrier',
+    ])
+  ) {
+    return { status: 'invalid' };
+  }
+  if (
+    payload.protocol !== 'prepared_file_mutation_v1' ||
+    !isNonEmptyString(payload.operationId) ||
+    !isNonEmptyString(payload.workspaceRoot) ||
+    !isNonEmptyString(payload.canonicalPath) ||
+    !isNonEmptyString(payload.relativePath) ||
+    !isPreparedBeforeState(payload.before) ||
+    !isPreparedBlobRef(payload.expectedAfter) ||
+    !isPreparedTransform(payload.transform) ||
+    !isPreparedCarrier(payload.carrier)
+  ) {
+    return { status: 'invalid' };
+  }
+  return {
+    status: 'prepared_file_mutation',
+    fact: payload as unknown as PreparedFileMutationFact,
+  };
+}
+
+function isPreparedBeforeState(value: unknown): value is PreparedFileBeforeState {
+  return (
+    (hasExactKeys(value, ['kind']) && value.kind === 'missing') || isPreparedBlobRef(value)
+  );
+}
+
+function isPreparedBlobRef(value: unknown): value is PreparedFileBlobRef {
+  return (
+    hasExactKeys(value, ['kind', 'sha256', 'blobOid', 'byteLength', 'mode']) &&
+    value.kind === 'file' &&
+    isSha256(value.sha256) &&
+    isGitOid(value.blobOid) &&
+    Number.isSafeInteger(value.byteLength) &&
+    Number(value.byteLength) >= 0 &&
+    Number.isSafeInteger(value.mode) &&
+    Number(value.mode) > 0
+  );
+}
+
+function isPreparedTransform(value: unknown): boolean {
+  return (
+    hasExactKeys(value, ['id', 'version', 'argsHash']) &&
+    isNonEmptyString(value.id) &&
+    Number.isSafeInteger(value.version) &&
+    Number(value.version) >= 1 &&
+    isSha256(value.argsHash)
+  );
+}
+
+function isPreparedCarrier(value: unknown): boolean {
+  return (
+    hasExactKeys(value, ['kind', 'repositoryCommonDir', 'retentionRef']) &&
+    value.kind === 'git_object_v1' &&
+    isNonEmptyString(value.repositoryCommonDir) &&
+    isNonEmptyString(value.retentionRef) &&
+    value.retentionRef.startsWith('refs/maka/checkpoints/')
+  );
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+}
+
+function isGitOid(value: unknown): value is string {
+  return typeof value === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function parseRecoveryDecision(payload: unknown): ParsedToolRecoveryFact {

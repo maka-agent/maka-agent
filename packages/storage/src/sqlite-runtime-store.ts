@@ -48,6 +48,7 @@ export interface CommitToolPreparedInput {
   operationId: string;
   journalEventId: string;
   runtimeEvent: RuntimeEvent;
+  preparationRuntimeEvents?: RuntimeEvent[];
   dispatchRuntimeEvent: RuntimeEvent;
   providerToolCallId: string;
   toolName: string;
@@ -352,6 +353,9 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
           input.runtimeEvent,
           this.readRuntimeEventJson(input.runtimeEvent.id),
         );
+        for (const event of input.preparationRuntimeEvents ?? []) {
+          assertStoredRuntimeEventEquals(event, this.readRuntimeEventJson(event.id));
+        }
         assertStoredRuntimeEventEquals(
           input.dispatchRuntimeEvent,
           this.readRuntimeEventJson(input.dispatchRuntimeEvent.id),
@@ -362,6 +366,9 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
         };
       }
       this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, true);
+      for (const event of input.preparationRuntimeEvents ?? []) {
+        this.insertRuntimeEvent(event, input.committedAt, false);
+      }
       const runtimeEventSeq = this.insertRuntimeEvent(
         input.dispatchRuntimeEvent,
         input.committedAt,
@@ -1066,6 +1073,18 @@ function assertPreparedInput(input: CommitToolPreparedInput): void {
     throw new Error('T1 requires a matching tool-dispatch RuntimeEvent');
   }
   assertSameRuntimeIdentity(input.runtimeEvent, input.dispatchRuntimeEvent, 'T1');
+  for (const event of input.preparationRuntimeEvents ?? []) {
+    if (
+      event.partial ||
+      event.content !== undefined ||
+      event.actions?.runtimeFact === undefined ||
+      event.actions.runtimeFact.legacyProjection !== 'invisible' ||
+      event.refs?.operationId !== input.operationId
+    ) {
+      throw new Error('T1 preparation requires a matching invisible RuntimeEvent fact');
+    }
+    assertSameRuntimeIdentity(input.runtimeEvent, event, 'T1 preparation');
+  }
 }
 
 function assertOutcomeInput(input: CommitToolOutcomeInput): void {
