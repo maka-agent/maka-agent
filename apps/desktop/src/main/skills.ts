@@ -302,11 +302,6 @@ function toRejectedSkillEntry(skill: RejectedSkillDefinition): SkillEntry {
   };
 }
 
-/** Backward-compatible workspace-only projection used by install/update flows. */
-export async function listSkillEntries(root: string): Promise<SkillEntry[]> {
-  return (await listInstalledSkills(root)).map((skill) => toSkillEntry(skill));
-}
-
 export function toSkillEntry(
   skill: InstalledSkill,
   decision?: { reason: SkillContextDecisionReason; rank?: number; shadowedBy?: string },
