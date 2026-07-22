@@ -116,7 +116,7 @@ function tools(items: ToolActivityItem[]): ProcessingTimelineChild {
 }
 
 describe('processing block summary (#1307)', () => {
-  it('settled summary counts reasoning blocks + tool buckets + failed', () => {
+  it('settled summary rolls up tool activity only — folded reasoning is not counted', () => {
     const children = [
       thinking(),
       tools([
@@ -125,15 +125,11 @@ describe('processing block summary (#1307)', () => {
       ]),
       thinking(),
     ];
-    // 思考计数 + 读取/搜索桶 + 标红失败计数，沿用 summarizeTrowTools 的文案与顺序。
-    assert.equal(summarizeProcessing(children, {}), '思考 2 次，读取 1 个文件，搜索 1 次，1 个失败');
+    // 只汇总工具桶 + 标红失败计数（沿用 summarizeTrowTools 文案），不出现「思考 N 次」。
+    assert.equal(summarizeProcessing(children, {}), '读取 1 个文件，搜索 1 次，1 个失败');
   });
 
-  it('a pure-thinking block summarizes as just the reasoning count', () => {
-    assert.equal(summarizeProcessing([thinking(), thinking()], {}), '思考 2 次');
-  });
-
-  it('keeps the failed count on the live summary while a tool is still running', () => {
+  it('shows the running tool intent as the live current activity', () => {
     const children = [
       tools([
         { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'errored', args: {} },
@@ -144,8 +140,12 @@ describe('processing block summary (#1307)', () => {
     assert.equal(summarizeProcessing(children, { live: true }), '正在运行测试');
   });
 
-  it('live summary falls back to the reasoning label when only thinking is streaming', () => {
-    assert.equal(summarizeProcessing([thinking(true)], { live: true }), '正在深度思考');
+  it('live summary falls back to the reasoning label when tools are done and thinking still streams', () => {
+    const children = [
+      tools([{ toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'completed', args: {} }]),
+      thinking(true),
+    ];
+    assert.equal(summarizeProcessing(children, { live: true }), '正在深度思考');
   });
 
   it('is running while any tool is in flight or reasoning is still streaming', () => {

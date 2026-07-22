@@ -837,10 +837,12 @@ function TurnTimelineEntry(props: {
 
 /**
  * "Processing" — a folded run of the model's reasoning + tool activity between
- * two answer texts (#1307). Collapsed by default (no defaultOpen — same
- * disclosure-collapsible-contract as 深度思考 / the tool trow): the summary line
- * shows the current activity while running and freezes to a settled roll-up
- * (思考 N 次 + tool counts + 「N 个失败」 in destructive) once the turn ends. A
+ * two answer texts (#1307; a run folds only when it contains tool activity — a
+ * pure-thinking run renders as the bare 深度思考 disclosure). Collapsed by
+ * default (no defaultOpen — same disclosure-collapsible-contract as 深度思考 /
+ * the tool trow): the summary line shows the current activity while running and
+ * freezes to the settled tool roll-up (tool counts + 「N 个失败」 in
+ * destructive; folded reasoning is not counted) once the turn ends. A
  * `waiting_permission` prompt inside forces the block open (trowNeedsAttention);
  * an errored tool stays collapsed with its failure count on the summary line.
  * The expanded panel replays the full timeline — the SAME 深度思考 disclosures

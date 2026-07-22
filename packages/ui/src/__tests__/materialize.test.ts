@@ -117,14 +117,15 @@ function childKinds(item: TurnTimelineItem | undefined): string[] {
 }
 
 describe('materializeTurns processing grouping (#1307)', () => {
-  test('folds a pure-thinking run into one processing block', () => {
+  test('leaves a pure-thinking run bare instead of folding it (review fix)', () => {
     const turns = materializeTurns([
       userMsg('t1', 100, 'q'),
       assistantStep('t1', 101, 'a1', '', 'reasoning only'),
     ]);
     const timeline = turns[0]!.timeline;
-    assert.deepEqual(timeline.map((item) => item.kind), ['processing']);
-    assert.deepEqual(childKinds(timeline[0]), ['thinking']);
+    // No tools in the run → no processing block; the 深度思考 disclosure
+    // renders the reasoning directly.
+    assert.deepEqual(timeline.map((item) => item.kind), ['thinking']);
   });
 
   test('folds a pure-tools run into one processing block', () => {
@@ -164,15 +165,15 @@ describe('materializeTurns processing grouping (#1307)', () => {
     ]);
     const timeline = turns[0]!.timeline;
     // thinking, text, tools, thinking, text, tools ->
-    // processing[thinking], text, processing[tools, thinking], text, processing[tools]
+    // thinking (pure run stays bare), text, processing[tools, thinking],
+    // text, processing[tools]
     assert.deepEqual(timeline.map((item) => item.kind), [
-      'processing',
+      'thinking',
       'text',
       'processing',
       'text',
       'processing',
     ]);
-    assert.deepEqual(childKinds(timeline[0]), ['thinking']);
     assert.deepEqual(childKinds(timeline[2]), ['tools', 'thinking']);
     assert.deepEqual(childKinds(timeline[4]), ['tools']);
     assert.equal((timeline[1] as { text: string }).text, 'step one');
@@ -192,7 +193,8 @@ describe('materializeTurns processing grouping (#1307)', () => {
     assert.deepEqual(timeline?.map((item) => item.kind), ['processing']);
     assert.deepEqual(childKinds(timeline?.[0]), ['thinking', 'tools']);
     // The live processing block keeps its answer texts as boundaries: a live
-    // step with text splits reasoning/tools out of the answer.
+    // step with text splits reasoning/tools out of the answer, and a lone
+    // pre-answer thinking run stays bare (same rule as settled history).
     const withText = overlayLiveTurn([], {
       turnId: 't2',
       phase: 'streamed',
@@ -203,6 +205,6 @@ describe('materializeTurns processing grouping (#1307)', () => {
         tools: [{ toolUseId: 'c2', toolName: 'Bash', stepId: 'a1', status: 'running', args: {} }],
       }],
     })[0]?.timeline;
-    assert.deepEqual(withText?.map((item) => item.kind), ['processing', 'text', 'processing']);
+    assert.deepEqual(withText?.map((item) => item.kind), ['thinking', 'text', 'processing']);
   });
 });

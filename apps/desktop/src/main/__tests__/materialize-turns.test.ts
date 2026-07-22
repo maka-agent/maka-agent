@@ -650,19 +650,15 @@ describe('materializeTurns timeline', () => {
       assistantStep('t1', 106, 'a2', 'step two', 'think two'),
     ]);
     const timeline = turns[0]!.timeline;
-    // Answer text is the only boundary; reasoning/tools around each text fold.
+    // Answer text is the only boundary; a run folds only when it contains tool
+    // activity, so the lone pre-answer reasoning stays a bare thinking entry.
     assert.deepEqual(timeline.map((item) => item.kind), [
-      'processing',
+      'thinking',
       'text',
       'processing',
       'text',
       'processing',
     ]);
-    const first = timeline[0];
-    assert.deepEqual(
-      first?.kind === 'processing' ? first.children.map((child) => child.kind) : [],
-      ['thinking'],
-    );
     const middle = timeline[2];
     assert.deepEqual(
       middle?.kind === 'processing' ? middle.children.map((child) => child.kind) : [],

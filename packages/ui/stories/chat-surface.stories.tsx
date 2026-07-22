@@ -393,8 +393,9 @@ const multiStepConversation: StoredMessage[] = [
 // #1307: reasoning + tool calls between two answer texts fold into one
 // collapsed "Processing" block. Here a single reasoning/tool phase (two
 // think-then-call steps with no answer text between them, one failing tool)
-// collapses into one Processing summary — 思考 2 次 + tool counts + a red failed
-// count — followed by the assistant's answer text rendered in place.
+// collapses into one Processing summary — the tool roll-up「读取 1 个文件，搜索
+// 1 次，运行 1 条命令，1 个失败」(folded reasoning stays inside the block but is
+// not counted) — followed by the assistant's answer text rendered in place.
 const processingConversation: StoredMessage[] = [
   user('msg-user-processing', 'turn-processing', 13, '排查 stream-fade 的环边界，跑一下单测确认。'),
   {

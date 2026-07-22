@@ -129,18 +129,15 @@ export function trowNeedsAttention(items: readonly ToolActivityItem[]): boolean 
 
 // ── Processing block (#1307) ────────────────────────────────────────────────
 // A processing block folds a maximal run of reasoning + tool groups between two
-// answer texts. Its summary reuses the trow bucket clauses and prepends a
-// reasoning-count clause; the failed count stays visible (errored tools remain
-// collapsed, so the summary line is the failure signal, matching the trow).
+// answer texts (a run folds only when it contains tool activity — see
+// groupProcessing). Its summary reuses the trow bucket clauses; folded
+// reasoning stays inside the block but is not counted in the summary line. The
+// failed count stays visible (errored tools remain collapsed, so the summary
+// line is the failure signal, matching the trow).
 
 /** All tool items across the block's tool groups, in order. */
 function processingTools(children: readonly ProcessingTimelineChild[]): ToolActivityItem[] {
   return children.flatMap((child) => (child.kind === 'tools' ? child.items : []));
-}
-
-/** Number of reasoning blocks folded into the processing group. */
-function processingThinkingCount(children: readonly ProcessingTimelineChild[]): number {
-  return children.reduce((count, child) => (child.kind === 'thinking' ? count + 1 : count), 0);
 }
 
 /** True while any tool is in flight or any reasoning block is still streaming. */
@@ -160,24 +157,19 @@ export function processingNeedsAttention(children: readonly ProcessingTimelineCh
 }
 
 /**
- * Summary line for a processing block. Settled: reasoning-count clause +
- * per-bucket tool clauses + failed count, joined like the trow. Live
- * (`{ live: true }`): the current activity — the running tool's intent (or the
- * reasoning label when only thinking is streaming), prefixed with "正在".
+ * Summary line for a processing block. Settled: the tool-activity roll-up only
+ * (per-bucket clauses + failed count, exactly the trow summary) — folded
+ * reasoning is not counted. Live (`{ live: true }`): the current activity —
+ * the running tool's intent (or the reasoning label when the tools are done
+ * and only thinking is still streaming), prefixed with "正在".
  */
 export function summarizeProcessing(
   children: readonly ProcessingTimelineChild[],
   options?: { live?: boolean; locale?: UiLocale },
 ): string {
   const locale = options?.locale ?? 'zh';
-  const copy = getToolActivityCopy(locale).summary;
   if (options?.live) return processingLiveSummary(children, locale);
-  const tools = processingTools(children);
-  const thinkingCount = processingThinkingCount(children);
-  const clauses: string[] = [];
-  if (thinkingCount > 0) clauses.push(copy.thinking(thinkingCount));
-  if (tools.length > 0) clauses.push(summarizeTrowTools(tools, { locale }));
-  return copy.join(clauses);
+  return summarizeTrowTools(processingTools(children), { locale });
 }
 
 /** Current-activity line for a running processing block. */

@@ -224,9 +224,11 @@ function mergeLiveOverPersisted(persisted: ToolActivityItem, live: ToolActivityI
  *   Codex-style trow. Adjacent groups are pre-merged.
  * - `processing`: a maximal run of `thinking` + `tools` entries between two
  *   answer texts, folded into one collapsed "Processing" disclosure (#1307).
- *   Its `children` preserve the original interleaved order so the expanded
- *   block is the full timeline; answer `text` stays a grouping boundary and
- *   always renders in place, so a turn can hold several processing blocks.
+ *   A run folds only when it contains at least one tools group — a
+ *   pure-thinking run stays bare. `children` preserve the original interleaved
+ *   order so the expanded block is the full timeline; answer `text` stays a
+ *   grouping boundary and always renders in place, so a turn can hold several
+ *   processing blocks.
  */
 export type ThinkingTimelineItem = { kind: 'thinking'; text: string; messageId: string; live?: boolean; truncated?: boolean };
 export type TextTimelineItem = { kind: 'text'; text: string; messageId: string; ts?: number; live?: boolean; complete?: boolean; truncated?: boolean };
@@ -764,7 +766,16 @@ function groupProcessing(items: readonly TurnTimelineItem[]): TurnTimelineItem[]
   const out: TurnTimelineItem[] = [];
   let buffer: ProcessingTimelineChild[] | null = null;
   const flush = (): void => {
-    if (buffer && buffer.length > 0) out.push({ kind: 'processing', children: buffer });
+    if (buffer && buffer.length > 0) {
+      // A run folds only when it contains tool activity. A pure-thinking run
+      // stays bare so the existing 深度思考 disclosure renders it directly —
+      // wrapping a lone reasoning block would just double the fold.
+      if (buffer.some((child) => child.kind === 'tools')) {
+        out.push({ kind: 'processing', children: buffer });
+      } else {
+        out.push(...buffer);
+      }
+    }
     buffer = null;
   };
   for (const item of items) {
