@@ -485,10 +485,14 @@ export {
   AGENT_SWARM_DEFAULT_CONCURRENCY,
   AGENT_SWARM_MAX_CONCURRENCY,
   AGENT_SWARM_MAX_ITEMS,
+  AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER,
   AGENT_SWARM_TOOL_NAME,
   buildAgentSwarmTool,
 } from './agent-swarm-tools.js';
 export type {
+  AgentSwarmExplicitItemInput,
+  AgentSwarmExplicitToolInput,
+  AgentSwarmTemplateToolInput,
   AgentSwarmToolInput,
   AgentSwarmToolResult,
 } from './agent-swarm-tools.js';

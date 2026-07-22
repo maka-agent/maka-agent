@@ -5,8 +5,10 @@ import {
   AGENT_SWARM_DEFAULT_CONCURRENCY,
   AGENT_SWARM_MAX_CONCURRENCY,
   AGENT_SWARM_MAX_ITEMS,
+  AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER,
   AGENT_SWARM_TOOL_NAME,
   buildAgentSwarmTool,
+  type AgentSwarmExplicitItemInput,
   type AgentSwarmToolInput,
   type AgentSwarmToolResult,
 } from '../agent-swarm-tools.js';
@@ -137,6 +139,102 @@ describe('AgentSwarm adapter', () => {
       /worktree child executor/,
     );
     assert.equal(starts, 0);
+  });
+
+  test('accepts prompt_template with string items and rejects ambiguous template input', () => {
+    const tool = buildAgentSwarmTool();
+    const schema = tool.parameters as {
+      safeParse(input: unknown): {
+        success: boolean;
+        data?: AgentSwarmToolInput;
+      };
+    };
+
+    assert.deepEqual(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: [' runtime ', ' ui '],
+      }).data,
+      {
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'ui'],
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.equal(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'ui'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: 'Review this.',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'ui'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        items: ['runtime', 'ui'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['same', 'same'],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        prompt_template: `Review ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: [swarmItem(0)],
+      }).success,
+      false,
+    );
+  });
+
+  test('normalizes prompt_template items through the existing ordered execution path', async () => {
+    const prompts: string[] = [];
+    const tool = buildAgentSwarmTool();
+    const result = await tool.impl(
+      {
+        prompt_template: `Compare ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER} with ${AGENT_SWARM_PROMPT_TEMPLATE_PLACEHOLDER}.`,
+        profile: LOCAL_READ_AGENT_PROFILE,
+        items: ['runtime', 'desktop'],
+        max_concurrency: 2,
+      },
+      context({
+        spawnChildAgent: async (input) => {
+          prompts.push(input.prompt);
+          const index = prompts.length - 1;
+          await input.onReady?.({
+            turnId: `turn-${index}`,
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          return childResult(index);
+        },
+      }),
+    );
+
+    assert.deepEqual(prompts, ['Compare runtime with runtime.', 'Compare desktop with desktop.']);
+    assert.deepEqual(
+      result.items.map((item) => ({ itemId: item.itemId, index: item.index, status: item.status })),
+      [
+        { itemId: 'item-1', index: 0, status: 'completed' },
+        { itemId: 'item-2', index: 1, status: 'completed' },
+      ],
+    );
   });
 
   test('fails at the tool boundary when child spawning is unavailable', async () => {
@@ -610,7 +708,7 @@ describe('AgentSwarm adapter', () => {
   });
 });
 
-function swarmItem(index: number): AgentSwarmToolInput['items'][number] {
+function swarmItem(index: number): AgentSwarmExplicitItemInput {
   return {
     item_id: `item-${index}`,
     profile: LOCAL_READ_AGENT_PROFILE,
