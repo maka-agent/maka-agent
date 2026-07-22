@@ -9,11 +9,12 @@
 //   node packages/headless/harbor/run-prompt-ab.mjs
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
+import { runExperiment } from '#experiment-engine';
 import {
   discoverCachedHarborTasks,
   resolveFixedPromptRunRoot,
@@ -81,9 +82,9 @@ async function main() {
   const candidatePromptId =
     process.env.MAKA_PROMPT_AB_CANDIDATE_ID || promptIdFromPath(candidatePromptSourcePath);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_PROMPT_AB_RUN_ID');
-  const controllerDir = join(runRoot, 'controller');
-  const jobsDir = join(runRoot, 'jobs');
   const promptsDir = join(runRoot, 'prompts');
+  const baselinePromptPath = join(promptsDir, 'maka-baseline.md');
+  const candidatePromptPath = join(promptsDir, `candidate-${basename(candidatePromptSourcePath)}`);
   const provider = 'deepseek';
   const baseUrl = process.env.MAKA_PROMPT_AB_BASE_URL || 'https://api.deepseek.com';
   const model = 'deepseek/deepseek-v4-flash';
@@ -169,69 +170,75 @@ async function main() {
   });
   await ensurePromptAbRunManifest(join(runRoot, 'prompt-ab-manifest.json'), runManifest);
 
-  await mkdir(controllerDir, { recursive: true });
-  await mkdir(jobsDir, { recursive: true });
-  await mkdir(promptsDir, { recursive: true });
-  const baselinePromptPath = join(promptsDir, 'maka-baseline.md');
-  const candidatePromptPath = join(promptsDir, `candidate-${basename(candidatePromptSourcePath)}`);
-  await writeFile(baselinePromptPath, baselinePrompt, 'utf8');
-  await writeFile(candidatePromptPath, candidatePrompt, 'utf8');
-
   const config = {
     id: 'prompt-ab',
     backend: 'harbor',
     llmConnectionSlug: provider,
     model,
   };
-  const harborRunner = createHarborTaskRunner({
-    makaRepoPath,
-    jobsDir,
-    model,
-    provider,
-    apiKeyFile: keyFile,
-    pricing: DEEPSEEK_V4_FLASH_PRICING,
-    agentEnv: { DEEPSEEK_BASE_URL: baseUrl, MAKA_CELL_TIMEOUT_SEC: String(taskBudgetSec) },
-    ...(harborTimeoutMs !== undefined ? { harborTimeoutMs } : {}),
-  });
-  const resultsJsonlPath = join(controllerDir, 'results.jsonl');
-
-  const summary = await runPromptAbComparison({
-    runId,
-    config,
-    baselinePromptPath,
-    candidatePromptPath,
-    candidatePromptId,
-    resultsJsonlPath,
-    evaluationTasks,
-    reps,
-    maxConcurrency,
-    resumeFingerprint: runManifest.fingerprint,
-    budgetMs: taskBudgetSec * 1000,
-    nonInferiorityMargin,
-    harborRunner,
-  });
-
-  const output = {
-    schemaVersion: 'maka.prompt_ab.v2',
-    runId,
-    candidatePromptSourcePath,
-    maxConcurrency,
-    taskBudgetSec,
-    harborTimeoutMs,
-    targetEvaluationTaskCount: targetEvaluationTaskCount ?? null,
-    runManifest,
-    metadataFilter,
-    candidateTaskLimit,
-    summary,
-  };
   const resultPath = join(runRoot, 'prompt-ab-result.json');
   const reportPath = join(runRoot, 'prompt-ab-report.md');
-  await writeFile(resultPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
-  await writeFile(
-    reportPath,
-    `${renderMetadataFilterMarkdown(metadataFilter)}${renderCandidateLimitMarkdown(candidateTaskLimit)}${renderPromptAbRunManifestMarkdown(runManifest)}${renderPromptAbComparisonMarkdown(summary)}`,
-    'utf8',
-  );
+
+  const summary = await runExperiment({
+    runRoot,
+    prompts: () => [
+      { path: baselinePromptPath, content: baselinePrompt },
+      { path: candidatePromptPath, content: candidatePrompt },
+    ],
+    run: ({ jobsDir, resultsJsonlPath }) => {
+      const harborRunner = createHarborTaskRunner({
+        makaRepoPath,
+        jobsDir,
+        model,
+        provider,
+        apiKeyFile: keyFile,
+        pricing: DEEPSEEK_V4_FLASH_PRICING,
+        agentEnv: { DEEPSEEK_BASE_URL: baseUrl, MAKA_CELL_TIMEOUT_SEC: String(taskBudgetSec) },
+        ...(harborTimeoutMs !== undefined ? { harborTimeoutMs } : {}),
+      });
+      return runPromptAbComparison({
+        runId,
+        config,
+        baselinePromptPath,
+        candidatePromptPath,
+        candidatePromptId,
+        resultsJsonlPath,
+        evaluationTasks,
+        reps,
+        maxConcurrency,
+        resumeFingerprint: runManifest.fingerprint,
+        budgetMs: taskBudgetSec * 1000,
+        nonInferiorityMargin,
+        harborRunner,
+      });
+    },
+    artifacts: (summary) => [
+      {
+        path: resultPath,
+        content: `${JSON.stringify(
+          {
+            schemaVersion: 'maka.prompt_ab.v2',
+            runId,
+            candidatePromptSourcePath,
+            maxConcurrency,
+            taskBudgetSec,
+            harborTimeoutMs,
+            targetEvaluationTaskCount: targetEvaluationTaskCount ?? null,
+            runManifest,
+            metadataFilter,
+            candidateTaskLimit,
+            summary,
+          },
+          null,
+          2,
+        )}\n`,
+      },
+      {
+        path: reportPath,
+        content: `${renderMetadataFilterMarkdown(metadataFilter)}${renderCandidateLimitMarkdown(candidateTaskLimit)}${renderPromptAbRunManifestMarkdown(runManifest)}${renderPromptAbComparisonMarkdown(summary)}`,
+      },
+    ],
+  });
 
   console.log('---');
   console.log(`decision: ${summary.decision} (${summary.reason})`);

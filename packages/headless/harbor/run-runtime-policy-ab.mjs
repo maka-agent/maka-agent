@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '@maka/headless';
 import { ensureAbRunManifest } from '#ab-manifest';
+import { runExperiment } from '#experiment-engine';
 import {
   discoverCachedHarborTasks,
   resolveFixedPromptRunRoot,
@@ -94,14 +95,7 @@ async function main() {
     join(repoRoot, '.local-secrets/deepseek-key'),
   );
   await readFile(keyFile, 'utf8');
-  const controllerDir = join(runRoot, 'controller');
-  const jobsDir = join(runRoot, 'jobs');
-  const promptsDir = join(runRoot, 'prompts');
-  await mkdir(controllerDir, { recursive: true });
-  await mkdir(jobsDir, { recursive: true });
-  await mkdir(promptsDir, { recursive: true });
-  const systemPromptPath = join(promptsDir, 'shared-system-prompt.md');
-  await writeFile(systemPromptPath, systemPrompt, 'utf8');
+  const systemPromptPath = join(runRoot, 'prompts', 'shared-system-prompt.md');
   const config = {
     id: `runtime-policy-ab-${spec.id}`,
     backend: 'harbor',
@@ -113,47 +107,57 @@ async function main() {
     throw new Error(
       `runtime policy A/B provider ${executionProfile.provider} does not declare a base URL environment variable`,
     );
-  const harborRunner = createHarborTaskRunner({
-    makaRepoPath,
-    jobsDir,
-    model: executionProfile.model,
-    provider: executionProfile.provider,
-    apiKeyFile: keyFile,
-    pricing: executionProfile.pricing,
-    agentEnv: {
-      [baseUrlEnvName]: executionProfile.baseUrl,
-      MAKA_CELL_TIMEOUT_SEC: String(executionProfile.taskBudgetSec),
-    },
-    harborTimeoutMs: executionProfile.harborTimeoutMs,
-  });
-  const state = await runRuntimePolicyAbLifecycle({
-    runId,
+
+  const state = await runExperiment({
     runRoot,
-    manifestFingerprint: runManifest.fingerprint,
-    config,
-    systemPromptPath,
-    resultsJsonlPath: join(controllerDir, 'results.jsonl'),
-    pilotTasks,
-    evaluationTasks,
-    fullReps: spec.fullReps,
-    arms: spec.arms,
-    executionProfile,
-    nonInferiorityMargin: spec.nonInferiorityMargin,
-    sharedAgentEnv: spec.sharedAgentEnv,
-    resumeFingerprint: runManifest.fingerprint,
-    harborRunner,
+    prompts: () => [{ path: systemPromptPath, content: systemPrompt }],
+    run: ({ jobsDir, resultsJsonlPath }) => {
+      const harborRunner = createHarborTaskRunner({
+        makaRepoPath,
+        jobsDir,
+        model: executionProfile.model,
+        provider: executionProfile.provider,
+        apiKeyFile: keyFile,
+        pricing: executionProfile.pricing,
+        agentEnv: {
+          [baseUrlEnvName]: executionProfile.baseUrl,
+          MAKA_CELL_TIMEOUT_SEC: String(executionProfile.taskBudgetSec),
+        },
+        harborTimeoutMs: executionProfile.harborTimeoutMs,
+      });
+      return runRuntimePolicyAbLifecycle({
+        runId,
+        runRoot,
+        manifestFingerprint: runManifest.fingerprint,
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        pilotTasks,
+        evaluationTasks,
+        fullReps: spec.fullReps,
+        arms: spec.arms,
+        executionProfile,
+        nonInferiorityMargin: spec.nonInferiorityMargin,
+        sharedAgentEnv: spec.sharedAgentEnv,
+        resumeFingerprint: runManifest.fingerprint,
+        harborRunner,
+      });
+    },
+    artifacts: (state) => [
+      {
+        path: join(runRoot, 'runtime-policy-ab-result.json'),
+        content: `${JSON.stringify({ runManifest, spec, state }, null, 2)}\n`,
+      },
+      ...(state.full
+        ? [
+            {
+              path: join(runRoot, 'runtime-policy-ab-report.md'),
+              content: renderRuntimePolicyAbComparisonMarkdown(state.full),
+            },
+          ]
+        : []),
+    ],
   });
-  await writeFile(
-    join(runRoot, 'runtime-policy-ab-result.json'),
-    `${JSON.stringify({ runManifest, spec, state }, null, 2)}\n`,
-    'utf8',
-  );
-  if (state.full)
-    await writeFile(
-      join(runRoot, 'runtime-policy-ab-report.md'),
-      renderRuntimePolicyAbComparisonMarkdown(state.full),
-      'utf8',
-    );
   console.log(
     `status: ${state.status}${state.reason ? ` (${state.reason})` : ''}${state.full ? `; decision: ${state.full.decision}` : ''}`,
   );
