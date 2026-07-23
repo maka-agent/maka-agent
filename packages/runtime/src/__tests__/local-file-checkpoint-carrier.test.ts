@@ -131,6 +131,37 @@ describe('local file transaction checkpoint carrier', () => {
     }
   });
 
+  test('reports explicit drift when both the Windows target and before backup are missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-local-windows-missing-before-'));
+    try {
+      const path = join(root, 'notes.txt');
+      await writeFile(path, 'before image');
+      const carrier = new LocalFileCheckpointCarrier({ platform: 'win32' });
+      const fact = await carrier.prepare({
+        operationId: 'operation-windows-missing-before',
+        workspaceRoot: root,
+        targetPath: 'notes.txt',
+        expectedContent: Buffer.from('after image'),
+        transform: { id: 'maka.write.utf8', version: 1, argsHash: '5'.repeat(64) },
+      });
+      const inspect = carrier.inspect.bind(carrier);
+      let inspections = 0;
+      carrier.inspect = async (checkpoint) => {
+        const state = await inspect(checkpoint);
+        inspections += 1;
+        if (inspections === 2) await unlink(path);
+        return state;
+      };
+
+      await assert.rejects(
+        carrier.apply(fact, Buffer.from('after image')),
+        /prepared_file_missing_before_backup/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('prepares before/after identities without Git or storing file contents in the fact', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-local-checkpoint-'));
     try {

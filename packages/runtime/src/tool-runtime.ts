@@ -1502,7 +1502,7 @@ export class ToolRuntime {
         output.flush();
         trace?.emit(
           'tool',
-          'tool_failed',
+          'tool_unsettled',
           'Tool execution stopped with an unsettled durable outcome',
           {
             toolUseId,

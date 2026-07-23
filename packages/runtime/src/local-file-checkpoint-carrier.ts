@@ -323,8 +323,16 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
       await (this.options.syncDirectory ?? fsyncDirectory)(dirname(backupPath));
     } catch (error) {
       if (isNodeError(error) && error.code === 'ENOENT') {
-        const backup = await readBoundedFile(backupPath, this.maxFileBytes, 'current');
+        const backup = await readBoundedFile(backupPath, this.maxFileBytes, 'current').catch(
+          (backupError) => {
+            if (isNodeError(backupError) && backupError.code === 'ENOENT') {
+              throw new LocalFileMutationConflictError('prepared_file_missing_before_backup');
+            }
+            throw backupError;
+          },
+        );
         if (backup.sha256 === fact.before.sha256) return;
+        throw new LocalFileMutationConflictError('prepared_file_before_backup_drifted');
       }
       throw error;
     }

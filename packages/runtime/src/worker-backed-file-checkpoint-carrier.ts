@@ -12,6 +12,13 @@ import type {
 import type { CurrentFileCheckpointState } from './prepared-file-mutation.js';
 import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
+export type PreparedFileMutationExecutionOwner = 'disabled' | 'host_local' | 'filesystem_worker';
+
+export interface PreparedFileMutationCarrierSelection {
+  executionOwner: PreparedFileMutationExecutionOwner;
+  carrier: PreparedFileMutationCarrier | undefined;
+}
+
 /**
  * Host-side checkpoint preparation/observation with worker-owned mutation.
  * There is deliberately no host-local apply fallback once a worker is wired.
@@ -47,6 +54,26 @@ export class WorkerBackedFileCheckpointCarrier implements PreparedFileMutationCa
   }
 }
 
+/**
+ * Selects the prepared-mutation data plane once during host assembly.
+ *
+ * A host-local carrier is a deliberate deployment capability for hosts without
+ * a filesystem worker, not a runtime fallback. Once the worker owner is
+ * selected, worker failures remain failures/unsettled outcomes and never call
+ * the local carrier's apply method.
+ */
+export function selectPreparedFileMutationCarrier(
+  local: PreparedFileMutationCarrier | undefined,
+  worker?: Pick<FilesystemWorkerClient, 'execute'>,
+): PreparedFileMutationCarrierSelection {
+  if (!local) return { executionOwner: 'disabled', carrier: undefined };
+  if (!worker) return { executionOwner: 'host_local', carrier: local };
+  return {
+    executionOwner: 'filesystem_worker',
+    carrier: new WorkerBackedFileCheckpointCarrier(local, worker),
+  };
+}
+
 export async function applyPreparedFileThroughWorker(
   worker: Pick<FilesystemWorkerClient, 'execute'>,
   fact: PreparedFileMutationFact,
@@ -69,19 +96,7 @@ export async function applyPreparedFileThroughWorker(
   try {
     await worker.execute(input);
   } catch (error) {
-    if (
-      error instanceof FilesystemWorkerClientError &&
-      [
-        'effect_unsettled',
-        'timeout',
-        'aborted',
-        'response_overflow',
-        'worker_crashed',
-        'invalid_response',
-        'response_id_mismatch',
-        'response_kind_mismatch',
-      ].includes(error.reason)
-    ) {
+    if (error instanceof FilesystemWorkerClientError && error.effectMayHaveStarted) {
       throw new DurableToolExecutionUnsettledError('effect_may_have_started', error);
     }
     throw error;

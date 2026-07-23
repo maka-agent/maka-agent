@@ -13,7 +13,7 @@ import {
   createSandboxDiagnosticsProvider,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
-  WorkerBackedFileCheckpointCarrier,
+  selectPreparedFileMutationCarrier,
   type PreparedFileMutationCarrier,
   resolveSkillDiscoveryPaths,
   ShellRunProcessManager,
@@ -118,10 +118,16 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
         getLaunchSpec: filesystemWorkerLaunchSpecProvider,
       })
     : undefined;
-  const effectiveFileMutationCheckpointCarrier =
-    fileMutationCheckpointCarrier && filesystemWorker
-      ? new WorkerBackedFileCheckpointCarrier(fileMutationCheckpointCarrier, filesystemWorker)
-      : fileMutationCheckpointCarrier;
+  const fileMutationSelection = selectPreparedFileMutationCarrier(
+    fileMutationCheckpointCarrier,
+    filesystemWorker,
+  );
+  const effectiveFileMutationCheckpointCarrier = fileMutationSelection.carrier;
+  if (fileMutationSelection.executionOwner === 'host_local') {
+    console.warn(
+      `[runtime-resume] prepared_file_mutation_execution_owner=host_local platform=${process.platform}; filesystem worker isolation is unavailable`,
+    );
+  }
   const sandboxDiagnosticsProvider = createSandboxDiagnosticsProvider({
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorkerLaunchSpecProvider
@@ -318,5 +324,6 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
     childAgentTools,
     sandboxDiagnosticsProvider,
     fileMutationCheckpointCarrier: effectiveFileMutationCheckpointCarrier,
+    fileMutationCheckpointExecutionOwner: fileMutationSelection.executionOwner,
   };
 }

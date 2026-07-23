@@ -1123,7 +1123,7 @@ export class SessionManager {
         ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
       });
     }
-    if (this.canAttemptToolRecovery(plan, recoveryPlan.operations)) {
+    if (this.canAttemptToolRecovery(plan, recoveryPlan.operations, sourceRun.status)) {
       const recovery = await this.reconcileToolOperations(
         recoveryPlan.operations,
         recoveryPlan.runtimeEvents,
@@ -1157,6 +1157,7 @@ export class SessionManager {
   private canAttemptToolRecovery(
     plan: SafeBoundaryContinuationPlan,
     operations: readonly ToolOperation[],
+    sourceRunStatus: AgentRunHeader['status'],
   ): boolean {
     const hasEligibleOperation = operations.some(
       (operation) =>
@@ -1165,6 +1166,10 @@ export class SessionManager {
         operation.automaticActionAllowed,
     );
     return (
+      // A cancelled run carries explicit stop intent. Recovery may observe it
+      // later under a human-directed flow, but automatic planning must not redo
+      // an operation merely because its current state still equals "before".
+      sourceRunStatus !== 'cancelled' &&
       this.deps.recoveryContracts !== undefined &&
       this.deps.toolRecoveryStore !== undefined &&
       hasEligibleOperation &&

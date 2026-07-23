@@ -1191,6 +1191,163 @@ describe('SessionManager permission mode updates', () => {
     }
   });
 
+  test('does not redo an unsettled file mutation from a cancelled source run', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const runtimeStore = createSqliteRuntimeStore(':memory:');
+    let observations = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runtimeStore,
+      toolRecoveryStore: runtimeStore,
+      recoveryContracts: new ToolRecoveryContractRegistry([
+        {
+          toolName: 'Write',
+          contract: {
+            id: 'maka.tool.write.reconcile',
+            version: 1,
+            mode: 'reconcile_then_decide',
+            observe: async () => {
+              observations += 1;
+              return { status: 'missing' };
+            },
+            decide: () => ({
+              result: 'not_applied',
+              reasonCode: 'write_target_missing',
+              nextAction: 'retry_allowed',
+            }),
+          },
+        },
+      ]),
+      backends: new BackendRegistry(),
+      safeBoundaryResumeEnabled: true,
+      inspectContinuationSafety: async () => ({
+        workspaceIdentity: 'workspace-authoritative',
+        backgroundOperationsSettled: true,
+        availableToolNames: ['Write'],
+      }),
+      newId: nextId(),
+      now: nextNow(6_533),
+    });
+    const session = await manager.createSession(makeInput());
+    const header = await store.readHeader(session.id);
+    const sourceRunId = 'source-run-cancelled-write';
+    const sourceTurnId = 'source-turn-cancelled-write';
+    const invocationId = 'source-invocation-cancelled-write';
+    await runStore.createRun(
+      makeRunHeader({
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        status: 'cancelled',
+        cwd: header.cwd,
+        workspaceIdentity: 'workspace-authoritative',
+        createdAt: 1,
+        updatedAt: 4,
+        completedAt: 4,
+        abortSource: 'renderer.stop_button',
+      }),
+    );
+    await runtimeStore.appendRuntimeEvent(
+      session.id,
+      sourceRunId,
+      runtimeEvent({
+        id: 'source-user-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 1,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'write notes.txt' },
+        actions: { runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' } },
+      }),
+    );
+    await runtimeStore.commitToolPrepared({
+      operationId: 'operation-cancelled-write',
+      journalEventId: 'journal-cancelled-write-prepared',
+      runtimeEvent: runtimeEvent({
+        id: 'source-call-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'provider-call-cancelled-write',
+          name: 'Write',
+          args: { path: 'notes.txt', content: 'expected contents' },
+        },
+      }),
+      dispatchRuntimeEvent: runtimeEvent({
+        id: 'source-dispatch-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 3,
+        actions: {
+          toolDispatch: {
+            protocol: 't1_after_preflight_v1',
+            operationId: 'operation-cancelled-write',
+            providerToolCallId: 'provider-call-cancelled-write',
+            toolName: 'Write',
+            canonicalArgsHash: 'sha256:cancelled-write',
+            recoveryMode: 'reconcile',
+          },
+        },
+        refs: {
+          operationId: 'operation-cancelled-write',
+          toolCallId: 'provider-call-cancelled-write',
+        },
+      }),
+      providerToolCallId: 'provider-call-cancelled-write',
+      toolName: 'Write',
+      canonicalArgsHash: 'sha256:cancelled-write',
+      recoveryMode: 'reconcile',
+      committedAt: 3,
+    });
+    await runtimeStore.appendRuntimeEvent(
+      session.id,
+      sourceRunId,
+      runtimeEvent({
+        id: 'source-terminal-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 4,
+        status: 'aborted',
+        actions: {
+          endInvocation: true,
+          stateDelta: { abortSource: 'renderer.stop_button' },
+        },
+      }),
+    );
+
+    try {
+      const plan = await manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+        sourceRunId,
+      });
+
+      expect(plan.disposition).toBe('park');
+      expect(plan.rejectionReasons).toContain('dangling_tool_state');
+      expect(observations).toBe(0);
+      expect(
+        (await runtimeStore.readToolJournal('operation-cancelled-write')).map(
+          (event) => event.state,
+        ),
+      ).toEqual(['prepared']);
+    } finally {
+      runtimeStore.close();
+    }
+  });
+
   test('does not observe tool state when the authoritative workspace identity gate fails', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

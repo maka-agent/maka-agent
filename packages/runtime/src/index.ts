@@ -1143,6 +1143,9 @@ export {
 export {
   WorkerBackedFileCheckpointCarrier,
   applyPreparedFileThroughWorker,
+  selectPreparedFileMutationCarrier,
+  type PreparedFileMutationCarrierSelection,
+  type PreparedFileMutationExecutionOwner,
 } from './worker-backed-file-checkpoint-carrier.js';
 
 export {

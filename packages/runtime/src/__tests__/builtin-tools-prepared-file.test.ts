@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 
 import { buildBuiltinTools } from '../builtin-tools.js';
+import { DurableToolExecutionUnsettledError } from '../durable-tool-execution.js';
+import {
+  FilesystemWorkerClient,
+  FilesystemWorkerClientError,
+} from '../filesystem-worker/client.js';
 import type {
   PrepareFileMutationInput,
   PreparedFileMutationCarrier,
@@ -13,7 +18,11 @@ import { LocalFileCheckpointCarrier } from '../local-file-checkpoint-carrier.js'
 import type { CurrentFileCheckpointState } from '../prepared-file-mutation.js';
 import type { DurableToolPreparationContext } from '../tool-runtime.js';
 import type { PreparedFileMutationFact } from '../tool-recovery-facts.js';
-import { WorkerBackedFileCheckpointCarrier } from '../worker-backed-file-checkpoint-carrier.js';
+import {
+  applyPreparedFileThroughWorker,
+  selectPreparedFileMutationCarrier,
+  WorkerBackedFileCheckpointCarrier,
+} from '../worker-backed-file-checkpoint-carrier.js';
 
 describe('builtin prepared file mutations', () => {
   test('routes prepared file application through the filesystem worker when both are installed', async () => {
@@ -65,6 +74,77 @@ describe('builtin prepared file mutations', () => {
     assert.equal(calls.length, 1);
     assert.equal((calls[0] as { mode?: string }).mode, 'ask');
     assert.deepEqual(local.redone, []);
+  });
+
+  test('keeps cancellation before worker launch out of durable recovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-prepared-worker-cancelled-'));
+    const abortController = new AbortController();
+    abortController.abort();
+    const worker = new FilesystemWorkerClient({
+      getLaunchSpec: async () => {
+        throw new Error('worker launch must not be reached');
+      },
+      sandboxManager: {} as never,
+    });
+
+    await assert.rejects(
+      applyPreparedFileThroughWorker(
+        worker,
+        fact('operation-cancelled', root, 'created.txt'),
+        Buffer.from('hello'),
+        { cwd: root, mode: 'ask', abortSignal: abortController.signal },
+      ),
+      (error: unknown) =>
+        error instanceof FilesystemWorkerClientError && error.reason === 'aborted',
+    );
+  });
+
+  test('keeps ambiguous worker exits and protocol failures in durable recovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-prepared-worker-ambiguous-'));
+    for (const error of [
+      new FilesystemWorkerClientError({
+        reason: 'aborted',
+        stage: 'launch',
+        effectMayHaveStarted: true,
+      }),
+      new FilesystemWorkerClientError({
+        reason: 'invalid_response',
+        stage: 'protocol',
+        effectMayHaveStarted: true,
+      }),
+    ]) {
+      await assert.rejects(
+        applyPreparedFileThroughWorker(
+          {
+            execute: async () => {
+              throw error;
+            },
+          },
+          fact('operation-ambiguous', root, 'created.txt'),
+          Buffer.from('hello'),
+        ),
+        (thrown: unknown) => thrown instanceof DurableToolExecutionUnsettledError,
+      );
+    }
+  });
+
+  test('makes the prepared mutation execution owner an explicit host capability', () => {
+    const local = new FakeCarrier();
+    const hostLocal = selectPreparedFileMutationCarrier(local);
+    assert.equal(hostLocal.executionOwner, 'host_local');
+    assert.equal(hostLocal.carrier, local);
+
+    const worker = {
+      execute: async () => ({ kind: 'prepared_file_apply' as const, ok: true as const }),
+    };
+    const isolated = selectPreparedFileMutationCarrier(local, worker);
+    assert.equal(isolated.executionOwner, 'filesystem_worker');
+    assert.ok(isolated.carrier instanceof WorkerBackedFileCheckpointCarrier);
+
+    assert.deepEqual(selectPreparedFileMutationCarrier(undefined, worker), {
+      executionOwner: 'disabled',
+      carrier: undefined,
+    });
   });
 
   test('Write prepares its exact UTF-8 after image before durable dispatch', async () => {

@@ -22,6 +22,7 @@ import {
 import {
   FILESYSTEM_WORKER_MAX_RESPONSE_BYTES,
   type FilesystemWorkerProcessRunInput,
+  type FilesystemWorkerProcessRunner,
 } from '../filesystem-worker/process-runner.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
@@ -43,6 +44,64 @@ afterEach(async () => {
 test('Read image payloads fit within the filesystem worker response limit', () => {
   const base64Bytes = 4 * Math.ceil(MAX_READ_IMAGE_BYTES / 3);
   assert.ok(base64Bytes + 1024 < FILESYSTEM_WORKER_MAX_RESPONSE_BYTES);
+});
+
+describe('filesystem worker effect evidence', () => {
+  test('marks cancellation reported after process launch as effect-ambiguous', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const workspace = await temporaryDirectory('maka-worker-client-aborted-');
+    const { client } = fakeClient({
+      runProcess: async () => ({
+        exitCode: 1,
+        stdout: '',
+        stderrTail: '',
+        timedOut: false,
+        aborted: true,
+        responseOverflow: false,
+      }),
+    });
+
+    await assert.rejects(
+      client.execute({
+        operation: { kind: 'write', path: 'target.txt', content: 'after' },
+        cwd: workspace,
+        mode: 'bypass',
+      }),
+      (error: unknown) =>
+        error instanceof FilesystemWorkerClientError &&
+        error.reason === 'aborted' &&
+        error.effectMayHaveStarted,
+    );
+  });
+
+  test('marks an invalid response as effect-ambiguous after the worker exits', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const workspace = await temporaryDirectory('maka-worker-client-protocol-');
+    const { client } = fakeClient({
+      runProcess: async () => ({
+        exitCode: 0,
+        stdout: '{}',
+        stderrTail: '',
+        timedOut: false,
+        aborted: false,
+        responseOverflow: false,
+      }),
+    });
+
+    await assert.rejects(
+      client.execute({
+        operation: { kind: 'write', path: 'target.txt', content: 'after' },
+        cwd: workspace,
+        mode: 'bypass',
+      }),
+      (error: unknown) =>
+        error instanceof FilesystemWorkerClientError &&
+        error.reason === 'invalid_response' &&
+        error.effectMayHaveStarted,
+    );
+  });
 });
 
 describe('filesystem worker client permission snapshots', () => {
@@ -299,7 +358,7 @@ describe('filesystem worker operation-scoped Seatbelt profile', () => {
   });
 });
 
-function fakeClient(): {
+function fakeClient(options: { runProcess?: FilesystemWorkerProcessRunner } = {}): {
   client: FilesystemWorkerClient;
   requests: FilesystemWorkerRequest[];
   transforms: SandboxTransformRequest[];
@@ -328,24 +387,26 @@ function fakeClient(): {
         executableRoots: ['/usr/bin/node', '/usr/bin/rg'],
       },
     }),
-    runProcess: async (input) => {
-      processInputs.push(input);
-      const request = FilesystemWorkerRequestSchema.parse(JSON.parse(input.stdin));
-      requests.push(request);
-      return {
-        exitCode: 0,
-        stdout: JSON.stringify({
-          version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
-          requestId: request.requestId,
-          ok: true,
-          result: fakeResult(request),
-        }),
-        stderrTail: '',
-        timedOut: false,
-        aborted: false,
-        responseOverflow: false,
-      };
-    },
+    runProcess:
+      options.runProcess ??
+      (async (input) => {
+        processInputs.push(input);
+        const request = FilesystemWorkerRequestSchema.parse(JSON.parse(input.stdin));
+        requests.push(request);
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
+            requestId: request.requestId,
+            ok: true,
+            result: fakeResult(request),
+          }),
+          stderrTail: '',
+          timedOut: false,
+          aborted: false,
+          responseOverflow: false,
+        };
+      }),
   });
   return { client, requests, transforms, processInputs };
 }

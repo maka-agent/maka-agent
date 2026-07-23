@@ -25,7 +25,7 @@ import {
   createLocalContinuationSafetyInspector,
   createPreparedWriteEditRecoveryContractRegistry,
   LocalFileCheckpointCarrier,
-  WorkerBackedFileCheckpointCarrier,
+  selectPreparedFileMutationCarrier,
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
@@ -246,10 +246,16 @@ export async function createMakaCliRuntimeContext(
           getLaunchSpec: filesystemWorkerLaunchSpecProvider,
         })
       : undefined;
-  const fileMutationCheckpointCarrier =
-    localFileMutationCheckpointCarrier && filesystemWorker
-      ? new WorkerBackedFileCheckpointCarrier(localFileMutationCheckpointCarrier, filesystemWorker)
-      : localFileMutationCheckpointCarrier;
+  const fileMutationSelection = selectPreparedFileMutationCarrier(
+    localFileMutationCheckpointCarrier,
+    filesystemWorker,
+  );
+  const fileMutationCheckpointCarrier = fileMutationSelection.carrier;
+  if (fileMutationSelection.executionOwner === 'host_local') {
+    console.warn(
+      `[runtime-resume] prepared_file_mutation_execution_owner=host_local platform=${process.platform}; filesystem worker isolation is unavailable`,
+    );
+  }
   const recoveryContracts = fileMutationCheckpointCarrier
     ? createPreparedWriteEditRecoveryContractRegistry(fileMutationCheckpointCarrier)
     : undefined;

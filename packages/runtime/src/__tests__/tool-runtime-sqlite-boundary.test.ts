@@ -55,6 +55,7 @@ describe('ToolRuntime with real SQLite boundary', () => {
         await writeFile(join(root, 'notes.txt'), 'before image');
         const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
         permissionEngine.beginTurn('turn-1');
+        const traceTypes: string[] = [];
         const runtime = new ToolRuntime({
           sessionId: 'session-1',
           header: { ...header(), workspaceRoot: root, cwd: root, permissionMode: 'bypass' },
@@ -68,6 +69,11 @@ describe('ToolRuntime with real SQLite boundary', () => {
           getCurrentRunId: () => 'run-1',
           getCurrentInvocationId: () => 'invocation-1',
           runtimeCommitSink: store,
+          getRunTrace: () => ({
+            emit: (_phase, type) => {
+              traceTypes.push(type);
+            },
+          }),
         });
         const tool = buildBuiltinTools({
           fileMutationCheckpointCarrier: failure.carrier(),
@@ -99,6 +105,8 @@ describe('ToolRuntime with real SQLite boundary', () => {
           ?.operationId;
         assert.ok(operationId);
         assert.equal((await store.readToolOperation(operationId))?.currentState, 'prepared');
+        assert.equal(traceTypes.includes('tool_unsettled'), true);
+        assert.equal(traceTypes.includes('tool_failed'), false);
       } finally {
         store.close();
         await rm(root, { recursive: true, force: true });
@@ -209,6 +217,7 @@ describe('ToolRuntime with real SQLite boundary', () => {
             throw new FilesystemWorkerClientError({
               reason: 'worker_crashed',
               stage: 'launch',
+              effectMayHaveStarted: true,
             });
           },
         },

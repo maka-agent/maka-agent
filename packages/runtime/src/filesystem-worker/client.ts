@@ -89,6 +89,11 @@ export class FilesystemWorkerClientError extends Error {
   readonly reason: FilesystemWorkerClientErrorReason;
   readonly stage: 'validation' | 'transform' | 'launch' | 'protocol' | 'operation';
   readonly recoverable: boolean;
+  /**
+   * True only after the worker process was launched and the caller can no
+   * longer prove that a mutating operation had no effect.
+   */
+  readonly effectMayHaveStarted: boolean;
   readonly requestId?: string;
   readonly backend?: 'none' | 'macos-seatbelt' | 'linux';
   readonly profileName?: string;
@@ -98,6 +103,7 @@ export class FilesystemWorkerClientError extends Error {
     stage: FilesystemWorkerClientError['stage'];
     message?: string;
     recoverable?: boolean;
+    effectMayHaveStarted?: boolean;
     requestId?: string;
     backend?: 'none' | 'macos-seatbelt' | 'linux';
     profileName?: string;
@@ -107,6 +113,7 @@ export class FilesystemWorkerClientError extends Error {
     this.reason = input.reason;
     this.stage = input.stage;
     this.recoverable = input.recoverable ?? false;
+    this.effectMayHaveStarted = input.effectMayHaveStarted ?? false;
     this.requestId = input.requestId;
     this.backend = input.backend;
     this.profileName = input.profileName;
@@ -265,15 +272,26 @@ export class FilesystemWorkerClient {
     } catch {
       throw clientError('spawn_failed', 'launch', requestId);
     }
-    if (processResult.timedOut) throw clientError('timeout', 'launch', requestId);
-    if (processResult.aborted) throw clientError('aborted', 'launch', requestId);
-    if (processResult.responseOverflow) throw clientError('response_overflow', 'launch', requestId);
+    if (processResult.timedOut)
+      throw clientError('timeout', 'launch', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
+    if (processResult.aborted)
+      throw clientError('aborted', 'launch', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
+    if (processResult.responseOverflow)
+      throw clientError('response_overflow', 'launch', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     if (processResult.exitCode !== 0) {
       throw clientError(
         'worker_crashed',
         'launch',
         requestId,
         processResult.stderrTail || undefined,
+        false,
+        { effectMayHaveStarted: true },
       );
     }
 
@@ -281,10 +299,14 @@ export class FilesystemWorkerClient {
     try {
       response = parseFilesystemWorkerResponse(JSON.parse(processResult.stdout));
     } catch {
-      throw clientError('invalid_response', 'protocol', requestId);
+      throw clientError('invalid_response', 'protocol', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     }
     if (response.requestId !== requestId)
-      throw clientError('response_id_mismatch', 'protocol', requestId);
+      throw clientError('response_id_mismatch', 'protocol', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     if (!response.ok) {
       throw clientError(
         response.error.code,
@@ -292,13 +314,16 @@ export class FilesystemWorkerClient {
         requestId,
         response.error.message,
         response.error.code === 'not_found' || response.error.code === 'edit_conflict',
+        response.error.code === 'effect_unsettled' ? { effectMayHaveStarted: true } : undefined,
       );
     }
     if (
       response.result.kind !== operation.kind &&
       !(operation.kind === 'read' && response.result.kind === 'read_image')
     ) {
-      throw clientError('response_kind_mismatch', 'protocol', requestId);
+      throw clientError('response_kind_mismatch', 'protocol', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     }
     return response.result;
   }
@@ -362,6 +387,7 @@ function clientError(
   metadata: {
     backend?: 'none' | 'macos-seatbelt' | 'linux';
     profileName?: string;
+    effectMayHaveStarted?: boolean;
   } = {},
 ): FilesystemWorkerClientError {
   return new FilesystemWorkerClientError({
