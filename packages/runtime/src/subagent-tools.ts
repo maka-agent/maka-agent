@@ -99,13 +99,17 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
           .describe(
             'Requested child workspace isolation. Worktree profiles fail closed until a worktree child executor is available.',
           ),
-        task_id: z
-          .string()
-          .min(1)
-          .max(TASK_ID_MAX_CHARS)
-          .refine(isSafeTaskId)
-          .optional()
-          .describe('Existing task UUID or short key to bind to this child run.'),
+        ...(deps.taskLedger
+          ? {
+              task_id: z
+                .string()
+                .min(1)
+                .max(TASK_ID_MAX_CHARS)
+                .refine(isSafeTaskId)
+                .optional()
+                .describe('Existing task UUID or short key to bind to this child run.'),
+            }
+          : {}),
       })
       .superRefine((input, ctx) => {
         const definition = requireBuiltinAgentDefinitionByProfile(input.profile);

@@ -11,6 +11,7 @@ import type {
   TaskOwner,
 } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
+import { zodSchema } from 'ai';
 import { buildBuiltinTools } from '../builtin-tools.js';
 import { PermissionEngine } from '../permission-engine.js';
 import {
@@ -63,6 +64,29 @@ describe('subagent tools', () => {
       AGENT_LIST_TOOL_NAME,
       AGENT_OUTPUT_TOOL_NAME,
     ]);
+  });
+
+  test('agent_spawn advertises task_id only when task binding is available', async () => {
+    const advertisedProperties = async (tool: MakaTool) => {
+      const schema = (await zodSchema(tool.parameters as never).jsonSchema) as {
+        properties?: Record<string, unknown>;
+      };
+      return schema.properties ?? {};
+    };
+
+    expect(Object.keys(await advertisedProperties(buildSubagentSpawnTool()))).toEqual([
+      'profile',
+      'task',
+      'write_back',
+      'isolation',
+    ]);
+    expect(
+      Object.keys(
+        await advertisedProperties(
+          buildSubagentSpawnTool({ taskLedger: taskLedgerStub(undefined, []) }),
+        ),
+      ),
+    ).toEqual(['profile', 'task', 'write_back', 'isolation', 'task_id']);
   });
 
   test('built-in catalog exposes local-read without shell, web, nested, or write tools', () => {
