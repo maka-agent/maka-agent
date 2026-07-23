@@ -13,11 +13,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from harbor.agents.installed.codex import Codex
-from harbor.environments.base import BaseEnvironment
-from harbor.models.agent.context import AgentContext
-
+# harness_compat picks the harbor.* tree under plain Harbor 0.13.2 and the
+# pier.* tree under Pier, whose parallel classes are type-incompatible with
+# harbor's (Pier's TrialResult only accepts Pier's AgentInfo).
+from harness_compat import (
+    AgentContext,
+    BaseEnvironment,
+    Codex,
+    NetworkAllowlist as _NetworkAllowlist,
+)
 from process_scope import cleanup_process_scope, scoped_command
+from provider_proxy import provider_proxy_endpoint, warn_if_pier_unreachable_proxy_port
 from trial_pricing import estimate_cost, pricing_from_env
 
 _TOOLCHAIN_ROOT = Path("/opt/maka-codex-toolchain")
@@ -35,6 +41,33 @@ class MakaCodexAgent(Codex):
 
     def get_version_command(self) -> str | None:
         return f"{shlex.quote(str(_TOOLCHAIN_CODEX))} --version"
+
+    def install_spec(self) -> None:
+        # The pinned Codex toolchain is bind-mounted read-only and only
+        # verified (sha256 checksums + manifest fingerprint) in install().
+        # Pier's inherited spec would instead install Codex from the network
+        # (npm/nvm), which offline tasks (allow_internet=false) cannot reach
+        # and which would break the fixed-build comparison. None keeps the
+        # runtime verify path unchanged (Pier runs install() when no spec is
+        # preinstalled).
+        return None
+
+    def network_allowlist(self) -> _NetworkAllowlist | None:
+        # Called only under Pier; plain Harbor never calls it and
+        # harness_compat exports NetworkAllowlist = None there.
+        if _NetworkAllowlist is None:
+            return None
+        # The inherited allowlist collects OPENAI_BASE_URL (masked to None by
+        # this adapter's _get_env) and falls back to api.openai.com — neither
+        # is what this adapter dials. The container runs the pinned Codex CLI
+        # against the maka-http provider config, which points at
+        # MAKA_PROVIDER_PROXY_URL; that proxy host is the only egress the
+        # container needs. A missing or malformed proxy URL fails here, at
+        # environment creation — no fallback domain, so a misconfigured trial
+        # never gets a spurious egress grant.
+        hostname, port = provider_proxy_endpoint(self._get_env, "Codex")
+        warn_if_pier_unreachable_proxy_port(port, "Codex")
+        return _NetworkAllowlist(domains=[hostname])
 
     async def install(self, environment: BaseEnvironment) -> None:
         expected_fingerprint = self._get_env("MAKA_CODEX_TOOLCHAIN_FINGERPRINT")

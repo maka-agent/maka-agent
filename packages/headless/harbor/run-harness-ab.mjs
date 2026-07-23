@@ -280,7 +280,7 @@ export function resolveHarnessCompetitorToolchain(runRoot, competitorProfile, en
 const envPath = (name, fallback) => parseEnvPath(name, process.env[name], fallback);
 const envPathFrom = (env, name, fallback) => parseEnvPath(name, env[name], fallback);
 
-function defaultMakaWorkspaceRoot() {
+export function defaultMakaWorkspaceRoot() {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default');
   }

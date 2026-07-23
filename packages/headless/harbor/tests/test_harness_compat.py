@@ -42,7 +42,7 @@ _HARBOR_DIR = Path(__file__).resolve().parent.parent
 if str(_HARBOR_DIR) not in sys.path:
     sys.path.insert(0, str(_HARBOR_DIR))
 
-_ADAPTER_MODULES = ("harness_compat", "maka_agent", "kimi_code_agent")
+_ADAPTER_MODULES = ("harness_compat", "maka_agent", "kimi_code_agent", "codex_agent")
 
 # Sentinel returned by tests that cannot run under this interpreter; the
 # __main__ runner counts these as skips, not passes. pytest treats the return
@@ -108,6 +108,7 @@ def _fresh_adapters():
     return (
         importlib.import_module("maka_agent"),
         importlib.import_module("kimi_code_agent"),
+        importlib.import_module("codex_agent"),
     )
 
 
@@ -157,14 +158,18 @@ def _restore_modules(saved_pier) -> None:
 def test_pier_tree_selected_and_agent_info_is_pier_type():
     if not _pier_gate():
         return SKIPPED
-    maka_mod, kimi_mod = _fresh_adapters()
-    for cls in (maka_mod.MakaAgent, kimi_mod.MakaKimiCodeAgent):
+    maka_mod, kimi_mod, codex_mod = _fresh_adapters()
+    for cls in (maka_mod.MakaAgent, kimi_mod.MakaKimiCodeAgent, codex_mod.MakaCodexAgent):
         assert issubclass(cls, PierBaseInstalledAgent), cls.__mro__
         agent = cls(logs_dir=Path("/tmp"), model_name="k3")
         # The DeepSWE pilot failed pydantic validation because agent_info was a
         # harbor-tree AgentInfo; Pier's TrialResult only accepts its own type.
         info = agent.to_agent_info()
         assert isinstance(info, PierAgentInfo), type(info)
+        # Every adapter pins its own toolchain (mounted or host-side); Pier's
+        # inherited install specs (e.g. Codex's npm/nvm network install) must
+        # never run, or an offline task would fail its build and the pinned
+        # build under comparison would drift.
         assert agent.install_spec() is None
 
 
@@ -172,7 +177,7 @@ def test_pier_tree_selected_and_agent_info_is_pier_type():
 def test_maka_agent_network_policy_under_pier():
     if not _pier_gate():
         return SKIPPED
-    maka_mod, _ = _fresh_adapters()
+    maka_mod, _, _ = _fresh_adapters()
 
     # Host-side LLM mode: model calls happen on the host, container is offline.
     host_side = maka_mod.MakaAgent(
@@ -213,7 +218,7 @@ def test_maka_agent_network_policy_under_pier():
 def test_kimi_agent_network_shape_under_pier():
     if not _pier_gate():
         return SKIPPED
-    _, kimi_mod = _fresh_adapters()
+    _, kimi_mod, _ = _fresh_adapters()
 
     # Portless HTTPS endpoint (default 443): allowlisted without any warning.
     configured = kimi_mod.MakaKimiCodeAgent(
@@ -262,12 +267,55 @@ def test_kimi_agent_network_shape_under_pier():
 
 
 @_isolated_maka_env
+def test_codex_agent_network_shape_under_pier():
+    if not _pier_gate():
+        return SKIPPED
+    _, _, codex_mod = _fresh_adapters()
+
+    # The container runs the pinned Codex CLI against the maka-http provider
+    # config pointed at the host proxy; that proxy host is the single egress
+    # grant. Pier's inherited allowlist would fall back to api.openai.com,
+    # which this adapter never dials.
+    configured = codex_mod.MakaCodexAgent(
+        logs_dir=Path("/tmp"),
+        extra_env={"MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:443"},
+    )
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        allow = configured.network_allowlist()
+    assert isinstance(allow, NetworkAllowlist)
+    assert allow.domains == ["host.docker.internal"]
+    assert stderr.getvalue() == ""
+
+    # Squid-unreachable port: warn on stderr, still allowlist the host (same
+    # shared contract as the Kimi adapter).
+    proxied = codex_mod.MakaCodexAgent(
+        logs_dir=Path("/tmp"),
+        extra_env={"MAKA_PROVIDER_PROXY_URL": "https://proxy.internal:8443/v1"},
+    )
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        proxied_allow = proxied.network_allowlist()
+    assert proxied_allow.domains == ["proxy.internal"]
+    assert "ports 80 and 443" in stderr.getvalue(), stderr.getvalue()
+
+    # No fallback domain: a missing proxy URL fails at allowlist time instead
+    # of granting api.openai.com egress the trial would never use.
+    unset = codex_mod.MakaCodexAgent(logs_dir=Path("/tmp"))
+    _raises(
+        unset.network_allowlist,
+        ValueError,
+        "Codex requires the host provider proxy",
+    )
+
+
+@_isolated_maka_env
 def test_kimi_runtime_env_forwards_ipv6_proxy_url():
     # Runs under BOTH trees (no pier gate): _runtime_env keeps main's plain-
     # Harbor contract and forwards the proxy URL opaquely, IPv6 included; the
     # IPv6 rejection is a Pier NetworkAllowlist constraint and lives only in
     # the network_allowlist() path.
-    _, kimi_mod = _fresh_adapters()
+    _, kimi_mod, _ = _fresh_adapters()
     agent = kimi_mod.MakaKimiCodeAgent(
         logs_dir=Path("/tmp"),
         extra_env={
@@ -296,7 +344,8 @@ def test_harbor_tree_used_without_pier():
         assert compat.NetworkAllowlist is None
         maka = importlib.import_module("maka_agent")
         kimi = importlib.import_module("kimi_code_agent")
-        for cls in (maka.MakaAgent, kimi.MakaKimiCodeAgent):
+        codex = importlib.import_module("codex_agent")
+        for cls in (maka.MakaAgent, kimi.MakaKimiCodeAgent, codex.MakaCodexAgent):
             # The plain-Harbor path must keep subclassing the harbor tree so
             # Terminal-Bench's Harbor 0.13.2 runner keeps validating its own
             # AgentInfo type.

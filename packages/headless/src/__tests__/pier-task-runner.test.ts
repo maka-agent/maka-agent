@@ -13,6 +13,7 @@ import {
   type TaskRunInput,
   type TaskRunOutput,
 } from '../fixed-prompt-controller.js';
+import { CODEX_TOOLCHAIN_FINGERPRINT, CODEX_TOOLCHAIN_SPEC } from '../codex-toolchain.js';
 import { findTrialDir } from '../harbor-task-runner.js';
 import {
   buildPierRunArgs,
@@ -1119,6 +1120,124 @@ test('createPierTaskRunner lets Kimi attempts on distinct fixed ports run concur
   const [portA, portB] = await grabFreePorts(2);
   assert.notEqual(portA, portB);
   assert.equal(await runConcurrentKimiAttempts([portA!, portB!]), 2);
+});
+
+test('buildPierRunArgs targets the Codex adapter and forwards constructor kwargs via --ak', () => {
+  const args = buildPierRunArgs({
+    agent: 'codex',
+    model: 'gpt-5.6-sol',
+    taskPath: '/tasks/dasel',
+    jobsDir: '/jobs',
+    jobName: 'trial',
+    environment: 'docker',
+    timeoutMultiplier: 1,
+    mounts: [],
+    agentEnv: {},
+    agentKwargs: { version: '0.144.6', reasoning_effort: 'xhigh' },
+  });
+  assert.match(args.join(' '), /--agent-import-path codex_agent:MakaCodexAgent/);
+  assert.ok(args.includes('--ak'));
+  assert.ok(args.includes('version=0.144.6'));
+  assert.ok(args.includes('reasoning_effort=xhigh'));
+});
+
+test('createPierTaskRunner rejects a Codex arm whose version does not match the pinned toolchain', () => {
+  assert.throws(
+    () =>
+      createPierTaskRunner({
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs',
+        model: 'gpt-5.6-sol',
+        agent: 'codex',
+        agentVersion: '0.0.1',
+      }),
+    /Codex adapter version must match toolchain version/,
+  );
+});
+
+test('createPierTaskRunner requires the Codex toolchain mount for the Codex arm', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'codex',
+        agentVersion: CODEX_TOOLCHAIN_SPEC.codex.version,
+        provider: 'openai-codex',
+        resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
+        runPier: fakePier({ reward: 0 }),
+      }),
+    );
+    await assert.rejects(runner(runInput()), /codexToolchainPath is required/);
+  });
+});
+
+test('createPierTaskRunner wires the Codex arm through the host proxy with the pinned toolchain', async () => {
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'codex',
+        agentVersion: CODEX_TOOLCHAIN_SPEC.codex.version,
+        backend: 'ai-sdk',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'xhigh',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        codexToolchainPath: repo,
+        resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
+        providerProxyPort: 0,
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    const output = await runner(runInput());
+    assert.equal(output.harbor.reward, 0);
+    // The proxy URL and a minted (non-real) token reach the container via
+    // env-file, never argv.
+    assert.match(
+      captured.envFile?.MAKA_PROVIDER_PROXY_URL ?? '',
+      /^http:\/\/host\.docker\.internal:\d+$/,
+    );
+    assert.ok((captured.envFile?.MAKA_PROVIDER_PROXY_TOKEN ?? '').length >= 32);
+    assert.notEqual(captured.envFile?.MAKA_PROVIDER_PROXY_TOKEN, 'upstream-key');
+    const args = captured.request?.args ?? [];
+    // Constructor kwargs ride --ak; the pinned-toolchain fingerprint rides --ae.
+    assert.ok(args.includes(`version=${CODEX_TOOLCHAIN_SPEC.codex.version}`));
+    assert.ok(args.includes('reasoning_effort=xhigh'));
+    assert.ok(args.includes(`MAKA_CODEX_TOOLCHAIN_FINGERPRINT=${CODEX_TOOLCHAIN_FINGERPRINT}`));
+    const mountsFlag = args.indexOf('--mounts-json');
+    const mounts = JSON.parse(args[mountsFlag + 1]!) as Array<{ target: string }>;
+    assert.ok(mounts.some((mount) => mount.target === '/opt/maka-codex-toolchain'));
+  });
+});
+
+test('createPierTaskRunner routes a resolver-backed Maka arm through the host proxy', async () => {
+  // A resolver credential (e.g. Codex OAuth) is only usable through the proxy,
+  // so the Maka arm must take the proxy path even without useProviderProxy.
+  await withDirs(async ({ jobsDir, repo }) => {
+    const captured: FakeOptions['captured'] = {};
+    const runner = createPierTaskRunner(
+      baseOptions({
+        jobsDir,
+        makaRepoPath: repo,
+        agent: 'maka',
+        backend: 'ai-sdk',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-sol',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        resolveProviderCredential: () => Promise.resolve({ value: 'upstream-key' }),
+        runPier: fakePier({ reward: 0, captured }),
+      }),
+    );
+    await runner(runInput());
+    // The host cell dials the loopback proxy with a minted token, never the
+    // upstream credential.
+    assert.match(captured.envFile?.MAKA_HOST_BASE_URL ?? '', /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.ok((captured.envFile?.MAKA_HOST_API_KEY ?? '').length >= 32);
+    assert.notEqual(captured.envFile?.MAKA_HOST_API_KEY, 'upstream-key');
+  });
 });
 
 test('createPierTaskRunner keeps the real key host-side via a file path for the Maka arm', async () => {
