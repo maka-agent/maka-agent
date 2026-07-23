@@ -3612,6 +3612,24 @@ class FakeEnvironment:
             self.trial_paths.test_stdout_path.write_text("E: Failed to fetch https://deb.example.invalid/pkg.deb 502 Bad Gateway", encoding="utf-8")
             self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+        if outcome == "infra_pytest_escaped_newline_with_fail_reward":
+            self.trial_paths.test_stdout_path.write_text(
+                "E       assert 'TEST PASSED' in 'Err:1 http://archive.ubuntu.com/ubuntu noble InRelease\\n"
+                "  502  Bad Gateway [IP: 198.18.0.119 80]\\nErr:2 http://security.ubuntu.com/ubuntu noble-security InRelease\\n'\n"
+                "E        +  where ... = CompletedProcess(args=['bash', '/tests/verify.sh'], returncode=0).stdout",
+                encoding="utf-8",
+            )
+            self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+        if outcome == "infra_pytest_real_newline_with_fail_reward":
+            self.trial_paths.test_stdout_path.write_text(
+                "E       assert 'TEST PASSED' in 'Err:1 http://archive.ubuntu.com/ubuntu noble InRelease\n"
+                "  502  Bad Gateway [IP: 198.18.0.119 80]\nErr:2 http://security.ubuntu.com/ubuntu noble-security InRelease\n'\n"
+                "E        +  where ... = CompletedProcess(args=['bash', '/tests/verify.sh'], returncode=0).stdout",
+                encoding="utf-8",
+            )
+            self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
         if outcome == "infra_curl_ssl_with_fail_reward":
             self.trial_paths.test_stdout_path.write_text(
                 "curl: (35) OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to astral.sh:443\n"
@@ -3625,8 +3643,11 @@ class FakeEnvironment:
             self.trial_paths.test_stdout_path.write_text("APT warning: Failed to fetch optional archive", encoding="utf-8")
             self.trial_paths.reward_text_path.write_text("1\n", encoding="utf-8")
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
-        if outcome == "warning_with_fail_reward":
-            self.trial_paths.test_stdout_path.write_text("assertion expected: 502 Bad Gateway", encoding="utf-8")
+        if outcome == "candidate_assertion_mentions_apt_502":
+            self.trial_paths.test_stdout_path.write_text(
+                "E       assert 'Err:1 http://archive.ubuntu.com/ubuntu noble InRelease expected status: 502 Bad Gateway' == 'success'",
+                encoding="utf-8",
+            )
             self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
         if outcome == "timeout":
@@ -3676,6 +3697,18 @@ assert outcome["outcome"] == "passed", outcome
 assert [item["classification"] for item in outcome["attempts"]] == ["infra_setup_failed", "passed"], outcome
 assert len([command for command in commands if "timeout --signal=KILL" in command]) == 2, commands
 
+result, outcome, commands = asyncio.run(run_case(["infra_pytest_escaped_newline_with_fail_reward", "pass"]))
+assert result.rewards == {"reward": 1.0}, result.rewards
+assert outcome["outcome"] == "passed", outcome
+assert [item["classification"] for item in outcome["attempts"]] == ["infra_setup_failed", "passed"], outcome
+assert len([command for command in commands if "timeout --signal=KILL" in command]) == 2, commands
+
+result, outcome, commands = asyncio.run(run_case(["infra_pytest_real_newline_with_fail_reward", "pass"]))
+assert result.rewards == {"reward": 1.0}, result.rewards
+assert outcome["outcome"] == "passed", outcome
+assert [item["classification"] for item in outcome["attempts"]] == ["infra_setup_failed", "passed"], outcome
+assert len([command for command in commands if "timeout --signal=KILL" in command]) == 2, commands
+
 result, outcome, commands = asyncio.run(run_case(["infra_curl_ssl_with_fail_reward", "pass"]))
 assert result.rewards == {"reward": 1.0}, result.rewards
 assert outcome["outcome"] == "passed", outcome
@@ -3700,7 +3733,7 @@ assert outcome["outcome"] == "passed", outcome
 assert [item["classification"] for item in outcome["attempts"]] == ["passed"], outcome
 assert len([command for command in commands if "timeout --signal=KILL" in command]) == 1, commands
 
-result, outcome, commands = asyncio.run(run_case(["warning_with_fail_reward"]))
+result, outcome, commands = asyncio.run(run_case(["candidate_assertion_mentions_apt_502"]))
 assert result.rewards == {"reward": 0.0}, result.rewards
 assert outcome["outcome"] == "failed", outcome
 assert [item["classification"] for item in outcome["attempts"]] == ["failed"], outcome
