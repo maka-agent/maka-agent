@@ -63,6 +63,10 @@ export function SettingsSurface(props: {
   const localizedNav = groupedNav(locale);
   const [section, setSection] = useState<SettingsSection>(() => props.requestedSection ?? readLastSettingsSection());
   const [providerCatalogRequested, setProviderCatalogRequested] = useState(props.openProviderCatalog === true);
+  // One-shot landing intent, mirroring providerCatalogRequested above: the
+  // request retires once ProvidersPanel consumes it, so remounting the panel
+  // (switching sections away and back) does not resurrect the create dialog.
+  const [createProviderRequest, setCreateProviderRequest] = useState(props.initialCreateProviderType);
 
   // When the parent updates requestedSection (e.g. the palette opens
   // Settings with a different section while it's already mounted), reflect
@@ -296,7 +300,8 @@ export function SettingsSurface(props: {
               onOpenSession={props.onOpenSession}
               openProviderCatalog={providerCatalogRequested}
               initialConnectionSlug={props.initialConnectionSlug}
-              initialCreateProviderType={props.initialCreateProviderType}
+              initialCreateProviderType={createProviderRequest}
+              onInitialCreateProviderConsumed={() => setCreateProviderRequest(undefined)}
             />
           )}
         </OverlayScrollArea>
@@ -324,6 +329,7 @@ function SettingsPage(props: {
   openProviderCatalog?: boolean;
   initialConnectionSlug?: string;
   initialCreateProviderType?: ProviderType;
+  onInitialCreateProviderConsumed?(): void;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -342,6 +348,7 @@ function SettingsPage(props: {
             initialPage={props.openProviderCatalog ? 'catalog' : 'connections'}
             initialConnectionSlug={props.initialConnectionSlug}
             initialCreateProviderType={props.initialCreateProviderType}
+            onInitialCreateProviderConsumed={props.onInitialCreateProviderConsumed}
           />
         </div>
       );
