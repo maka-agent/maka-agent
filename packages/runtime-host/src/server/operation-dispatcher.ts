@@ -39,12 +39,14 @@ export type MessageOperationKey = Extract<
   OperationKey,
   'turn.message.submit' | 'queue.retract' | 'turn.interrupt'
 >;
+export type InteractionOperationKey = Extract<OperationKey, `interaction.${string}`>;
 export type SessionContinuityOperationKey = Extract<
   OperationKey,
   'subscription.open' | 'subscription.close'
 >;
 export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
 export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
+export type InteractionOperationHandlerMap = Pick<OperationHandlerMap, InteractionOperationKey>;
 export type SessionContinuityOperationHandlerMap = Pick<
   OperationHandlerMap,
   SessionContinuityOperationKey

@@ -115,6 +115,10 @@ import {
   type RuntimeMessageAuthority,
   type RuntimeMessageRunIdentity,
 } from './message-authority.js';
+import {
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionAuthority,
+} from './interaction-authority.js';
 import { RuntimeKernel, type RuntimeKernelLike, type TurnStartOptions } from './runtime-kernel.js';
 import { fallbackSessionTitle, sessionTitleSource } from './session-title.js';
 import type { HistoryCompactCleanupRequest } from './runtime-kernel.js';
@@ -460,6 +464,8 @@ export interface SessionManagerDeps {
   safeBoundaryResumeEnabled?: boolean;
   /** Hosted composition capability. Omit for the production embedded queue. */
   messageAuthority?: RuntimeMessageAuthority;
+  /** Hosted composition capability. Omit for production embedded interactions. */
+  interactionAuthority?: RuntimeInteractionAuthority;
   onContinuationLifecycleEvent?: (event: RuntimeContinuationLifecycleEvent) => void | Promise<void>;
   generateSessionTitle?: (input: {
     sessionId: string;
@@ -645,7 +651,10 @@ export class SessionManager {
     if (stores.sessionStore !== this.deps.store || stores.agentRunStore !== this.deps.runStore) {
       throw new Error('Strict recovery stores must match the SessionManager composition');
     }
-    return this.recoverInterruptedSessionsWithPolicy({ kind: 'strict', stores });
+    return this.recoverInterruptedSessionsWithPolicy({
+      kind: 'strict',
+      stores,
+    });
   }
 
   private async recoverInterruptedSessionsWithPolicy(policy: RecoveryPolicy): Promise<string[]> {
@@ -808,7 +817,9 @@ export class SessionManager {
   async commitRevisionVersion(sessionId: string): Promise<SessionSummary> {
     const current = await this.deps.store.readHeader(sessionId);
     if (current.revisionState !== 'preparing') return headerToSummary(current);
-    const next = await this.deps.store.updateHeader(sessionId, { revisionState: 'committed' });
+    const next = await this.deps.store.updateHeader(sessionId, {
+      revisionState: 'committed',
+    });
     this.runtimeKernel.updateCachedHeader(sessionId, next);
     return headerToSummary(next);
   }
@@ -922,7 +933,9 @@ export class SessionManager {
     if (previous.status === 'waiting_for_user') {
       throw new Error('Cannot change orchestration mode while a tool call awaits confirmation.');
     }
-    const next = await this.deps.store.updateHeader(sessionId, { orchestrationMode: mode });
+    const next = await this.deps.store.updateHeader(sessionId, {
+      orchestrationMode: mode,
+    });
     await this.deps.store.appendMessage(sessionId, {
       type: 'system_note',
       id: this.deps.newId(),
@@ -935,10 +948,15 @@ export class SessionManager {
   }
 
   async requestPlanRevision(sessionId: string, proposalId: string): Promise<PlanMutationResult> {
-    const result = await this.requirePlanStore().requestRevision({ sessionId, proposalId });
+    const result = await this.requirePlanStore().requestRevision({
+      sessionId,
+      proposalId,
+    });
     const header = await this.deps.store.readHeader(sessionId);
     if ((header.collaborationMode ?? 'agent') !== 'plan') {
-      const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'plan' });
+      const next = await this.deps.store.updateHeader(sessionId, {
+        collaborationMode: 'plan',
+      });
       this.runtimeKernel.updateCachedHeader(sessionId, next);
     }
     await this.runtimeKernel.disposeBackend(sessionId);
@@ -959,7 +977,9 @@ export class SessionManager {
       reason: 'User exited Plan Mode before approval.',
     });
     const from = header.collaborationMode ?? 'agent';
-    const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'agent' });
+    const next = await this.deps.store.updateHeader(sessionId, {
+      collaborationMode: 'agent',
+    });
     if (from !== 'agent') {
       await this.deps.store.appendMessage(sessionId, {
         type: 'system_note',
@@ -993,7 +1013,9 @@ export class SessionManager {
 
   async resumePlanExecution(sessionId: string, executionId: string): Promise<PlanMutationResult> {
     const result = await this.requirePlanStore().resumeExecution(sessionId, executionId);
-    const next = await this.deps.store.updateHeader(sessionId, { collaborationMode: 'agent' });
+    const next = await this.deps.store.updateHeader(sessionId, {
+      collaborationMode: 'agent',
+    });
     this.runtimeKernel.updateCachedHeader(sessionId, next);
     await this.runtimeKernel.disposeBackend(sessionId);
     return result;
@@ -1067,7 +1089,10 @@ export class SessionManager {
           }
         }
       : options.onRunStarted;
-    yield* this.runtimeKernel.startTurn(sessionId, input, { ...options, onRunStarted });
+    yield* this.runtimeKernel.startTurn(sessionId, input, {
+      ...options,
+      onRunStarted,
+    });
   }
 
   private async generateTitleInBackground(
@@ -1077,7 +1102,11 @@ export class SessionManager {
   ): Promise<void> {
     let generated: string | undefined;
     try {
-      generated = await this.deps.generateSessionTitle?.({ sessionId, header, sourceText });
+      generated = await this.deps.generateSessionTitle?.({
+        sessionId,
+        header,
+        sourceText,
+      });
     } catch {}
     try {
       const title = generated ?? fallbackSessionTitle(sourceText);
@@ -1152,7 +1181,10 @@ export class SessionManager {
         disposition: 'park',
         rejectionReasons: ['source_run_unreadable'],
         diagnostics: [
-          { code: 'source_run_unreadable', message: 'source AgentRun could not be read' },
+          {
+            code: 'source_run_unreadable',
+            message: 'source AgentRun could not be read',
+          },
         ],
       };
       this.recordContinuationPlan(sessionId, input.sourceRunId, plan);
@@ -2049,7 +2081,11 @@ export class SessionManager {
     const startedAt = this.deps.now();
     const summary = new ChildAgentSummaryAccumulator();
     let aborted = input.abortSignal?.aborted === true;
-    await input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name });
+    await input.onReady?.({
+      turnId,
+      agentId: definition.id,
+      agentName: definition.name,
+    });
     const iterator = this.startChildTurn(sessionId, {
       turnId,
       parentRunId: input.parentRunId,
@@ -2916,10 +2952,20 @@ export class SessionManager {
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
+    if (this.deps.interactionAuthority) {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted permission answers must use the captured continuation',
+      );
+    }
     await this.runtimeKernel.respondToPermission(sessionId, response);
   }
 
   async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
+    if (this.deps.interactionAuthority) {
+      throw new RuntimeInteractionInvariantError(
+        'Hosted question answers must use the captured continuation',
+      );
+    }
     await this.runtimeKernel.respondToUserQuestion?.(sessionId, response);
   }
 
@@ -3273,7 +3319,11 @@ export class SessionManager {
       const inspected = await inspectAgentRunReadModel(
         this.deps.runStore,
         this.deps.runtimeEventStore,
-        { sessionId, runId: run.runId, header: run },
+        {
+          sessionId,
+          runId: run.runId,
+          header: run,
+        },
       );
       if (inspected.sourceHealth.runtimeLedger === 'read_failed') {
         if (policy.kind === 'strict') {
@@ -3739,7 +3789,12 @@ function turnStateLineage(
 
 function cloneRuntimeEventForConversationCopy(
   event: RuntimeEvent,
-  ids: { sessionId: string; runId: string; eventId: string; invocationId: string },
+  ids: {
+    sessionId: string;
+    runId: string;
+    eventId: string;
+    invocationId: string;
+  },
 ): RuntimeEvent {
   return {
     ...event,
@@ -3756,7 +3811,12 @@ function cloneRunHeaderForConversationCopy(
   runId: string,
   invocationId: string,
 ): AgentRunHeader {
-  const cloned = { ...sourceRun, invocationId, sessionId: childSessionId, runId };
+  const cloned = {
+    ...sourceRun,
+    invocationId,
+    sessionId: childSessionId,
+    runId,
+  };
   if (isTerminalRunStatus(sourceRun.status)) {
     cloned.status = 'running';
     delete cloned.completedAt;

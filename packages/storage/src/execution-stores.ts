@@ -28,6 +28,12 @@ import {
   type StorageRootKind,
   type StorageRootLease,
 } from './root-authority.js';
+import {
+  openInteractiveInteractionStoreForRead,
+  openInteractiveInteractionStoreForWrite,
+  type InteractiveInteractionStoreReaderFacade,
+  type InteractiveInteractionStoreWriterFacade,
+} from './interaction-store.js';
 
 const executionStoresWriterBrand: unique symbol = Symbol('ExecutionStoresWriter');
 const executionStoresReaderBrand: unique symbol = Symbol('ExecutionStoresReader');
@@ -56,7 +62,7 @@ export type ExecutionAgentRunWriter = DurableAgentRunStore;
 export type ExecutionRuntimeEventWriter = DurableRuntimeEventStore;
 export type ExecutionMessageReceiptWriter = MessageReceiptStore;
 
-export interface ExecutionStoresWriter<K extends StorageRootKind> {
+interface ExecutionStoresWriterBase<K extends StorageRootKind> {
   readonly kind: K;
   readonly [executionStoresWriterBrand]: K;
   readonly sessionStore: Readonly<ExecutionSessionWriter>;
@@ -64,6 +70,19 @@ export interface ExecutionStoresWriter<K extends StorageRootKind> {
   readonly runtimeEventStore: Readonly<ExecutionRuntimeEventWriter>;
   readonly messageReceiptStore: Readonly<ExecutionMessageReceiptWriter>;
 }
+
+export interface InteractiveExecutionStoresWriter extends ExecutionStoresWriterBase<'interactive'> {
+  readonly interactionStore: InteractiveInteractionStoreWriterFacade;
+}
+
+export type HeadlessExecutionStoresWriter = ExecutionStoresWriterBase<'headless'>;
+
+interface ExecutionStoresWriters {
+  readonly interactive: InteractiveExecutionStoresWriter;
+  readonly headless: HeadlessExecutionStoresWriter;
+}
+
+export type ExecutionStoresWriter<K extends StorageRootKind> = ExecutionStoresWriters[K];
 
 export interface ExecutionSessionReader {
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
@@ -93,13 +112,26 @@ export interface ExecutionRuntimeEventReader {
   readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]>;
 }
 
-export interface ExecutionStoresReader<K extends StorageRootKind> {
+interface ExecutionStoresReaderBase<K extends StorageRootKind> {
   readonly kind: K;
   readonly [executionStoresReaderBrand]: K;
   readonly sessionStore: Readonly<ExecutionSessionReader>;
   readonly agentRunStore: Readonly<ExecutionAgentRunReader>;
   readonly runtimeEventStore: Readonly<ExecutionRuntimeEventReader>;
 }
+
+export interface InteractiveExecutionStoresReader extends ExecutionStoresReaderBase<'interactive'> {
+  readonly interactionStore: InteractiveInteractionStoreReaderFacade;
+}
+
+export type HeadlessExecutionStoresReader = ExecutionStoresReaderBase<'headless'>;
+
+interface ExecutionStoresReaders {
+  readonly interactive: InteractiveExecutionStoresReader;
+  readonly headless: HeadlessExecutionStoresReader;
+}
+
+export type ExecutionStoresReader<K extends StorageRootKind> = ExecutionStoresReaders[K];
 
 export function authenticateExecutionStoresWriter<K extends StorageRootKind>(
   stores: ExecutionStoresWriter<K>,
@@ -124,19 +156,21 @@ export function authenticateExecutionStoresReader<K extends StorageRootKind>(
 export async function openInteractiveExecutionStoresForWrite(
   lease: StorageRootLease<'interactive', 'write'>,
 ): Promise<ExecutionStoresWriter<'interactive'>> {
-  return openExecutionStoresForWrite(lease, 'interactive');
+  const interactionStore = await openInteractiveInteractionStoreForWrite(lease);
+  return openExecutionStoresForWrite(lease, 'interactive', { interactionStore });
 }
 
 export async function openHeadlessExecutionStoresForWrite(
   lease: StorageRootLease<'headless', 'write'>,
 ): Promise<ExecutionStoresWriter<'headless'>> {
-  return openExecutionStoresForWrite(lease, 'headless');
+  return openExecutionStoresForWrite(lease, 'headless', {});
 }
 
-async function openExecutionStoresForWrite<K extends StorageRootKind>(
+async function openExecutionStoresForWrite<K extends StorageRootKind, E extends object>(
   lease: StorageRootLease<K, 'write'>,
   kind: K,
-): Promise<ExecutionStoresWriter<K>> {
+  extension: E,
+): Promise<ExecutionStoresWriterBase<K> & E> {
   await assertStorageRootLease(lease, kind, 'write');
   const sessionStore = createSessionStore(lease.canonicalPath);
   const agentRunStore = createAgentRunStore(lease.canonicalPath);
@@ -145,7 +179,8 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
   const run = <T>(operation: () => Promise<T>) =>
     runWithStorageRootLease(lease, kind, 'write', operation);
 
-  const stores: ExecutionStoresWriter<K> = {
+  const stores: ExecutionStoresWriterBase<K> & E = {
+    ...extension,
     kind,
     [executionStoresWriterBrand]: kind,
     sessionStore: {
@@ -240,19 +275,21 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
 export async function openInteractiveExecutionStoresForRead(
   lease: StorageRootLease<'interactive', 'read'>,
 ): Promise<ExecutionStoresReader<'interactive'>> {
-  return openExecutionStoresForRead(lease, 'interactive');
+  const interactionStore = await openInteractiveInteractionStoreForRead(lease);
+  return openExecutionStoresForRead(lease, 'interactive', { interactionStore });
 }
 
 export async function openHeadlessExecutionStoresForRead(
   lease: StorageRootLease<'headless', 'read'>,
 ): Promise<ExecutionStoresReader<'headless'>> {
-  return openExecutionStoresForRead(lease, 'headless');
+  return openExecutionStoresForRead(lease, 'headless', {});
 }
 
-async function openExecutionStoresForRead<K extends StorageRootKind>(
+async function openExecutionStoresForRead<K extends StorageRootKind, E extends object>(
   lease: StorageRootLease<K, 'read'>,
   kind: K,
-): Promise<ExecutionStoresReader<K>> {
+  extension: E,
+): Promise<ExecutionStoresReaderBase<K> & E> {
   await assertStorageRootLease(lease, kind, 'read');
   const sessionStore = createSessionStore(lease.canonicalPath);
   const agentRunStore = createAgentRunStore(lease.canonicalPath);
@@ -260,7 +297,8 @@ async function openExecutionStoresForRead<K extends StorageRootKind>(
   const run = <T>(operation: () => Promise<T>) =>
     runWithStorageRootLease(lease, kind, 'read', operation);
 
-  const stores: ExecutionStoresReader<K> = {
+  const stores: ExecutionStoresReaderBase<K> & E = {
+    ...extension,
     kind,
     [executionStoresReaderBrand]: kind,
     sessionStore: {

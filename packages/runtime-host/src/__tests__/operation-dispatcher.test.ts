@@ -167,6 +167,14 @@ function validHandlers(): OperationHandlerMap {
     'turn.message.submit': unavailable,
     'queue.retract': unavailable,
     'turn.interrupt': unavailable,
+    'interaction.query': async () => ({
+      ok: false,
+      error: { code: 'operation_unavailable', message: 'not used' },
+    }),
+    'interaction.answer': async () => ({
+      ok: false,
+      error: { code: 'operation_unavailable', message: 'not used' },
+    }),
     'subscription.open': unavailable,
     'subscription.close': unavailable,
   };

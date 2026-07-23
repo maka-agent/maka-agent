@@ -9,6 +9,7 @@ export type HostOperationErrorCode =
   | 'session_archived'
   | 'session_busy'
   | 'operation_conflict'
+  | 'already_resolved'
   | 'outcome_unknown'
   | 'internal_failure';
 

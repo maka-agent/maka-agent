@@ -43,8 +43,8 @@ describe('ToolRuntime extraction contract', () => {
     );
     assert.match(
       backend,
-      /this\.toolRuntime\.beginTurn\(turnId\);/,
-      'turn start must establish ToolRuntime-owned per-turn state',
+      /this\.toolRuntime\.beginTurn\(turnId, input\.hostedInteraction\);/,
+      'turn start must forward the hosted Interaction bridge into ToolRuntime-owned state',
     );
     assert.match(
       backend,

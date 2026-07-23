@@ -848,7 +848,7 @@ export class AiSdkBackend implements AgentBackend {
       resolveEffectiveOrchestration(this.input.header.orchestrationMode, undefined);
     this.currentUserIntent = input.text;
     this.input.permissionEngine.beginTurn(turnId);
-    this.toolRuntime.beginTurn(turnId);
+    this.toolRuntime.beginTurn(turnId, input.hostedInteraction);
     this.abortController = new AbortController();
     this.imageRequestBudget = { used: 0, decisions: new Map() };
 
