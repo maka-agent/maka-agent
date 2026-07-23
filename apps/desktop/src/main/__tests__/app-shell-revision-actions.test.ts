@@ -74,6 +74,7 @@ function createHarness(options: {
   messages?: StoredMessage[];
   pendingAttachments?: boolean;
   previousComposerText?: string;
+  previousComposerSkills?: Array<{ id: string; name: string }>;
   refreshMessagesResult?: boolean;
 }) {
   const activeIdRef: { current: string | undefined } = { current: 'source' };
@@ -98,7 +99,11 @@ function createHarness(options: {
         setText: (text: string) => { composerCalls.push(text); },
         appendText: () => undefined,
         getText: () => options.previousComposerText ?? 'Previous draft',
+        getSkills: () => options.previousComposerSkills ?? [],
         setSkills: () => undefined,
+        setSkillDraft: (key, skills) => {
+          composerCalls.push(`<skill-draft:${key}:${skills.map((skill) => skill.id).join(',')}>`);
+        },
         copySkillDraft: (sourceKey: string, targetKey: string) => {
           composerCalls.push(`<skills:${sourceKey}->${targetKey}>`);
         },
@@ -144,6 +149,7 @@ describe('app shell revision actions', () => {
       harness.actions.beginEditUserMessage('turn-1');
       assert.deepEqual(harness.revisionCalls, []);
       assert.equal(harness.revisionDraftRef.current?.draftSessionId, 'source');
+      assert.deepEqual(harness.revisionDraftRef.current?.previousComposerSkills, []);
       assert.deepEqual(harness.composerCalls, ['Human-facing prompt', '<focus>']);
 
       assert.equal(await harness.actions.prepareRevisionSend('Edited prompt'), true);
@@ -251,7 +257,10 @@ describe('app shell revision actions', () => {
   });
 
   it('cancels back to the source and restores its previous draft', async () => {
-    const harness = createHarness({ reviseBeforeTurn: async () => session('revision') });
+    const harness = createHarness({
+      reviseBeforeTurn: async () => session('revision'),
+      previousComposerSkills: [{ id: 'workspace-only', name: 'Workspace Only' }],
+    });
     try {
       harness.actions.beginEditUserMessage('turn-1');
       await harness.actions.prepareRevisionSend('Edited prompt');
@@ -260,6 +269,7 @@ describe('app shell revision actions', () => {
       assert.deepEqual(harness.opened, ['revision', 'source']);
       assert.deepEqual(harness.removed, ['revision']);
       assert.ok(harness.composerCalls.includes('<clear:revision>'));
+      assert.ok(harness.composerCalls.includes('<skill-draft:source:workspace-only>'));
       assert.deepEqual(harness.composerCalls.slice(-2), ['Previous draft', '<focus>']);
     } finally {
       harness.restoreWindow();

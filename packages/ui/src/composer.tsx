@@ -19,7 +19,10 @@ import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js'
 import { appendPromptContextDraft, isReferenceSizedPaste } from './composer-helpers.js';
 import { useComposerDraft } from './use-composer-draft.js';
 import { useComposerHistory } from './use-composer-history.js';
-import { useComposerSkillDraft } from './use-composer-skill-draft.js';
+import {
+  useComposerSkillDraft,
+  type ComposerSkillSelection,
+} from './use-composer-skill-draft.js';
 import {
   createChatInputActionOwner,
   fileTransferContainsFiles,
@@ -58,10 +61,17 @@ export interface ComposerHandle {
   appendText(text: string): void;
   /** Read the current uncontrolled textarea value. */
   getText(): string;
+  /** Snapshot the structured Skills owned by the active draft. */
+  getSkills(): ComposerSkillSelection[];
   /** Clear one persisted text and Skill draft without affecting another session. */
   clearDraft(draftKey: string): void;
   /** Write a specific session draft before navigation changes the active key. */
   setDraft(draftKey: string, text: string): void;
+  /** Replace structured Skills under an explicit session draft key. */
+  setSkillDraft(
+    draftKey: string,
+    skills: readonly ComposerSkillSelection[],
+  ): void;
   /** Copy structured Skill selections when a revision changes draft ownership. */
   copySkillDraft(sourceDraftKey: string, targetDraftKey: string): void;
   /** Move focus to the textarea without changing its content. */
@@ -332,6 +342,9 @@ export const Composer = forwardRef<
       getText() {
         return textareaRef.current?.value ?? '';
       },
+      getSkills() {
+        return skillDraft.get(skillDraft.activeDraftKey());
+      },
       clearDraft(draftKey: string) {
         clearDraft(draftKey);
         skillDraft.clear(draftKey);
@@ -351,6 +364,12 @@ export const Composer = forwardRef<
         autoResize();
         focusTextInputAtEnd(el);
       },
+      setSkillDraft(
+        draftKey: string,
+        skills: readonly ComposerSkillSelection[],
+      ) {
+        skillDraft.replace(draftKey, skills);
+      },
       copySkillDraft(sourceDraftKey: string, targetDraftKey: string) {
         skillDraft.copy(sourceDraftKey, targetDraftKey);
       },
@@ -358,8 +377,7 @@ export const Composer = forwardRef<
         textareaRef.current?.focus();
       },
       setSkills(skills) {
-        skillDraft.clear(skillDraft.activeDraftKey());
-        for (const skill of skills) skillDraft.add(skill);
+        skillDraft.replace(skillDraft.activeDraftKey(), skills);
       },
     }),
     [],

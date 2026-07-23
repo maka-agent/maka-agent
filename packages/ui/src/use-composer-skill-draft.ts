@@ -64,7 +64,33 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
 
   function clear(key: string | undefined) {
     if (key) storeRef.current.delete(key);
-    if (key === activeKeyRef.current) commit([]);
+    if (key === activeKeyRef.current) {
+      currentRef.current = [];
+      setSkillsState([]);
+    }
+  }
+
+  function get(key: string | undefined) {
+    return key === activeKeyRef.current
+      ? [...currentRef.current]
+      : key
+        ? [...(storeRef.current.get(key) ?? [])]
+        : [];
+  }
+
+  function replace(
+    key: string | undefined,
+    skills: readonly ComposerSkillSelection[],
+  ) {
+    const next = [...skills];
+    if (key) {
+      if (next.length > 0) storeRef.current.set(key, next);
+      else storeRef.current.delete(key);
+    }
+    if (key === activeKeyRef.current) {
+      currentRef.current = next;
+      setSkillsState(next);
+    }
   }
 
   function copy(sourceKey: string | undefined, targetKey: string | undefined) {
@@ -97,6 +123,8 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
     remove,
     removeLast,
     clear,
+    get,
+    replace,
     copy,
     activeDraftKey: () => activeKeyRef.current,
   };

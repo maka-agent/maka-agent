@@ -1,6 +1,6 @@
 import type { SessionSummary, StoredMessage, UiLocale } from '@maka/core';
 import { userFacingText } from '@maka/core';
-import type { ComposerHandle } from '@maka/ui';
+import type { ComposerHandle, ComposerSkillSelection } from '@maka/ui';
 import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 import { localizedShellErrorMessage } from './locales/shell-copy.js';
 import {
@@ -27,6 +27,8 @@ export type TurnRevisionDraft = {
   originalText: string;
   /** Composer text that was present before edit began; restored on cancel. */
   previousComposerText: string;
+  /** Structured Skills that were present before edit began; restored on cancel. */
+  previousComposerSkills: ComposerSkillSelection[];
 };
 
 export interface AppShellRevisionActions {
@@ -141,6 +143,7 @@ export function createAppShellRevisionActions(deps: {
       draftSessionId: sessionId,
       originalText: prompt,
       previousComposerText: composerRef.current?.getText() ?? '',
+      previousComposerSkills: composerRef.current?.getSkills() ?? [],
     });
     composerRef.current?.setText(prompt);
     composerRef.current?.focus();
@@ -235,6 +238,10 @@ export function createAppShellRevisionActions(deps: {
       draft.draftSessionId !== draft.sourceSessionId ? draft.draftSessionId : undefined;
     commitRevisionDraft(null);
     composerRef.current?.setDraft(draft.sourceSessionId, draft.previousComposerText);
+    composerRef.current?.setSkillDraft(
+      draft.sourceSessionId,
+      draft.previousComposerSkills,
+    );
     if (preparedSessionId) composerRef.current?.clearDraft(preparedSessionId);
     if (activeIdRef.current !== draft.sourceSessionId) {
       openSessionInChat(draft.sourceSessionId);
