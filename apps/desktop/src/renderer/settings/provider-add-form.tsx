@@ -95,9 +95,8 @@ export function AddProviderForm(props: {
         } catch (error) {
           modelDiscoveryError = error;
         }
-      } else if (isCustomRelay) {
-        await props.bridge.fetchModels(connection.slug).catch(() => undefined);
       }
+      if (isCustomRelay) await props.bridge.fetchModels(connection.slug).catch(() => undefined);
       if (!addProviderMountedRef.current) return;
       await props.onCreated(connection.slug, modelDiscoveryError);
     } catch (err) {
