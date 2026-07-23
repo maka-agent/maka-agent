@@ -401,28 +401,31 @@ export async function runTaskOnceWithStorage(
 
     let runtimeInvocation: InvocationResult;
     let settledByDeadline = false;
-    try {
-      const runtimeAttempt = await runRuntimeAttempt({
-        run,
-        header,
-        instruction,
-        ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
-        requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
-        now,
-        newId,
-        settleByDeadline: active.settleByDeadline,
-        ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
-      });
-      runtimeInvocation = runtimeAttempt.invocation;
-      settledByDeadline = runtimeAttempt.settledByDeadline;
-    } finally {
-      await disposeTaskRunSession(
-        active,
-        sessionCapabilities,
-        header.id,
-        settledByDeadline ? 'benchmark_deadline' : 'stop_button',
-      );
-    }
+    const runtimeAttempt = await runWithTaskSessionCleanup(
+      async () => {
+        const attempt = await runRuntimeAttempt({
+          run,
+          header,
+          instruction,
+          ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
+          requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
+          now,
+          newId,
+          settleByDeadline: active.settleByDeadline,
+          ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
+        });
+        settledByDeadline = attempt.settledByDeadline;
+        return attempt;
+      },
+      () =>
+        disposeTaskRunSession(
+          active,
+          sessionCapabilities,
+          header.id,
+          settledByDeadline ? 'benchmark_deadline' : 'stop_button',
+        ),
+    );
+    runtimeInvocation = runtimeAttempt.invocation;
     await appendTaskAttemptExecutionLink({
       store: taskRunStore,
       runtimeEventStore,
@@ -519,28 +522,33 @@ export async function runTaskOnceWithStorage(
         });
         repairActive.bindRun(repairRun);
         let repairInvocation: InvocationResult;
-        try {
-          const repairRuntimeAttempt = await runRuntimeAttempt({
-            run: repairRun,
-            header,
-            instruction: gateDecision.prompt,
-            ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
-            requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
-            now,
-            newId,
-            settleByDeadline: repairActive.settleByDeadline,
-            ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
-          });
-          repairInvocation = repairRuntimeAttempt.invocation;
-          settledByDeadline ||= repairRuntimeAttempt.settledByDeadline;
-        } finally {
-          await disposeTaskRunSession(
-            repairActive,
-            sessionCapabilities,
-            header.id,
-            settledByDeadline ? 'benchmark_deadline' : 'stop_button',
-          );
-        }
+        const repairRuntimeAttempt = await runWithTaskSessionCleanup(
+          async () => {
+            const attempt = await runRuntimeAttempt({
+              run: repairRun,
+              header,
+              instruction: gateDecision.prompt,
+              ...(deps.priorRuntimeContext
+                ? { priorRuntimeContext: deps.priorRuntimeContext }
+                : {}),
+              requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
+              now,
+              newId,
+              settleByDeadline: repairActive.settleByDeadline,
+              ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
+            });
+            settledByDeadline ||= attempt.settledByDeadline;
+            return attempt;
+          },
+          () =>
+            disposeTaskRunSession(
+              repairActive,
+              sessionCapabilities,
+              header.id,
+              settledByDeadline ? 'benchmark_deadline' : 'stop_button',
+            ),
+        );
+        repairInvocation = repairRuntimeAttempt.invocation;
         await appendTaskAttemptExecutionLink({
           store: taskRunStore,
           runtimeEventStore,
@@ -1405,6 +1413,21 @@ function createSingleRunActiveSession(
       if (backend) await backend.dispose().catch(() => {});
     },
   };
+}
+
+async function runWithTaskSessionCleanup<T>(
+  run: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  let result: T;
+  try {
+    result = await run();
+  } catch (primaryError) {
+    await cleanup().catch(() => {});
+    throw primaryError;
+  }
+  await cleanup();
+  return result;
 }
 
 async function disposeTaskRunSession(

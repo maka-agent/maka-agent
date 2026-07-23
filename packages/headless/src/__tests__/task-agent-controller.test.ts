@@ -275,6 +275,7 @@ class ParentWithBackgroundChildBackend implements AgentBackend {
     private readonly childStarted: Promise<void>,
     private readonly observeChild: (promise: Promise<unknown>) => void,
     private readonly waitForStop: boolean,
+    private readonly stopError?: Error,
   ) {
     this.sessionId = sessionId;
   }
@@ -314,6 +315,49 @@ class ParentWithBackgroundChildBackend implements AgentBackend {
 
   async stop(): Promise<void> {
     this.release();
+    if (this.stopError) throw this.stopError;
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class FailingStopBackgroundChildBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+  stopCalls = 0;
+  private finish!: () => void;
+  private readonly finished = new Promise<void>((resolve) => {
+    this.finish = resolve;
+  });
+
+  constructor(
+    sessionId: string,
+    private readonly onStarted: () => void,
+    private readonly stopError: Error,
+  ) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.onStarted();
+    await this.finished;
+    yield {
+      type: 'complete',
+      id: 'failing-stop-child-complete',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: 'user_stop',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    throw this.stopError;
+  }
+
+  finishForTest(): void {
+    this.finish();
   }
 
   async respondToPermission(_decision: PermissionDecision): Promise<void> {}
@@ -1228,6 +1272,70 @@ describe('runTaskOnce', () => {
     });
   });
 
+  test('surfaces a cleanup error when the task runtime succeeds', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const cleanupError = new Error('child cleanup stop failed');
+      let resolveChildStarted!: () => void;
+      const childStarted = new Promise<void>((resolve) => {
+        resolveChildStarted = resolve;
+      });
+      let childBackend: FailingStopBackgroundChildBackend | undefined;
+      let childPromise: Promise<unknown> | undefined;
+      let buildCount = 0;
+      const task: Task = {
+        id: 'successful-runtime-cleanup-failure',
+        instruction: 'surface cleanup failure',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const run = runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          registry.register('ai-sdk', (ctx) => {
+            buildCount += 1;
+            if (buildCount === 1) {
+              return new ParentWithBackgroundChildBackend(
+                ctx.sessionId,
+                context,
+                childStarted,
+                (promise) => {
+                  childPromise = promise;
+                },
+                false,
+              );
+            }
+            childBackend = new FailingStopBackgroundChildBackend(
+              ctx.sessionId,
+              resolveChildStarted,
+              cleanupError,
+            );
+            return childBackend;
+          });
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+      });
+      try {
+        await assert.rejects(run, (error: unknown) => {
+          assert.equal(error, cleanupError);
+          return true;
+        });
+        assert.equal(childBackend?.stopCalls, 2);
+      } finally {
+        childBackend?.finishForTest();
+        await childPromise;
+      }
+    });
+  });
+
   test('settles background child sessions at the task-run deadline', async (t) => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const realSetTimeout = setTimeout;
@@ -1303,6 +1411,93 @@ describe('runTaskOnce', () => {
         await childPromise;
       } finally {
         if (watchdog) realClearTimeout(watchdog);
+        t.mock.timers.reset();
+      }
+    });
+  });
+
+  test('preserves the runtime error when deadline cleanup also fails', async (t) => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const realSetTimeout = setTimeout;
+      const realClearTimeout = clearTimeout;
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      const runtimeError = new Error('parent deadline stop failed');
+      const cleanupError = new Error('child cleanup stop failed');
+      let resolveChildStarted!: () => void;
+      const childStarted = new Promise<void>((resolve) => {
+        resolveChildStarted = resolve;
+      });
+      let childBackend: FailingStopBackgroundChildBackend | undefined;
+      let childPromise: Promise<unknown> | undefined;
+      let buildCount = 0;
+      const task: Task = {
+        id: 'deadline-runtime-and-cleanup-failure',
+        instruction: 'preserve the primary runtime failure',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const run = runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          registry.register('ai-sdk', (ctx) => {
+            buildCount += 1;
+            if (buildCount === 1) {
+              return new ParentWithBackgroundChildBackend(
+                ctx.sessionId,
+                context,
+                childStarted,
+                (promise) => {
+                  childPromise = promise;
+                },
+                true,
+                runtimeError,
+              );
+            }
+            childBackend = new FailingStopBackgroundChildBackend(
+              ctx.sessionId,
+              resolveChildStarted,
+              cleanupError,
+            );
+            return childBackend;
+          });
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+        now: () => 0,
+        deadlineAtMs: 100,
+      });
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await childStarted;
+        t.mock.timers.tick(100);
+        await assert.rejects(
+          Promise.race([
+            run,
+            new Promise<never>((_resolve, reject) => {
+              watchdog = realSetTimeout(
+                () => reject(new Error('dual failure watchdog expired')),
+                1_000,
+              );
+            }),
+          ]),
+          (error: unknown) => {
+            assert.equal(error, runtimeError);
+            return true;
+          },
+        );
+        assert.equal(childBackend?.stopCalls, 2);
+      } finally {
+        if (watchdog) realClearTimeout(watchdog);
+        childBackend?.finishForTest();
+        await childPromise;
         t.mock.timers.reset();
       }
     });
