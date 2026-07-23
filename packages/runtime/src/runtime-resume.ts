@@ -82,6 +82,7 @@ export type ResumePlanDiagnosticCode =
   | 'continuation_identity_reused'
   | 'provider_resume_head_unsupported'
   | 'provider_resume_boundary_unsupported'
+  | 'interrupted_model_suffix_omitted'
   | 'workspace_ref_missing'
   | 'checkpoint_restore_failed'
   | 'source_run_unreadable'
@@ -703,10 +704,18 @@ export function buildSafeBoundaryContinuationPlan(
       phaseOneRejectionReasons.push('checkpoint_restore_failed');
     }
   }
-  const modelRuntimeContext = [
-    ...(facts.priorRuntimeContext ?? []),
-    ...replayPlan.replayRuntimeEvents,
-  ];
+  const interruptedSuffix = buildContinuationReplayRuntimeEvents(replayPlan.replayRuntimeEvents);
+  const sourceReplayRuntimeEvents = interruptedSuffix.runtimeEvents;
+  const modelRuntimeContext = [...(facts.priorRuntimeContext ?? []), ...sourceReplayRuntimeEvents];
+  if (interruptedSuffix.omittedEventIds.length > 0) {
+    phaseOneDiagnostics.push({
+      code: 'interrupted_model_suffix_omitted',
+      message:
+        'interrupted model output after the last stable user/tool boundary was omitted from continuation replay',
+      eventId: interruptedSuffix.omittedEventIds[0],
+      detail: { eventIds: interruptedSuffix.omittedEventIds },
+    });
+  }
   const availableToolNames = new Set(facts.availableToolNames);
   const unavailableToolNames = [
     ...new Set(
@@ -763,7 +772,7 @@ export function buildSafeBoundaryContinuationPlan(
   return {
     disposition: 'continue',
     rejectionReasons: [],
-    diagnostics: [],
+    diagnostics: phaseOneDiagnostics,
     continuation: {
       sessionId: source.sessionId,
       ...facts.continuationIdentity,
@@ -772,7 +781,7 @@ export function buildSafeBoundaryContinuationPlan(
       sourceTurnId: source.turnId,
       sourceRuntimeEventHighWater: replayPlan.sourceRuntimeEventHighWater,
       ...(facts.priorRuntimeContext?.length
-        ? { sourceRuntimeContext: replayPlan.replayRuntimeEvents }
+        ? { sourceRuntimeContext: sourceReplayRuntimeEvents }
         : {}),
       runtimeContext: modelRuntimeContext,
       safetySnapshot: {
@@ -790,6 +799,44 @@ export function buildSafeBoundaryContinuationPlan(
       },
     },
   };
+}
+
+/**
+ * Rolls only the provider replay view back to the latest durable user/tool boundary.
+ * RuntimeEvents and their high-water remain untouched. This deliberately does not
+ * reproduce provider step grouping: every model-visible suffix event is omitted as
+ * one unit, leaving the existing backend materializer as the sole step authority.
+ */
+export function buildContinuationReplayRuntimeEvents(events: readonly RuntimeEvent[]): {
+  runtimeEvents: RuntimeEvent[];
+  omittedEventIds: string[];
+} {
+  let stableBoundaryIndex = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (!runtimeEventHasModelVisibleContent(event)) continue;
+    if (event.role === 'user' || event.role === 'tool') {
+      stableBoundaryIndex = index;
+      break;
+    }
+    if (event.role !== 'model') {
+      return { runtimeEvents: [...events], omittedEventIds: [] };
+    }
+  }
+  if (stableBoundaryIndex < 0) {
+    return { runtimeEvents: [...events], omittedEventIds: [] };
+  }
+
+  const omittedEventIds: string[] = [];
+  const runtimeEvents = events.filter((event, index) => {
+    const omitted =
+      index > stableBoundaryIndex &&
+      event.role === 'model' &&
+      runtimeEventHasModelVisibleContent(event);
+    if (omitted) omittedEventIds.push(event.id);
+    return !omitted;
+  });
+  return { runtimeEvents, omittedEventIds };
 }
 
 function collectPendingPermissionDiagnostics(

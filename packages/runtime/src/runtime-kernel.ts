@@ -69,6 +69,7 @@ import {
 } from './history-compact-checkpoint.js';
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
 import {
+  buildContinuationReplayRuntimeEvents,
   buildResumePlanFromRuntimeEvents,
   RuntimeContinuationRevalidationError,
   type RuntimeContinuation,
@@ -1747,10 +1748,11 @@ function assertContinuationSourceUnchanged(
     expectedRuntimeEventHighWater: continuation.sourceRuntimeEventHighWater,
     ...(recoveryContracts ? { recoveryContracts } : {}),
   });
+  const continuationReplay = buildContinuationReplayRuntimeEvents(replayPlan.replayRuntimeEvents);
   const sourceRuntimeContext = continuation.sourceRuntimeContext ?? continuation.runtimeContext;
   if (
     replayPlan.disposition !== 'safe_replay' ||
-    !isDeepStrictEqual(replayPlan.replayRuntimeEvents, sourceRuntimeContext)
+    !isDeepStrictEqual(continuationReplay.runtimeEvents, sourceRuntimeContext)
   ) {
     throw new RuntimeContinuationRevalidationError(
       'source_replay_changed',

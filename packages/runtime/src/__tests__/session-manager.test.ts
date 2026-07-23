@@ -1380,7 +1380,7 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents[2]?.status).toBe('completed');
   });
 
-  test('executes an approved safe-boundary continuation as a new lineage run without another user message', async () => {
+  test('executes an approved continuation after omitting an interrupted model suffix', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -1441,12 +1441,25 @@ describe('SessionManager permission mode updates', () => {
         content: { kind: 'text', text: 'continue safely' },
       },
       {
-        id: 'source-terminal',
+        id: 'source-interrupted-model-text',
         sessionId: session.id,
         invocationId: sourceInvocationId,
         runId: sourceRunId,
         turnId: sourceTurnId,
         ts: 2,
+        partial: false,
+        author: 'agent',
+        role: 'model',
+        content: { kind: 'text', text: 'I was about to continue.' },
+        refs: { providerEventId: 'interrupted-step' },
+      },
+      {
+        id: 'source-terminal',
+        sessionId: session.id,
+        invocationId: sourceInvocationId,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 3,
         partial: false,
         author: 'system',
         role: 'system',
@@ -1474,6 +1487,11 @@ describe('SessionManager permission mode updates', () => {
     );
 
     expect(sessionEvents.map((event) => event.type)).toEqual(['text_complete', 'complete']);
+    expect(
+      backend?.sendInputs[0]?.runtimeContext?.some(
+        (event) => event.id === 'source-interrupted-model-text',
+      ),
+    ).toBe(false);
     const continuationRun = await runStore.readRun(session.id, plan.continuation.runId);
     expect(continuationRun.invocationId).toBe(plan.continuation.invocationId);
     expect(continuationRun.turnId).toBe(plan.continuation.turnId);

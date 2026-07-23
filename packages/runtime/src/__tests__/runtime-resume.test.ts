@@ -514,7 +514,7 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     assert.deepEqual(reused.rejectionReasons, ['continuation_identity_reused']);
   });
 
-  test('parks when committed provider history ends with a model message', () => {
+  test('omits an interrupted model-only suffix from continuation replay', () => {
     const plan = buildSafeBoundaryContinuationPlan(
       [
         textEvent('user-1', 'user', 'write a summary'),
@@ -523,13 +523,95 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
           role: 'model',
           author: 'agent',
           content: { kind: 'text', text: 'partial but committed answer' },
+          refs: { providerEventId: 'interrupted-step-1' },
         }),
       ],
       safeBoundaryFacts(),
     );
 
-    assert.equal(plan.disposition, 'park');
-    assert.deepEqual(plan.rejectionReasons, ['provider_resume_boundary_unsupported']);
+    assert.equal(plan.disposition, 'continue');
+    assert.deepEqual(plan.rejectionReasons, []);
+    assert.deepEqual(
+      plan.continuation?.runtimeContext.map((event) => event.id),
+      ['user-1'],
+    );
+    assert.equal(plan.continuation?.sourceRuntimeEventHighWater, 2);
+    assert.equal(plan.diagnostics[0]?.code, 'interrupted_model_suffix_omitted');
+    assert.deepEqual(plan.diagnostics[0]?.detail?.eventIds, ['assistant-1']);
+    assert.deepEqual(
+      plan.recoveryProjection?.replayRuntimeEvents.map((event) => event.id),
+      ['user-1', 'assistant-1'],
+    );
+  });
+
+  test('omits delayed text and signed thinking after a completed tool boundary as one suffix', () => {
+    const call = callEvent('call-1', 'tool-1', 'Write', {
+      path: 'hello.txt',
+      content: 'hello',
+    });
+    call.refs = { ...call.refs, stepId: 'step-1' };
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'write hello.txt'),
+        call,
+        responseEvent('response-1', 'tool-1', 'Write', { ok: true }, false),
+        base({
+          id: 'thinking-1',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'write complete', signature: 'signed-step-1' },
+          refs: { providerEventId: 'step-1' },
+        }),
+        base({
+          id: 'assistant-1',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'The first write is complete.' },
+          refs: { providerEventId: 'step-1' },
+        }),
+      ],
+      { ...safeBoundaryFacts(), availableToolNames: ['Write'] },
+    );
+
+    assert.equal(plan.disposition, 'continue');
+    assert.deepEqual(
+      plan.continuation?.runtimeContext.map((event) => event.id),
+      ['user-1', 'call-1', 'response-1'],
+    );
+    assert.equal(plan.continuation?.sourceRuntimeEventHighWater, 5);
+    assert.deepEqual(plan.diagnostics[0]?.detail?.eventIds, ['thinking-1', 'assistant-1']);
+  });
+
+  test('does not treat empty model text or a runtime error fact as a replay suffix', () => {
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'continue'),
+        base({
+          id: 'empty-model-text',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: '' },
+          refs: { providerEventId: 'step-1' },
+        }),
+        base({
+          id: 'runtime-error',
+          role: 'system',
+          author: 'system',
+          content: { kind: 'error', message: 'app restarted' },
+        }),
+      ],
+      safeBoundaryFacts(),
+    );
+
+    assert.equal(plan.disposition, 'continue');
+    assert.equal(
+      plan.diagnostics.some(({ code }) => code === 'interrupted_model_suffix_omitted'),
+      false,
+    );
+    assert.deepEqual(
+      plan.continuation?.runtimeContext.map((event) => event.id),
+      ['user-1', 'empty-model-text', 'runtime-error'],
+    );
   });
 
   test('parks when committed provider history does not start at a user boundary', () => {

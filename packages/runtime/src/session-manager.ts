@@ -1160,6 +1160,7 @@ export class SessionManager {
       plan.diagnostics.every(
         (diagnostic) =>
           diagnostic.code === 'tool_recovery_required' ||
+          diagnostic.code === 'interrupted_model_suffix_omitted' ||
           // An unmatched call is excluded from provider replay. If model text precedes it,
           // that can leave a provisional model-role tail. A synthesized response makes the
           // call/response pair replayable; the authoritative replan below must then clear
