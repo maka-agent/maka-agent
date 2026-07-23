@@ -367,6 +367,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         : {}),
       ...(options.fileMutationCheckpointCarrier
         ? {
+            recoveryMode: 'reconcile' as const,
             prepareDurableExecution: async ({ path, content }, context) => {
               const canonicalCwd = options.filesystemWorker
                 ? canonicalExistingPath(context.cwd)
@@ -468,6 +469,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         : {}),
       ...(options.fileMutationCheckpointCarrier
         ? {
+            recoveryMode: 'reconcile' as const,
             prepareDurableExecution: async ({ path, old_string, new_string }, context) => {
               const canonicalCwd = options.filesystemWorker
                 ? canonicalExistingPath(context.cwd)

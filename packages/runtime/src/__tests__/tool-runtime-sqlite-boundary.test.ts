@@ -1,16 +1,68 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 import { createSqliteRuntimeStore } from '@maka/storage';
 import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
+import { buildBuiltinTools } from '../builtin-tools.js';
 import type { InvocationContext } from '../invocation-context.js';
+import { LocalFileCheckpointCarrier } from '../local-file-checkpoint-carrier.js';
 import { PermissionEngine } from '../permission-engine.js';
 import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
 
 describe('ToolRuntime with real SQLite boundary', () => {
+  it('persists reconcile dispatch mode for production Write and Edit definitions', async () => {
+    const cases = [
+      { toolName: 'Write', args: { path: 'write.txt', content: 'written' } },
+      {
+        toolName: 'Edit',
+        args: { path: 'edit.txt', old_string: 'before', new_string: 'after' },
+      },
+    ] as const;
+    for (const candidate of cases) {
+      const root = await mkdtemp(join(tmpdir(), `maka-builtin-${candidate.toolName}-`));
+      const store = createSqliteRuntimeStore(join(root, 'runtime.sqlite'));
+      try {
+        if (candidate.toolName === 'Edit') await writeFile(join(root, 'edit.txt'), 'before');
+        const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
+        permissionEngine.beginTurn('turn-1');
+        const runtime = new ToolRuntime({
+          sessionId: 'session-1',
+          header: { ...header(), workspaceRoot: root, cwd: root, permissionMode: 'bypass' },
+          connection: connection(),
+          modelId: 'model-1',
+          appendMessage: async () => {},
+          permissionEngine,
+          newId: nextId(),
+          now: nextNow(),
+          getPermissionPauseTarget: () => null,
+          getCurrentRunId: () => 'run-1',
+          getCurrentInvocationId: () => 'invocation-1',
+          runtimeCommitSink: store,
+        });
+        const tool = buildBuiltinTools({
+          fileMutationCheckpointCarrier: new LocalFileCheckpointCarrier(),
+        }).find(({ name }) => name === candidate.toolName);
+        assert.ok(tool);
+
+        await runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(candidate.args, {
+          toolCallId: `provider-${candidate.toolName}`,
+          abortSignal: new AbortController().signal,
+        });
+
+        const dispatch = (await store.readRuntimeEvents('session-1', 'run-1')).find(
+          (event) => event.actions?.toolDispatch,
+        );
+        assert.equal(dispatch?.actions?.toolDispatch?.recoveryMode, 'reconcile');
+      } finally {
+        store.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
   it('persists one atomic prepared/outcome pair around the real implementation', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-tool-sqlite-'));
     const store = createSqliteRuntimeStore(join(root, 'runtime.sqlite'));
