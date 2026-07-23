@@ -400,6 +400,8 @@ export interface BackendFactoryContext {
    * construction before any checkpoint that folds them.
    */
   loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
+  /** Whether this activation may fold its run ledger into session-scoped history. */
+  allowMidTurnHistoryCompaction?: boolean;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
   shellRunContextSummary?: () => Promise<string | undefined>;

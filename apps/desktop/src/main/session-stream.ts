@@ -437,6 +437,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
         : {}),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
+      allowMidTurnHistoryCompaction: ctx.allowMidTurnHistoryCompaction,
       recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
       recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
       newId: randomUUID,

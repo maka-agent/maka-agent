@@ -673,6 +673,7 @@ export async function createMakaCliRuntimeContext(
       }),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
+      allowMidTurnHistoryCompaction: ctx.allowMidTurnHistoryCompaction,
       systemPrompt:
         ctx.systemPrompt ??
         (async ({ cwd, emitSkillCatalogTrace }) => {

@@ -631,6 +631,8 @@ export interface AiSdkBackendInput {
    * session events processed by the consumer) is satisfied.
    */
   loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
+  /** Explicit capability for folding current-run events into session-scoped history. */
+  allowMidTurnHistoryCompaction?: boolean;
   /** Optional best-effort durable recorder for accepted active full compact blocks. */
   recordActiveFullCompactBlock?: ActiveFullCompactBlockRecorder;
   /** Optional best-effort durable recorder for accepted semantic compact blocks. */

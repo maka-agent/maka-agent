@@ -7532,7 +7532,7 @@ describe('SessionManager permission mode updates', () => {
     ).toEqual([]);
   });
 
-  test('the durable turn-ledger seam reaches parent runs but is withheld from child sessions', async () => {
+  test('parent and child runs can read their ledger while only parents may compact session history', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -7588,15 +7588,18 @@ describe('SessionManager permission mode updates', () => {
     expect(seamReads[0]?.turnId).toBe('parent-turn');
     expect((seamReads[0]?.eventIds.length ?? 0) > 0).toBe(true);
 
-    // The child factory context is NOT given the seam: a child run has no
-    // top-level prior context, so a mid-turn checkpoint built from its
-    // child-only ledger would claim session-prefix coverage and poison the
-    // session-global checkpoint stream for the parent projection. Without
-    // the seam, child mid-turn capacity compaction cannot arm.
+    // Both runs need their authoritative ledger for Runtime-owned continuation.
+    // A separate capability keeps child-only ledgers from claiming coverage of
+    // the parent session projection during mid-turn history compaction.
     expect(contexts.length).toBe(2);
     expect(typeof contexts[0]?.loadTurnRuntimeEvents).toBe('function');
-    expect(contexts[1]?.loadTurnRuntimeEvents).toBe(undefined);
-    expect(seamReads[1]).toBe(undefined);
+    expect(typeof contexts[1]?.loadTurnRuntimeEvents).toBe('function');
+    expect((seamReads[1]?.eventIds.length ?? 0) > 0).toBe(true);
+    const capabilities = contexts as Array<
+      BackendFactoryContext & { allowMidTurnHistoryCompaction?: boolean }
+    >;
+    expect(capabilities[0]?.allowMidTurnHistoryCompaction).toBe(true);
+    expect(capabilities[1]?.allowMidTurnHistoryCompaction).toBe(false);
   });
 
   test('spawnChildAgent returns the terminal RuntimeEvent status when the child header commit fails', async () => {

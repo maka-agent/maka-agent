@@ -350,6 +350,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       await flushMacrotask();
       return ledger.filter((event) => event.turnId === turnId);
     },
+    allowMidTurnHistoryCompaction: true,
     recordLlmCall: (record) => {
       llmCalls.push(record as (typeof llmCalls)[number]);
     },

@@ -1014,6 +1014,8 @@ export function buildAiSdkCellBackendRegistration(input: {
           : {}),
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
+        loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
+        allowMidTurnHistoryCompaction: ctx.allowMidTurnHistoryCompaction,
         ...(input.recordUsageCheckpoint
           ? {
               recordUsageCheckpoint: (usage: HarborCellUsageCheckpoint) => {

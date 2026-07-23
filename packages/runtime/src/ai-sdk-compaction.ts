@@ -1218,6 +1218,7 @@ export class AiSdkCompaction {
     input: BackendSendInput,
   ): MidTurnCapacityCompactState | undefined {
     const policy = this.input.contextBudget;
+    if (this.input.allowMidTurnHistoryCompaction !== true) return undefined;
     if (
       policy?.historyCompact?.enabled !== true ||
       policy.historyCompact.midTurn?.enabled !== true

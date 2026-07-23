@@ -319,6 +319,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
           await flushMacrotask();
           return ledger.filter((event) => event.turnId === turnId);
         },
+        allowMidTurnHistoryCompaction: true,
       }
     : {};
 
