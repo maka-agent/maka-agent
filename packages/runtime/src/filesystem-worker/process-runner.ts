@@ -2,6 +2,11 @@ import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
 import {
+  buildSpawnStdio,
+  type ChildFdInput,
+  writeChildFdInputs,
+} from '../child-fd-input.js';
+import {
   DEFAULT_PROCESS_TERMINATION_GRACE_MS,
   terminateChildProcessTree,
 } from '../process-tree-terminator.js';
@@ -15,6 +20,7 @@ export interface FilesystemWorkerProcessRunInput {
   cwd: string;
   env: Readonly<Record<string, string | undefined>>;
   stdin: string;
+  fdInputs?: readonly ChildFdInput[];
   timeoutMs?: number;
   abortSignal?: AbortSignal;
   maxResponseBytes?: number;
@@ -46,7 +52,7 @@ export async function runFilesystemWorkerProcess(
     cwd: input.cwd,
     env: input.env as NodeJS.ProcessEnv,
     shell: false,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: buildSpawnStdio(input.fdInputs, 'pipe'),
     detached: process.platform !== 'win32',
   }) as WorkerChildProcess;
   return await observeWorker(child, input);
@@ -109,6 +115,15 @@ async function observeWorker(
       });
     });
     child.stdin.once('error', () => {});
+    try {
+      writeChildFdInputs(child, input.fdInputs);
+    } catch (error) {
+      settled = true;
+      cleanup();
+      void terminateChildProcessTree(child, 'SIGKILL');
+      reject(error);
+      return;
+    }
     child.stdin.end(input.stdin);
 
     function terminate(reason: 'timeout' | 'abort' | 'overflow'): void {

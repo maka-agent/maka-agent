@@ -8,8 +8,9 @@ export interface ChildFdInput {
 
 export function buildSpawnStdio(
   fdInputs: readonly ChildFdInput[] | undefined,
+  stdin: 'ignore' | 'pipe' = 'ignore',
 ): Array<'ignore' | 'pipe'> {
-  const stdio: Array<'ignore' | 'pipe'> = ['ignore', 'pipe', 'pipe'];
+  const stdio: Array<'ignore' | 'pipe'> = [stdin, 'pipe', 'pipe'];
   for (const input of fdInputs ?? []) {
     if (!Number.isInteger(input.fd) || input.fd < 3 || input.fd > 16) {
       throw new Error(

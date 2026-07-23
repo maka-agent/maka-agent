@@ -239,6 +239,7 @@ export class FilesystemWorkerClient {
         cwd: transformed.exec.cwd,
         env: transformed.exec.env ?? {},
         stdin: requestJson,
+        ...(transformed.exec.fdInputs ? { fdInputs: transformed.exec.fdInputs } : {}),
         timeoutMs: this.timeoutMs,
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
