@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
+import { createSessionStore } from '../session-store.js';
 import { createSettingsStore } from '../settings-store.js';
 
 function makeHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
@@ -44,6 +45,47 @@ async function seedSession(
 }
 
 describe('SettingsStore.usageStats request logs', () => {
+  it('uses canonical SQLite metadata for transcript-marker sessions', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-sqlite-'));
+    const sessions = createSessionStore(workspaceRoot);
+    try {
+      const header = await sessions.create({
+        cwd: '/tmp/maka-workspace',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'sqlite-provider',
+        model: 'sqlite-default-model',
+        permissionMode: 'ask',
+      });
+      await sessions.appendMessages(header.id, [
+        {
+          type: 'assistant',
+          id: 'assistant-1',
+          turnId: 'turn-1',
+          ts: 10,
+          text: 'tracked',
+          modelId: 'sqlite-runtime-model',
+        },
+        {
+          type: 'token_usage',
+          id: 'usage-1',
+          turnId: 'turn-1',
+          ts: 20,
+          input: 8,
+          output: 2,
+        },
+      ]);
+
+      const stats = await createSettingsStore(workspaceRoot).usageStats('all');
+
+      assert.equal(stats.summary.totalTokens, 10);
+      assert.equal(stats.logs[0]?.provider, 'sqlite-provider');
+      assert.equal(stats.logs[0]?.model, 'sqlite-runtime-model');
+    } finally {
+      sessions.close?.();
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('includes tool invocation rows without inflating model usage totals', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-usage-'));
     try {

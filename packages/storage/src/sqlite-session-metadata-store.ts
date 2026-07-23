@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SessionHeader, SessionListFilter } from '@maka/core';
@@ -15,8 +15,23 @@ export { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from './sqlite-session-metadat
 
 const require = createRequire(import.meta.url);
 
-function loadDatabaseSync(): typeof import('node:sqlite').DatabaseSync {
-  return (require('node:sqlite') as typeof import('node:sqlite')).DatabaseSync;
+function loadSqliteModule(): typeof import('node:sqlite') {
+  const emitWarning = process.emitWarning;
+  process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+    const warningType = typeof args[0] === 'string' ? args[0] : undefined;
+    if (
+      warningType === 'ExperimentalWarning' &&
+      String(warning).startsWith('SQLite is an experimental feature')
+    ) {
+      return;
+    }
+    Reflect.apply(emitWarning, process, [warning, ...args]);
+  }) as typeof process.emitWarning;
+  try {
+    return require('node:sqlite') as typeof import('node:sqlite');
+  } finally {
+    process.emitWarning = emitWarning;
+  }
 }
 
 export type SqliteSessionMetadataStoreFailpoint =
@@ -46,6 +61,7 @@ export interface SessionMetadataImportEntry {
 export interface SessionMetadataImportResult {
   created: boolean[];
   sourcesAlreadyImported: number;
+  sourcesTombstoned: number;
 }
 
 export class SessionMetadataConflictError extends Error {
@@ -65,11 +81,11 @@ export class SqliteSessionMetadataStore {
   private closed = false;
 
   constructor(
-    path: string,
+    private readonly path: string,
     private readonly options: SqliteSessionMetadataStoreOptions = {},
   ) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-    const DatabaseSync = loadDatabaseSync();
+    const { DatabaseSync } = loadSqliteModule();
     this.db = new DatabaseSync(path);
     configureSqliteSessionMetadataDatabase(this.db);
     migrateSqliteSessionMetadataDatabase(this.db);
@@ -95,11 +111,29 @@ export class SqliteSessionMetadataStore {
     this.db.close();
   }
 
+  async backup(destinationPath: string): Promise<number> {
+    this.assertOpen();
+    if (!destinationPath) throw new Error('Session metadata backup destination is required');
+    if (this.path !== ':memory:' && resolve(destinationPath) === resolve(this.path)) {
+      throw new Error('Session metadata backup destination must differ from the source database');
+    }
+    if (existsSync(destinationPath)) {
+      throw new Error(`Session metadata backup destination already exists: ${destinationPath}`);
+    }
+    mkdirSync(dirname(destinationPath), { recursive: true });
+    return loadSqliteModule().backup(this.db, destinationPath);
+  }
+
   async create(header: SessionHeader): Promise<SessionMetadataRecord> {
     this.assertOpen();
     const normalized = normalizeSessionHeader(header);
     assertSafeSessionId(normalized.id);
     return this.transaction(() => {
+      if (this.hasTombstone(normalized.id)) {
+        throw new SessionMetadataConflictError(
+          `Session metadata id is tombstoned: ${normalized.id}`,
+        );
+      }
       if (this.readRecordSync(normalized.id)) {
         throw new SessionMetadataConflictError(`Session metadata already exists: ${normalized.id}`);
       }
@@ -113,6 +147,18 @@ export class SqliteSessionMetadataStore {
     const record = this.readRecordSync(sessionId);
     if (!record) throw new Error(`Session metadata not found: ${sessionId}`);
     return record;
+  }
+
+  async has(sessionId: string): Promise<boolean> {
+    this.assertOpen();
+    assertSafeSessionId(sessionId);
+    return this.readRecordSync(sessionId) !== undefined;
+  }
+
+  async isTombstoned(sessionId: string): Promise<boolean> {
+    this.assertOpen();
+    assertSafeSessionId(sessionId);
+    return this.hasTombstone(sessionId);
   }
 
   async list(filter: SessionListFilter = {}): Promise<SessionMetadataRecord[]> {
@@ -236,11 +282,19 @@ export class SqliteSessionMetadataStore {
   async remove(sessionId: string): Promise<boolean> {
     this.assertOpen();
     assertSafeSessionId(sessionId);
-    return this.transaction(
-      () =>
+    return this.transaction(() => {
+      const deleted =
         this.db.prepare('DELETE FROM session_metadata WHERE session_id = ?').run(sessionId)
-          .changes === 1,
-    );
+          .changes === 1;
+      this.db
+        .prepare(`
+          INSERT INTO session_metadata_tombstones(session_id, deleted_at)
+          VALUES (?, ?)
+          ON CONFLICT(session_id) DO NOTHING
+        `)
+        .run(sessionId, this.now());
+      return deleted;
+    });
   }
 
   async importEntries(
@@ -263,7 +317,12 @@ export class SqliteSessionMetadataStore {
     return this.transaction(() => {
       const created: boolean[] = [];
       let sourcesAlreadyImported = 0;
+      let sourcesTombstoned = 0;
       for (const entry of normalized) {
+        if (this.hasTombstone(entry.header.id)) {
+          sourcesTombstoned += 1;
+          continue;
+        }
         const source = this.db
           .prepare(`
             SELECT fingerprint
@@ -306,7 +365,7 @@ export class SqliteSessionMetadataStore {
           .run(entry.source.path, entry.source.fingerprint, entry.header.id, this.now());
         this.options.failpoint?.('after_session_import_marker_write');
       }
-      return { created, sourcesAlreadyImported };
+      return { created, sourcesAlreadyImported, sourcesTombstoned };
     });
   }
 
@@ -386,6 +445,14 @@ export class SqliteSessionMetadataStore {
       `)
       .get(sessionId) as SessionMetadataRow | undefined;
     return row ? decodeRecord(row) : undefined;
+  }
+
+  private hasTombstone(sessionId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 AS found FROM session_metadata_tombstones WHERE session_id = ?')
+        .get(sessionId) !== undefined
+    );
   }
 
   private transaction<T>(operation: () => T): T {

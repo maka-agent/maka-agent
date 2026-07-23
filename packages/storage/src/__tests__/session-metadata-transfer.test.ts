@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { CreateSessionInput } from '@maka/core';
 import { importLegacySessionMetadataTree } from '../session-metadata-transfer.js';
-import { createSessionStore } from '../session-store.js';
+import { createLegacyFileSessionStore as createSessionStore } from '../session-store.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
 describe('legacy session metadata transfer', () => {
@@ -39,6 +39,7 @@ describe('legacy session metadata transfer', () => {
         headersImported: 2,
         headersExisting: 0,
         sourcesAlreadyImported: 0,
+        sourcesTombstoned: 0,
       });
       assert.deepEqual((await sqlite.list()).map((record) => record.header.name).sort(), [
         'First',
@@ -72,6 +73,7 @@ describe('legacy session metadata transfer', () => {
         headersImported: 0,
         headersExisting: 0,
         sourcesAlreadyImported: 2,
+        sourcesTombstoned: 0,
       });
       assert.equal((await sqlite.read(first.id)).header.name, 'SQLite is canonical now');
     } finally {
@@ -135,10 +137,39 @@ describe('legacy session metadata transfer', () => {
 
       await assert.rejects(
         () => importLegacySessionMetadataTree({ workspaceRoot: root, destination: sqlite }),
-        /Invalid session header/,
+        /Invalid legacy session header/,
       );
       await assert.rejects(() => sqlite.read(valid.id), /not found/);
       assert.deepEqual(await sqlite.list(), []);
+    } finally {
+      sqlite.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps canonical metadata readable when its optional transcript is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-missing-transcript-'));
+    const legacy = createSessionStore(root);
+    const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
+    try {
+      const created = await legacy.create(makeInput({ name: 'Canonical metadata' }));
+      await importLegacySessionMetadataTree({ workspaceRoot: root, destination: sqlite });
+      await rm(join(root, 'sessions', created.id, 'session.jsonl'));
+
+      const report = await importLegacySessionMetadataTree({
+        workspaceRoot: root,
+        destination: sqlite,
+      });
+
+      assert.deepEqual(report, {
+        filesScanned: 1,
+        headersRead: 0,
+        headersImported: 0,
+        headersExisting: 0,
+        sourcesAlreadyImported: 0,
+        sourcesTombstoned: 0,
+      });
+      assert.equal((await sqlite.read(created.id)).header.name, 'Canonical metadata');
     } finally {
       sqlite.close();
       await rm(root, { recursive: true, force: true });

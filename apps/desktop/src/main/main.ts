@@ -85,7 +85,7 @@ import { bindOnboardingDeps, createOnboardingService } from './onboarding-servic
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
-import { resolveE2eFixture } from './e2e-fixture.js';
+import { resolveE2eFixture, seedE2eFixture } from './e2e-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
@@ -198,7 +198,13 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', e2eFixture?.workspaceName ?? 'default');
-await resolveStorageRoot({ path: workspaceRoot, kind: 'interactive' });
+const credentialStore = createFileCredentialStore(workspaceRoot);
+if (e2eFixture) {
+  console.log(`[e2e-fixture] scenario=${e2eFixture.scenario} workspace=${workspaceRoot}`);
+  await seedE2eFixture({ workspaceRoot, fixture: e2eFixture, credentialStore });
+} else {
+  await resolveStorageRoot({ path: workspaceRoot, kind: 'interactive' });
+}
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
 // machine would otherwise sleep. Injected with electron's blocker; the
@@ -241,7 +247,6 @@ const artifactStore = createArtifactStore(workspaceRoot);
 const deepResearchStore = createDeepResearchStore(workspaceRoot);
 const storeReadImage = createReadImageSnapshotter(artifactStore);
 const attachmentApprovals = createAttachmentApprovalRegistry();
-const credentialStore = createFileCredentialStore(workspaceRoot);
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
 // Lives in main process only; renderer accesses via IPC. Tokens
 // never cross the IPC boundary (xuan G-X3). Cloak path is dynamic-
@@ -1227,6 +1232,7 @@ wireAppLifecycle({
   isIsolatedE2e,
   e2eFixture,
   workspaceRoot,
+  sessionStore: store,
   credentialStore,
   connectionStore,
   settingsStore,
