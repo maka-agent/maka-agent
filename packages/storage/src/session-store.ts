@@ -911,6 +911,8 @@ type StoredSessionHeader = Omit<
   status?: unknown;
   blockedReason?: unknown;
   titleIsManual?: unknown;
+  /** Accepted only while decoding old session headers and dropped on normalization. */
+  pendingCwdReminder?: unknown;
 };
 
 function createJsonlCorruptionNote(
@@ -971,7 +973,7 @@ export function decodeSessionHeader(value: unknown, sessionId: string): SessionH
       ? header.titleIsManual
       : normalizeSessionName(header.name) !== DEFAULT_SESSION_NAME;
   if (header.backend === 'claude') {
-    return normalizeSessionHeader(
+    return normalizeMigratedHeader(
       {
         ...header,
         ...statusFields,
@@ -986,7 +988,7 @@ export function decodeSessionHeader(value: unknown, sessionId: string): SessionH
     );
   }
   if (header.backend === 'pi-agent') {
-    return normalizeSessionHeader(
+    return normalizeMigratedHeader(
       {
         ...header,
         ...statusFields,
@@ -1001,7 +1003,7 @@ export function decodeSessionHeader(value: unknown, sessionId: string): SessionH
     );
   }
   if (header.backend === 'pi') {
-    return normalizeSessionHeader(
+    return normalizeMigratedHeader(
       {
         ...header,
         ...statusFields,
@@ -1015,7 +1017,7 @@ export function decodeSessionHeader(value: unknown, sessionId: string): SessionH
       sessionId,
     );
   }
-  return normalizeSessionHeader(
+  return normalizeMigratedHeader(
     {
       ...header,
       ...statusFields,
@@ -1036,6 +1038,14 @@ function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['stat
   return 'active';
 }
 
+function normalizeMigratedHeader(
+  header: SessionHeader & { pendingCwdReminder?: unknown },
+  sessionId: string,
+): SessionHeader {
+  const { pendingCwdReminder: _legacyPendingCwdReminder, ...normalizedHeader } = header;
+  return normalizeSessionHeader(normalizedHeader, sessionId);
+}
+
 /** Validate and normalize a current SessionHeader before canonical persistence. */
 export function normalizeSessionHeader(
   header: SessionHeader,
@@ -1045,7 +1055,6 @@ export function normalizeSessionHeader(
     header.id === sessionId &&
     typeof header.workspaceRoot === 'string' &&
     typeof header.cwd === 'string' &&
-    (header.pendingCwdReminder === undefined || isCwdReminder(header.pendingCwdReminder)) &&
     isFiniteNumber(header.createdAt) &&
     isFiniteNumber(header.lastUsedAt) &&
     (header.lastMessageAt === undefined || isFiniteNumber(header.lastMessageAt)) &&
@@ -1114,15 +1123,6 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isCwdReminder(value: unknown): value is NonNullable<SessionHeader['pendingCwdReminder']> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { from?: unknown }).from === 'string' &&
-    typeof (value as { to?: unknown }).to === 'string'
-  );
-}
-
 function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
   const preview = lastMessagePreview(messages);
   const derivedLastMessageAt = latestVisibleMessageAt(messages);
@@ -1130,7 +1130,6 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
   return {
     id: header.id,
     cwd: header.cwd,
-    ...(header.pendingCwdReminder ? { pendingCwdReminder: header.pendingCwdReminder } : {}),
     name: normalizeSessionName(header.name),
     isFlagged: header.isFlagged,
     isArchived: header.isArchived,

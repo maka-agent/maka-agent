@@ -357,7 +357,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
       continuation,
       sourceRun,
       sourceEvents,
-      header.cwd,
       this.deps.recoveryContracts,
     );
     if (!this.deps.inspectContinuationSafety) {
@@ -1697,7 +1696,6 @@ function assertContinuationSourceUnchanged(
   continuation: RuntimeContinuation,
   sourceRun: AgentRunHeader,
   sourceEvents: readonly RuntimeEvent[],
-  currentCwd: string,
   recoveryContracts?: ToolRecoveryContractRegistry,
 ): void {
   if (
@@ -1717,12 +1715,6 @@ function assertContinuationSourceUnchanged(
     throw new RuntimeContinuationRevalidationError(
       'source_terminal_changed',
       'Runtime continuation source is no longer terminal',
-    );
-  }
-  if (normalizeResumeCwd(sourceRun.cwd) !== normalizeResumeCwd(currentCwd)) {
-    throw new RuntimeContinuationRevalidationError(
-      'source_cwd_changed',
-      'Runtime continuation workspace cwd changed after planning',
     );
   }
   if (sourceEvents.length !== continuation.sourceRuntimeEventHighWater) {
@@ -1759,11 +1751,6 @@ function assertContinuationSourceUnchanged(
       'Runtime continuation replay context changed after planning',
     );
   }
-}
-
-function normalizeResumeCwd(value: string): string {
-  const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
-  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
 function assertContinuationSafetyUnchanged(

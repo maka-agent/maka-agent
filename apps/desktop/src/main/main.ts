@@ -73,6 +73,7 @@ import {
   createTelemetryRepo,
 } from '@maka/storage';
 import { resolveStorageRoot } from '@maka/storage/root-authority';
+import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import { McpClientManager } from '@maka/mcp';
 import { registerMcpIpcMain } from './mcp-ipc-main.js';
 import {
@@ -767,6 +768,7 @@ const runtime = new SessionManager({
   },
   inspectContinuationSafety: createLocalContinuationSafetyInspector({
     readSessionCwd: async (sessionId) => (await store.readHeader(sessionId)).cwd,
+    resolveWorkspaceIdentity: async (cwd) => resolveWorkspaceIdentity({ path: cwd }),
     listAvailableToolNames: async () => [
       ...builtinTools.map((tool) => tool.name),
       'expert_dispatch',

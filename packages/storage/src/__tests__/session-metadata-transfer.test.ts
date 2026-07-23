@@ -98,6 +98,10 @@ describe('legacy session metadata transfer', () => {
         isFlagged: false,
         labels: [],
         isArchived: false,
+        pendingCwdReminder: {
+          from: '/workspace/old',
+          to: '/workspace',
+        },
         hasUnread: false,
         backend: 'pi',
         llmConnectionSlug: 'legacy',
@@ -117,6 +121,7 @@ describe('legacy session metadata transfer', () => {
       assert.equal(header.status, 'active');
       assert.equal(header.titleIsManual, false);
       assert.equal(header.name, 'New Chat');
+      assert.equal(Object.hasOwn(header, 'pendingCwdReminder'), false);
     } finally {
       sqlite.close();
       await rm(root, { recursive: true, force: true });

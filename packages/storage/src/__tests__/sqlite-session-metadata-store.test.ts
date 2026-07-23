@@ -139,14 +139,14 @@ describe('SqliteSessionMetadataStore', () => {
           name: 'Renamed',
           labels: ['replacement'],
           hasUnread: false,
-          pendingCwdReminder: undefined,
+          lastReadMessageId: 'message-2',
         },
         { expectedVersion: 1 },
       );
       assert.equal(updated.metadataVersion, 2);
       assert.equal(updated.header.name, 'Renamed');
       assert.deepEqual(updated.header.labels, ['replacement']);
-      assert.equal(updated.header.pendingCwdReminder, undefined);
+      assert.equal(updated.header.lastReadMessageId, 'message-2');
       assert.deepEqual(
         (await store.list({ labelSlug: 'replacement' })).map((record) => record.header.id),
         ['session-1'],
@@ -290,7 +290,6 @@ function fullHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
     id: 'session-1',
     workspaceRoot: '/workspace',
     cwd: '/workspace/repo',
-    pendingCwdReminder: { from: '/workspace/old', to: '/workspace/repo' },
     createdAt: 1,
     lastUsedAt: 2,
     lastMessageAt: 3,

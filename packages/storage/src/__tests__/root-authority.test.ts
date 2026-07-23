@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import {
+  adoptStorageRootOnImport,
   assertStorageRootCapability,
   assertStorageRootLease,
   createHeadlessRootLease,
@@ -119,6 +120,60 @@ describe('storage root authority', () => {
         () => resolveStorageRoot({ path: copiedRoot, kind: 'interactive' }),
         (error: unknown) =>
           error instanceof StorageRootAuthorityError && error.code === 'root_identity_collision',
+      );
+    });
+  });
+
+  test('adopts the host-local identity of an explicitly imported storage root', async () => {
+    await withRoots(async ({ base, root }) => {
+      const initialized = await resolveStorageRoot({ path: root, kind: 'interactive' });
+      const copiedRoot = join(base, 'copied-root');
+      await cp(root, copiedRoot, { recursive: true });
+
+      await assert.rejects(
+        () => resolveStorageRoot({ path: copiedRoot, kind: 'interactive' }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_identity_collision',
+      );
+      const markerBeforeConflict = await readFile(
+        join(copiedRoot, STORAGE_ROOT_MARKER_FILE),
+        'utf8',
+      );
+      await assert.rejects(
+        () =>
+          adoptStorageRootOnImport({
+            path: copiedRoot,
+            kind: 'interactive',
+            expectedRootId: '0'.repeat(64),
+          }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_identity_collision',
+      );
+      assert.equal(
+        await readFile(join(copiedRoot, STORAGE_ROOT_MARKER_FILE), 'utf8'),
+        markerBeforeConflict,
+      );
+      await rm(root, { recursive: true, force: true });
+
+      const adopted = await adoptStorageRootOnImport({
+        path: copiedRoot,
+        kind: 'interactive',
+        expectedRootId: initialized.rootId,
+      });
+      assert.equal(adopted.rootId, initialized.rootId);
+      assert.equal(
+        (
+          await adoptStorageRootOnImport({
+            path: copiedRoot,
+            kind: 'interactive',
+            expectedRootId: initialized.rootId,
+          })
+        ).rootId,
+        initialized.rootId,
+      );
+      assert.equal(
+        (await resolveStorageRoot({ path: copiedRoot, kind: 'interactive' })).rootId,
+        initialized.rootId,
       );
     });
   });

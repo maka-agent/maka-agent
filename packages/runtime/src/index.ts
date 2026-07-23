@@ -1179,7 +1179,10 @@ export type {
 } from './tool-recovery-coordinator.js';
 
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
-export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
+export type {
+  LocalContinuationSafetyInspectorDeps,
+  ResolvedWorkspaceIdentity,
+} from './continuation-safety.js';
 // history-compact-summarizer.ts — replay-plan → ModelMessage[] projection
 // (issue #1055's session-recap generator reuses this authoritative slice
 // instead of re-deriving a lossy projection of its own).

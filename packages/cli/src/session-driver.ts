@@ -54,7 +54,6 @@ export interface MakaSessionRuntime {
     sessionId: string,
     patch: {
       cwd?: string;
-      pendingCwdReminder?: SessionSummary['pendingCwdReminder'];
       model?: string;
       llmConnectionSlug?: string;
       thinkingLevel?: ThinkingLevel | undefined;
@@ -206,7 +205,6 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private thinkingLevel: ThinkingLevel | undefined;
   private permissionMode: PermissionMode;
   private orchestrationMode: OrchestrationMode;
-  private pendingCwdReminder: { from: string; to: string } | undefined;
   private readonly newId: () => string;
 
   constructor(private readonly input: MakaSessionDriverInput) {
@@ -224,11 +222,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   ): Promise<MakaPreparedSessionTurn> {
     const sessionId = await this.ensureSession();
     const turnId = options.turnId ?? this.newId();
-    const pendingReminder = this.pendingCwdReminder;
-    const baseModelText = options.modelText ?? prompt;
-    const modelText = pendingReminder
-      ? `${cwdChangeReminder(pendingReminder.from, pendingReminder.to)}\n\n${baseModelText}`
-      : baseModelText;
+    const modelText = options.modelText ?? prompt;
     const events = this.input.runtime.sendMessage(sessionId, {
       turnId,
       text: modelText,
@@ -238,38 +232,8 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     return {
       sessionId,
       turnId,
-      events: pendingReminder
-        ? this.clearCwdReminderAfterStart(sessionId, events, pendingReminder)
-        : events,
+      events,
     };
-  }
-
-  private async *clearCwdReminderAfterStart(
-    sessionId: string,
-    events: AsyncIterable<SessionEvent>,
-    reminder: { from: string; to: string },
-  ): AsyncIterable<SessionEvent> {
-    const iterator = events[Symbol.asyncIterator]();
-    const first = await iterator.next();
-    if (first.done) return;
-    if (
-      this.pendingCwdReminder?.from === reminder.from &&
-      this.pendingCwdReminder.to === reminder.to
-    ) {
-      try {
-        await this.input.runtime.updateSession(sessionId, { pendingCwdReminder: undefined });
-        this.pendingCwdReminder = undefined;
-      } catch {
-        // Keep the durable reminder when header cleanup fails. The next turn
-        // may repeat it, but the session cannot lose the cwd context.
-      }
-    }
-    yield first.value;
-    while (true) {
-      const next = await iterator.next();
-      if (next.done) return;
-      yield next.value;
-    }
   }
 
   async *compactSession(): AsyncIterable<SessionEvent> {
@@ -411,15 +375,10 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     }
     const inspectCwdChanges = this.input.inspectCwdChanges ?? inspectGitCwdChanges;
     const oldCwdDirty = await inspectCwdChanges(previousCwd).catch(() => undefined);
-    const reminderFrom = this.pendingCwdReminder?.from ?? previousCwd;
-    const pendingCwdReminder =
-      reminderFrom === nextCwd ? undefined : { from: reminderFrom, to: nextCwd };
     const summary = await this.input.runtime.updateSession(this.sessionId, {
       cwd: nextCwd,
-      pendingCwdReminder,
     });
     this.cwd = summary.cwd ?? nextCwd;
-    this.pendingCwdReminder = summary.pendingCwdReminder ?? pendingCwdReminder;
     return { previousCwd, cwd: this.cwd, changed: true, oldCwdDirty };
   }
 
@@ -434,7 +393,6 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const sessionCwd = summary.cwd!;
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
-    this.pendingCwdReminder = summary.pendingCwdReminder;
     this.cwd = sessionCwd;
     this.model = summary.model;
     this.llmConnectionSlug = summary.llmConnectionSlug;
@@ -493,7 +451,6 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     // stay put, so the next prompt lazily creates a fresh session that inherits
     // them (via ensureSession). The old session is left intact on disk.
     this.sessionId = null;
-    this.pendingCwdReminder = undefined;
   }
 
   getSessionId(): string | null {
@@ -573,19 +530,6 @@ async function inspectGitCwdChanges(cwd: string): Promise<boolean | undefined> {
     // never prevent a successful move. The warning is best-effort by design.
     return undefined;
   }
-}
-
-function cwdChangeReminder(from: string, to: string): string {
-  return `<system-reminder>The session working directory changed from ${escapeReminderPath(from)} to ${escapeReminderPath(to)}. This is the same project, possibly at a new location. Use the new working directory for all subsequent file and shell operations.</system-reminder>`;
-}
-
-function escapeReminderPath(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
 }
 
 function cwdRank(session: SessionSummary, cwd: string): number {

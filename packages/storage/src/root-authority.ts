@@ -7,6 +7,7 @@ import {
   mkdir,
   open,
   realpath,
+  rename,
   stat,
   unlink,
   type FileHandle,
@@ -59,6 +60,9 @@ export interface ResolveExistingStorageRootInput<K extends StorageRootKind>
   extends ResolveStorageRootInput<K> {
   expectedRootId: string;
 }
+
+export type AdoptStorageRootOnImportInput<K extends StorageRootKind> =
+  ResolveExistingStorageRootInput<K>;
 
 export interface InteractiveRootOwner {
   readonly capability: StorageRootCapability<'interactive'>;
@@ -222,6 +226,49 @@ export async function resolveExistingStorageRoot<K extends StorageRootKind>(
         expectedRootId: input.expectedRootId,
         markerMismatchCode: 'root_identity_changed',
         markerMismatchMessage: `Storage root identity does not match the expected root: ${canonicalPath}`,
+      });
+      return createCapability(input.kind, canonicalPath, marker.rootId, identity);
+    },
+  );
+}
+
+/**
+ * Explicit import boundary for a storage root copied through an archive.
+ * The durable rootId stays authoritative while the host-local dev/ino binding
+ * is atomically adopted for the extracted directory.
+ */
+export async function adoptStorageRootOnImport<K extends StorageRootKind>(
+  input: AdoptStorageRootOnImportInput<K>,
+): Promise<StorageRootCapability<K>> {
+  assertStorageRootKind(input.kind);
+  return withAuthorityFailure(
+    'root_io_failed',
+    'Unable to adopt the imported storage root',
+    async () => {
+      const { canonicalPath, rootStat } = await resolveExistingRootPath(input.path);
+      const identity = { dev: rootStat.dev, ino: rootStat.ino };
+      let marker = await readAndValidateRootMarker(canonicalPath, input.kind);
+      if (marker.rootId !== input.expectedRootId) {
+        throw new StorageRootAuthorityError(
+          'root_identity_collision',
+          `Imported storage root does not match the expected root: ${canonicalPath}`,
+        );
+      }
+      await assertRootPathIdentity(
+        canonicalPath,
+        identity,
+        `Storage root identity changed while adopting an import: ${canonicalPath}`,
+      );
+      if (!markerMatchesIdentity(marker, identity)) {
+        marker = await replaceRootMarkerIdentity(canonicalPath, identity, marker);
+      }
+      await confirmRootSnapshot({
+        root: canonicalPath,
+        identity,
+        readMarker: () => readAndValidateRootMarker(canonicalPath, input.kind),
+        expectedRootId: input.expectedRootId,
+        markerMismatchCode: 'root_identity_changed',
+        markerMismatchMessage: `Imported storage root identity changed: ${canonicalPath}`,
       });
       return createCapability(input.kind, canonicalPath, marker.rootId, identity);
     },
@@ -698,6 +745,69 @@ async function ensureRootMarker(
     }
   }
   return readAndValidateRootMarker(root, kind);
+}
+
+async function replaceRootMarkerIdentity(
+  root: string,
+  identity: RootIdentity,
+  sourceMarker: RootMarker,
+): Promise<RootMarker> {
+  const current = await readAndValidateRootMarker(root, sourceMarker.kind);
+  if (current.rootId !== sourceMarker.rootId) {
+    throw new StorageRootAuthorityError(
+      'root_identity_collision',
+      `Storage root marker changed while adopting an import: ${root}`,
+    );
+  }
+  const marker: RootMarker = {
+    ...current,
+    rootIdentity: {
+      dev: identity.dev.toString(),
+      ino: identity.ino.toString(),
+    },
+  };
+  const markerPath = join(root, STORAGE_ROOT_MARKER_FILE);
+  const tempPath = join(root, `${STORAGE_ROOT_MARKER_FILE}.${process.pid}.${randomUUID()}.tmp`);
+  let tempCreated = false;
+  try {
+    const handle = await open(tempPath, 'wx', 0o600);
+    tempCreated = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(marker)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertRootPathIdentity(
+      root,
+      identity,
+      `Storage root identity changed before adopting its marker: ${root}`,
+    );
+    await rename(tempPath, markerPath);
+    tempCreated = false;
+    await syncDirectory(root);
+  } finally {
+    if (tempCreated) {
+      try {
+        await unlink(tempPath);
+      } catch (error) {
+        if (!isNodeError(error, 'ENOENT')) throw error;
+      }
+    }
+  }
+  await assertRootPathIdentity(
+    root,
+    identity,
+    `Storage root identity changed after adopting its marker: ${root}`,
+  );
+  const adopted = await readAndValidateRootMarker(root, sourceMarker.kind);
+  if (adopted.rootId !== sourceMarker.rootId || !markerMatchesIdentity(adopted, identity)) {
+    throw new StorageRootAuthorityError(
+      'root_identity_changed',
+      `Storage root marker changed while adopting an import: ${root}`,
+    );
+  }
+  return adopted;
 }
 
 async function assertRootPathIdentity(

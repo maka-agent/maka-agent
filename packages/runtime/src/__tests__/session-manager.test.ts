@@ -1380,7 +1380,7 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents[2]?.status).toBe('completed');
   });
 
-  test('executes an approved continuation after omitting an interrupted model suffix', async () => {
+  test('executes an approved continuation after a path move while omitting an interrupted model suffix', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -1482,6 +1482,8 @@ describe('SessionManager permission mode updates', () => {
     expect(plan.disposition).toBe('continue');
     if (!plan.continuation) throw new Error('expected continuation');
 
+    const movedCwd = '/fresh-sandbox/repo';
+    await store.updateHeader(session.id, { cwd: movedCwd });
     const sessionEvents = await collectSessionEvents(
       manager.resumeSafeBoundaryContinuation(plan.continuation),
     );
@@ -1497,6 +1499,7 @@ describe('SessionManager permission mode updates', () => {
     expect(continuationRun.turnId).toBe(plan.continuation.turnId);
     expect(continuationRun.parentRunId).toBe(sourceRunId);
     expect(continuationRun.parentTurnId).toBe(sourceTurnId);
+    expect(continuationRun.cwd).toBe(movedCwd);
     expect(continuationRun.status).toBe('completed');
     expect(continuationRun).toMatchObject({
       orchestrationMode: 'swarm',

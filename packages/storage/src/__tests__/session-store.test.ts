@@ -97,18 +97,26 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
-  test('persists and clears the pending cwd reminder in the session header', async () => {
-    await withStore(async (store) => {
+  test('reads legacy pending cwd reminders but drops them during normalization', async () => {
+    await withStore(async (store, workspaceRoot) => {
       const header = await store.create(makeInput({ name: 'Moved session' }));
-      const reminder = { from: '/tmp/old-worktree', to: '/tmp/new-worktree' };
+      const path = join(workspaceRoot, 'sessions', header.id, 'session.jsonl');
+      const legacyHeader = {
+        ...JSON.parse(await readFile(path, 'utf8')),
+        pendingCwdReminder: {
+          from: '/tmp/old-worktree',
+          to: '/tmp/new-worktree',
+        },
+      };
+      await writeFile(path, `${JSON.stringify(legacyHeader)}\n`, 'utf8');
 
-      await store.updateHeader(header.id, { pendingCwdReminder: reminder });
-      assert.deepEqual((await store.readHeader(header.id)).pendingCwdReminder, reminder);
-      assert.deepEqual((await store.list())[0]?.pendingCwdReminder, reminder);
+      const normalized = await store.readHeader(header.id);
+      assert.equal(Object.hasOwn(normalized, 'pendingCwdReminder'), false);
+      assert.equal(Object.hasOwn((await store.list())[0]!, 'pendingCwdReminder'), false);
 
-      await store.updateHeader(header.id, { pendingCwdReminder: undefined });
-      assert.equal((await store.readHeader(header.id)).pendingCwdReminder, undefined);
-      assert.equal((await store.list())[0]?.pendingCwdReminder, undefined);
+      await store.updateHeader(header.id, { name: 'Normalized after move' });
+      const persisted = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+      assert.equal(Object.hasOwn(persisted, 'pendingCwdReminder'), false);
     });
   });
 

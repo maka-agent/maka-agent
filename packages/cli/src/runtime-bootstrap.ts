@@ -73,6 +73,7 @@ import {
   persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
 import { resolveStorageRoot } from '@maka/storage/root-authority';
+import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
 import { createApiKeyOnboardingSurface, type MakaOnboardingSurface } from './onboarding.js';
@@ -739,6 +740,7 @@ export async function createMakaCliRuntimeContext(
     },
     inspectContinuationSafety: createLocalContinuationSafetyInspector({
       readSessionCwd: async (sessionId) => (await store.readHeader(sessionId)).cwd,
+      resolveWorkspaceIdentity: async (cwd) => resolveWorkspaceIdentity({ path: cwd }),
       listAvailableToolNames: async () => allTools.map((tool) => tool.name),
       hasPendingBackgroundOperations: async (sessionId) => {
         const [shellUpdates, runs] = await Promise.all([
