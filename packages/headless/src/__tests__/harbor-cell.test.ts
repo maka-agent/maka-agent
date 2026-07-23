@@ -2014,6 +2014,26 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.streamIdleTimeoutMs, 789_000);
       assert.equal(backendInput.supportsVision, true);
       assert.equal(typeof backendInput.readAttachmentBytes, 'function');
+
+      const scopedBackend = await registry.build('ai-sdk', {
+        ...backendContext(workspaceDir),
+        tools: [
+          {
+            name: 'ReadOnlyProbe',
+            description: 'Read-only test probe',
+            parameters: {},
+            impl: () => 'ok',
+          },
+        ],
+        systemPrompt: 'Durable child prompt.',
+      });
+      const scopedInput = (scopedBackend as unknown as { input: AiSdkBackendInput }).input;
+      assert.deepEqual(
+        scopedInput.tools.map((tool) => tool.name),
+        ['ReadOnlyProbe'],
+      );
+      assert.equal(scopedInput.systemPrompt, 'Durable child prompt.');
+      assert.equal(scopedInput.toolAvailability, undefined);
     });
   });
 
@@ -3638,7 +3658,7 @@ setTimeout(() => {
 
     assert.equal(resolved.apiKey, '');
     assert.equal(resolved.connection.providerType, 'lm-studio');
-    assert.equal(resolved.connection.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(resolved.connection.baseUrl, 'http://127.0.0.1:1234/v1');
     assert.equal(
       resolved.connection.defaultModel,
       'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
@@ -3655,7 +3675,7 @@ setTimeout(() => {
     });
     assert.equal(noAuth.apiKey, '');
     assert.equal(noAuth.connection.providerType, 'localai');
-    assert.equal(noAuth.connection.baseUrl, 'http://localhost:8080/v1');
+    assert.equal(noAuth.connection.baseUrl, 'http://127.0.0.1:8080/v1');
     assert.equal(noAuth.connection.defaultModel, model);
 
     const keyed = resolveHarborCellAiSdkEnv({

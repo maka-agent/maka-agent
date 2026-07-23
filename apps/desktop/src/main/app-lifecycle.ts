@@ -328,7 +328,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     }
     try {
       runtimePersistence.close();
-      sessionStore.close?.();
+      await sessionStore.close?.();
     } finally {
       await closeStorageRootOwner();
     }

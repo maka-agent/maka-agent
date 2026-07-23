@@ -172,10 +172,10 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       .reverse()
       .find((execution) => execution.status === 'interrupted');
     const buildDesktopBaseTools = () => [...builtinTools, ...buildMcpTools(mcpManager)];
-    const candidateTools = isComputerUseRealModelE2e
-      ? computerUseTools
-      : ctx.tools
-        ? [...ctx.tools]
+    const candidateTools = ctx.tools
+      ? [...ctx.tools]
+      : isComputerUseRealModelE2e
+        ? computerUseTools
         : [
             ...buildDesktopBaseTools(),
             ...(isDeepResearchSession(ctx.header.labels) ? deepResearchTools : []),
@@ -194,14 +194,16 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     const agentTeam = ctx.agentTeam ?? (expertTeamId
       ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
       : undefined);
-    const planControlTools = collaborationMode === 'plan'
-      ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
-      : activeExecution
-        ? [
-            buildUpdatePlanTool(planStore, activeExecution.executionId),
-            buildCancelPlanTool(planStore, activeExecution.executionId),
-          ]
-        : [];
+    const planControlTools = ctx.tools
+      ? []
+      : collaborationMode === 'plan'
+        ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
+        : activeExecution
+          ? [
+              buildUpdatePlanTool(planStore, activeExecution.executionId),
+              buildCancelPlanTool(planStore, activeExecution.executionId),
+            ]
+          : [];
     const backendTools = computerUseToolsForModel(
       [...candidateTools, ...planControlTools],
       computerUseTools,
@@ -220,9 +222,9 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     });
     const backendToolNames = new Set(selectedTools.map((tool) => tool.name));
     const backendSkillHost = buildHostCapabilitiesFromBinding(backendToolNames);
-    // Child backends share the parent sessionId but intentionally have a
-    // narrower tool surface. They do not receive the Desktop Skill tool, so
-    // they must not overwrite the parent session's resolver entry.
+    // Legacy child-run backends share the parent sessionId; linked child
+    // sessions have their own id. Both receive a narrower tool surface without
+    // the Desktop Skill tool, so only a session's full backend owns this entry.
     if (!ctx.tools) desktopSessionSkillHosts.set(ctx.sessionId, backendSkillHost);
     const effectivePermissionMode = collaborationMode === 'plan' ? 'explore' : ctx.header.permissionMode;
     const sandboxDiagnosticsSnapshot = await sandboxDiagnosticsProvider.resolve({
@@ -255,6 +257,20 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       agentTeam,
       toolAvailability: backendToolAvailability,
       spawnChildAgent: (input) => getRuntime().spawnChildAgent(ctx.sessionId, input),
+      spawnChildSession: (input) =>
+        getRuntime().spawnChildSession(ctx.sessionId, {
+          spawnedBy: {
+            parentRunId: input.parentRunId,
+            parentTurnId: input.parentTurnId,
+            toolCallId: input.toolCallId,
+          },
+          agentProfile: input.agentProfile,
+          prompt: input.prompt,
+          ...(input.swarm ? { swarm: input.swarm } : {}),
+          abortSignal: input.abortSignal,
+          ...(input.onReady ? { onReady: input.onReady } : {}),
+          ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+        }),
       prepareChildAgentResume: (sourceRunId) =>
         getRuntime().prepareChildAgentResume(ctx.sessionId, sourceRunId),
       resumeChildAgent: (input) => getRuntime().resumeChildAgent(ctx.sessionId, input),

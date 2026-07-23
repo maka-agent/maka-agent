@@ -1490,8 +1490,8 @@ const providerRegistry = {
   },
   ollama: {
     label: 'Ollama',
-    description: 'Local models from Ollama on localhost.',
-    baseUrl: 'http://localhost:11434/v1',
+    description: 'Local models from Ollama on this machine.',
+    baseUrl: 'http://127.0.0.1:11434/v1',
     authKind: 'none',
     backendKind: 'ai-sdk',
     fallbackModels: ['llama3.2', 'qwen2.5-coder', 'gemma3'],
@@ -1508,8 +1508,8 @@ const providerRegistry = {
   },
   'lm-studio': {
     label: 'LM Studio',
-    description: 'Local models served by LM Studio on localhost.',
-    baseUrl: 'http://localhost:1234/v1',
+    description: 'Local models served by LM Studio on this machine.',
+    baseUrl: 'http://127.0.0.1:1234/v1',
     authKind: 'none',
     backendKind: 'ai-sdk',
     fallbackModels: [],
@@ -1526,7 +1526,7 @@ const providerRegistry = {
   localai: {
     label: 'LocalAI',
     description: 'Local models served by LocalAI with optional API-key protection.',
-    baseUrl: 'http://localhost:8080/v1',
+    baseUrl: 'http://127.0.0.1:8080/v1',
     authKind: 'optional_api_key',
     backendKind: 'ai-sdk',
     fallbackModels: ['qwen3-8b'],

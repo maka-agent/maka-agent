@@ -62,8 +62,19 @@
 .settingsRemoteAccessChannelRow,
 .settingsRemoteAccessCatalogRow {
   min-height: 64px;
+  min-width: 0;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-2-5);
+}
+
+.settingsRemoteAccessChannelRow [data-slot="item-title"] {
+  min-width: 0;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.settingsRemoteAccessChannelRow [data-slot="item-description"] {
+  overflow-wrap: anywhere;
 }
 
 .settingsRemoteAccessChannelRow[data-attention="true"] {
@@ -88,10 +99,6 @@
   gap: var(--space-1);
 }
 
-.settingsRemoteAccessCatalogRow {
-  min-width: 0;
-}
-
 .settingsRemoteAccessCatalogRow[data-support="planned"] {
   opacity: var(--opacity-muted);
 }
@@ -114,7 +121,20 @@
 }
 
 .settingsBotDetailHeaderBody {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
+}
+
+.settingsBotDetailHeader > .settingsBotLogo {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.settingsBotDetailHeader > [data-slot="switch"] {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
 }
 
 .settingsBotDetailHeader h3 {
@@ -142,7 +162,9 @@
 }
 
 .settingsBotConfigDocLink {
-  margin-left: var(--space-1-5);
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
   color: var(--link);
   text-decoration: none;
   font-weight: var(--font-weight-medium);
@@ -217,6 +239,50 @@
 
   .settingsBotStatusGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* At the restored/sanitized 480px window floor, the fixed Settings navigation
+   leaves a narrow content column. Keep provider summaries readable instead of
+   squeezing the logo, title, status chip, and switch into one row. */
+@media (max-width: 620px) {
+  .settingsRemoteAccessSectionHeader,
+  .settingsBotConfigurationHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .settingsBotDetailHeader {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .settingsBotDetailHeaderBody {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .settingsBotConfigDocLink {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .settingsBotStatusGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsRemoteAccessChannelRow,
+  .settingsRemoteAccessCatalogRow {
+    gap: var(--space-2);
+    padding-inline: var(--space-2);
+  }
+
+  /* The whole row remains the named button. In the narrow layout, dropping
+     the redundant chevron leaves enough room for the provider name, status
+     chip, and a useful diagnostic summary. */
+  .settingsRemoteAccessChannelRow [data-slot="item-actions"],
+  .settingsRemoteAccessCatalogRow [data-slot="item-actions"] {
+    display: none;
   }
 }
 

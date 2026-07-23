@@ -21,7 +21,7 @@ describe('Deep Research durable workspace wiring', () => {
       /const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/,
     )?.[0] ?? '';
     const candidateTools = sessionStream.match(
-      /const candidateTools = isComputerUseRealModelE2e[\s\S]*?const candidateToolAvailability/,
+      /const candidateTools = ctx\.tools[\s\S]*?const candidateToolAvailability/,
     )?.[0] ?? '';
     const preload = await readFile(
       fileURLToPath(new URL('../../../src/preload/preload.ts', import.meta.url)),
@@ -45,8 +45,8 @@ describe('Deep Research durable workspace wiring', () => {
     );
     assert.match(
       candidateTools,
-      /ctx\.tools\s*\?\s*\[\.\.\.ctx\.tools\][\s\S]*isDeepResearchSession\(ctx\.header\.labels\) \? deepResearchTools : \[\]/,
-      'child tool scopes must win before the root-only Deep Research label gate',
+      /ctx\.tools\s*\?\s*\[\.\.\.ctx\.tools\]\s*:\s*isComputerUseRealModelE2e[\s\S]*isDeepResearchSession\(ctx\.header\.labels\) \? deepResearchTools : \[\]/,
+      'child tool scopes must win before computer-use and root-only Deep Research expansion',
     );
   });
 

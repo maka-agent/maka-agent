@@ -108,7 +108,9 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
   const hasUsableCredential = !requiresCredential || hasSecret === true;
   const credentialTroubleshootingCopy = needsOAuth
     ? copy.oauthTroubleshooting
-    : copy.keyTroubleshooting;
+    : supportsApiKey
+      ? copy.keyTroubleshooting
+      : copy.endpointTroubleshooting;
   const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
   const draftBaseUrl = baseUrl;
   const hasApiKeyChange = apiKey.length > 0;

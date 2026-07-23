@@ -5455,7 +5455,7 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
-  test('handles /move without sending a prompt and warns about dirty old cwd', async () => {
+  test('handles /move without sending it as a prompt and accepts the next prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     const run = runMakaPiTui({
@@ -5475,6 +5475,11 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('uncommitted changes'));
     assert.deepEqual(driver.moves, ['/repo/.worktree/feature']);
     assert.deepEqual(driver.prompts, []);
+
+    terminal.input('continue in the moved workspace');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    assert.deepEqual(driver.prompts, ['continue in the moved workspace']);
 
     exitMaka(terminal);
     await Promise.race([

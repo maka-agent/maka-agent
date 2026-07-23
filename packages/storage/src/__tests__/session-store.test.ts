@@ -8,6 +8,8 @@ import type {
   SessionHeader,
   StoredMessage,
   SubagentSessionParent,
+  SubagentSessionRuntime,
+  SubagentSessionSpawn,
 } from '@maka/core';
 import { createLegacyFileSessionStore as createSessionStore } from '../session-store.js';
 
@@ -172,9 +174,21 @@ describe('FileSessionStore CRUD', () => {
       assert.deepEqual((await store.readHeader(child.id)).subagentParent, {
         ...makeSubagentParent(parent.id),
       });
+      assert.equal((await store.readHeader(child.id)).subagentRuntime, undefined);
       await assert.rejects(
         () => store.list({ subagentParentSessionId: parent.id }),
         /require SQLite session metadata/,
+      );
+      await assert.rejects(
+        () =>
+          store.createSubagent(
+            makeInput({
+              subagentParent: makeSubagentParent(parent.id),
+              subagentRuntime: makeSubagentRuntime(),
+              subagentSpawn: makeSubagentSpawn(),
+            }),
+          ),
+        /requires the SQLite metadata control plane/,
       );
     });
   });
@@ -233,6 +247,34 @@ describe('FileSessionStore CRUD', () => {
       await assert.rejects(
         () => store.updateHeader(child.id, { subagentParent: undefined }),
         /parent relation is immutable/,
+      );
+      await assert.rejects(
+        () => store.updateHeader(child.id, { subagentRuntime: undefined }),
+        /runtime snapshot is immutable/,
+      );
+      await assert.rejects(
+        () => store.updateHeader(child.id, { subagentSpawn: undefined }),
+        /spawn identity is immutable/,
+      );
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              permissionMode: 'execute',
+              subagentParent: makeSubagentParent(),
+              subagentRuntime: makeSubagentRuntime(),
+            }),
+          ),
+        /Invalid subagent session lineage/,
+      );
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              subagentRuntime: makeSubagentRuntime(),
+            }),
+          ),
+        /Invalid subagent session lineage/,
       );
     });
   });
@@ -1496,6 +1538,29 @@ function makeSubagentParent(parentSessionId = 'parent-session'): SubagentSession
       toolCallId: 'tool-call',
     },
     lifecycle: 'foreground',
+  };
+}
+
+function makeSubagentRuntime(): SubagentSessionRuntime {
+  return {
+    schemaVersion: 1,
+    definitionVersion: 1,
+    agentId: 'local-read',
+    agentName: 'Local Read',
+    profile: 'local_read',
+    systemPrompt: 'Read the assigned workspace task.',
+    toolNames: ['Read', 'Glob', 'Grep'],
+    categoryPolicy: { read: 'allow' },
+    permissionCeiling: 'ask',
+  };
+}
+
+function makeSubagentSpawn(): SubagentSessionSpawn {
+  return {
+    schemaVersion: 1,
+    requestFingerprint: 'a'.repeat(64),
+    initialTurnId: 'child-turn',
+    initialRunId: 'child-run',
   };
 }
 

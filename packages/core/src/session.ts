@@ -13,7 +13,13 @@ import {
   type ToolActivityKind,
   type ToolResultContent,
 } from './events.js';
-import type { PermissionMode } from './permission.js';
+import {
+  isPermissionMode,
+  isToolCategory,
+  type PermissionMode,
+  type PolicyDecision,
+  type ToolCategory,
+} from './permission.js';
 import type { CollaborationMode } from './collaboration.js';
 import type { OrchestrationMode } from './orchestration.js';
 import type {
@@ -66,6 +72,8 @@ export type TurnStatus = (typeof TURN_STATUSES)[number];
 export const SUBAGENT_SESSION_LIFECYCLES = ['foreground'] as const;
 
 export type SubagentSessionLifecycle = (typeof SUBAGENT_SESSION_LIFECYCLES)[number];
+export const SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION = 1 as const;
+export const SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION = 1 as const;
 
 /**
  * Durable control-plane lineage for a subagent session.
@@ -89,6 +97,45 @@ export interface SubagentSessionParent {
   };
   lifecycle: SubagentSessionLifecycle;
 }
+
+/**
+ * Durable execution snapshot for a linked subagent session.
+ *
+ * The snapshot prevents a reopened child session from silently inheriting a
+ * wider tool surface or permission ceiling from a later parent/default
+ * configuration. The concrete SessionHeader continues to own backend/model/
+ * cwd and the active permission mode.
+ */
+export interface SubagentSessionRuntime {
+  schemaVersion: typeof SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION;
+  definitionVersion: number;
+  agentId: string;
+  agentName: string;
+  profile: string;
+  systemPrompt: string;
+  toolNames: string[];
+  categoryPolicy: Partial<Record<ToolCategory, PolicyDecision>>;
+  permissionCeiling: PermissionMode;
+}
+
+/**
+ * Durable identity of the initial child invocation.
+ *
+ * The SQLite metadata control plane derives its unique spawn key from
+ * subagentParent. This block binds that key to the exact requested work and
+ * preallocates the first run identities so a retry can reuse or recover them.
+ */
+export interface SubagentSessionSpawn {
+  schemaVersion: typeof SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION;
+  requestFingerprint: string;
+  initialTurnId: string;
+  initialRunId: string;
+}
+
+export type SubagentSessionRuntimeSummary = Omit<
+  SubagentSessionRuntime,
+  'systemPrompt' | 'categoryPolicy'
+>;
 
 export function isSessionStatus(value: unknown): value is SessionStatus {
   return typeof value === 'string' && (SESSION_STATUSES as readonly string[]).includes(value);
@@ -135,6 +182,10 @@ export interface SessionHeader {
   branchOfTurnId?: string;
   /** Immutable control-plane relation for a linked child-agent session. */
   subagentParent?: SubagentSessionParent;
+  /** Immutable runtime/profile snapshot for child-session execution. */
+  subagentRuntime?: SubagentSessionRuntime;
+  /** Immutable idempotency and initial-run identity for child creation. */
+  subagentSpawn?: SubagentSessionSpawn;
   /** Stable root id for an edit-and-resend version family. */
   revisionRootSessionId?: string;
   /** Immediate previous version in the same conversation slot. */
@@ -187,6 +238,7 @@ export interface SessionSummary {
   parentSessionId?: string;
   branchOfTurnId?: string;
   subagentParent?: SubagentSessionParent;
+  subagentRuntime?: SubagentSessionRuntimeSummary;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;
@@ -223,8 +275,30 @@ const SUBAGENT_SESSION_SPAWN_SHAPE = defineObjectShape<SubagentSessionParent['sp
 const SUBAGENT_SESSION_SWARM_SHAPE = defineObjectShape<
   NonNullable<SubagentSessionParent['swarm']>
 >()(['swarmId', 'itemId'], []);
+const SUBAGENT_SESSION_RUNTIME_SHAPE = defineObjectShape<SubagentSessionRuntime>()(
+  [
+    'schemaVersion',
+    'definitionVersion',
+    'agentId',
+    'agentName',
+    'profile',
+    'systemPrompt',
+    'toolNames',
+    'categoryPolicy',
+    'permissionCeiling',
+  ],
+  [],
+);
+const SUBAGENT_SESSION_SPAWN_IDENTITY_SHAPE = defineObjectShape<SubagentSessionSpawn>()(
+  ['schemaVersion', 'requestFingerprint', 'initialTurnId', 'initialRunId'],
+  [],
+);
 const SESSION_LINEAGE_ID_MAX_CHARS = 512;
 const SESSION_LINEAGE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const SUBAGENT_RUNTIME_NAME_MAX_CHARS = 512;
+const SUBAGENT_RUNTIME_SYSTEM_PROMPT_MAX_CHARS = 100_000;
+const SUBAGENT_RUNTIME_TOOL_LIMIT = 128;
+const SUBAGENT_REQUEST_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 
 /** Strict decoder guard for the persisted child-session relation. */
 export function isSubagentSessionParent(value: unknown): value is SubagentSessionParent {
@@ -251,6 +325,55 @@ export function isSubagentSessionParent(value: unknown): value is SubagentSessio
   );
 }
 
+/** Strict decoder guard for the persisted child execution snapshot. */
+export function isSubagentSessionRuntime(value: unknown): value is SubagentSessionRuntime {
+  if (
+    !isRecord(value) ||
+    !hasExactShape(value, SUBAGENT_SESSION_RUNTIME_SHAPE) ||
+    value.schemaVersion !== SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION ||
+    !Number.isSafeInteger(value.definitionVersion) ||
+    (value.definitionVersion as number) < 1 ||
+    !isSessionLineageId(value.agentId) ||
+    !isSessionLineageId(value.profile) ||
+    typeof value.agentName !== 'string' ||
+    value.agentName.length === 0 ||
+    value.agentName.length > SUBAGENT_RUNTIME_NAME_MAX_CHARS ||
+    SESSION_LINEAGE_CONTROL_CHARACTERS.test(value.agentName) ||
+    typeof value.systemPrompt !== 'string' ||
+    value.systemPrompt.length === 0 ||
+    value.systemPrompt.length > SUBAGENT_RUNTIME_SYSTEM_PROMPT_MAX_CHARS ||
+    value.systemPrompt.includes('\u0000') ||
+    !Array.isArray(value.toolNames) ||
+    value.toolNames.length > SUBAGENT_RUNTIME_TOOL_LIMIT ||
+    !value.toolNames.every(isSessionLineageId) ||
+    new Set(value.toolNames).size !== value.toolNames.length ||
+    !isSubagentCategoryPolicy(value.categoryPolicy)
+  ) {
+    return false;
+  }
+  return isPermissionMode(value.permissionCeiling);
+}
+
+/** Strict decoder guard for durable child-spawn idempotency metadata. */
+export function isSubagentSessionSpawn(value: unknown): value is SubagentSessionSpawn {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, SUBAGENT_SESSION_SPAWN_IDENTITY_SHAPE) &&
+    value.schemaVersion === SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION &&
+    typeof value.requestFingerprint === 'string' &&
+    SUBAGENT_REQUEST_FINGERPRINT_PATTERN.test(value.requestFingerprint) &&
+    isSessionLineageId(value.initialTurnId) &&
+    isSessionLineageId(value.initialRunId)
+  );
+}
+
+export function subagentSessionRuntimeSummary(
+  value: SubagentSessionRuntime,
+): SubagentSessionRuntimeSummary {
+  const { systemPrompt: _systemPrompt, categoryPolicy: _categoryPolicy, ...summary } = value;
+  return summary;
+}
+
 /** Read-model projection; input order is preserved. */
 export function childSessionsForParent(
   sessions: readonly SessionSummary[],
@@ -269,6 +392,17 @@ function isSessionLineageId(value: unknown): value is string {
     value.length > 0 &&
     value.length <= SESSION_LINEAGE_ID_MAX_CHARS &&
     !SESSION_LINEAGE_CONTROL_CHARACTERS.test(value)
+  );
+}
+
+function isSubagentCategoryPolicy(
+  value: unknown,
+): value is Partial<Record<ToolCategory, PolicyDecision>> {
+  if (!isRecord(value)) return false;
+  return Object.entries(value).every(
+    ([category, decision]) =>
+      isToolCategory(category) &&
+      (decision === 'allow' || decision === 'prompt' || decision === 'block'),
   );
 }
 

@@ -12,6 +12,27 @@ import {
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
 describe('default SQLite session metadata store', () => {
+  test('waits for in-flight legacy metadata import before closing SQLite', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-store-close-ready-'));
+    const legacy = createLegacyFileSessionStore(root);
+    const created = await legacy.create(makeInput({ name: 'Imported before close' }));
+    const store = createSessionStore(root);
+
+    try {
+      await store.close?.();
+      const metadata = createSqliteSessionMetadataStore(
+        join(root, SQLITE_SESSION_METADATA_DATABASE_NAME),
+      );
+      try {
+        assert.equal((await metadata.read(created.id)).header.name, 'Imported before close');
+      } finally {
+        metadata.close();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('uses SQLite as canonical metadata while keeping transcript bodies in JSONL', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-default-session-store-'));
     const store = createSessionStore(root);
@@ -49,16 +70,16 @@ describe('default SQLite session metadata store', () => {
       await stat(join(root, SQLITE_SESSION_METADATA_DATABASE_NAME));
       await assert.rejects(() => stat(join(root, 'runtime.sqlite')), { code: 'ENOENT' });
 
-      store.close?.();
+      await store.close?.();
       const reopened = createSessionStore(root);
       try {
         assert.equal((await reopened.readHeader(created.id)).name, 'SQLite title');
         assert.equal((await reopened.readMessages(created.id)).length, 1);
       } finally {
-        reopened.close?.();
+        await reopened.close?.();
       }
     } finally {
-      store.close?.();
+      await store.close?.();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -68,20 +89,51 @@ describe('default SQLite session metadata store', () => {
     const store = createSessionStore(root);
     try {
       const parent = await store.create(makeInput({ name: 'Parent' }));
-      const child = await store.create(
-        makeInput({
-          name: 'Child',
-          subagentParent: {
-            kind: 'subagent',
-            parentSessionId: parent.id,
-            spawnedBy: {
-              parentRunId: 'parent-run',
-              parentTurnId: 'parent-turn',
-              toolCallId: 'tool-call',
-            },
-            lifecycle: 'foreground',
+      const childInput = makeInput({
+        name: 'Child',
+        subagentParent: {
+          kind: 'subagent',
+          parentSessionId: parent.id,
+          spawnedBy: {
+            parentRunId: 'parent-run',
+            parentTurnId: 'parent-turn',
+            toolCallId: 'tool-call',
           },
-        }),
+          lifecycle: 'foreground',
+        },
+        subagentRuntime: {
+          schemaVersion: 1,
+          definitionVersion: 1,
+          agentId: 'local-read',
+          agentName: 'Local Read',
+          profile: 'local_read',
+          systemPrompt: 'Read the assigned workspace task.',
+          toolNames: ['Read', 'Glob', 'Grep'],
+          categoryPolicy: { read: 'allow' },
+          permissionCeiling: 'ask',
+        },
+        subagentSpawn: {
+          schemaVersion: 1,
+          requestFingerprint: 'a'.repeat(64),
+          initialTurnId: 'child-turn',
+          initialRunId: 'child-run',
+        },
+      });
+      const { header: child, created } = await store.createSubagent(childInput);
+      assert.equal(created, true);
+      const retry = await store.createSubagent(childInput);
+      assert.equal(retry.created, false);
+      assert.equal(retry.header.id, child.id);
+      await assert.rejects(
+        () =>
+          store.createSubagent({
+            ...childInput,
+            subagentSpawn: {
+              ...childInput.subagentSpawn!,
+              requestFingerprint: 'b'.repeat(64),
+            },
+          }),
+        /reused for different work/,
       );
       await store.create(
         makeInput({
@@ -97,6 +149,7 @@ describe('default SQLite session metadata store', () => {
         [child.id],
       );
       assert.equal(children[0]?.subagentParent?.parentSessionId, parent.id);
+      assert.deepEqual(children[0]?.subagentRuntime?.toolNames, ['Read', 'Glob', 'Grep']);
     } finally {
       store.close?.();
       await rm(root, { recursive: true, force: true });
@@ -133,7 +186,7 @@ describe('default SQLite session metadata store', () => {
         modelId: 'fake-model',
       });
     } finally {
-      first.close?.();
+      await first.close?.();
     }
 
     const reopened = createSessionStore(root);
@@ -145,7 +198,7 @@ describe('default SQLite session metadata store', () => {
         [created.id],
       );
     } finally {
-      reopened.close?.();
+      await reopened.close?.();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -158,7 +211,7 @@ describe('default SQLite session metadata store', () => {
       header = await store.create(makeInput({ name: 'Delete me' }));
       await store.remove(header.id);
     } finally {
-      store.close?.();
+      await store.close?.();
     }
 
     const sessionDir = join(root, 'sessions', header.id);
@@ -170,7 +223,7 @@ describe('default SQLite session metadata store', () => {
       assert.deepEqual(await reopened.list(), []);
       await assert.rejects(() => reopened.readHeader(header.id), /not found/);
     } finally {
-      reopened.close?.();
+      await reopened.close?.();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -189,7 +242,7 @@ describe('default SQLite session metadata store', () => {
     try {
       await assert.rejects(() => store.list(), /Invalid legacy session header/);
     } finally {
-      store.close?.();
+      await store.close?.();
     }
 
     const metadata = createSqliteSessionMetadataStore(
@@ -223,7 +276,7 @@ describe('default SQLite session metadata store', () => {
     try {
       await assert.rejects(() => store.list(), /has no SQLite metadata/);
     } finally {
-      store.close?.();
+      await store.close?.();
       await rm(root, { recursive: true, force: true });
     }
   });

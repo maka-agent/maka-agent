@@ -10,6 +10,8 @@
  * persistence and same-session serialization semantics.
  */
 
+import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
   SessionEvent,
   CompleteEvent,
@@ -27,6 +29,7 @@ import type {
   SessionStatus,
   SessionSummary,
   StoredMessage,
+  SubagentSessionParent,
   TurnRecord,
   UserMessage,
   PermissionDecisionMessage,
@@ -57,10 +60,14 @@ import type {
 import {
   DEFAULT_SESSION_NAME,
   DEEP_RESEARCH_SESSION_LABEL,
+  SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION,
+  SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION,
   childSessionsForParent,
   failureClassFromCompleteStopReason,
   isDeepResearchSession,
+  isPermissionModeWithinCeiling,
   isSessionInlineRun,
+  subagentSessionRuntimeSummary,
 } from '@maka/core';
 import type {
   AgentRunEvent,
@@ -113,13 +120,17 @@ import {
 } from './session-projection-helpers.js';
 import {
   assertAgentDefinitionRunnable,
+  buildToolsForAgentDefinition,
   getBuiltinAgentDefinition,
   listBuiltinAgentDefinitions,
+  requireBuiltinAgentDefinitionByProfile,
+  type AgentProfile,
   type AgentDefinition,
   type AgentDefinitionListItem,
 } from './agent-catalog.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { requireResolvedAgentDefinition } from './expert-catalog.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import {
   buildResumePlanFromRuntimeEvents,
   RuntimeContinuationPlanner,
@@ -163,8 +174,35 @@ export interface SpawnChildAgentInput {
   onEvent?: (event: SessionEvent) => void;
 }
 
+export interface SpawnChildSessionInput {
+  spawnedBy: SubagentSessionParent['spawnedBy'];
+  agentProfile: AgentProfile;
+  prompt: string;
+  name?: string;
+  turnId?: string;
+  runId?: string;
+  swarm?: SubagentSessionParent['swarm'];
+  abortSignal?: AbortSignal;
+  onReady?: (input: {
+    childSessionId: string;
+    turnId: string;
+    runId: string;
+    agentId: string;
+    agentName: string;
+  }) => void | Promise<void>;
+  /** Presentation-only observer for projecting child activity into a parent surface. */
+  onEvent?: (event: SessionEvent) => void;
+}
+
+export interface SpawnChildSessionResult extends SpawnChildAgentResult {
+  childSessionId: string;
+  runId: string;
+  profile: string;
+}
+
 export interface PrepareChildAgentResumeResult {
   sourceRunId: string;
+  execution: SubagentExecutionRef;
   agentId: string;
   agentName: string;
   profile: string;
@@ -176,12 +214,19 @@ export interface ResumeChildAgentInput {
   turnId?: string;
   prompt: string;
   abortSignal?: AbortSignal;
-  onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+  onReady?: (input: {
+    childSessionId?: string;
+    turnId: string;
+    runId?: string;
+    agentId: string;
+    agentName: string;
+  }) => void | Promise<void>;
   /** Presentation-only observer for projecting child activity into a parent surface. */
   onEvent?: (event: SessionEvent) => void;
 }
 
 export interface SpawnChildAgentResult {
+  childSessionId?: string;
   agentId: string;
   agentName: string;
   turnId: string;
@@ -202,8 +247,15 @@ export interface SpawnChildAgentResult {
 export interface RetryChildAgentInput {
   parentRunId: string;
   sourceRunId: string;
+  execution?: SubagentExecutionRef;
   abortSignal?: AbortSignal;
-  onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+  onReady?: (input: {
+    childSessionId?: string;
+    turnId: string;
+    runId?: string;
+    agentId: string;
+    agentName: string;
+  }) => void | Promise<void>;
   /** Presentation-only observer for projecting child activity into a parent surface. */
   onEvent?: (event: SessionEvent) => void;
 }
@@ -226,18 +278,38 @@ export interface AgentListItem {
   failureClass?: string;
 }
 
+export interface SubagentExecutionListItem {
+  execution: SubagentExecutionRef;
+  agentId?: string;
+  agentName?: string;
+  profile?: string;
+  turnId?: string;
+  status: AgentRunHeader['status'];
+  permissionMode: PermissionMode;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+  failureClass?: string;
+}
+
 export interface AgentListResult {
   definitions: AgentDefinitionListItem[];
+  /** Canonical mixed projection for new child Sessions and legacy same-session child AgentRuns. */
+  executions: SubagentExecutionListItem[];
+  /** Legacy projection retained while callers migrate to executions. */
   runs: AgentListItem[];
 }
 
 export interface AgentOutputInput {
+  execution?: SubagentExecutionRef;
   runId?: string;
   turnId?: string;
   maxEvents?: number;
 }
 
 export interface AgentOutputResult {
+  execution: SubagentExecutionRef;
   header: AgentRunHeader;
   events: AgentRunEvent[];
   runtimeEvents: RuntimeEvent[];
@@ -259,6 +331,7 @@ export interface AgentOutputResult {
 // shapes. RuntimeEventStore is the semantic conversation ledger.
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
+  createSubagent(input: CreateSessionInput): Promise<{ header: SessionHeader; created: boolean }>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
   readHeader(sessionId: string): Promise<SessionHeader>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -301,8 +374,9 @@ export interface BackendFactoryContext {
   store: SessionStore;
   appendMessage?: (message: StoredMessage) => Promise<void>;
   /**
-   * Child-agent instruction channel. Only `ensureChildActive` populates
-   * this; the main-session `ensureActive` path leaves it undefined. A
+   * Child-agent instruction channel. Legacy child runs and linked child
+   * sessions populate this; an ordinary main-session activation leaves it
+   * undefined. A
    * main-session factory that needs a system prompt must source it from
    * its own closure (the desktop path and the headless benchmark path
    * both do this) — do NOT route a main-session prompt through this
@@ -310,6 +384,11 @@ export interface BackendFactoryContext {
    * system prompt.
    */
   systemPrompt?: string;
+  /**
+   * Optional hard tool ceiling for this backend activation. When present, a
+   * host may remove tools for stricter local policy, but must never append,
+   * substitute, or otherwise expose a tool outside this exact set.
+   */
   tools?: readonly MakaTool[];
   /** Trusted child expert-team identity. Main-session factories leave this undefined. */
   agentTeam?: AgentTeamExecutionContext;
@@ -424,6 +503,10 @@ export class SessionManager {
   private readonly runtimeKernel: RuntimeKernelLike;
   private readonly runtimeLedgerRepair?: RuntimeLedgerRepair;
   private readonly continuationPlanning = new Map<string, Promise<unknown>>();
+  private readonly childSessionSpawns = new Map<
+    string,
+    { requestFingerprint: string; promise: Promise<SpawnChildSessionResult> }
+  >();
 
   constructor(private readonly deps: SessionManagerDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -756,6 +839,14 @@ export class SessionManager {
 
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
     const previous = await this.deps.store.readHeader(sessionId);
+    if (
+      previous.subagentRuntime &&
+      !isPermissionModeWithinCeiling(mode, previous.subagentRuntime.permissionCeiling)
+    ) {
+      throw new Error(
+        `Child session permission mode "${mode}" exceeds its "${previous.subagentRuntime.permissionCeiling}" ceiling`,
+      );
+    }
     const leavingDeepResearch = isDeepResearchSession(previous.labels) && mode !== 'explore';
     if (previous.permissionMode === mode && !leavingDeepResearch) return headerToSummary(previous);
 
@@ -1131,9 +1222,6 @@ export class SessionManager {
       currentCwd: header.cwd,
       sourceWorkspaceIdentity: sourceRun.workspaceIdentity,
       currentWorkspaceIdentity: observation.workspaceIdentity,
-      ...(observation.legacyWorkspaceIdentities?.length
-        ? { currentWorkspaceIdentityAliases: observation.legacyWorkspaceIdentities }
-        : {}),
       backgroundOperationsSettled: observation.backgroundOperationsSettled,
       availableToolNames: observation.availableToolNames,
       ...(input.expectedRuntimeEventHighWater !== undefined
@@ -1425,12 +1513,327 @@ export class SessionManager {
     return await this.runChildAgent(sessionId, definition, input);
   }
 
+  /**
+   * Create and run a durable linked child Session without changing the
+   * parent-facing agent_spawn compatibility path.
+   *
+   * Cross-session provenance lives on the child header. The first AgentRun
+   * intentionally carries no parentRunId, so it is an ordinary session-inline
+   * run and every later child turn can reuse only the child's own history.
+   */
+  async spawnChildSession(
+    parentSessionId: string,
+    input: SpawnChildSessionInput,
+  ): Promise<SpawnChildSessionResult> {
+    const spawnKey = childSessionSpawnKey(parentSessionId, input);
+    const requestFingerprint = childSessionRequestFingerprint(parentSessionId, input);
+    const inFlight = this.childSessionSpawns.get(spawnKey);
+    if (inFlight) {
+      if (inFlight.requestFingerprint !== requestFingerprint) {
+        throw new Error('Child-session spawn identity was reused for different work');
+      }
+      return await inFlight.promise;
+    }
+    const promise = this.spawnChildSessionOnce(parentSessionId, input, requestFingerprint);
+    this.childSessionSpawns.set(spawnKey, { requestFingerprint, promise });
+    try {
+      return await promise;
+    } finally {
+      if (this.childSessionSpawns.get(spawnKey)?.promise === promise) {
+        this.childSessionSpawns.delete(spawnKey);
+      }
+    }
+  }
+
+  private async spawnChildSessionOnce(
+    parentSessionId: string,
+    input: SpawnChildSessionInput,
+    requestFingerprint: string,
+  ): Promise<SpawnChildSessionResult> {
+    if (input.abortSignal?.aborted) {
+      throw new Error('Child session spawn was cancelled before creation');
+    }
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('Child session creation requires AgentRunStore and RuntimeEventStore');
+    }
+    const [parentHeader, parentRun] = await Promise.all([
+      this.deps.store.readHeader(parentSessionId),
+      this.deps.runStore.readRun(parentSessionId, input.spawnedBy.parentRunId),
+    ]);
+    this.assertActiveParentRun(parentSessionId, parentRun, input.spawnedBy.parentTurnId);
+
+    const definition = requireBuiltinAgentDefinitionByProfile(input.agentProfile);
+    const availableChildTools = this.deps.childTools ?? [];
+    assertAgentDefinitionRunnable({
+      parentPermissionMode: parentHeader.permissionMode,
+      definition,
+      tools: availableChildTools,
+    });
+
+    const proposedTurnId = input.turnId ?? this.deps.newId();
+    const proposedRunId = input.runId ?? this.deps.newId();
+    const creation = await this.deps.store.createSubagent({
+      cwd: parentHeader.cwd,
+      name: input.name ?? definition.name,
+      backend: parentHeader.backend,
+      llmConnectionSlug: parentHeader.llmConnectionSlug,
+      model: parentHeader.model,
+      ...(parentHeader.thinkingLevel !== undefined
+        ? { thinkingLevel: parentHeader.thinkingLevel }
+        : {}),
+      permissionMode: definition.permissionMode,
+      collaborationMode: 'agent',
+      orchestrationMode: 'default',
+      subagentParent: {
+        kind: 'subagent',
+        parentSessionId,
+        spawnedBy: input.spawnedBy,
+        ...(input.swarm ? { swarm: input.swarm } : {}),
+        lifecycle: 'foreground',
+      },
+      subagentRuntime: {
+        schemaVersion: SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION,
+        definitionVersion: definition.definitionVersion,
+        agentId: definition.id,
+        agentName: definition.name,
+        profile: definition.profile,
+        systemPrompt: definition.systemPrompt,
+        toolNames: [...definition.tools],
+        categoryPolicy: { ...definition.categoryPolicy },
+        permissionCeiling: parentHeader.permissionMode,
+      },
+      subagentSpawn: {
+        schemaVersion: SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION,
+        requestFingerprint,
+        initialTurnId: proposedTurnId,
+        initialRunId: proposedRunId,
+      },
+    });
+    const child = creation.header;
+    const snapshot = child.subagentRuntime;
+    const spawn = child.subagentSpawn;
+    if (!snapshot || !spawn || !child.subagentParent) {
+      throw new Error('Stored child session is missing its durable runtime or spawn identity');
+    }
+    const turnId = spawn.initialTurnId;
+    const runId = spawn.initialRunId;
+    const readyInfo = {
+      childSessionId: child.id,
+      turnId,
+      runId,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+    };
+    let readyNotification: Promise<void> | undefined;
+    const notifyReady = (): Promise<void> => {
+      readyNotification ??= Promise.resolve().then(() => input.onReady?.(readyInfo));
+      return readyNotification;
+    };
+
+    // Close the create/start race: if the parent settled (or cancellation
+    // arrived) while metadata was being written, retain an inspectable aborted
+    // child but do not admit new foreground work.
+    try {
+      this.assertActiveParentRun(parentSessionId, parentRun, input.spawnedBy.parentTurnId);
+      if (input.abortSignal?.aborted) {
+        throw new Error('Child session spawn was cancelled before its first run');
+      }
+    } catch (error) {
+      if (creation.created) await this.updateStatus(child.id, 'aborted').catch(() => {});
+      throw error;
+    }
+
+    if (!creation.created) {
+      const existing = await this.resolveExistingChildSpawn(child, input, notifyReady);
+      if (existing) return existing;
+    }
+
+    // A committed metadata row without its initial AgentRun is a recoverable
+    // crash boundary. Revalidate admission after the lookup: the parent or
+    // caller may have settled while durable state was being inspected.
+    try {
+      const latestParentRun = await this.deps.runStore.readRun(
+        parentSessionId,
+        input.spawnedBy.parentRunId,
+      );
+      this.assertActiveParentRun(parentSessionId, latestParentRun, input.spawnedBy.parentTurnId);
+      if (input.abortSignal?.aborted) {
+        throw new Error('Child session spawn was cancelled before its first run');
+      }
+    } catch (error) {
+      await this.updateStatus(child.id, 'aborted').catch(() => {});
+      throw error;
+    }
+
+    const startedAt = this.deps.now();
+    const summary = new ChildAgentSummaryAccumulator();
+    let aborted = false;
+    let stopPromise: Promise<void> | undefined;
+    const iterator = this.sendMessage(
+      child.id,
+      {
+        turnId,
+        text: input.prompt,
+        agentId: snapshot.agentId,
+        agentName: snapshot.agentName,
+      },
+      {
+        runId,
+        durability: 'required',
+        onRunStarted: notifyReady,
+      },
+    )[Symbol.asyncIterator]();
+    const onAbort = () => {
+      aborted = true;
+      stopPromise ??= this.stopSession(child.id, { source: 'stop_button' });
+    };
+    if (input.abortSignal) {
+      input.abortSignal.addEventListener('abort', onAbort, { once: true });
+      if (input.abortSignal.aborted) onAbort();
+    }
+    try {
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        summary.add(next.value);
+        try {
+          input.onEvent?.(next.value);
+        } catch {
+          // A presentation observer must not change the child run outcome.
+        }
+        if (aborted) break;
+      }
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onAbort);
+      if (aborted) {
+        await stopPromise;
+        await iterator.return?.();
+      }
+    }
+
+    const completedAt = this.deps.now();
+    const run = await this.findRunByTurnId(child.id, turnId);
+    const failureClass = run?.failureClass ?? summary.failureClass;
+    const artifacts = this.deps.listArtifactsForTurn
+      ? await this.deps.listArtifactsForTurn(child.id, turnId)
+      : [];
+    return {
+      childSessionId: child.id,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      profile: snapshot.profile,
+      turnId,
+      runId,
+      status: run ? agentRunStatusForSpawnResult(run.status) : summary.status(aborted),
+      permissionMode: child.permissionMode,
+      summary: summary.text(),
+      artifactIds: artifacts.map((artifact) => artifact.id),
+      startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - startedAt),
+      eventCount: summary.eventCount,
+      ...(failureClass ? { failureClass } : {}),
+    };
+  }
+
+  private async resolveExistingChildSpawn(
+    child: SessionHeader,
+    input: SpawnChildSessionInput,
+    notifyReady: () => Promise<void>,
+  ): Promise<SpawnChildSessionResult | undefined> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) return undefined;
+    const snapshot = child.subagentRuntime;
+    const spawn = child.subagentSpawn;
+    if (!snapshot || !spawn) {
+      throw new Error('Stored child session is missing its durable runtime or spawn identity');
+    }
+    let run = await this.deps.runStore.readRun(child.id, spawn.initialRunId).catch((error) => {
+      if (isNotFoundError(error)) return undefined;
+      throw error;
+    });
+    if (!run) return undefined;
+    await notifyReady();
+
+    while (
+      !isTerminalRunStatus(run.status) &&
+      this.runtimeKernel.hasActiveRun?.(child.id, run.runId, run.turnId)
+    ) {
+      await delay(25, undefined, input.abortSignal ? { signal: input.abortSignal } : undefined);
+      run = await this.deps.runStore.readRun(child.id, spawn.initialRunId);
+    }
+    if (!isTerminalRunStatus(run.status)) {
+      await this.recoverAgentRunsFromLedger(child.id);
+      run = await this.deps.runStore.readRun(child.id, spawn.initialRunId);
+    }
+    return await this.projectExistingChildSpawn(child, run);
+  }
+
+  private async projectExistingChildSpawn(
+    child: SessionHeader,
+    run: AgentRunHeader,
+  ): Promise<SpawnChildSessionResult> {
+    if (!this.deps.runtimeEventStore) {
+      throw new Error('Child session projection requires RuntimeEventStore');
+    }
+    const snapshot = child.subagentRuntime;
+    if (!snapshot) throw new Error('Stored child session is missing its durable runtime snapshot');
+    const [messages, runtimeEvents, artifacts] = await Promise.all([
+      this.deps.store.readMessages(child.id),
+      this.deps.runtimeEventStore.readRuntimeEvents(child.id, run.runId),
+      this.deps.listArtifactsForTurn
+        ? this.deps.listArtifactsForTurn(child.id, run.turnId)
+        : Promise.resolve([]),
+    ]);
+    const storedSummary =
+      messages
+        .filter(
+          (message): message is Extract<StoredMessage, { type: 'assistant' }> =>
+            message.type === 'assistant' && message.turnId === run.turnId,
+        )
+        .at(-1)?.text ?? '';
+    const runtimeText = runtimeEvents.filter(
+      (
+        event,
+      ): event is RuntimeEvent & {
+        content: Extract<NonNullable<RuntimeEvent['content']>, { kind: 'text' }>;
+      } => event.role === 'model' && event.content?.kind === 'text',
+    );
+    const durableRuntimeSummary = runtimeText.filter((event) => !event.partial).at(-1)
+      ?.content.text;
+    const partialRuntimeSummary = runtimeText
+      .filter((event) => event.partial)
+      .map((event) => event.content.text)
+      .join('');
+    const completedAt = run.completedAt ?? run.updatedAt;
+    return {
+      childSessionId: child.id,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      profile: snapshot.profile,
+      turnId: run.turnId,
+      runId: run.runId,
+      status: agentRunStatusForSpawnResult(run.status),
+      permissionMode: child.permissionMode,
+      summary: trimSummary(durableRuntimeSummary ?? (storedSummary || partialRuntimeSummary)),
+      artifactIds: artifacts.map((artifact) => artifact.id),
+      startedAt: run.createdAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - run.createdAt),
+      eventCount: runtimeEvents.length,
+      ...(run.failureClass ? { failureClass: run.failureClass } : {}),
+    };
+  }
+
   async prepareChildAgentResume(
     sessionId: string,
     sourceRunId: string,
   ): Promise<PrepareChildAgentResumeResult> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) {
       throw new Error('Child AgentRun resume requires AgentRunStore and RuntimeEventStore');
+    }
+    const execution = await this.resolveChildAgentExecution(sessionId, sourceRunId);
+    if (execution.kind === 'child_session') {
+      return await this.prepareLinkedChildSessionResume(sessionId, execution, sourceRunId);
     }
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
     const runsById = new Map(runs.map((run) => [run.runId, run]));
@@ -1507,9 +1910,153 @@ export class SessionManager {
     }
     return {
       sourceRunId,
+      execution,
       agentId: definition.id,
       agentName: definition.name,
       profile: definition.profile,
+    };
+  }
+
+  private async resolveChildAgentExecution(
+    parentSessionId: string,
+    sourceRunId: string,
+  ): Promise<SubagentExecutionRef> {
+    if (!this.deps.runStore) {
+      throw new Error('Child AgentRun lookup requires AgentRunStore');
+    }
+    const legacy = await this.deps.runStore.readRun(parentSessionId, sourceRunId).catch((error) => {
+      if (isNotFoundError(error)) return undefined;
+      throw error;
+    });
+    if (legacy?.parentRunId && !isSessionInlineRun(legacy)) {
+      return {
+        kind: 'legacy_child_run',
+        sessionId: parentSessionId,
+        runId: sourceRunId,
+      };
+    }
+
+    const children = await this.listChildSessions(parentSessionId);
+    const matches = (
+      await Promise.all(
+        children.map(async (child) => {
+          const run = await this.deps.runStore!.readRun(child.id, sourceRunId).catch((error) => {
+            if (isNotFoundError(error)) return undefined;
+            throw error;
+          });
+          return run && isSessionInlineRun(run) ? child.id : undefined;
+        }),
+      )
+    ).filter((childSessionId): childSessionId is string => childSessionId !== undefined);
+    if (matches.length !== 1) {
+      throw new Error(`Child AgentRun resume source ${sourceRunId} was not found`);
+    }
+    return {
+      kind: 'child_session',
+      sessionId: matches[0]!,
+      currentRunId: sourceRunId,
+    };
+  }
+
+  private async prepareLinkedChildSessionResume(
+    parentSessionId: string,
+    execution: Extract<SubagentExecutionRef, { kind: 'child_session' }>,
+    sourceRunId: string,
+  ): Promise<PrepareChildAgentResumeResult> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('Child Session resume requires AgentRunStore and RuntimeEventStore');
+    }
+    const child = await this.deps.store.readHeader(execution.sessionId);
+    const snapshot = child.subagentRuntime;
+    if (
+      child.subagentParent?.kind !== 'subagent' ||
+      child.subagentParent.parentSessionId !== parentSessionId ||
+      !snapshot
+    ) {
+      throw new Error(`Child AgentRun resume source ${sourceRunId} was not found`);
+    }
+    if (!isPermissionModeWithinCeiling(child.permissionMode, snapshot.permissionCeiling)) {
+      throw new Error('Child Session permission mode exceeds its durable runtime ceiling');
+    }
+    const runnableTools = buildToolsForAgentDefinition(this.deps.childTools ?? [], {
+      id: snapshot.agentId,
+      permissionMode: child.permissionMode,
+      tools: snapshot.toolNames,
+      categoryPolicy: snapshot.categoryPolicy,
+    });
+    if (runnableTools.length !== snapshot.toolNames.length) {
+      throw new Error('Child Session durable runtime tool snapshot is unavailable');
+    }
+
+    const runs = await this.deps.runStore.listSessionRuns(child.id);
+    const runsById = new Map(runs.map((run) => [run.runId, run]));
+    const source = runsById.get(sourceRunId);
+    if (!source || !isSessionInlineRun(source)) {
+      throw new Error(`Child AgentRun resume source ${sourceRunId} was not found`);
+    }
+    const visited = new Set<string>();
+    const replaySegments: RuntimeEvent[][] = [];
+    let cursor: AgentRunHeader | undefined = source;
+    while (cursor) {
+      if (visited.has(cursor.runId)) {
+        throw new Error(`Child AgentRun resume lineage contains a cycle at ${cursor.runId}`);
+      }
+      visited.add(cursor.runId);
+      if (!isSessionInlineRun(cursor) || cursor.agentId !== snapshot.agentId) {
+        throw new Error(`Child AgentRun resume profile changed at ${cursor.runId}`);
+      }
+      if (
+        cursor.backendKind !== child.backend ||
+        cursor.llmConnectionSlug !== child.llmConnectionSlug ||
+        cursor.modelId !== child.model ||
+        cursor.cwd !== child.cwd ||
+        cursor.permissionMode !== child.permissionMode
+      ) {
+        throw new Error(`Child AgentRun resume environment changed for ${cursor.runId}`);
+      }
+
+      const events = await this.deps.runtimeEventStore
+        .readRuntimeEvents(child.id, cursor.runId)
+        .catch(() => []);
+      const replay = buildRuntimeEventModelReplayPlan(events);
+      const unsafe = replay.diagnostics.find((diagnostic) =>
+        isUnsafeChildResumeDiagnostic(diagnostic.code),
+      );
+      if (unsafe) {
+        throw new Error(`Child AgentRun resume history is unsafe: ${unsafe.code}`);
+      }
+      replaySegments.unshift(events);
+      const terminal = classifyTerminalRuntimeLedger(cursor, events);
+      if (terminal.kind !== 'fact') {
+        throw new Error(`Child AgentRun resume source ${cursor.runId} is not durably terminal`);
+      }
+      const effective = effectiveRunHeaderFromTerminalFact(cursor, terminal.fact);
+      if (!['completed', 'failed', 'cancelled'].includes(effective.status)) {
+        throw new Error(`Child AgentRun resume source ${cursor.runId} is not in a resumable state`);
+      }
+
+      const previousRunId = cursor.resumedFromRunId ?? cursor.retriedFromRunId;
+      if (!previousRunId) break;
+      cursor = runsById.get(previousRunId);
+      if (!cursor) {
+        throw new Error(`Child AgentRun resume source ${previousRunId} was not found`);
+      }
+    }
+
+    const replay = buildRuntimeEventModelReplayPlan(replaySegments.flat());
+    const first = replay.items[0];
+    if (!first || first.kind !== 'text' || first.role !== 'user') {
+      throw new Error(`Child AgentRun resume source ${sourceRunId} has no user-anchored history`);
+    }
+    if (runs.some((run) => run.resumedFromRunId === sourceRunId)) {
+      throw new Error(`Child AgentRun ${sourceRunId} already has a resume successor`);
+    }
+    return {
+      sourceRunId,
+      execution,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      profile: snapshot.profile,
     };
   }
 
@@ -1518,8 +2065,114 @@ export class SessionManager {
     input: ResumeChildAgentInput,
   ): Promise<SpawnChildAgentResult> {
     const prepared = await this.prepareChildAgentResume(sessionId, input.sourceRunId);
+    if (prepared.execution.kind === 'child_session') {
+      return await this.resumeLinkedChildSession(sessionId, prepared.execution, prepared, input);
+    }
     const definition = getBuiltinAgentDefinition(prepared.agentId)!;
     return await this.runChildAgent(sessionId, definition, input, input.sourceRunId);
+  }
+
+  private async resumeLinkedChildSession(
+    parentSessionId: string,
+    execution: Extract<SubagentExecutionRef, { kind: 'child_session' }>,
+    prepared: PrepareChildAgentResumeResult,
+    input: ResumeChildAgentInput,
+  ): Promise<SpawnChildAgentResult> {
+    if (!this.deps.runStore) {
+      throw new Error('Child Session resume requires AgentRunStore');
+    }
+    const [parentRun, child] = await Promise.all([
+      this.deps.runStore.readRun(parentSessionId, input.parentRunId),
+      this.deps.store.readHeader(execution.sessionId),
+    ]);
+    this.assertActiveParentRun(parentSessionId, parentRun, parentRun.turnId);
+    if (
+      child.subagentParent?.kind !== 'subagent' ||
+      child.subagentParent.parentSessionId !== parentSessionId ||
+      child.subagentRuntime?.agentId !== prepared.agentId
+    ) {
+      throw new Error(`Child AgentRun resume source ${input.sourceRunId} was not found`);
+    }
+
+    const turnId = input.turnId ?? this.deps.newId();
+    const runId = this.deps.newId();
+    const startedAt = this.deps.now();
+    const summary = new ChildAgentSummaryAccumulator();
+    let aborted = input.abortSignal?.aborted === true;
+    let stopPromise: Promise<void> | undefined;
+    const iterator = this.sendMessage(
+      child.id,
+      {
+        turnId,
+        text: input.prompt,
+        resumedFromRunId: input.sourceRunId,
+        agentId: prepared.agentId,
+        agentName: prepared.agentName,
+      },
+      {
+        runId,
+        durability: 'required',
+        onRunStarted: () =>
+          input.onReady?.({
+            childSessionId: child.id,
+            turnId,
+            runId,
+            agentId: prepared.agentId,
+            agentName: prepared.agentName,
+          }),
+      },
+    )[Symbol.asyncIterator]();
+    const onAbort = () => {
+      aborted = true;
+      stopPromise ??= this.stopSession(child.id, { source: 'stop_button' });
+    };
+    if (input.abortSignal) {
+      input.abortSignal.addEventListener('abort', onAbort, { once: true });
+      if (input.abortSignal.aborted) onAbort();
+    }
+    try {
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        summary.add(next.value);
+        try {
+          input.onEvent?.(next.value);
+        } catch {
+          // A presentation observer must not change the child run outcome.
+        }
+        if (aborted) break;
+      }
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onAbort);
+      if (aborted) {
+        await stopPromise;
+        await iterator.return?.();
+      }
+    }
+
+    const completedAt = this.deps.now();
+    const run = await this.findRunByTurnId(child.id, turnId);
+    const failureClass = run?.failureClass ?? summary.failureClass;
+    const artifacts = this.deps.listArtifactsForTurn
+      ? await this.deps.listArtifactsForTurn(child.id, turnId)
+      : [];
+    return {
+      childSessionId: child.id,
+      agentId: prepared.agentId,
+      agentName: prepared.agentName,
+      turnId,
+      runId,
+      resumedFromRunId: input.sourceRunId,
+      status: run ? agentRunStatusForSpawnResult(run.status) : summary.status(aborted),
+      permissionMode: child.permissionMode,
+      summary: summary.text(),
+      artifactIds: artifacts.map((artifact) => artifact.id),
+      startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - startedAt),
+      eventCount: summary.eventCount,
+      ...(failureClass ? { failureClass } : {}),
+    };
   }
 
   private async runChildAgent(
@@ -1598,23 +2251,67 @@ export class SessionManager {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) {
       throw new Error('Child agent retry requires AgentRunStore and RuntimeEventStore');
     }
-    const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    const execution = await this.resolveChildAgentExecution(sessionId, input.sourceRunId);
+    if (
+      input.execution &&
+      (input.execution.kind !== execution.kind ||
+        input.execution.sessionId !== execution.sessionId ||
+        (input.execution.kind === 'legacy_child_run' &&
+          (execution.kind !== 'legacy_child_run' || input.execution.runId !== execution.runId)) ||
+        (input.execution.kind === 'child_session' &&
+          input.execution.currentRunId !== undefined &&
+          input.execution.currentRunId !== input.sourceRunId))
+    ) {
+      throw new Error('Child agent retry execution identity changed');
+    }
+    const targetSessionId = execution.sessionId;
+    const runs = await this.deps.runStore.listSessionRuns(targetSessionId);
     const rawSourceRun = runs.find((run) => run.runId === input.sourceRunId);
     if (!rawSourceRun) throw new Error('Child agent retry source run was not found');
     const sourceRun = await this.effectiveRunHeaderFromRuntimeLedger(rawSourceRun);
-    if (!sourceRun.parentRunId || sourceRun.parentRunId !== input.parentRunId) {
-      throw new Error('Child agent retry source does not belong to the active parent run');
+    let definition: {
+      id: string;
+      name: string;
+      systemPrompt: string;
+      permissionMode: PermissionMode;
+    };
+    if (execution.kind === 'child_session') {
+      const [parentRun, child] = await Promise.all([
+        this.deps.runStore.readRun(sessionId, input.parentRunId),
+        this.deps.store.readHeader(targetSessionId),
+      ]);
+      this.assertActiveParentRun(sessionId, parentRun, parentRun.turnId);
+      const snapshot = child.subagentRuntime;
+      if (
+        child.subagentParent?.kind !== 'subagent' ||
+        child.subagentParent.parentSessionId !== sessionId ||
+        !snapshot ||
+        !isSessionInlineRun(sourceRun) ||
+        sourceRun.agentId !== snapshot.agentId
+      ) {
+        throw new Error('Child agent retry source does not belong to the parent Session');
+      }
+      definition = {
+        id: snapshot.agentId,
+        name: snapshot.agentName,
+        systemPrompt: snapshot.systemPrompt,
+        permissionMode: child.permissionMode,
+      };
+    } else {
+      if (!sourceRun.parentRunId || sourceRun.parentRunId !== input.parentRunId) {
+        throw new Error('Child agent retry source does not belong to the active parent run');
+      }
+      if (!sourceRun.agentId) throw new Error('Child agent retry source is missing its agent id');
+      definition = requireResolvedAgentDefinition(sourceRun.agentId);
     }
     if (sourceRun.status !== 'failed' || sourceRun.failureClass !== 'RateLimit') {
       throw new Error('Child agent retry source must be a provider rate-limit failure');
     }
-    if (!sourceRun.agentId) throw new Error('Child agent retry source is missing its agent id');
     const existingRetry = runs.find((run) => run.retriedFromRunId === sourceRun.runId);
     if (existingRetry) {
       throw new Error(`Child agent retry source already has a successor: ${existingRetry.runId}`);
     }
 
-    const definition = requireResolvedAgentDefinition(sourceRun.agentId);
     const replaySegments: RuntimeEvent[][] = [];
     let chainRun: AgentRunHeader | undefined = rawSourceRun;
     const visited = new Set<string>();
@@ -1622,7 +2319,10 @@ export class SessionManager {
       if (visited.has(chainRun.runId))
         throw new Error('Child agent retry lineage contains a cycle');
       visited.add(chainRun.runId);
-      const events = await this.deps.runtimeEventStore.readRuntimeEvents(sessionId, chainRun.runId);
+      const events = await this.deps.runtimeEventStore.readRuntimeEvents(
+        targetSessionId,
+        chainRun.runId,
+      );
       const plan = buildResumePlanFromRuntimeEvents(events);
       if (plan.disposition !== 'safe_replay') {
         throw new Error(`Child agent retry source is not safely replayable: ${chainRun.runId}`);
@@ -1636,7 +2336,7 @@ export class SessionManager {
     }
 
     const sourceEvents = await this.deps.runtimeEventStore.readRuntimeEvents(
-      sessionId,
+      targetSessionId,
       sourceRun.runId,
     );
     const sourcePlan = buildResumePlanFromRuntimeEvents(sourceEvents);
@@ -1649,7 +2349,7 @@ export class SessionManager {
     const runId = this.deps.newId();
     const invocationId = this.deps.newId();
     const continuation: RuntimeContinuation = {
-      sessionId,
+      sessionId: targetSessionId,
       invocationId,
       runId,
       turnId,
@@ -1669,11 +2369,16 @@ export class SessionManager {
     const startedAt = this.deps.now();
     const summary = new ChildAgentSummaryAccumulator();
     let aborted = input.abortSignal?.aborted === true;
-    await input.onReady?.({ turnId, agentId: definition.id, agentName: definition.name });
+    await input.onReady?.({
+      ...(execution.kind === 'child_session' ? { childSessionId: execution.sessionId, runId } : {}),
+      turnId,
+      agentId: definition.id,
+      agentName: definition.name,
+    });
     const startChildRetry = this.runtimeKernel.startChildRetry;
     if (!startChildRetry) throw new Error('RuntimeKernel does not support child agent retry');
     const iterator = startChildRetry
-      .call(this.runtimeKernel, sessionId, {
+      .call(this.runtimeKernel, targetSessionId, {
         parentRunId: input.parentRunId,
         spec: {
           id: definition.id,
@@ -1681,14 +2386,21 @@ export class SessionManager {
           systemPrompt: definition.systemPrompt,
         },
         continuation,
+        ...(execution.kind === 'child_session' ? { linkedSession: true } : {}),
       })
       [Symbol.asyncIterator]();
+    let stopPromise: Promise<void> | undefined;
     const onAbort = () => {
       aborted = true;
-      void iterator.return?.();
+      if (execution.kind === 'child_session') {
+        stopPromise ??= this.stopSession(targetSessionId, { source: 'stop_button' });
+      } else {
+        void iterator.return?.();
+      }
     };
-    if (input.abortSignal && !input.abortSignal.aborted) {
+    if (input.abortSignal) {
       input.abortSignal.addEventListener('abort', onAbort, { once: true });
+      if (input.abortSignal.aborted) onAbort();
     }
     try {
       while (!aborted) {
@@ -1703,16 +2415,20 @@ export class SessionManager {
       }
     } finally {
       input.abortSignal?.removeEventListener('abort', onAbort);
-      if (aborted) await iterator.return?.();
+      if (aborted) {
+        await stopPromise;
+        await iterator.return?.();
+      }
     }
 
     const completedAt = this.deps.now();
-    const run = await this.findRunByTurnId(sessionId, turnId);
+    const run = await this.findRunByTurnId(targetSessionId, turnId);
     const failureClass = run?.failureClass ?? summary.failureClass;
     const artifacts = this.deps.listArtifactsForTurn
-      ? await this.deps.listArtifactsForTurn(sessionId, turnId)
+      ? await this.deps.listArtifactsForTurn(targetSessionId, turnId)
       : [];
     return {
+      ...(execution.kind === 'child_session' ? { childSessionId: execution.sessionId } : {}),
       agentId: definition.id,
       agentName: definition.name,
       turnId,
@@ -1736,7 +2452,7 @@ export class SessionManager {
       parentPermissionMode: header.permissionMode,
       tools: this.deps.childTools ?? [],
     });
-    if (!this.deps.runStore) return { definitions, runs: [] };
+    if (!this.deps.runStore) return { definitions, executions: [], runs: [] };
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
     const childRuns = await Promise.all(
       runs
@@ -1751,24 +2467,91 @@ export class SessionManager {
           }),
         ),
     );
+    const legacyRuns = childRuns.map((run) => ({
+      runId: run.runId,
+      turnId: run.turnId,
+      parentRunId: run.parentRunId,
+      ...(run.agentId ? { agentId: run.agentId } : {}),
+      ...(run.agentName ? { agentName: run.agentName } : {}),
+      status: run.status,
+      permissionMode: run.permissionMode,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+      ...(run.completedAt !== undefined
+        ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
+        : {}),
+      ...(run.failureClass ? { failureClass: run.failureClass } : {}),
+    }));
+    const childSessionHeaders = await Promise.all(
+      (await this.listChildSessions(sessionId)).map((child) =>
+        this.deps.store.readHeader(child.id),
+      ),
+    );
+    const childSessionExecutions = await Promise.all(
+      childSessionHeaders.map(async (child): Promise<SubagentExecutionListItem> => {
+        const childRuns = await this.deps.runStore!.listSessionRuns(child.id);
+        const latest = childRuns
+          .slice()
+          .sort(
+            (left, right) =>
+              right.createdAt - left.createdAt ||
+              right.updatedAt - left.updatedAt ||
+              right.runId.localeCompare(left.runId),
+          )[0];
+        const run = latest ? await this.effectiveRunHeaderFromRuntimeLedger(latest) : undefined;
+        const currentRunId = run?.runId ?? child.subagentSpawn?.initialRunId;
+        return {
+          execution: {
+            kind: 'child_session',
+            sessionId: child.id,
+            ...(currentRunId ? { currentRunId } : {}),
+          },
+          ...(child.subagentRuntime?.agentId ? { agentId: child.subagentRuntime.agentId } : {}),
+          ...(child.subagentRuntime?.agentName
+            ? { agentName: child.subagentRuntime.agentName }
+            : {}),
+          ...(child.subagentRuntime?.profile ? { profile: child.subagentRuntime.profile } : {}),
+          ...(run?.turnId ? { turnId: run.turnId } : {}),
+          status: run?.status ?? (child.status === 'aborted' ? 'cancelled' : 'created'),
+          permissionMode: run?.permissionMode ?? child.permissionMode,
+          createdAt: run?.createdAt ?? child.createdAt,
+          updatedAt: run?.updatedAt ?? child.lastUsedAt,
+          ...(run?.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+          ...(run?.completedAt !== undefined
+            ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
+            : {}),
+          ...(run?.failureClass ? { failureClass: run.failureClass } : {}),
+        };
+      }),
+    );
     return {
       definitions,
-      runs: childRuns.map((run) => ({
-        runId: run.runId,
-        turnId: run.turnId,
-        parentRunId: run.parentRunId,
-        ...(run.agentId ? { agentId: run.agentId } : {}),
-        ...(run.agentName ? { agentName: run.agentName } : {}),
-        status: run.status,
-        permissionMode: run.permissionMode,
-        createdAt: run.createdAt,
-        updatedAt: run.updatedAt,
-        ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
-        ...(run.completedAt !== undefined
-          ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
-          : {}),
-        ...(run.failureClass ? { failureClass: run.failureClass } : {}),
-      })),
+      executions: [
+        ...childSessionExecutions,
+        ...childRuns.map(
+          (run): SubagentExecutionListItem => ({
+            execution: {
+              kind: 'legacy_child_run',
+              sessionId,
+              runId: run.runId,
+            },
+            ...(run.agentId ? { agentId: run.agentId } : {}),
+            ...(run.agentName ? { agentName: run.agentName } : {}),
+            turnId: run.turnId,
+            status: run.status,
+            permissionMode: run.permissionMode,
+            createdAt: run.createdAt,
+            updatedAt: run.updatedAt,
+            ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+            ...(run.completedAt !== undefined
+              ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
+              : {}),
+            ...(run.failureClass ? { failureClass: run.failureClass } : {}),
+          }),
+        ),
+      ],
+      runs: legacyRuns,
     };
   }
 
@@ -1779,21 +2562,23 @@ export class SessionManager {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) {
       throw new Error('agent_output requires AgentRunStore and RuntimeEventStore');
     }
-    const header = await this.findChildRunForOutput(sessionId, input);
+    const located = await this.findChildRunForOutput(sessionId, input);
+    const { header } = located;
     const inspected = await inspectAgentRunReadModel(
       this.deps.runStore,
       this.deps.runtimeEventStore,
       {
-        sessionId,
+        sessionId: header.sessionId,
         runId: header.runId,
         header,
       },
     );
     const artifacts = this.deps.listArtifactsForTurn
-      ? await this.deps.listArtifactsForTurn(sessionId, header.turnId)
+      ? await this.deps.listArtifactsForTurn(header.sessionId, header.turnId)
       : [];
     const maxEvents = normalizeAgentOutputMaxEvents(input.maxEvents);
     return {
+      execution: located.execution,
       header: inspected.header,
       events: tail(inspected.events, maxEvents),
       runtimeEvents: tail(inspected.runtimeEvents, maxEvents),
@@ -1809,7 +2594,25 @@ export class SessionManager {
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
-    await this.runtimeKernel.stopSession(sessionId, input);
+    const ownStop = this.runtimeKernel.stopSession(sessionId, input);
+    let childStops: PromiseSettledResult<void>[] = [];
+    let childLookupError: unknown;
+    try {
+      const children = await this.listChildSessions(sessionId);
+      childStops = await Promise.allSettled(
+        children
+          .filter((child) => child.subagentParent?.lifecycle === 'foreground')
+          .map((child) => this.runtimeKernel.stopSession(child.id, input)),
+      );
+    } catch (error) {
+      childLookupError = error;
+    }
+    await ownStop;
+    const childStopError = childStops.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    )?.reason;
+    if (childLookupError !== undefined) throw childLookupError;
+    if (childStopError !== undefined) throw childStopError;
   }
 
   /** Queue a user message for mid-turn injection at the next step boundary. */
@@ -2005,6 +2808,20 @@ export class SessionManager {
     return run ? this.effectiveRunHeaderFromRuntimeLedger(run) : undefined;
   }
 
+  private assertActiveParentRun(
+    parentSessionId: string,
+    parentRun: AgentRunHeader,
+    parentTurnId: string,
+  ): void {
+    if (
+      parentRun.sessionId !== parentSessionId ||
+      parentRun.turnId !== parentTurnId ||
+      !this.runtimeKernel.hasActiveRun?.(parentSessionId, parentRun.runId, parentTurnId)
+    ) {
+      throw new Error('Child session parent run is not active');
+    }
+  }
+
   private async resolveShellRunOwner(
     firstParentSessionId: string,
     ref: string,
@@ -2037,17 +2854,75 @@ export class SessionManager {
   private async findChildRunForOutput(
     sessionId: string,
     input: AgentOutputInput,
-  ): Promise<AgentRunHeader> {
-    if (Number(!!input.runId) + Number(!!input.turnId) !== 1) {
-      throw new Error('agent_output requires exactly one of runId or turnId');
+  ): Promise<{ header: AgentRunHeader; execution: SubagentExecutionRef }> {
+    if (Number(!!input.execution) + Number(!!input.runId) + Number(!!input.turnId) !== 1) {
+      throw new Error('agent_output requires exactly one execution, runId, or turnId locator');
+    }
+    if (input.execution?.kind === 'child_session') {
+      const execution = input.execution;
+      const child = await this.deps.store.readHeader(execution.sessionId).catch((error) => {
+        if (isNotFoundError(error)) return undefined;
+        throw error;
+      });
+      if (
+        !child ||
+        child.subagentParent?.kind !== 'subagent' ||
+        child.subagentParent.parentSessionId !== sessionId
+      ) {
+        throw new Error('agent_output could not find the requested child session');
+      }
+      const runs = await this.deps.runStore?.listSessionRuns(child.id);
+      const selected = execution.currentRunId
+        ? runs?.find((run) => run.runId === execution.currentRunId)
+        : runs
+            ?.slice()
+            .sort(
+              (left, right) =>
+                right.createdAt - left.createdAt ||
+                right.updatedAt - left.updatedAt ||
+                right.runId.localeCompare(left.runId),
+            )[0];
+      if (!selected || !isSessionInlineRun(selected)) {
+        throw new Error('agent_output could not find the requested child session run');
+      }
+      const header = await this.effectiveRunHeaderFromRuntimeLedger(selected);
+      return {
+        header,
+        execution: {
+          kind: 'child_session',
+          sessionId: child.id,
+          currentRunId: header.runId,
+        },
+      };
+    }
+
+    const legacyExecution =
+      input.execution?.kind === 'legacy_child_run' ? input.execution : undefined;
+    if (legacyExecution && legacyExecution.sessionId !== sessionId) {
+      throw new Error('agent_output could not find the requested legacy child run');
     }
     const runs = await this.deps.runStore?.listSessionRuns(sessionId);
     const header = runs?.find((run) =>
-      input.runId ? run.runId === input.runId : input.turnId ? run.turnId === input.turnId : false,
+      legacyExecution
+        ? run.runId === legacyExecution.runId
+        : input.runId
+          ? run.runId === input.runId
+          : input.turnId
+            ? run.turnId === input.turnId
+            : false,
     );
     if (!header) throw new Error('agent_output could not find the requested child agent run');
-    if (!header.parentRunId) throw new Error('agent_output only reads child agent runs');
-    return this.effectiveRunHeaderFromRuntimeLedger(header);
+    if (!header.parentRunId || isSessionInlineRun(header)) {
+      throw new Error('agent_output only reads child agent runs');
+    }
+    return {
+      header: await this.effectiveRunHeaderFromRuntimeLedger(header),
+      execution: {
+        kind: 'legacy_child_run',
+        sessionId,
+        runId: header.runId,
+      },
+    };
   }
 
   private async effectiveRunHeaderFromRuntimeLedger(run: AgentRunHeader): Promise<AgentRunHeader> {
@@ -2479,6 +3354,9 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     ...(h.parentSessionId ? { parentSessionId: h.parentSessionId } : {}),
     ...(h.branchOfTurnId ? { branchOfTurnId: h.branchOfTurnId } : {}),
     ...(h.subagentParent ? { subagentParent: h.subagentParent } : {}),
+    ...(h.subagentRuntime
+      ? { subagentRuntime: subagentSessionRuntimeSummary(h.subagentRuntime) }
+      : {}),
     ...(h.revisionRootSessionId ? { revisionRootSessionId: h.revisionRootSessionId } : {}),
     ...(h.revisionParentSessionId ? { revisionParentSessionId: h.revisionParentSessionId } : {}),
     ...(h.revisionOfTurnId ? { revisionOfTurnId: h.revisionOfTurnId } : {}),
@@ -2501,6 +3379,41 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
 
 function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+function childSessionSpawnKey(
+  parentSessionId: string,
+  input: Pick<SpawnChildSessionInput, 'spawnedBy' | 'swarm'>,
+): string {
+  return JSON.stringify([
+    1,
+    parentSessionId,
+    input.spawnedBy.parentRunId,
+    input.spawnedBy.toolCallId,
+    input.swarm?.swarmId ?? null,
+    input.swarm?.itemId ?? null,
+  ]);
+}
+
+function childSessionRequestFingerprint(
+  parentSessionId: string,
+  input: Pick<SpawnChildSessionInput, 'spawnedBy' | 'agentProfile' | 'prompt' | 'swarm'>,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        1,
+        parentSessionId,
+        input.spawnedBy.parentRunId,
+        input.spawnedBy.parentTurnId,
+        input.spawnedBy.toolCallId,
+        input.agentProfile,
+        input.prompt,
+        input.swarm?.swarmId ?? null,
+        input.swarm?.itemId ?? null,
+      ]),
+    )
+    .digest('hex');
 }
 
 export function changesBackendConfig(patch: Partial<SessionHeader>): boolean {

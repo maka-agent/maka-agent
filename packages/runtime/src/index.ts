@@ -26,13 +26,17 @@ export type {
   ResumeChildAgentInput,
   SpawnChildAgentInput,
   SpawnChildAgentResult,
+  SpawnChildSessionInput,
+  SpawnChildSessionResult,
   RetryChildAgentInput,
   AgentListItem,
   AgentListResult,
+  SubagentExecutionListItem,
   AgentOutputInput,
   AgentOutputResult,
   StopSessionInput,
 } from './session-manager.js';
+export type { SubagentExecutionRef } from './subagent-execution.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';

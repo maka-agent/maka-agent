@@ -243,7 +243,6 @@ export interface SafeBoundaryContinuationFacts {
   currentCwd: string;
   sourceWorkspaceIdentity: string;
   currentWorkspaceIdentity: string;
-  currentWorkspaceIdentityAliases?: readonly string[];
   backgroundOperationsSettled: boolean;
   availableToolNames: readonly string[];
   /** Shared capability registry used by planning and execution revalidation. */
@@ -289,8 +288,6 @@ export interface RuntimeContinuationSafetyObservation {
   workspaceIdentity: string;
   /** Current location is diagnostic only and never participates in identity. */
   workspacePath?: string;
-  /** One-way compatibility aliases for legacy fs:{dev}:{ino}:{path} AgentRuns. */
-  legacyWorkspaceIdentities?: readonly string[];
   backgroundOperationsSettled: boolean;
   availableToolNames: readonly string[];
   workspaceCheckpoint?: {
@@ -324,7 +321,6 @@ export interface RuntimeContinuationPlannerInput {
   currentCwd: string;
   sourceWorkspaceIdentity: string;
   currentWorkspaceIdentity: string;
-  currentWorkspaceIdentityAliases?: readonly string[];
   backgroundOperationsSettled: boolean;
   availableToolNames: readonly string[];
   expectedRuntimeEventHighWater?: number;
@@ -441,9 +437,6 @@ export class RuntimeContinuationPlanner {
       currentCwd: input.currentCwd,
       sourceWorkspaceIdentity: input.sourceWorkspaceIdentity,
       currentWorkspaceIdentity: input.currentWorkspaceIdentity,
-      ...(input.currentWorkspaceIdentityAliases?.length
-        ? { currentWorkspaceIdentityAliases: input.currentWorkspaceIdentityAliases }
-        : {}),
       backgroundOperationsSettled: input.backgroundOperationsSettled,
       availableToolNames: input.availableToolNames,
       ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
@@ -714,10 +707,7 @@ export function buildSafeBoundaryContinuationPlan(
       detail: { sourceCwd: facts.sourceCwd, currentCwd: facts.currentCwd },
     });
   }
-  if (
-    facts.sourceWorkspaceIdentity !== facts.currentWorkspaceIdentity &&
-    !facts.currentWorkspaceIdentityAliases?.includes(facts.sourceWorkspaceIdentity)
-  ) {
+  if (facts.sourceWorkspaceIdentity !== facts.currentWorkspaceIdentity) {
     phaseOneDiagnostics.push({
       code: 'workspace_identity_mismatch',
       message: 'current workspace identity differs from the source resume boundary',

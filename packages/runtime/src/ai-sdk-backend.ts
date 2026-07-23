@@ -108,6 +108,7 @@ import {
   type ToolModelOutput,
 } from './tool-runtime.js';
 import type { RuntimeCommitSink } from './runtime-commit-sink.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import {
   ModelAdapter,
   normalizeAiSdkUsage,
@@ -543,25 +544,25 @@ export interface AiSdkBackendInput {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  spawnChildSession?: ToolRuntimeInput['spawnChildSession'];
   prepareChildAgentResume?: ToolRuntimeInput['prepareChildAgentResume'];
   resumeChildAgent?: ToolRuntimeInput['resumeChildAgent'];
   retryChildAgent?: (input: {
     parentRunId: string;
     sourceRunId: string;
+    execution?: SubagentExecutionRef;
     abortSignal: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: {
-    runId?: string;
-    turnId?: string;
-    maxEvents?: number;
-  }) => Promise<unknown>;
+  readChildAgentOutput?: ToolRuntimeInput['readChildAgentOutput'];
   /** Optional diagnostic trace hook for explaining a runtime turn without changing renderer events. */
   recordRunTrace?: RunTraceRecorder;
   /**
@@ -774,6 +775,7 @@ export class AiSdkBackend implements AgentBackend {
       getCurrentOrchestration: () => this.currentOrchestration,
       permissionRules: input.permissionRules,
       spawnChildAgent: input.spawnChildAgent,
+      spawnChildSession: input.spawnChildSession,
       prepareChildAgentResume: input.prepareChildAgentResume,
       resumeChildAgent: input.resumeChildAgent,
       retryChildAgent: input.retryChildAgent,
