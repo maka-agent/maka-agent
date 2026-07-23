@@ -807,7 +807,7 @@ export function steeringMessagesMissingFromBase(
 /**
  * The messages with THIS TURN'S injected steering removed (transport-retry
  * base). Only the injected set may be stripped: the retry attempt's own
- * prepareStep re-appends exactly that accumulator, while a historical,
+ * request projection re-appends exactly that accumulator, while a historical,
  * ledger-replayed steering message (same marker, different event id) is part
  * of the base that nothing re-appends — stripping it would erase it from
  * every post-retry request.

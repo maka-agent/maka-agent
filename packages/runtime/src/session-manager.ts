@@ -395,9 +395,9 @@ export interface BackendFactoryContext {
   ) => Promise<void>;
   /**
    * Durable read of the given turn's persisted RuntimeEvents from the
-   * authoritative run ledger. Mid-turn capacity compaction derives its
-   * coverage pool from this read, so covered events are persisted by
-   * construction before any checkpoint that folds them.
+   * authoritative run ledger. The Runtime reloads this projection between
+   * provider requests; mid-turn compaction also derives its coverage pool from
+   * the same durable facts.
    */
   loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
   /** Whether this activation may fold its run ledger into session-scoped history. */

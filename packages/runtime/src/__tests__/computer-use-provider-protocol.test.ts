@@ -11,6 +11,7 @@ import {
 } from '../computer-use-tools.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { PermissionEngine } from '../permission-engine.js';
+import { createDurableTurnHarness } from './durable-turn-harness.js';
 
 const servers: Array<{ close(): Promise<void> }> = [];
 
@@ -66,6 +67,12 @@ describe('Anthropic-compatible Computer Use product loops', () => {
     },
   ] as const) {
     test(`${provider.providerType}/${provider.modelId} completes a multi-step semantic model loop`, async () => {
+      const sessionId = `session-${provider.providerType}`;
+      const durable = createDurableTurnHarness({
+        sessionId,
+        turnId: 'turn-1',
+        text: 'Set the fixture field to provider-loop.',
+      });
       const requestBodies: Array<Record<string, unknown>> = [];
       const server = await startJsonServer(async (request, response) => {
         assert.equal(request.method, 'POST');
@@ -104,7 +111,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         provider.expectedWireOutputLimit,
       );
       const runtime = new AiSdkBackend({
-        sessionId: `session-${provider.providerType}`,
+        sessionId,
         header: header(provider.providerType, provider.modelId),
         appendMessage: async () => {},
         connection: providerConnection,
@@ -118,15 +125,13 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         providerOptions: buildProviderOptions(providerConnection, provider.modelId),
         tools: [computerTool],
         maxSteps: 6,
+        loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
         newId: idGenerator(),
         now: monotonicClock(),
       });
 
-      for await (const event of runtime.send({
-        turnId: 'turn-1',
-        text: 'Set the fixture field to provider-loop.',
-        context: [],
-      })) {
+      for await (const event of runtime.send(durable.sendInput())) {
+        durable.record(event);
         events.push(event);
         if (event.type === 'tool_result') {
           toolResults.push({ isError: event.isError });
@@ -184,6 +189,12 @@ describe('Anthropic-compatible Computer Use product loops', () => {
     });
 
     test(`${provider.providerType}/${provider.modelId} reinjects a failed semantic action as an error tool result`, async () => {
+      const sessionId = `session-${provider.providerType}-failure`;
+      const durable = createDurableTurnHarness({
+        sessionId,
+        turnId: 'turn-failure',
+        text: 'Attempt to update the fixture field.',
+      });
       const requestBodies: Array<Record<string, unknown>> = [];
       const server = await startJsonServer(async (request, response) => {
         assert.equal(request.method, 'POST');
@@ -212,7 +223,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       });
       const events: SessionEvent[] = [];
       const runtime = new AiSdkBackend({
-        sessionId: `session-${provider.providerType}-failure`,
+        sessionId,
         header: header(provider.providerType, provider.modelId),
         appendMessage: async () => {},
         connection: connection(
@@ -231,15 +242,13 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         modelFactory: (input) => getAIModel(input),
         tools: [computerTool],
         maxSteps: 4,
+        loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
         newId: idGenerator(),
         now: monotonicClock(),
       });
 
-      for await (const event of runtime.send({
-        turnId: 'turn-failure',
-        text: 'Attempt to update the fixture field.',
-        context: [],
-      })) {
+      for await (const event of runtime.send(durable.sendInput())) {
+        durable.record(event);
         events.push(event);
       }
 

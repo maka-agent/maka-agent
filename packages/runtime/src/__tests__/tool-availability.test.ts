@@ -58,7 +58,7 @@ describe('ToolAvailabilityRuntime — full mode', () => {
     );
     assert.ok(plan.activeTools.includes('office_edit'));
     assert.ok(!plan.activeTools.includes(LOAD_TOOLS_NAME), 'no connector in full mode');
-    assert.equal(plan.prepareStep, undefined);
+    assert.equal(plan.projectActiveTools, undefined);
     assert.equal(plan.gating, undefined);
     assert.equal(plan.diagnostics([], 0), undefined);
   });
@@ -85,7 +85,7 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
     const plan = runtime(true).prepare([], new Set(['rive_run']));
     assert.ok(plan.activeTools.includes('rive_run'), 'required tool is visible at step 0');
     assert.ok(plan.gating?.activeNames().has('rive_run'));
-    const next = plan.prepareStep!({ steps: [] });
+    const next = plan.projectActiveTools!({ completedSteps: [] });
     assert.ok(next.activeTools.includes('rive_run'), 'required tool remains visible later');
     assert.ok(!next.activeTools.includes('office_edit'), 'other deferred groups remain hidden');
   });
@@ -113,10 +113,10 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
     }
   });
 
-  test('the connector activates a group same-turn via prepareStep', () => {
+  test('the connector activates a group in the next request projection', () => {
     const plan = runtime(true).prepare([]);
-    assert.ok(plan.prepareStep);
-    const next = plan.prepareStep!({ steps: [loadStep('office')] });
+    assert.ok(plan.projectActiveTools);
+    const next = plan.projectActiveTools!({ completedSteps: [loadStep('office')] });
     assert.ok(
       next.activeTools.includes('office_edit'),
       'office group active after load_tools(office)',
@@ -134,7 +134,7 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
       'rive_run',
     ]);
     assert.ok(!plan.gating!.activeNames().has('rive_run'), 'rive hidden at step 0');
-    plan.prepareStep!({ steps: [loadStep('rive')] });
+    plan.projectActiveTools!({ completedSteps: [loadStep('rive')] });
     assert.ok(plan.gating!.activeNames().has('rive_run'), 'snapshot updated after rive load');
   });
 
@@ -208,7 +208,7 @@ describe('ToolAvailabilityRuntime — diagnostics', () => {
 
   test('enabledSourceIds grows once a group is loaded', () => {
     const plan = runtime(true).prepare([]);
-    const active = plan.prepareStep!({ steps: [loadStep('rive')] }).activeTools;
+    const active = plan.projectActiveTools!({ completedSteps: [loadStep('rive')] }).activeTools;
     const d = plan.diagnostics(active, 100);
     assert.deepEqual(d!.enabledSourceIds, ['rive']);
     assert.deepEqual(d!.availableSourceIds, ['office']);
@@ -246,16 +246,16 @@ describe('ToolAvailabilityRuntime — connector shape', () => {
 describe('ToolAvailabilityRuntime — activation robustness', () => {
   test('parses a stringified connector input, ignores malformed input', () => {
     const plan = runtime(true).prepare([]);
-    const ok = plan.prepareStep!({
-      steps: [
+    const ok = plan.projectActiveTools!({
+      completedSteps: [
         { toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) }] },
       ],
     });
     assert.ok(ok.activeTools.includes('rive_run'), 'stringified { group } is parsed');
 
     const bad = runtime(true).prepare([]);
-    const after = bad.prepareStep!({
-      steps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: 'not json' }] }],
+    const after = bad.projectActiveTools!({
+      completedSteps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: 'not json' }] }],
     });
     assert.ok(!after.activeTools.includes('rive_run'), 'malformed input activates nothing');
   });
@@ -269,14 +269,16 @@ describe('ToolAvailabilityRuntime — activation robustness', () => {
     ];
     for (const c of cases) {
       const plan = runtime(true).prepare([]);
-      const next = plan.prepareStep!({ steps: [{ toolCalls: [c] }] });
+      const next = plan.projectActiveTools!({ completedSteps: [{ toolCalls: [c] }] });
       assert.ok(
         !next.activeTools.includes('rive_run'),
         `step ${c.toolName}(${JSON.stringify(c.input)}) must NOT activate a group`,
       );
     }
     // Only the live connector with the `group` arg activates same-turn.
-    const ok = runtime(true).prepare([]).prepareStep!({ steps: [loadStep('rive')] });
+    const ok = runtime(true).prepare([]).projectActiveTools!({
+      completedSteps: [loadStep('rive')],
+    });
     assert.ok(ok.activeTools.includes('rive_run'));
   });
 

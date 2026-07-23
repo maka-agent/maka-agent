@@ -36,7 +36,6 @@ describe('semantic compact', () => {
         requestSeen = request;
         assert.equal('tools' in request, false);
         assert.equal('toolChoice' in request, false);
-        assert.equal('prepareStep' in request, false);
         assert.match(JSON.stringify(request.messages), /OLD_BUILD_LOG/);
         assert.doesNotMatch(JSON.stringify(request.messages), /recent-result/);
         assert.match(JSON.stringify(request.messages), /Return ONLY a valid JSON object/);

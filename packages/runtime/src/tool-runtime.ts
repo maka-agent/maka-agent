@@ -501,10 +501,6 @@ export class ToolRuntime {
     return this.userQuestions.pendingCount(turnId);
   }
 
-  hasStepAdmission(stepId: string | null | undefined): boolean {
-    return stepId ? (this.stepAdmissions.get(stepId)?.callCount ?? 0) > 0 : false;
-  }
-
   /**
    * Settle one resolved Maka tool call. Tool/business failures resolve with a
    * provider-facing error output; durable runtime commit failures still reject.
@@ -633,7 +629,7 @@ export class ToolRuntime {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
     // Registration is synchronous and happens before the first await, so
-    // parallel AI SDK execute callbacks cannot race past exclusive admission.
+    // parallel Runtime settlements cannot race past exclusive admission.
     const admissionFailure = this.admitToolForStep(tool, stepId);
     let permissionArgs = executionArgs;
     let permissionArgsError: unknown;
@@ -806,7 +802,7 @@ export class ToolRuntime {
     // Tool-availability execute-boundary guard (Codex Δ5). Uses the step-start
     // snapshot, NOT a cumulative loaded-set: if one step emits `load_tools(g)`
     // and a tool from group `g` in parallel, that tool is not yet active (it
-    // activates only at the next step's `prepareStep`), so it is rejected here —
+    // activates only in the next request projection), so it is rejected here —
     // before permission eval and before the real impl. This also closes the AI
     // SDK `activeTools` leak (vercel/ai#8653). The rejection is recoverable: the
     // model loads via `load_tools`, then retries next step.

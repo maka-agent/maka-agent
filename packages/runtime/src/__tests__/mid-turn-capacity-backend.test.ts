@@ -691,7 +691,7 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     assert.equal(lastCall?.contextBudget?.historyCompactWriteFailures, 1);
   });
 
-  test('fails open with a diagnostic when the durable ledger read fails (never a silent skip)', async () => {
+  test('fails closed before provider dispatch when the durable ledger read fails', async () => {
     const fixture = buildFixture();
     // Break the seam after construction: every trigger read now rejects.
     (
@@ -701,17 +701,14 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     ).input.loadTurnRuntimeEvents = () => Promise.reject(new Error('ledger offline'));
     await runFixtureTurn(fixture, consumer);
 
-    // The turn still completes on the raw projection; nothing was recorded.
-    assert.equal(fixture.model.doStreamCalls.length, 3);
+    // Durable replay is the source of truth for every request, not merely a
+    // compaction input. Continuing on a stale in-memory projection would risk
+    // repeating tool side effects, so the Runtime fails before dispatch.
+    assert.equal(fixture.model.doStreamCalls.length, 0);
     const complete = fixture.events.find((event) => event.type === 'complete');
-    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
+    assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'error');
     assert.equal(fixture.recorded.length, 0);
-    assert.equal(promptJson(fixture, 2).includes('RAW_SPAN_ONE_'), true);
-
-    const failedOpen = compactionDecisions(fixture).find(
-      (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
-    );
-    assert.equal(failedOpen?.failOpenReason, 'ledger_read_failed');
+    assert.equal(fixture.summarizerCalls, 0);
   });
 
   test('active tool-result prune re-converges the rebuilt tail after a capacity replacement', async () => {
@@ -1075,9 +1072,9 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     // consumer's processed ack), so the durable pool must contain the step's
     // text before any coverage is computed.
     const fixture = buildFixture({
-      // High water at 200 tokens: the first step's usage (120) plus its tool
-      // result delta crosses it, so the trigger fires at the step-1 boundary.
-      reserveTokens: 1_800,
+      // High water at 100 tokens: the first request's 100 input tokens plus
+      // its assistant/tool-result delta crosses it at the step-1 boundary.
+      reserveTokens: 1_900,
       assistantTextInFirstStep: true,
       finalAtSecondCall: true,
     });
@@ -1091,12 +1088,12 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
       true,
     );
     // ...and the projection accounts for it: the step-1 text event is in the
-    // durable pool when coverage is computed, so it survives either verbatim
-    // in the preserved tail of the second request or inside the summarized
-    // covered span — never silently dropped from both.
-    assert.equal(fixture.recorded.length, 1);
+    // durable pool before the second request is projected, so it survives
+    // either verbatim in the preserved tail or inside a summarized covered
+    // span. The current replay groups text and tool calls from one provider
+    // step, so the safe planner may correctly retain that indivisible step
+    // instead of recording a checkpoint.
     const secondPrompt = promptJson(fixture, 1);
-    assert.match(secondPrompt, /maka_history_compact_checkpoint/);
     const inTail = secondPrompt.includes('ASSISTANT_SENTINEL');
     const inCoveredSpan = fixture.summarizedSources.join('\n').includes('ASSISTANT_SENTINEL');
     assert.equal(inTail || inCoveredSpan, true);
@@ -1172,14 +1169,15 @@ describe('mid-turn capacity default-on safety guards (issue #882 PR 3)', () => {
   test('does not fire when the selected model has no known context window (conservative default)', async () => {
     // PR 3 sinks midTurn on by default, but the backend only activates it when
     // resolveSelectedModelContextWindow yields a window. An unknown model (no
-    // metadata, no models[].contextWindow) must fall back to never compacting
-    // rather than guessing a window — the turn runs raw and completes normally.
+    // metadata, no models[].contextWindow) must never compact. Durable replay
+    // remains active because it is the Runtime loop's independent source of
+    // truth.
     const fixture = buildFixture({ withoutContextWindow: true });
     await runFixtureTurn(fixture);
 
     assert.equal(fixture.recorded.length, 0);
     assert.equal(fixture.summarizerCalls, 0);
-    assert.equal(fixture.ledgerReads, 0);
+    assert.equal(fixture.ledgerReads, 3);
     const complete = fixture.events.find((event) => event.type === 'complete');
     assert.equal(complete?.type === 'complete' ? complete.stopReason : undefined, 'end_turn');
     // The raw span is never folded away, proving no compaction ran.

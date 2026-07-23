@@ -12748,6 +12748,8 @@ async function steeringDeliverySession(
             },
           },
         ],
+        loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
+        allowMidTurnHistoryCompaction: ctx.allowMidTurnHistoryCompaction,
         newId: nextId(),
         now: nextNow(1),
       }),

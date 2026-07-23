@@ -30,9 +30,10 @@ import {
   buildParentAgentTools,
 } from '../subagent-tools.js';
 import { buildDeferredToolGroupsFromCatalog } from '../tool-catalog-derive.js';
+import { createDurableTurnHarness, drainWithDurableTurn } from './durable-turn-harness.js';
 
 // End-to-end through the live AiSdkBackend: the availability config drives the
-// per-step prepareStep activation, the durable seed reconstructs prior-turn
+// between-request activation, the durable seed reconstructs prior-turn
 // loads, and the execute-boundary guard is fed by the live snapshot.
 
 const ZERO_USAGE: LanguageModelV4Usage = {
@@ -76,6 +77,7 @@ interface BackendOpts {
   /** Override the availability config (pass `null` to omit it ⇒ full surface). */
   toolAvailability?: ToolAvailabilityConfig | null;
   recordLlmCall?: (record: LlmCallRecord) => void;
+  durable?: ReturnType<typeof createDurableTurnHarness>;
 }
 
 function backend(
@@ -95,6 +97,7 @@ function backend(
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
     tools: tools(implCalls),
+    ...(opts.durable ? { loadTurnRuntimeEvents: opts.durable.loadTurnRuntimeEvents } : {}),
     ...(resolved ? { toolAvailability: resolved } : {}),
     ...(opts.recordLlmCall ? { recordLlmCall: opts.recordLlmCall } : {}),
     newId: () => `id-${++n}`,
@@ -120,6 +123,7 @@ function agentBackend(
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
     tools: buildParentAgentTools(),
+    ...(opts.durable ? { loadTurnRuntimeEvents: opts.durable.loadTurnRuntimeEvents } : {}),
     ...(resolved ? { toolAvailability: resolved } : {}),
     spawnChildSession: async (input) => {
       const childIndex = spawnCalls.length;
@@ -179,14 +183,15 @@ describe('AiSdkBackend deferred tool loading', () => {
   });
 
   test('guard: same-step parallel load_tools(browser)+browser_click rejects the click (live)', async () => {
+    const durable = createDurableTurnHarness({
+      turnId: 'turn-1',
+      text: 'load and click in one step',
+    });
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    await drain(
-      backend(parallelLoadUseModel(captured), implCalls).send({
-        turnId: 'turn-1',
-        text: 'load and click in one step',
-        context: [],
-      }),
+    await drainWithDurableTurn(
+      backend(parallelLoadUseModel(captured), implCalls, { durable }).send(durable.sendInput()),
+      durable,
     );
     assert.equal(captured.length, 2, 'expected two steps (parallel call step, then a final step)');
     assert.ok(!captured[0].includes('browser_click'), 'browser_click is not advertised at step 0');
@@ -198,13 +203,19 @@ describe('AiSdkBackend deferred tool loading', () => {
   });
 
   test('diagnostics: a same-turn load is reflected in the recorded tool-schema cost', async () => {
+    const durable = createDurableTurnHarness({
+      turnId: 'turn-1',
+      text: 'load browser',
+    });
     const records: LlmCallRecord[] = [];
     const implCalls: string[] = [];
-    // step 0 loads browser; browser_click activates at step 1 via prepareStep.
-    await drain(
+    // Step 0 loads browser; browser_click activates in request 1.
+    await drainWithDurableTurn(
       backend(loadBrowserThenFinishModel(), implCalls, {
         recordLlmCall: (r) => records.push(r),
-      }).send({ turnId: 'turn-1', text: 'load browser', context: [] }),
+        durable,
+      }).send(durable.sendInput()),
+      durable,
     );
 
     assert.equal(records.length, 1, 'exactly one llm-call cost record for the turn');
@@ -301,14 +312,17 @@ describe('AiSdkBackend deferred tool loading', () => {
   });
 
   test('repair: a mis-cased group call after a mid-turn load repairs to the canonical name', async () => {
+    const durable = createDurableTurnHarness({
+      turnId: 'turn-1',
+      text: 'load browser then click',
+    });
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    await drain(
-      backend(loadThenMiscasedClickModel(captured), implCalls).send({
-        turnId: 'turn-1',
-        text: 'load browser then click',
-        context: [],
-      }),
+    await drainWithDurableTurn(
+      backend(loadThenMiscasedClickModel(captured), implCalls, { durable }).send(
+        durable.sendInput(),
+      ),
+      durable,
     );
     // Step 0 loads browser; step 1 emits the mis-cased BROWSER_CLICK. Because the
     // repair list follows the current step's active snapshot (not the frozen
@@ -367,15 +381,14 @@ describe('AiSdkBackend deferred agent tools', () => {
   });
 
   test('agent tools are hidden by default and visible after load_tools(agent)', async () => {
+    const durable = createDurableTurnHarness({ turnId: 'turn-1', text: 'load agents' });
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];
-    await drain(
-      agentBackend(loadAgentThenFinishModel(captured), spawnCalls).send({
-        turnId: 'turn-1',
-        text: 'load agents',
-        context: [],
-        runId: 'parent-run',
-      }),
+    await drainWithDurableTurn(
+      agentBackend(loadAgentThenFinishModel(captured), spawnCalls, { durable }).send(
+        durable.sendInput({ runId: 'parent-run' }),
+      ),
+      durable,
     );
 
     assert.ok(captured[0].includes(LOAD_TOOLS_NAME), 'load_tools advertised');
@@ -441,17 +454,19 @@ describe('AiSdkBackend deferred agent tools', () => {
   });
 
   test('deferred agent group is prompt economy only: loaded agent_spawn still uses its permission model', async () => {
+    const durable = createDurableTurnHarness({
+      turnId: 'turn-1',
+      text: 'load then spawn',
+      runId: 'parent-run',
+    });
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];
-    await drain(
+    await drainWithDurableTurn(
       agentBackend(loadAgentThenSpawnModel(captured), spawnCalls, {
         permissionMode: 'execute',
-      }).send({
-        turnId: 'turn-1',
-        text: 'load then spawn',
-        context: [],
-        runId: 'parent-run',
-      }),
+        durable,
+      }).send(durable.sendInput({ runId: 'parent-run' })),
+      durable,
     );
 
     assert.ok(
@@ -475,17 +490,19 @@ describe('AiSdkBackend deferred agent tools', () => {
   });
 
   test('loaded agent_swarm fans out through the shared spawn capability', async () => {
+    const durable = createDurableTurnHarness({
+      turnId: 'turn-1',
+      text: 'load then fan out',
+      runId: 'parent-run',
+    });
     const captured: string[][] = [];
     const spawnCalls: unknown[] = [];
-    const events = await collect(
+    const events = await drainWithDurableTurn(
       agentBackend(loadAgentThenSwarmModel(captured), spawnCalls, {
         permissionMode: 'execute',
-      }).send({
-        turnId: 'turn-1',
-        text: 'load then fan out',
-        context: [],
-        runId: 'parent-run',
-      }),
+        durable,
+      }).send(durable.sendInput({ runId: 'parent-run' })),
+      durable,
     );
 
     assert.ok(captured[1].includes(AGENT_SWARM_TOOL_NAME));

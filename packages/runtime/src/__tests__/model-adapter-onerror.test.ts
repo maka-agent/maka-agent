@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
+import { APICallError } from '@ai-sdk/provider';
 
 import { ModelAdapter } from '../model-adapter.js';
 
@@ -16,6 +17,36 @@ function newAdapter(): ModelAdapter {
 }
 
 describe('ModelAdapter.startStream onError', () => {
+  test('does not hide provider retries inside one adapter call', async () => {
+    let providerCalls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        providerCalls += 1;
+        throw new APICallError({
+          message: 'retry me',
+          url: 'https://provider.invalid/v1/messages',
+          requestBodyValues: {},
+          statusCode: 503,
+          responseHeaders: { 'retry-after-ms': '0' },
+        });
+      },
+    });
+    const result = await newAdapter().startStream({
+      model,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: {},
+      activeTools: [],
+      abortSignal: new AbortController().signal,
+      repairToolCall: async () => null,
+    });
+
+    for await (const _event of result.events) {
+      void _event;
+    }
+
+    assert.equal(providerCalls, 1);
+  });
+
   test('returns normalized Maka-owned request metadata', async () => {
     const model = new MockLanguageModelV4({
       doStream: {

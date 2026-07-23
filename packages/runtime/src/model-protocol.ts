@@ -229,26 +229,12 @@ export type ToolResultOutput =
 
 /**
  * Maka-owned provider-facing tool contract. The schema stays opaque because
- * schema construction is a local implementation detail; executable behavior
- * remains present until #1381 moves loop ownership out of the AI SDK.
+ * schema construction is a local implementation detail. Execution belongs to
+ * ToolRuntime and never crosses the provider adapter boundary.
  */
-export interface ModelToolExecutionContext {
-  toolCallId: string;
-  abortSignal: AbortSignal;
-}
-
 export interface ModelToolDefinition {
   description?: string;
   inputSchema: unknown;
-  execute?: (
-    input: unknown,
-    context: ModelToolExecutionContext,
-  ) => unknown | PromiseLike<unknown> | AsyncIterable<unknown>;
-  toModelOutput?: (options: {
-    toolCallId: string;
-    input: unknown;
-    output: unknown;
-  }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
 }
 
 export type ModelToolSet = Record<string, ModelToolDefinition>;
@@ -426,6 +412,7 @@ export type ModelStreamEvent =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'thinking-signature'; signature: string }
+  | { kind: 'tool-call'; toolCall: ToolCallPart }
   | { kind: 'step-finish'; usage?: NormalizedUsage; finishReason?: ModelFinishReason }
   | { kind: 'finish'; finishReason?: ModelFinishReason }
   | { kind: 'error'; failure: ModelFailure };

@@ -1726,8 +1726,8 @@ describe('isolated headless tools', () => {
     assert.ok(!plan.activeTools.includes('agent_list'));
     assert.ok(!plan.activeTools.includes('agent_output'));
 
-    const loaded = plan.prepareStep!({
-      steps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: { group: 'agent' } }] }],
+    const loaded = plan.projectActiveTools!({
+      completedSteps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: { group: 'agent' } }] }],
     }).activeTools;
     assert.ok(loaded.includes('agent_spawn'));
     assert.ok(loaded.includes(AGENT_SWARM_TOOL_NAME));
@@ -1754,7 +1754,7 @@ describe('isolated headless tools', () => {
     ).prepare([]);
 
     assert.deepEqual([...plan.activeTools].sort(), ['Glob', 'Grep', 'Read']);
-    assert.equal(plan.prepareStep, undefined);
+    assert.equal(plan.projectActiveTools, undefined);
     assert.ok(!plan.activeTools.includes(LOAD_TOOLS_NAME));
     assert.ok(!plan.activeTools.includes('agent_spawn'));
     assert.ok(!plan.activeTools.includes(AGENT_SWARM_TOOL_NAME));

@@ -38,7 +38,6 @@ function newAdapter(): ModelAdapter {
     modelId: 'mock',
     modelFactory: () => ({}),
     providerOptions: {},
-    maxSteps: 2,
     newId: () => 'id',
     now: () => 0,
   });
@@ -96,5 +95,100 @@ describe('hidden tools are trimmed from the provider request (wire-level)', () =
     const seen = await toolNamesSeenByProvider(new Set(['Read', 'load_tools', 'Rive']));
     assert.ok(seen.includes('Rive'), 'activated Rive should reach the provider');
     assert.ok(seen.includes('Read'), 'active tools stay present after a load');
+  });
+});
+
+describe('ModelAdapter provider-step boundary', () => {
+  test('one startStream call ends after the provider returns tool calls', async () => {
+    let providerCalls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        providerCalls += 1;
+        return {
+          stream: convertArrayToReadableStream<LanguageModelV4StreamPart>(
+            providerCalls === 1
+              ? [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: 'tool-1',
+                    toolName: 'Read',
+                    input: JSON.stringify({ q: 'README.md' }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: ZERO_USAGE,
+                  },
+                ]
+              : [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: 'stop' },
+                    usage: ZERO_USAGE,
+                  },
+                ],
+          ),
+        };
+      },
+    });
+    const result = await newAdapter().startStream({
+      model,
+      messages: [{ role: 'user', content: 'read it' }],
+      tools: {
+        Read: {
+          inputSchema: z.object({ q: z.string() }),
+        },
+      },
+      activeTools: ['Read'],
+      abortSignal: new AbortController().signal,
+      repairToolCall: async () => null,
+    });
+
+    for await (const _event of result.events) {
+      void _event;
+    }
+
+    assert.equal(providerCalls, 1);
+  });
+
+  test('tools cross the AI SDK boundary as schemas without executable behavior', async () => {
+    const model = new MockLanguageModelV4({
+      doStream: {
+        stream: convertArrayToReadableStream<LanguageModelV4StreamPart>([
+          { type: 'stream-start', warnings: [] },
+          {
+            type: 'tool-call',
+            toolCallId: 'tool-1',
+            toolName: 'Read',
+            input: JSON.stringify({ q: 'README.md' }),
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage: ZERO_USAGE,
+          },
+        ]),
+      },
+    });
+    const result = await newAdapter().startStream({
+      model,
+      messages: [{ role: 'user', content: 'read it' }],
+      tools: {
+        Read: {
+          inputSchema: z.object({ q: z.string() }),
+        },
+      },
+      activeTools: ['Read'],
+      abortSignal: new AbortController().signal,
+      repairToolCall: async () => null,
+    });
+
+    for await (const _event of result.events) {
+      void _event;
+    }
+
+    assert.equal(model.doStreamCalls.length, 1);
   });
 });

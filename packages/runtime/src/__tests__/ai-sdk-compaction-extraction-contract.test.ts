@@ -30,11 +30,11 @@ describe('AiSdkCompaction extraction contract', () => {
     assert.match(backend, /this\.compaction\.compactHistory\(/);
     assert.match(backend, /this\.compaction\.abortHistoryCompact\(/);
     assert.match(backend, /this\.compaction\.prepareContextBudgetPolicy\(/);
-    assert.match(backend, /this\.compaction\.buildSemanticCompactPrepareStep\(/);
-    assert.match(backend, /this\.compaction\.buildActiveFullCompactPrepareStep\(/);
-    assert.match(backend, /this\.compaction\.buildActiveToolResultPrunePrepareStep\(/);
+    assert.match(backend, /this\.compaction\.buildSemanticCompactProjection\(/);
+    assert.match(backend, /this\.compaction\.buildActiveFullCompactProjection\(/);
+    assert.match(backend, /this\.compaction\.buildActiveToolResultPruneProjection\(/);
     assert.match(backend, /this\.compaction\.buildMidTurnCapacityCompactState\(/);
-    assert.match(backend, /this\.compaction\.buildMidTurnCapacityCompactPrepareStep\(/);
+    assert.match(backend, /this\.compaction\.buildMidTurnCapacityCompactProjection\(/);
     assert.match(backend, /this\.compaction\.buildMidTurnFinalRequestVerdict\(/);
     assert.match(backend, /this\.compaction\.recoverFromOverflowError\(/);
 
@@ -51,14 +51,14 @@ describe('AiSdkCompaction extraction contract', () => {
 
     // The moved orchestration must no longer live on AiSdkBackend.
     assert.doesNotMatch(backend, /private async prepareContextBudgetPolicy/);
-    assert.doesNotMatch(backend, /private buildActiveToolResultPrunePrepareStep/);
-    assert.doesNotMatch(backend, /private buildSemanticCompactPrepareStep/);
-    assert.doesNotMatch(backend, /private buildActiveFullCompactPrepareStep/);
+    assert.doesNotMatch(backend, /private buildActiveToolResultPruneProjection/);
+    assert.doesNotMatch(backend, /private buildSemanticCompactProjection/);
+    assert.doesNotMatch(backend, /private buildActiveFullCompactProjection/);
     assert.doesNotMatch(backend, /private recordSemanticCompactSummaryCall/);
     assert.doesNotMatch(backend, /private recordSemanticCompactBlock/);
     assert.doesNotMatch(backend, /private recordActiveFullCompactBlock/);
     assert.doesNotMatch(backend, /private buildMidTurnCapacityCompactState/);
-    assert.doesNotMatch(backend, /private buildMidTurnCapacityCompactPrepareStep/);
+    assert.doesNotMatch(backend, /private buildMidTurnCapacityCompactProjection/);
     assert.doesNotMatch(backend, /private async computeMidTurnCompactionReplacement/);
     assert.doesNotMatch(backend, /private async recoverFromOverflowError/);
     assert.doesNotMatch(backend, /private buildMidTurnFinalRequestVerdict/);
@@ -71,9 +71,9 @@ describe('AiSdkCompaction extraction contract', () => {
     assert.doesNotMatch(backend, /function modelMessageSignature\(/);
     assert.doesNotMatch(backend, /function projectionSourceMessageSignature\(/);
     assert.doesNotMatch(backend, /function stableStringifyForSignature\(/);
-    assert.doesNotMatch(backend, /function composeActiveCompactionPrepareStep\(/);
+    assert.doesNotMatch(backend, /function composeActiveCompactionProjection\(/);
     assert.doesNotMatch(backend, /function activeToolResultArchiveKey\(/);
-    assert.doesNotMatch(backend, /function collectPrunablePrepareStepToolCallIds\(/);
+    assert.doesNotMatch(backend, /function collectPrunableCompletedStepToolCallIds\(/);
     assert.doesNotMatch(backend, /function projectAcceptedActiveFullCompactMessages\(/);
     assert.doesNotMatch(backend, /function hasActiveToolResultPruneDiagnosticPatch\(/);
     assert.doesNotMatch(backend, /function hasBlockingReplayDiagnostics\(/);
@@ -99,16 +99,16 @@ describe('AiSdkCompaction extraction contract', () => {
     // The orchestrator owns the moved families.
     assert.match(compaction, /public async compactHistory/);
     assert.match(compaction, /public async prepareContextBudgetPolicy/);
-    assert.match(compaction, /public buildSemanticCompactPrepareStep/);
-    assert.match(compaction, /public buildActiveFullCompactPrepareStep/);
-    assert.match(compaction, /public buildActiveToolResultPrunePrepareStep/);
+    assert.match(compaction, /public buildSemanticCompactProjection/);
+    assert.match(compaction, /public buildActiveFullCompactProjection/);
+    assert.match(compaction, /public buildActiveToolResultPruneProjection/);
     assert.match(compaction, /public buildMidTurnCapacityCompactState/);
-    assert.match(compaction, /public buildMidTurnCapacityCompactPrepareStep/);
+    assert.match(compaction, /public buildMidTurnCapacityCompactProjection/);
     assert.match(compaction, /public async computeMidTurnCompactionReplacement/);
     assert.match(compaction, /public async recoverFromOverflowError/);
     assert.match(compaction, /public buildMidTurnFinalRequestVerdict/);
     assert.match(compaction, /export class MidTurnCapacityCompactState/);
-    assert.match(compaction, /export function composeActiveCompactionPrepareStep/);
+    assert.match(compaction, /export function composeActiveCompactionProjection/);
     assert.match(compaction, /export function hasBlockingReplayDiagnostics/);
 
     // The collaborator may depend on AiSdkBackend's input type only (erased at

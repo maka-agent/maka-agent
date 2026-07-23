@@ -25,7 +25,6 @@ describe('ModelAdapter stream and error normalization', () => {
         observedApiKey = input.apiKey;
         return model;
       },
-      maxSteps: 2,
       newId: idGenerator(),
       now: monotonicClock(),
     });
@@ -34,7 +33,7 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(observedApiKey, '');
   });
 
-  test('translates provider text, reasoning, ignored tool chunks, and errors into ModelStreamEvents', () => {
+  test('translates provider text, reasoning, tool calls, and errors into ModelStreamEvents', () => {
     const adapter = newAdapter();
     type Chunk = Parameters<typeof adapter.translateChunk>[0];
     const chunks: Chunk[] = [
@@ -50,11 +49,11 @@ describe('ModelAdapter stream and error normalization', () => {
 
     const events: ModelStreamEvent[] = chunks.flatMap((chunk) => adapter.translateChunk(chunk));
 
-    // Tool chunks and unknown chunks are inert; the error is carried as a
-    // Maka-owned `error` event for the backend to classify via makeErrorEvent.
+    // Tool results and unknown chunks are inert; returned tool calls and errors
+    // cross the adapter as Maka-owned events.
     assert.deepEqual(
       events.map((event) => event.kind),
-      ['text', 'text', 'thinking', 'thinking', 'error'],
+      ['text', 'text', 'thinking', 'thinking', 'tool-call', 'error'],
     );
     assert.deepEqual(
       events
@@ -84,6 +83,33 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(shaped.reason, 'rate_limit');
     assert.equal(shaped.code, '429');
     assert.equal(shaped.message, 'Rate limit exceeded');
+  });
+
+  test('returns a Maka-owned tool call event from one provider step', () => {
+    const adapter = newAdapter();
+    type Chunk = Parameters<typeof adapter.translateChunk>[0];
+    const chunk = {
+      type: 'tool-call',
+      toolCallId: 'tool-1',
+      toolName: 'Read',
+      input: { path: 'README.md' },
+      providerExecuted: false,
+      providerMetadata: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+    } as unknown as Chunk;
+
+    assert.deepEqual(adapter.translateChunk(chunk), [
+      {
+        kind: 'tool-call',
+        toolCall: {
+          type: 'tool-call',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          input: { path: 'README.md' },
+          providerExecuted: false,
+          providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+        },
+      },
+    ]);
   });
 
   test('reduces AI SDK 7 step boundaries to Maka-owned step-finish events', () => {
@@ -548,7 +574,6 @@ function newAdapter(): ModelAdapter {
     apiKey: 'sk-test',
     modelId: 'claude-sonnet-4-5-20250929',
     modelFactory: () => ({}),
-    maxSteps: 50,
     newId: idGenerator(),
     now: monotonicClock(),
   });

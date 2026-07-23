@@ -140,7 +140,7 @@ export interface ContextBudgetPolicy {
    */
   activeToolResultPrune?: ActiveToolResultPrunePolicy;
   /**
-   * Optional active-loop full compact replacement. When enabled, prepareStep can
+   * Optional active-loop full compact replacement. When enabled, request projection can
    * replace a validated older provider-message span with a source-bearing block.
    */
   activeFullCompact?: ActiveFullCompactPolicy;

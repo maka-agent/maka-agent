@@ -6,30 +6,17 @@
  * machinery: PermissionEngine (policy + park/resume), materializer,
  * AsyncEventQueue, SessionStore JSONL persistence.
  *
- * The agent loop (multi-step tool calling) is owned by ai-sdk's `streamText`.
- * An explicit `maxSteps` uses `stopWhen: isStepCount(N)`; otherwise the loop
- * has no step cap. Permission gating happens inside each tool's `execute()`
- * callback — that's the seam where we consult PermissionEngine and either run,
- * deny synthetically, or park awaiting user.
+ * Maka owns the agent loop. Each ModelAdapter call performs exactly one
+ * provider request; returned tool calls settle through ToolRuntime, become
+ * durable, and are reloaded before the next provider request.
  *
  * Design:
  *   send()
  *     ├─ build AsyncEventQueue<SessionEvent>
  *     ├─ resolve LanguageModelV2 via deps.modelFactory(connection, modelId)
- *     ├─ expose each MakaTool through direct ToolRuntime settlement
- *     ├─ background task: pump streamText.stream → normalize → queue
+ *     ├─ expose schema-only tools to the provider
+ *     ├─ background task: project → stream one step → settle → reload
  *     └─ yield from queue
- *
- *   tool.execute(args)
- *     ├─ append ToolCallMessage  (§6.2: tool_call written BEFORE permission)
- *     ├─ emit ToolStartEvent
- *     ├─ engine.evaluate(...)
- *     │     ├─ allow:  run impl → append ToolResult → emit ToolResult
- *     │     ├─ block:  synth error → append ToolResult{isError:true} → emit
- *     │     └─ prompt: emit PermissionRequest → await parked
- *     │                ├─ allow:  run impl → ... (same as allow)
- *     │                └─ deny:   synth "User denied" → append → emit
- *     └─ return settled result + model output back to ai-sdk
  */
 
 import type {
@@ -85,7 +72,15 @@ import type {
   ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
 import type { ContextBudgetDiagnostic, PromptSegmentEstimate } from '@maka/core/usage-stats/types';
-import type { JSONValue, ModelMessage, ModelToolSet, ToolResultOutput } from './model-protocol.js';
+import type {
+  JSONValue,
+  ModelFinishReason,
+  ModelMessage,
+  ModelToolSet,
+  NormalizedUsage,
+  ToolCallPart,
+  ToolResultOutput,
+} from './model-protocol.js';
 import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
@@ -107,7 +102,6 @@ import {
   type MakaToolContext,
   type AgentTeamExecutionContext,
   type ToolRuntimeInput,
-  type ToolSettlement,
 } from './tool-runtime.js';
 import type { RuntimeCommitSink } from './runtime-commit-sink.js';
 import type { SubagentExecutionRef } from './subagent-execution.js';
@@ -117,11 +111,13 @@ import {
   type ModelFactoryInput,
   type NormalizedAiSdkUsage,
   type ModelStreamResult,
-  type PrepareStepFunctionLike,
-  type PrepareStepLike,
-  type PrepareStepResultLike,
   type RepairableAiSdkToolCall,
 } from './model-adapter.js';
+import type {
+  RequestProjection,
+  RequestProjectionContext,
+  RequestProjectionStage,
+} from './request-projection.js';
 import type {
   ActiveToolResultArchiveCandidate,
   ActiveToolResultPruneDiagnosticPatch,
@@ -135,7 +131,7 @@ import type { SemanticCompactBlock } from './semantic-compact.js';
 import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
 import {
   AiSdkCompaction,
-  composeActiveCompactionPrepareStep,
+  composeActiveCompactionProjection,
   hasActiveToolResultPruneDiagnosticPatch,
   hasBlockingReplayDiagnostics,
 } from './ai-sdk-compaction.js';
@@ -237,7 +233,7 @@ export type {
 export const INVALID_TOOL_NAME = 'invalid';
 
 /**
- * Deterministic prepareStep pipeline over ONE provider-visible projection.
+ * Deterministic request-projection pipeline over ONE provider-visible request.
  * Order is a contract: mid-turn capacity compaction runs first among the
  * message-shaping hooks so every later mechanism operates on (and re-converges
  * onto) its projection — active tool-result pruning re-archives large tool
@@ -252,28 +248,28 @@ export const INVALID_TOOL_NAME = 'invalid';
  * (messages, tools) payload — never by an individual hook over an intermediate
  * projection that a later hook could still rescue.
  */
-export function composePrepareStep(
-  toolAvailability: PrepareStepFunctionLike | undefined,
-  midTurnCapacityCompact: PrepareStepFunctionLike | undefined,
-  activeToolResultPrune: PrepareStepFunctionLike | undefined,
-  activeFullCompact?: PrepareStepFunctionLike | undefined,
-): PrepareStepFunctionLike | undefined {
+export function composeRequestProjection(
+  toolAvailability: RequestProjectionStage | undefined,
+  midTurnCapacityCompact: RequestProjectionStage | undefined,
+  activeToolResultPrune: RequestProjectionStage | undefined,
+  activeFullCompact?: RequestProjectionStage | undefined,
+): RequestProjectionStage | undefined {
   const hooks = [
     toolAvailability,
     midTurnCapacityCompact,
     activeToolResultPrune,
     activeFullCompact,
-  ].filter(Boolean) as PrepareStepFunctionLike[];
+  ].filter(Boolean) as RequestProjectionStage[];
   if (hooks.length === 0) return undefined;
-  return async (options: PrepareStepLike): Promise<PrepareStepResultLike | undefined> => {
-    let result: PrepareStepResultLike | undefined;
-    let messages = options.messages;
+  return async (context: RequestProjectionContext): Promise<RequestProjection | undefined> => {
+    let result: RequestProjection | undefined;
+    let messages = context.messages;
     for (const hook of hooks) {
       const hookOptions = {
-        ...options,
+        ...context,
         messages,
         ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
-      } as PrepareStepLike;
+      } as RequestProjectionContext;
       const hookResult = await Promise.resolve(hook(hookOptions));
       if (!hookResult) continue;
       result = {
@@ -485,7 +481,7 @@ export interface AiSdkBackendInput {
    * Optional unified tool-availability config (issue #37). With `economy: true`,
    * only core + ungrouped tools are advertised each turn; each group's tools are
    * withheld until the model activates the group via `load_tools`, which takes
-   * effect same-turn through `prepareStep` and persists across turns via the
+   * effect in the next Runtime request projection and persists across turns via the
    * RuntimeEvent ledger. Omitted or `economy: false` advertises every tool every
    * turn (full surface). The runtime owns the catalog, connector, activation,
    * gating, and diagnostics.
@@ -688,7 +684,7 @@ export class AiSdkBackend implements AgentBackend {
   private aborted = false;
   private abortController: AbortController | null = null;
   private currentTurnId: string | null = null;
-  private stopAfterStepRequested = false;
+  private loopStopRequested = false;
   private handoffStopReason: CompleteEvent['stopReason'] | undefined;
   private currentInvocationId: string | null = null;
   /**
@@ -706,7 +702,7 @@ export class AiSdkBackend implements AgentBackend {
   private currentRunId: string | null = null;
   private currentOrchestration: EffectiveOrchestration | undefined;
   private imageRequestBudget: { used: number; decisions: Map<string, boolean> } | null = null;
-  /** Side-channel for tool.execute() callbacks to push events into the iterator. */
+  /** Side-channel for ToolRuntime settlement to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
   /** Paused while the backend is waiting on a user permission decision. */
   private currentWatchdog: StreamWatchdog | null = null;
@@ -715,13 +711,6 @@ export class AiSdkBackend implements AgentBackend {
   private priorRequestShape: RequestShapeDiagnostic | undefined;
   private readonly compaction: AiSdkCompaction;
   private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
-  /**
-   * Id of the assistant step currently streaming. Passed explicitly into each
-   * resolved settlement call so its `tool_start` carries the owning step.
-   * Rotated at every step boundary in `send()`; null between turns.
-   */
-  private currentStepMessageId: string | null = null;
-
   constructor(input: AiSdkBackendInput) {
     this.input = input;
     this.sessionId = input.sessionId;
@@ -734,7 +723,6 @@ export class AiSdkBackend implements AgentBackend {
       modelId: input.modelId,
       modelFactory: input.modelFactory,
       providerOptions: input.providerOptions,
-      maxSteps: this.maxSteps,
       newId: this.newId,
       now: this.now,
     });
@@ -853,7 +841,8 @@ export class AiSdkBackend implements AgentBackend {
     this.currentUserIntent = input.text;
     this.input.permissionEngine.beginTurn(turnId);
     this.toolRuntime.beginTurn(turnId);
-    this.abortController = new AbortController();
+    const turnAbortController = new AbortController();
+    this.abortController = turnAbortController;
     this.imageRequestBudget = { used: 0, decisions: new Map() };
 
     const midTurnState = this.compaction.buildMidTurnCapacityCompactState(input);
@@ -861,12 +850,12 @@ export class AiSdkBackend implements AgentBackend {
     this.currentQueue = queue;
     this.injectedSteeringMessages = [];
 
-    // One AssistantMessage is flushed per AI SDK step (not per turn), so the
+    // One AssistantMessage is flushed per provider step (not per turn), so the
     // ledger records the text↔tool timeline at step granularity and each step's
     // Anthropic thinking signature stays paired with its own thinking text. The
     // turn's first step reuses this id; every later step rotates to a fresh one
     // at its step boundary (see the stream loop below).
-    this.currentStepMessageId = this.newId();
+    let currentStepMessageId = this.newId();
     let stepText = '';
     let stepThinking = '';
     let stepSignature: string | undefined;
@@ -884,7 +873,7 @@ export class AiSdkBackend implements AgentBackend {
     const flushStep = async (): Promise<void> => {
       const hasThinking = stepThinking.length > 0 || stepSignature !== undefined;
       if (stepText.length === 0 && !hasThinking) return;
-      const stepId = this.currentStepMessageId ?? this.newId();
+      const stepId = currentStepMessageId;
       const msg: AssistantMessage = {
         type: 'assistant',
         id: stepId,
@@ -1016,9 +1005,9 @@ export class AiSdkBackend implements AgentBackend {
       return;
     }
 
-    // --- Build ai-sdk tools dict with permission-wrapped execute ---
+    // --- Build the provider-visible schema set. Tool execution stays in Runtime. ---
     // One runtime owns provider-visible tool availability (issue #37): the
-    // catalog, the `load_tools` connector, same-turn activation via prepareStep,
+    // catalog, the `load_tools` connector, same-turn activation between requests,
     // the execute-boundary gating, and the diagnostics. Seed prior-turn group
     // activations from the durable ledger (the current turn is excluded — it has
     // not committed yet) so a group loaded earlier stays advertised.
@@ -1048,25 +1037,6 @@ export class AiSdkBackend implements AgentBackend {
       modelTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
-        execute: async (
-          args: unknown,
-          context: { toolCallId: string; abortSignal: AbortSignal },
-        ) => {
-          const settlement = await this.toolRuntime.settleToolCall({
-            tool: t,
-            turnId,
-            stepId: this.currentStepMessageId ?? undefined,
-            toolCallId: context.toolCallId,
-            input: args,
-            abortSignal: context.abortSignal,
-            eventSink: queue,
-          });
-          if (isPlanToolResult(settlement.result)) {
-            this.handlePlanToolResult(settlement.result, turnId, queue);
-          }
-          return settlement;
-        },
-        toModelOutput: ({ output }: { output: unknown }) => (output as ToolSettlement).modelOutput,
       };
     }
 
@@ -1113,7 +1083,7 @@ export class AiSdkBackend implements AgentBackend {
               watchdogTimeoutError,
               priorReplayFailureTrace(priorReplay),
             );
-            this.abortController?.abort(watchdogTimeoutError);
+            turnAbortController.abort(watchdogTimeoutError);
           },
         });
         this.currentWatchdog = watchdog;
@@ -1145,6 +1115,61 @@ export class AiSdkBackend implements AgentBackend {
                   content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
                 } as ModelMessage,
               ];
+        const settledModelOutputs = new Map<string, ToolResultOutput>();
+        const waitForDurableQueueBoundary = async (): Promise<void> => {
+          const pushedThrough = queue.pushedCount;
+          while (queue.consumedCount < pushedThrough) {
+            if (queue.consumerDetached) {
+              throw new Error('event consumer detached before the durable projection boundary');
+            }
+            await queue.waitForProgress();
+          }
+        };
+        const loadDurableTurnProjection = async (): Promise<ModelMessage[]> => {
+          const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents;
+          if (!loadTurnRuntimeEvents) {
+            throw new Error('durable current-run reader is required for tool continuation');
+          }
+          await waitForDurableQueueBoundary();
+          const turnEvents = (await loadTurnRuntimeEvents(turnId)).filter(
+            (event) => event.turnId === turnId,
+          );
+          const replayPlan = buildRuntimeEventModelReplayPlan(turnEvents, {
+            toolActivityTurnIds: collectToolActivityTurnIds([
+              ...(input.runtimeContext ?? []),
+              ...turnEvents,
+            ]),
+          });
+          if (
+            hasBlockingReplayDiagnostics(replayPlan) ||
+            (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
+          ) {
+            throw new Error('durable current-run projection is not replayable');
+          }
+          const anchorEventId = input.headAnchorRuntimeEvent?.id;
+          let decoratedCurrentUser = false;
+          const replayItems = replayPlan.items.map((item) => {
+            if (
+              item.kind !== 'text' ||
+              item.role !== 'user' ||
+              (anchorEventId !== undefined ? item.eventId !== anchorEventId : decoratedCurrentUser)
+            ) {
+              return item;
+            }
+            decoratedCurrentUser = true;
+            return {
+              ...item,
+              content: this.appendTurnTailPrompt(item.content, turnTailPrompt) as string,
+            };
+          });
+          return [
+            ...priorReplay.messages,
+            ...(await this.materializeRuntimeReplayPlan(
+              { ...replayPlan, items: replayItems },
+              settledModelOutputs,
+            )),
+          ];
+        };
         const activeCompactionHeadAnchor =
           messages[messages.length - 1]?.role === 'user'
             ? buildActiveCompactionHeadAnchor(
@@ -1154,7 +1179,7 @@ export class AiSdkBackend implements AgentBackend {
               )
             : undefined;
         // Diagnostics describe the provider-visible (active) tool subset. A group
-        // loaded *this* turn expands that subset on later steps (via prepareStep),
+        // loaded *this* turn expands that subset on later provider requests,
         // so the durable cost record is refined against the final active set once
         // the stream is consumed (see below). Both computations classify against
         // the same pre-turn baseline. The availability runtime builds the tool
@@ -1251,8 +1276,8 @@ export class AiSdkBackend implements AgentBackend {
             },
             priorShapeBaseline,
           ).requestShapeHash;
-        const activeCompactHook = composeActiveCompactionPrepareStep(
-          this.compaction.buildSemanticCompactPrepareStep(
+        const activeCompactHook = composeActiveCompactionProjection(
+          this.compaction.buildSemanticCompactProjection(
             turnId,
             model,
             input.runtimeContext,
@@ -1265,9 +1290,9 @@ export class AiSdkBackend implements AgentBackend {
                 patch,
               );
             },
-            this.abortController?.signal,
+            turnAbortController.signal,
           ),
-          this.compaction.buildActiveFullCompactPrepareStep(
+          this.compaction.buildActiveFullCompactProjection(
             turnId,
             input.runtimeContext,
             activeCompactionHeadAnchor,
@@ -1287,7 +1312,7 @@ export class AiSdkBackend implements AgentBackend {
         // second summarizer over the same request.
         const activeCompactAfterMidTurn =
           activeCompactHook && midTurnState
-            ? (options: PrepareStepLike) => {
+            ? (options: RequestProjectionContext) => {
                 if (midTurnState.replacedStepNumber === options.stepNumber) {
                   activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
                     activeCompactDiagnosticPatch,
@@ -1312,7 +1337,7 @@ export class AiSdkBackend implements AgentBackend {
           );
         };
         const midTurnSystemPromptChars = systemPrompt?.length ?? 0;
-        const midTurnCapacityHook = this.compaction.buildMidTurnCapacityCompactPrepareStep(
+        const midTurnCapacityHook = this.compaction.buildMidTurnCapacityCompactProjection(
           turnId,
           midTurnState,
           queue,
@@ -1321,12 +1346,12 @@ export class AiSdkBackend implements AgentBackend {
           turnTailPrompt,
           midTurnSystemPromptChars,
           onMidTurnDiagnosticPatch,
-          this.abortController?.signal,
+          turnAbortController.signal,
         );
         // When mid-turn capacity compaction is active, the prune must also cover
-        // the newest completed step; see collectPrunablePrepareStepToolCallIds.
+        // the newest completed step; see collectPrunableCompletedStepToolCallIds.
         const activeToolResultPruneIncludesNewestStep = midTurnState !== undefined;
-        const activeToolResultPruneHook = this.compaction.buildActiveToolResultPrunePrepareStep(
+        const activeToolResultPruneHook = this.compaction.buildActiveToolResultPruneProjection(
           turnId,
           activeToolResultPruneIncludesNewestStep,
           (patch) => {
@@ -1336,19 +1361,19 @@ export class AiSdkBackend implements AgentBackend {
             );
           },
         );
-        const shapedPrepareStep = composePrepareStep(
-          plan.prepareStep,
+        const shapedProjection = composeRequestProjection(
+          plan.projectActiveTools,
           midTurnCapacityHook,
           activeToolResultPruneHook,
           activeCompactAfterMidTurn,
         );
         // The verdict owner wraps the WHOLE shaping pipeline: hooks shape, one
         // owner measures the final payload and decides pass/terminate.
-        const prepareStep =
-          midTurnState && midTurnCapacityHook && shapedPrepareStep
+        const requestProjection =
+          midTurnState && midTurnCapacityHook && shapedProjection
             ? this.compaction.buildMidTurnFinalRequestVerdict({
-                shaped: shapedPrepareStep,
-                reentry: composePrepareStep(
+                shaped: shapedProjection,
+                reentry: composeRequestProjection(
                   undefined,
                   midTurnCapacityHook,
                   activeToolResultPruneHook,
@@ -1359,312 +1384,322 @@ export class AiSdkBackend implements AgentBackend {
                 charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
                 systemPromptChars: midTurnSystemPromptChars,
                 onDiagnosticPatch: onMidTurnDiagnosticPatch,
-                abortController: this.abortController,
+                abortController: turnAbortController,
               })
-            : shapedPrepareStep;
+            : shapedProjection;
 
-        // Reactive overflow recovery (issue #882 PR 2). A request-level
-        // provider failure surfaces through the stream — either as an `error`
-        // chunk or a thrown stream error — both when
-        // the transport throws (finishReason then rejects with
-        // NoOutputGeneratedError) and when it streams an error part — after
-        // which this stream is dead. Capture it and, at most once, fold the
-        // durable ledger and resend on a context-length overflow; otherwise
-        // throw the real provider error so the terminal handler closes the turn
-        // as an error. Never fall through to the success path, which
-        // historically caught the rejected finishReason as `stop` and
-        // fabricated an end_turn completion with success telemetry.
-        //
-        // Attempt→send translation (reviews P1-A and round-3 P1): the SDK
-        // scopes BOTH `stepNumber` and `steps` to one streamText call, but
-        // every per-step consumer downstream works in SEND units — the
-        // capacity hook's durability wait (flushedSteps), replacedStepNumber,
-        // lastShapeFailure, the semantic-compact yield, the availability
-        // runtime's same-turn `load_tools` activations, and the active
-        // tool-result prune's eligible tool-call IDs. This single translation
-        // point (a) rebases each attempt's local step numbers onto the
-        // send-global clock (completed steps when the attempt started), and
-        // (b) presents the send-global steps view: completed steps archived
-        // from every prior attempt, then the current attempt's own. Without
-        // it a retry resets those clocks/views — an attempt-local wait bound
-        // already satisfied by a previous attempt let a post-retry compaction
-        // drop not-yet-durable step content, a fresh empty `steps` revoked
-        // same-turn tool activations, and the prune's empty eligible set
-        // resurrected archived raw tool results from the ledger-rebuilt
-        // recovery projection. Consumers stay untouched; any future steps
-        // consumer is send-correct by construction. Steps folded into a
-        // checkpoint stay in the view: ID-based consumers only act on
-        // messages actually present in the projection, so a folded step's
-        // entry is inert.
-        let attemptStepBase = 0;
-        const completedAttemptSteps: PrepareStepLike['steps'][number][] = [];
-        let attemptObservedSteps: PrepareStepLike['steps'] = [];
-        let attemptRequestMessages: ModelMessage[] = messages;
-        const sendScopedPrepareStep: PrepareStepFunctionLike = async (options) => {
-          // prepareStep sees every completed step of its own attempt and the
-          // exact messages for the next provider request. Keep that request
-          // boundary even when no shaping hook is configured: a transient
-          // transport retry can resend it without replaying completed tools.
-          attemptObservedSteps = options.steps;
-          providerRequestTracker?.setStep(attemptStepBase + options.stepNumber);
-          // Step boundary: lease the caller's queued steering, echo each as a
-          // user event, ack only after it is durably persisted AND in the
-          // injection set (nack on any failure so the queue reclaims it).
-          await this.drainSteeringInto(input, turnId, queue);
-          // Steering joins the request BEFORE shaping so the capacity owner's
-          // verdict measures the payload the provider will actually receive.
-          // AI SDK 7 carries a prepareStep messages override into later steps,
-          // so append only markers missing from the current SDK projection.
-          // Dedupe is by structured identity — the ledger event id carried on
-          // every injected and every ledger-derived steering message — never
-          // by text, which a verbatim user message could forge or cancel.
-          const missingInBase = steeringMessagesMissingFromBase(
-            this.injectedSteeringMessages,
-            options.messages,
-          );
-          const baseWithSteering =
-            missingInBase.length === 0 ? options.messages : [...options.messages, ...missingInBase];
-          const shaped = prepareStep
-            ? await prepareStep({
-                ...options,
-                messages: baseWithSteering,
-                stepNumber: attemptStepBase + options.stepNumber,
-                steps: [...completedAttemptSteps, ...options.steps],
-              })
-            : undefined;
-          // No re-append after shaping: every shaper preserves the injected
-          // steering — ledger-derived replacements replay it with its marker,
-          // and the mid-turn fold PINS the current turn's steering events out
-          // of the covered span — so the verdict inside `prepareStep` always
-          // measured the steering-inclusive payload that actually goes out.
-          const finalMessages = shaped?.messages ?? baseWithSteering;
-          // Steering-free request boundary (single authority rule): a transport
-          // retry resends `attemptRequestMessages` as the next attempt's base,
-          // and that attempt's own prepareStep re-appends the accumulator, so
-          // storing the injected steering here would double-inject on retry.
-          // ONLY the injected set is stripped — a historical ledger-replayed
-          // steering message carries the same marker but belongs to the base.
-          attemptRequestMessages = stripSteeringMessages(
-            finalMessages,
-            this.injectedSteeringMessages,
-          );
-          if (finalMessages === options.messages) return shaped;
-          return shaped ? { ...shaped, messages: finalMessages } : { messages: finalMessages };
-        };
-        let attemptMessages: ModelMessage[] = messages;
+        const completedProviderSteps: RequestProjectionContext['completedSteps'][number][] = [];
+        let requestMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
         let transportRetryUsed = false;
         let result: ModelStreamResult;
-        for (;;) {
-          // The step limit is a SEND-level cap: `runtimeSteps` (this send's
-          // completed steps across attempts) is its single counter, so a retry
-          // attempt gets only the remaining budget — never a fresh full one.
-          // It is also the attempt's step base: the pump has consumed every
-          // prior attempt's finish-step before the error chunk that ended it,
-          // so at this point the counter equals the send's completed steps.
-          attemptStepBase = runtimeSteps;
-          const remainingStepBudget =
-            this.maxSteps === undefined ? undefined : Math.max(0, this.maxSteps - runtimeSteps);
-          result = await this.modelAdapter.startStream({
-            model,
-            messages: attemptMessages,
-            tools: modelTools,
-            activeTools,
-            repairToolCall: async ({
-              toolCall,
-              error,
-            }: {
-              toolCall: RepairableAiSdkToolCall;
-              error: unknown;
-            }) => {
-              return repairMakaToolCall({
+        let finishReason: ModelFinishReason = 'stop';
+        agentLoop: for (;;) {
+          await this.drainSteeringInto(input, turnId, queue, turnAbortController.signal);
+          if (this.input.loadTurnRuntimeEvents) {
+            requestMessages = await loadDurableTurnProjection();
+          } else {
+            const missingSteering = steeringMessagesMissingFromBase(
+              this.injectedSteeringMessages,
+              requestMessages,
+            );
+            if (missingSteering.length > 0)
+              requestMessages = [...requestMessages, ...missingSteering];
+          }
+          const shaped = requestProjection
+            ? await requestProjection({
+                completedSteps: completedProviderSteps,
+                stepNumber: runtimeSteps,
+                model,
+                messages: requestMessages,
+              })
+            : undefined;
+          const projectedMessages = shaped?.messages ?? requestMessages;
+          const activeToolsForRequest = shaped?.activeTools ?? currentRepairToolNames();
+          providerRequestTracker?.setStep(runtimeSteps);
+          let attemptMessages = projectedMessages;
+          const returnedToolCalls: ToolCallPart[] = [];
+          const providerStepId = currentStepMessageId;
+          let providerStepUsage: NormalizedUsage | undefined;
+          for (;;) {
+            result = await this.modelAdapter.startStream({
+              model,
+              messages: attemptMessages,
+              tools: modelTools,
+              activeTools: activeToolsForRequest,
+              repairToolCall: async ({
                 toolCall,
-                availableToolNames: currentRepairToolNames(),
                 error,
-              });
-            },
-            system: systemPrompt,
-            abortSignal: this.abortController!.signal,
-            stopAfterStep: () => this.stopAfterStepRequested,
-            prepareStep: sendScopedPrepareStep,
-            ...(providerRequestTracker ? { providerRequestTracker } : {}),
-            ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
-          });
+              }: {
+                toolCall: RepairableAiSdkToolCall;
+                error: unknown;
+              }) => {
+                return repairMakaToolCall({
+                  toolCall,
+                  availableToolNames: currentRepairToolNames(),
+                  error,
+                });
+              },
+              system: systemPrompt,
+              abortSignal: turnAbortController.signal,
+              ...(providerRequestTracker ? { providerRequestTracker } : {}),
+            });
 
-          let streamFailure: unknown;
-          let sawStreamError = false;
-          try {
-            for await (const event of result.events) {
-              if (this.aborted) break;
-              watchdog.markActivity();
-              if (event.kind === 'error') {
-                // A request-level error ends this stream; capture it and stop
-                // consuming (the synthesized trailer carries no real step) so
-                // the recovery decision runs on the outcome, not the trailer.
-                streamFailure = event.failure;
-                sawStreamError = true;
-                break;
+            let streamFailure: unknown;
+            let sawStreamError = false;
+            try {
+              for await (const event of result.events) {
+                if (this.aborted) break;
+                watchdog.markActivity();
+                if (event.kind === 'error') {
+                  // A request-level error ends this stream; capture it and stop
+                  // consuming (the synthesized trailer carries no real step) so
+                  // the recovery decision runs on the outcome, not the trailer.
+                  streamFailure = event.failure;
+                  sawStreamError = true;
+                  break;
+                }
+                if (event.kind === 'step-finish') {
+                  // Step boundary: AI SDK 7 delimits steps with `finish-step`
+                  // (and `step-finish` for legacy replay fixtures); the adapter
+                  // reduces both to this event. A duplicate boundary is harmless:
+                  // the second flush no-ops (accumulators already cleared) and one
+                  // extra id rotation just discards an unused id.
+                  runtimeSteps += 1;
+                  const stepUsage = event.usage;
+                  providerStepUsage = stepUsage;
+                  if (!stepUsage) sawUnusableStepUsage = true;
+                  // Fail closed: reset on every step boundary so a missing final
+                  // step's usage does not leave a stale value from an earlier step.
+                  lastStepInputTokens = stepUsage?.inputTokens;
+                  if (stepUsage) {
+                    completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
+                    this.cumulativeUsageCheckpoint = mergeNormalizedUsage(
+                      this.cumulativeUsageCheckpoint,
+                      stepUsage,
+                    );
+                    await this.input.recordUsageCheckpoint?.({
+                      ...this.cumulativeUsageCheckpoint,
+                      costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
+                    });
+                  }
+                }
+                if (event.kind === 'finish' || event.kind === 'step-finish') {
+                  rawFinishReason = event.finishReason ?? rawFinishReason;
+                }
+                if (event.kind === 'text') {
+                  stepText += event.text;
+                  queue.push({
+                    type: 'text_delta',
+                    id: this.newId(),
+                    turnId,
+                    ts: this.now(),
+                    messageId: currentStepMessageId,
+                    text: event.text,
+                  } satisfies TextDeltaEvent);
+                } else if (event.kind === 'thinking') {
+                  stepThinking += event.text;
+                  queue.push({
+                    type: 'thinking_delta',
+                    id: this.newId(),
+                    turnId,
+                    ts: this.now(),
+                    messageId: currentStepMessageId,
+                    text: event.text,
+                  } satisfies ThinkingDeltaEvent);
+                } else if (event.kind === 'thinking-signature') {
+                  stepSignature = event.signature;
+                } else if (event.kind === 'tool-call') {
+                  returnedToolCalls.push(event.toolCall);
+                } else if (event.kind === 'step-finish') {
+                  // The step's text/thinking deltas are all in (the stream is
+                  // drained in order), so flush this step's AssistantMessage and
+                  // rotate to a fresh id for the next step. Tool settlement
+                  // below receives this step's pre-rotation id, so durable replay
+                  // can regroup calls with this reasoning/text.
+                  await flushStep();
+                  if (midTurnState) {
+                    // Durability clock: step N's thinking/text completion events
+                    // are enqueued by flushStep just above, so only after this
+                    // boundary can a seq-ack wait for step N mean anything. Wake
+                    // waiters AFTER the increment or they would re-check a stale
+                    // count and sleep.
+                    midTurnState.flushedSteps += 1;
+                    queue.wake();
+                  }
+                }
               }
-              if (event.kind === 'step-finish') {
-                // Step boundary: AI SDK 7 delimits steps with `finish-step`
-                // (and `step-finish` for legacy replay fixtures); the adapter
-                // reduces both to this event. A duplicate boundary is harmless:
-                // the second flush no-ops (accumulators already cleared) and one
-                // extra id rotation just discards an unused id.
-                runtimeSteps += 1;
-                const stepUsage = event.usage;
-                if (!stepUsage) sawUnusableStepUsage = true;
-                // Fail closed: reset on every step boundary so a missing final
-                // step's usage does not leave a stale value from an earlier step.
-                lastStepInputTokens = stepUsage?.inputTokens;
-                if (stepUsage) {
-                  completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
-                  this.cumulativeUsageCheckpoint = mergeNormalizedUsage(
-                    this.cumulativeUsageCheckpoint,
-                    stepUsage,
+            } catch (error) {
+              streamFailure = error;
+              sawStreamError = true;
+            }
+
+            if (sawStreamError && !this.aborted) {
+              if (this.loopStopRequested) throw streamFailure;
+              // A retry is a fresh provider request that would run at least one
+              // more step; with the send-level budget already spent there is
+              // nothing left to grant it, so the error is terminal.
+              const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
+              const recovered = stepBudgetRemains
+                ? await this.compaction.recoverFromOverflowError({
+                    error: streamFailure,
+                    retryAlreadyUsed: overflowRetryUsed,
+                    midTurnState,
+                    turnId,
+                    currentMessages: attemptMessages,
+                    providerTools,
+                    activeTools: activeToolsForRequest,
+                    systemPromptChars: midTurnSystemPromptChars,
+                    turnTailPrompt,
+                    queue,
+                    onDiagnosticPatch: onMidTurnDiagnosticPatch,
+                    abortSignal: turnAbortController.signal,
+                  })
+                : undefined;
+              if (recovered) {
+                overflowRetryUsed = true;
+                // Recovery rebuilds the request from the durable ledger, whose
+                // tool results intentionally retain their full bodies. Re-enter
+                // the active-result projection before dispatch so an archived
+                // result cannot reappear in provider context on the retry.
+                const recoveredProjection = activeToolResultPruneHook
+                  ? await activeToolResultPruneHook({
+                      completedSteps: completedProviderSteps,
+                      stepNumber: runtimeSteps,
+                      model,
+                      messages: recovered.messages,
+                      activeTools: activeToolsForRequest,
+                    })
+                  : undefined;
+                attemptMessages = recoveredProjection?.messages ?? recovered.messages;
+                continue;
+              }
+              const errorClass = this.modelAdapter.classifyError(streamFailure);
+              if (
+                errorClass === 'Network' &&
+                !transportRetryUsed &&
+                stepBudgetRemains &&
+                returnedToolCalls.length === 0 &&
+                stepText.length === 0 &&
+                stepThinking.length === 0 &&
+                stepSignature === undefined
+              ) {
+                transportRetryUsed = true;
+                // The failed request did not return authoritative usage. Keep
+                // effectiveness recoverable, but fail final metering closed.
+                sawUnusableStepUsage = true;
+                attemptMessages = projectedMessages;
+                stepText = '';
+                stepThinking = '';
+                stepSignature = undefined;
+                continue;
+              }
+              // Unrecoverable (not context-length, latch spent, no seam, or no
+              // safe fold): surface the real provider error via the terminal
+              // handler — never a fabricated success.
+              throw streamFailure;
+            }
+            break;
+          }
+
+          // If the stream loop exited because stop() flipped this.aborted while a
+          // provider kept yielding after abort instead of throwing, route to the
+          // abort handling below. Without this, the post-stream success path would
+          // persist a partial assistant turn and emit a false end_turn completion.
+          if (this.aborted) {
+            throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+          }
+
+          // Mid-turn exhaustion aborts the SDK stream, but streamText ends
+          // gracefully on abort instead of throwing; route to the explicit
+          // outcome regardless of how the stream wound down.
+          if (midTurnState?.exhaustedDetail) {
+            throw Object.assign(
+              new Error(`mid-turn context budget exhausted: ${midTurnState.exhaustedDetail}`),
+              { name: 'MidTurnContextBudgetExhaustedError' },
+            );
+          }
+
+          // Catch-all: flush any residual step content if the provider closed the
+          // stream without a trailing `finish-step` for the last step.
+          await flushStep();
+
+          finishReason = (await result.finishReason.catch(() => 'stop')) ?? 'stop';
+          rawFinishReason = rawFinishReason ?? finishReason;
+          await waitForDurableQueueBoundary();
+
+          if (returnedToolCalls.length > 0) {
+            const toolsByName = new Map(providerTools.map((tool) => [tool.name, tool]));
+            const settlementOutcomes = await Promise.allSettled(
+              returnedToolCalls.map(async (toolCall) => {
+                if (toolCall.providerExecuted) {
+                  throw new Error(
+                    `Provider-executed tool call "${toolCall.toolName}" is outside the main-agent tool loop`,
                   );
-                  await this.input.recordUsageCheckpoint?.({
-                    ...this.cumulativeUsageCheckpoint,
-                    costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
-                  });
                 }
-              }
-              if (event.kind === 'finish' || event.kind === 'step-finish') {
-                rawFinishReason = event.finishReason ?? rawFinishReason;
-              }
-              if (event.kind === 'text') {
-                stepText += event.text;
-                queue.push({
-                  type: 'text_delta',
-                  id: this.newId(),
+                const requestedTool = toolsByName.get(toolCall.toolName);
+                const tool = requestedTool ?? toolsByName.get(INVALID_TOOL_NAME);
+                if (!tool) throw new Error('Runtime invalid-tool fallback is unavailable');
+                return await this.toolRuntime.settleToolCall({
+                  tool,
                   turnId,
-                  ts: this.now(),
-                  messageId: this.currentStepMessageId!,
-                  text: event.text,
-                } satisfies TextDeltaEvent);
-              } else if (event.kind === 'thinking') {
-                stepThinking += event.text;
-                queue.push({
-                  type: 'thinking_delta',
-                  id: this.newId(),
-                  turnId,
-                  ts: this.now(),
-                  messageId: this.currentStepMessageId!,
-                  text: event.text,
-                } satisfies ThinkingDeltaEvent);
-              } else if (event.kind === 'thinking-signature') {
-                stepSignature = event.signature;
-              } else if (event.kind === 'step-finish') {
-                // The step's text/thinking deltas are all in (the stream is
-                // drained in order), so flush this step's AssistantMessage and
-                // rotate to a fresh id for the next step. The step's tool calls
-                // (appended mid-step via execute()) already carry the pre-rotation
-                // id from the resolved settlement call, so replay can regroup
-                // them with this step's reasoning even though they land before
-                // this row.
-                await flushStep();
-                this.currentStepMessageId = this.newId();
-                if (midTurnState) {
-                  // Durability clock: step N's thinking/text completion events
-                  // are enqueued by flushStep just above, so only after this
-                  // boundary can a seq-ack wait for step N mean anything. Wake
-                  // waiters AFTER the increment or they would re-check a stale
-                  // count and sleep.
-                  midTurnState.flushedSteps += 1;
-                  queue.wake();
-                }
+                  stepId: providerStepId,
+                  toolCallId: toolCall.toolCallId,
+                  input:
+                    requestedTool !== undefined
+                      ? toolCall.input
+                      : {
+                          tool: toolCall.toolName,
+                          error: 'returned tool is unavailable',
+                        },
+                  abortSignal: turnAbortController.signal,
+                  eventSink: queue,
+                });
+              }),
+            );
+            const rejectedSettlement = settlementOutcomes.find(
+              (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+            );
+            if (rejectedSettlement) throw rejectedSettlement.reason;
+            const settlements = settlementOutcomes.flatMap((outcome) =>
+              outcome.status === 'fulfilled' ? [outcome.value] : [],
+            );
+            for (const settlement of settlements) {
+              if (isPlanToolResult(settlement.result)) {
+                this.handlePlanToolResult(settlement.result, turnId, queue);
               }
             }
-          } catch (error) {
-            streamFailure = error;
-            sawStreamError = true;
+            await waitForDurableQueueBoundary();
+            for (let index = 0; index < returnedToolCalls.length; index += 1) {
+              const toolCall = returnedToolCalls[index];
+              const settlement = settlements[index];
+              if (toolCall && settlement) {
+                settledModelOutputs.set(toolCall.toolCallId, settlement.modelOutput);
+              }
+            }
           }
 
-          if (sawStreamError && !this.aborted) {
-            if (this.stopAfterStepRequested) throw streamFailure;
-            // A retry is a fresh provider request that would run at least one
-            // more step; with the send-level budget already spent there is
-            // nothing left to grant it, so the error is terminal.
-            const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
-            const recovered = stepBudgetRemains
-              ? await this.compaction.recoverFromOverflowError({
-                  error: streamFailure,
-                  retryAlreadyUsed: overflowRetryUsed,
-                  midTurnState,
-                  turnId,
-                  currentMessages: attemptMessages,
-                  providerTools,
-                  activeTools: currentRepairToolNames(),
-                  systemPromptChars: midTurnSystemPromptChars,
-                  turnTailPrompt,
-                  queue,
-                  onDiagnosticPatch: onMidTurnDiagnosticPatch,
-                  abortSignal: this.abortController?.signal,
-                })
-              : undefined;
-            if (recovered) {
-              overflowRetryUsed = true;
-              attemptMessages = recovered.messages;
-              // Archive the dead attempt's completed steps into the send view
-              // before the next attempt resets the SDK's local `steps`.
-              completedAttemptSteps.push(...attemptObservedSteps);
-              attemptObservedSteps = [];
-              continue;
+          completedProviderSteps.push({
+            toolCalls: returnedToolCalls,
+            ...(providerStepUsage ? { usage: providerStepUsage } : {}),
+          });
+          const stepLimitReached = this.maxSteps !== undefined && runtimeSteps >= this.maxSteps;
+          if (
+            returnedToolCalls.length > 0 &&
+            !stepLimitReached &&
+            !this.loopStopRequested &&
+            !this.aborted
+          ) {
+            if (!this.input.loadTurnRuntimeEvents) {
+              throw new Error('durable current-run reader is required for tool continuation');
             }
-            const errorClass = this.modelAdapter.classifyError(streamFailure);
-            if (
-              errorClass === 'Network' &&
-              !transportRetryUsed &&
-              stepBudgetRemains &&
-              !this.toolRuntime.hasStepAdmission(this.currentStepMessageId) &&
-              stepText.length === 0 &&
-              stepThinking.length === 0 &&
-              stepSignature === undefined
-            ) {
-              transportRetryUsed = true;
-              // The failed request did not return authoritative usage. Keep
-              // effectiveness recoverable, but fail final metering closed.
-              sawUnusableStepUsage = true;
-              attemptMessages = attemptRequestMessages;
-              completedAttemptSteps.push(...attemptObservedSteps);
-              attemptObservedSteps = [];
-              stepText = '';
-              stepThinking = '';
-              stepSignature = undefined;
-              this.currentStepMessageId = this.newId();
-              continue;
-            }
-            // Unrecoverable (not context-length, latch spent, no seam, or no
-            // safe fold): surface the real provider error via the terminal
-            // handler — never a fabricated success.
-            throw streamFailure;
+            currentStepMessageId = this.newId();
+            continue agentLoop;
           }
-          break;
+          break agentLoop;
         }
 
-        // If the stream loop exited because stop() flipped this.aborted while a
-        // provider kept yielding after abort instead of throwing, route to the
-        // abort handling below. Without this, the post-stream success path would
-        // persist a partial assistant turn and emit a false end_turn completion.
-        if (this.aborted) {
-          throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-        }
-
-        // Mid-turn exhaustion aborts the SDK stream, but streamText ends
-        // gracefully on abort instead of throwing; route to the explicit
-        // outcome regardless of how the stream wound down.
-        if (midTurnState?.exhaustedDetail) {
-          throw Object.assign(
-            new Error(`mid-turn context budget exhausted: ${midTurnState.exhaustedDetail}`),
-            { name: 'MidTurnContextBudgetExhaustedError' },
-          );
-        }
-
-        // Catch-all: flush any residual step content if the provider closed the
-        // stream without a trailing `finish-step` for the last step.
-        await flushStep();
-
-        // Same-turn deferred load: prepareStep expanded the provider tool set on
+        // Same-turn deferred load: request projection expanded the provider tool set on
         // later steps, so refine the durable cost record + prefix baseline against
         // the final active set — otherwise this turn under-reports the loaded
         // schema and the cache reset would surface a turn late. No-op when nothing
@@ -1675,34 +1710,14 @@ export class AiSdkBackend implements AgentBackend {
           publishTurnDiagnostics(computeTurnDiagnostics(finalActiveTools));
         }
 
-        // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
-        // model wanted another tool step but the configured budget stopped it.
-        const finishReason = (await result.finishReason.catch(() => 'stop')) ?? 'stop';
-        const stepLimit = this.maxSteps;
-        const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
-        rawFinishReason = rawFinishReason ?? finishReason;
-        if (stepLimitReached && runtimeSteps < stepLimit) {
-          runtimeSteps = stepLimit;
-        }
-
-        // Final usage event. AI SDK 7 `usage` is the billing-relevant sum
-        // across all internal tool-loop steps; finalStep.usage is last-step only.
-        // The send-level usage owner is `completedStepUsage`, the per-step
-        // accumulator that spans every attempt: after a reactive overflow
-        // retry, the last attempt's usage covers only that attempt, so
-        // recording it would silently drop the first attempt's completed
-        // steps. result.usage remains the authoritative shorthand only for the
-        // single-attempt send, and an unusable step sample in ANY attempt
-        // fails the whole record closed (#972) — a later attempt's valid
-        // cumulative usage must not wash it back to "complete".
+        // Final usage event. Each adapter result covers one provider request.
+        // The send-level owner is `completedStepUsage`, which spans every
+        // Runtime loop step and retry. Recording only the final result would
+        // silently drop prior requests. An unusable sample in ANY request fails
+        // the whole record closed (#972).
         try {
           const attemptTotalUsage = await result.usage;
-          tokenUsage =
-            overflowRetryUsed || transportRetryUsed
-              ? sawUnusableStepUsage
-                ? undefined
-                : completedStepUsage
-              : attemptTotalUsage;
+          tokenUsage = sawUnusableStepUsage ? undefined : (completedStepUsage ?? attemptTotalUsage);
           if (tokenUsage) {
             const systemPromptHash = turnDiagnostics.requestShape.componentHashes.systemPromptHash;
             tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
@@ -1721,7 +1736,7 @@ export class AiSdkBackend implements AgentBackend {
                 ? { toolAvailability: turnDiagnostics.requestShape.toolAvailability }
                 : {}),
             });
-            const contextBudgetForUsage = contextBudgetWithActivePrepareStepDiagnostics(
+            const contextBudgetForUsage = contextBudgetWithActiveProjectionDiagnostics(
               contextBudgetForTelemetry,
               activeToolResultPruneDiagnosticPatch,
               activeCompactDiagnosticPatch,
@@ -1908,7 +1923,7 @@ export class AiSdkBackend implements AgentBackend {
       } finally {
         watchdog?.stop();
         if (this.currentWatchdog === watchdog) this.currentWatchdog = null;
-        contextBudgetForTelemetry = contextBudgetWithActivePrepareStepDiagnostics(
+        contextBudgetForTelemetry = contextBudgetWithActiveProjectionDiagnostics(
           contextBudgetForTelemetry,
           activeToolResultPruneDiagnosticPatch,
           activeCompactDiagnosticPatch,
@@ -2017,7 +2032,7 @@ export class AiSdkBackend implements AgentBackend {
         storeVersion: result.storeVersion,
       });
       this.handoffStopReason = 'plan_handoff';
-      this.stopAfterStepRequested = true;
+      this.loopStopRequested = true;
       return;
     }
 
@@ -2029,7 +2044,7 @@ export class AiSdkBackend implements AgentBackend {
       storeVersion: result.storeVersion,
     });
     if (result.kind === 'plan_execution_completed' || result.kind === 'plan_execution_cancelled') {
-      this.stopAfterStepRequested = true;
+      this.loopStopRequested = true;
     }
   }
 
@@ -2042,7 +2057,7 @@ export class AiSdkBackend implements AgentBackend {
     mode: 'immediate' | 'after_step' = 'immediate',
   ): Promise<void> {
     if (mode === 'after_step') {
-      this.stopAfterStepRequested = true;
+      this.loopStopRequested = true;
       this.currentRunTrace?.abortRequested(_reason);
       return;
     }
@@ -2447,6 +2462,7 @@ export class AiSdkBackend implements AgentBackend {
    */
   private async materializeRuntimeReplayPlan(
     plan: RuntimeEventModelReplayPlan,
+    settledModelOutputs?: ReadonlyMap<string, ToolResultOutput>,
   ): Promise<ModelMessage[]> {
     type ToolCallItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
     type ToolResultItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_result' }>;
@@ -2455,6 +2471,7 @@ export class AiSdkBackend implements AgentBackend {
     let bufferedCalls: ToolCallItem[] = [];
     const results = new Map<string, ToolResultItem>();
     const reasoningByStep = new Map<string, ThinkingItem>();
+    const textByStep = new Map<string, string>();
 
     const reasoningPart = (item: ThinkingItem) => ({
       type: 'reasoning' as const,
@@ -2481,11 +2498,13 @@ export class AiSdkBackend implements AgentBackend {
               type: 'tool-result',
               toolCallId: result.toolCallId,
               toolName: result.toolName,
-              output: await this.materializeToolResultOutput(
-                result.output,
-                result.isError,
-                result.toolCallId,
-              ),
+              output:
+                settledModelOutputs?.get(result.toolCallId) ??
+                (await this.materializeToolResultOutput(
+                  result.output,
+                  result.isError,
+                  result.toolCallId,
+                )),
             },
           ],
         });
@@ -2525,8 +2544,12 @@ export class AiSdkBackend implements AgentBackend {
         if (group.length === 0) return;
         const stepId = group[0]!.stepId;
         const reasoning = stepId !== undefined ? reasoningByStep.get(stepId) : undefined;
-        if (stepId !== undefined) reasoningByStep.delete(stepId);
-        await emitStep(reasoning, '', group);
+        const text = stepId !== undefined ? (textByStep.get(stepId) ?? '') : '';
+        if (stepId !== undefined) {
+          reasoningByStep.delete(stepId);
+          textByStep.delete(stepId);
+        }
+        await emitStep(reasoning, text, group);
         group = [];
       };
       for (const call of calls) {
@@ -2573,8 +2596,15 @@ export class AiSdkBackend implements AgentBackend {
             // Earlier steps' unclosed calls flush first (with their own parked
             // reasoning, if any) so step order is preserved.
             if (otherCalls.length > 0) await emitGroupedCalls(otherCalls);
-            await emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
-            reasoningByStep.delete(stepId);
+            if (thisCalls.length > 0) {
+              await emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
+              reasoningByStep.delete(stepId);
+            } else {
+              // Runtime-owned settlement persists assistant facts before the
+              // matching tool calls. Hold the step closer until those calls
+              // arrive; a terminal text-only step flushes below.
+              textByStep.set(stepId, item.content);
+            }
           } else {
             // Legacy per-turn assistant text: standalone after any tool block.
             await flushLooseCalls();
@@ -2584,6 +2614,10 @@ export class AiSdkBackend implements AgentBackend {
       }
     }
     await flushLooseCalls();
+    for (const [stepId, text] of textByStep) {
+      await emitStep(reasoningByStep.get(stepId), text, []);
+      reasoningByStep.delete(stepId);
+    }
     // Any reasoning whose closing text never arrived (defensive): emit standalone.
     for (const reasoning of reasoningByStep.values()) {
       out.push({ role: 'assistant', content: [reasoningPart(reasoning)] } as ModelMessage);
@@ -2892,8 +2926,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentOrchestration = undefined;
     this.currentRunTrace = null;
     this.currentUserIntent = undefined;
-    this.currentStepMessageId = null;
-    this.stopAfterStepRequested = false;
+    this.loopStopRequested = false;
     this.handoffStopReason = undefined;
     this.injectedSteeringMessages = [];
     this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
@@ -2922,12 +2955,12 @@ export class AiSdkBackend implements AgentBackend {
     input: BackendSendInput,
     turnId: string,
     queue: AsyncEventQueue<SessionEvent>,
+    abortSignal: AbortSignal,
   ): Promise<void> {
     const pull = input.pullSteering;
     if (!pull) return;
     const leases = pull();
     if (leases.length === 0) return;
-    const abortSignal = this.abortController?.signal;
     // Binary settlement: every pulled lease settles exactly once, decided
     // ONLY by the persistence fact — durably consumed ⇒ ack + injection set;
     // provably never persisted (never pushed, or the consumer detached
@@ -3127,7 +3160,7 @@ function sumOptionalCounts<K extends keyof ActiveToolResultPruneDiagnosticPatch>
   return total > 0 ? ({ [key]: total } as Pick<ActiveToolResultPruneDiagnosticPatch, K>) : {};
 }
 
-function contextBudgetWithActivePrepareStepDiagnostics(
+function contextBudgetWithActiveProjectionDiagnostics(
   base: ContextBudgetDiagnostic | undefined,
   patch: ActiveToolResultPruneDiagnosticPatch,
   activeFullCompactPatch: Partial<ContextBudgetDiagnostic> | undefined,

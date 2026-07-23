@@ -5,7 +5,7 @@ import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 
 import { ModelAdapter } from '../model-adapter.js';
-import type { ModelToolSet } from '../model-protocol.js';
+import type { ModelToolSet, ToolCallPart } from '../model-protocol.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
 import type { MakaTool } from '../tool-runtime.js';
 
@@ -30,14 +30,13 @@ function newAdapter(): ModelAdapter {
     modelId: 'mock',
     modelFactory: () => ({}),
     providerOptions: {},
-    maxSteps: 4,
     newId: () => 'id',
     now: () => 0,
   });
 }
 
-describe('prepareStep activates a group within the same turn (Codex Δ1)', () => {
-  test('a group loaded at step 0 reaches the provider at step 1', async () => {
+describe('Runtime request projection activates deferred tools', () => {
+  test('a group loaded by one provider step reaches the next provider request', async () => {
     const invalid = makaTool('invalid');
     const runtime = new ToolAvailabilityRuntime(
       [makaTool('Read'), makaTool('RiveWorkflow')],
@@ -79,31 +78,42 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
       },
     });
 
-    // Build the ai-sdk tools dict the backend would build, with a working
-    // load_tools execute that returns the thin activation result.
+    // Build the schema-only tool set the backend passes to ModelAdapter.
     const modelTools: ModelToolSet = {};
     for (const t of plan.providerTools) {
       modelTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
-        execute:
-          t.name === LOAD_TOOLS_NAME ? () => ({ loaded: ['RiveWorkflow'] }) : () => ({ ok: true }),
       };
     }
 
-    const result = await newAdapter().startStream({
+    const adapter = newAdapter();
+    const first = await adapter.startStream({
       model,
       messages: [{ role: 'user', content: 'animate it' }],
       tools: modelTools,
       activeTools: plan.activeTools,
-      prepareStep: plan.prepareStep,
       system: 'sys',
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    for await (const _chunk of result.events) {
-      void _chunk;
+    const returnedToolCalls: ToolCallPart[] = [];
+    for await (const event of first.events) {
+      if (event.kind === 'tool-call') returnedToolCalls.push(event.toolCall);
     }
+    const projected = plan.projectActiveTools!({
+      completedSteps: [{ toolCalls: returnedToolCalls }],
+    });
+    const second = await adapter.startStream({
+      model,
+      messages: [{ role: 'user', content: 'animate it' }],
+      tools: modelTools,
+      activeTools: projected.activeTools,
+      system: 'sys',
+      abortSignal: new AbortController().signal,
+      repairToolCall: async () => null,
+    });
+    for await (const _event of second.events) void _event;
 
     assert.equal(toolsPerStep.length, 2, 'expected two model steps (load then use)');
     assert.ok(

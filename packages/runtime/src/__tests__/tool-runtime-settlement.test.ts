@@ -140,8 +140,6 @@ describe('ToolRuntime settlement', () => {
       eventSink: { push: () => {} },
     });
 
-    assert.equal(runtime.hasStepAdmission('step-1'), true);
-    assert.equal(runtime.hasStepAdmission('step-2'), false);
     await pending;
   });
 });

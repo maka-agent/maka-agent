@@ -3,7 +3,7 @@
  * from AiSdkBackend (issue #1084, runtime/compaction lane, slice 2).
  *
  * Owns the compact/synthesis-cache load and write paths that AiSdkBackend's
- * streamText adaptation drives. Behavior-neutral collaborator: methods move
+ * Runtime request projection drives. Behavior-neutral collaborator: methods move
  * verbatim, turn-scoped state (abortSignal, requestShapeHashBefore) is passed
  * per call, and replay/telemetry capabilities that stay on AiSdkBackend are
  * injected as host callbacks.
@@ -53,10 +53,12 @@ import {
   normalizeAiSdkUsage,
   type ModelAdapter,
   type NormalizedAiSdkUsage,
-  type PrepareStepFunctionLike,
-  type PrepareStepLike,
-  type PrepareStepResultLike,
 } from './model-adapter.js';
+import type {
+  RequestProjection,
+  RequestProjectionContext,
+  RequestProjectionStage,
+} from './request-projection.js';
 import {
   activeToolResultLineageIdentity,
   rewriteActiveToolResultsInMessages,
@@ -919,18 +921,18 @@ export class AiSdkCompaction {
     };
   }
 
-  public buildActiveToolResultPrunePrepareStep(
+  public buildActiveToolResultPruneProjection(
     turnId: string,
     includeNewestStep: boolean,
     onDiagnosticPatch?: (patch: ActiveToolResultPruneDiagnosticPatch) => void,
-  ): PrepareStepFunctionLike | undefined {
+  ): RequestProjectionStage | undefined {
     const policy = this.input.contextBudget?.activeToolResultPrune;
     if (policy?.enabled !== true) return undefined;
 
     const archivedPlaceholders = new Map<string, ActiveArchivedToolResultPlaceholder>();
     return async (options) => {
-      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(
-        options.steps,
+      const eligibleToolCallIds = collectPrunableCompletedStepToolCallIds(
+        options.completedSteps,
         includeNewestStep,
       );
       if (eligibleToolCallIds.size === 0) return undefined;
@@ -959,7 +961,7 @@ export class AiSdkCompaction {
     };
   }
 
-  public buildSemanticCompactPrepareStep(
+  public buildSemanticCompactProjection(
     turnId: string,
     model: unknown,
     runtimeEvents: readonly RuntimeEvent[] | undefined,
@@ -970,11 +972,11 @@ export class AiSdkCompaction {
     ) => string,
     onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void,
     abortSignal?: AbortSignal,
-  ): PrepareStepFunctionLike | undefined {
+  ): RequestProjectionStage | undefined {
     const policy = this.input.contextBudget?.semanticCompact;
     if (policy?.enabled !== true || policy.mode === 'off' || !headAnchor) return undefined;
 
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
+    let acceptedProjection: ActiveFullCompactProjection | undefined;
     const controllerState: SemanticCompactControllerState = {
       consecutiveInvalidSummaries: 0,
       totalInvalidSummaries: 0,
@@ -983,8 +985,7 @@ export class AiSdkCompaction {
       acceptedEstimatedTokensSaved: 0,
     };
     return async (options) => {
-      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
-        .activeTools;
+      const activeToolsForStep = options.activeTools;
       const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
       const incomingMessages = options.messages;
       const projectedMessages = dryRun
@@ -1068,18 +1069,18 @@ export class AiSdkCompaction {
         return {
           messages: rewritten.messages,
           makaSemanticCompactStatus: 'replaced',
-        } as ActiveCompactionPrepareStepResult;
+        } as ActiveCompactionProjectionResult;
       }
       return !dryRun && projectedMessages
         ? ({
             messages: projectedMessages,
             makaSemanticCompactStatus: 'projected',
-          } as ActiveCompactionPrepareStepResult)
+          } as ActiveCompactionProjectionResult)
         : undefined;
     };
   }
 
-  public buildActiveFullCompactPrepareStep(
+  public buildActiveFullCompactProjection(
     turnId: string,
     runtimeEvents: readonly RuntimeEvent[] | undefined,
     headAnchor: ActiveCompactionHeadAnchor | undefined,
@@ -1088,15 +1089,14 @@ export class AiSdkCompaction {
       activeToolsForStep: readonly string[] | undefined,
     ) => string,
     onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void,
-  ): PrepareStepFunctionLike | undefined {
+  ): RequestProjectionStage | undefined {
     const policy = this.input.contextBudget?.activeFullCompact;
     if (policy?.enabled !== true || policy.mode === 'index_only' || policy.mode === 'off')
       return undefined;
 
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
+    let acceptedProjection: ActiveFullCompactProjection | undefined;
     return (options) => {
-      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
-        .activeTools;
+      const activeToolsForStep = options.activeTools;
       const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
       const incomingMessages = options.messages;
       const projectedMessages = dryRun
@@ -1255,7 +1255,7 @@ export class AiSdkCompaction {
   }
 
   /**
-   * prepareStep SHAPING hook for the mid-turn capacity invariant: between
+   * Request-projection stage for the mid-turn capacity invariant: between
    * steps of one turn, estimate the next provider request (last step's real
    * usage + a signed char/4 payload delta, tool schemas included) against
    * `contextWindow - reserve`; over the high-water, fold a safe completed
@@ -1271,7 +1271,7 @@ export class AiSdkCompaction {
    * approximate — a missed or spurious trigger is recoverable; the verdict is
    * not, so it does not live here.
    */
-  public buildMidTurnCapacityCompactPrepareStep(
+  public buildMidTurnCapacityCompactProjection(
     turnId: string,
     state: MidTurnCapacityCompactState | undefined,
     queue: AsyncEventQueue<SessionEvent>,
@@ -1281,14 +1281,14 @@ export class AiSdkCompaction {
     systemPromptChars: number,
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
     abortSignal?: AbortSignal,
-  ): PrepareStepFunctionLike | undefined {
+  ): RequestProjectionStage | undefined {
     if (!state) return undefined;
     const policy = this.input.contextBudget!;
     const compactPolicy = policy.historyCompact!;
     const midTurn = compactPolicy.midTurn!;
     const charsPerToken = policy.charsPerToken ?? 4;
     const reserveTokens = midTurn.reserveTokens ?? 16_384;
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
+    let acceptedProjection: ActiveFullCompactProjection | undefined;
 
     return async (options) => {
       const incomingMessages = options.messages;
@@ -1296,7 +1296,7 @@ export class AiSdkCompaction {
         incomingMessages,
         acceptedProjection,
       );
-      const keepProjection = (): PrepareStepResultLike | undefined =>
+      const keepProjection = (): RequestProjection | undefined =>
         projectedMessages ? { messages: projectedMessages } : undefined;
       // Step 0 is shaped by the pre_turn path; the mid-turn trigger only runs
       // between steps, once completed-step usage and events exist.
@@ -1321,7 +1321,7 @@ export class AiSdkCompaction {
       // request's chars would under-estimate the retry by the whole previous
       // step growth — so a missing baseline forces the whole-payload cold
       // start, exactly like a missing usage sample.
-      const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
+      const lastStepInputTokens = options.completedSteps.at(-1)?.usage?.inputTokens;
       state.lastRequestInputTokens =
         state.lastRequestPayloadChars !== undefined &&
         lastStepInputTokens !== undefined &&
@@ -1337,7 +1337,7 @@ export class AiSdkCompaction {
       const failOpen = (
         failOpenReason: string,
         recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): PrepareStepResultLike | undefined => {
+      ): RequestProjection | undefined => {
         onDiagnosticPatch({
           historyCompactEnabled: true,
           historyCompactMode: 'read_write',
@@ -1363,7 +1363,7 @@ export class AiSdkCompaction {
         detail: ContextBudgetExhaustedDetail,
         diagnosticReason: string,
         recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): PrepareStepResultLike | undefined => {
+      ): RequestProjection | undefined => {
         state.lastShapeFailure = { stepNumber: options.stepNumber, detail, diagnosticReason };
         return failOpen(diagnosticReason, recorderCounters);
       };
@@ -1405,7 +1405,7 @@ export class AiSdkCompaction {
 
       // Fold a safe completed prefix of the durable turn ledger into a
       // replacement projection (validate → persist), shared with the reactive
-      // overflow path. This hook maps the outcome to the prepareStep contract:
+      // overflow path. This stage maps the outcome to the request-projection contract:
       // keep the raw projection on skip/fail, apply the fold on success.
       const outcome = await this.computeMidTurnCompactionReplacement({
         turnId,
@@ -1445,7 +1445,7 @@ export class AiSdkCompaction {
   /**
    * Fold a safe completed prefix of the durable turn ledger into a persisted
    * mid_turn checkpoint and its `[block, verbatim anchor, tail]` replacement
-   * messages — the compaction core shared by the proactive prepareStep hook
+   * messages — the compaction core shared by the proactive projection stage
    * (issue #882 PR 1) and the reactive overflow recovery (PR 2). It waits for
    * the seq-ack durability boundary, reads the ledger, plans the fold, then
    * validates (materializable ∧ smaller than the reference request ∧
@@ -1715,11 +1715,11 @@ export class AiSdkCompaction {
     // The shrink baseline is the request the provider actually rejected. Its
     // single owner is the verdict owner's per-request payload measure
     // (state.lastRequestPayloadChars), recorded at the end of every
-    // prepareStep run — the attempt-INITIAL messages undercount the rejected
+    // request-projection run — the attempt-INITIAL messages undercount the rejected
     // request by every same-turn tool step, and a baseline anchored there
     // refuses folds that genuinely shrink the real request (review P1-1).
     // The cold-start fallback only covers a send whose verdict owner never
-    // ran a prepareStep (defensive; step 0 records the baseline too).
+    // ran request projection (defensive; step 0 records the baseline too).
     const referencePayloadChars =
       state.lastRequestPayloadChars ??
       midTurnRequestPayloadChars(
@@ -1792,7 +1792,7 @@ export class AiSdkCompaction {
 
   /**
    * The single end-of-pipeline estimate owner for the mid-turn capacity
-   * invariant. Every prepareStep hook only shapes; this wrapper measures the
+   * invariant. Every request-projection stage only shapes; this wrapper measures the
    * FINAL outgoing (messages, tools) payload — the bytes the provider will
    * actually see, after capacity compaction, active tool-result pruning, and
    * semantic/active-full compaction have all run — and issues the one
@@ -1817,8 +1817,8 @@ export class AiSdkCompaction {
    * Step 0 is shaped by the pre_turn path and only records the baseline here.
    */
   public buildMidTurnFinalRequestVerdict(input: {
-    shaped: PrepareStepFunctionLike;
-    reentry: PrepareStepFunctionLike;
+    shaped: RequestProjectionStage;
+    reentry: RequestProjectionStage;
     state: MidTurnCapacityCompactState;
     providerTools: readonly MakaTool[];
     fallbackActiveTools: () => readonly string[];
@@ -1826,7 +1826,7 @@ export class AiSdkCompaction {
     systemPromptChars: number;
     onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void;
     abortController?: AbortController | null;
-  }): PrepareStepFunctionLike {
+  }): RequestProjectionStage {
     const {
       shaped,
       reentry,
@@ -1942,19 +1942,19 @@ function mergeCountsInto(
 
 // -- moved helpers (prepare-step / signature / prune) ------------------------
 
-type ActiveCompactionPrepareStepResult = PrepareStepResultLike & {
+type ActiveCompactionProjectionResult = RequestProjection & {
   makaSemanticCompactStatus?: 'replaced' | 'projected';
 };
 
-export function composeActiveCompactionPrepareStep(
-  attention: PrepareStepFunctionLike | undefined,
-  capacity: PrepareStepFunctionLike | undefined,
-): PrepareStepFunctionLike | undefined {
+export function composeActiveCompactionProjection(
+  attention: RequestProjectionStage | undefined,
+  capacity: RequestProjectionStage | undefined,
+): RequestProjectionStage | undefined {
   if (!attention) return capacity;
   if (!capacity) return attention;
   return async (options) => {
     const attentionResult = (await Promise.resolve(attention(options))) as
-      | ActiveCompactionPrepareStepResult
+      | ActiveCompactionProjectionResult
       | undefined;
     if (attentionResult?.makaSemanticCompactStatus === 'replaced') {
       const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
@@ -1989,7 +1989,7 @@ function activeToolResultArchiveKey(
 
 /**
  * Tool results from the newest completed step have not crossed the provider
- * boundary yet: prepareStep is invoked immediately before the first request
+ * boundary yet: projection is invoked immediately before the first request
  * that could show those results to the model. By default active pruning defers
  * the newest step and archives only older completed steps, after the model has
  * had one request in which to consume their exact output.
@@ -2000,8 +2000,8 @@ function activeToolResultArchiveKey(
  * placeholder before declaring exhaustion, and capacity/recovery rebuilds
  * re-materialize raw bodies from the ledger that must be re-archived.
  */
-function collectPrunablePrepareStepToolCallIds(
-  steps: PrepareStepLike['steps'],
+function collectPrunableCompletedStepToolCallIds(
+  steps: RequestProjectionContext['completedSteps'],
   includeNewestStep: boolean,
 ): Set<string> {
   const out = new Set<string>();
@@ -2016,7 +2016,7 @@ function collectPrunablePrepareStepToolCallIds(
   return out;
 }
 
-interface ActiveFullCompactPrepareStepProjection {
+interface ActiveFullCompactProjection {
   sourceSignatures: readonly string[];
   sourceSignatureMode: 'exact' | 'active_prune_lineage';
   projectedMessages: readonly ModelMessage[];
@@ -2025,7 +2025,7 @@ interface ActiveFullCompactPrepareStepProjection {
 
 function projectAcceptedActiveFullCompactMessages(
   incomingMessages: readonly ModelMessage[],
-  acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined,
+  acceptedProjection: ActiveFullCompactProjection | undefined,
 ): ModelMessage[] | undefined {
   if (!acceptedProjection) return undefined;
   const sourceSignature =
@@ -2107,7 +2107,7 @@ export class MidTurnCapacityCompactState {
   /**
    * Chars of the final (system prompt + messages + active tool schema)
    * payload of the LAST prepared request, recorded by the final-request
-   * estimate owner at the end of every prepareStep pipeline run. All capacity estimates are signed
+   * estimate owner at the end of every request-projection pipeline run. All capacity estimates are signed
    * deltas against this number, so they are anchored to the request the
    * provider actually saw — a compacted projection, a pruned tail, or a
    * same-turn tool-schema expansion all move the delta the same way.
@@ -2194,7 +2194,7 @@ function midTurnRequestPayloadChars(
 
 /**
  * Outcome of folding the durable turn ledger into a replacement projection.
- * Shared by the proactive prepareStep hook (which maps it to keepProjection /
+ * Shared by the proactive projection stage (which maps it to keepProjection /
  * shapeFailure / a `context_limit` replacement) and the reactive overflow
  * recovery (which maps it to a retry / a real error terminal, with an
  * `overflow` reason). The verdict/diagnostic is the caller's; this only shapes.

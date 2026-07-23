@@ -64,7 +64,7 @@ describe('RunTrace error diagnostics', () => {
     );
     error.stack = [
       'TypeError: Cannot read properties of undefined (reading "role") token=sk-live-secret-token-value',
-      '    at prepareStep (file:///repo/packages/runtime/src/ai-sdk-backend.ts:123:45)',
+      '    at projectRequest (file:///repo/packages/runtime/src/ai-sdk-backend.ts:123:45)',
     ].join('\n');
 
     trace.modelStreamFailed('TypeError', error);

@@ -82,10 +82,9 @@ interface ReactiveFixtureOptions {
   /** Economy tool availability with the gated `Big` tool behind `load_tools`. */
   gatedToolGroup?: boolean;
   /**
-   * appendMessage yields several macrotasks before resolving, so the pump
-   * genuinely lags inside flushStep (text_complete not yet enqueued,
-   * flushedSteps not yet incremented) while the SDK's loop advances to the
-   * next prepareStep — the P1-A race window.
+   * appendMessage yields several macrotasks before resolving, so the durable
+   * consumer genuinely lags while the Runtime loop advances toward its next
+   * request projection — the P1-A race window.
    */
   slowAppendMessage?: boolean;
   /** Enable the active tool-result prune with a small threshold + archive seam. */
@@ -303,7 +302,13 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
 
   const midTurnEnabled = options.midTurnEnabled ?? true;
   const summarizedSources: string[] = [];
-  const seams = midTurnEnabled
+  const durableReader = {
+    loadTurnRuntimeEvents: async (turnId: string) => {
+      await flushMacrotask();
+      return ledger.filter((event) => event.turnId === turnId);
+    },
+  };
+  const compactionSeams = midTurnEnabled
     ? {
         summarizeHistoryCompact: async (input: {
           source: { foldedRuntimeEvents: RuntimeEvent[] };
@@ -314,10 +319,6 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
         },
         recordHistoryCompactCheckpoint: (checkpoint: HistoryCompactCheckpoint) => {
           recorded.push(checkpoint);
-        },
-        loadTurnRuntimeEvents: async (turnId: string) => {
-          await flushMacrotask();
-          return ledger.filter((event) => event.turnId === turnId);
         },
         allowMidTurnHistoryCompaction: true,
       }
@@ -381,7 +382,8 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     ...(options.activeToolResultPrune
       ? { archiveToolResult: () => ({ artifactId: 'artifact-archived-1' }) }
       : {}),
-    ...seams,
+    ...durableReader,
+    ...compactionSeams,
     recordLlmCall: (record) => {
       llmCalls.push(record as (typeof llmCalls)[number]);
     },
@@ -690,12 +692,10 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.equal(fixture.llmCalls.length, 0);
   });
 
-  test('a retry only gets the remaining step budget under an explicit maxSteps (review P1-3)', async () => {
-    // maxSteps=2: one completed tool step before the overflow leaves a budget
-    // of exactly one step for the retry. The retry's tool step consumes it and
-    // the send ends at the explicit step limit — a fresh full budget would run
-    // a third step and a fourth provider request, breaching the send-level cap
-    // and its tool side effects.
+  test('the Runtime send-level step limit survives an explicit overflow retry (review P1-3)', async () => {
+    // maxSteps=2: one completed tool step before the overflow leaves exactly
+    // one Runtime-owned step. The retry consumes it and the send ends at the
+    // explicit limit; no adapter-local budget is involved.
     const fixture = buildReactiveFixture({
       script: ['tool', 'overflow', 'tool', 'done'],
       bigPriors: true,
@@ -709,12 +709,11 @@ describe('reactive overflow recovery in the streaming backend', () => {
   });
 
   test("a completed retry step's assistant text is never dropped by a post-retry compaction (review P1-A)", async () => {
-    // Review round-2 P1-A repro: the SDK numbers prepareStep steps per
-    // streamText call, but flushedSteps / replacedStepNumber / lastShapeFailure
-    // are SEND-level. After a retry, attempt-local step 1 satisfies the
-    // durability wait with attempt 1's flushed boundary, so a capacity
-    // compaction at the retry's own step boundary can read the ledger BEFORE
-    // the pump has flushed the retry step's text_complete — and because the
+    // Review round-2 P1-A repro: provider request boundaries and the Runtime's
+    // flushedSteps / replacedStepNumber / lastShapeFailure are send-level.
+    // After a retry, a mismatched request-local boundary could satisfy the
+    // durability wait before the retry step's text_complete is durable, and
+    // because the
     // replacement projection replaces the whole message list, that streamed
     // assistant text silently vanishes from both the covered span and the
     // preserved tail. Same shape as PR 1's finding B, re-opened across the
@@ -782,15 +781,14 @@ describe('reactive overflow recovery in the streaming backend', () => {
   });
 
   test('an actively pruned tool result stays a placeholder in the retry request (review round-3 P1)', async () => {
-    // Review round-3 P1 repro: the active tool-result prune derives its
-    // eligible tool-call IDs from `options.steps` and early-returns on an
-    // empty set. The retry's fresh streamText starts with empty steps, while
-    // the recovery projection is rebuilt from the durable ledger — which holds
+    // Review round-3 P1 repro: active tool-result pruning derives eligible
+    // tool-call IDs from completed Runtime steps. Recovery rebuilds from the
+    // durable ledger — which holds
     // the ORIGINAL raw result, not the provider-only placeholder. The retry
     // request therefore resurrected the archived raw body, breaking the
     // active-prune invariant (an archived result never re-enters provider
     // context) and inviting a second overflow. Third instance of the same
-    // disease: attempt-local `steps` consumed as send-level state.
+    // disease: request-local steps consumed as send-level state.
     //
     // 'bigread' keeps the step text-free so the durable pair is the POOL'S
     // trailing span: the safe boundary cannot split the pair, retreats before
@@ -866,8 +864,8 @@ describe('reactive overflow recovery in the streaming backend', () => {
 
   test('a steering message survives a transport retry exactly once per request', async () => {
     // The retry base is `attemptRequestMessages`; if it stored the request
-    // WITH steering, the retry attempt's own prepareStep would append the
-    // accumulator again and double the directive. Invariant: each steering
+    // WITH steering, retry projection would append the accumulator again and
+    // double the directive. Invariant: each steering
     // message appears at most once per provider request, 1:1 with its ledger
     // event.
     const fixture = buildReactiveFixture({ script: ['terminated', 'done'] });
@@ -891,8 +889,8 @@ describe('reactive overflow recovery in the streaming backend', () => {
 
   test('a transport retry keeps a historical ledger-replayed steering message in the base', async () => {
     // Round-4 V2: the steering-free retry base may strip ONLY this turn's
-    // injected set — that is exactly what the retry attempt's own prepareStep
-    // re-appends. A historical steering message replayed from the ledger
+    // injected set — that is exactly what retry projection re-appends. A
+    // historical steering message replayed from the ledger
     // carries the same structured marker but a prior turn's event id; nothing
     // re-appends it, so stripping it erased it from every post-retry request.
     const fixture = buildReactiveFixture({ script: ['terminated', 'done'] });
