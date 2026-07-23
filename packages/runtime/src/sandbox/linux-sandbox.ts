@@ -197,18 +197,14 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
   const runtimeWritableRoots = removeNestedRoots(
     (command.pathContext.runtimeWritableRoots ?? []).filter(isUsableRuntimeRoot),
   );
-  const profileReadableRoots = removeRootsCoveredBy(
-    roots.readableRoots,
-    runtimeWritableRoots,
+  const profileReadableRoots = removeRootsCoveredBy(roots.readableRoots, runtimeWritableRoots);
+  const profileWritableRoots = removeRootsCoveredBy(roots.writableRoots, runtimeWritableRoots);
+  const requiredRuntimeRoots = removeNestedRoots(
+    [
+      ...(command.pathContext.runtimeReadableRoots ?? []),
+      ...(command.pathContext.executableRoots ?? []),
+    ].filter(isUsableRuntimeRoot),
   );
-  const profileWritableRoots = removeRootsCoveredBy(
-    roots.writableRoots,
-    runtimeWritableRoots,
-  );
-  const requiredRuntimeRoots = removeNestedRoots([
-    ...(command.pathContext.runtimeReadableRoots ?? []),
-    ...(command.pathContext.executableRoots ?? []),
-  ].filter(isUsableRuntimeRoot));
   const requiredRuntimeMounts = removeRootsCoveredBy(requiredRuntimeRoots, [
     ...DEFAULT_READ_ONLY_HOST_PATHS,
     ...profileReadableRoots,
@@ -223,6 +219,7 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
     ...requiredRuntimeMounts,
     ...runtimeWritableRoots,
   ];
+  const needsSyntheticCwd = !isCoveredByAnyRoot(command.cwd, profileCoverage);
   const extraProgramDirectories =
     programDirectory && !isCoveredByAnyRoot(programDirectory, profileCoverage)
       ? [programDirectory]
@@ -254,6 +251,12 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
   for (const root of requiredRuntimeMounts) argv.push('--ro-bind', root, root);
   for (const root of runtimeWritableRoots) argv.push('--bind', root, root);
   for (const root of roots.tempRoots) argv.push('--tmpfs', root);
+  if (needsSyntheticCwd) {
+    for (const directory of requiredParentDirectories([command.cwd])) {
+      argv.push('--dir', directory);
+    }
+    argv.push('--dir', command.cwd);
+  }
   for (const root of profileReadableRoots) argv.push('--ro-bind', root, root);
   for (const root of profileWritableRoots) argv.push('--bind', root, root);
 
@@ -275,7 +278,10 @@ export function buildBubblewrapArgv(input: BuildBubblewrapArgvInput): readonly s
  * Build a compiled classic-BPF seccomp program for bubblewrap's `--seccomp FD`.
  * The filter validates the audit architecture, then denies socket creation.
  * Network-restricted sandboxes receive no inherited network descriptors, so
- * blocking socket/socketpair prevents opening a new network channel.
+ * blocking socket prevents opening a new network channel. `socketpair` stays
+ * available because Node uses local pairs while spawning the trusted Grep
+ * helper; the separate network namespace prevents those pairs reaching the
+ * host network.
  */
 export function buildNetworkSeccompFilter(arch: NodeJS.Architecture = process.arch): Uint8Array {
   const syscall = networkSyscalls(arch);
@@ -287,8 +293,6 @@ export function buildNetworkSeccompFilter(arch: NodeJS.Architecture = process.ar
     [0x06, 0, 0, 0x80000000],
     [0x20, 0, 0, 0],
     [0x15, 0, 1, syscall.socket],
-    [0x06, 0, 0, 0x00050001],
-    [0x15, 0, 1, syscall.socketpair],
     [0x06, 0, 0, 0x00050001],
     [0x06, 0, 0, 0x7fff0000],
   ];
@@ -306,13 +310,12 @@ export function buildNetworkSeccompFilter(arch: NodeJS.Architecture = process.ar
 function networkSyscalls(arch: NodeJS.Architecture): {
   auditArch: number;
   socket: number;
-  socketpair: number;
 } {
   switch (arch) {
     case 'x64':
-      return { auditArch: 0xc000003e, socket: 41, socketpair: 53 };
+      return { auditArch: 0xc000003e, socket: 41 };
     case 'arm64':
-      return { auditArch: 0xc00000b7, socket: 198, socketpair: 199 };
+      return { auditArch: 0xc00000b7, socket: 198 };
     default:
       throw new Error(`Linux seccomp network filter: unsupported architecture ${arch}`);
   }

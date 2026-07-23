@@ -189,9 +189,7 @@ describe('buildBubblewrapArgv', () => {
       name: 'custom',
       fileSystem: {
         kind: 'restricted',
-        entries: [
-          { kind: 'path', access: 'write', path: '/outside/new.txt', match: 'exact' },
-        ],
+        entries: [{ kind: 'path', access: 'write', path: '/outside/new.txt', match: 'exact' }],
       },
       network: { kind: 'restricted' },
     };
@@ -222,6 +220,30 @@ describe('buildBubblewrapArgv', () => {
     assert.ok(hasTriple(argv, '--ro-bind', '/opt/rg/bin/rg', '/opt/rg/bin/rg'));
     assert.ok(hasTriple(argv, '--bind', '/outside', '/outside'));
     assert.equal(hasTriple(argv, '--bind', '/outside/new.txt', '/outside/new.txt'), false);
+  });
+
+  it('materializes an otherwise-unmounted worker cwd without exposing its contents', () => {
+    const profile: PermissionProfile = {
+      type: 'managed',
+      name: 'custom',
+      fileSystem: {
+        kind: 'restricted',
+        entries: [{ kind: 'path', access: 'read', path: '/outside/allowed.txt', match: 'exact' }],
+      },
+      network: { kind: 'restricted' },
+    };
+    const request = workspaceRequest(profile);
+    const argv = buildBubblewrapArgv({
+      bwrapPath: '/usr/bin/bwrap',
+      command: {
+        ...request.command,
+        cwd: '/workspace/session',
+      },
+    });
+
+    assert.ok(hasPair(argv, '--dir', '/workspace/session'));
+    assert.equal(hasTriple(argv, '--ro-bind', '/workspace/session', '/workspace/session'), false);
+    assert.equal(hasTriple(argv, '--bind', '/workspace/session', '/workspace/session'), false);
   });
 });
 

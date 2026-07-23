@@ -50,7 +50,7 @@ describe('Linux filesystem worker smoke', { skip }, () => {
     ]);
   });
 
-  test('runs workspace file operations and Grep inside bubblewrap', async () => {
+  test('runs Read, Write, Edit, Glob, and Grep inside bubblewrap', async () => {
     const sourceDirectory = join(workspace, 'src');
     const sourceFile = join(sourceDirectory, 'health.ts');
     await mkdir(sourceDirectory);
@@ -76,11 +76,36 @@ describe('Linux filesystem worker smoke', { skip }, () => {
       content: 'export const healthSignal = true;\n',
     });
 
+    const edit = await client.execute({
+      operation: {
+        kind: 'edit',
+        path: sourceFile,
+        oldString: 'healthSignal = true',
+        newString: 'healthSignal = "healthy"',
+      },
+      cwd: workspace,
+      mode: 'ask',
+    });
+    assert.equal(edit.kind, 'edit');
+    assert.equal(await readFile(sourceFile, 'utf8'), 'export const healthSignal = "healthy";\n');
+
+    const glob = await client.execute({
+      operation: {
+        kind: 'glob',
+        path: sourceDirectory,
+        pattern: '*.ts',
+        limit: 20,
+      },
+      cwd: workspace,
+      mode: 'ask',
+    });
+    assert.deepEqual(glob, { kind: 'glob', files: ['health.ts'] });
+
     const grep = await client.execute({
       operation: {
         kind: 'grep',
         path: sourceDirectory,
-        pattern: 'healthSignal',
+        pattern: 'healthy',
         maxCountPerFile: 50,
         limit: 200,
         timeoutMs: 10_000,
@@ -91,7 +116,7 @@ describe('Linux filesystem worker smoke', { skip }, () => {
     assert.equal(grep.kind, 'grep');
     if (grep.kind === 'grep') {
       assert.equal(grep.matches.length, 1);
-      assert.match(grep.matches[0] ?? '', /healthSignal/);
+      assert.match(grep.matches[0] ?? '', /healthy/);
     }
   });
 
