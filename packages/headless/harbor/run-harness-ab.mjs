@@ -106,6 +106,7 @@ export const HARNESS_BENCHMARK_PROFILES = Object.freeze({
     version: '2.1',
     revision: TERMINAL_BENCH_2_1_REVISION,
     taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+    executor: 'harbor',
     runIdSlug: 'tbench-2.1-full',
     // The Harbor oracle registry (advisory task-quality evidence) exists only
     // for Terminal-Bench; DeepSWE grading is each task's own verifier.
@@ -118,12 +119,15 @@ export const HARNESS_BENCHMARK_PROFILES = Object.freeze({
     version: '1.1',
     revision: DEEP_SWE_REVISION,
     taskIds: DEEP_SWE_SUBSET_30_TASK_IDS,
+    executor: 'pier',
     runIdSlug: 'deepswe-subset30',
     oracle: false,
   }),
 });
 
-export function resolveHarnessBenchmarkProfile(raw = 'terminal-bench-2.1') {
+export function resolveHarnessBenchmarkProfile(
+  raw = process.env.MAKA_HARNESS_AB_BENCHMARK || 'terminal-bench-2.1',
+) {
   const profile = HARNESS_BENCHMARK_PROFILES[raw];
   if (!profile) {
     throw new Error(
@@ -147,7 +151,9 @@ export async function resolveFrozenBenchmarkTasks(benchmarkProfile, tasksRoot) {
   if (benchmarkProfile.dataset === 'deep-swe') {
     // The DeepSWE repo tree carries more tasks than the frozen subset; pick
     // the subset (loud on any missing id) instead of asserting the whole tree.
-    const tasks = selectTasksByIds(discovered, benchmarkProfile.taskIds, benchmarkProfile.label);
+    const tasks = selectTasksByIds(discovered, benchmarkProfile.taskIds, {
+      label: benchmarkProfile.label,
+    });
     const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(tasks);
     assertDeepSweSubset30TaskTreeFingerprint(taskSourceFingerprint);
     return { tasks, taskSourceFingerprint };
@@ -156,6 +162,42 @@ export async function resolveFrozenBenchmarkTasks(benchmarkProfile, tasksRoot) {
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(discovered);
   assertTerminalBench21TaskTreeFingerprint(taskSourceFingerprint);
   return { tasks: discovered, taskSourceFingerprint };
+}
+
+/** Compose the run's toolchain identity. The Harbor payload is byte-identical
+ * to the historical formula; a Pier benchmark additionally freezes the Pier
+ * executor version, so a resume across a Pier upgrade forks instead of mixing
+ * cells produced under different execution semantics. */
+export function buildHarnessAbToolchainFingerprint({
+  hostToolchainFingerprint,
+  competitorProfile,
+  pierVersion = null,
+}) {
+  return `sha256:${createHash('sha256')
+    .update(
+      JSON.stringify({
+        hostToolchainFingerprint,
+        competitor: competitorProfile.id,
+        competitorToolchainFingerprint: competitorProfile.toolchainFingerprint,
+        ...(pierVersion === null ? {} : { pierVersion }),
+      }),
+    )
+    .digest('hex')}`;
+}
+
+async function readPierVersion() {
+  try {
+    // stdout only: pier leaks environment-dependent LiteLLM warnings to
+    // stderr, which must not enter the frozen resume identity.
+    const { stdout } = await execFileAsync('pier', ['--version']);
+    const version = stdout.trim();
+    if (!version) throw new Error('pier --version printed nothing on stdout');
+    return version;
+  } catch (error) {
+    throw new Error(
+      `the DeepSWE benchmark freezes its Pier executor version into the resume identity, but pier --version failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
@@ -548,9 +590,7 @@ export async function main() {
     ? resolve(process.env.MAKA_HARNESS_AB_MAKA_REPO)
     : repoRoot;
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
-  const benchmarkProfile = resolveHarnessBenchmarkProfile(
-    process.env.MAKA_HARNESS_AB_BENCHMARK || 'terminal-bench-2.1',
-  );
+  const benchmarkProfile = resolveHarnessBenchmarkProfile();
   const tasksRoot = envPath(
     'MAKA_HARNESS_AB_TASKS_ROOT',
     defaultHarnessBenchmarkTasksRoot(benchmarkProfile),
@@ -620,7 +660,7 @@ async function runLocked({
   benchmarkProfile,
   competitorProfile,
 }) {
-  if (benchmarkProfile.dataset === 'deep-swe' && competitorProfile.id === 'opencode') {
+  if (benchmarkProfile.executor === 'pier' && competitorProfile.id === 'opencode') {
     throw new Error(
       'the OpenCode adapter has no Pier arm; DeepSWE supports the kimi-code and codex competitors',
     );
@@ -632,7 +672,7 @@ async function runLocked({
 
   if (process.env.MAKA_HARNESS_AB_DRY_RUN === '1') {
     console.log(
-      `dry-run: frozen ${benchmarkProfile.taskIds.length}-task ${benchmarkProfile.label} source will run ${selection.limit} paired Pass@1 cells${benchmarkProfile.oracle ? '; Oracle evidence is advisory' : ' via Pier'}`,
+      `dry-run: frozen ${benchmarkProfile.taskIds.length}-task ${benchmarkProfile.label} source will run ${selection.limit} paired Pass@1 cells${benchmarkProfile.executor === 'pier' ? ' via Pier' : ''}${benchmarkProfile.oracle ? '; Oracle evidence is advisory' : ''}`,
     );
     return;
   }
@@ -678,15 +718,11 @@ async function runLocked({
     env: process.env,
   });
 
-  const toolchainFingerprint = `sha256:${createHash('sha256')
-    .update(
-      JSON.stringify({
-        hostToolchainFingerprint,
-        competitor: competitorProfile.id,
-        competitorToolchainFingerprint: competitorProfile.toolchainFingerprint,
-      }),
-    )
-    .digest('hex')}`;
+  const toolchainFingerprint = buildHarnessAbToolchainFingerprint({
+    hostToolchainFingerprint,
+    competitorProfile,
+    pierVersion: benchmarkProfile.executor === 'pier' ? await readPierVersion() : null,
+  });
   const manifest = buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
@@ -727,7 +763,7 @@ async function runLocked({
       // contract; only the base-URL channel and Docker-platform pin differ
       // (Pier's EnvironmentConfig cannot carry an explicit platform).
       const createBenchmarkRunner =
-        benchmarkProfile.dataset === 'deep-swe' ? createPierTaskRunner : createHarborTaskRunner;
+        benchmarkProfile.executor === 'pier' ? createPierTaskRunner : createHarborTaskRunner;
       const runnerOptions = {
         makaRepoPath,
         jobsDir,
@@ -737,7 +773,7 @@ async function runLocked({
         ...credentials,
         pricing: execution.pricing,
         timeoutMultiplier: 1,
-        ...(benchmarkProfile.dataset === 'deep-swe'
+        ...(benchmarkProfile.executor === 'pier'
           ? { baseUrl: execution.baseUrl }
           : {
               agentEnv: { MAKA_BASE_URL: execution.baseUrl },

@@ -20,9 +20,7 @@ const envPath = (name) => parseEnvPath(name, process.env[name]);
 
 function detachedRunPaths() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
-  const benchmarkProfile = resolveHarnessBenchmarkProfile(
-    process.env.MAKA_HARNESS_AB_BENCHMARK || 'terminal-bench-2.1',
-  );
+  const benchmarkProfile = resolveHarnessBenchmarkProfile();
   const competitorProfile = resolveHarnessCompetitorProfile(
     process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code',
   );

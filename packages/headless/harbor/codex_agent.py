@@ -34,6 +34,8 @@ _TOOLCHAIN_MANIFEST = _TOOLCHAIN_ROOT / "manifest.json"
 _TOOLCHAIN_CHECKSUMS = _TOOLCHAIN_ROOT / "checksums.sha256"
 _DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 _OUTPUT_FILENAME = "codex.txt"
+_REMOTE_OUTPUT_PATH = Path("/logs/agent") / _OUTPUT_FILENAME
+_REMOTE_SESSIONS_DIR = Path("/logs/agent/sessions")
 
 
 class MakaCodexAgent(Codex):
@@ -150,6 +152,38 @@ class MakaCodexAgent(Codex):
                     await cleanup_process_scope(self, environment, command_scope)
             finally:
                 self._finished_at_ms = int(time.time() * 1000)
+                await self._download_agent_logs(environment)
+
+    async def _download_agent_logs(self, environment: BaseEnvironment) -> None:
+        # populate_context_post_run and _write_cell_output read codex.txt and
+        # sessions/**/rollout-*.jsonl from the host log dir. Under Harbor the
+        # agent log dir is bind-mounted, so both are already host-side and are
+        # skipped; under Pier a --mounts-json run replaces the default log
+        # mounts while capabilities.mounted stays true (pier docker.py), so
+        # pier's own log download never runs — without this hydration
+        # _events() sees nothing and a real token-burning run is misclassified
+        # as failed. Runs in run()'s finally so failure paths are hydrated too.
+        local_output = self.logs_dir / _OUTPUT_FILENAME
+        if not local_output.exists():
+            try:
+                await environment.download_file(_REMOTE_OUTPUT_PATH.as_posix(), local_output)
+            except Exception as exc:  # noqa: BLE001 - best-effort log hydration.
+                self.logger.debug(
+                    "Could not download Codex output %s: %s", _REMOTE_OUTPUT_PATH, exc
+                )
+        local_sessions = self.logs_dir / "sessions"
+        if not local_sessions.exists():
+            try:
+                # docker cp of `dir/.` requires an existing target directory.
+                local_sessions.mkdir(parents=True, exist_ok=True)
+                await environment.download_dir(
+                    source_dir=_REMOTE_SESSIONS_DIR.as_posix(),
+                    target_dir=local_sessions,
+                )
+            except Exception as exc:  # noqa: BLE001 - best-effort log hydration.
+                self.logger.debug(
+                    "Could not download Codex sessions %s: %s", _REMOTE_SESSIONS_DIR, exc
+                )
 
     async def _write_http_provider_config(
         self, environment: BaseEnvironment, proxy_url: str

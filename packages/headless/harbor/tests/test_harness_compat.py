@@ -328,6 +328,60 @@ def test_kimi_runtime_env_forwards_ipv6_proxy_url():
 
 
 @_isolated_maka_env
+def test_codex_agent_hydrates_agent_logs_best_effort():
+    # Runs under BOTH trees. Pier replaces the default /logs/agent bind mount
+    # when a trial passes --mounts-json while capabilities.mounted stays true
+    # (pier docker.py), so pier's own log download never runs; the adapter must
+    # hydrate codex.txt and the sessions rollouts itself or _events() reads
+    # nothing and a real token-burning run is misclassified as failed. Under
+    # Harbor the log dir is bind-mounted, so hydration must skip host-side
+    # files, and a download failure must stay best-effort.
+    import asyncio
+    import tempfile
+
+    _, _, codex_mod = _fresh_adapters()
+
+    class _RecordingEnvironment:
+        def __init__(self) -> None:
+            self.files: list[tuple[str, Path]] = []
+            self.dirs: list[tuple[str, Path]] = []
+
+        async def download_file(self, source_path, target_path):
+            self.files.append((source_path, Path(target_path)))
+            Path(target_path).write_text("", encoding="utf-8")
+
+        async def download_dir(self, source_dir, target_dir):
+            self.dirs.append((source_dir, Path(target_dir)))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        logs_dir = Path(tmp)
+        agent = codex_mod.MakaCodexAgent(logs_dir=logs_dir)
+        environment = _RecordingEnvironment()
+        asyncio.run(agent._download_agent_logs(environment))
+        assert environment.files == [("/logs/agent/codex.txt", logs_dir / "codex.txt")]
+        assert environment.dirs == [("/logs/agent/sessions", logs_dir / "sessions")]
+        # docker cp of `dir/.` requires the target directory to exist.
+        assert (logs_dir / "sessions").is_dir()
+
+        # Both targets are now host-side (the Harbor bind-mount case): no
+        # further downloads.
+        asyncio.run(agent._download_agent_logs(environment))
+        assert len(environment.files) == 1
+        assert len(environment.dirs) == 1
+
+    class _FailingEnvironment:
+        async def download_file(self, source_path, target_path):
+            raise RuntimeError("container already torn down")
+
+        async def download_dir(self, source_dir, target_dir):
+            raise RuntimeError("container already torn down")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        agent = codex_mod.MakaCodexAgent(logs_dir=Path(tmp))
+        asyncio.run(agent._download_agent_logs(_FailingEnvironment()))
+
+
+@_isolated_maka_env
 def test_harbor_tree_used_without_pier():
     saved_pier = _without_pier_modules()
     finder = _RaisingPierFinder(

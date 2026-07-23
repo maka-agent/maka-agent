@@ -3068,6 +3068,9 @@ class Codex:
         self._version = version
         self.model_name = model_name
         self.parent_calls = []
+        # Real harbor/pier bases set self.logger in __init__; the adapter's
+        # best-effort log hydration logs through it.
+        self.logger = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
 
     def _get_env(self, key):
         return self._extra_env.get(key) or os.environ.get(key)
