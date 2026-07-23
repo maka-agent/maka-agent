@@ -382,7 +382,7 @@ export async function resolveHarborRunOptions(
   preflightIsolation(backend, isolation, env);
 
   const outDir = resolve(valueOf(parsed, env, 'out', 'MAKA_OUTPUT_DIR') ?? '/logs/agent');
-  const cellArtifactDir = resolve(env.MAKA_CELL_ARTIFACT_DIR ?? outDir);
+  const cellArtifactDir = mode === 'cell' ? outDir : resolve(env.MAKA_CELL_ARTIFACT_DIR ?? outDir);
   const storageRoot = resolve(
     valueOf(parsed, env, 'storage-root', 'MAKA_STORAGE_ROOT') ??
       (mode === 'task-run' ? join(outDir, 'runs') : join(outDir, 'maka-storage')),
