@@ -68,13 +68,19 @@ describe('ModelAdapter stream and error normalization', () => {
         .map((event) => (event as { text: string }).text),
       ['think ', 'more'],
     );
-    const errorEvent = events.find((event) => event.kind === 'error') as
-      | Extract<ModelStreamEvent, { kind: 'error' }>
-      | undefined;
+    const errorEvent = events.find(
+      (event): event is Extract<ModelStreamEvent, { kind: 'error' }> => event.kind === 'error',
+    );
     assert.ok(errorEvent);
-    assert.equal((errorEvent.error as { code?: number }).code, 429);
-    // The adapter surfaces the raw error; the backend owns ErrorEvent shaping.
-    const shaped = adapter.makeErrorEvent('turn-1', errorEvent.error);
+    assert.deepEqual(errorEvent.failure, {
+      type: 'model_failure',
+      kind: 'rate_limit',
+      code: '429',
+      message: 'Rate limit exceeded',
+    });
+    // The backend consumes the typed failure without recovering the raw
+    // provider error shape.
+    const shaped = adapter.makeErrorEvent('turn-1', errorEvent.failure);
     assert.equal(shaped.reason, 'rate_limit');
     assert.equal(shaped.code, '429');
     assert.equal(shaped.message, 'Rate limit exceeded');

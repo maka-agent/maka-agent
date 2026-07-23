@@ -85,7 +85,7 @@ import type {
   ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
 import type { ContextBudgetDiagnostic, PromptSegmentEstimate } from '@maka/core/usage-stats/types';
-import type { JSONValue, ModelMessage } from './model-protocol.js';
+import type { JSONValue, ModelMessage, ModelToolSet } from './model-protocol.js';
 import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
@@ -1038,11 +1038,11 @@ export class AiSdkBackend implements AgentBackend {
       this.toolRuntime.setGating(plan.gating);
     }
 
-    const aiSdkTools: Record<string, unknown> = {};
+    const modelTools: ModelToolSet = {};
     let currentStepToolExecutions = 0;
     for (const t of providerTools) {
       const execute = this.wrapToolExecute(t, turnId, queue);
-      aiSdkTools[t.name] = {
+      modelTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
         execute: async (
@@ -1467,7 +1467,7 @@ export class AiSdkBackend implements AgentBackend {
           result = await this.modelAdapter.startStream({
             model,
             messages: attemptMessages,
-            tools: aiSdkTools,
+            tools: modelTools,
             activeTools,
             repairToolCall: async ({
               toolCall,
@@ -1490,7 +1490,7 @@ export class AiSdkBackend implements AgentBackend {
             ...(remainingStepBudget !== undefined ? { maxSteps: remainingStepBudget } : {}),
           });
 
-          let streamErrorChunk: unknown;
+          let streamFailure: unknown;
           let sawStreamError = false;
           try {
             for await (const event of result.events) {
@@ -1500,7 +1500,7 @@ export class AiSdkBackend implements AgentBackend {
                 // A request-level error ends this stream; capture it and stop
                 // consuming (the synthesized trailer carries no real step) so
                 // the recovery decision runs on the outcome, not the trailer.
-                streamErrorChunk = event.error;
+                streamFailure = event.failure;
                 sawStreamError = true;
                 break;
               }
@@ -1575,19 +1575,19 @@ export class AiSdkBackend implements AgentBackend {
               }
             }
           } catch (error) {
-            streamErrorChunk = error;
+            streamFailure = error;
             sawStreamError = true;
           }
 
           if (sawStreamError && !this.aborted) {
-            if (this.stopAfterStepRequested) throw streamErrorChunk;
+            if (this.stopAfterStepRequested) throw streamFailure;
             // A retry is a fresh provider request that would run at least one
             // more step; with the send-level budget already spent there is
             // nothing left to grant it, so the error is terminal.
             const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
             const recovered = stepBudgetRemains
               ? await this.compaction.recoverFromOverflowError({
-                  error: streamErrorChunk,
+                  error: streamFailure,
                   retryAlreadyUsed: overflowRetryUsed,
                   midTurnState,
                   turnId,
@@ -1610,7 +1610,7 @@ export class AiSdkBackend implements AgentBackend {
               attemptObservedSteps = [];
               continue;
             }
-            const errorClass = this.modelAdapter.classifyError(streamErrorChunk);
+            const errorClass = this.modelAdapter.classifyError(streamFailure);
             if (
               errorClass === 'Network' &&
               !transportRetryUsed &&
@@ -1636,7 +1636,7 @@ export class AiSdkBackend implements AgentBackend {
             // Unrecoverable (not context-length, latch spent, no seam, or no
             // safe fold): surface the real provider error via the terminal
             // handler — never a fabricated success.
-            throw streamErrorChunk;
+            throw streamFailure;
           }
           break;
         }

@@ -10,6 +10,10 @@ import type {
   ModelStreamEvent,
   ModelStreamResult,
   ModelFinishReason,
+  ModelFailure,
+  ModelFailureKind,
+  ModelRequestMetadata,
+  ModelToolSet,
 } from './model-protocol.js';
 export type {
   NormalizedUsage,
@@ -17,6 +21,10 @@ export type {
   ModelStreamEvent,
   ModelStreamResult,
   ModelFinishReason,
+  ModelFailure,
+  ModelFailureKind,
+  ModelRequestMetadata,
+  ModelToolSet,
 } from './model-protocol.js';
 
 import { resolveModelRuntime } from './model-runtime.js';
@@ -114,7 +122,7 @@ export interface CompactSummaryResult {
 export interface ModelAdapterStreamInput {
   model: unknown;
   messages: ModelMessage[];
-  tools: Record<string, unknown>;
+  tools: ModelToolSet;
   activeTools: string[];
   system?: string;
   abortSignal: AbortSignal;
@@ -221,6 +229,10 @@ export class ModelAdapter {
       ...(input.system ? { instructions: input.system } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       providerOptions: this.input.providerOptions,
+      // Preserve the final request's Maka-owned message projection without
+      // retaining the provider request body. ProviderRequestTracker owns body
+      // capture; duplicating it here can retain large base64 image payloads.
+      include: { requestMessages: true },
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
       stopWhen: stopAfterStep ? [configuredStop, () => stopAfterStep()] : configuredStop,
@@ -237,14 +249,18 @@ export class ModelAdapter {
   /**
    * Lower an AI SDK `streamText` result into the Maka-owned `ModelStreamResult`.
    * The raw SDK chunk stream is translated lazily to `ModelStreamEvent`s so
-   * streaming stays live; `usage` / `finishReason` are normalized to Maka-owned
-   * contracts. No AI SDK type escapes this method.
+   * streaming stays live; failures, usage, finish reason, and request messages
+   * are normalized to Maka-owned contracts. No AI SDK type escapes this method.
    */
   private toModelStreamResult(sdk: SdkStreamResult): ModelStreamResult {
     const events: AsyncIterable<ModelStreamEvent> = {
       async *[Symbol.asyncIterator]() {
-        for await (const chunk of sdk.stream as AsyncIterable<AiSdkStreamChunk>) {
-          for (const event of translateChunk(chunk)) yield event;
+        try {
+          for await (const chunk of sdk.stream as AsyncIterable<AiSdkStreamChunk>) {
+            for (const event of translateChunk(chunk)) yield event;
+          }
+        } catch (error) {
+          yield { kind: 'error', failure: normalizeModelFailure(error) };
         }
       },
     };
@@ -257,7 +273,10 @@ export class ModelAdapter {
     })();
     const finishReason = (async () =>
       rawFinishReasonString(await sdk.finishReason.catch(() => undefined)))();
-    return { events, usage, finishReason };
+    const request = Promise.resolve(sdk.request)
+      .then(normalizeRequestMetadata)
+      .catch(() => undefined);
+    return { events, usage, finishReason, request };
   }
 
   async generateCompactSummary(input: CompactSummaryRequest): Promise<CompactSummaryResult> {
@@ -310,24 +329,21 @@ export class ModelAdapter {
   }
 
   makeErrorEvent(turnId: string, err: unknown): ErrorEvent {
-    const errorClass = classifyError(err);
-    const presentation = errorPresentationFromClass(errorClass);
-    const message = presentation.message ?? generalizedErrorMessage(err);
-    const code =
-      err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
+    const failure = normalizeModelFailure(err);
     return {
       type: 'error',
       id: this.input.newId(),
       turnId,
       ts: this.input.now(),
       recoverable: false,
-      ...(code !== undefined ? { code } : {}),
-      ...(presentation.reason !== undefined ? { reason: presentation.reason } : {}),
-      message,
+      ...(failure.code !== undefined ? { code: failure.code } : {}),
+      ...(failure.kind !== 'abort' && failure.kind !== 'unknown' ? { reason: failure.kind } : {}),
+      message: failure.message,
     };
   }
 
   classifyError(error: unknown): string {
+    if (isModelFailure(error)) return errorClassFromFailureKind(error.kind);
     return classifyError(error);
   }
 
@@ -415,6 +431,9 @@ interface SdkStreamResult {
   stream: AsyncIterable<AiSdkStreamChunk>;
   usage: Promise<AiSdkUsageLike | undefined>;
   finishReason: Promise<unknown>;
+  request: PromiseLike<{
+    messages?: ModelMessage[];
+  }>;
 }
 
 /**
@@ -485,10 +504,92 @@ function translateChunk(chunk: AiSdkStreamChunk): ModelStreamEvent[] {
     case 'tool-result':
       return [];
     case 'error':
-      return [{ kind: 'error', error: chunk.error }];
+      return [{ kind: 'error', failure: normalizeModelFailure(chunk.error) }];
     default:
       return [];
   }
+}
+
+function normalizeModelFailure(error: unknown): ModelFailure {
+  if (isModelFailure(error)) return error;
+  const errorClass = classifyError(error);
+  const presentation = errorPresentationFromClass(errorClass);
+  const code =
+    error instanceof Error && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : undefined;
+  return {
+    type: 'model_failure',
+    kind: modelFailureKind(errorClass),
+    ...(code !== undefined ? { code } : {}),
+    message: presentation.message ?? generalizedErrorMessage(error),
+  };
+}
+
+function isModelFailure(value: unknown): value is ModelFailure {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { type?: unknown }).type === 'model_failure' &&
+    typeof (value as { kind?: unknown }).kind === 'string' &&
+    typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
+function modelFailureKind(errorClass: string): ModelFailureKind {
+  switch (errorClass) {
+    case 'Abort':
+      return 'abort';
+    case 'Auth':
+      return 'auth';
+    case 'ContextLength':
+      return 'context_overflow';
+    case 'Network':
+      return 'network';
+    case 'ProviderBilling':
+      return 'provider_billing';
+    case 'ProviderUnavailable':
+      return 'provider_unavailable';
+    case 'RateLimit':
+      return 'rate_limit';
+    case 'Timeout':
+      return 'timeout';
+    default:
+      return 'unknown';
+  }
+}
+
+function errorClassFromFailureKind(kind: ModelFailureKind): string {
+  switch (kind) {
+    case 'abort':
+      return 'Abort';
+    case 'auth':
+      return 'Auth';
+    case 'context_overflow':
+      return 'ContextLength';
+    case 'network':
+      return 'Network';
+    case 'provider_billing':
+      return 'ProviderBilling';
+    case 'provider_unavailable':
+      return 'ProviderUnavailable';
+    case 'rate_limit':
+      return 'RateLimit';
+    case 'timeout':
+      return 'Timeout';
+    case 'unknown':
+      return 'Other';
+  }
+}
+
+function normalizeRequestMetadata(
+  metadata:
+    | {
+        messages?: ModelMessage[];
+      }
+    | undefined,
+): ModelRequestMetadata | undefined {
+  return metadata?.messages === undefined ? undefined : { messages: metadata.messages };
 }
 
 type TokenCountBreakdown = {

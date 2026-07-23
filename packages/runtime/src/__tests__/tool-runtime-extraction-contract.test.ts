@@ -130,6 +130,8 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(adapter, /translateChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);
+    assert.match(adapter, /normalizeModelFailure\(/);
+    assert.match(adapter, /include: \{ requestMessages: true \}/);
     assert.match(adapter, /makeErrorEvent\(/);
     assert.match(adapter, /mapFinishReason\(/);
     assert.match(adapter, /export function normalizeAiSdkUsage/);

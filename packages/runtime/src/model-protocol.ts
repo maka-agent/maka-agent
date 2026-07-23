@@ -227,6 +227,32 @@ export type ToolResultOutput =
   | { type: 'error-json'; value: JSONValue; providerOptions?: ProviderOptions }
   | { type: 'content'; value: ToolResultContentPart[] };
 
+/**
+ * Maka-owned provider-facing tool contract. The schema stays opaque because
+ * schema construction is a local implementation detail; executable behavior
+ * remains present until #1381 moves loop ownership out of the AI SDK.
+ */
+export interface ModelToolExecutionContext {
+  toolCallId: string;
+  abortSignal: AbortSignal;
+}
+
+export interface ModelToolDefinition {
+  description?: string;
+  inputSchema: unknown;
+  execute?: (
+    input: unknown,
+    context: ModelToolExecutionContext,
+  ) => unknown | PromiseLike<unknown> | AsyncIterable<unknown>;
+  toModelOutput?: (options: {
+    toolCallId: string;
+    input: unknown;
+    output: unknown;
+  }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
+}
+
+export type ModelToolSet = Record<string, ModelToolDefinition>;
+
 export interface ToolResultPart {
   type: 'tool-result';
   toolCallId: string;
@@ -336,6 +362,42 @@ export interface NormalizedUsage {
 export type ModelFinishReason = string;
 
 // ---------------------------------------------------------------------------
+// Failure contract
+// ---------------------------------------------------------------------------
+
+/**
+ * Stable failure categories consumed by Runtime policy. Provider-specific
+ * error objects and AI SDK wrappers are classified inside `ModelAdapter` and
+ * never cross the boundary.
+ */
+export type ModelFailureKind =
+  | 'abort'
+  | 'auth'
+  | 'context_overflow'
+  | 'network'
+  | 'provider_billing'
+  | 'provider_unavailable'
+  | 'rate_limit'
+  | 'timeout'
+  | 'unknown';
+
+export interface ModelFailure {
+  type: 'model_failure';
+  kind: ModelFailureKind;
+  message: string;
+  code?: string;
+}
+
+/**
+ * Provider request metadata reduced to the Maka-owned message projection.
+ * Headers and provider request bodies stay with ProviderRequestTracker, their
+ * existing capture owner, instead of being retained again by the stream result.
+ */
+export interface ModelRequestMetadata {
+  messages?: readonly ModelMessage[];
+}
+
+// ---------------------------------------------------------------------------
 // Stream-event / stream-result contract
 // ---------------------------------------------------------------------------
 
@@ -356,8 +418,9 @@ export type ModelFinishReason = string;
  *   flush, and the messageId rotation.
  * - `finish`: the terminal stream boundary, carrying the normalized finish
  *   reason.
- * - `error`: a request-level provider failure. The backend captures it for
- *   overflow/transport recovery and terminal error emission.
+ * - `error`: a request-level provider failure, already classified and scrubbed
+ *   by the adapter. The backend uses its stable kind for overflow/transport
+ *   recovery and terminal error emission.
  */
 export type ModelStreamEvent =
   | { kind: 'text'; text: string }
@@ -365,17 +428,18 @@ export type ModelStreamEvent =
   | { kind: 'thinking-signature'; signature: string }
   | { kind: 'step-finish'; usage?: NormalizedUsage; finishReason?: ModelFinishReason }
   | { kind: 'finish'; finishReason?: ModelFinishReason }
-  | { kind: 'error'; error: unknown };
+  | { kind: 'error'; failure: ModelFailure };
 
 /**
  * Maka-owned result of a single `ModelAdapter.startStream` provider call. The
  * backend consumes `events` for streaming + step accounting, awaits `usage`
- * for the final billing-relevant token totals, and `finishReason` for the
- * terminal stop reason. All three are already normalized to Maka-owned types;
- * no AI SDK type crosses this surface.
+ * for the final billing-relevant token totals, `finishReason` for the terminal
+ * stop reason, and `request` for the final Maka-owned message projection. All
+ * four are normalized to Maka-owned types; no AI SDK type crosses this surface.
  */
 export interface ModelStreamResult {
   events: AsyncIterable<ModelStreamEvent>;
   usage: Promise<NormalizedUsage | undefined>;
   finishReason: Promise<ModelFinishReason | undefined>;
+  request: Promise<ModelRequestMetadata | undefined>;
 }

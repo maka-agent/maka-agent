@@ -51,6 +51,15 @@ const PROTOCOL_SYMBOLS = new Set([
   'ModelStreamEvent',
   'ModelStreamResult',
   'ModelFinishReason',
+  'ModelToolDefinition',
+  'ModelToolSet',
+  'ModelFailure',
+  'ModelRequestMetadata',
+  // Corresponding AI SDK source contracts. Aliasing one of these under a
+  // Maka name outside the adapter still crosses the boundary.
+  'Tool',
+  'ToolSet',
+  'LanguageModelRequestMetadata',
   // Retired SDK-shaped boundary types (now adapter-internal). Flagging a
   // re-import keeps the backend from re-learning raw SDK chunk names.
   'StreamTextResult',
@@ -102,6 +111,10 @@ describe('model-protocol boundary contract', () => {
     const home = await readFile(PROTOCOL_HOME, 'utf8');
     assert.match(home, /export type ModelMessage\b/, 'model-protocol.ts must export ModelMessage');
     assert.match(home, /export type JSONValue\b/, 'model-protocol.ts must export JSONValue');
+    assert.match(home, /export interface ModelToolDefinition\b/);
+    assert.match(home, /export interface ModelFailure\b/);
+    assert.match(home, /export interface ModelRequestMetadata\b/);
+    assert.doesNotMatch(home, /kind: 'error'; error: unknown/);
     assert.doesNotMatch(
       home,
       SDK_DEPENDENCY_RE,

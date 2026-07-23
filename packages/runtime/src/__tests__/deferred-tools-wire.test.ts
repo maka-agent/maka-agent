@@ -17,6 +17,7 @@ const STREAM_PARTS: LanguageModelV4StreamPart[] = [
 ];
 
 import { ModelAdapter } from '../model-adapter.js';
+import type { ModelToolSet } from '../model-protocol.js';
 import { canonicalizeToolSet } from '../request-shape.js';
 import type { MakaTool } from '../tool-runtime.js';
 
@@ -53,9 +54,9 @@ async function toolNamesSeenByProvider(activeNames: ReadonlySet<string>): Promis
   const invalid = tool('invalid');
   const canonical = canonicalizeToolSet(tools, invalid, activeNames);
 
-  const aiSdkTools: Record<string, unknown> = {};
+  const modelTools: ModelToolSet = {};
   for (const t of canonical.providerTools) {
-    aiSdkTools[t.name] = { description: t.description, inputSchema: t.parameters };
+    modelTools[t.name] = { description: t.description, inputSchema: t.parameters };
   }
 
   let seen: string[] = [];
@@ -69,7 +70,7 @@ async function toolNamesSeenByProvider(activeNames: ReadonlySet<string>): Promis
   const result = await newAdapter().startStream({
     model,
     messages: [{ role: 'user', content: 'hi' }],
-    tools: aiSdkTools,
+    tools: modelTools,
     activeTools: canonical.activeTools,
     system: 'sys',
     abortSignal: new AbortController().signal,
