@@ -70,6 +70,7 @@ import {
   createShellRunStore,
   createTelemetryRepo,
 } from '@maka/storage';
+import { resolveStorageRoot } from '@maka/storage/root-authority';
 import { McpClientManager } from '@maka/mcp';
 import { registerMcpIpcMain } from './mcp-ipc-main.js';
 import {
@@ -195,6 +196,7 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', e2eFixture?.workspaceName ?? 'default');
+await resolveStorageRoot({ path: workspaceRoot, kind: 'interactive' });
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
 // machine would otherwise sleep. Injected with electron's blocker; the

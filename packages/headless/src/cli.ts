@@ -213,21 +213,23 @@ async function taskInspectCommand(args: string[]): Promise<number> {
     return 1;
   }
   const storageRoot = resolve(parsed.flags.store);
-  const storage = await openHeadlessStorageForRead(storageRoot);
-  const document = await inspectTaskRun(
-    {
-      taskRunStore: storage.taskRunStore,
-      agentRunStore: storage.executionStores.agentRunStore,
-      runtimeEventStore: storage.executionStores.runtimeEventStore,
-    },
-    taskRunId,
-  );
-  if (parsed.bools.json) {
-    process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
-  } else {
-    process.stdout.write(renderTaskRunInspectTree(document));
-  }
-  return 0;
+  return runTaskRunStorageCommand('inspect', storageRoot, async () => {
+    const storage = await openHeadlessStorageForRead(storageRoot);
+    const document = await inspectTaskRun(
+      {
+        taskRunStore: storage.taskRunStore,
+        agentRunStore: storage.executionStores.agentRunStore,
+        runtimeEventStore: storage.executionStores.runtimeEventStore,
+      },
+      taskRunId,
+    );
+    if (parsed.bools.json) {
+      process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+    } else {
+      process.stdout.write(renderTaskRunInspectTree(document));
+    }
+    return 0;
+  });
 }
 
 async function taskExportCommand(args: string[]): Promise<number> {
@@ -247,13 +249,16 @@ async function taskExportCommand(args: string[]): Promise<number> {
     );
     return 1;
   }
-  const storage = await openHeadlessStorageForRead(resolve(parsed.flags.store));
-  const projection = await storage.taskRunStore.project(taskRunId);
-  const result = await writeTaskRunExport(resolve(parsed.flags.out), projection, {
-    includeEvents: parsed.bools['include-events'],
+  const storageRoot = resolve(parsed.flags.store);
+  return runTaskRunStorageCommand('export', storageRoot, async () => {
+    const storage = await openHeadlessStorageForRead(storageRoot);
+    const projection = await storage.taskRunStore.project(taskRunId);
+    const result = await writeTaskRunExport(resolve(parsed.flags.out), projection, {
+      includeEvents: parsed.bools['include-events'],
+    });
+    console.log(`export: ${result.files.taskRunJson}`);
+    return 0;
   });
-  console.log(`export: ${result.files.taskRunJson}`);
-  return 0;
 }
 
 async function aheCommand(args: string[]): Promise<number> {
@@ -603,6 +608,26 @@ function mark(passed: boolean, error?: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function runTaskRunStorageCommand(
+  command: 'inspect' | 'export',
+  storageRoot: string,
+  operation: () => Promise<number>,
+): Promise<number> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isStorageRootAuthorityError(error)) throw error;
+    const message =
+      error.code === 'root_not_found' ||
+      error.code === 'root_unmarked' ||
+      error.code === 'root_kind_mismatch'
+        ? `The selected path is not a Headless task-run root: ${storageRoot}. Pass the <out>/runs directory created by a task run`
+        : error.message;
+    console.error(`maka eval task-run ${command}: ${message}`);
+    return 1;
+  }
 }
 
 interface ParsedArgs {

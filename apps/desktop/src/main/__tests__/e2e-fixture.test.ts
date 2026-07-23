@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { tmpdir } from 'node:os';
+import { discoverMarkedStorageRoot } from '@maka/storage/root-authority';
 import {
   getE2eFixtureState,
   resolveE2eFixture,
@@ -318,6 +319,7 @@ describe('e2e-fixture mode', () => {
         credentialStore: fakeCredentialStore(),
         now: 1_700_000_000_000,
       });
+      assert.equal((await discoverMarkedStorageRoot({ path: workspaceRoot })).kind, 'interactive');
       assert.equal(getE2eFixtureState(fixture)?.activeSessionId, 'e2e-fixture-turn');
       const tasks = JSON.parse(await readFile(
         join(workspaceRoot, 'sessions', 'e2e-fixture-turn', 'tasks.json'),

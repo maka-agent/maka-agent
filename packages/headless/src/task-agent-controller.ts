@@ -634,6 +634,7 @@ export async function runTaskOnceWithStorage(
     });
     const finishedAt = now();
     const scoreResultId = newId();
+    // The TaskRun ledger is canonical here; AgentRun metadata is optional unless authority fails.
     const runEvidence = await agentRunStore.readRun(header.id, invocation.runId).catch((error) => {
       if (isStorageRootAuthorityError(error)) throw error;
       return undefined;

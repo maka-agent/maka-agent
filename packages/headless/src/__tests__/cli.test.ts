@@ -106,6 +106,24 @@ describe('maka-headless CLI', () => {
     assert.equal(result.code, 1);
   });
 
+  test('task-run readers report an actionable error for a non-Headless root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-headless-unmarked-'));
+    const exportRoot = join(root, 'export');
+    try {
+      for (const args of [
+        ['task', 'inspect', 'missing', '--store', root],
+        ['task', 'export', 'missing', '--store', root, '--out', exportRoot],
+      ]) {
+        const result = await runCli(args);
+        assert.equal(result.code, 1);
+        assert.match(result.stderr, /Pass the <out>\/runs directory created by a task run/);
+        assert.doesNotMatch(result.stderr, /StorageRootAuthorityError|\n\s+at /);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('rejects an unknown flag', async () => {
     const result = await runCli(['eval', 'spec.json', '--bogus', 'x']);
     assert.equal(result.code, 1);

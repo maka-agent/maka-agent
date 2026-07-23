@@ -211,7 +211,14 @@ export async function runMakaInspectCli(
       status: 'inspected' as const,
       document: await inspectResolvedTarget(stores, resolution.candidate),
     };
+  }).catch((error: unknown) => {
+    if (!isStorageRootAuthorityError(error)) throw error;
+    io.stderr.write(
+      `maka inspect: ${formatInspectAuthorityError(error, parsed.store === undefined)}\n`,
+    );
+    return undefined;
   });
+  if (result === undefined) return 1;
   if (result.status !== 'inspected') {
     if (parsed.json) {
       io.stdout.write(`${JSON.stringify(result.document, null, 2)}\n`);
@@ -409,4 +416,14 @@ function isNotFound(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatInspectAuthorityError(
+  error: StorageRootAuthorityError,
+  usesDefaultWorkspace: boolean,
+): string {
+  if (error.code !== 'root_unmarked') return error.message;
+  return usesDefaultWorkspace
+    ? `${error.message}. Open Maka Desktop or the TUI once to initialize this workspace, then retry`
+    : `${error.message}. Initialize it through its owning Maka write command, or pass the correct --store root`;
 }

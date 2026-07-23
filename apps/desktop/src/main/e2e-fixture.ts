@@ -1,5 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises';
 import type { UiLocale, E2eFixtureScenario, E2eFixtureState } from '@maka/core';
+import { resolveStorageRoot } from '@maka/storage/root-authority';
 import type { CredentialStore } from './credential-store.js';
 import {
   ARTIFACT_SESSION_ID,
@@ -625,6 +626,7 @@ export async function seedE2eFixture(input: {
   const now = input.now ?? E2E_FIXTURE_NOW;
   await rm(input.workspaceRoot, { recursive: true, force: true });
   await mkdir(input.workspaceRoot, { recursive: true });
+  await resolveStorageRoot({ path: input.workspaceRoot, kind: 'interactive' });
   await writeSettings(input.workspaceRoot, input.fixture.scenario);
   if (input.fixture.scenario === 'first-run') return;
   await writeConnections(input.workspaceRoot, now, input.fixture.scenario);

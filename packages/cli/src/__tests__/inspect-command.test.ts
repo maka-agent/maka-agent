@@ -177,6 +177,11 @@ describe('inspect CLI storage authority boundary', () => {
         authorityError('root_unmarked'),
       );
 
+      const output = captureIo();
+      assert.equal(await runMakaInspectCli(['missing', '--store', root], output.io), 1);
+      assert.match(output.stderr(), /Initialize it through its owning Maka write command/);
+      assert.doesNotMatch(output.stderr(), /StorageRootAuthorityError|\n\s+at /);
+
       const invalidRoot = join(root, 'not-a-directory');
       await writeFile(invalidRoot, 'invalid\n');
       await assert.rejects(
