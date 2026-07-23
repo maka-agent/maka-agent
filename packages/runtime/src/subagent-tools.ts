@@ -111,6 +111,7 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
             }
           : {}),
       })
+      .strict()
       .superRefine((input, ctx) => {
         const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
         const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;

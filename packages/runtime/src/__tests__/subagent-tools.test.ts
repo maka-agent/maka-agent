@@ -89,6 +89,20 @@ describe('subagent tools', () => {
     ).toEqual(['profile', 'task', 'write_back', 'isolation', 'task_id']);
   });
 
+  test('agent_spawn rejects task_id when task binding is unavailable', () => {
+    const schema = buildSubagentSpawnTool().parameters as {
+      safeParse(input: unknown): { success: boolean };
+    };
+
+    expect(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the repo.',
+        task_id: 'T1',
+      }).success,
+    ).toBe(false);
+  });
+
   test('built-in catalog exposes local-read without shell, web, nested, or write tools', () => {
     expect(LOCAL_READ_AGENT_DEFINITION.id).toBe(LOCAL_READ_AGENT_ID);
     expect(LOCAL_READ_AGENT_DEFINITION.profile).toBe(LOCAL_READ_AGENT_PROFILE);
