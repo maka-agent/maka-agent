@@ -35,8 +35,8 @@ describe('session revision (edit-and-resend) contract', () => {
     assert.match(shell, /prepareRevisionSend/);
     assert.match(
       source,
-      /copySkillDraft\(sourceSessionId, newSession\.id\)[\s\S]*setDraft\(newSession\.id, text\)/,
-      'revision preparation must migrate structured Skills with the text draft',
+      /const submittedSkills =[\s\S]*getSkills\(\)[\s\S]*await window\.maka\.sessions\.reviseBeforeTurn[\s\S]*setSkillDraft\(newSession\.id, submittedSkills\)[\s\S]*setDraft\(newSession\.id, text\)/,
+      'revision preparation must snapshot submitted Skills before creating the child session',
     );
     assert.match(
       source,

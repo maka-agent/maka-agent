@@ -5,6 +5,7 @@ import {
   createAppShellRevisionActions,
   type TurnRevisionDraft,
 } from '../../renderer/app-shell-revision-actions.js';
+import type { ComposerSkillSelection } from '@maka/ui';
 
 function session(id: string): SessionSummary {
   return {
@@ -74,7 +75,8 @@ function createHarness(options: {
   messages?: StoredMessage[];
   pendingAttachments?: boolean;
   previousComposerText?: string;
-  previousComposerSkills?: Array<{ id: string; name: string }>;
+  previousComposerSkills?: ComposerSkillSelection[];
+  getComposerSkills?: () => ComposerSkillSelection[];
   refreshMessagesResult?: boolean;
 }) {
   const activeIdRef: { current: string | undefined } = { current: 'source' };
@@ -84,6 +86,7 @@ function createHarness(options: {
   const revisionCalls: Array<[string, { sourceTurnId: string }]> = [];
   const removed: string[] = [];
   const infoToasts: Array<[string, string | undefined]> = [];
+  const writtenSkillDrafts: Array<[string, ComposerSkillSelection[]]> = [];
   const restoreWindow = installWindow(
     async (sessionId, input) => {
       revisionCalls.push([sessionId, input]);
@@ -99,13 +102,11 @@ function createHarness(options: {
         setText: (text: string) => { composerCalls.push(text); },
         appendText: () => undefined,
         getText: () => options.previousComposerText ?? 'Previous draft',
-        getSkills: () => options.previousComposerSkills ?? [],
+        getSkills: () => options.getComposerSkills?.() ?? options.previousComposerSkills ?? [],
         setSkills: () => undefined,
         setSkillDraft: (key, skills) => {
+          writtenSkillDrafts.push([key, skills.map((skill) => ({ ...skill }))]);
           composerCalls.push(`<skill-draft:${key}:${skills.map((skill) => skill.id).join(',')}>`);
-        },
-        copySkillDraft: (sourceKey: string, targetKey: string) => {
-          composerCalls.push(`<skills:${sourceKey}->${targetKey}>`);
         },
         clearDraft: (key: string) => { composerCalls.push(`<clear:${key}>`); },
         setDraft: (key: string, text: string) => { composerCalls.push(`<draft:${key}:${text}>`); },
@@ -137,6 +138,7 @@ function createHarness(options: {
     infoToasts,
     opened,
     removed,
+    writtenSkillDrafts,
     restoreWindow,
     revisionDraftRef,
   };
@@ -161,11 +163,37 @@ describe('app shell revision actions', () => {
         [
           'Human-facing prompt',
           '<focus>',
-          '<skills:source->revision>',
+          '<skill-draft:revision:>',
           '<draft:revision:Edited prompt>',
           '<focus>',
         ],
       );
+    } finally {
+      harness.restoreWindow();
+    }
+  });
+
+  it('migrates the submitted Skill snapshot when the live draft changes during revision creation', async () => {
+    let resolveRevision: ((value: SessionSummary) => void) | undefined;
+    const revisionPromise = new Promise<SessionSummary>((resolve) => { resolveRevision = resolve; });
+    let liveSkills: ComposerSkillSelection[] = [
+      { id: 'alpha', name: 'Alpha' },
+    ];
+    const harness = createHarness({
+      getComposerSkills: () => liveSkills,
+      reviseBeforeTurn: async () => revisionPromise,
+    });
+    try {
+      harness.actions.beginEditUserMessage('turn-1');
+      const pending = harness.actions.prepareRevisionSend('Edited prompt');
+      await Promise.resolve();
+      liveSkills = [{ id: 'beta', name: 'Beta' }];
+      resolveRevision?.(session('revision'));
+
+      assert.equal(await pending, true);
+      assert.deepEqual(harness.writtenSkillDrafts, [
+        ['revision', [{ id: 'alpha', name: 'Alpha' }]],
+      ]);
     } finally {
       harness.restoreWindow();
     }

@@ -11,7 +11,6 @@ import {
 } from '../chat-input-behavior.js';
 import {
   addUniqueComposerSkillSelection,
-  copyComposerSkillDraftSelections,
 } from '../use-composer-skill-draft.js';
 
 describe('shared chat input behavior', () => {
@@ -162,22 +161,5 @@ describe('structured Skill selections', () => {
       { id: 'alpha', name: 'Alpha' },
       { id: 'beta', name: 'Beta' },
     ]);
-  });
-
-  it('copies the live Skill draft into a revision key without consuming the source', () => {
-    const active = [{ id: 'alpha', name: 'Alpha' }];
-    const store = new Map<string, Array<{ id: string; name: string }>>();
-    const copied = copyComposerSkillDraftSelections(
-      store,
-      'source',
-      'revision',
-      'source',
-      active,
-    );
-
-    assert.deepEqual(copied, active);
-    assert.notEqual(copied, active);
-    assert.deepEqual(store.get('revision'), active);
-    assert.deepEqual(active, [{ id: 'alpha', name: 'Alpha' }]);
   });
 });

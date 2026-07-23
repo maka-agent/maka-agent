@@ -72,8 +72,6 @@ export interface ComposerHandle {
     draftKey: string,
     skills: readonly ComposerSkillSelection[],
   ): void;
-  /** Copy structured Skill selections when a revision changes draft ownership. */
-  copySkillDraft(sourceDraftKey: string, targetDraftKey: string): void;
   /** Move focus to the textarea without changing its content. */
   focus(): void;
   /** Fixture/integration seam for the same structured selection state used by `/`. */
@@ -369,9 +367,6 @@ export const Composer = forwardRef<
         skills: readonly ComposerSkillSelection[],
       ) {
         skillDraft.replace(draftKey, skills);
-      },
-      copySkillDraft(sourceDraftKey: string, targetDraftKey: string) {
-        skillDraft.copy(sourceDraftKey, targetDraftKey);
       },
       focus() {
         textareaRef.current?.focus();

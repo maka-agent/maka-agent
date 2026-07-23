@@ -183,6 +183,12 @@ export function createAppShellRevisionActions(deps: {
     if (draft.draftSessionId !== draft.sourceSessionId) return true;
 
     const sourceSessionId = draft.sourceSessionId;
+    // Snapshot the submitted structured draft before the first async boundary.
+    // The composer remains editable while the revision session is created, so
+    // reading it after reviseBeforeTurn() could migrate a newer, unsent Skill
+    // selection instead of the one that belongs to this send attempt.
+    const submittedSkills =
+      composerRef.current?.getSkills().map((skill) => ({ ...skill })) ?? [];
     let preparedSessionId: string | undefined;
     try {
       const newSession = await window.maka.sessions.reviseBeforeTurn(sourceSessionId, {
@@ -195,7 +201,7 @@ export function createAppShellRevisionActions(deps: {
       }
 
       const prepared = { ...draft, draftSessionId: newSession.id };
-      composerRef.current?.copySkillDraft(sourceSessionId, newSession.id);
+      composerRef.current?.setSkillDraft(newSession.id, submittedSkills);
       composerRef.current?.setDraft(newSession.id, text);
       commitRevisionDraft(prepared);
       upsertSessionSummary(newSession);
