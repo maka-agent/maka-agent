@@ -1,6 +1,6 @@
 // packages/runtime/src/builtin-tools.ts
 // Phase 1 baseline tool set. Each tool returned as MakaTool[] so
-// wrapToolExecute can decorate with permission round-trip + tool_call/tool_result write.
+// ToolRuntime settlement decorates these with permission and durable tool facts.
 //
 // Read / Glob / Grep auto-approve.
 // Bash / Write / Edit go through PermissionEngine.

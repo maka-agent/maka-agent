@@ -111,18 +111,17 @@ describe('ToolRuntime artifact recorder scheduling', () => {
         return new Promise(() => {});
       },
     });
-    const execute = runtime.wrapToolExecute(writeArtifactTool(), 'turn-1', {
-      push: (event) => events.push(event),
-    });
-
     const outcome = await Promise.race([
-      execute(
-        { path: 'notes.md', content: 'hello' },
-        {
+      runtime
+        .settleToolCall({
+          tool: writeArtifactTool(),
+          turnId: 'turn-1',
           toolCallId: 'tool-1',
+          input: { path: 'notes.md', content: 'hello' },
           abortSignal: new AbortController().signal,
-        },
-      ).then(() => 'done' as const),
+          eventSink: { push: (event) => events.push(event) },
+        })
+        .then(() => 'done' as const),
       delay(20).then(() => 'timeout' as const),
     ]);
 

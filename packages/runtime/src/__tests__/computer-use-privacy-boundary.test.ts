@@ -68,11 +68,13 @@ test('Computer Use snapshots execution args and persists only the approval summa
     text: 'secret text',
     coordinate: [123, 456],
   };
-  const execution = runtime.wrapToolExecute(tool, 'turn-1', {
-    push: (event) => events.push(event),
-  })(args, {
+  const execution = runtime.settleToolCall({
+    tool,
+    turnId: 'turn-1',
     toolCallId: 'tool-1',
+    input: args,
     abortSignal: new AbortController().signal,
+    eventSink: { push: (event) => events.push(event) },
   });
 
   args.app = 'Mutated';
@@ -158,21 +160,20 @@ test('Computer Use validation failures still persist a redacted call and result'
     },
   };
 
-  const result = (await runtime.wrapToolExecute(tool, 'turn-1', {
-    push: (event) => events.push(event),
-  })(
-    {
+  const { result } = await runtime.settleToolCall({
+    tool,
+    turnId: 'turn-1',
+    toolCallId: 'tool-invalid',
+    input: {
       action: 'type',
       text: 'private text',
       coordinate: [123, 456],
     },
-    {
-      toolCallId: 'tool-invalid',
-      abortSignal: new AbortController().signal,
-    },
-  )) as { error?: string };
+    abortSignal: new AbortController().signal,
+    eventSink: { push: (event) => events.push(event) },
+  });
 
-  assert.equal(result.error, 'Computer Use arguments failed validation');
+  assert.equal((result as { error?: string }).error, 'Computer Use arguments failed validation');
   const serialized = JSON.stringify({ messages, events, invocations });
   assert.doesNotMatch(serialized, /Customer SSN|123-45-6789|private text|123|456/);
   assert.equal(

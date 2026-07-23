@@ -1295,12 +1295,16 @@ async function executeTool(
   events: SessionEvent[] = [],
   toolCallId = 'tool-test',
 ): Promise<unknown> {
-  return await runtime.wrapToolExecute(tool, 'turn-1', {
-    push: (event) => events.push(event),
-  })(input, {
-    toolCallId,
-    abortSignal: controller.signal,
-  });
+  return (
+    await runtime.settleToolCall({
+      tool,
+      turnId: 'turn-1',
+      toolCallId,
+      input,
+      abortSignal: controller.signal,
+      eventSink: { push: (event) => events.push(event) },
+    })
+  ).result;
 }
 
 function testHeader(permissionMode: SessionHeader['permissionMode'] = 'execute'): SessionHeader {

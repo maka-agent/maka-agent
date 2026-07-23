@@ -728,21 +728,20 @@ describe('subagent tools', () => {
       },
     });
     const tool = buildSubagentSpawnTool({ taskLedger: taskLedgerStub(task, calls) });
-    const execute = runtime.wrapToolExecute(tool, 'parent-turn', {
-      push: (event) => events.push(event),
-    });
-
-    const pending = execute(
-      {
-        profile: LOCAL_READ_AGENT_PROFILE,
-        task: 'Inspect the runtime tests.',
-        task_id: task.key,
-      },
-      {
+    const pending = runtime
+      .settleToolCall({
+        tool,
+        turnId: 'parent-turn',
         toolCallId: 'tool-agent-spawn-denied',
+        input: {
+          profile: LOCAL_READ_AGENT_PROFILE,
+          task: 'Inspect the runtime tests.',
+          task_id: task.key,
+        },
         abortSignal: new AbortController().signal,
-      },
-    );
+        eventSink: { push: (event) => events.push(event) },
+      })
+      .then((settlement) => settlement.result);
     await waitFor(() => events.some((event) => event.type === 'permission_request'));
     const request = events.find(
       (event): event is Extract<SessionEvent, { type: 'permission_request' }> =>
@@ -1182,12 +1181,16 @@ async function runTool(
 ): Promise<unknown> {
   const tool = tools.get(name);
   if (!tool) throw new Error(`Missing child tool ${name}`);
-  return await runtime.wrapToolExecute(tool, 'child-turn', {
-    push: (event) => events.push(event),
-  })(args, {
-    toolCallId: `tool-${name}-${typeof args === 'object' && args && 'command' in args ? (args as { command: string }).command : 'read'}`,
-    abortSignal: new AbortController().signal,
-  });
+  return (
+    await runtime.settleToolCall({
+      tool,
+      turnId: 'child-turn',
+      toolCallId: `tool-${name}-${typeof args === 'object' && args && 'command' in args ? (args as { command: string }).command : 'read'}`,
+      input: args,
+      abortSignal: new AbortController().signal,
+      eventSink: { push: (event) => events.push(event) },
+    })
+  ).result;
 }
 
 function testCatalogTool(name: string, categoryHint: MakaTool['categoryHint']): MakaTool {

@@ -79,7 +79,6 @@ function harness(
     newId: () => `id-${++id}`,
     now: () => 1,
     getPermissionPauseTarget: () => null,
-    getCurrentStepId: () => stepId,
     getCurrentOrchestration: () => input.orchestration,
     ...(input.permissionRules ? { permissionRules: input.permissionRules } : {}),
   });
@@ -89,6 +88,7 @@ function harness(
     runtime,
     calls,
     events,
+    currentStepId: () => stepId,
     setStepId: (next: string) => {
       stepId = next;
     },
@@ -97,15 +97,17 @@ function harness(
 
 let toolCallSequence = 0;
 async function invoke(fixture: ReturnType<typeof harness>, value: MakaTool): Promise<unknown> {
-  return fixture.runtime.wrapToolExecute(value, 'turn-1', {
-    push: (event) => fixture.events.push(event),
-  })(
-    {},
-    {
+  return (
+    await fixture.runtime.settleToolCall({
+      tool: value,
+      turnId: 'turn-1',
+      stepId: fixture.currentStepId(),
       toolCallId: `tool-call-${++toolCallSequence}`,
+      input: {},
       abortSignal: new AbortController().signal,
-    },
-  );
+      eventSink: { push: (event) => fixture.events.push(event) },
+    })
+  ).result;
 }
 
 describe('Swarm orchestration admission', () => {

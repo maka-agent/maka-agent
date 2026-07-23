@@ -52,6 +52,19 @@ function createHarness(cwd = '/tmp'): Harness {
   return { runtime, permissionEngine, events, messages };
 }
 
+function settle(harness: Harness, tool: MakaTool, input: unknown): Promise<unknown> {
+  return harness.runtime
+    .settleToolCall({
+      tool,
+      turnId: 'turn-1',
+      toolCallId: 'tool-1',
+      input,
+      abortSignal: new AbortController().signal,
+      eventSink: { push: (event) => harness.events.push(event) },
+    })
+    .then((settlement) => settlement.result);
+}
+
 function networkProposal(input: {
   toolName: string;
   args: unknown;
@@ -93,14 +106,7 @@ describe('ToolRuntime additional permission orchestration', () => {
         return { ok: true };
       },
     };
-    const execute = harness.runtime.wrapToolExecute(tool, 'turn-1', {
-      push: (event) => harness.events.push(event),
-    });
-
-    const pending = execute(args, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+    const pending = settle(harness, tool, args);
     const request = await waitForAdditionalRequest(harness.events);
     assert.equal(request.alsoApprovesToolExecution, false);
     harness.permissionEngine.recordResponse('turn-1', {
@@ -142,12 +148,7 @@ describe('ToolRuntime additional permission orchestration', () => {
         return { ok: true };
       },
     };
-    const pending = harness.runtime.wrapToolExecute(tool, 'turn-1', {
-      push: (event) => harness.events.push(event),
-    })(args, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+    const pending = settle(harness, tool, args);
 
     const request = await waitForAdditionalRequest(harness.events);
     harness.permissionEngine.recordResponse('turn-1', {
@@ -174,12 +175,7 @@ describe('ToolRuntime additional permission orchestration', () => {
         return { ok: true };
       },
     };
-    const pending = harness.runtime.wrapToolExecute(tool, 'turn-1', {
-      push: (event) => harness.events.push(event),
-    })(args, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+    const pending = settle(harness, tool, args);
 
     const request = await waitForAdditionalRequest(harness.events);
     harness.permissionEngine.recordResponse('turn-1', {
@@ -216,15 +212,7 @@ describe('ToolRuntime additional permission orchestration', () => {
         },
       };
 
-      const result = await harness.runtime.wrapToolExecute(tool, 'turn-1', {
-        push: (event) => harness.events.push(event),
-      })(
-        { path: '/outside/file.txt' },
-        {
-          toolCallId: 'tool-1',
-          abortSignal: new AbortController().signal,
-        },
-      );
+      const result = await settle(harness, tool, { path: '/outside/file.txt' });
 
       assert.equal(implementationCalled, false);
       assert.equal(
@@ -268,12 +256,7 @@ describe('ToolRuntime additional permission orchestration', () => {
           return { ok: true };
         },
       };
-      const pending = harness.runtime.wrapToolExecute(tool, 'turn-1', {
-        push: (event) => harness.events.push(event),
-      })(args, {
-        toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal,
-      });
+      const pending = settle(harness, tool, args);
 
       const request = await waitForAdditionalRequest(harness.events);
       await writeFile(target, 'changed target type', 'utf8');
