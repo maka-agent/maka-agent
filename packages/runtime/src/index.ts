@@ -26,6 +26,8 @@ export type {
   ResumeChildAgentInput,
   SpawnChildAgentInput,
   SpawnChildAgentResult,
+  SpawnChildSessionInput,
+  SpawnChildSessionResult,
   RetryChildAgentInput,
   AgentListItem,
   AgentListResult,

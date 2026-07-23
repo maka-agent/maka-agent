@@ -8,6 +8,7 @@ import type {
   SessionBlockedReason,
   SessionStatus,
   SubagentSessionParent,
+  SubagentSessionRuntime,
 } from './session.js';
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
@@ -37,6 +38,7 @@ export interface CreateSessionInput {
   parentSessionId?: string;
   branchOfTurnId?: string;
   subagentParent?: SubagentSessionParent;
+  subagentRuntime?: SubagentSessionRuntime;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;

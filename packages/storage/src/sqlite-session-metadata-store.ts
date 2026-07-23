@@ -212,6 +212,9 @@ export class SqliteSessionMetadataStore {
     if (Object.prototype.hasOwnProperty.call(patch, 'subagentParent')) {
       throw new Error('Subagent session parent relation is immutable');
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'subagentRuntime')) {
+      throw new Error('Subagent session runtime snapshot is immutable');
+    }
     return this.transaction(() => {
       const current = this.readRecordSync(sessionId);
       if (!current) throw new Error(`Session metadata not found: ${sessionId}`);

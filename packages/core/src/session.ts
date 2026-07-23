@@ -90,6 +90,22 @@ export interface SubagentSessionParent {
   lifecycle: SubagentSessionLifecycle;
 }
 
+/**
+ * Durable execution snapshot for a linked subagent session.
+ *
+ * The snapshot prevents a reopened child session from silently inheriting a
+ * wider tool surface or permission ceiling from a later parent/default
+ * configuration. The concrete SessionHeader continues to own backend/model/
+ * cwd and the active permission mode.
+ */
+export interface SubagentSessionRuntime {
+  agentId: string;
+  agentName: string;
+  profile: string;
+  toolNames: string[];
+  permissionCeiling: PermissionMode;
+}
+
 export function isSessionStatus(value: unknown): value is SessionStatus {
   return typeof value === 'string' && (SESSION_STATUSES as readonly string[]).includes(value);
 }
@@ -135,6 +151,8 @@ export interface SessionHeader {
   branchOfTurnId?: string;
   /** Immutable control-plane relation for a linked child-agent session. */
   subagentParent?: SubagentSessionParent;
+  /** Immutable runtime/profile snapshot for child-session execution. */
+  subagentRuntime?: SubagentSessionRuntime;
   /** Stable root id for an edit-and-resend version family. */
   revisionRootSessionId?: string;
   /** Immediate previous version in the same conversation slot. */
@@ -187,6 +205,7 @@ export interface SessionSummary {
   parentSessionId?: string;
   branchOfTurnId?: string;
   subagentParent?: SubagentSessionParent;
+  subagentRuntime?: SubagentSessionRuntime;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;
@@ -223,8 +242,14 @@ const SUBAGENT_SESSION_SPAWN_SHAPE = defineObjectShape<SubagentSessionParent['sp
 const SUBAGENT_SESSION_SWARM_SHAPE = defineObjectShape<
   NonNullable<SubagentSessionParent['swarm']>
 >()(['swarmId', 'itemId'], []);
+const SUBAGENT_SESSION_RUNTIME_SHAPE = defineObjectShape<SubagentSessionRuntime>()(
+  ['agentId', 'agentName', 'profile', 'toolNames', 'permissionCeiling'],
+  [],
+);
 const SESSION_LINEAGE_ID_MAX_CHARS = 512;
 const SESSION_LINEAGE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const SUBAGENT_RUNTIME_NAME_MAX_CHARS = 512;
+const SUBAGENT_RUNTIME_TOOL_LIMIT = 128;
 
 /** Strict decoder guard for the persisted child-session relation. */
 export function isSubagentSessionParent(value: unknown): value is SubagentSessionParent {
@@ -248,6 +273,32 @@ export function isSubagentSessionParent(value: unknown): value is SubagentSessio
       hasExactShape(value.swarm, SUBAGENT_SESSION_SWARM_SHAPE) &&
       isSessionLineageId(value.swarm.swarmId) &&
       isSessionLineageId(value.swarm.itemId))
+  );
+}
+
+/** Strict decoder guard for the persisted child execution snapshot. */
+export function isSubagentSessionRuntime(value: unknown): value is SubagentSessionRuntime {
+  if (
+    !isRecord(value) ||
+    !hasExactShape(value, SUBAGENT_SESSION_RUNTIME_SHAPE) ||
+    !isSessionLineageId(value.agentId) ||
+    !isSessionLineageId(value.profile) ||
+    typeof value.agentName !== 'string' ||
+    value.agentName.length === 0 ||
+    value.agentName.length > SUBAGENT_RUNTIME_NAME_MAX_CHARS ||
+    SESSION_LINEAGE_CONTROL_CHARACTERS.test(value.agentName) ||
+    !Array.isArray(value.toolNames) ||
+    value.toolNames.length > SUBAGENT_RUNTIME_TOOL_LIMIT ||
+    !value.toolNames.every(isSessionLineageId) ||
+    new Set(value.toolNames).size !== value.toolNames.length
+  ) {
+    return false;
+  }
+  return (
+    value.permissionCeiling === 'explore' ||
+    value.permissionCeiling === 'ask' ||
+    value.permissionCeiling === 'execute' ||
+    value.permissionCeiling === 'bypass'
   );
 }
 

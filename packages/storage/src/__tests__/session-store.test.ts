@@ -8,6 +8,7 @@ import type {
   SessionHeader,
   StoredMessage,
   SubagentSessionParent,
+  SubagentSessionRuntime,
 } from '@maka/core';
 import { createLegacyFileSessionStore as createSessionStore } from '../session-store.js';
 
@@ -160,6 +161,7 @@ describe('FileSessionStore CRUD', () => {
         makeInput({
           name: 'Child',
           subagentParent: makeSubagentParent(parent.id),
+          subagentRuntime: makeSubagentRuntime(),
         }),
       );
       await store.create(
@@ -172,6 +174,7 @@ describe('FileSessionStore CRUD', () => {
       assert.deepEqual((await store.readHeader(child.id)).subagentParent, {
         ...makeSubagentParent(parent.id),
       });
+      assert.deepEqual((await store.readHeader(child.id)).subagentRuntime, makeSubagentRuntime());
       await assert.rejects(
         () => store.list({ subagentParentSessionId: parent.id }),
         /require SQLite session metadata/,
@@ -233,6 +236,30 @@ describe('FileSessionStore CRUD', () => {
       await assert.rejects(
         () => store.updateHeader(child.id, { subagentParent: undefined }),
         /parent relation is immutable/,
+      );
+      await assert.rejects(
+        () => store.updateHeader(child.id, { subagentRuntime: undefined }),
+        /runtime snapshot is immutable/,
+      );
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              permissionMode: 'execute',
+              subagentParent: makeSubagentParent(),
+              subagentRuntime: makeSubagentRuntime(),
+            }),
+          ),
+        /Invalid subagent session lineage/,
+      );
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              subagentRuntime: makeSubagentRuntime(),
+            }),
+          ),
+        /Invalid subagent session lineage/,
       );
     });
   });
@@ -1496,6 +1523,16 @@ function makeSubagentParent(parentSessionId = 'parent-session'): SubagentSession
       toolCallId: 'tool-call',
     },
     lifecycle: 'foreground',
+  };
+}
+
+function makeSubagentRuntime(): SubagentSessionRuntime {
+  return {
+    agentId: 'local-read',
+    agentName: 'Local Read',
+    profile: 'local_read',
+    toolNames: ['Read', 'Glob', 'Grep'],
+    permissionCeiling: 'ask',
   };
 }
 

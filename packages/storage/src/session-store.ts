@@ -25,8 +25,10 @@ import {
   isCollaborationMode,
   isOrchestrationMode,
   isPermissionMode,
+  isPermissionModeWithinCeiling,
   isSessionBlockedReason,
   isSubagentSessionParent,
+  isSubagentSessionRuntime,
   isSessionStatus,
   normalizeUserSessionName,
 } from '@maka/core';
@@ -359,6 +361,7 @@ class FileSessionStore implements SessionStore {
       ...(input.parentSessionId ? { parentSessionId: input.parentSessionId } : {}),
       ...(input.branchOfTurnId ? { branchOfTurnId: input.branchOfTurnId } : {}),
       ...(input.subagentParent ? { subagentParent: input.subagentParent } : {}),
+      ...(input.subagentRuntime ? { subagentRuntime: input.subagentRuntime } : {}),
       ...(input.revisionRootSessionId
         ? { revisionRootSessionId: input.revisionRootSessionId }
         : {}),
@@ -558,6 +561,9 @@ class FileSessionStore implements SessionStore {
   async updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader> {
     if (Object.prototype.hasOwnProperty.call(patch, 'subagentParent')) {
       throw new Error('Subagent session parent relation is immutable');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'subagentRuntime')) {
+      throw new Error('Subagent session runtime snapshot is immutable');
     }
     let nextHeader: SessionHeader | undefined;
     await this.withQueue(sessionId, async () => {
@@ -1130,17 +1136,27 @@ function assertValidSessionLineage(header: SessionHeader): void {
 }
 
 function isValidSubagentSessionLineage(header: SessionHeader): boolean {
-  if (header.subagentParent === undefined) return true;
+  if (header.subagentParent === undefined) return header.subagentRuntime === undefined;
+  if (
+    !isSubagentSessionParent(header.subagentParent) ||
+    !isSafeSessionId(header.subagentParent.parentSessionId) ||
+    header.parentSessionId !== undefined ||
+    header.branchOfTurnId !== undefined ||
+    header.revisionRootSessionId !== undefined ||
+    header.revisionParentSessionId !== undefined ||
+    header.revisionOfTurnId !== undefined ||
+    header.revisionIndex !== undefined ||
+    header.revisionState !== undefined
+  ) {
+    return false;
+  }
   return (
-    isSubagentSessionParent(header.subagentParent) &&
-    isSafeSessionId(header.subagentParent.parentSessionId) &&
-    header.parentSessionId === undefined &&
-    header.branchOfTurnId === undefined &&
-    header.revisionRootSessionId === undefined &&
-    header.revisionParentSessionId === undefined &&
-    header.revisionOfTurnId === undefined &&
-    header.revisionIndex === undefined &&
-    header.revisionState === undefined
+    header.subagentRuntime === undefined ||
+    (isSubagentSessionRuntime(header.subagentRuntime) &&
+      isPermissionModeWithinCeiling(
+        header.permissionMode,
+        header.subagentRuntime.permissionCeiling,
+      ))
   );
 }
 
@@ -1172,6 +1188,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     ...(header.subagentParent ? { subagentParent: header.subagentParent } : {}),
+    ...(header.subagentRuntime ? { subagentRuntime: header.subagentRuntime } : {}),
     ...(header.revisionRootSessionId
       ? { revisionRootSessionId: header.revisionRootSessionId }
       : {}),

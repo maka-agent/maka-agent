@@ -241,6 +241,13 @@ describe('SqliteSessionMetadataStore', () => {
       },
       lifecycle: 'foreground' as const,
     };
+    const subagentRuntime = {
+      agentId: 'local-read',
+      agentName: 'Local Read',
+      profile: 'local_read',
+      toolNames: ['Read', 'Glob', 'Grep'],
+      permissionCeiling: 'ask' as const,
+    };
     try {
       await store.create(
         fullHeader({
@@ -253,6 +260,7 @@ describe('SqliteSessionMetadataStore', () => {
           revisionIndex: undefined,
           revisionState: undefined,
           subagentParent,
+          subagentRuntime,
         }),
       );
       await store.create(
@@ -289,9 +297,14 @@ describe('SqliteSessionMetadataStore', () => {
         ['child-session'],
       );
       assert.deepEqual(children[0]?.header.subagentParent, subagentParent);
+      assert.deepEqual(children[0]?.header.subagentRuntime, subagentRuntime);
       await assert.rejects(
         () => store.update('child-session', { subagentParent: undefined }),
         /parent relation is immutable/,
+      );
+      await assert.rejects(
+        () => store.update('child-session', { subagentRuntime: undefined }),
+        /runtime snapshot is immutable/,
       );
     } finally {
       store.close();

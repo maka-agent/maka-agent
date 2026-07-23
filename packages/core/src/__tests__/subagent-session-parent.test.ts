@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { SessionSummary, SubagentSessionParent } from '../session.js';
-import { childSessionsForParent, isSubagentSessionParent } from '../session.js';
+import type { SessionSummary, SubagentSessionParent, SubagentSessionRuntime } from '../session.js';
+import {
+  childSessionsForParent,
+  isSubagentSessionParent,
+  isSubagentSessionRuntime,
+} from '../session.js';
+import { isPermissionModeWithinCeiling } from '../permission.js';
 
 const relation: SubagentSessionParent = {
   kind: 'subagent',
@@ -12,6 +17,14 @@ const relation: SubagentSessionParent = {
     toolCallId: 'tool-call',
   },
   lifecycle: 'foreground',
+};
+
+const runtime: SubagentSessionRuntime = {
+  agentId: 'local-read',
+  agentName: 'Local Read',
+  profile: 'local_read',
+  toolNames: ['Read', 'Glob', 'Grep'],
+  permissionCeiling: 'ask',
 };
 
 describe('subagent session parent relation', () => {
@@ -37,6 +50,18 @@ describe('subagent session parent relation', () => {
     );
     assert.equal(isSubagentSessionParent({ ...relation, parentSessionId: 'bad\nid' }), false);
     assert.equal(isSubagentSessionParent({ ...relation, unexpected: true }), false);
+  });
+
+  test('strictly decodes the immutable runtime snapshot and permission ceiling', () => {
+    assert.equal(isSubagentSessionRuntime(runtime), true);
+    assert.equal(isSubagentSessionRuntime({ ...runtime, toolNames: ['Read', 'Read'] }), false);
+    assert.equal(isSubagentSessionRuntime({ ...runtime, permissionCeiling: 'invalid' }), false);
+    assert.equal(isSubagentSessionRuntime({ ...runtime, unexpected: true }), false);
+
+    assert.equal(isPermissionModeWithinCeiling('explore', 'ask'), true);
+    assert.equal(isPermissionModeWithinCeiling('ask', 'ask'), true);
+    assert.equal(isPermissionModeWithinCeiling('execute', 'ask'), false);
+    assert.equal(isPermissionModeWithinCeiling('bypass', 'execute'), false);
   });
 
   test('derives reverse children without conflating ordinary branches', () => {

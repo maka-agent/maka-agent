@@ -81,6 +81,13 @@ describe('default SQLite session metadata store', () => {
             },
             lifecycle: 'foreground',
           },
+          subagentRuntime: {
+            agentId: 'local-read',
+            agentName: 'Local Read',
+            profile: 'local_read',
+            toolNames: ['Read', 'Glob', 'Grep'],
+            permissionCeiling: 'ask',
+          },
         }),
       );
       await store.create(
@@ -97,6 +104,7 @@ describe('default SQLite session metadata store', () => {
         [child.id],
       );
       assert.equal(children[0]?.subagentParent?.parentSessionId, parent.id);
+      assert.deepEqual(children[0]?.subagentRuntime?.toolNames, ['Read', 'Glob', 'Grep']);
     } finally {
       store.close?.();
       await rm(root, { recursive: true, force: true });
