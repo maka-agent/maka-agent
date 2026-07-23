@@ -65,6 +65,8 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
   function clear(key: string | undefined) {
     if (key) storeRef.current.delete(key);
     if (key === activeKeyRef.current) {
+      // Keep clear terminal: commit([]) would immediately recreate
+      // the active store entry.
       currentRef.current = [];
       setSkillsState([]);
     }
