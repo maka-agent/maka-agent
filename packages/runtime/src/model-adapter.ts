@@ -9,7 +9,7 @@ import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-c
 import { lookupModelMetadata } from '@maka/core/model-metadata';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from './model-protocol.js';
 
 import type { AsyncEventQueue } from './async-queue.js';
 import { resolveModelRuntime } from './model-runtime.js';

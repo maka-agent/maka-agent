@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { ModelMessage } from 'ai';
 import {
   AiSdkBackend,
   AutomationManager,
@@ -53,6 +52,7 @@ import {
   type ShellRunUpdate,
   type SkillSource,
   type ToolAvailabilityConfig,
+  type ModelMessage,
 } from '@maka/runtime';
 import {
   createAgentRunStore,

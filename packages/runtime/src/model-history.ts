@@ -44,7 +44,7 @@ import {
 } from '@maka/core/runtime-event';
 import { normalizeShellToolResultContent } from '@maka/core';
 import type { AttachmentRef, QuoteRef } from '@maka/core/events';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from './model-protocol.js';
 
 // ============================================================================
 // Output type

@@ -1,4 +1,4 @@
-import type { JSONValue } from 'ai';
+import type { JSONValue } from './model-protocol.js';
 import type { ToolModelOutput } from './tool-runtime.js';
 
 /**

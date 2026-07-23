@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from '../model-protocol.js';
 import { buildActiveCompactionHeadAnchor } from '../active-full-compact.js';
 
 import {

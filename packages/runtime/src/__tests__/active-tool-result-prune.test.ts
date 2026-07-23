@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { z } from 'zod';
 import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from '../model-protocol.js';
 
 import {
   activeToolResultLineageIdentity,

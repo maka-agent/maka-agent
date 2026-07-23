@@ -11,6 +11,7 @@ export {
   headerToSummary,
   changesBackendConfig,
 } from './session-manager.js';
+export type { ModelMessage, JSONValue } from './model-protocol.js';
 export type {
   CompactSessionInput,
   PlanSafeBoundaryContinuationInput,

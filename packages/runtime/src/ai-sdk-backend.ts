@@ -83,7 +83,7 @@ import type {
   ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
 import type { ContextBudgetDiagnostic, PromptSegmentEstimate } from '@maka/core/usage-stats/types';
-import type { JSONValue, ModelMessage } from 'ai';
+import type { JSONValue, ModelMessage } from './model-protocol.js';
 import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
