@@ -278,6 +278,7 @@ export const EmptyHome: Story = {
           <OnboardingHero
             state={{ kind: 'ready_empty', defaultConnectionSlug: 'anthropic-main', defaultModel: 'claude-sonnet-4-5' }}
             onOpenSettings={noop}
+            onAddProvider={noop}
             onBrowseProviders={noop}
             onQuickChatSubmit={async () => true}
           />

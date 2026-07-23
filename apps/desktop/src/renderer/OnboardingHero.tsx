@@ -21,7 +21,7 @@
 
 import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from '@maka/ui/icons';
 import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection } from '@maka/core';
+import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type ProviderType, type QuickChatMode, type SettingsSection } from '@maka/core';
 import {
   Button,
   ComposerMentionPopup,
@@ -62,6 +62,8 @@ export interface OnboardingHeroProps {
   state: OnboardingState;
   /** Open Settings with a specific section preselected. */
   onOpenSettings: (section?: SettingsSection) => void;
+  /** Open Settings → 模型 with the create-connection dialog for this provider. */
+  onAddProvider: (providerType: ProviderType) => void;
   /** Open the shared Settings provider catalog. */
   onBrowseProviders: () => void;
   /**
@@ -135,7 +137,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
     case 'needs_connection':
       return (
         <NeedsConnectionHero
-          onOpenSettings={props.onOpenSettings}
+          onAddProvider={props.onAddProvider}
           onBrowseProviders={props.onBrowseProviders}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
@@ -223,7 +225,7 @@ function connectionLabel(
 }
 
 function NeedsConnectionHero(props: {
-  onOpenSettings: (section?: SettingsSection) => void;
+  onAddProvider: (providerType: ProviderType) => void;
   onBrowseProviders: () => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
@@ -261,7 +263,7 @@ function NeedsConnectionHero(props: {
                   render={
                     <button
                       type="button"
-                      onClick={() => props.onOpenSettings('models')}
+                      onClick={() => props.onAddProvider(type)}
                     />
                   }
                 >

@@ -53,3 +53,11 @@ test('provider list bottom fade tracks scroll position', async ({ emptyWindow: p
   });
   await expect.poll(fadeOpacity).toBe('0');
 });
+
+test('clicking a recommended provider row opens that provider connection form', async ({ emptyWindow: page }) => {
+  const name = providerDisplayName('deepseek');
+  await page.locator('.maka-firstrun-row', { hasText: name }).click();
+
+  await expect(page.getByLabel('设置内容')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: `连接 ${name}` })).toBeVisible();
+});

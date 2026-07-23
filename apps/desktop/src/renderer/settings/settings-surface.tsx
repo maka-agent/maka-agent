@@ -4,6 +4,7 @@ import { Button as BaseButton } from '@base-ui/react/button';
 import type {
   AppSettings,
   LlmConnection,
+  ProviderType,
   SettingsSection,
   ThemePalette,
   ThemePreference,
@@ -52,6 +53,7 @@ export function SettingsSurface(props: {
   requestedSection?: SettingsSection;
   openProviderCatalog?: boolean;
   initialConnectionSlug?: string;
+  initialCreateProviderType?: ProviderType;
   initialFocusRef: RefObject<HTMLButtonElement | null>;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
@@ -294,6 +296,7 @@ export function SettingsSurface(props: {
               onOpenSession={props.onOpenSession}
               openProviderCatalog={providerCatalogRequested}
               initialConnectionSlug={props.initialConnectionSlug}
+              initialCreateProviderType={props.initialCreateProviderType}
             />
           )}
         </OverlayScrollArea>
@@ -320,6 +323,7 @@ function SettingsPage(props: {
   onOpenSession?(sessionId: string): void;
   openProviderCatalog?: boolean;
   initialConnectionSlug?: string;
+  initialCreateProviderType?: ProviderType;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -337,6 +341,7 @@ function SettingsPage(props: {
             bridge={window.maka.connections}
             initialPage={props.openProviderCatalog ? 'catalog' : 'connections'}
             initialConnectionSlug={props.initialConnectionSlug}
+            initialCreateProviderType={props.initialCreateProviderType}
           />
         </div>
       );

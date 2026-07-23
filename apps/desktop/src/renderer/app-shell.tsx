@@ -265,12 +265,14 @@ function AppShellContent({
     settingsRequestedSection,
     settingsProviderCatalogOpen,
     settingsConnectionDetailSlug,
+    settingsCreateProviderType,
     setSettingsOpen,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,
     openProviderCatalog,
     openConnectionDetail,
+    openProviderCreate,
   } = useSettingsModal();
   const {
     themePref,
@@ -1763,6 +1765,7 @@ function AppShellContent({
                   if (section) openSettingsSection(section);
                   else openSettings();
                 }}
+                onAddProvider={openProviderCreate}
                 onBrowseProviders={openProviderCatalog}
                 onQuickChatSubmit={handleQuickChatSubmit}
                 mentionSkills={mentionSkills}
@@ -1988,6 +1991,7 @@ function AppShellContent({
         settingsRequestedSection={settingsRequestedSection}
         settingsProviderCatalogOpen={settingsProviderCatalogOpen}
         settingsConnectionDetailSlug={settingsConnectionDetailSlug}
+        settingsCreateProviderType={settingsCreateProviderType}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });
