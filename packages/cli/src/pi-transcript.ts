@@ -212,6 +212,7 @@ function accumulateUsage(
     cacheWriteInput?: number;
     cacheCreation?: number;
     cacheMissInput?: number;
+    contextRemaining?: number;
   },
 ): void {
   usage.costUsd += msg.costUsd ?? 0;
@@ -219,6 +220,7 @@ function accumulateUsage(
   const write = msg.cacheWriteInput ?? msg.cacheCreation ?? 0;
   usage.cacheHitInput += hit;
   usage.cacheMissInput += msg.cacheMissInput ?? Math.max(0, (msg.input ?? 0) - hit - write);
+  usage.contextRemaining = msg.contextRemaining;
 }
 
 export function appendUserPrompt(state: MakaPiTranscriptState, text: string): void {
@@ -686,7 +688,6 @@ export function applyMakaSessionEventToTranscript(
 
     case 'token_usage': {
       accumulateUsage(state.usage, event);
-      state.usage.contextRemaining = event.contextRemaining;
       const notice = contextBudgetOutcomeNotice(event.contextBudget);
       if (notice) {
         state.entries.push({

@@ -3866,7 +3866,7 @@ describe('SessionManager permission mode updates', () => {
     );
   });
 
-  test('sendMessage backfills an empty prior runtime ledger for model context', async () => {
+  test('sendMessage preserves token usage fields while resuming from an empty prior runtime ledger', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -3875,13 +3875,15 @@ describe('SessionManager permission mode updates', () => {
       backend = new TestBackend(ctx);
       return backend;
     });
+    const newId = nextId();
+    const now = nextNow(7_000);
     const manager = new SessionManager({
       store,
       runStore,
       runtimeEventStore: runStore,
       backends,
-      newId: nextId(),
-      now: nextNow(7_000),
+      newId,
+      now,
       runtimeSource: 'test',
     });
     const session = await manager.createSession(makeInput());
@@ -3896,10 +3898,21 @@ describe('SessionManager permission mode updates', () => {
         modelId: 'fake-model',
       },
       {
+        type: 'token_usage',
+        id: 'legacy-usage',
+        turnId: 'turn-1',
+        ts: 103,
+        input: 100,
+        output: 25,
+        runtimeSteps: 3,
+        contextRemaining: 9000,
+        providerRequestTraceId: 'provider-trace-1',
+      },
+      {
         type: 'turn_state',
         id: 'legacy-state',
         turnId: 'turn-1',
-        ts: 103,
+        ts: 104,
         status: 'completed',
         partialOutputRetained: true,
       },
@@ -3911,35 +3924,53 @@ describe('SessionManager permission mode updates', () => {
         turnId: 'turn-1',
         status: 'completed',
         createdAt: 100,
-        updatedAt: 103,
-        completedAt: 103,
+        updatedAt: 104,
+        completedAt: 104,
       }),
     );
 
+    const restarted = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId,
+      now,
+      runtimeSource: 'test',
+    });
     const sessionEvents = await collectSessionEvents(
-      manager.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' }),
+      restarted.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' }),
     );
 
     expect(sessionEvents.map((event) => event.type)).toEqual(['text_delta', 'complete']);
     expect(backend?.sendInputs[0]?.context.map((message) => message.type)).toEqual([
       'user',
       'assistant',
+      'token_usage',
       'turn_state',
     ]);
     expect(
       backend?.sendInputs[0]?.context.map((message) =>
         'text' in message ? message.text : message.type,
       ),
-    ).toEqual(['prior question', 'prior answer', 'turn_state']);
+    ).toEqual(['prior question', 'prior answer', 'token_usage', 'turn_state']);
     expect(backend?.sendInputs[0]?.runtimeContext?.map((event) => event.runId)).toEqual([
       'run-1',
       'run-1',
       'run-1',
+      'run-1',
     ]);
+    const resumedUsage = backend?.sendInputs[0]?.runtimeContext?.find(
+      (event) => event.actions?.tokenUsage,
+    );
+    expect(resumedUsage?.actions?.tokenUsage?.runtimeSteps).toBe(3);
+    expect(resumedUsage?.actions?.tokenUsage?.contextRemaining).toBe(9000);
+    expect(resumedUsage?.refs?.providerRequestTraceId).toBe('provider-trace-1');
     const repairedRuntimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
     expect(repairedRuntimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
       'legacy-user',
       'legacy-assistant',
+      'legacy-usage',
       'legacy-state',
     ]);
     expect(repairedRuntimeEvents.at(-1)?.status).toBe('completed');

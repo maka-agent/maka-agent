@@ -5916,7 +5916,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('renders switched session history instead of a session id note', async () => {
+  test('restores switched session state from stored messages', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver(
       [fakeSessionSummary('session-2', '/repo')],
@@ -5926,6 +5926,28 @@ describe('Maka Pi TUI runner', () => {
           [
             storedUserMessage('user-1', 'turn-1', 'previous question'),
             storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
+            {
+              type: 'token_usage',
+              id: 'usage-1',
+              turnId: 'turn-1',
+              ts: 3,
+              input: 100,
+              output: 20,
+              cacheHitInput: 20,
+              cacheMissInput: 80,
+              contextRemaining: 490_000,
+            },
+            {
+              type: 'token_usage',
+              id: 'usage-2',
+              turnId: 'turn-1',
+              ts: 4,
+              input: 100,
+              output: 20,
+              cacheHitInput: 60,
+              cacheMissInput: 40,
+              contextRemaining: 480_000,
+            },
           ],
         ],
       ]),
@@ -5937,6 +5959,7 @@ describe('Maka Pi TUI runner', () => {
       model: 'claude-sonnet-4-5',
       connectionSlug: 'claude-subscription',
       permissionMode: 'ask',
+      modelContextWindow: 500_000,
       terminal,
     });
 
@@ -5945,6 +5968,8 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous question'));
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous answer'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('ctx 20k/500k 4%'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('cache 40%'));
     const output = plainTerminalOutput(terminal.output());
     assert.equal(output.includes('Session: session-2'), false);
 
