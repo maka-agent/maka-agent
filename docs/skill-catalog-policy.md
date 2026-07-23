@@ -92,16 +92,24 @@ Desktop and CLI both use `prepareSkillInvocationMessage`:
   markers before provider handoff;
 - partial failures keep the successful skills and report each failure;
 - if every explicit request fails, no provider turn is created;
-- each distinct request returns one bounded `SkillInvocationReceipt` with
+- if the combined structured and text inputs exceed 50 distinct requests,
+  preparation fails closed with one bounded `too_many_requests` diagnostic;
+  Runtime resolves no partial request set and creates no provider turn;
+- within the limit, each distinct request returns one bounded
+  `SkillInvocationReceipt` with
   `invocation`, success/failure, exact ref/scope/source for successful loads,
   truncation, and a failure reason. Receipts contain no user prompt, search
   query, or Skill instructions.
 
 Model `Skill` tool loads use the same receipt projection for run-trace data with
-`invocation: model_tool`. Explicit client receipts use
-`invocation: explicit`; failed trace projections retain only request length,
-not the requested text. This makes GUI, TUI, and model-tool outcomes comparable
-without creating a new content-collection channel.
+`invocation: model_tool`; these projections are durable AgentRun trace events.
+Explicit client receipts use `invocation: explicit` and are intentionally
+client-local, ephemeral preparation diagnostics: they are returned to the
+submitting client, but are not restored with the session or correlated with a
+durable run. Failed trace projections retain only request length, not the
+requested text. This makes the outcome shapes comparable without creating a
+new content-collection channel or implying that pre-turn diagnostics are a
+durable audit trail.
 
 Prompt construction, `SkillSearch`, and `Skill` emit diagnostic run-trace
 events. Search telemetry stores counts and query length rather than raw query

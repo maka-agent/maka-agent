@@ -380,6 +380,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     disabled: '已禁用',
     host_incompatible: '当前主机缺少其依赖的工具',
     invalid_name: '名称无效',
+    too_many_requests: '调用请求过多',
   };
 
   interface PreparedSkillPrompt {
@@ -402,10 +403,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       host: input.skills.host,
     });
     const failed = prepared.skillInvocation.failed;
+    const failedLabels = failed.map((entry) =>
+      entry.reason === 'too_many_requests'
+        ? `请求超过 ${entry.requestLimit} 个上限（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason]}）`
+        : `/skill:${entry.request}（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason] ?? entry.reason}）`,
+    );
     const warnings =
       failed.length > 0
         ? [
-            `未能加载技能 ${failed.map((entry) => `/skill:${entry.request}（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason] ?? entry.reason}）`).join('、')}；${
+            `未能加载技能 ${failedLabels.join('、')}；${
               prepared.disposition === 'blocked'
                 ? '未发起模型请求。'
                 : '失败的调用标记未发送给模型。'

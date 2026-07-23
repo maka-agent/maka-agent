@@ -7783,6 +7783,45 @@ describe('Maka Pi TUI runner', () => {
     });
   });
 
+  test('does not create a turn when distinct skill requests exceed the preparation limit', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: { source: () => workspaceRoot, host: { toolNames: new Set<string>() } },
+      });
+      const prompt = [
+        '/skill:alpha',
+        ...Array.from({ length: 50 }, (_, index) => `/skill:missing-${index}`),
+        '帮我整理',
+      ].join(' ');
+
+      terminal.input(prompt);
+      terminal.input('\r');
+      await waitFor(() =>
+        plainTerminalOutput(terminal.output()).includes(
+          '请求超过 50 个上限（调用请求过多）；未发起模型请求。',
+        ),
+      );
+      assert.equal(driver.prompts.length, 0);
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+  });
+
   // #1148: `/skill` opens the picker; picking inserts the token into the
   // draft without sending, so the user keeps composing before submitting.
   test('/skill picker inserts a token that a later submit injects', async () => {

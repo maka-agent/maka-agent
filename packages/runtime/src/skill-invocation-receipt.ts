@@ -3,7 +3,13 @@ import type { LoadedSkillInstructions, LoadSkillInstructionsResult } from './ski
 export type SkillInvocationMode = 'explicit' | 'model_tool';
 export type SkillInvocationFailureReason =
   | Exclude<LoadSkillInstructionsResult, { ok: true }>['reason']
-  | 'resolution_failed';
+  | 'resolution_failed'
+  | 'too_many_requests';
+
+export type PerRequestSkillInvocationFailureReason = Exclude<
+  SkillInvocationFailureReason,
+  'too_many_requests'
+>;
 
 /**
  * Bounded, instruction-free record of one Skill load attempt.
@@ -27,7 +33,13 @@ export type SkillInvocationReceipt =
       invocation: SkillInvocationMode;
       request: string;
       success: false;
-      reason: SkillInvocationFailureReason;
+      reason: PerRequestSkillInvocationFailureReason;
+    }
+  | {
+      invocation: 'explicit';
+      success: false;
+      reason: 'too_many_requests';
+      requestLimit: number;
     };
 
 export function loadedSkillInvocationReceipt(
@@ -51,7 +63,7 @@ export function loadedSkillInvocationReceipt(
 export function failedSkillInvocationReceipt(
   invocation: SkillInvocationMode,
   request: string,
-  reason: SkillInvocationFailureReason,
+  reason: PerRequestSkillInvocationFailureReason,
 ): SkillInvocationReceipt {
   return {
     invocation,
@@ -61,11 +73,28 @@ export function failedSkillInvocationReceipt(
   };
 }
 
+export function overflowSkillInvocationReceipt(requestLimit: number): SkillInvocationReceipt {
+  return {
+    invocation: 'explicit',
+    success: false,
+    reason: 'too_many_requests',
+    requestLimit,
+  };
+}
+
 /** Privacy-preserving trace projection shared by explicit and model loads. */
 export function skillInvocationReceiptTraceData(
   receipt: SkillInvocationReceipt,
 ): Record<string, unknown> {
   if (!receipt.success) {
+    if (receipt.reason === 'too_many_requests') {
+      return {
+        invocation: receipt.invocation,
+        success: false,
+        reason: receipt.reason,
+        requestLimit: receipt.requestLimit,
+      };
+    }
     return {
       invocation: receipt.invocation,
       success: false,

@@ -25,9 +25,10 @@ export function showSkillInvocationFeedback(
   const failures = skillInvocation.failed;
   if (failures.length === 0) return;
   const copy = getShellCopy(uiLocale).chatActions;
-  const items = failures.map(
-    (failure) =>
-      `/skill:${failure.request} (${copy.skillInvocationFailureReason[failure.reason]})`,
+  const items = failures.map((failure) =>
+    failure.reason === 'too_many_requests'
+      ? copy.skillInvocationFailureReason[failure.reason]
+      : `/skill:${failure.request} (${copy.skillInvocationFailureReason[failure.reason]})`,
   );
   if (skillInvocation.loaded.length === 0) {
     toastApi.error(

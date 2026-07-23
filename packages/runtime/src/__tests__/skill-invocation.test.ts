@@ -374,13 +374,10 @@ description: First.
         prepared.skillInvocation.loaded.map((entry) => entry.id),
         ['beta', 'alpha'],
       );
-      assert.equal(prepared.skillInvocation.receipts[0]?.request, 'workspace:legacy:beta');
-      assert.equal(
-        prepared.skillInvocation.receipts[0]?.success
-          ? prepared.skillInvocation.receipts[0].ref
-          : undefined,
-        'workspace:legacy:beta',
-      );
+      const firstReceipt = prepared.skillInvocation.receipts[0];
+      assert.ok(firstReceipt && 'request' in firstReceipt);
+      assert.equal(firstReceipt.request, 'workspace:legacy:beta');
+      assert.equal(firstReceipt.success ? firstReceipt.ref : undefined, 'workspace:legacy:beta');
       assert.ok('sendText' in prepared);
       assert.ok(!prepared.sendText.includes('/skill:'));
     });
@@ -411,25 +408,83 @@ description: First.
     });
   });
 
-  it('bounds explicit invocation diagnostics and request count', async () => {
+  it('bounds explicit invocation request diagnostics', async () => {
     await withWorkspace(async (workspaceRoot, homeDir) => {
-      const requests = [
-        `bad\u0000${'x'.repeat(600)}`,
-        ...Array.from({ length: 60 }, (_, index) => `missing-${index}`),
-      ];
       const prepared = await prepareSkillInvocationMessage({
         text: 'run',
-        skillIds: requests,
+        skillIds: [`bad\u0000${'x'.repeat(600)}`],
         source: resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir),
       });
       assert.equal(prepared.disposition, 'blocked');
-      assert.equal(prepared.skillInvocation.failed.length, 50);
-      assert.equal(prepared.skillInvocation.receipts.length, 50);
-      assert.equal(prepared.skillInvocation.failed[0]?.request.length, 512);
-      assert.doesNotMatch(
-        prepared.skillInvocation.failed[0]?.request ?? '',
-        /[\u0000-\u001F\u007F]/,
+      assert.equal(prepared.skillInvocation.failed.length, 1);
+      assert.equal(prepared.skillInvocation.receipts.length, 1);
+      const failure = prepared.skillInvocation.failed[0];
+      assert.ok(failure && failure.reason !== 'too_many_requests');
+      assert.equal(failure.request.length, 512);
+      assert.doesNotMatch(failure.request, /[\u0000-\u001F\u007F]/);
+    });
+  });
+
+  it('fails closed instead of resolving a partial request set after distinct-request overflow', async () => {
+    await withWorkspace(async (workspaceRoot, homeDir) => {
+      await writeSkill(
+        workspaceRoot,
+        'alpha',
+        `---\nname: Alpha\ndescription: First.\n---\n# Alpha`,
       );
+      const text = [
+        '/skill:alpha',
+        ...Array.from({ length: 50 }, (_, index) => `/skill:missing-${index}`),
+        'finish',
+      ].join(' ');
+      const prepared = await prepareSkillInvocationMessage({
+        text,
+        source: resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir),
+      });
+
+      assert.deepEqual(prepared, {
+        disposition: 'blocked',
+        skillInvocation: {
+          loaded: [],
+          failed: [{ reason: 'too_many_requests', requestLimit: 50 }],
+          receipts: [
+            {
+              invocation: 'explicit',
+              success: false,
+              reason: 'too_many_requests',
+              requestLimit: 50,
+            },
+          ],
+        },
+      });
+      assert.ok(!('sendText' in prepared));
+    });
+  });
+
+  it('applies the distinct-request limit across structured and text inputs', async () => {
+    await withWorkspace(async (workspaceRoot, homeDir) => {
+      const structured = Array.from({ length: 50 }, (_, index) => `missing-${index}`);
+      const source = resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir);
+      const atLimit = await prepareSkillInvocationMessage({
+        text: '/skill:MISSING-0 run',
+        skillIds: structured,
+        source,
+      });
+      assert.equal(atLimit.disposition, 'blocked');
+      assert.equal(atLimit.skillInvocation.failed.length, 50);
+      assert.equal(
+        atLimit.skillInvocation.failed.some((failure) => failure.reason === 'too_many_requests'),
+        false,
+      );
+
+      const overflow = await prepareSkillInvocationMessage({
+        text: '/skill:extra run',
+        skillIds: structured,
+        source,
+      });
+      assert.deepEqual(overflow.skillInvocation.failed, [
+        { reason: 'too_many_requests', requestLimit: 50 },
+      ]);
     });
   });
 });

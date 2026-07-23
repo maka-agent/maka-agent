@@ -11,7 +11,8 @@ import {
   boundSkillInvocationRequest,
   failedSkillInvocationReceipt,
   loadedSkillInvocationReceipt,
-  type SkillInvocationFailureReason,
+  overflowSkillInvocationReceipt,
+  type PerRequestSkillInvocationFailureReason,
   type SkillInvocationReceipt,
 } from './skill-invocation-receipt.js';
 
@@ -51,10 +52,15 @@ export interface SkillInvocationToken {
   end: number;
 }
 
-export interface SkillInvocationFailure {
-  request: string;
-  reason: SkillInvocationFailureReason;
-}
+export type SkillInvocationFailure =
+  | {
+      request: string;
+      reason: PerRequestSkillInvocationFailureReason;
+    }
+  | {
+      reason: 'too_many_requests';
+      requestLimit: number;
+    };
 
 export interface SkillInvocationResult {
   loaded: Array<{ id: string; name: string }>;
@@ -218,10 +224,21 @@ export async function prepareSkillInvocationMessage(input: {
     skillInvocation: { loaded: [], failed: [], receipts: [] },
   };
   const tokens = parseSkillInvocationTokens(input.text);
-  const requests = distinctInvocationRequests([
+  const requestSet = distinctInvocationRequests([
     ...(input.skillIds ?? []),
     ...tokens.map((token) => token.name),
   ]);
+  if (requestSet.overflow) {
+    return {
+      disposition: 'blocked',
+      skillInvocation: {
+        loaded: [],
+        failed: [{ reason: 'too_many_requests', requestLimit: MAX_SKILL_INVOCATION_REQUESTS }],
+        receipts: [overflowSkillInvocationReceipt(MAX_SKILL_INVOCATION_REQUESTS)],
+      },
+    };
+  }
+  const requests = requestSet.requests;
   if (requests.length === 0) return passthrough;
   const strippedText = stripSkillInvocationTokens(
     input.text,
@@ -277,17 +294,19 @@ export async function prepareSkillInvocationMessage(input: {
   }
 }
 
-function distinctInvocationRequests(requests: readonly string[]): string[] {
+type DistinctInvocationRequests = { overflow: false; requests: string[] } | { overflow: true };
+
+function distinctInvocationRequests(requests: readonly string[]): DistinctInvocationRequests {
   const seen = new Set<string>();
   const distinct: string[] = [];
   for (const request of requests) {
     const key = request.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    if (distinct.length === MAX_SKILL_INVOCATION_REQUESTS) return { overflow: true };
     distinct.push(request);
-    if (distinct.length === MAX_SKILL_INVOCATION_REQUESTS) break;
   }
-  return distinct;
+  return { overflow: false, requests: distinct };
 }
 
 function sanitizeAttribute(value: string): string {
