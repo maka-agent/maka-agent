@@ -27,7 +27,7 @@ import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscri
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import { ok } from '@maka/core/settings/result';
+import { ok } from '@maka/core/result';
 import {
   BackendRegistry,
   FakeBackend,
