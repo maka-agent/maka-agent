@@ -85,11 +85,11 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(backend, /private readonly modelAdapter: ModelAdapter;/);
     assert.match(backend, /this\.modelAdapter\.resolveModel\(\)/);
     assert.match(backend, /this\.modelAdapter\.startStream\(/);
-    assert.match(backend, /this\.modelAdapter\.handleStreamChunk\(/);
-    assert.match(
-      backend,
-      /normalizeAiSdkUsage\(await result\.usage,[\s\S]*?rawFinishReason[\s\S]*?\)/,
-    );
+    // #1381 slice 1: the backend consumes the Maka-owned event stream and
+    // never parses raw SDK chunk names, calls normalizeAiSdkUsage, or reads
+    // result.stream. It iterates result.events and switches on event.kind.
+    assert.match(backend, /for await \(const event of result\.events\)/);
+    assert.match(backend, /event\.kind/);
     assert.match(backend, /this\.modelAdapter\.classifyError\(/);
     assert.match(
       backend,
@@ -104,8 +104,11 @@ describe('ModelAdapter extraction contract', () => {
 
     assert.doesNotMatch(backend, /await import\('ai'\)/);
     assert.doesNotMatch(backend, /const \{ streamText, isStepCount \}/);
+    assert.doesNotMatch(backend, /this\.modelAdapter\.handleStreamChunk\(/);
     assert.doesNotMatch(backend, /switch \(chunk\.type\)/);
     assert.doesNotMatch(backend, /case 'reasoning-delta'/);
+    assert.doesNotMatch(backend, /normalizeAiSdkUsage\(await result\.usage/);
+    assert.doesNotMatch(backend, /result\.stream/);
     assert.doesNotMatch(backend, /function finiteToken/);
   });
 
@@ -121,7 +124,10 @@ describe('ModelAdapter extraction contract', () => {
     // backend's reactive overflow retry passes only the remaining budget.
     assert.match(adapter, /input\.maxSteps \?\? this\.input\.maxSteps/);
     assert.match(adapter, /isStepCount\(maxSteps\)/);
-    assert.match(adapter, /handleStreamChunk\(/);
+    // #1381 slice 1: raw SDK chunk interpretation is adapter-internal via
+    // translateChunk, which emits the Maka-owned ModelStreamEvent. The retired
+    // handleStreamChunk/callbacks boundary is gone.
+    assert.match(adapter, /translateChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);
     assert.match(adapter, /makeErrorEvent\(/);
