@@ -8,10 +8,16 @@ import type {
   SessionManager,
   SpawnChildAgentInput,
   SpawnChildAgentResult,
+  SpawnChildSessionInput,
+  SpawnChildSessionResult,
 } from '@maka/runtime';
 
 export interface HeadlessSessionCapabilities {
   spawnChildAgent(sessionId: string, input: SpawnChildAgentInput): Promise<SpawnChildAgentResult>;
+  spawnChildSession(
+    parentSessionId: string,
+    input: SpawnChildSessionInput,
+  ): Promise<SpawnChildSessionResult>;
   prepareChildAgentResume(
     sessionId: string,
     sourceRunId: string,
@@ -37,6 +43,8 @@ export function createHeadlessSessionCapabilityBridge(): {
     capabilities: {
       spawnChildAgent: async (sessionId, input) =>
         await requireManager().spawnChildAgent(sessionId, input),
+      spawnChildSession: async (parentSessionId, input) =>
+        await requireManager().spawnChildSession(parentSessionId, input),
       prepareChildAgentResume: async (sessionId, sourceRunId) =>
         await requireManager().prepareChildAgentResume(sessionId, sourceRunId),
       resumeChildAgent: async (sessionId, input) =>

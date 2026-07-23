@@ -237,6 +237,38 @@ describe('SessionManager child-session runtime primitive', () => {
       manager.setPermissionMode(result.childSessionId, 'execute'),
       /exceeds its "ask" ceiling/,
     );
+    const projection = await manager.listChildAgents(parent.id);
+    expect(projection.runs).toEqual([]);
+    expect(projection.executions).toHaveLength(1);
+    expect(projection.executions[0]?.execution).toEqual({
+      kind: 'child_session',
+      sessionId: result.childSessionId,
+      currentRunId: result.runId,
+    });
+    expect(projection.executions[0]?.status).toBe('completed');
+    const output = await manager.readChildAgentOutput(parent.id, {
+      execution: {
+        kind: 'child_session',
+        sessionId: result.childSessionId,
+      },
+    });
+    expect(output.execution).toEqual({
+      kind: 'child_session',
+      sessionId: result.childSessionId,
+      currentRunId: result.runId,
+    });
+    expect(output.header.sessionId).toBe(result.childSessionId);
+    expect(output.header.runId).toBe(result.runId);
+    const unrelatedParent = await manager.createSession(makeInput({ name: 'Unrelated parent' }));
+    await expectRejects(
+      manager.readChildAgentOutput(unrelatedParent.id, {
+        execution: {
+          kind: 'child_session',
+          sessionId: result.childSessionId,
+        },
+      }),
+      /could not find the requested child session/,
+    );
 
     parentGate.release();
     while (!(await parentTurn.next()).done) {}
@@ -7897,6 +7929,13 @@ describe('SessionManager permission mode updates', () => {
       requiredRuntime: 'worktree_child_executor',
     });
     expect(list.runs.map((agent) => agent.runId)).toEqual(['child-run']);
+    expect(list.executions.map((agent) => agent.execution)).toEqual([
+      {
+        kind: 'legacy_child_run',
+        sessionId: session.id,
+        runId: 'child-run',
+      },
+    ]);
     expect(list.runs[0]?.agentId).toBe(LOCAL_READ_AGENT_ID);
     expect(list.runs[0]?.agentName).toBe('Researcher');
     expect(list.runs[0]?.durationMs).toBe(10);
@@ -8116,7 +8155,7 @@ describe('SessionManager permission mode updates', () => {
 
     await expectRejects(
       manager.readChildAgentOutput(session.id, { runId: 'child-run', turnId: 'child-turn' }),
-      /exactly one of runId or turnId/,
+      /exactly one execution, runId, or turnId/,
     );
   });
 

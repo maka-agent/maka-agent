@@ -543,6 +543,7 @@ export interface AiSdkBackendInput {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  spawnChildSession?: ToolRuntimeInput['spawnChildSession'];
   prepareChildAgentResume?: ToolRuntimeInput['prepareChildAgentResume'];
   resumeChildAgent?: ToolRuntimeInput['resumeChildAgent'];
   retryChildAgent?: (input: {
@@ -557,11 +558,7 @@ export interface AiSdkBackendInput {
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: {
-    runId?: string;
-    turnId?: string;
-    maxEvents?: number;
-  }) => Promise<unknown>;
+  readChildAgentOutput?: ToolRuntimeInput['readChildAgentOutput'];
   /** Optional diagnostic trace hook for explaining a runtime turn without changing renderer events. */
   recordRunTrace?: RunTraceRecorder;
   /**
@@ -774,6 +771,7 @@ export class AiSdkBackend implements AgentBackend {
       getCurrentOrchestration: () => this.currentOrchestration,
       permissionRules: input.permissionRules,
       spawnChildAgent: input.spawnChildAgent,
+      spawnChildSession: input.spawnChildSession,
       prepareChildAgentResume: input.prepareChildAgentResume,
       resumeChildAgent: input.resumeChildAgent,
       retryChildAgent: input.retryChildAgent,

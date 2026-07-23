@@ -127,6 +127,7 @@ import {
 } from './agent-catalog.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { requireResolvedAgentDefinition } from './expert-catalog.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import {
   buildResumePlanFromRuntimeEvents,
   RuntimeContinuationPlanner,
@@ -252,18 +253,38 @@ export interface AgentListItem {
   failureClass?: string;
 }
 
+export interface SubagentExecutionListItem {
+  execution: SubagentExecutionRef;
+  agentId?: string;
+  agentName?: string;
+  profile?: string;
+  turnId?: string;
+  status: AgentRunHeader['status'];
+  permissionMode: PermissionMode;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+  failureClass?: string;
+}
+
 export interface AgentListResult {
   definitions: AgentDefinitionListItem[];
+  /** Canonical mixed projection for new child Sessions and legacy same-session child AgentRuns. */
+  executions: SubagentExecutionListItem[];
+  /** Legacy projection retained while callers migrate to executions. */
   runs: AgentListItem[];
 }
 
 export interface AgentOutputInput {
+  execution?: SubagentExecutionRef;
   runId?: string;
   turnId?: string;
   maxEvents?: number;
 }
 
 export interface AgentOutputResult {
+  execution: SubagentExecutionRef;
   header: AgentRunHeader;
   events: AgentRunEvent[];
   runtimeEvents: RuntimeEvent[];
@@ -1897,7 +1918,7 @@ export class SessionManager {
       parentPermissionMode: header.permissionMode,
       tools: this.deps.childTools ?? [],
     });
-    if (!this.deps.runStore) return { definitions, runs: [] };
+    if (!this.deps.runStore) return { definitions, executions: [], runs: [] };
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
     const childRuns = await Promise.all(
       runs
@@ -1912,24 +1933,91 @@ export class SessionManager {
           }),
         ),
     );
+    const legacyRuns = childRuns.map((run) => ({
+      runId: run.runId,
+      turnId: run.turnId,
+      parentRunId: run.parentRunId,
+      ...(run.agentId ? { agentId: run.agentId } : {}),
+      ...(run.agentName ? { agentName: run.agentName } : {}),
+      status: run.status,
+      permissionMode: run.permissionMode,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+      ...(run.completedAt !== undefined
+        ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
+        : {}),
+      ...(run.failureClass ? { failureClass: run.failureClass } : {}),
+    }));
+    const childSessionHeaders = await Promise.all(
+      (await this.listChildSessions(sessionId)).map((child) =>
+        this.deps.store.readHeader(child.id),
+      ),
+    );
+    const childSessionExecutions = await Promise.all(
+      childSessionHeaders.map(async (child): Promise<SubagentExecutionListItem> => {
+        const childRuns = await this.deps.runStore!.listSessionRuns(child.id);
+        const latest = childRuns
+          .slice()
+          .sort(
+            (left, right) =>
+              right.createdAt - left.createdAt ||
+              right.updatedAt - left.updatedAt ||
+              right.runId.localeCompare(left.runId),
+          )[0];
+        const run = latest ? await this.effectiveRunHeaderFromRuntimeLedger(latest) : undefined;
+        const currentRunId = run?.runId ?? child.subagentSpawn?.initialRunId;
+        return {
+          execution: {
+            kind: 'child_session',
+            sessionId: child.id,
+            ...(currentRunId ? { currentRunId } : {}),
+          },
+          ...(child.subagentRuntime?.agentId ? { agentId: child.subagentRuntime.agentId } : {}),
+          ...(child.subagentRuntime?.agentName
+            ? { agentName: child.subagentRuntime.agentName }
+            : {}),
+          ...(child.subagentRuntime?.profile ? { profile: child.subagentRuntime.profile } : {}),
+          ...(run?.turnId ? { turnId: run.turnId } : {}),
+          status: run?.status ?? (child.status === 'aborted' ? 'cancelled' : 'created'),
+          permissionMode: run?.permissionMode ?? child.permissionMode,
+          createdAt: run?.createdAt ?? child.createdAt,
+          updatedAt: run?.updatedAt ?? child.lastUsedAt,
+          ...(run?.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+          ...(run?.completedAt !== undefined
+            ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
+            : {}),
+          ...(run?.failureClass ? { failureClass: run.failureClass } : {}),
+        };
+      }),
+    );
     return {
       definitions,
-      runs: childRuns.map((run) => ({
-        runId: run.runId,
-        turnId: run.turnId,
-        parentRunId: run.parentRunId,
-        ...(run.agentId ? { agentId: run.agentId } : {}),
-        ...(run.agentName ? { agentName: run.agentName } : {}),
-        status: run.status,
-        permissionMode: run.permissionMode,
-        createdAt: run.createdAt,
-        updatedAt: run.updatedAt,
-        ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
-        ...(run.completedAt !== undefined
-          ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
-          : {}),
-        ...(run.failureClass ? { failureClass: run.failureClass } : {}),
-      })),
+      executions: [
+        ...childSessionExecutions,
+        ...childRuns.map(
+          (run): SubagentExecutionListItem => ({
+            execution: {
+              kind: 'legacy_child_run',
+              sessionId,
+              runId: run.runId,
+            },
+            ...(run.agentId ? { agentId: run.agentId } : {}),
+            ...(run.agentName ? { agentName: run.agentName } : {}),
+            turnId: run.turnId,
+            status: run.status,
+            permissionMode: run.permissionMode,
+            createdAt: run.createdAt,
+            updatedAt: run.updatedAt,
+            ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+            ...(run.completedAt !== undefined
+              ? { durationMs: Math.max(0, run.completedAt - run.createdAt) }
+              : {}),
+            ...(run.failureClass ? { failureClass: run.failureClass } : {}),
+          }),
+        ),
+      ],
+      runs: legacyRuns,
     };
   }
 
@@ -1940,21 +2028,23 @@ export class SessionManager {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) {
       throw new Error('agent_output requires AgentRunStore and RuntimeEventStore');
     }
-    const header = await this.findChildRunForOutput(sessionId, input);
+    const located = await this.findChildRunForOutput(sessionId, input);
+    const { header } = located;
     const inspected = await inspectAgentRunReadModel(
       this.deps.runStore,
       this.deps.runtimeEventStore,
       {
-        sessionId,
+        sessionId: header.sessionId,
         runId: header.runId,
         header,
       },
     );
     const artifacts = this.deps.listArtifactsForTurn
-      ? await this.deps.listArtifactsForTurn(sessionId, header.turnId)
+      ? await this.deps.listArtifactsForTurn(header.sessionId, header.turnId)
       : [];
     const maxEvents = normalizeAgentOutputMaxEvents(input.maxEvents);
     return {
+      execution: located.execution,
       header: inspected.header,
       events: tail(inspected.events, maxEvents),
       runtimeEvents: tail(inspected.runtimeEvents, maxEvents),
@@ -2230,17 +2320,75 @@ export class SessionManager {
   private async findChildRunForOutput(
     sessionId: string,
     input: AgentOutputInput,
-  ): Promise<AgentRunHeader> {
-    if (Number(!!input.runId) + Number(!!input.turnId) !== 1) {
-      throw new Error('agent_output requires exactly one of runId or turnId');
+  ): Promise<{ header: AgentRunHeader; execution: SubagentExecutionRef }> {
+    if (Number(!!input.execution) + Number(!!input.runId) + Number(!!input.turnId) !== 1) {
+      throw new Error('agent_output requires exactly one execution, runId, or turnId locator');
+    }
+    if (input.execution?.kind === 'child_session') {
+      const execution = input.execution;
+      const child = await this.deps.store.readHeader(execution.sessionId).catch((error) => {
+        if (isNotFoundError(error)) return undefined;
+        throw error;
+      });
+      if (
+        !child ||
+        child.subagentParent?.kind !== 'subagent' ||
+        child.subagentParent.parentSessionId !== sessionId
+      ) {
+        throw new Error('agent_output could not find the requested child session');
+      }
+      const runs = await this.deps.runStore?.listSessionRuns(child.id);
+      const selected = execution.currentRunId
+        ? runs?.find((run) => run.runId === execution.currentRunId)
+        : runs
+            ?.slice()
+            .sort(
+              (left, right) =>
+                right.createdAt - left.createdAt ||
+                right.updatedAt - left.updatedAt ||
+                right.runId.localeCompare(left.runId),
+            )[0];
+      if (!selected || !isSessionInlineRun(selected)) {
+        throw new Error('agent_output could not find the requested child session run');
+      }
+      const header = await this.effectiveRunHeaderFromRuntimeLedger(selected);
+      return {
+        header,
+        execution: {
+          kind: 'child_session',
+          sessionId: child.id,
+          currentRunId: header.runId,
+        },
+      };
+    }
+
+    const legacyExecution =
+      input.execution?.kind === 'legacy_child_run' ? input.execution : undefined;
+    if (legacyExecution && legacyExecution.sessionId !== sessionId) {
+      throw new Error('agent_output could not find the requested legacy child run');
     }
     const runs = await this.deps.runStore?.listSessionRuns(sessionId);
     const header = runs?.find((run) =>
-      input.runId ? run.runId === input.runId : input.turnId ? run.turnId === input.turnId : false,
+      legacyExecution
+        ? run.runId === legacyExecution.runId
+        : input.runId
+          ? run.runId === input.runId
+          : input.turnId
+            ? run.turnId === input.turnId
+            : false,
     );
     if (!header) throw new Error('agent_output could not find the requested child agent run');
-    if (!header.parentRunId) throw new Error('agent_output only reads child agent runs');
-    return this.effectiveRunHeaderFromRuntimeLedger(header);
+    if (!header.parentRunId || isSessionInlineRun(header)) {
+      throw new Error('agent_output only reads child agent runs');
+    }
+    return {
+      header: await this.effectiveRunHeaderFromRuntimeLedger(header),
+      execution: {
+        kind: 'legacy_child_run',
+        sessionId,
+        runId: header.runId,
+      },
+    };
   }
 
   private async effectiveRunHeaderFromRuntimeLedger(run: AgentRunHeader): Promise<AgentRunHeader> {

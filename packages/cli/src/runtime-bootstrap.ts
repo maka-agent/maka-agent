@@ -623,6 +623,20 @@ export async function createMakaCliRuntimeContext(
       ...(input.surface === 'tui'
         ? {
             spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
+            spawnChildSession: (childInput) =>
+              runtime.spawnChildSession(ctx.sessionId, {
+                spawnedBy: {
+                  parentRunId: childInput.parentRunId,
+                  parentTurnId: childInput.parentTurnId,
+                  toolCallId: childInput.toolCallId,
+                },
+                agentProfile: childInput.agentProfile,
+                prompt: childInput.prompt,
+                ...(childInput.swarm ? { swarm: childInput.swarm } : {}),
+                abortSignal: childInput.abortSignal,
+                ...(childInput.onReady ? { onReady: childInput.onReady } : {}),
+                ...(childInput.onEvent ? { onEvent: childInput.onEvent } : {}),
+              }),
             prepareChildAgentResume: (sourceRunId) =>
               runtime.prepareChildAgentResume(ctx.sessionId, sourceRunId),
             resumeChildAgent: (childInput) => runtime.resumeChildAgent(ctx.sessionId, childInput),

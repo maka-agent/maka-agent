@@ -67,6 +67,8 @@ import {
   type ToolRecoveryMode,
 } from './runtime-commit-sink.js';
 import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
+import type { AgentProfile } from './agent-catalog.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import { serializeSandboxError } from './sandbox/errors.js';
 
 export type ToolModelOutputPart =
@@ -178,6 +180,25 @@ export interface MakaToolContext {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  spawnChildSession?: (input: {
+    agentProfile: AgentProfile;
+    prompt: string;
+    /** Optional swarm identity, scoped to the owning tool call. */
+    swarm?: {
+      swarmId: string;
+      itemId: string;
+    };
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
+    onReady?: (input: {
+      childSessionId: string;
+      turnId: string;
+      runId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
   prepareChildAgentResume?: (sourceRunId: string) => Promise<{
     sourceRunId: string;
     agentId: string;
@@ -209,6 +230,7 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
+    execution?: SubagentExecutionRef;
     runId?: string;
     turnId?: string;
     maxEvents?: number;
@@ -303,6 +325,26 @@ export interface ToolRuntimeInput {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  spawnChildSession?: (input: {
+    parentRunId: string;
+    parentTurnId: string;
+    toolCallId: string;
+    agentProfile: AgentProfile;
+    prompt: string;
+    swarm?: {
+      swarmId: string;
+      itemId: string;
+    };
+    abortSignal: AbortSignal;
+    onReady?: (input: {
+      childSessionId: string;
+      turnId: string;
+      runId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
   prepareChildAgentResume?: (sourceRunId: string) => Promise<{
     sourceRunId: string;
     agentId: string;
@@ -334,6 +376,7 @@ export interface ToolRuntimeInput {
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
+    execution?: SubagentExecutionRef;
     runId?: string;
     turnId?: string;
     maxEvents?: number;
@@ -1317,6 +1360,7 @@ export class ToolRuntime {
             ? { readChildAgentOutput: this.input.readChildAgentOutput }
             : {}),
           ...this.buildChildAgentContext({
+            turnId,
             abortSignal: ctx.abortSignal,
             trace,
             toolUseId,
@@ -1770,19 +1814,24 @@ export class ToolRuntime {
   }
 
   private buildChildAgentContext(input: {
+    turnId: string;
     abortSignal: AbortSignal;
     trace: RunTraceLike | null;
     toolUseId: string;
     toolName: string;
   }): Pick<
     MakaToolContext,
-    'spawnChildAgent' | 'prepareChildAgentResume' | 'resumeChildAgent' | 'retryChildAgent'
+    | 'spawnChildAgent'
+    | 'spawnChildSession'
+    | 'prepareChildAgentResume'
+    | 'resumeChildAgent'
+    | 'retryChildAgent'
   > {
     const parentRunId = this.input.getCurrentRunId?.();
     if (!parentRunId) return {};
     const limiter = this.childAgentRunLimiter;
     const runWithPermit = async <T>(
-      mode: 'spawn' | 'resume' | 'retry',
+      mode: 'spawn' | 'spawn_session' | 'resume' | 'retry',
       abortSignal: AbortSignal,
       execute: () => Promise<T>,
     ): Promise<T> => {
@@ -1864,6 +1913,7 @@ export class ToolRuntime {
     };
 
     const spawnChildAgent = this.input.spawnChildAgent;
+    const spawnChildSession = this.input.spawnChildSession;
     const prepareChildAgentResume = this.input.prepareChildAgentResume;
     const resumeChildAgent = this.input.resumeChildAgent;
     const retryChildAgent = this.input.retryChildAgent;
@@ -1883,6 +1933,32 @@ export class ToolRuntime {
                     parentRunId,
                     spec: spawnInput.spec,
                     prompt: spawnInput.prompt,
+                    abortSignal,
+                    ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
+                    ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
+                  }),
+              );
+            },
+          }
+        : {}),
+      ...(spawnChildSession
+        ? {
+            spawnChildSession: async (spawnInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                spawnInput.abortSignal,
+              );
+              return await runWithPermit(
+                'spawn_session',
+                abortSignal,
+                async () =>
+                  await spawnChildSession({
+                    parentRunId,
+                    parentTurnId: input.turnId,
+                    toolCallId: input.toolUseId,
+                    agentProfile: spawnInput.agentProfile,
+                    prompt: spawnInput.prompt,
+                    ...(spawnInput.swarm ? { swarm: spawnInput.swarm } : {}),
                     abortSignal,
                     ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
                     ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),

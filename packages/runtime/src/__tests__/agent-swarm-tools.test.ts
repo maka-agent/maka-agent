@@ -20,6 +20,7 @@ import {
   AGENT_WRITE_BACK_SUMMARY,
   IMPLEMENTATION_AGENT_PROFILE,
   LOCAL_READ_AGENT_PROFILE,
+  requireBuiltinAgentDefinitionByProfile,
 } from '../agent-catalog.js';
 import { buildChildAgentTools, AGENT_TOOL_NAMES } from '../subagent-tools.js';
 import type { SpawnChildAgentResult } from '../session-manager.js';
@@ -131,7 +132,7 @@ describe('AgentSwarm adapter', () => {
             ],
           },
           context({
-            spawnChildAgent: async () => {
+            spawnChildSession: async () => {
               starts += 1;
               return childResult(0);
             },
@@ -207,6 +208,7 @@ describe('AgentSwarm adapter', () => {
 
   test('normalizes prompt_template items through the existing ordered execution path', async () => {
     const prompts: string[] = [];
+    const spawnRefs: Array<{ swarmId: string; itemId: string } | undefined> = [];
     const tool = buildAgentSwarmTool();
     const result = await tool.impl(
       {
@@ -216,25 +218,53 @@ describe('AgentSwarm adapter', () => {
         max_concurrency: 2,
       },
       context({
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           prompts.push(input.prompt);
           const index = prompts.length - 1;
+          spawnRefs.push(input.swarm);
           await input.onReady?.({
+            childSessionId: `child-session-${index}`,
+            runId: `run-${index}`,
             turnId: `turn-${index}`,
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
           });
-          return childResult(index);
+          return {
+            ...childResult(index),
+            childSessionId: `child-session-${index}`,
+          };
         },
       }),
     );
 
     assert.deepEqual(prompts, ['Compare runtime with runtime.', 'Compare desktop with desktop.']);
+    assert.deepEqual(spawnRefs, [
+      { swarmId: 'tool-swarm', itemId: 'item-1' },
+      { swarmId: 'tool-swarm', itemId: 'item-2' },
+    ]);
     assert.deepEqual(
-      result.items.map((item) => ({ itemId: item.itemId, index: item.index, status: item.status })),
+      result.items.map((item) => ({
+        itemId: item.itemId,
+        index: item.index,
+        childSessionId: item.childSessionId,
+        runId: item.runId,
+        status: item.status,
+      })),
       [
-        { itemId: 'item-1', index: 0, status: 'completed' },
-        { itemId: 'item-2', index: 1, status: 'completed' },
+        {
+          itemId: 'item-1',
+          index: 0,
+          childSessionId: 'child-session-0',
+          runId: 'run-0',
+          status: 'completed',
+        },
+        {
+          itemId: 'item-2',
+          index: 1,
+          childSessionId: 'child-session-1',
+          runId: 'run-1',
+          status: 'completed',
+        },
       ],
     );
   });
@@ -289,7 +319,7 @@ describe('AgentSwarm adapter', () => {
               starts += 1;
               return childResult(10);
             },
-            spawnChildAgent: async () => {
+            spawnChildSession: async () => {
               starts += 1;
               return childResult(0);
             },
@@ -326,12 +356,14 @@ describe('AgentSwarm adapter', () => {
             resumedFromRunId: input.sourceRunId,
           };
         },
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           calls.push(`spawn:${input.prompt}`);
           await input.onReady?.({
+            childSessionId: 'child-session',
+            runId: 'child-run',
             turnId: 'turn-0',
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
           });
           return childResult(0);
         },
@@ -363,7 +395,7 @@ describe('AgentSwarm adapter', () => {
 
     await assert.rejects(
       Promise.resolve(tool.impl({ items: [swarmItem(0)] }, context())),
-      /spawnChildAgent capability is unavailable/,
+      /spawnChildSession capability is unavailable/,
     );
   });
 
@@ -384,13 +416,15 @@ describe('AgentSwarm adapter', () => {
           emitRunTrace: (type, message, data) => {
             traceEvents.push({ type, message, data });
           },
-          spawnChildAgent: async (input) => {
+          spawnChildSession: async (input) => {
             const index = Number(input.prompt.slice('task-'.length));
             started.push(index);
             await input.onReady?.({
+              childSessionId: 'child-session',
+              runId: 'child-run',
               turnId: `turn-${index}`,
-              agentId: input.spec.id,
-              agentName: input.spec.name,
+              agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+              agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
             });
             const result = await gates[index]!.promise;
             completionOrder.push(index);
@@ -489,13 +523,15 @@ describe('AgentSwarm adapter', () => {
         max_concurrency: 2,
       },
       context({
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           const index = Number(input.prompt.slice('task-'.length));
           if (index === 1) throw new Error('provider startup failed');
           await input.onReady?.({
+            childSessionId: 'child-session',
+            runId: 'child-run',
             turnId: `turn-${index}`,
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
           });
           return childResult(index);
         },
@@ -512,7 +548,7 @@ describe('AgentSwarm adapter', () => {
     assert.equal(result.items[1]?.failureClass, 'Error');
   });
 
-  test('retries provider rate limits without spawning the child prompt twice', async () => {
+  test('keeps adaptive rate-limit retry for legacy resumed child runs', async () => {
     const traceEvents: TestTraceEvent[] = [];
     const prompts: string[] = [];
     const retrySources: string[] = [];
@@ -528,16 +564,23 @@ describe('AgentSwarm adapter', () => {
       },
     });
     const pending = tool.impl(
-      { items: [swarmItem(0), swarmItem(1)], max_concurrency: 2 },
+      {
+        resume_run_ids: {
+          'source-run-0': 'task-0',
+          'source-run-1': 'task-1',
+        },
+        max_concurrency: 2,
+      },
       context({
         emitRunTrace: (type, message, data) => traceEvents.push({ type, message, data }),
-        spawnChildAgent: async (input) => {
+        prepareChildAgentResume: async (sourceRunId) => preparedResume(sourceRunId),
+        resumeChildAgent: async (input) => {
           prompts.push(input.prompt);
           const index = Number(input.prompt.slice('task-'.length));
           await input.onReady?.({
             turnId: `turn-${index}`,
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: 'local-read',
+            agentName: 'Local Read',
           });
           if (index === 1) return await siblingGate.promise;
           return {
@@ -575,6 +618,31 @@ describe('AgentSwarm adapter', () => {
     assert.ok(traceEvents.some((event) => event.data?.swarmStage === 'capacity_changed'));
   });
 
+  test('settles a rate-limited child-session run without invoking the legacy retry path', async () => {
+    let retries = 0;
+    const result = await buildAgentSwarmTool().impl(
+      { items: [swarmItem(0)] },
+      context({
+        spawnChildSession: async () => ({
+          ...childResult(0, 'failed'),
+          childSessionId: 'child-session-0',
+          failureClass: 'RateLimit',
+          summary: 'provider 429',
+        }),
+        retryChildAgent: async () => {
+          retries += 1;
+          return childResult(0);
+        },
+      }),
+    );
+
+    assert.equal(retries, 0);
+    assert.equal(result.status, 'partial');
+    assert.equal(result.items[0]?.childSessionId, 'child-session-0');
+    assert.equal(result.items[0]?.runId, 'run-0');
+    assert.equal(result.items[0]?.failureClass, 'RateLimit');
+  });
+
   test('distinguishes active cancellation from items that never started', async () => {
     const controller = new AbortController();
     const tool = buildAgentSwarmTool();
@@ -591,13 +659,15 @@ describe('AgentSwarm adapter', () => {
         emitRunTrace: (type, message, data) => {
           traceEvents.push({ type, message, data });
         },
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           const index = Number(input.prompt.slice('task-'.length));
           started.push(index);
           await input.onReady?.({
+            childSessionId: 'child-session',
+            runId: 'child-run',
             turnId: `turn-${index}`,
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
           });
           await onceAborted(controller.signal);
           return childResult(index, 'cancelled');
@@ -668,9 +738,11 @@ describe('AgentSwarm adapter', () => {
         starts.push(input.prompt);
         const index = Number(input.prompt.slice('task-'.length));
         await input.onReady?.({
+          childSessionId: 'child-session',
+          runId: 'child-run',
           turnId: `turn-${index}`,
-          agentId: input.spec.id,
-          agentName: input.spec.name,
+          agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+          agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
         });
         if (index === 0) {
           await onceAborted(input.abortSignal);
@@ -722,9 +794,11 @@ describe('AgentSwarm adapter', () => {
         active.add(input.prompt);
         maxActive = Math.max(maxActive, active.size);
         await input.onReady?.({
+          childSessionId: 'child-session',
+          runId: 'child-run',
           turnId: `turn-${input.prompt}`,
-          agentId: input.spec.id,
-          agentName: input.spec.name,
+          agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+          agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
         });
         return await new Promise((resolve) => {
           releases.set(input.prompt, () => {
@@ -942,6 +1016,52 @@ describe('AgentSwarm adapter', () => {
       false,
     );
   });
+
+  test('binds child-session creation to the owning parent run, turn, tool call, and swarm item', async () => {
+    const calls: Array<
+      Parameters<NonNullable<ConstructorParameters<typeof ToolRuntime>[0]['spawnChildSession']>>[0]
+    > = [];
+    const runtime = buildRuntime(async (input) => {
+      calls.push(input);
+      const definition = requireBuiltinAgentDefinitionByProfile(input.agentProfile);
+      await input.onReady?.({
+        childSessionId: 'child-session-1',
+        turnId: 'child-turn-1',
+        runId: 'child-run-1',
+        agentId: definition.id,
+        agentName: definition.name,
+      });
+      return {
+        ...childResult(1),
+        childSessionId: 'child-session-1',
+        turnId: 'child-turn-1',
+        runId: 'child-run-1',
+      };
+    });
+
+    const result = (await executeTool(
+      runtime,
+      {
+        ...buildAgentSwarmTool(),
+        permissionRequired: false,
+      },
+      { items: [swarmItem(1)] },
+      new AbortController(),
+      [],
+      'swarm-tool-call',
+    )) as AgentSwarmToolResult;
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.parentRunId, 'parent-run');
+    assert.equal(calls[0]?.parentTurnId, 'turn-1');
+    assert.equal(calls[0]?.toolCallId, 'swarm-tool-call');
+    assert.deepEqual(calls[0]?.swarm, {
+      swarmId: 'swarm-tool-call',
+      itemId: 'item-1',
+    });
+    assert.equal(result.items[0]?.childSessionId, 'child-session-1');
+    assert.equal(result.items[0]?.runId, 'child-run-1');
+  });
 });
 
 function swarmItem(index: number): AgentSwarmExplicitItemInput {
@@ -1025,13 +1145,9 @@ function singleChildProbeTool(): MakaTool {
     permissionRequired: false,
     categoryHint: 'subagent',
     impl: async (_input, ctx) => {
-      if (!ctx.spawnChildAgent) throw new Error('missing spawn capability');
-      return await ctx.spawnChildAgent({
-        spec: {
-          id: 'local-read',
-          name: 'Local Read',
-          systemPrompt: 'Test.',
-        },
+      if (!ctx.spawnChildSession) throw new Error('missing spawn capability');
+      return await ctx.spawnChildSession({
+        agentProfile: LOCAL_READ_AGENT_PROFILE,
         prompt: 'single',
       });
     },
@@ -1039,7 +1155,7 @@ function singleChildProbeTool(): MakaTool {
 }
 
 function buildRuntime(
-  spawnChildAgent: NonNullable<ConstructorParameters<typeof ToolRuntime>[0]['spawnChildAgent']>,
+  spawnChildSession: NonNullable<ConstructorParameters<typeof ToolRuntime>[0]['spawnChildSession']>,
   options: {
     permissionEngine?: PermissionEngine;
     permissionMode?: SessionHeader['permissionMode'];
@@ -1065,7 +1181,7 @@ function buildRuntime(
     now: () => 1,
     getPermissionPauseTarget: () => null,
     getCurrentRunId: () => 'parent-run',
-    spawnChildAgent,
+    spawnChildSession,
     ...(options.traceEvents ? { getRunTrace: () => testTrace(options.traceEvents!) } : {}),
     ...(options.recordToolInvocation ? { recordToolInvocation: options.recordToolInvocation } : {}),
   });
