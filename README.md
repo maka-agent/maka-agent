@@ -161,7 +161,7 @@ Current boundaries that matter:
 - Sessions and connection metadata live in the local filesystem;
 - Runtime credentials such as API keys, bot tokens, and proxy passwords currently live in local plaintext `credentials.json`, behind the OS account boundary, with POSIX directory mode `0700` and file mode `0600` enforced;
 - Subscription OAuth tokens (Claude, Codex, GitHub Copilot, and the Cursor/Antigravity previews) live in the same `credentials.json` — the single authority for desktop, TUI, and headless; Electron `safeStorage` only decrypts pre-existing legacy token files once at desktop startup (#1125);
-- Connection lists and status reads do not send plaintext credentials to Renderer. An existing API key is returned only after the user explicitly activates its reveal control; OAuth tokens remain main-process-only. File writes, Shell, and dangerous tool calls pass through the permission engine;
+- Renderer does not receive plaintext credentials. File writes, Shell, and dangerous tool calls pass through the permission engine;
 - Headless real-model evaluation fails closed by default and requires an explicit external isolation boundary.
 
 Read [SECURITY.md](./SECURITY.md) for security reporting and policy, and [docs/README.md](./docs/README.md) for current privacy and sandbox contracts.
