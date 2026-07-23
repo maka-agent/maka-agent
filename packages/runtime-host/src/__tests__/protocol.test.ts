@@ -13,14 +13,15 @@ import { composeOperationSpecMaps } from '../protocol/operation-spec.js';
 
 describe('Runtime Host bootstrap protocol', () => {
   test('selects the highest mutually supported protocol and rejects a gap', () => {
+    assert.equal(negotiateProtocol({ min: 0, max: 0 }, { min: 0, max: 0 }), 0);
     assert.equal(negotiateProtocol({ min: 1, max: 3 }, { min: 2, max: 4 }), 3);
-    assert.equal(negotiateProtocol({ min: 1, max: 1 }, { min: 2, max: 2 }), undefined);
+    assert.equal(negotiateProtocol({ min: 0, max: 0 }, { min: 1, max: 1 }), undefined);
   });
 
   test('decodes split UTF-8 and multiple newline-delimited frames without an unbounded tail', () => {
     const decoder = new ProtocolFrameDecoder();
     const wire = Buffer.from(
-      `${JSON.stringify({ kind: 'hello', clientInstanceId: '客户端', surface: 'tui', protocolMin: 1, protocolMax: 1 })}\n` +
+      `${JSON.stringify({ kind: 'hello', clientInstanceId: '客户端', surface: 'tui', protocolMin: 0, protocolMax: 0 })}\n` +
         `${JSON.stringify({ requestId: 'status-1', operation: 'host.status', input: {} })}\n`,
     );
     const split = wire.indexOf(Buffer.from('端')) + 1;
@@ -31,8 +32,8 @@ describe('Runtime Host bootstrap protocol', () => {
       kind: 'hello',
       clientInstanceId: '客户端',
       surface: 'tui',
-      protocolMin: 1,
-      protocolMax: 1,
+      protocolMin: 0,
+      protocolMax: 0,
     });
     assert.deepEqual(decodeClientFrame(frames[1]), {
       requestId: 'status-1',

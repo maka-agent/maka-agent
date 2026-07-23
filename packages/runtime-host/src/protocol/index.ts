@@ -14,7 +14,7 @@ export { RuntimeHostProtocolError } from './errors.js';
 export * from './operations.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
-export const RUNTIME_HOST_PROTOCOL_VERSION = 2 as const;
+export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 export const RUNTIME_HOST_MAX_FRAME_BYTES = 64 * 1024;
 
 export type ClientSurface = 'desktop' | 'tui' | 'run' | 'bot' | 'open_gateway' | 'inspect';
@@ -83,7 +83,7 @@ export function validateProtocolRange(range: ProtocolRange): void {
   if (
     !Number.isSafeInteger(range.min) ||
     !Number.isSafeInteger(range.max) ||
-    range.min < 1 ||
+    range.min < 0 ||
     range.max < range.min
   ) {
     throw invalidProtocolFrame('Invalid protocol range');
@@ -240,7 +240,7 @@ export class ProtocolFrameDecoder {
 }
 
 function requireProtocolVersion(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw invalidProtocolFrame(`Invalid ${label}`);
   }
   return value as number;
