@@ -19,6 +19,7 @@ import {
   FilesystemWorkerClient,
   FilesystemWorkerClientError,
 } from '../filesystem-worker/client.js';
+import * as filesystemWorkerClientModule from '../filesystem-worker/client.js';
 import {
   FILESYSTEM_WORKER_MAX_RESPONSE_BYTES,
   type FilesystemWorkerProcessRunInput,
@@ -228,6 +229,51 @@ describe('filesystem worker operation-scoped Seatbelt profile', () => {
         ? transform.command.profile.fileSystem.protectedMetadata?.names
         : undefined,
       ['.git', '.agents', '.codex'],
+    );
+  });
+});
+
+describe('filesystem worker Linux path context', () => {
+  test('requests a trusted parent mount only for a missing write target', () => {
+    const target = join(tmpdir(), 'maka-linux-worker-parent', 'new.txt');
+    const runtimeWritableRoots = (
+      filesystemWorkerClientModule as unknown as {
+        filesystemWorkerRuntimeWritableRoots?: (input: {
+          platform: string;
+          access: 'read' | 'write';
+          enforcementPath: string;
+          targetType: 'file' | 'directory' | 'other' | 'missing';
+        }) => readonly string[] | undefined;
+      }
+    ).filesystemWorkerRuntimeWritableRoots;
+
+    assert.equal(typeof runtimeWritableRoots, 'function');
+    assert.deepEqual(
+      runtimeWritableRoots?.({
+        platform: 'linux',
+        access: 'write',
+        enforcementPath: target,
+        targetType: 'missing',
+      }),
+      [join(tmpdir(), 'maka-linux-worker-parent')],
+    );
+    assert.equal(
+      runtimeWritableRoots?.({
+        platform: 'darwin',
+        access: 'write',
+        enforcementPath: target,
+        targetType: 'missing',
+      }),
+      undefined,
+    );
+    assert.equal(
+      runtimeWritableRoots?.({
+        platform: 'linux',
+        access: 'read',
+        enforcementPath: target,
+        targetType: 'missing',
+      }),
+      undefined,
     );
   });
 });

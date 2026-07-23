@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { dirname } from 'node:path';
 import {
   applyAdditionalPermissionProfile,
   canReadPath,
@@ -31,6 +32,7 @@ import {
   type FilesystemWorkerErrorCode,
   type FilesystemWorkerOperation,
   type FilesystemWorkerResult,
+  type FilesystemWorkerTarget,
 } from './protocol.js';
 
 export const FILESYSTEM_WORKER_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
@@ -169,10 +171,18 @@ export class FilesystemWorkerClient {
     const effectiveProfile = input.additionalGrant
       ? applyAdditionalPermissionProfile(compiled.profile, input.additionalGrant.profile)
       : compiled.profile;
+    const platform = this.input.platform ?? process.platform;
+    const runtimeWritableRoots = filesystemWorkerRuntimeWritableRoots({
+      platform,
+      access,
+      enforcementPath: target.enforcementPath,
+      targetType: target.targetType,
+    });
     const pathContext = {
       workspaceRoots: compiled.workspaceRoots,
       tmpdir: await canonicalPath(tmpdir()),
       slashTmp: await canonicalPath('/tmp'),
+      ...(runtimeWritableRoots ? { runtimeWritableRoots } : {}),
     };
     const allowed =
       access === 'write'
@@ -211,7 +221,7 @@ export class FilesystemWorkerClient {
     if (!launch.ok) throw clientError(launch.reason, 'launch', requestId, launch.message);
     const workerProfile = deriveWorkerProfile(effectiveProfile, operationPermission);
     const transformed = this.input.sandboxManager.transform({
-      platform: this.input.platform ?? process.platform,
+      platform,
       command: {
         program: launch.spec.program,
         args: launch.spec.args,
@@ -283,6 +293,19 @@ export class FilesystemWorkerClient {
     }
     return response.result;
   }
+}
+
+/** @internal Runtime-only widening for a trusted, single-operation worker. */
+export function filesystemWorkerRuntimeWritableRoots(input: {
+  platform: SandboxPlatform;
+  access: 'read' | 'write';
+  enforcementPath: string;
+  targetType: FilesystemWorkerTarget['targetType'];
+}): readonly string[] | undefined {
+  if (input.platform !== 'linux' || input.access !== 'write' || input.targetType !== 'missing') {
+    return undefined;
+  }
+  return [dirname(input.enforcementPath)];
 }
 
 function deriveWorkerProfile(
