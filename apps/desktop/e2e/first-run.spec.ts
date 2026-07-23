@@ -53,3 +53,28 @@ test('provider list bottom fade tracks scroll position', async ({ emptyWindow: p
   });
   await expect.poll(fadeOpacity).toBe('0');
 });
+
+test('clicking a recommended provider row opens that provider connection form', async ({ emptyWindow: page }) => {
+  const name = providerDisplayName('deepseek');
+  await page.locator('.maka-firstrun-row', { hasText: name }).click();
+
+  await expect(page.getByLabel('设置内容')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: `连接 ${name}` })).toBeVisible();
+});
+
+test('closing the auto-opened provider form does not resurrect it on section re-entry', async ({ emptyWindow: page }) => {
+  const name = providerDisplayName('deepseek');
+  await page.locator('.maka-firstrun-row', { hasText: name }).click();
+
+  const dialog = page.getByRole('dialog', { name: `连接 ${name}` });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '关闭' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  const settingsNav = page.locator('[aria-label="设置分组"]');
+  await settingsNav.getByText('外观', { exact: true }).click();
+  await settingsNav.getByText('模型', { exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: '添加新连接' })).toBeVisible();
+  await expect(dialog).not.toBeVisible();
+});
