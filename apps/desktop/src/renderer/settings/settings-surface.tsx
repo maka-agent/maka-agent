@@ -68,6 +68,17 @@ export function SettingsSurface(props: {
   // (switching sections away and back) does not resurrect the create dialog.
   const [createProviderRequest, setCreateProviderRequest] = useState(props.initialCreateProviderType);
 
+  // Keep the pending intent in sync with the hook-level request: a newer
+  // opener (e.g. a ⌘K section jump while Settings is still loading) clears
+  // or replaces the prop, and the pending intent must follow — otherwise a
+  // stale copy raises the create dialog after the user already navigated
+  // away (GPT 5.6 Sol review, PR #1402). Keyed on prop CHANGE only, so an
+  // already-consumed request (cleared below) is not resurrected while the
+  // hook value is unchanged.
+  useEffect(() => {
+    setCreateProviderRequest(props.initialCreateProviderType);
+  }, [props.initialCreateProviderType]);
+
   // When the parent updates requestedSection (e.g. the palette opens
   // Settings with a different section while it's already mounted), reflect
   // that into the local state.
