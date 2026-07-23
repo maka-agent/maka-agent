@@ -39,3 +39,17 @@ test('boots to registry recommendations and browses the shared provider catalog'
   await expect(page.getByRole('heading', { name: '添加新连接' })).toBeVisible();
   await expect(page.getByPlaceholder('搜索服务商')).toBeVisible();
 });
+
+// The provider list's bottom fade is a "more below" cue: it must be opaque
+// while the list can scroll further down and gone at scroll end (otherwise
+// it veils the last row, reading as broken dimming).
+test('provider list bottom fade tracks scroll position', async ({ emptyWindow: page }) => {
+  const scroller = page.locator('.maka-firstrun-list ul');
+  const fadeOpacity = () => scroller.evaluate((el) => getComputedStyle(el, '::after').opacity);
+
+  await expect.poll(fadeOpacity).toBe('1');
+  await scroller.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect.poll(fadeOpacity).toBe('0');
+});
