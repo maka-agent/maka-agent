@@ -33,6 +33,8 @@ export type PrepareFileMutationInput = PrepareFileMutationBaseInput &
 
 export interface PreparedFileMutationCarrier {
   supports?(workspaceRoot: string, targetPath: string): Promise<boolean>;
+  /** Resolve a tool argument to the same workspace-bounded identity stored in its checkpoint. */
+  resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string>;
   prepare(input: PrepareFileMutationInput): Promise<PreparedFileMutationFact>;
   inspect(fact: PreparedFileMutationFact): Promise<CurrentFileCheckpointState>;
   readCurrentContent(fact: PreparedFileMutationFact): Promise<Uint8Array | undefined>;
@@ -87,12 +89,16 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
 
   async supports(workspaceRoot: string, targetPath: string): Promise<boolean> {
     try {
-      const canonicalRoot = await realpath(workspaceRoot);
-      await resolvePreparedTarget(canonicalRoot, targetPath);
+      await this.resolveTargetIdentity(workspaceRoot, targetPath);
       return true;
     } catch {
       return false;
     }
+  }
+
+  async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
+    const canonicalRoot = await realpath(workspaceRoot);
+    return await resolvePreparedTarget(canonicalRoot, targetPath);
   }
 
   async prepare(input: PrepareFileMutationInput): Promise<PreparedFileMutationFact> {

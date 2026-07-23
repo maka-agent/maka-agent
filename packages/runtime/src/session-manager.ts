@@ -66,6 +66,7 @@ import type {
   AgentRunEvent,
   AgentRunHeader,
   AgentRunStore,
+  ContinuationAdmissionStore,
   ArtifactRecord,
   RuntimeEvent,
   RuntimeEventStore,
@@ -98,6 +99,7 @@ import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
+import { resolveContinuationAdmissionStore } from './continuation-admission.js';
 import type { AgentRunLineage, RuntimeContinuationFailpoint } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
 import type { InvocationResult, InvocationSource } from './invocation-context.js';
@@ -361,6 +363,7 @@ export interface SessionManagerDeps {
   store: SessionStore;
   planStore?: PlanStore;
   runStore?: AgentRunStore;
+  continuationAdmissionStore?: ContinuationAdmissionStore;
   runtimeEventStore?: RuntimeEventStore;
   /** One registry instance shared by planning and execution revalidation. */
   recoveryContracts?: ToolRecoveryContractRegistry;
@@ -420,6 +423,7 @@ export type RuntimeContinuationLifecycleEvent =
 export class SessionManager {
   private readonly runtimeKernel: RuntimeKernelLike;
   private readonly runtimeLedgerRepair?: RuntimeLedgerRepair;
+  private readonly continuationPlanning = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: SessionManagerDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -1013,6 +1017,10 @@ export class SessionManager {
     sessionId: string,
     input: PlanSafeBoundaryContinuationInput,
   ): Promise<SafeBoundaryContinuationPlan> {
+    const continuationAdmissionStore = resolveContinuationAdmissionStore(
+      this.deps.runStore,
+      this.deps.continuationAdmissionStore,
+    );
     const planner = new RuntimeContinuationPlanner({
       ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
       readSourceRun: async (targetSessionId, runId) => {
@@ -1035,12 +1043,35 @@ export class SessionManager {
             run.continuationSource.sourceRuntimeEventHighWater === sourceRuntimeEventHighWater,
         );
       },
+      ...(continuationAdmissionStore
+        ? {
+            readContinuationAdmission: (
+              targetSessionId: string,
+              sourceRunId: string,
+              sourceRuntimeEventHighWater: number,
+            ) =>
+              continuationAdmissionStore.readContinuationAdmission(
+                targetSessionId,
+                sourceRunId,
+                sourceRuntimeEventHighWater,
+              ),
+          }
+        : {}),
       newId: this.deps.newId,
     });
     return planner.plan({ sessionId, ...input });
   }
 
   async planAuthoritativeSafeBoundaryContinuation(
+    sessionId: string,
+    input: PlanAuthoritativeSafeBoundaryContinuationInput,
+  ): Promise<SafeBoundaryContinuationPlan> {
+    return this.withContinuationPlanningLock(sessionId, input.sourceRunId, () =>
+      this.planAuthoritativeSafeBoundaryContinuationUnlocked(sessionId, input),
+    );
+  }
+
+  private async planAuthoritativeSafeBoundaryContinuationUnlocked(
     sessionId: string,
     input: PlanAuthoritativeSafeBoundaryContinuationInput,
   ): Promise<SafeBoundaryContinuationPlan> {
@@ -1152,6 +1183,24 @@ export class SessionManager {
     }
     this.recordContinuationPlan(sessionId, input.sourceRunId, plan);
     return plan;
+  }
+
+  private async withContinuationPlanningLock<T>(
+    sessionId: string,
+    sourceRunId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${sessionId}:${sourceRunId}`;
+    const previous = this.continuationPlanning.get(key) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.continuationPlanning.set(key, current);
+    try {
+      return await current;
+    } finally {
+      if (this.continuationPlanning.get(key) === current) {
+        this.continuationPlanning.delete(key);
+      }
+    }
   }
 
   private canAttemptToolRecovery(

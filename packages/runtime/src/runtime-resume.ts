@@ -6,6 +6,7 @@ import {
   type RuntimeEventFunctionCallContent,
   type RuntimeEventFunctionResponseContent,
 } from '@maka/core/runtime-event';
+import type { ContinuationAdmission } from '@maka/core/agent-run';
 import {
   resolveRuntimeRecovery,
   type RecoveryReasonCode,
@@ -267,8 +268,8 @@ export interface RuntimeContinuation {
   sourceRunId: string;
   sourceTurnId: string;
   sourceRuntimeEventHighWater: number;
-  /** Replay events owned by the immediate source run. */
-  sourceRuntimeContext?: RuntimeEvent[];
+  /** Replay events owned by the immediate source run; always present. */
+  sourceRuntimeContext: RuntimeEvent[];
   /** Full user-anchored provider history, including continuation ancestors. */
   runtimeContext: RuntimeEvent[];
   safetySnapshot: RuntimeContinuationSafetySnapshot;
@@ -352,6 +353,11 @@ export interface RuntimeContinuationPlannerDeps {
     sourceRunId: string,
     sourceRuntimeEventHighWater: number,
   ): Promise<{ runId: string } | undefined>;
+  readContinuationAdmission?(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined>;
   newId(): string;
 }
 
@@ -409,6 +415,24 @@ export class RuntimeContinuationPlanner {
         { continuationRunId: existingContinuation.runId },
       );
     }
+    const existingAdmission = await this.deps.readContinuationAdmission?.(
+      input.sessionId,
+      input.sourceRunId,
+      events.length,
+    );
+    const sourceIdentity = events[0];
+    if (
+      existingAdmission &&
+      (!sourceIdentity ||
+        existingAdmission.sourceInvocationId !== sourceIdentity.invocationId ||
+        existingAdmission.sourceTurnId !== sourceIdentity.turnId)
+    ) {
+      return parkedPlan(
+        'runtime_identity_mismatch',
+        'continuation admission does not match the committed source identity',
+        { continuationRunId: existingAdmission.runId },
+      );
+    }
 
     return buildSafeBoundaryContinuationPlan(events, {
       ledgerReadable: true,
@@ -424,9 +448,9 @@ export class RuntimeContinuationPlanner {
       availableToolNames: input.availableToolNames,
       ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
       continuationIdentity: {
-        invocationId: this.deps.newId(),
-        runId: this.deps.newId(),
-        turnId: this.deps.newId(),
+        invocationId: existingAdmission?.invocationId ?? this.deps.newId(),
+        runId: existingAdmission?.runId ?? this.deps.newId(),
+        turnId: existingAdmission?.turnId ?? this.deps.newId(),
       },
       ...(priorRuntimeContext.length > 0 ? { priorRuntimeContext } : {}),
       ...(input.expectedRuntimeEventHighWater !== undefined
@@ -470,7 +494,7 @@ export class RuntimeContinuationPlanner {
       ) {
         throw new Error('continuation ancestor identity mismatch');
       }
-      segments.unshift(buildResumeReplayRuntimeEvents(prefix));
+      segments.unshift(buildContinuationReplaySegment(prefix).runtimeEvents);
       source = run.continuationSource;
     }
     return segments.flat();
@@ -727,7 +751,7 @@ export function buildSafeBoundaryContinuationPlan(
       phaseOneRejectionReasons.push('checkpoint_restore_failed');
     }
   }
-  const interruptedSuffix = buildContinuationReplayRuntimeEvents(replayPlan.replayRuntimeEvents);
+  const interruptedSuffix = buildContinuationReplaySegment(events);
   const sourceReplayRuntimeEvents = interruptedSuffix.runtimeEvents;
   const modelRuntimeContext = [...(facts.priorRuntimeContext ?? []), ...sourceReplayRuntimeEvents];
   if (interruptedSuffix.omittedEventIds.length > 0) {
@@ -805,9 +829,7 @@ export function buildSafeBoundaryContinuationPlan(
       sourceRunId: source.runId,
       sourceTurnId: source.turnId,
       sourceRuntimeEventHighWater: replayPlan.sourceRuntimeEventHighWater,
-      ...(facts.priorRuntimeContext?.length
-        ? { sourceRuntimeContext: sourceReplayRuntimeEvents }
-        : {}),
+      sourceRuntimeContext: sourceReplayRuntimeEvents,
       runtimeContext: modelRuntimeContext,
       safetySnapshot: {
         workspaceIdentity: facts.currentWorkspaceIdentity,
@@ -862,6 +884,18 @@ export function buildContinuationReplayRuntimeEvents(events: readonly RuntimeEve
     return !omitted;
   });
   return { runtimeEvents, omittedEventIds };
+}
+
+/**
+ * Applies the complete provider continuation policy to one immutable Run
+ * segment. Immediate sources and every ancestor must use this same
+ * materializer so a suffix omitted by one generation cannot reappear later.
+ */
+function buildContinuationReplaySegment(events: readonly RuntimeEvent[]): {
+  runtimeEvents: RuntimeEvent[];
+  omittedEventIds: string[];
+} {
+  return buildContinuationReplayRuntimeEvents(buildResumeReplayRuntimeEvents(events));
 }
 
 function collectPendingPermissionDiagnostics(

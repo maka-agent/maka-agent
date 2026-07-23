@@ -260,6 +260,82 @@ describe('RecoveryResolver', () => {
     assert.equal(resolution.hasCorruption, true);
   });
 
+  it('keeps corruption sticky across dispatch and later recovery facts', () => {
+    const contracts = new ToolRecoveryContractRegistry([
+      {
+        toolName: 'Bash',
+        contract: {
+          id: 'maka.tool.bash.status',
+          version: 1,
+          mode: 'reconcile_then_decide',
+        },
+      },
+    ]);
+    const resolution = resolveRuntimeRecovery(
+      [
+        initialEvent('t1_after_preflight_v1'),
+        functionCallEvent(),
+        { ...functionCallEvent(), id: 'function-call-2' },
+        toolDispatchEvent({ recoveryMode: 'reconcile' }),
+        event({
+          id: 'reconcile-result-1',
+          actions: {
+            runtimeFact: {
+              kind: 'maka.tool.reconcile_result',
+              version: 1,
+              legacyProjection: 'invisible',
+              payload: {
+                protocol: 'tool_reconcile_v1',
+                operationId: 'operation-1',
+                result: 'applied',
+                observationDigest: 'sha256:observation-1',
+                observedAt: '2026-07-21T00:00:00.000Z',
+                nextAction: 'synthesize_response',
+              },
+            },
+          },
+          refs: { operationId: 'operation-1', toolCallId: 'call-1' },
+        }),
+        event({
+          id: 'recovery-decision-1',
+          actions: {
+            runtimeFact: {
+              kind: 'maka.tool.recovery_decision',
+              version: 1,
+              legacyProjection: 'invisible',
+              payload: {
+                protocol: 'tool_recovery_v1',
+                operationId: 'operation-1',
+                disposition: 'completed',
+                reasonCode: 'reconcile_applied',
+                evidenceEventIds: [
+                  'function-call-1',
+                  'dispatch-1',
+                  'reconcile-result-1',
+                ],
+              },
+            },
+          },
+          refs: { operationId: 'operation-1', toolCallId: 'call-1' },
+        }),
+      ],
+      { contracts },
+    );
+
+    assert.equal(resolution.decisions[0]?.disposition, 'corruption');
+    assert.equal(resolution.decisions[0]?.reasonCode, 'duplicate_call');
+    assert.equal(resolution.decisions[0]?.automaticActionAllowed, false);
+    assert.equal(resolution.hasCorruption, true);
+    assert.equal(resolution.requiresReconciliation, false);
+    assert.deepEqual(resolution.decisions[0]?.evidenceEventIds, [
+      'function-call-1',
+      'function-call-2',
+      'dispatch-1',
+      'reconcile-result-1',
+      'recovery-decision-1',
+    ]);
+  });
+
   it('classifies a canonical call whose reference names another provider call as corruption', () => {
     const call = functionCallEvent();
     call.refs = { toolCallId: 'different-call' };

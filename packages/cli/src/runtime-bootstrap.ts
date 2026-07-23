@@ -73,7 +73,11 @@ import {
   type ForeignSessionStore,
   persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
-import { resolveStorageRoot } from '@maka/storage/root-authority';
+import {
+  resolveStorageRoot,
+  tryAcquireInteractiveRootOwner,
+  type InteractiveRootOwner,
+} from '@maka/storage/root-authority';
 import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
@@ -177,7 +181,28 @@ export function isMakaClaudeSubscriptionCloakEnabled(
 export async function createMakaCliRuntimeContext(
   input: CreateMakaCliRuntimeContextInput,
 ): Promise<MakaCliRuntimeContext> {
-  await resolveStorageRoot({ path: input.workspaceRoot, kind: 'interactive' });
+  const storageRootCapability = await resolveStorageRoot({
+    path: input.workspaceRoot,
+    kind: 'interactive',
+  });
+  const storageRootOwner = await tryAcquireInteractiveRootOwner(storageRootCapability);
+  if (!storageRootOwner) {
+    throw new Error(
+      `Maka workspace is already open by another writer: ${storageRootCapability.canonicalPath}`,
+    );
+  }
+  try {
+    return await createMakaCliRuntimeContextWithOwner(input, storageRootOwner);
+  } catch (error) {
+    await storageRootOwner.close();
+    throw error;
+  }
+}
+
+async function createMakaCliRuntimeContextWithOwner(
+  input: CreateMakaCliRuntimeContextInput,
+  storageRootOwner: InteractiveRootOwner,
+): Promise<MakaCliRuntimeContext> {
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimePersistence = await openRuntimeEventPersistence({
@@ -735,6 +760,7 @@ export async function createMakaCliRuntimeContext(
   runtime = new SessionManager({
     store,
     runStore,
+    continuationAdmissionStore: runStore,
     runtimeEventStore,
     ...(runtimePersistence.runtimeCommitStore && recoveryContracts
       ? {
@@ -914,10 +940,14 @@ export async function createMakaCliRuntimeContext(
       automationScheduler.dispose();
       goalContinuation.dispose();
       goalManager.dispose();
-      await shellRuns.terminateAll();
-      shellRunListeners.clear();
-      store.close?.();
-      runtimePersistence.close();
+      try {
+        await shellRuns.terminateAll();
+        shellRunListeners.clear();
+        store.close?.();
+        runtimePersistence.close();
+      } finally {
+        await storageRootOwner.close();
+      }
     },
   };
 }

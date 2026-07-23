@@ -243,6 +243,10 @@ class FakeCarrier implements PreparedFileMutationCarrier {
 
   constructor(readonly beforeContent?: Uint8Array) {}
 
+  async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
+    return join(workspaceRoot, targetPath);
+  }
+
   async prepare(input: PrepareFileMutationInput): Promise<PreparedFileMutationFact> {
     this.prepared.push(input);
     expectedContent(input, this.beforeContent);

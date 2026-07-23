@@ -219,6 +219,10 @@ export type {
   AgentRunInputSummary,
   AgentRunStatus,
   AgentRunStore,
+  AdmitContinuationInput,
+  AdmitContinuationResult,
+  ContinuationAdmission,
+  ContinuationAdmissionStore,
 } from './agent-run.js';
 export {
   AGENT_RUN_STATUSES,

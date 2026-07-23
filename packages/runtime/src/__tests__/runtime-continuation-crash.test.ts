@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, test } from 'node:test';
 
-import type { AgentRunHeader, RuntimeEvent } from '@maka/core';
+import type { AgentRunHeader, RuntimeEvent, SessionEvent } from '@maka/core';
+import type { BackendSendInput } from '@maka/core/backend-types';
 import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 
 import { type RuntimeContinuationFailpoint } from '../agent-run.js';
@@ -26,6 +27,91 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
   await runCrashChild();
 } else {
   describe('runtime resume phase 1 process crash harness', () => {
+    test('two runtime instances execute a source boundary at most once', async () => {
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-continuation-claim-'));
+      const closeStores: Array<() => void> = [];
+      try {
+        const store = createSessionStore(workspaceRoot);
+        closeStores.push(() => store.close?.());
+        const runStore = createAgentRunStore(workspaceRoot);
+        const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+        const session = await store.create({
+          cwd: workspaceRoot,
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          permissionMode: 'execute',
+          name: 'concurrent continuation claim',
+          labels: [],
+        });
+        await runStore.createRun(sourceHeader(session.id, workspaceRoot));
+        for (const event of sourceEvents(session.id)) {
+          await runtimeEventStore.appendRuntimeEvent(session.id, 'source-run', event);
+        }
+        let providerCalls = 0;
+        const firstRuntime = createCountingManager(workspaceRoot, 'first', () => {
+          providerCalls += 1;
+        });
+        const secondRuntime = createCountingManager(workspaceRoot, 'second', () => {
+          providerCalls += 1;
+        });
+        const first = firstRuntime.manager;
+        const second = secondRuntime.manager;
+        closeStores.push(firstRuntime.close, secondRuntime.close);
+        const [firstPlan, secondPlan] = await Promise.all([
+          first.planAuthoritativeSafeBoundaryContinuation(session.id, {
+            sourceRunId: 'source-run',
+          }),
+          second.planAuthoritativeSafeBoundaryContinuation(session.id, {
+            sourceRunId: 'source-run',
+          }),
+        ]);
+        assert.ok(firstPlan.continuation);
+        assert.ok(secondPlan.continuation);
+        assert.notEqual(firstPlan.continuation.runId, secondPlan.continuation.runId);
+        assert.equal(
+          firstPlan.continuation.sourceRuntimeEventHighWater,
+          secondPlan.continuation.sourceRuntimeEventHighWater,
+        );
+
+        const results = await Promise.allSettled([
+          collect(first.resumeSafeBoundaryContinuation(firstPlan.continuation)),
+          collect(second.resumeSafeBoundaryContinuation(secondPlan.continuation)),
+        ]);
+        const continuations = (await runStore.listSessionRuns(session.id)).filter(
+          (run) => run.continuationSource?.sourceRunId === 'source-run',
+        );
+        const resultSummary = JSON.stringify({
+          results: results.map((result) =>
+            result.status === 'fulfilled'
+              ? { status: 'fulfilled', events: result.value.map((event) => event.type) }
+              : {
+                  status: 'rejected',
+                  reason: String((result.reason as Error)?.message ?? result.reason),
+                },
+          ),
+          continuations,
+        });
+        const claimConflicts = results.filter(
+          (result) =>
+            result.status === 'rejected' &&
+            String((result.reason as Error)?.message ?? result.reason).includes(
+              'reserved for target run',
+            ),
+        );
+        assert.equal(claimConflicts.length, 1, resultSummary);
+        assert.equal(
+          providerCalls,
+          1,
+          resultSummary,
+        );
+        assert.equal(continuations.length, 1);
+      } finally {
+        for (const close of closeStores.reverse()) close();
+        await rm(workspaceRoot, { recursive: true, force: true });
+      }
+    });
+
     test('reopens and repairs every committed continuation prefix after SIGKILL', {
       timeout: 60_000,
     }, async () => {
@@ -171,6 +257,56 @@ function createManager(workspaceRoot: string): SessionManager {
     now: Date.now,
     runtimeSource: 'test',
   });
+}
+
+function createCountingManager(
+  workspaceRoot: string,
+  idPrefix: string,
+  onProviderCall: () => void,
+): { manager: SessionManager; close(): void } {
+  const store = createSessionStore(workspaceRoot);
+  const runStore = createAgentRunStore(workspaceRoot);
+  const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+  const backends = new BackendRegistry();
+  backends.register('fake', (ctx) => {
+    const backend = new FakeBackend({
+      sessionId: ctx.sessionId,
+      header: ctx.header,
+      store: ctx.store,
+      appendMessage: ctx.appendMessage,
+    });
+    return {
+      kind: backend.kind,
+      sessionId: backend.sessionId,
+      async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+        onProviderCall();
+        yield* backend.send(input);
+      },
+      stop: () => backend.stop(),
+      respondToPermission: (decision) => backend.respondToPermission(decision),
+      respondToUserQuestion: (response) => backend.respondToUserQuestion(response),
+      dispose: () => backend.dispose(),
+    };
+  });
+  let id = 0;
+  const manager = new SessionManager({
+    store,
+    runStore,
+    runtimeEventStore,
+    backends,
+    safeBoundaryResumeEnabled: true,
+    inspectContinuationSafety: async () => stableSafetyObservation(),
+    newId: () => `${idPrefix}-id-${++id}`,
+    now: Date.now,
+    runtimeSource: 'test',
+  });
+  return { manager, close: () => store.close?.() };
+}
+
+async function collect(events: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
+  const collected: SessionEvent[] = [];
+  for await (const event of events) collected.push(event);
+  return collected;
 }
 
 async function crashContinuationAt(

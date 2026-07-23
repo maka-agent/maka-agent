@@ -403,11 +403,11 @@ describe('SqliteRuntimeStore', () => {
     });
   });
 
-  it('atomically projects canonical recovery facts and rebuilds the same journal', async () => {
+  it('rebuilds canonical recovery facts in event sequence when timestamps collide', async () => {
     await withStore(async (store) => {
       await commitPrepared(store);
       const reconcile = toolRecoveryFactEvent({
-        id: 'reconcile-event-1',
+        id: 'z-reconcile-event',
         ts: 20,
         kind: 'maka.tool.reconcile_result',
         payload: {
@@ -420,15 +420,15 @@ describe('SqliteRuntimeStore', () => {
         },
       });
       const decision = toolRecoveryFactEvent({
-        id: 'recovery-decision-event-1',
-        ts: 21,
+        id: 'a-recovery-decision-event',
+        ts: 20,
         kind: 'maka.tool.recovery_decision',
         payload: {
           protocol: 'tool_recovery_v1',
           operationId: 'operation-1',
           disposition: 'reconcile_required',
           reasonCode: 'reconcile_applied',
-          evidenceEventIds: ['call-event-1', 'dispatch-event-1', 'reconcile-event-1'],
+          evidenceEventIds: ['call-event-1', 'dispatch-event-1', 'z-reconcile-event'],
         },
       });
 
@@ -439,19 +439,19 @@ describe('SqliteRuntimeStore', () => {
         runtimeEvent: reconcile,
         committedAt: 20,
       });
-      const outcome = functionResponseEvent({ id: 'recovered-response-event-1', ts: 21 });
+      const outcome = functionResponseEvent({ id: 'm-recovered-response-event', ts: 20 });
       await store.commitToolOutcome({
         operationId: 'operation-1',
         journalEventId: 'journal-recovered-outcome-1',
         runtimeEvent: outcome,
-        committedAt: 21,
+        committedAt: 20,
       });
       await store.commitToolRecoveryFact({
         operationId: 'operation-1',
         journalEventId: 'journal-recovery-decision-1',
         state: 'recovery_decided',
         runtimeEvent: decision,
-        committedAt: 22,
+        committedAt: 20,
       });
 
       const beforeRebuild = await store.readToolJournal('operation-1');
@@ -465,17 +465,17 @@ describe('SqliteRuntimeStore', () => {
           { state: 'prepared', runtimeEventId: 'dispatch-event-1', metadata: undefined },
           {
             state: 'reconcile_recorded',
-            runtimeEventId: 'reconcile-event-1',
+            runtimeEventId: 'z-reconcile-event',
             metadata: reconcile.actions?.runtimeFact,
           },
           {
             state: 'outcome_committed',
-            runtimeEventId: 'recovered-response-event-1',
+            runtimeEventId: 'm-recovered-response-event',
             metadata: undefined,
           },
           {
             state: 'recovery_decided',
-            runtimeEventId: 'recovery-decision-event-1',
+            runtimeEventId: 'a-recovery-decision-event',
             metadata: decision.actions?.runtimeFact,
           },
         ],
@@ -493,6 +493,32 @@ describe('SqliteRuntimeStore', () => {
       );
       assert.equal((await store.readToolOperation('operation-1'))?.version, 4);
     });
+  });
+
+  it('fails rebuild when a durable recovery fact has no declared journal projection', async () => {
+    for (const [index, kind] of [
+      'maka.tool.future_recovery_fact',
+      'maka.file.future_recovery_fact',
+    ].entries()) {
+      await withStore(async (store) => {
+        await commitPrepared(store);
+        await store.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          toolRecoveryFactEvent({
+            id: `future-recovery-event-${index}`,
+            ts: 20,
+            kind,
+            payload: { operationId: 'operation-1' },
+          }),
+        );
+
+        await assert.rejects(
+          () => store.rebuildToolProjectionsFromRuntimeEvents(),
+          /unsupported durable recovery RuntimeEvent fact/i,
+        );
+      });
+    }
   });
 
   it('rolls back the entire recovery bundle when interrupted after its synthesized outcome', async () => {
@@ -746,7 +772,7 @@ function toolDispatchEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent 
 function toolRecoveryFactEvent(input: {
   id: string;
   ts: number;
-  kind: 'maka.tool.reconcile_result' | 'maka.tool.recovery_decision';
+  kind: string;
   payload: Record<string, unknown>;
 }): RuntimeEvent {
   return {

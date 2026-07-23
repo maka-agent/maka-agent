@@ -495,13 +495,16 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
       }
       const runtimeRows = this.db
         .prepare(`
-        SELECT payload_json, committed_at FROM runtime_events
+        SELECT payload_json, committed_at, event_seq FROM runtime_events
         ORDER BY invocation_id ASC, event_seq ASC, event_id ASC
       `)
-        .all() as Array<{ payload_json: string; committed_at: number }>;
+        .all() as Array<{ payload_json: string; committed_at: number; event_seq: number }>;
       const events = runtimeRows.map((row) => JSON.parse(row.payload_json) as RuntimeEvent);
       const committedAtByEventId = new Map(
         runtimeRows.map((row, index) => [events[index]!.id, row.committed_at] as const),
+      );
+      const eventSeqByEventId = new Map(
+        runtimeRows.map((row, index) => [events[index]!.id, row.event_seq] as const),
       );
       const calls = new Map<string, RuntimeEvent>();
       const dispatches: Array<{
@@ -551,8 +554,17 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
           continue;
         }
         const runtimeFact = event.actions?.runtimeFact;
-        const state = recoveryJournalState(runtimeFact?.kind, runtimeFact?.version);
-        if (runtimeFact && state) {
+        const projection = recoveryJournalProjection(runtimeFact?.kind, runtimeFact?.version);
+        if (runtimeFact && projection === 'unsupported_durable_recovery_fact') {
+          throw new Error(
+            `Unsupported durable recovery RuntimeEvent fact ${runtimeFact.kind}@${runtimeFact.version}`,
+          );
+        }
+        if (
+          runtimeFact &&
+          (projection === 'reconcile_recorded' || projection === 'recovery_decided')
+        ) {
+          const state = projection;
           const operationId = recoveryFactOperationId(runtimeFact.payload);
           if (!operationId || event.refs?.operationId !== operationId) {
             throw new Error(`Corrupt tool recovery RuntimeEvent ${event.id}`);
@@ -602,6 +614,25 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
           throw new Error(`Corrupt tool response RuntimeEvent ${response.id}`);
         }
         const operationRecoveryFacts = recoveryFacts.get(dispatch.operationId) ?? [];
+        const tailJournalEvents: Array<
+          | {
+              state: 'outcome_committed';
+              event: RuntimeEvent;
+            }
+          | {
+              state: 'reconcile_recorded' | 'recovery_decided';
+              event: RuntimeEvent;
+              runtimeFact: RuntimeFact;
+            }
+        > = [
+          ...operationRecoveryFacts,
+          ...(response ? [{ state: 'outcome_committed' as const, event: response }] : []),
+        ];
+        tailJournalEvents.sort(
+          (a, b) =>
+            requireRuntimeEventSequence(eventSeqByEventId, a.event.id) -
+            requireRuntimeEventSequence(eventSeqByEventId, b.event.id),
+        );
         this.db
           .prepare(`
           INSERT INTO tool_operations (
@@ -623,28 +654,8 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
             call.id,
             event.id,
             response?.id ?? null,
-            1 + operationRecoveryFacts.length + (response ? 1 : 0),
+            1 + tailJournalEvents.length,
           );
-        const tailJournalEvents: Array<
-          | {
-              state: 'outcome_committed';
-              event: RuntimeEvent;
-            }
-          | {
-              state: 'reconcile_recorded' | 'recovery_decided';
-              event: RuntimeEvent;
-              runtimeFact: RuntimeFact;
-            }
-        > = [
-          ...operationRecoveryFacts,
-          ...(response ? [{ state: 'outcome_committed' as const, event: response }] : []),
-        ];
-        tailJournalEvents.sort(
-          (a, b) =>
-            (committedAtByEventId.get(a.event.id) ?? a.event.ts) -
-              (committedAtByEventId.get(b.event.id) ?? b.event.ts) ||
-            a.event.id.localeCompare(b.event.id),
-        );
         for (const journalEvent of tailJournalEvents) {
           const metadata =
             journalEvent.state === 'outcome_committed'
@@ -1106,7 +1117,7 @@ type RuntimeFact = NonNullable<NonNullable<RuntimeEvent['actions']>['runtimeFact
 
 function assertToolRecoveryFactInput(input: CommitToolRecoveryFactInput): RuntimeFact {
   const runtimeFact = input.runtimeEvent.actions?.runtimeFact;
-  const expectedState = recoveryJournalState(runtimeFact?.kind, runtimeFact?.version);
+  const expectedState = recoveryJournalProjection(runtimeFact?.kind, runtimeFact?.version);
   if (
     !runtimeFact ||
     expectedState !== input.state ||
@@ -1121,14 +1132,35 @@ function assertToolRecoveryFactInput(input: CommitToolRecoveryFactInput): Runtim
   return runtimeFact;
 }
 
-function recoveryJournalState(
+function recoveryJournalProjection(
   kind: string | undefined,
   version: number | undefined,
-): 'reconcile_recorded' | 'recovery_decided' | undefined {
-  if (version !== 1) return undefined;
-  if (kind === 'maka.tool.reconcile_result') return 'reconcile_recorded';
-  if (kind === 'maka.tool.recovery_decision') return 'recovery_decided';
+):
+  | 'reconcile_recorded'
+  | 'recovery_decided'
+  | 'runtime_event_only'
+  | 'unsupported_durable_recovery_fact'
+  | undefined {
+  if (kind === 'maka.file.prepared_mutation' && version === 1) {
+    return 'runtime_event_only';
+  }
+  if (kind === 'maka.tool.reconcile_result' && version === 1) return 'reconcile_recorded';
+  if (kind === 'maka.tool.recovery_decision' && version === 1) return 'recovery_decided';
+  if (kind?.startsWith('maka.tool.') || kind?.startsWith('maka.file.')) {
+    return 'unsupported_durable_recovery_fact';
+  }
   return undefined;
+}
+
+function requireRuntimeEventSequence(
+  eventSeqByEventId: ReadonlyMap<string, number>,
+  eventId: string,
+): number {
+  const eventSeq = eventSeqByEventId.get(eventId);
+  if (eventSeq === undefined) {
+    throw new Error(`RuntimeEvent sequence is unavailable during projection rebuild: ${eventId}`);
+  }
+  return eventSeq;
 }
 
 function recoveryFactOperationId(payload: unknown): string | undefined {

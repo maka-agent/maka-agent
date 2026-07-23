@@ -52,6 +52,7 @@ export interface AppLifecycleDeps {
   shellRuns: ShellRunProcessManager;
   mcpManager: McpClientManager;
   runtimePersistence: Awaited<ReturnType<typeof openRuntimeEventPersistence>>;
+  closeStorageRootOwner: () => Promise<void>;
   mainWindowController: ReturnType<typeof createMainWindowController>;
   runtime: SessionManager;
   streamEvents: StreamEvents;
@@ -102,6 +103,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     shellRuns,
     mcpManager,
     runtimePersistence,
+    closeStorageRootOwner,
     mainWindowController,
     runtime,
     streamEvents,
@@ -324,7 +326,11 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     for (const result of results) {
       if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
     }
-    runtimePersistence.close();
-    sessionStore.close?.();
+    try {
+      runtimePersistence.close();
+      sessionStore.close?.();
+    } finally {
+      await closeStorageRootOwner();
+    }
   }
 }

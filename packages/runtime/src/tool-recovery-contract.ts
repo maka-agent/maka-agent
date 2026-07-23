@@ -90,6 +90,10 @@ export class ToolRecoveryContractRegistry {
     toolName: string,
     recordedRecoveryMode: ToolRecoveryMode,
   ): ToolRecoveryContractResolution {
+    // T1 currently persists recoveryMode, not contract id/version. A version
+    // bump with the same mode is therefore accepted and must remain backward
+    // compatible with unsettled operations. Persisted contract-version
+    // binding is required before introducing an incompatible v2 contract.
     const contract = this.contractsByToolName.get(toolName);
     if (!contract) return { status: 'missing' };
     const expectedRecoveryMode = durableRecoveryModeForContract(contract.mode);

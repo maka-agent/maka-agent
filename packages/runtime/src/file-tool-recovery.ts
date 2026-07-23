@@ -18,6 +18,7 @@ import {
 import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
 export interface PreparedFileRecoveryCarrier {
+  resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string>;
   inspect(fact: PreparedFileMutationFact): Promise<CurrentFileCheckpointState>;
   readCurrentContent(fact: PreparedFileMutationFact): Promise<Uint8Array | undefined>;
   apply(fact: PreparedFileMutationFact, expectedContent: Uint8Array): Promise<void>;
@@ -90,7 +91,7 @@ async function reconcilePreparedFileOperation(
       decision: parked(`${toolName.toLowerCase()}_checkpoint_evidence_missing`),
     };
   }
-  if (!preparedFactMatchesOperation(toolName, fact, operation)) {
+  if (!(await preparedFactMatchesOperation(toolName, fact, operation, carrier))) {
     const observation = { status: 'checkpoint_invalid' } as const;
     return { observation, decision: parked('prepared_file_checkpoint_invalid') };
   }
@@ -167,15 +168,23 @@ async function regenerateExpectedContent(
   );
 }
 
-function preparedFactMatchesOperation(
+async function preparedFactMatchesOperation(
   toolName: 'Write' | 'Edit',
   fact: PreparedFileMutationFact,
   operation: UnsettledToolOperation,
-): boolean {
+  carrier: PreparedFileRecoveryCarrier,
+): Promise<boolean> {
   if (!operation.operationId || fact.operationId !== operation.operationId) return false;
-  if (
-    normalizeRelativePath(fact.relativePath) !== normalizeRelativePath(filePath(operation.args))
-  ) {
+  let canonicalOperationPath: string;
+  try {
+    canonicalOperationPath = await carrier.resolveTargetIdentity(
+      fact.workspaceRoot,
+      filePath(operation.args),
+    );
+  } catch {
+    return false;
+  }
+  if (canonicalOperationPath !== fact.canonicalPath) {
     return false;
   }
   if (toolName === 'Write') {
@@ -232,10 +241,6 @@ function synthesizedPreparedResult(
 
 function filePath(args: unknown): string {
   return isRecord(args) && typeof args.path === 'string' ? args.path : '';
-}
-
-function normalizeRelativePath(path: string): string {
-  return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 function parked(reasonCode: string): ToolReconcileDecision {

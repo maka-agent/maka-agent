@@ -259,6 +259,10 @@ export function resolveRuntimeRecovery(
       decision.automaticActionAllowed = false;
       continue;
     }
+    // Corruption is monotonic. The dispatch identity is still attached above
+    // so later facts can be audited, but no valid contract may make the
+    // operation automatically recoverable again.
+    if (decision.disposition === 'corruption') continue;
     const contractResolution = options.contracts?.resolve(
       dispatch.toolName,
       dispatch.recoveryMode,
@@ -404,10 +408,11 @@ export function resolveRuntimeRecovery(
         continue;
       }
       appliedReconcileResults.add(fact.operationId);
+      decision.evidenceEventIds.push(eventId);
+      if (decision.disposition === 'corruption') continue;
       decision.disposition = fact.nextAction === 'park' ? 'parked' : 'reconcile_required';
       decision.reasonCode = reconcileReasonCode(fact.result);
       decision.automaticActionAllowed = fact.nextAction !== 'park';
-      decision.evidenceEventIds.push(eventId);
       continue;
     }
     const { fact } = recoveryFact;
@@ -437,6 +442,10 @@ export function resolveRuntimeRecovery(
       continue;
     }
     appliedRecoveryDecisions.add(fact.operationId);
+    if (decision.disposition === 'corruption') {
+      decision.evidenceEventIds.push(eventId);
+      continue;
+    }
     decision.disposition = fact.disposition;
     decision.reasonCode = fact.reasonCode;
     decision.recoveryContractId = fact.recoveryContractId;

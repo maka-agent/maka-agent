@@ -34,6 +34,43 @@ import {
 } from '../runtime-bootstrap.js';
 
 describe('Maka CLI runtime bootstrap', () => {
+  test('allows only one interactive writer for a workspace', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+      const first = await createMakaCliRuntimeContext({
+        surface: 'tui',
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      try {
+        await assert.rejects(
+          () =>
+            createMakaCliRuntimeContext({
+              surface: 'tui',
+              workspaceRoot,
+              cwd: '/repo',
+            }),
+          /already open by another writer/,
+        );
+      } finally {
+        await first.close();
+      }
+
+      const successor = await createMakaCliRuntimeContext({
+        surface: 'tui',
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      await successor.close();
+    });
+  });
+
   test('forwards generated title notifications to the TUI host', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
@@ -243,15 +280,18 @@ describe('Maka CLI runtime bootstrap', () => {
         cwd: '/repo',
         surface: 'tui',
       });
+      const tuiToolNames = tui.tools.map((tool) => tool.name);
+      const tuiAskUserQuestion = tui.tools.find((tool) => tool.name === 'AskUserQuestion');
+      assert.ok(tuiAskUserQuestion);
+      assert.equal(tuiAskUserQuestion.permissionRequired, false);
+      await tui.close();
       const run = await createMakaCliRuntimeContext({
         workspaceRoot,
         cwd: '/repo',
         surface: 'run',
       });
       try {
-        const tool = tui.tools.find((candidate) => candidate.name === 'AskUserQuestion');
-        assert.ok(tool);
-        assert.equal(tool.permissionRequired, false);
+        assert.equal(tuiToolNames.includes('AskUserQuestion'), true);
         assert.equal(
           run.tools.some((candidate) => candidate.name === 'AskUserQuestion'),
           false,
@@ -264,7 +304,7 @@ describe('Maka CLI runtime bootstrap', () => {
           GOAL_RESUME_TOOL_NAME,
         ];
         assert.deepEqual(
-          goalToolNames.filter((name) => tui.tools.some((candidate) => candidate.name === name)),
+          goalToolNames.filter((name) => tuiToolNames.includes(name)),
           goalToolNames,
         );
         assert.equal(
@@ -277,7 +317,7 @@ describe('Maka CLI runtime bootstrap', () => {
           AGENT_OUTPUT_TOOL_NAME,
         ];
         assert.deepEqual(
-          agentToolNames.filter((name) => tui.tools.some((candidate) => candidate.name === name)),
+          agentToolNames.filter((name) => tuiToolNames.includes(name)),
           agentToolNames,
         );
         assert.equal(
@@ -285,7 +325,6 @@ describe('Maka CLI runtime bootstrap', () => {
           false,
         );
       } finally {
-        await tui.close();
         await run.close();
       }
     });

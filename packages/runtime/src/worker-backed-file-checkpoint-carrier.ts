@@ -33,6 +33,10 @@ export class WorkerBackedFileCheckpointCarrier implements PreparedFileMutationCa
     return (await this.local.supports?.(workspaceRoot, targetPath)) ?? true;
   }
 
+  async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
+    return await this.local.resolveTargetIdentity(workspaceRoot, targetPath);
+  }
+
   async prepare(input: PrepareFileMutationInput): Promise<PreparedFileMutationFact> {
     return await this.local.prepare(input);
   }

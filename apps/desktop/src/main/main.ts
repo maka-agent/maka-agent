@@ -72,7 +72,10 @@ import {
   createShellRunStore,
   createTelemetryRepo,
 } from '@maka/storage';
-import { resolveStorageRoot } from '@maka/storage/root-authority';
+import {
+  resolveStorageRoot,
+  tryAcquireInteractiveRootOwner,
+} from '@maka/storage/root-authority';
 import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import { McpClientManager } from '@maka/mcp';
 import { registerMcpIpcMain } from './mcp-ipc-main.js';
@@ -200,11 +203,19 @@ try {
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', e2eFixture?.workspaceName ?? 'default');
 const credentialStore = createFileCredentialStore(workspaceRoot);
+const storageRootCapability = await resolveStorageRoot({
+  path: workspaceRoot,
+  kind: 'interactive',
+});
+const storageRootOwner = await tryAcquireInteractiveRootOwner(storageRootCapability);
+if (!storageRootOwner) {
+  throw new Error(
+    `Maka workspace is already open by another writer: ${storageRootCapability.canonicalPath}`,
+  );
+}
 if (e2eFixture) {
   console.log(`[e2e-fixture] scenario=${e2eFixture.scenario} workspace=${workspaceRoot}`);
   await seedE2eFixture({ workspaceRoot, fixture: e2eFixture, credentialStore });
-} else {
-  await resolveStorageRoot({ path: workspaceRoot, kind: 'interactive' });
 }
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
@@ -754,6 +765,7 @@ const runtime = new SessionManager({
   store,
   planStore,
   runStore,
+  continuationAdmissionStore: runStore,
   runtimeEventStore,
   ...(runtimePersistence.runtimeCommitStore && recoveryContracts
     ? {
@@ -1254,6 +1266,7 @@ wireAppLifecycle({
   shellRuns,
   mcpManager,
   runtimePersistence,
+  closeStorageRootOwner: () => storageRootOwner.close(),
   mainWindowController,
   runtime,
   streamEvents,

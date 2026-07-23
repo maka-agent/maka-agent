@@ -287,6 +287,98 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     );
   });
 
+  test('does not reintroduce an interrupted ancestor model suffix in a chained continuation', async () => {
+    const rootEvents = [
+      textEvent('root-user', 'user', 'finish the task'),
+      base({
+        id: 'root-thinking',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'unfinished reasoning', signature: 'signed-root-step' },
+      }),
+      base({
+        id: 'root-text',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'unfinished answer' },
+      }),
+      base({ id: 'root-terminal', status: 'failed', actions: { endInvocation: true } }),
+    ];
+    const childIdentity = {
+      sessionId: 'session-1',
+      invocationId: 'invocation-2',
+      runId: 'run-2',
+      turnId: 'turn-2',
+    };
+    const childEvents = [
+      {
+        ...base({
+          id: 'continuation-start',
+          role: 'system',
+          author: 'system',
+          actions: { stateDelta: { continuationStart: true } },
+        }),
+        ...childIdentity,
+      },
+      {
+        ...callEvent('child-call', 'tool-2', 'Bash', { command: 'npm test' }),
+        ...childIdentity,
+      },
+      {
+        ...responseEvent('child-result', 'tool-2', 'Bash', { exitCode: 0 }, false),
+        ...childIdentity,
+      },
+      {
+        ...base({ id: 'child-terminal', status: 'failed', actions: { endInvocation: true } }),
+        ...childIdentity,
+      },
+    ];
+    const planner = new RuntimeContinuationPlanner({
+      readSourceRun: async (_sessionId, runId) =>
+        runId === 'run-2'
+          ? {
+              cwd: '/workspace/repo',
+              status: 'failed',
+              continuationSource: {
+                sourceInvocationId: 'invocation-1',
+                sourceRunId: 'run-1',
+                sourceTurnId: 'turn-1',
+                sourceRuntimeEventHighWater: rootEvents.length,
+              },
+            }
+          : { cwd: '/workspace/repo', status: 'failed' },
+      readRuntimeEvents: async (_sessionId, runId) =>
+        runId === 'run-2' ? childEvents : rootEvents,
+      newId: (() => {
+        let next = 2;
+        return () => `generated-${++next}`;
+      })(),
+    });
+
+    const plan = await planner.plan({
+      sessionId: 'session-1',
+      sourceRunId: 'run-2',
+      currentCwd: '/workspace/repo',
+      sourceWorkspaceIdentity: 'workspace-1',
+      currentWorkspaceIdentity: 'workspace-1',
+      backgroundOperationsSettled: true,
+      availableToolNames: ['Bash'],
+    });
+
+    assert.equal(plan.disposition, 'continue');
+    assert.deepEqual(
+      plan.continuation?.runtimeContext.map((event) => event.id),
+      [
+        'root-user',
+        'root-terminal',
+        'continuation-start',
+        'child-call',
+        'child-result',
+        'child-terminal',
+      ],
+    );
+  });
+
   test('uses RecoveryResolver to distinguish a new-protocol call that never crossed T1', () => {
     const initial = textEvent('user-1', 'user', 'run it');
     initial.actions = {
@@ -390,6 +482,7 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
       sourceRunId: 'run-1',
       sourceTurnId: 'turn-1',
       sourceRuntimeEventHighWater: 3,
+      sourceRuntimeContext: events,
       runtimeContext: events,
       safetySnapshot: {
         workspaceIdentity: 'workspace-1',

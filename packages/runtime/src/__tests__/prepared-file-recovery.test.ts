@@ -96,6 +96,44 @@ describe('prepared Write/Edit recovery contracts', () => {
     }
   });
 
+  test('recovers a cwd-local absolute Write target using its canonical checkpoint identity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-write-recovery-absolute-'));
+    try {
+      const targetPath = join(root, 'notes.txt');
+      const args = { path: targetPath, content: 'expected' };
+      const carrier = new LocalFileCheckpointCarrier();
+      const fact = await carrier.prepare({
+        operationId: 'operation-write-absolute',
+        workspaceRoot: root,
+        targetPath,
+        expectedContent: Buffer.from(args.content),
+        transform: {
+          id: 'maka.write.utf8',
+          version: 1,
+          argsHash: fileMutationArgsHash(args),
+        },
+      });
+      const operation: UnsettledToolOperation = {
+        operationId: fact.operationId,
+        toolCallId: 'call-write-absolute',
+        toolName: 'Write',
+        args,
+        recoveryMode: 'reconcile',
+        workspaceCwd: root,
+        evidenceEventIds: ['call', 'prepared', 'dispatch'],
+        preparedFileMutation: fact,
+      };
+
+      const result =
+        await createPreparedWriteEditRecoveryContracts(carrier).Write.reconcile(operation);
+
+      assert.equal(result.decision.reasonCode, 'prepared_redone');
+      assert.equal(await readFile(targetPath, 'utf8'), 'expected');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('a current state matching neither before nor after parks without overwriting', async () => {
     const carrier = new RecoveryCarrier({ kind: 'file', sha256: 'd'.repeat(64) });
     const contract = createPreparedWriteEditRecoveryContracts(carrier).Edit;
@@ -131,6 +169,11 @@ class RecoveryCarrier {
   applyCalls = 0;
 
   constructor(private state: CurrentFileCheckpointState) {}
+
+  async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
+    if (/^(?:[A-Za-z]:[\\/]|\/)/.test(targetPath)) return targetPath;
+    return `${workspaceRoot.replace(/[\\/]$/, '')}/${targetPath.replaceAll('\\', '/')}`;
+  }
 
   async inspect(): Promise<CurrentFileCheckpointState> {
     this.inspectCalls += 1;

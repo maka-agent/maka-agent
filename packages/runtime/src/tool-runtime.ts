@@ -426,6 +426,11 @@ export class ToolRuntime {
   private lastAmbiguousComputerSignature: string | undefined;
   private readonly recentSandboxDenials = new Set<string>();
   private readonly autoReviewEscalationAttempts = new Map<string, 'pending' | 'denied'>();
+  /**
+   * Same-process bridge from a committed T1 to its T2 error/success handler.
+   * It is intentionally not restart state: after process loss, RuntimeEvents
+   * and the recovery checkpoint protocol own reconciliation.
+   */
   private readonly durableToolAttempts = new Map<string, DurableToolAttempt>();
   private readonly stepAdmissions = new Map<
     string,

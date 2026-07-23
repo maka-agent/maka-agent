@@ -59,7 +59,7 @@ export interface InvocationLineage {
  * it identifies the immediate source segment inside assembled replay history.
  */
 export interface InvocationContinuationMetadata extends RuntimeContinuationMetadata {
-  sourceRuntimeContext?: RuntimeEvent[];
+  sourceRuntimeContext: RuntimeEvent[];
 }
 
 // ============================================================================

@@ -1,6 +1,7 @@
 import type {
   AgentRunHeader,
   AgentRunStore,
+  ContinuationAdmissionStore,
   RuntimeEvent,
   RuntimeEventStore,
   ToolBoundaryProtocol,
@@ -68,6 +69,7 @@ import {
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
+import { resolveContinuationAdmissionStore } from './continuation-admission.js';
 import {
   buildContinuationReplayRuntimeEvents,
   buildResumePlanFromRuntimeEvents,
@@ -167,6 +169,7 @@ interface SessionSteeringState {
 export interface RuntimeKernelDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
+  continuationAdmissionStore?: ContinuationAdmissionStore;
   runtimeEventStore?: RuntimeEventStore;
   /** Shared with continuation planning so recovery decisions revalidate identically. */
   recoveryContracts?: ToolRecoveryContractRegistry;
@@ -383,6 +386,41 @@ export class RuntimeKernel implements RuntimeKernelLike {
       throw new RuntimeContinuationRevalidationError(
         'target_run_conflict',
         'Runtime continuation target run already exists',
+      );
+    }
+    const admissionStore = resolveContinuationAdmissionStore(
+      this.deps.runStore,
+      this.deps.continuationAdmissionStore,
+    );
+    if (!admissionStore) {
+      throw new RuntimeContinuationRevalidationError(
+        'continuation_claim_conflict',
+        'Runtime continuation requires an atomic continuation admission store',
+      );
+    }
+    const admissionResult = await admissionStore.admitContinuation({
+      sessionId: continuation.sessionId,
+      sourceInvocationId: continuation.sourceInvocationId,
+      sourceRunId: continuation.sourceRunId,
+      sourceTurnId: continuation.sourceTurnId,
+      sourceRuntimeEventHighWater: continuation.sourceRuntimeEventHighWater,
+      proposedInvocationId: continuation.invocationId,
+      proposedRunId: continuation.runId,
+      proposedTurnId: continuation.turnId,
+      admittedAt: this.deps.now(),
+    });
+    const admission = admissionResult.admission;
+    if (
+      admissionResult.kind === 'conflict' ||
+      admission.sourceInvocationId !== continuation.sourceInvocationId ||
+      admission.sourceTurnId !== continuation.sourceTurnId ||
+      admission.invocationId !== continuation.invocationId ||
+      admission.runId !== continuation.runId ||
+      admission.turnId !== continuation.turnId
+    ) {
+      throw new RuntimeContinuationRevalidationError(
+        'continuation_claim_conflict',
+        `Runtime continuation source boundary is reserved for target run ${admission.runId}`,
       );
     }
 
@@ -1741,7 +1779,7 @@ function assertContinuationSourceUnchanged(
     ...(recoveryContracts ? { recoveryContracts } : {}),
   });
   const continuationReplay = buildContinuationReplayRuntimeEvents(replayPlan.replayRuntimeEvents);
-  const sourceRuntimeContext = continuation.sourceRuntimeContext ?? continuation.runtimeContext;
+  const sourceRuntimeContext = continuation.sourceRuntimeContext;
   if (
     replayPlan.disposition !== 'safe_replay' ||
     !isDeepStrictEqual(continuationReplay.runtimeEvents, sourceRuntimeContext)

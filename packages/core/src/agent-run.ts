@@ -315,6 +315,50 @@ export interface AgentRunStore {
   ): Promise<void>;
 }
 
+export interface ContinuationAdmission {
+  schemaVersion: 1;
+  sessionId: string;
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+  invocationId: string;
+  runId: string;
+  turnId: string;
+  admittedAt: number;
+}
+
+export interface AdmitContinuationInput {
+  sessionId: string;
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+  proposedInvocationId: string;
+  proposedRunId: string;
+  proposedTurnId: string;
+  admittedAt: number;
+}
+
+export type AdmitContinuationResult =
+  | { kind: 'admitted'; admission: ContinuationAdmission }
+  | { kind: 'existing'; admission: ContinuationAdmission }
+  | { kind: 'conflict'; admission: ContinuationAdmission };
+
+/**
+ * Atomically reserves one continuation identity for a committed source
+ * boundary. Implementations arbitrate by the source business key, never by
+ * the proposed target run id.
+ */
+export interface ContinuationAdmissionStore {
+  admitContinuation(input: AdmitContinuationInput): Promise<AdmitContinuationResult>;
+  readContinuationAdmission(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined>;
+}
+
 /**
  * Whether a run contributes directly to the owning session's transcript.
  * Continuations carry parent lineage for recovery, but unlike child-agent runs

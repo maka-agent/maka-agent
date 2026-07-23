@@ -8,6 +8,10 @@ import type {
   AgentRunEvent,
   AgentRunHeader,
   AgentRunStore,
+  AdmitContinuationInput,
+  AdmitContinuationResult,
+  ContinuationAdmission,
+  ContinuationAdmissionStore,
   RuntimeEvent,
   RuntimeEventStore,
   SessionEvent,
@@ -1038,6 +1042,17 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const runtimeStore = createSqliteRuntimeStore(':memory:');
     const lifecycleEvents: string[] = [];
+    let observations = 0;
+    let activeObservations = 0;
+    let maxActiveObservations = 0;
+    let markFirstObservation!: () => void;
+    let releaseFirstObservation!: () => void;
+    const firstObservation = new Promise<void>((resolve) => {
+      markFirstObservation = resolve;
+    });
+    const firstObservationRelease = new Promise<void>((resolve) => {
+      releaseFirstObservation = resolve;
+    });
     const manager = new SessionManager({
       store,
       runStore,
@@ -1050,7 +1065,17 @@ describe('SessionManager permission mode updates', () => {
             id: 'maka.tool.write.reconcile',
             version: 1,
             mode: 'reconcile_then_decide',
-            observe: async () => ({ status: 'text', content: 'expected contents' }),
+            observe: async () => {
+              observations += 1;
+              activeObservations += 1;
+              maxActiveObservations = Math.max(maxActiveObservations, activeObservations);
+              if (observations === 1) {
+                markFirstObservation();
+                await firstObservationRelease;
+              }
+              activeObservations -= 1;
+              return { status: 'text', content: 'expected contents' };
+            },
             decide: () => ({
               result: 'applied',
               reasonCode: 'write_postcondition_matches',
@@ -1170,11 +1195,21 @@ describe('SessionManager permission mode updates', () => {
     );
 
     try {
-      const plan = await manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+      const firstPlanPromise = manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
         sourceRunId,
       });
+      await firstObservation;
+      const secondPlanPromise = manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+        sourceRunId,
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releaseFirstObservation();
+      const [plan, secondPlan] = await Promise.all([firstPlanPromise, secondPlanPromise]);
 
       expect(plan.disposition).toBe('continue');
+      expect(secondPlan.disposition).toBe('continue');
+      expect(observations).toBe(1);
+      expect(maxActiveObservations).toBe(1);
       expect(
         (await runtimeStore.readRuntimeEvents(session.id, sourceRunId)).some(
           (event) => event.actions?.stateDelta?.toolOutcomeOrigin === 'runtime_recovery',
@@ -1185,7 +1220,7 @@ describe('SessionManager permission mode updates', () => {
           (event) => event.state,
         ),
       ).toEqual(['prepared', 'reconcile_recorded', 'outcome_committed', 'recovery_decided']);
-      expect(lifecycleEvents).toEqual(['plan_approved']);
+      expect(lifecycleEvents).toEqual(['plan_approved', 'plan_approved']);
     } finally {
       runtimeStore.close();
     }
@@ -13744,12 +13779,15 @@ class MemorySessionStore implements SessionStore {
   }
 }
 
-class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
+class MemoryAgentRunStore
+  implements AgentRunStore, RuntimeEventStore, ContinuationAdmissionStore
+{
   listSessionRunsCalls = 0;
   readEventsCalls = 0;
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
+  private continuationAdmissions = new Map<string, ContinuationAdmission>();
   private runtimeEventAppendCount = 0;
 
   constructor(
@@ -13770,10 +13808,46 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     } = {},
   ) {}
 
-  async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
-    if (this.options.failContinuationCreate && header.continuationSource) {
+  async admitContinuation(input: AdmitContinuationInput): Promise<AdmitContinuationResult> {
+    if (this.options.failContinuationCreate) {
       throw new Error('continuation claim create failed');
     }
+    const admissionKey = `${input.sessionId}:${input.sourceRunId}:${input.sourceRuntimeEventHighWater}`;
+    const existing = this.continuationAdmissions.get(admissionKey);
+    if (existing) {
+      return existing.sourceInvocationId === input.sourceInvocationId &&
+        existing.sourceTurnId === input.sourceTurnId
+        ? { kind: 'existing', admission: { ...existing } }
+        : { kind: 'conflict', admission: { ...existing } };
+    }
+    const admission: ContinuationAdmission = {
+      schemaVersion: 1,
+      sessionId: input.sessionId,
+      sourceInvocationId: input.sourceInvocationId,
+      sourceRunId: input.sourceRunId,
+      sourceTurnId: input.sourceTurnId,
+      sourceRuntimeEventHighWater: input.sourceRuntimeEventHighWater,
+      invocationId: input.proposedInvocationId,
+      runId: input.proposedRunId,
+      turnId: input.proposedTurnId,
+      admittedAt: input.admittedAt,
+    };
+    this.continuationAdmissions.set(admissionKey, admission);
+    return { kind: 'admitted', admission: { ...admission } };
+  }
+
+  async readContinuationAdmission(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined> {
+    const admission = this.continuationAdmissions.get(
+      `${sessionId}:${sourceRunId}:${sourceRuntimeEventHighWater}`,
+    );
+    return admission ? { ...admission } : undefined;
+  }
+
+  async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), { ...header });
     return { ...header };
   }

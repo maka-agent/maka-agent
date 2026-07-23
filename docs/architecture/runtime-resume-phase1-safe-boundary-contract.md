@@ -68,14 +68,27 @@ the Runtime re-reads durable state and rejects the continuation when:
 - the source replay projection no longer equals the planned replay context;
 - the target Run ID already exists.
 
-The source boundary is also an idempotency claim. A continuation Run persists
-`continuationSource` in its header before the provider is called. Repeated
-planning parks with `continuation_already_exists`; stale or concurrent plans
-are rejected before provider execution. Failure to create this durable claim is
-fail-closed.
+The source boundary is also an idempotency claim. Before creating the target
+Run, the Runtime atomically admits the business key
+`(sessionId, sourceRunId, sourceRuntimeEventHighWater)` and durably binds it to
+one target invocation/run/turn identity. Concurrent callers therefore contend
+on the source boundary rather than on independently generated target Run IDs.
+If the process crashes after admission but before Run creation, the next
+planner reuses the admitted target identity instead of minting a second one.
+Once created, the continuation Run also persists `continuationSource` in its
+header before the provider is called.
 
-This is single-process ownership, not distributed fencing. Store uniqueness
-remains the final guard against duplicate target Run creation.
+Interactive Desktop and CLI hosts hold the workspace root-owner lock for their
+full lifetime. The owner lock prevents cross-process writers; the durable
+boundary admission enforces the narrower business invariant and remains the
+final guard against duplicate continuation execution. This is local
+single-writer ownership, not distributed fencing.
+
+Authoritative planning for the same `(sessionId, sourceRunId)` is serialized
+inside one Runtime instance. This matters once planning may append canonical
+reconcile facts or perform a checkpoint-authorized redo: two local callers
+cannot drive that recovery coordinator concurrently, while the root-owner lock
+provides the corresponding cross-process exclusion.
 
 ## Provider history
 
@@ -161,6 +174,7 @@ The Phase 1 test surface covers:
 - continuation-start write failure and subsequent startup recovery;
 - durable claim creation failure before provider execution;
 - repeated, stale, and concurrent continuation claims;
+- cross-store-instance atomic boundary admission and post-admission crash reuse;
 - actual child-process SIGKILL at run-created, continuation-start committed,
   terminal-event committed, and terminal-header committed boundaries;
 - desktop IPC/preload/renderer/startup routing contracts;
