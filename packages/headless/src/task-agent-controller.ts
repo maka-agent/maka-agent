@@ -13,6 +13,8 @@ import {
   AiSdkFlow,
   BackendRegistry,
   RuntimeRunner,
+  SessionManager,
+  buildChildAgentTools,
   type AgentRunActiveSession,
   type InvocationResult,
   type SessionStore,
@@ -76,6 +78,7 @@ import {
   restoreProtectedPaths,
 } from './sandbox.js';
 import { defaultFinalScorer } from './scorer.js';
+import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
 import { approvalRequestInboxItem } from './task-inbox.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
 import {
@@ -104,6 +107,7 @@ import { taskDefinitionFromTask } from './task-run-adapter.js';
 import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 import { bindSelfCheckEvidence } from './task-self-check-evidence.js';
+import { buildIsolatedHeadlessTools } from './tools.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
   taskRunId?: string;
@@ -300,6 +304,7 @@ export async function runTaskOnceWithStorage(
       }),
     });
     const backends = new BackendRegistry();
+    const sessionCapabilities = createHeadlessSessionCapabilityBridge();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
     await registerBackends(backends, {
@@ -307,6 +312,7 @@ export async function runTaskOnceWithStorage(
       task,
       storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
+      ...sessionCapabilities.capabilities,
       artifactStore: storage.artifactStore,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
@@ -319,6 +325,27 @@ export async function runTaskOnceWithStorage(
           }
         : {}),
     });
+
+    let parentActive: ReturnType<typeof createSingleRunActiveSession> | undefined;
+    const sessionCapabilityManager = new SessionManager({
+      store: sessionStore,
+      runStore: agentRunStore,
+      runtimeEventStore,
+      backends,
+      ...(deps.realBackendIsolation?.toolExecutor
+        ? {
+            childTools: buildChildAgentTools(
+              buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor),
+            ),
+          }
+        : {}),
+      isParentRunActive: (sessionId, runId, turnId) =>
+        parentActive?.hasActiveRun(sessionId, runId, turnId) ?? false,
+      newId,
+      now,
+      runtimeSource: 'test',
+    });
+    sessionCapabilities.bind(sessionCapabilityManager);
 
     const header = await sessionStore.create({
       cwd: agentWorkspaceDir,
@@ -334,6 +361,7 @@ export async function runTaskOnceWithStorage(
     });
     const turnId = newId();
     const active = createSingleRunActiveSession(backends, sessionStore, now, newId);
+    parentActive = active;
     const run = new AgentRun({
       sessionId: header.id,
       header,
@@ -388,7 +416,12 @@ export async function runTaskOnceWithStorage(
       runtimeInvocation = runtimeAttempt.invocation;
       settledByDeadline = runtimeAttempt.settledByDeadline;
     } finally {
-      await active.dispose();
+      await disposeTaskRunSession(
+        active,
+        sessionCapabilities,
+        header.id,
+        settledByDeadline ? 'benchmark_deadline' : 'stop_button',
+      );
     }
     await appendTaskAttemptExecutionLink({
       store: taskRunStore,
@@ -472,6 +505,7 @@ export async function runTaskOnceWithStorage(
 
       if (gateDecision.action === 'repair_prompt') {
         const repairActive = createSingleRunActiveSession(backends, sessionStore, now, newId);
+        parentActive = repairActive;
         const repairRun = new AgentRun({
           sessionId: header.id,
           header,
@@ -500,7 +534,12 @@ export async function runTaskOnceWithStorage(
           repairInvocation = repairRuntimeAttempt.invocation;
           settledByDeadline ||= repairRuntimeAttempt.settledByDeadline;
         } finally {
-          await repairActive.dispose();
+          await disposeTaskRunSession(
+            repairActive,
+            sessionCapabilities,
+            header.id,
+            settledByDeadline ? 'benchmark_deadline' : 'stop_button',
+          );
         }
         await appendTaskAttemptExecutionLink({
           store: taskRunStore,
@@ -1259,6 +1298,7 @@ function createSingleRunActiveSession(
 ): {
   hooks: AgentRunHooks;
   bindRun(run: AgentRun): void;
+  hasActiveRun(sessionId: string, runId: string, turnId: string): boolean;
   settleByDeadline(): Promise<boolean>;
   dispose(): Promise<void>;
 } {
@@ -1269,6 +1309,10 @@ function createSingleRunActiveSession(
   };
   return {
     bindRun,
+    hasActiveRun: (sessionId, runId, turnId) =>
+      active?.sessionId === sessionId &&
+      active.activeRuns.get(runId)?.turnId === turnId &&
+      active.turnToRunId.get(turnId) === runId,
     settleByDeadline: async () => {
       if (!active) return false;
       const stoppedRuns = [...active.activeRuns.values()].filter((run) =>
@@ -1361,6 +1405,24 @@ function createSingleRunActiveSession(
       if (backend) await backend.dispose().catch(() => {});
     },
   };
+}
+
+async function disposeTaskRunSession(
+  active: { dispose(): Promise<void> },
+  sessionCapabilities: {
+    settle(
+      sessionId: string,
+      input: { source: 'benchmark_deadline' | 'stop_button' },
+    ): Promise<void>;
+  },
+  sessionId: string,
+  source: 'benchmark_deadline' | 'stop_button',
+): Promise<void> {
+  try {
+    await sessionCapabilities.settle(sessionId, { source });
+  } finally {
+    await active.dispose();
+  }
 }
 
 function statusPatch(

@@ -1055,6 +1055,56 @@ describe('SessionManager child-session runtime primitive', () => {
     expect(await manager.listChildSessions(parent.id)).toEqual([]);
   });
 
+  test('admits child work through an external parent-run authority', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    let externalParent:
+      | {
+          sessionId: string;
+          runId: string;
+          turnId: string;
+        }
+      | undefined;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      isParentRunActive: (sessionId, runId, turnId) =>
+        externalParent !== undefined &&
+        externalParent.sessionId === sessionId &&
+        externalParent.runId === runId &&
+        externalParent.turnId === turnId,
+      newId: nextId(),
+      now: nextNow(250),
+    });
+    const parent = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(parent.id, { turnId: 'parent-turn', text: 'parent' }));
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    externalParent = {
+      sessionId: parent.id,
+      runId: parentRun.runId,
+      turnId: parentRun.turnId,
+    };
+
+    const child = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'tool-call-1',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'inspect',
+    });
+
+    expect(child.status).toBe('completed');
+    expect(child.childSessionId === parent.id).toBe(false);
+  });
+
   test('child stop is isolated while parent stop reaches every foreground child session', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

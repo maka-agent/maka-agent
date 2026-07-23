@@ -156,6 +156,170 @@ class DeadlineBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class ChildCapabilityBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+
+  constructor(
+    sessionId: string,
+    private readonly context: HeadlessBackendContext,
+    private readonly observed: {
+      childSessionId?: string;
+      childStatus?: string;
+      listedSessionIds?: string[];
+      outputSessionId?: string;
+    },
+  ) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    assert.ok(this.context.spawnChildSession);
+    assert.ok(this.context.listChildAgents);
+    assert.ok(this.context.readChildAgentOutput);
+    assert.ok(input.runId);
+    const child = await this.context.spawnChildSession(this.sessionId, {
+      spawnedBy: {
+        parentRunId: input.runId,
+        parentTurnId: input.turnId,
+        toolCallId: 'child-capability-call',
+      },
+      agentProfile: 'local_read',
+      prompt: 'inspect the task workspace',
+    });
+    const listed = await this.context.listChildAgents(this.sessionId);
+    const output = await this.context.readChildAgentOutput(this.sessionId, {
+      execution: {
+        kind: 'child_session',
+        sessionId: child.childSessionId,
+        currentRunId: child.runId,
+      },
+    });
+    this.observed.childSessionId = child.childSessionId;
+    this.observed.childStatus = child.status;
+    this.observed.listedSessionIds = listed.executions.flatMap((execution) =>
+      execution.execution.kind === 'child_session' ? [execution.execution.sessionId] : [],
+    );
+    this.observed.outputSessionId =
+      output.execution.kind === 'child_session' ? output.execution.sessionId : undefined;
+    yield {
+      type: 'text_complete',
+      id: 'capability-parent-text',
+      turnId: input.turnId,
+      ts: Date.now(),
+      messageId: 'capability-parent-message',
+      text: 'done',
+    };
+    yield {
+      type: 'complete',
+      id: 'capability-parent-complete',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class BackgroundChildBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+  stopCalls = 0;
+  private release!: () => void;
+  private readonly stopped = new Promise<void>((resolve) => {
+    this.release = resolve;
+  });
+
+  constructor(
+    sessionId: string,
+    private readonly onStarted: () => void,
+  ) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.onStarted();
+    await this.stopped;
+    yield {
+      type: 'complete',
+      id: 'background-child-complete',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: 'user_stop',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.release();
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ParentWithBackgroundChildBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+  private release!: () => void;
+  private readonly stopped = new Promise<void>((resolve) => {
+    this.release = resolve;
+  });
+
+  constructor(
+    sessionId: string,
+    private readonly context: HeadlessBackendContext,
+    private readonly childStarted: Promise<void>,
+    private readonly observeChild: (promise: Promise<unknown>) => void,
+    private readonly waitForStop: boolean,
+  ) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    assert.ok(input.runId);
+    assert.ok(this.context.spawnChildSession);
+    this.observeChild(
+      this.context.spawnChildSession(this.sessionId, {
+        spawnedBy: {
+          parentRunId: input.runId,
+          parentTurnId: input.turnId,
+          toolCallId: 'background-child-call',
+        },
+        agentProfile: 'local_read',
+        prompt: 'wait for parent cleanup',
+      }),
+    );
+    await this.childStarted;
+    if (this.waitForStop) await this.stopped;
+    yield {
+      type: 'text_complete',
+      id: 'background-parent-text',
+      turnId: input.turnId,
+      ts: Date.now(),
+      messageId: 'background-parent-message',
+      text: 'done',
+    };
+    yield {
+      type: 'complete',
+      id: 'background-parent-complete',
+      turnId: input.turnId,
+      ts: Date.now(),
+      stopReason: this.waitForStop ? 'user_stop' : 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.release();
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 class ResettingDeadlineBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
 
@@ -945,6 +1109,205 @@ async function readAgentRunHeader(
 }
 
 describe('runTaskOnce', () => {
+  test('lets a task-run backend spawn, list, and read a linked child session', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const observed: {
+        childSessionId?: string;
+        childStatus?: string;
+        childToolNames?: string[];
+        listedSessionIds?: string[];
+        outputSessionId?: string;
+      } = {};
+      let buildCount = 0;
+      const task: Task = {
+        id: 'child-capability-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          registry.register('ai-sdk', (ctx) => {
+            buildCount += 1;
+            if (buildCount === 1) {
+              return new ChildCapabilityBackend(ctx.sessionId, context, observed);
+            }
+            observed.childToolNames = ctx.tools?.map((tool) => tool.name);
+            return new FakeBackend({
+              sessionId: ctx.sessionId,
+              header: ctx.header,
+              store: ctx.store,
+            });
+          });
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+      });
+
+      assert.equal(
+        result.resultRecord.status,
+        'completed',
+        JSON.stringify(result.resultRecord, null, 2),
+      );
+      assert.equal(observed.childStatus, 'completed');
+      assert.deepEqual(observed.childToolNames, ['Read', 'Glob', 'Grep']);
+      assert.ok(observed.childSessionId);
+      assert.deepEqual(observed.listedSessionIds, [observed.childSessionId]);
+      assert.equal(observed.outputSessionId, observed.childSessionId);
+    });
+  });
+
+  test('settles background child sessions after a normal task-run completion', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      let resolveChildStarted!: () => void;
+      const childStarted = new Promise<void>((resolve) => {
+        resolveChildStarted = resolve;
+      });
+      let childBackend: BackgroundChildBackend | undefined;
+      let childPromise: Promise<unknown> | undefined;
+      let childSettled = false;
+      let buildCount = 0;
+      const task: Task = {
+        id: 'normal-background-child',
+        instruction: 'coordinate child work',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          registry.register('ai-sdk', (ctx) => {
+            buildCount += 1;
+            if (buildCount === 1) {
+              return new ParentWithBackgroundChildBackend(
+                ctx.sessionId,
+                context,
+                childStarted,
+                (promise) => {
+                  childPromise = promise.finally(() => {
+                    childSettled = true;
+                  });
+                },
+                false,
+              );
+            }
+            childBackend = new BackgroundChildBackend(ctx.sessionId, resolveChildStarted);
+            return childBackend;
+          });
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+      });
+
+      assert.equal(
+        result.resultRecord.status,
+        'completed',
+        JSON.stringify(result.resultRecord, null, 2),
+      );
+      assert.equal(result.settledByDeadline, false);
+      assert.equal(childBackend?.stopCalls, 1);
+      assert.equal(childSettled, true);
+      await childPromise;
+    });
+  });
+
+  test('settles background child sessions at the task-run deadline', async (t) => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const realSetTimeout = setTimeout;
+      const realClearTimeout = clearTimeout;
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      let resolveChildStarted!: () => void;
+      const childStarted = new Promise<void>((resolve) => {
+        resolveChildStarted = resolve;
+      });
+      let childBackend: BackgroundChildBackend | undefined;
+      let childPromise: Promise<unknown> | undefined;
+      let childSettled = false;
+      let buildCount = 0;
+      const task: Task = {
+        id: 'deadline-background-child',
+        instruction: 'coordinate child work',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const run = runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          registry.register('ai-sdk', (ctx) => {
+            buildCount += 1;
+            if (buildCount === 1) {
+              return new ParentWithBackgroundChildBackend(
+                ctx.sessionId,
+                context,
+                childStarted,
+                (promise) => {
+                  childPromise = promise.finally(() => {
+                    childSettled = true;
+                  });
+                },
+                true,
+              );
+            }
+            childBackend = new BackgroundChildBackend(ctx.sessionId, resolveChildStarted);
+            return childBackend;
+          });
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+        now: () => 0,
+        deadlineAtMs: 100,
+      });
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await childStarted;
+        t.mock.timers.tick(100);
+        const result = await Promise.race([
+          run,
+          new Promise<never>((_resolve, reject) => {
+            watchdog = realSetTimeout(
+              () => reject(new Error('deadline child lifecycle watchdog expired')),
+              1_000,
+            );
+          }),
+        ]);
+
+        assert.ok(childBackend);
+        assert.equal(result.settledByDeadline, true);
+        assert.equal(childBackend.stopCalls, 1);
+        assert.equal(childSettled, true);
+        await childPromise;
+      } finally {
+        if (watchdog) realClearTimeout(watchdog);
+        t.mock.timers.reset();
+      }
+    });
+  });
+
   test('does not dispatch a runtime attempt after the benchmark deadline', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const counters = { sendCalls: 0 };
