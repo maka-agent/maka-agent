@@ -2,10 +2,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 
-import {
-  runFilesystemWorkerProcess,
-  type FilesystemWorkerProcessRunInput,
-} from '../filesystem-worker/process-runner.js';
+import { runFilesystemWorkerProcess } from '../filesystem-worker/process-runner.js';
 
 test('filesystem worker process receives inherited fd inputs alongside request stdin', async () => {
   const fdPayload = Uint8Array.from([1, 2, 3, 4]);
@@ -23,8 +20,6 @@ test('filesystem worker process receives inherited fd inputs alongside request s
     env: process.env,
     stdin: '{"request":true}',
     fdInputs: [{ fd: 3, data: fdPayload }],
-  } as FilesystemWorkerProcessRunInput & {
-    fdInputs: readonly { fd: number; data: Uint8Array }[];
   };
 
   const result = await runFilesystemWorkerProcess(input);

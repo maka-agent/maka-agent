@@ -4,6 +4,15 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
+import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
+import {
+  normalizeAdditionalPermissionProfile,
+  type AdditionalPermissionGrant,
+} from '../additional-permissions.js';
+import {
+  sandboxEscalationCommandHash,
+  type SandboxEscalationGrant,
+} from '../sandbox-escalation.js';
 import { LinuxBubblewrapBackend, linuxExecutableRoots } from '../sandbox/linux-sandbox.js';
 import { detectLinuxSandboxCapability } from '../sandbox/linux-capability.js';
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
@@ -188,6 +197,126 @@ describe('Linux sandbox smoke', () => {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
       await rm(toolRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('builtin Bash enforces exact additional access and explicit unsandboxed escalation', {
+    skip: skipReason,
+  }, async () => {
+    if (!capability.available) return;
+    const workspace = await mkdtemp(join(tmpdir(), 'maka-linux-bash-one-shot-workspace-'));
+    const outside = await mkdtemp(join(homedir(), '.maka-linux-bash-one-shot-outside-'));
+    const allowedPath = join(outside, 'allowed.txt');
+    const siblingPath = join(outside, 'sibling.txt');
+    const escalatedPath = join(outside, 'escalated.txt');
+    await Promise.all([
+      writeFile(allowedPath, 'allowed-before'),
+      writeFile(siblingPath, 'sibling-before'),
+    ]);
+
+    try {
+      const manager = new SandboxManager([new LinuxBubblewrapBackend({ capability })]);
+      const bash = buildBuiltinTools({
+        permissionProfile: createWorkspaceWritePermissionProfile(),
+        sandboxManager: manager,
+        sandboxPlatform: 'linux',
+        enableBashAdditionalPermissions: true,
+      }).find((candidate) => candidate.name === 'Bash');
+      if (!bash) throw new Error('Bash tool missing');
+
+      const normalized = await normalizeAdditionalPermissionProfile({
+        profile: {
+          fileSystem: {
+            entries: [{ path: allowedPath, access: 'write', scope: 'exact' }],
+          },
+        },
+        cwd: workspace,
+      });
+      const additionalGrant: AdditionalPermissionGrant = {
+        grantId: 'grant-linux-bash-smoke',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolUseId: 'tool-additional',
+        toolName: 'Bash',
+        intentHash: `sha256:${'1'.repeat(64)}`,
+        permissionsHash: hashAdditionalPermissionProfile(normalized.profile),
+        profile: normalized.profile,
+        normalizedPaths: normalized.normalizedPaths,
+        risk: { outsideWorkspace: true, protectedMetadata: false, networkEnabled: false },
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      };
+      const siblingAttempt = `printf sibling-changed > ${shellQuote(siblingPath)}`;
+      const additionalCommand =
+        `printf additional-ok > ${shellQuote(allowedPath)}; ` +
+        `/bin/sh -c ${shellQuote(siblingAttempt)} 2>/dev/null || :; exit 0`;
+      const additionalResult = (await bash.impl(
+        { command: additionalCommand },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          toolCallId: 'tool-additional',
+          cwd: workspace,
+          permissionMode: 'execute',
+          permissionContext: { additionalGrant },
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      )) as { output: { mode: string; stderr: string } };
+
+      assert.equal(additionalResult.output.mode, 'pipes');
+      assert.equal(additionalResult.output.stderr, '');
+      assert.equal(await readFile(allowedPath, 'utf8'), 'additional-ok');
+      assert.equal(await readFile(siblingPath, 'utf8'), 'sibling-before');
+
+      const escalationCommand = `printf escalation-ok > ${shellQuote(escalatedPath)}`;
+      const escalationGrant: SandboxEscalationGrant = {
+        grantId: 'grant-linux-escalation-smoke',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolUseId: 'tool-escalation',
+        toolName: 'Bash',
+        intentHash: `sha256:${'2'.repeat(64)}`,
+        commandHash: sandboxEscalationCommandHash(escalationCommand, workspace),
+        command: escalationCommand,
+        cwd: workspace,
+        risk: {
+          unsandboxedExecution: true,
+          unrestrictedFileSystem: true,
+          unrestrictedNetwork: true,
+          protectedMetadataExposed: true,
+        },
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      };
+      const escalationResult = (await bash.impl(
+        {
+          command: escalationCommand,
+          sandbox_permissions: {
+            mode: 'require_escalated',
+            justification: 'Linux smoke verifies explicit unsandboxed execution.',
+          },
+        },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          toolCallId: 'tool-escalation',
+          cwd: workspace,
+          permissionMode: 'execute',
+          permissionContext: { sandboxEscalationGrant: escalationGrant },
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      )) as { output: { mode: string; stderr: string } };
+
+      assert.equal(escalationResult.output.mode, 'pipes');
+      assert.equal(escalationResult.output.stderr, '');
+      assert.equal(await readFile(escalatedPath, 'utf8'), 'escalation-ok');
+    } finally {
+      await Promise.all([
+        rm(workspace, { recursive: true, force: true }),
+        rm(outside, { recursive: true, force: true }),
+      ]);
     }
   });
 });

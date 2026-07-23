@@ -194,12 +194,12 @@ describe('buildBubblewrapArgv', () => {
       network: { kind: 'restricted' },
     };
     const request = workspaceRequest(profile);
-    const pathContext = {
+    const pathContext: SandboxPathContext = {
       ...request.command.pathContext,
       runtimeReadableRoots: ['/runtime/filesystem-worker.js'],
       executableRoots: ['/opt/node/bin/node', '/opt/rg/bin/rg'],
       runtimeWritableRoots: ['/outside'],
-    } as SandboxPathContext & { runtimeWritableRoots: readonly string[] };
+    };
     const argv = buildBubblewrapArgv({
       bwrapPath: '/usr/bin/bwrap',
       command: {
