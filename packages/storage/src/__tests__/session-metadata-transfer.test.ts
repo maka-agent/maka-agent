@@ -146,6 +146,35 @@ describe('legacy session metadata transfer', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('keeps canonical metadata readable when its optional transcript is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-missing-transcript-'));
+    const legacy = createSessionStore(root);
+    const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
+    try {
+      const created = await legacy.create(makeInput({ name: 'Canonical metadata' }));
+      await importLegacySessionMetadataTree({ workspaceRoot: root, destination: sqlite });
+      await rm(join(root, 'sessions', created.id, 'session.jsonl'));
+
+      const report = await importLegacySessionMetadataTree({
+        workspaceRoot: root,
+        destination: sqlite,
+      });
+
+      assert.deepEqual(report, {
+        filesScanned: 1,
+        headersRead: 0,
+        headersImported: 0,
+        headersExisting: 0,
+        sourcesAlreadyImported: 0,
+        sourcesTombstoned: 0,
+      });
+      assert.equal((await sqlite.read(created.id)).header.name, 'Canonical metadata');
+    } finally {
+      sqlite.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionInput {

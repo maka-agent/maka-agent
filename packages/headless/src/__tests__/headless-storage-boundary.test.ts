@@ -227,14 +227,18 @@ async function snapshotTree(path: string, label: string): Promise<ManifestEntry[
       : stats.isSymbolicLink()
         ? 'symlink'
         : 'other';
+  const isSqliteSharedMemory = type === 'file' && label.endsWith('.sqlite-shm');
   const entry: ManifestEntry = {
     path: label,
     type,
     mode: Number(stats.mode & 0o7777n),
     size: stats.size.toString(),
-    mtimeNs: stats.mtimeNs.toString(),
+    // WAL readers update lock slots in the SQLite shared-memory sidecar.
+    // Those bytes and their timestamp are connection coordination, not
+    // durable storage mutation; the database and WAL remain fully compared.
+    ...(isSqliteSharedMemory ? {} : { mtimeNs: stats.mtimeNs.toString() }),
   };
-  if (type === 'file') {
+  if (type === 'file' && !isSqliteSharedMemory) {
     entry.contentSha256 = createHash('sha256')
       .update(await readFile(path))
       .digest('hex');

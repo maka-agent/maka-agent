@@ -31,14 +31,24 @@ export async function importLegacySessionMetadataTree(input: {
 }): Promise<LegacySessionMetadataImportReport> {
   const sessionsRoot = join(input.workspaceRoot, 'sessions');
   const entries: SessionMetadataImportEntry[] = [];
-  for (const directory of await sessionDirectoryNames(sessionsRoot)) {
+  const directories = await sessionDirectoryNames(sessionsRoot);
+  for (const directory of directories) {
     const sourcePath = join(sessionsRoot, directory, 'session.jsonl');
-    entries.push(await readLegacySessionMetadataEntry(sourcePath, directory));
+    try {
+      entries.push(await readLegacySessionMetadataEntry(sourcePath, directory));
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      const canonicalStateExists =
+        (await input.destination.has(directory)) ||
+        (await input.destination.isTombstoned(directory));
+      if (canonicalStateExists) continue;
+      throw error;
+    }
   }
   const result = await input.destination.importEntries(entries);
   const headersImported = result.created.filter(Boolean).length;
   return {
-    filesScanned: entries.length,
+    filesScanned: directories.length,
     headersRead: entries.length,
     headersImported,
     headersExisting: result.created.length - headersImported,
@@ -66,6 +76,15 @@ export async function readLegacySessionMetadataEntry(
   } catch (error) {
     throw new Error(`Invalid legacy session header at ${sourcePath}`, { cause: error });
   }
+}
+
+function isNotFound(error: unknown): boolean {
+  let current = error;
+  while (current && typeof current === 'object') {
+    if ('code' in current && current.code === 'ENOENT') return true;
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return false;
 }
 
 async function sessionDirectoryNames(root: string): Promise<string[]> {

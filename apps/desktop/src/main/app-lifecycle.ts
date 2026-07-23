@@ -16,7 +16,6 @@ import type { createFileCredentialStore } from './credential-store.js';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { toContractNetworkSettings } from './network-settings-main.js';
 import { importLegacyOAuthTokenFiles } from './oauth/shared-credential-bridge.js';
-import { seedE2eFixture } from './e2e-fixture.js';
 import type { resolveE2eFixture } from './e2e-fixture.js';
 import type { OpenGatewayService } from './open-gateway.js';
 import type { KeepSystemAwakeController } from './keep-system-awake.js';
@@ -204,17 +203,9 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     // settled. Any state that background startup mutates is pushed to the
     // renderer via the existing `sessions:changed` / `connections:event`
     // / `settings:bots:statusChanged` channels, so the UI converges lazily.
-    // E2e-fixture mode wipes and reseeds the whole workspace
-    // (`rm -rf` first). That wipe must finish BEFORE the window opens and
-    // before background startup touches the workspace: createWindow reads
-    // the settings store, and a concurrent wipe lands inside the store's
-    // read-or-create write (mkdir → tmp → rename), rejecting createWindow
-    // so the window never appears. Fixture runs trade first-paint latency
-    // for determinism by definition; production launches skip this await.
-    if (e2eFixture) {
-      console.log(`[e2e-fixture] scenario=${e2eFixture.scenario} workspace=${workspaceRoot}`);
-      await seedE2eFixture({ workspaceRoot, fixture: e2eFixture, credentialStore });
-    }
+    // E2E fixture workspaces are wiped and seeded before stores open in
+    // main.ts. SQLite keeps live file handles, so resetting the workspace
+    // here after store construction would detach the canonical database.
     await runCredentialStartup();
     app.on('second-instance', focusOrCreateMainWindow);
     app.on('activate', focusOrCreateMainWindow);

@@ -121,6 +121,18 @@ export class SqliteSessionMetadataStore {
     return record;
   }
 
+  async has(sessionId: string): Promise<boolean> {
+    this.assertOpen();
+    assertSafeSessionId(sessionId);
+    return this.readRecordSync(sessionId) !== undefined;
+  }
+
+  async isTombstoned(sessionId: string): Promise<boolean> {
+    this.assertOpen();
+    assertSafeSessionId(sessionId);
+    return this.hasTombstone(sessionId);
+  }
+
   async list(filter: SessionListFilter = {}): Promise<SessionMetadataRecord[]> {
     this.assertOpen();
     const where: string[] = [];
