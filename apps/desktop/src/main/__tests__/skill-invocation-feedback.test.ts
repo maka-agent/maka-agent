@@ -8,6 +8,7 @@ describe('Desktop Skill invocation display text', () => {
       skillInvocationDisplayText('  keep spacing  ', {
         loaded: [{ id: 'alpha', name: 'Alpha' }],
         failed: [],
+        receipts: [],
       }),
       '  keep spacing  ',
     );
@@ -21,6 +22,7 @@ describe('Desktop Skill invocation display text', () => {
           { id: 'beta', name: 'Beta' },
         ],
         failed: [],
+        receipts: [],
       }),
       '/skill:alpha /skill:beta',
     );

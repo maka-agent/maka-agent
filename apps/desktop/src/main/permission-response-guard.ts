@@ -177,8 +177,10 @@ export function normalizeSessionSkillIds(input: unknown): string[] {
       (id) =>
         typeof id !== 'string' ||
         id.length === 0 ||
-        id.length > 120 ||
-        !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id),
+        id.length > 512 ||
+        // The field name is retained for wire compatibility. Values may be a
+        // legacy id or a stable scope-aware ref such as project:maka:writer.
+        !/^[A-Za-z0-9][A-Za-z0-9._-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(id),
     )
   ) {
     throw new Error('Invalid send skillIds');

@@ -564,6 +564,41 @@ Open local targets carefully.`,
     });
   });
 
+  it('reports blocked discovery roots instead of collapsing them into an empty catalog', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const outside = await mkdtemp(join(tmpdir(), 'maka-skill-discovery-outside-'));
+      const blocked = join(workspaceRoot, 'blocked-skills');
+      try {
+        await symlink(outside, blocked);
+        const scan = await scanSkillsWithDiagnostics({
+          dirs: [blocked],
+          stateRoot: workspaceRoot,
+          entries: [
+            {
+              dir: blocked,
+              containmentRoot: workspaceRoot,
+              scope: 'project',
+              source: 'maka',
+              refPrefix: 'project:maka',
+            },
+          ],
+        });
+        assert.deepEqual(scan.skills, []);
+        assert.deepEqual(scan.discoveryDiagnostics, [
+          {
+            path: blocked,
+            scope: 'project',
+            source: 'maka',
+            precedence: 0,
+            reason: 'blocked_path',
+          },
+        ]);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('readSkillRuntimeState does not read through a symlinked state file', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const outside = await mkdtemp(join(tmpdir(), 'maka-skill-state-file-outside-'));
@@ -1403,7 +1438,11 @@ Body.`,
       assert.equal(events[1].data?.shadowHitAt20, true);
       assert.equal(events[1].data?.skillScope, 'workspace');
       assert.equal(events[1].data?.skillSource, 'legacy');
+      assert.equal(events[1].data?.invocation, 'model_tool');
+      assert.equal(events[1].data?.success, true);
       assert.equal(events[2].data?.request, undefined);
+      assert.equal(events[2].data?.requestChars, 'private-looking-missing-name'.length);
+      assert.equal(events[2].data?.invocation, 'model_tool');
       assert.equal(events[2].data?.reason, 'not_found');
     });
   });

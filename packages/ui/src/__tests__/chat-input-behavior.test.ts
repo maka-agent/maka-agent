@@ -160,4 +160,18 @@ describe('structured Skill selections', () => {
       { id: 'beta', name: 'Beta' },
     ]);
   });
+
+  it('keeps same-id selections from different stable refs distinct', () => {
+    const project = {
+      ref: 'project:maka:writer',
+      id: 'writer',
+      name: 'Project Writer',
+    };
+    const user = {
+      ref: 'user:agents:writer',
+      id: 'writer',
+      name: 'User Writer',
+    };
+    assert.deepEqual(addUniqueComposerSkillSelection([project], user), [project, user]);
+  });
 });

@@ -172,6 +172,14 @@ describe('permission response IPC boundary', () => {
       normalizeSessionSendCommand({ type: 'send', text: '', skillIds: ['weekly-report'] }),
       { type: 'send', text: '', skillIds: ['weekly-report'] },
     );
+    assert.deepEqual(
+      normalizeSessionSendCommand({
+        type: 'send',
+        text: '',
+        skillIds: ['project:maka:weekly-report'],
+      }),
+      { type: 'send', text: '', skillIds: ['project:maka:weekly-report'] },
+    );
     assert.equal(normalizeSessionSendCommand({ type: 'stop' }), undefined);
     assert.throws(() => normalizeSessionSendCommand(null), /session command/);
     assert.throws(() => normalizeSessionSendCommand({ type: 'send', text: '' }), /send text/);

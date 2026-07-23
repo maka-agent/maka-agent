@@ -66,7 +66,42 @@ The reader remains compatible with schema v1 id keys. Desktop migrates an id
 automatically only when it resolves to one inventory entry. If the id exists in
 multiple scopes, schema v2 preserves the legacy default under
 `migration.needsReview` until the user makes explicit ref-level choices; it
-never guesses which copy the old preference meant.
+never guesses which copy the old preference meant. The Skills Context Inspector
+shows every affected copy as `Needs review`; toggling or pinning acts on its
+exact ref, and the marker clears only after every ambiguous copy has an explicit
+preference.
+
+Configured discovery roots are also part of the diagnostic contract. A missing
+optional root is normal and produces no warning. A symlink/non-directory root,
+containment escape, or unreadable root produces a bounded
+`SkillDiscoveryDiagnostic` (`blocked_path` or `read_failed`) and appears in the
+Desktop inventory. It must not be collapsed into an indistinguishable empty
+catalog.
+
+## Explicit invocation contract
+
+New Desktop selections store and submit the stable `ref` returned by
+`listInvocableSkills`. The legacy `skillIds` wire-field name remains accepted
+and may contain either an exact ref or a legacy id; `/skill:<id>` remains
+supported for typed CLI/Desktop input. Send-time resolution is authoritative
+and deterministic: exact ref, then id, then name.
+
+Desktop and CLI both use `prepareSkillInvocationMessage`:
+
+- successful requests inject the bounded Skill body and remove invocation
+  markers before provider handoff;
+- partial failures keep the successful skills and report each failure;
+- if every explicit request fails, no provider turn is created;
+- each distinct request returns one bounded `SkillInvocationReceipt` with
+  `invocation`, success/failure, exact ref/scope/source for successful loads,
+  truncation, and a failure reason. Receipts contain no user prompt, search
+  query, or Skill instructions.
+
+Model `Skill` tool loads use the same receipt projection for run-trace data with
+`invocation: model_tool`. Explicit client receipts use
+`invocation: explicit`; failed trace projections retain only request length,
+not the requested text. This makes GUI, TUI, and model-tool outcomes comparable
+without creating a new content-collection channel.
 
 Prompt construction, `SkillSearch`, and `Skill` emit diagnostic run-trace
 events. Search telemetry stores counts and query length rather than raw query
@@ -74,3 +109,16 @@ text. The shadow evaluator retains at most the top 20 refs for the current turn;
 when a searched skill is subsequently loaded, the load event records its rank
 and Top-1/Top-5/Top-20 hit flags. This measures ranking quality without
 collecting skill instructions or user query content.
+
+## Governance closeout boundary
+
+This policy closes the local Skill governance work when Runtime, Desktop, and
+CLI contract tests cover duplicate/shadowed ids, invalid metadata, disabled and
+host-incompatible skills, prompt-budget omission, stable-ref explicit
+invocation, all-failed no-turn behavior, migration review, and discovery-source
+diagnostics.
+
+Remote marketplaces and automatic updates, self-modifying/evolving Skills, a
+full-screen TUI manager, embedding-based ranking, and analytics dashboards are
+separate product initiatives. They are not prerequisites for a safe,
+deterministic local Skill lifecycle.

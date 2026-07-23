@@ -11,6 +11,7 @@ import type {
 import type { SettingsSelectOption } from './primitives/settings-select.js';
 
 export interface SkillEntry {
+  kind?: 'skill' | 'discovery_diagnostic';
   ref?: string;
   id: string;
   name: string;
@@ -40,6 +41,8 @@ export interface SkillEntry {
     | 'budget';
   contextRank?: number;
   shadowedBy?: string;
+  needsReview?: boolean;
+  discoveryDiagnosticReason?: 'blocked_path' | 'read_failed';
   manageable?: boolean;
 }
 

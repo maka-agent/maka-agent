@@ -90,7 +90,7 @@ function makeDeps(overrides: Partial<QuickChatDeps> = {}): QuickChatDeps & {
       return {
         disposition: 'passthrough',
         sendText: text,
-        skillInvocation: { loaded: [], failed: [] },
+        skillInvocation: { loaded: [], failed: [], receipts: [] },
       } satisfies PreparedSkillInvocationMessage;
     },
     async removeSession(sessionId) {
@@ -218,6 +218,7 @@ describe('handleQuickChatStart — explicit Skill invocation', () => {
     const skillInvocation = {
       loaded: [{ id: 'starter-skill', name: '示例技能' }],
       failed: [],
+      receipts: [],
     };
     const deps = makeDeps({
       prepareSkillInvocation: async () => ({
@@ -248,6 +249,7 @@ describe('handleQuickChatStart — explicit Skill invocation', () => {
     const skillInvocation = {
       loaded: [],
       failed: [{ request: 'missing-skill', reason: 'not_found' as const }],
+      receipts: [],
     };
     const deps = makeDeps({
       prepareSkillInvocation: async () => ({ disposition: 'blocked', skillInvocation }),
@@ -273,6 +275,7 @@ describe('handleQuickChatStart — explicit Skill invocation', () => {
     const skillInvocation = {
       loaded: [{ id: 'starter-skill', name: '示例技能' }],
       failed: [{ request: 'missing-skill', reason: 'not_found' as const }],
+      receipts: [],
     };
     const deps = makeDeps({
       prepareSkillInvocation: async () => ({

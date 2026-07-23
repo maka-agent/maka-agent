@@ -7747,9 +7747,9 @@ describe('Maka Pi TUI runner', () => {
     });
   });
 
-  // #1148: a token that fails to resolve must never block the send — the raw
-  // prompt goes out untouched and a non-blocking notice explains the skip.
-  test('sends the raw prompt with a notice when a skill token fails to resolve', async () => {
+  // Governance closeout: an all-failed explicit invocation yields a bounded
+  // local diagnostic and must not create a provider turn.
+  test('does not create a turn when every skill token fails to resolve', async () => {
     await withSkillWorkspace(async (workspaceRoot) => {
       const terminal = new FakeTerminal();
       const driver = new SlashCommandDriver();
@@ -7766,18 +7766,12 @@ describe('Maka Pi TUI runner', () => {
 
       terminal.input('/skill:nope hi');
       terminal.input('\r');
-      await waitFor(() => driver.prompts.length === 1);
-
-      assert.equal(
-        driver.prompts[0],
-        '/skill:nope hi',
-        'failed token degrades to the untouched prompt',
-      );
       await waitFor(() =>
         plainTerminalOutput(terminal.output()).includes(
-          '未能加载技能 /skill:nope（未找到），已按原文发送。',
+          '未能加载技能 /skill:nope（未找到）；未发起模型请求。',
         ),
       );
+      assert.equal(driver.prompts.length, 0);
 
       exitMaka(terminal);
       await Promise.race([

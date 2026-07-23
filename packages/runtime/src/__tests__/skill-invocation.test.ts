@@ -61,7 +61,7 @@ description: Disabled by workspace state.
       );
       assert.deepEqual(
         Object.keys(all[0] ?? {}).sort(),
-        ['description', 'id', 'name'],
+        ['description', 'id', 'name', 'ref'],
         'slim entries only',
       );
 
@@ -122,6 +122,7 @@ description: Workspace copy loses.
       const shadowed = listed.find((skill) => skill.id === 'shadowed');
       assert.deepEqual(listed.map((skill) => skill.id).sort(), ['project-skill', 'shadowed']);
       assert.equal(shadowed?.name, 'Project Shadow');
+      assert.equal(shadowed?.ref, 'project:agents:shadowed');
     });
   });
 
@@ -295,6 +296,25 @@ Alpha body.`,
       assert.deepEqual(prepared.skillInvocation.failed, [
         { request: 'missing', reason: 'not_found' },
       ]);
+      assert.deepEqual(prepared.skillInvocation.receipts, [
+        {
+          invocation: 'explicit',
+          request: 'alpha',
+          success: true,
+          ref: 'workspace:legacy:alpha',
+          id: 'alpha',
+          name: 'Alpha',
+          scope: 'workspace',
+          source: 'legacy',
+          truncated: false,
+        },
+        {
+          invocation: 'explicit',
+          request: 'missing',
+          success: false,
+          reason: 'not_found',
+        },
+      ]);
       assert.ok('sendText' in prepared);
       assert.match(prepared.sendText, /<invoked-skill id="alpha" name="Alpha">/);
       assert.ok(!prepared.sendText.includes('/skill:alpha'));
@@ -324,6 +344,14 @@ description: First.
       assert.equal(prepared.disposition, 'blocked');
       assert.deepEqual(prepared.skillInvocation.loaded, []);
       assert.deepEqual(prepared.skillInvocation.failed, [{ request: 'alpha', reason: 'disabled' }]);
+      assert.deepEqual(prepared.skillInvocation.receipts, [
+        {
+          invocation: 'explicit',
+          request: 'alpha',
+          success: false,
+          reason: 'disabled',
+        },
+      ]);
     });
   });
 
@@ -337,7 +365,7 @@ description: First.
       await writeSkill(workspaceRoot, 'beta', `---\nname: Beta\ndescription: Second.\n---\n# Beta`);
       const prepared = await prepareSkillInvocationMessage({
         text: '/skill:alpha /skill:beta finish',
-        skillIds: ['beta', 'ALPHA'],
+        skillIds: ['workspace:legacy:beta', 'ALPHA'],
         source: resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir),
       });
 
@@ -345,6 +373,13 @@ description: First.
       assert.deepEqual(
         prepared.skillInvocation.loaded.map((entry) => entry.id),
         ['beta', 'alpha'],
+      );
+      assert.equal(prepared.skillInvocation.receipts[0]?.request, 'workspace:legacy:beta');
+      assert.equal(
+        prepared.skillInvocation.receipts[0]?.success
+          ? prepared.skillInvocation.receipts[0].ref
+          : undefined,
+        'workspace:legacy:beta',
       );
       assert.ok('sendText' in prepared);
       assert.ok(!prepared.sendText.includes('/skill:'));
@@ -364,7 +399,37 @@ description: First.
       skillInvocation: {
         loaded: [],
         failed: [{ request: 'alpha', reason: 'resolution_failed' }],
+        receipts: [
+          {
+            invocation: 'explicit',
+            request: 'alpha',
+            success: false,
+            reason: 'resolution_failed',
+          },
+        ],
       },
+    });
+  });
+
+  it('bounds explicit invocation diagnostics and request count', async () => {
+    await withWorkspace(async (workspaceRoot, homeDir) => {
+      const requests = [
+        `bad\u0000${'x'.repeat(600)}`,
+        ...Array.from({ length: 60 }, (_, index) => `missing-${index}`),
+      ];
+      const prepared = await prepareSkillInvocationMessage({
+        text: 'run',
+        skillIds: requests,
+        source: resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir),
+      });
+      assert.equal(prepared.disposition, 'blocked');
+      assert.equal(prepared.skillInvocation.failed.length, 50);
+      assert.equal(prepared.skillInvocation.receipts.length, 50);
+      assert.equal(prepared.skillInvocation.failed[0]?.request.length, 512);
+      assert.doesNotMatch(
+        prepared.skillInvocation.failed[0]?.request ?? '',
+        /[\u0000-\u001F\u007F]/,
+      );
     });
   });
 });

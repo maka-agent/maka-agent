@@ -65,7 +65,7 @@ export interface ComposerHandle {
   /** Move focus to the textarea without changing its content. */
   focus(): void;
   /** Fixture/integration seam for the same structured selection state used by `/`. */
-  setSkills(skills: ReadonlyArray<{ id: string; name: string }>): void;
+  setSkills(skills: ReadonlyArray<{ ref?: string; id: string; name: string }>): void;
 }
 
 type ComposerImportActionId = 'pick' | 'attach';
@@ -221,7 +221,7 @@ export const Composer = forwardRef<
      *   - `onSearchMentionFiles` powers the `@` popup — the composer debounces
      *     the query, and selecting a file inserts `@<relativePath> `.
      */
-    mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+    mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
     onSearchMentionFiles?(query: string): Promise<ReadonlyArray<{ relativePath: string }>>;
   }
 >(function Composer(props, ref) {
@@ -364,7 +364,10 @@ export const Composer = forwardRef<
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
-    const skillIds = skillDraft.skills.map((skill) => skill.id);
+    // `skillIds` is the legacy wire field name. New selections submit the
+    // stable scope-aware ref so send-time re-resolution cannot drift to a
+    // same-id skill discovered at a different precedence.
+    const skillIds = skillDraft.skills.map((skill) => skill.ref ?? skill.id);
     if (!text && skillIds.length === 0) return;
     const submittedDraftKey = activeDraftKey();
     const submittedSkillDraftKey = skillDraft.activeDraftKey();
@@ -685,7 +688,7 @@ export const Composer = forwardRef<
             aria-label={copy.selectedSkillsAriaLabel}
           >
             {skillDraft.skills.map((skill) => (
-              <li className="maka-composer-skill-chip" key={skill.id}>
+              <li className="maka-composer-skill-chip" key={skill.ref ?? skill.id}>
                 <span>{skill.name}</span>
                 <UiButton
                   type="button"
@@ -695,7 +698,7 @@ export const Composer = forwardRef<
                   className="maka-composer-skill-chip-remove"
                   aria-label={copy.removeSkillAriaLabel(skill.name)}
                   onClick={() => {
-                    skillDraft.remove(skill.id);
+                    skillDraft.remove(skill.ref ?? skill.id);
                     window.requestAnimationFrame(() => textareaRef.current?.focus());
                   }}
                 >

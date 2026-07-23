@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 export interface ComposerSkillSelection {
+  /** Stable scope-aware ref. Optional only for old restored/e2e drafts. */
+  ref?: string;
   id: string;
   name: string;
 }
@@ -9,7 +11,8 @@ export function addUniqueComposerSkillSelection(
   skills: readonly ComposerSkillSelection[],
   skill: ComposerSkillSelection,
 ): ComposerSkillSelection[] {
-  return skills.some((item) => item.id.toLowerCase() === skill.id.toLowerCase())
+  const key = (skill.ref ?? skill.id).toLowerCase();
+  return skills.some((item) => (item.ref ?? item.id).toLowerCase() === key)
     ? [...skills]
     : [...skills, skill];
 }
@@ -34,8 +37,8 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
     commit(next);
   }
 
-  function remove(id: string) {
-    commit(currentRef.current.filter((item) => item.id !== id));
+  function remove(refOrId: string) {
+    commit(currentRef.current.filter((item) => (item.ref ?? item.id) !== refOrId));
   }
 
   function removeLast() {

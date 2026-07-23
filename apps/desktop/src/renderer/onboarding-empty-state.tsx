@@ -11,7 +11,7 @@ interface OnboardingEmptyStateProps {
     mode?: QuickChatMode,
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
-  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+  mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
   quickChatPending?: boolean;
   connections: LlmConnection[];
   onRefreshConnections?: () => Promise<void> | void;
