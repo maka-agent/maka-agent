@@ -126,24 +126,39 @@ test('remote access opens a channel detail from the overview and returns', async
 
   await telegramRow.click();
   await expect(settings.getByRole('heading', { name: /Telegram/ })).toBeVisible();
-  await expect(settings.getByRole('button', { name: '返回远程接入' })).toBeVisible();
+  const backButton = settings.getByRole('button', { name: '返回远程接入' });
+  await expect(backButton).toBeVisible();
   await expect(settings.getByRole('heading', { name: '连接配置' })).toBeVisible();
-  await expect(settings.getByLabel('Telegram Bot Token')).toBeVisible();
+  const tokenInput = settings.getByLabel('Telegram Bot Token');
+  await expect(tokenInput).toBeVisible();
 
   const detailHeadings = await settings.getByRole('heading').allTextContents();
   expect(detailHeadings.indexOf('待配置')).toBeLessThan(detailHeadings.indexOf('连接配置'));
+
+  const disabledSwitch = settings.getByRole('switch', { name: '启用Telegram渠道' });
+  const configDocs = settings.getByRole('link', { name: '查看配置文档' });
+  const connectButton = settings.getByRole('button', { name: '测试并连接' });
+  await expect(disabledSwitch).toBeDisabled();
+  await expect(disabledSwitch).toHaveAccessibleDescription('先测试并连接后才能启用。');
+  await backButton.focus();
+  await page.keyboard.press('Tab');
+  await expect(configDocs).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(connectButton).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(tokenInput).toBeFocused();
 
   const identityValue = settings.getByLabel('Telegram运行状态').locator('dd').first();
   await expect(identityValue).toHaveCSS('white-space', 'normal');
   await expect(identityValue).toHaveCSS('overflow-wrap', 'anywhere');
 
-  await settings.getByRole('button', { name: '返回远程接入' }).click();
+  await backButton.click();
   await expect(settings.getByRole('heading', { name: '接入更多渠道' })).toBeVisible();
 });
 
 test('remote access prioritizes a configured channel that needs attention', async ({ window: page }) => {
   const runtimeError = 'runtime-diagnostic-'.repeat(10);
-  await page.setViewportSize({ width: 990, height: 820 });
+  await page.setViewportSize({ width: 480, height: 820 });
   await page.evaluate(async (lastError) => {
     await window.maka.settings.update({
       botChat: {
@@ -174,7 +189,88 @@ test('remote access prioritizes a configured channel that needs attention', asyn
   await expect(activeChannels.nth(0)).toHaveAccessibleDescription(runtimeError);
   await expect(activeChannels.nth(1)).toHaveAccessibleName(/管理 Telegram/);
 
+  const overview = settings.locator('.settingsRemoteAccessOverview');
+  const attentionRow = activeChannels.nth(0);
+  const catalogRows = settings.locator('.settingsRemoteAccessCatalogRow');
+  await expect(attentionRow.locator('[data-slot="item-title"]')).toHaveCSS('flex-wrap', 'wrap');
+  await expect(attentionRow.locator('[data-slot="item-description"]')).toHaveCSS('overflow-wrap', 'anywhere');
+  await expect(attentionRow.locator('[data-slot="item-actions"]')).toHaveCSS('display', 'none');
+  await expect(catalogRows.first()).toBeVisible();
+  await expect(catalogRows.first().locator('[data-slot="item-actions"]')).toHaveCSS('display', 'none');
+  await expect(settings.locator('.settingsRemoteAccessSectionHeader').first()).toHaveCSS('flex-direction', 'column');
+  await expect.poll(
+    () =>
+      overview.evaluate((element) => ({
+        overviewContained: element.scrollWidth <= element.clientWidth,
+        rowsContained: Array.from(element.querySelectorAll('.settingsRemoteAccessChannelRow'))
+          .every((row) => row.scrollWidth <= row.clientWidth),
+        catalogRowsContained: Array.from(element.querySelectorAll('.settingsRemoteAccessCatalogRow'))
+          .every((row) => row.scrollWidth <= row.clientWidth),
+      })),
+  ).toEqual({ overviewContained: true, rowsContained: true, catalogRowsContained: true });
+
   await activeChannels.nth(0).click();
+  const detailHeader = settings.locator('.settingsBotDetailHeader');
+  const detailHeaderBody = settings.locator('.settingsBotDetailHeaderBody');
+  const runtimeStatus = settings.locator('.settingsBotStatusGrid');
+  const enabledSwitch = settings.getByRole('switch', { name: '启用Discord渠道' });
+  const configDocs = settings.getByRole('link', { name: '查看配置文档' });
+  const connectButton = settings.getByRole('button', { name: '测试并连接' });
+  await expect(enabledSwitch).toBeEnabled();
+  await settings.getByRole('button', { name: '返回远程接入' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(enabledSwitch).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(configDocs).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(connectButton).toBeFocused();
+  await expect(detailHeaderBody).toHaveCSS('grid-column-start', '1');
+  await expect(detailHeaderBody).toHaveCSS('grid-column-end', '-1');
+  await expect.poll(
+    () =>
+      detailHeader.evaluate((element) => ({
+        contained: element.scrollWidth <= element.clientWidth,
+        bodyUsesFullRow: (() => {
+          const body = element.querySelector<HTMLElement>('.settingsBotDetailHeaderBody');
+          if (!body) return false;
+          const headerStyle = getComputedStyle(element);
+          const expectedWidth = element.clientWidth
+            - Number.parseFloat(headerStyle.paddingLeft)
+            - Number.parseFloat(headerStyle.paddingRight);
+          return body.getBoundingClientRect().width >= expectedWidth - 1;
+        })(),
+        switchPrecedesDocs: (() => {
+          const toggle = element.querySelector<HTMLElement>('[data-slot="switch"]');
+          const docs = element.querySelector<HTMLElement>('.settingsBotConfigDocLink');
+          return toggle && docs
+            ? Boolean(toggle.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING)
+            : false;
+        })(),
+        headingPrecedesSwitch: (() => {
+          const heading = element.querySelector<HTMLElement>('h3');
+          const toggle = element.querySelector<HTMLElement>('[data-slot="switch"]');
+          return heading && toggle
+            ? Boolean(heading.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING)
+            : false;
+        })(),
+      })),
+  ).toEqual({
+    contained: true,
+    bodyUsesFullRow: true,
+    switchPrecedesDocs: true,
+    headingPrecedesSwitch: true,
+  });
+  await expect.poll(
+    () =>
+      runtimeStatus.evaluate((element) => {
+        const columns = getComputedStyle(element).gridTemplateColumns.trim();
+        return {
+          defined: columns !== 'none',
+          count: columns.split(/\s+/).length,
+        };
+      }),
+  ).toEqual({ defined: true, count: 1 });
+
   const recentFailure = settings.getByRole('alert').filter({ hasText: '最近一次失败' });
   await expect(recentFailure).toContainText(runtimeError);
   await expect(recentFailure.getByText(runtimeError)).toHaveCSS('overflow-wrap', 'anywhere');

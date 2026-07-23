@@ -39,6 +39,36 @@ describe('voice capture smoke Settings contract', () => {
     assert.doesNotMatch(src, /localStorage\.setItem\([^)]*voice/i, 'voice smoke must not persist audio state in localStorage');
   });
 
+  it('keeps success and permission states as deterministic stories', async () => {
+    const stories = await readFile(
+      join(REPO_ROOT, 'apps/desktop/stories/settings/settings-pages.stories.tsx'),
+      'utf8',
+    );
+
+    assert.match(stories, /export const Voice: Story =/, 'voice must keep its idle page baseline');
+    assert.match(stories, /export const VoiceSuccess: Story =/, 'voice must expose a successful local-capture baseline');
+    assert.match(
+      stories,
+      /export const VoicePermissionDenied: Story =/,
+      'voice must expose a permission-denied baseline',
+    );
+    assert.match(
+      stories,
+      /restoreProperty\(navigator, 'mediaDevices', mediaDevicesMock, mediaDevices\)/,
+      'voice story browser mocks must restore the original mediaDevices property',
+    );
+    assert.match(
+      stories,
+      /restoreProperty\(globalThis, 'MediaRecorder', StoryMediaRecorder, mediaRecorder\)/,
+      'voice story browser mocks must restore the original MediaRecorder property',
+    );
+    assert.match(
+      stories,
+      /if \(Reflect\.get\(target, property\) !== ownedValue\) return;/,
+      'voice story browser mocks must not overwrite a newer owner during cleanup',
+    );
+  });
+
   it('keeps the microphone permission probe rejection-safe', async () => {
     const src = await readSettingsCombinedSource();
     const probe = src.match(/async function readBrowserMicrophonePermission[\s\S]*?function classifyVoicePermissionError/)?.[0];
@@ -96,8 +126,13 @@ describe('voice capture smoke Settings contract', () => {
     );
     assert.match(
       voicePage!,
-      /<Alert id=\{smokeStatusId\}[\s\S]*role="status">/,
+      /<Alert[\s\S]*?id=\{smokeStatusId\}[\s\S]*?role="status"\s*>/,
       'voice capture status must expose both the referenced id and live status role',
+    );
+    assert.match(
+      voicePage!,
+      /variant=\{smoke\.status === 'error' \? 'error' : smoke\.status === 'ok' \? 'success' : 'passive'\}/,
+      'voice capture failures and successes must use matching alert treatments while expected states stay neutral',
     );
   });
 

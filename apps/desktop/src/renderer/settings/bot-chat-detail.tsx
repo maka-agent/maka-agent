@@ -155,29 +155,15 @@ export function BotChatChannelDetail(props: {
               {providerPresentation.label}
               <Chip dot size="sm" variant={readinessCopy.tone}>{readinessCopy.label}</Chip>
             </h3>
-            <p>
-              {providerPresentation.help}
-              {BOT_BRAND[provider].configDocUrl && (
-                <>
-                  {' '}
-                  <a
-                    className="settingsBotConfigDocLink"
-                    href={BOT_BRAND[provider].configDocUrl}
-                    aria-label={detailCopy.configDocs}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {detailCopy.configDocs}
-                  </a>
-                </>
-              )}
-            </p>
+            <p>{providerPresentation.help}</p>
             {enableSwitchHint && (
               <small id={enableSwitchHintId} className="settingsBotEnableHint">
                 {enableSwitchHint}
               </small>
             )}
           </div>
+          {/* Keep the detail introduction first for heading navigation, while
+              placing the switch before the first focusable documentation link. */}
           <Switch
             ariaLabel={detailCopy.enableAria(providerPresentation.label)}
             ariaDescribedBy={enableSwitchHint ? enableSwitchHintId : undefined}
@@ -185,6 +171,17 @@ export function BotChatChannelDetail(props: {
             onChange={(enabled) => props.onUpdateChannel({ enabled })}
             disabled={enableSwitchDisabled || props.actionBusy}
           />
+          {BOT_BRAND[provider].configDocUrl && (
+            <a
+              className="settingsBotConfigDocLink"
+              href={BOT_BRAND[provider].configDocUrl}
+              aria-label={detailCopy.configDocs}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {detailCopy.configDocs}
+            </a>
+          )}
         </header>
 
         <section className="settingsBotRuntime" aria-labelledby="settings-bot-runtime-heading">
