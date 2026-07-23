@@ -419,10 +419,7 @@ class FileSessionStore implements SessionStore {
         const region = Buffer.concat(chunks).toString('utf8');
         const firstNl = region.indexOf('\n');
         if (firstNl !== -1) {
-          return migrateHeader(
-            JSON.parse(region.slice(0, firstNl)) as StoredSessionHeader,
-            sessionId,
-          );
+          return decodeSessionHeader(JSON.parse(region.slice(0, firstNl)), sessionId);
         }
         offset += bytesRead;
       }
@@ -479,7 +476,7 @@ class FileSessionStore implements SessionStore {
       .map((line, index) => ({ line, lineNumber: index + 1 }))
       .filter((entry) => entry.line.trim().length > 0);
     if (lines.length === 0 || !lines[0]) throw new Error(`Session ${sessionId} is empty`);
-    const header = migrateHeader(JSON.parse(lines[0].line) as StoredSessionHeader, sessionId);
+    const header = decodeSessionHeader(JSON.parse(lines[0].line), sessionId);
     const messages: StoredMessage[] = [];
     const lastLineNumber = lines.at(-1)?.lineNumber;
     for (const entry of lines.slice(1)) {
@@ -601,7 +598,17 @@ function createJsonlCorruptionNote(
   };
 }
 
-function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionHeader {
+/**
+ * Decode the legacy line-1 JSONL header into the current canonical shape.
+ *
+ * Kept public for one-way importers so file and SQLite storage apply exactly
+ * the same compatibility defaults and validation rules.
+ */
+export function decodeSessionHeader(value: unknown, sessionId: string): SessionHeader {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid session header for session ${sessionId}: expected an object`);
+  }
+  const header = value as StoredSessionHeader;
   const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
   const collaborationMode = isCollaborationMode(header.collaborationMode)
     ? header.collaborationMode
@@ -631,7 +638,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
       ? header.titleIsManual
       : normalizeSessionName(header.name) !== DEFAULT_SESSION_NAME;
   if (header.backend === 'claude') {
-    return normalizeMigratedHeader(
+    return normalizeSessionHeader(
       {
         ...header,
         ...statusFields,
@@ -646,7 +653,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
     );
   }
   if (header.backend === 'pi-agent') {
-    return normalizeMigratedHeader(
+    return normalizeSessionHeader(
       {
         ...header,
         ...statusFields,
@@ -661,7 +668,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
     );
   }
   if (header.backend === 'pi') {
-    return normalizeMigratedHeader(
+    return normalizeSessionHeader(
       {
         ...header,
         ...statusFields,
@@ -675,7 +682,7 @@ function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionH
       sessionId,
     );
   }
-  return normalizeMigratedHeader(
+  return normalizeSessionHeader(
     {
       ...header,
       ...statusFields,
@@ -696,7 +703,11 @@ function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['stat
   return 'active';
 }
 
-function normalizeMigratedHeader(header: SessionHeader, sessionId: string): SessionHeader {
+/** Validate and normalize a current SessionHeader before canonical persistence. */
+export function normalizeSessionHeader(
+  header: SessionHeader,
+  sessionId: string = header.id,
+): SessionHeader {
   const valid =
     header.id === sessionId &&
     typeof header.workspaceRoot === 'string' &&
@@ -731,7 +742,12 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
   }
-  return { ...header, name: normalizeSessionName(header.name) };
+  const normalizedName = normalizeSessionName(header.name);
+  if (header.blockedReason === undefined) {
+    const { blockedReason: _blockedReason, ...withoutBlockedReason } = header;
+    return { ...withoutBlockedReason, name: normalizedName };
+  }
+  return { ...header, name: normalizedName };
 }
 
 function isValidRevisionLineage(header: SessionHeader): boolean {
