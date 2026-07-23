@@ -1,6 +1,5 @@
 import type { NavSelection } from '@maka/ui';
 import { safeLocalStorageGet } from './browser-storage';
-export { filterSessions, sessionMatchesNavSelection } from './session-nav-filter';
 
 export function readNavSelection(): NavSelection {
   try {

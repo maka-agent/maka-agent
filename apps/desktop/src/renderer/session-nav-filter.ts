@@ -1,13 +1,6 @@
 import type { SessionSummary } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 
-export function filterSessions(
-  sessions: SessionSummary[],
-  selection: NavSelection,
-): SessionSummary[] {
-  return sessions.filter((session) => sessionMatchesNavSelection(session, selection));
-}
-
 export function sessionMatchesNavSelection(
   session: SessionSummary,
   selection: NavSelection,
