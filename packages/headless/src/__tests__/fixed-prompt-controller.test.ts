@@ -2364,6 +2364,39 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('rejects a deadline-settled result when required final usage is missing', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireFinalUsage: true,
+        taskRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            status: 'failed',
+            errorClass: 'aborted',
+            deadlineSettlement: { source: 'benchmark.deadline', mode: 'immediate' },
+            omitTokenSummary: true,
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.errorClass, 'missing_token_usage');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.scored, false);
+    });
+  });
+
   test('keeps an attested tool-step-cap result eligible when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
