@@ -16,6 +16,27 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('Bot settings UI contract', () => {
+  it('keeps empty, attention, and detail Storybook baselines renderable', async () => {
+    const stories = await readRepo('apps/desktop/stories/settings/settings-pages.stories.tsx');
+
+    assert.match(
+      stories,
+      /e2eFixture:\s*\{\s*getState:\s*async \(\) => null,\s*\}/,
+      'the scoped Settings story bridge must include the real-app e2eFixture probe',
+    );
+    assert.match(stories, /export const BotChat: Story =/, 'remote access must keep its empty overview baseline');
+    assert.match(
+      stories,
+      /export const BotChatNeedsAttention: Story =/,
+      'remote access needs a configured/degraded overview baseline',
+    );
+    assert.match(
+      stories,
+      /export const BotChatNeedsAttentionDetail: Story =/,
+      'remote access needs a long-diagnostic detail baseline',
+    );
+  });
+
   it('presents remote access as an overview of active and available channels', async () => {
     // #1042: the page split into a container (bot-chat-settings-page.tsx)
     // plus overview/detail views and shared brand metadata; the bot-chat

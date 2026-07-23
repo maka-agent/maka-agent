@@ -147,8 +147,8 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
           `Agent profile "${definition.profile}" requires "${requestedIsolation}" workspace isolation, but this runtime does not provide a worktree child executor yet.`,
         );
       }
-      if (!ctx.spawnChildAgent) {
-        throw new Error('spawnChildAgent capability is unavailable in this runtime context');
+      if (!ctx.spawnChildSession) {
+        throw new Error('spawnChildSession capability is unavailable in this runtime context');
       }
       const boundTask = input.task_id
         ? await deps.taskLedger?.get(ctx.sessionId, input.task_id)
@@ -157,22 +157,30 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
         throw new Error('Task binding is unavailable in this runtime');
       if (input.task_id && !boundTask)
         throw new Error(`No such task in this session: ${input.task_id}`);
-      let claimedOwner: { actor: 'child_agent'; agentId: string; turnId: string } | undefined;
+      let claimedOwner:
+        | {
+            actor: 'child_agent';
+            sessionId: string;
+            agentId: string;
+            turnId: string;
+          }
+        | undefined;
       let result: Omit<SubagentToolResult, 'kind'>;
       const progress = new ChildAgentProgressProjector(ctx);
       ctx.emitOutput('stdout', `Starting child agent: ${definition.name}\n`);
       try {
-        result = (await ctx.spawnChildAgent({
-          spec: {
-            id: definition.id,
-            name: definition.name,
-            systemPrompt: definition.systemPrompt,
-          },
+        result = (await ctx.spawnChildSession({
+          agentProfile: definition.profile,
           prompt: input.task,
           ...(boundTask
             ? {
-                onReady: async ({ turnId, agentId }) => {
-                  const owner = { actor: 'child_agent' as const, agentId, turnId };
+                onReady: async ({ childSessionId, turnId, agentId }) => {
+                  const owner = {
+                    actor: 'child_agent' as const,
+                    sessionId: childSessionId,
+                    agentId,
+                    turnId,
+                  };
                   await deps.taskLedger!.claim(ctx.sessionId, boundTask.id, owner, {
                     runId: ctx.runId,
                     turnId: ctx.turnId,
@@ -308,6 +316,7 @@ export function buildSubagentListTool(): MakaTool<Record<string, never>, unknown
 
 export function buildSubagentOutputTool(): MakaTool<
   {
+    child_session_id?: string;
     run_id?: string;
     turn_id?: string;
     max_events?: number;
@@ -318,15 +327,35 @@ export function buildSubagentOutputTool(): MakaTool<
     name: AGENT_OUTPUT_TOOL_NAME,
     displayName: 'Agent Output',
     description:
-      'Inspect a child agent run by run_id or turn_id, including runtime events and artifacts.',
+      'Inspect a linked child session (optionally at run_id) or a legacy child run by run_id/turn_id, including runtime events and artifacts.',
     parameters: z
       .object({
-        run_id: z.string().optional(),
-        turn_id: z.string().optional(),
+        child_session_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Linked child Session id. Without run_id, inspects its latest AgentRun.'),
+        run_id: z.string().min(1).optional(),
+        turn_id: z.string().min(1).optional(),
         max_events: z.number().int().min(1).max(100).optional(),
       })
-      .refine((input) => Number(!!input.run_id) + Number(!!input.turn_id) === 1, {
-        message: 'Provide exactly one of run_id or turn_id',
+      .superRefine((input, ctx) => {
+        if (input.child_session_id) {
+          if (input.turn_id) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['turn_id'],
+              message: 'turn_id cannot be combined with child_session_id',
+            });
+          }
+          return;
+        }
+        if (Number(!!input.run_id) + Number(!!input.turn_id) !== 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Provide child_session_id, or exactly one legacy run_id/turn_id',
+          });
+        }
       }),
     permissionRequired: false,
     categoryHint: 'read',
@@ -335,7 +364,23 @@ export function buildSubagentOutputTool(): MakaTool<
         throw new Error('readChildAgentOutput capability is unavailable in this runtime context');
       }
       return await ctx.readChildAgentOutput({
-        ...(input.run_id ? { runId: input.run_id } : {}),
+        ...(input.child_session_id
+          ? {
+              execution: {
+                kind: 'child_session' as const,
+                sessionId: input.child_session_id,
+                ...(input.run_id ? { currentRunId: input.run_id } : {}),
+              },
+            }
+          : input.run_id
+            ? {
+                execution: {
+                  kind: 'legacy_child_run' as const,
+                  sessionId: ctx.sessionId,
+                  runId: input.run_id,
+                },
+              }
+            : {}),
         ...(input.turn_id ? { turnId: input.turn_id } : {}),
         ...(input.max_events !== undefined ? { maxEvents: input.max_events } : {}),
       });
