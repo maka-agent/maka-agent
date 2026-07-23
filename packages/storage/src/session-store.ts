@@ -26,6 +26,7 @@ import {
   isOrchestrationMode,
   isPermissionMode,
   isSessionBlockedReason,
+  isSubagentSessionParent,
   isSessionStatus,
   normalizeUserSessionName,
 } from '@maka/core';
@@ -357,6 +358,7 @@ class FileSessionStore implements SessionStore {
       statusUpdatedAt: now,
       ...(input.parentSessionId ? { parentSessionId: input.parentSessionId } : {}),
       ...(input.branchOfTurnId ? { branchOfTurnId: input.branchOfTurnId } : {}),
+      ...(input.subagentParent ? { subagentParent: input.subagentParent } : {}),
       ...(input.revisionRootSessionId
         ? { revisionRootSessionId: input.revisionRootSessionId }
         : {}),
@@ -378,9 +380,7 @@ class FileSessionStore implements SessionStore {
       schemaVersion: 1,
     };
 
-    if (!isValidRevisionLineage(header)) {
-      throw new Error('Invalid session revision lineage');
-    }
+    assertValidSessionLineage(header);
 
     await this.withQueue(id, async () => {
       await mkdir(this.sessionDir(id), { recursive: true });
@@ -393,6 +393,9 @@ class FileSessionStore implements SessionStore {
   }
 
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
+    if (filter?.subagentParentSessionId !== undefined) {
+      throw new Error('Subagent session relation queries require SQLite session metadata');
+    }
     let entries;
     try {
       entries = await readdir(this.sessionsRoot, { withFileTypes: true });
@@ -553,13 +556,14 @@ class FileSessionStore implements SessionStore {
   }
 
   async updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader> {
+    if (Object.prototype.hasOwnProperty.call(patch, 'subagentParent')) {
+      throw new Error('Subagent session parent relation is immutable');
+    }
     let nextHeader: SessionHeader | undefined;
     await this.withQueue(sessionId, async () => {
       const { header, messages } = await this.readFilePartsUnlocked(sessionId);
       nextHeader = { ...header, ...patch };
-      if (!isValidRevisionLineage(nextHeader)) {
-        throw new Error('Invalid session revision lineage');
-      }
+      assertValidSessionLineage(nextHeader);
       const lines = [
         JSON.stringify(nextHeader),
         ...messages.map((message) => JSON.stringify(message)),
@@ -1071,6 +1075,7 @@ export function normalizeSessionHeader(
     (header.parentSessionId === undefined || typeof header.parentSessionId === 'string') &&
     (header.branchOfTurnId === undefined || typeof header.branchOfTurnId === 'string') &&
     isValidRevisionLineage(header) &&
+    isValidSubagentSessionLineage(header) &&
     (header.lastReadMessageId === undefined || typeof header.lastReadMessageId === 'string') &&
     typeof header.hasUnread === 'boolean' &&
     isBackendKind(header.backend) &&
@@ -1115,6 +1120,30 @@ function isValidRevisionLineage(header: SessionHeader): boolean {
   );
 }
 
+function assertValidSessionLineage(header: SessionHeader): void {
+  if (!isValidRevisionLineage(header)) {
+    throw new Error('Invalid session revision lineage');
+  }
+  if (!isValidSubagentSessionLineage(header)) {
+    throw new Error('Invalid subagent session lineage');
+  }
+}
+
+function isValidSubagentSessionLineage(header: SessionHeader): boolean {
+  if (header.subagentParent === undefined) return true;
+  return (
+    isSubagentSessionParent(header.subagentParent) &&
+    isSafeSessionId(header.subagentParent.parentSessionId) &&
+    header.parentSessionId === undefined &&
+    header.branchOfTurnId === undefined &&
+    header.revisionRootSessionId === undefined &&
+    header.revisionParentSessionId === undefined &&
+    header.revisionOfTurnId === undefined &&
+    header.revisionIndex === undefined &&
+    header.revisionState === undefined
+  );
+}
+
 function isBackendKind(value: unknown): value is SessionHeader['backend'] {
   return value === 'ai-sdk' || value === 'fake' || value === 'pi-agent';
 }
@@ -1142,6 +1171,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     ...(header.statusUpdatedAt !== undefined ? { statusUpdatedAt: header.statusUpdatedAt } : {}),
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
+    ...(header.subagentParent ? { subagentParent: header.subagentParent } : {}),
     ...(header.revisionRootSessionId
       ? { revisionRootSessionId: header.revisionRootSessionId }
       : {}),

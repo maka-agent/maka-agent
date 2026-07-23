@@ -184,6 +184,11 @@ export class SqliteSessionMetadataStore {
       `);
       parameters.push(filter.labelSlug);
     }
+    if (filter.subagentParentSessionId !== undefined) {
+      assertSafeSessionId(filter.subagentParentSessionId);
+      where.push('metadata.subagent_parent_session_id = ?');
+      parameters.push(filter.subagentParentSessionId);
+    }
     const rows = this.db
       .prepare(`
         SELECT session_id, payload_json, metadata_version, committed_at
@@ -204,6 +209,9 @@ export class SqliteSessionMetadataStore {
   ): Promise<SessionMetadataRecord> {
     this.assertOpen();
     assertSafeSessionId(sessionId);
+    if (Object.prototype.hasOwnProperty.call(patch, 'subagentParent')) {
+      throw new Error('Subagent session parent relation is immutable');
+    }
     return this.transaction(() => {
       const current = this.readRecordSync(sessionId);
       if (!current) throw new Error(`Session metadata not found: ${sessionId}`);
@@ -235,6 +243,7 @@ export class SqliteSessionMetadataStore {
             status = ?,
             status_updated_at = ?,
             parent_session_id = ?,
+            subagent_parent_session_id = ?,
             revision_root_session_id = ?,
             revision_index = ?,
             has_unread = ?,
@@ -256,6 +265,7 @@ export class SqliteSessionMetadataStore {
           next.status,
           next.statusUpdatedAt ?? null,
           next.parentSessionId ?? null,
+          next.subagentParent?.parentSessionId ?? null,
           next.revisionRootSessionId ?? null,
           next.revisionIndex ?? null,
           booleanInteger(next.hasUnread),
@@ -388,6 +398,7 @@ export class SqliteSessionMetadataStore {
           status,
           status_updated_at,
           parent_session_id,
+          subagent_parent_session_id,
           revision_root_session_id,
           revision_index,
           has_unread,
@@ -396,7 +407,7 @@ export class SqliteSessionMetadataStore {
           model,
           metadata_version,
           committed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         header.id,
@@ -410,6 +421,7 @@ export class SqliteSessionMetadataStore {
         header.status,
         header.statusUpdatedAt ?? null,
         header.parentSessionId ?? null,
+        header.subagentParent?.parentSessionId ?? null,
         header.revisionRootSessionId ?? null,
         header.revisionIndex ?? null,
         booleanInteger(header.hasUnread),

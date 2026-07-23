@@ -3,7 +3,12 @@
  */
 
 import type { AttachmentRef, QuoteRef } from './events.js';
-import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
+import type {
+  BackendKind,
+  SessionBlockedReason,
+  SessionStatus,
+  SubagentSessionParent,
+} from './session.js';
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
 import type { CollaborationMode } from './collaboration.js';
@@ -31,6 +36,7 @@ export interface CreateSessionInput {
   blockedReason?: SessionBlockedReason;
   parentSessionId?: string;
   branchOfTurnId?: string;
+  subagentParent?: SubagentSessionParent;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;
@@ -114,4 +120,6 @@ export interface SessionListFilter {
   isArchived?: boolean;
   isFlagged?: boolean;
   labelSlug?: string;
+  /** Return linked subagent sessions owned by this parent session. */
+  subagentParentSessionId?: string;
 }

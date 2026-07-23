@@ -57,6 +57,7 @@ import type {
 import {
   DEFAULT_SESSION_NAME,
   DEEP_RESEARCH_SESSION_LABEL,
+  childSessionsForParent,
   failureClassFromCompleteStopReason,
   isDeepResearchSession,
   isSessionInlineRun,
@@ -444,6 +445,11 @@ export class SessionManager {
 
   async listSessions(filter?: SessionListFilter): Promise<SessionSummary[]> {
     return this.deps.store.list(filter);
+  }
+
+  async listChildSessions(parentSessionId: string): Promise<SessionSummary[]> {
+    const sessions = await this.deps.store.list({ subagentParentSessionId: parentSessionId });
+    return childSessionsForParent(sessions, parentSessionId);
   }
 
   /** Invalidate backend snapshots now, or immediately after active turns settle. */
@@ -2271,6 +2277,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     ...(h.statusUpdatedAt !== undefined ? { statusUpdatedAt: h.statusUpdatedAt } : {}),
     ...(h.parentSessionId ? { parentSessionId: h.parentSessionId } : {}),
     ...(h.branchOfTurnId ? { branchOfTurnId: h.branchOfTurnId } : {}),
+    ...(h.subagentParent ? { subagentParent: h.subagentParent } : {}),
     ...(h.revisionRootSessionId ? { revisionRootSessionId: h.revisionRootSessionId } : {}),
     ...(h.revisionParentSessionId ? { revisionParentSessionId: h.revisionParentSessionId } : {}),
     ...(h.revisionOfTurnId ? { revisionOfTurnId: h.revisionOfTurnId } : {}),
