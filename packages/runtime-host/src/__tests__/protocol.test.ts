@@ -3,9 +3,11 @@ import { describe, test } from 'node:test';
 import {
   decodeClientFrame,
   decodeHostFrame,
+  HOST_OPERATION_SPECS,
   negotiateProtocol,
   ProtocolFrameDecoder,
   RUNTIME_HOST_MAX_FRAME_BYTES,
+  RUNTIME_POLICY_OPERATION_SPECS,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
 import { HOST_STATUS_OPERATION_SPECS } from '../protocol/host-status.js';
@@ -16,6 +18,97 @@ describe('Runtime Host bootstrap protocol', () => {
     assert.equal(negotiateProtocol({ min: 0, max: 0 }, { min: 0, max: 0 }), 0);
     assert.equal(negotiateProtocol({ min: 1, max: 3 }, { min: 2, max: 4 }), 3);
     assert.equal(negotiateProtocol({ min: 0, max: 0 }, { min: 1, max: 1 }), undefined);
+  });
+
+  test('declares exactly the ten Runtime Policy operations in the current framework', () => {
+    const queries = [
+      'runtime.policy.query',
+      'connection.catalog.query',
+      'credential.vault.query',
+    ] as const;
+    const mutations = [
+      'runtime.policy.mutate',
+      'connection.catalog.create',
+      'connection.catalog.update',
+      'connection.catalog.remove',
+      'connection.catalog.set-default-target',
+      'credential.vault.set',
+      'credential.vault.delete',
+    ] as const;
+    assert.deepEqual(
+      Object.keys(RUNTIME_POLICY_OPERATION_SPECS).sort(),
+      [...queries, ...mutations].sort(),
+    );
+    for (const operation of queries) {
+      assert.equal(RUNTIME_POLICY_OPERATION_SPECS[operation].mode, 'query');
+      assert.equal(RUNTIME_POLICY_OPERATION_SPECS[operation].availability, 'ready');
+      assert.ok(RUNTIME_POLICY_OPERATION_SPECS[operation].errors.includes('persistence_failed'));
+      assert.ok(RUNTIME_POLICY_OPERATION_SPECS[operation].errors.includes('internal_failure'));
+    }
+    for (const operation of mutations) {
+      assert.equal(RUNTIME_POLICY_OPERATION_SPECS[operation].mode, 'command');
+      assert.equal(RUNTIME_POLICY_OPERATION_SPECS[operation].availability, 'ready');
+      assert.ok(RUNTIME_POLICY_OPERATION_SPECS[operation].errors.includes('invalid_request'));
+      assert.ok(RUNTIME_POLICY_OPERATION_SPECS[operation].errors.includes('persistence_failed'));
+      assert.ok(
+        RUNTIME_POLICY_OPERATION_SPECS[operation].errors.includes('commit_outcome_unknown'),
+      );
+      assert.ok(RUNTIME_POLICY_OPERATION_SPECS[operation].errors.includes('internal_failure'));
+    }
+  });
+
+  test('keeps Runtime Policy request and response codecs exact', () => {
+    assert.deepEqual(
+      decodeClientFrame({
+        requestId: 'policy-query',
+        operation: 'runtime.policy.query',
+        input: {},
+      }),
+      {
+        requestId: 'policy-query',
+        operation: 'runtime.policy.query',
+        input: {},
+      },
+    );
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          requestId: 'policy-query-extra',
+          operation: 'runtime.policy.query',
+          input: { secret: 'must-not-cross-wire' },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'credential-status-secret',
+          operation: 'credential.vault.query',
+          ok: true,
+          result: {
+            kind: 'status',
+            status: {
+              locator: { scope: 'network_proxy', kind: 'password' },
+              configured: false,
+              credentialId: null,
+              revision: null,
+              updatedAt: null,
+              secret: 'must-not-cross-wire',
+            },
+          },
+        }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () =>
+        decodeHostFrame({
+          requestId: 'undeclared-error',
+          operation: 'runtime.policy.query',
+          ok: false,
+          error: { code: 'commit_outcome_unknown', message: 'not declared for query' },
+        }),
+      isInvalidFrame,
+    );
   });
 
   test('decodes split UTF-8 and multiple newline-delimited frames without an unbounded tail', () => {

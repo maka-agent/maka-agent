@@ -165,6 +165,8 @@ interface SessionSteeringState {
   activeTurnId?: string;
 }
 
+export type BackendActivationBoundary = <T>(operation: () => Promise<T> | T) => Promise<T>;
+
 export interface RuntimeKernelDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
@@ -183,6 +185,7 @@ export interface RuntimeKernelDeps {
   inspectContinuationSafety?: (sessionId: string) => Promise<RuntimeContinuationSafetyObservation>;
   safeBoundaryResumeEnabled?: boolean;
   continuationFailpoint?: (point: RuntimeContinuationFailpoint) => Promise<void>;
+  runBackendActivation?: BackendActivationBoundary;
 }
 
 export interface HistoryCompactCleanupRequest {
@@ -249,6 +252,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (deps.runStore && !deps.runtimeEventStore) {
       throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
     }
+  }
+
+  private async runBackendActivation<T>(operation: () => Promise<T> | T): Promise<T> {
+    return await (this.deps.runBackendActivation?.(operation) ?? operation());
   }
 
   async *startTurn(
@@ -468,7 +475,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
     let begin: Awaited<ReturnType<typeof run.beginOperation>>;
     try {
-      begin = await run.beginOperation();
+      begin = await this.runBackendActivation(() => run.beginOperation());
     } catch (error) {
       await run.recordFailure(error);
       await run.finalize();
@@ -746,7 +753,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let flowDone = false;
     let begin: AgentRunBeginResult;
     try {
-      begin = await run.begin();
+      begin = await this.runBackendActivation(() => run.begin());
       if (onRunStarted && initialHeader) await onRunStarted(run.runId, initialHeader);
     } catch (error) {
       await run.recordFailure(error);
@@ -932,9 +939,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let flowDone = false;
     let begin: Awaited<ReturnType<AgentRun['beginContinuation']>>;
     try {
-      begin = persistContinuationSource
-        ? await run.beginContinuation(continuation)
-        : await run.beginOperation();
+      begin = await this.runBackendActivation(() =>
+        persistContinuationSource ? run.beginContinuation(continuation) : run.beginOperation(),
+      );
     } catch (error) {
       await run.recordFailure(error);
       await run.finalize();

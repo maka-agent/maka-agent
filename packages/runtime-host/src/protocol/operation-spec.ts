@@ -9,6 +9,9 @@ export type HostOperationErrorCode =
   | 'session_archived'
   | 'session_busy'
   | 'operation_conflict'
+  | 'invalid_request'
+  | 'persistence_failed'
+  | 'commit_outcome_unknown'
   | 'internal_failure';
 
 export interface HostOperationError<C extends HostOperationErrorCode = HostOperationErrorCode> {

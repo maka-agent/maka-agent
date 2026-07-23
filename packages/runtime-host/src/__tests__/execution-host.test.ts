@@ -40,6 +40,45 @@ const CURRENT_PROTOCOL = {
 } as const;
 const PROCESS_TIMEOUT_MS = 10_000;
 
+test('two UDS Clients share one Runtime Policy authority and CAS winner', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    try {
+      const initial = await first.request('runtime.policy.query', {});
+      assert.deepEqual(await second.request('runtime.policy.query', {}), initial);
+      const outcomes = await Promise.all([
+        first.request('runtime.policy.mutate', {
+          expectedRevision: initial.revision,
+          operation: {
+            kind: 'set_personalization',
+            value: { displayName: 'Desktop', assistantTone: 'precise' },
+          },
+        }),
+        second.request('runtime.policy.mutate', {
+          expectedRevision: initial.revision,
+          operation: {
+            kind: 'set_memory',
+            value: { enabled: false, agentReadEnabled: false },
+          },
+        }),
+      ]);
+      assert.deepEqual(outcomes.map((outcome) => outcome.kind).sort(), [
+        'committed',
+        'revision_conflict',
+      ]);
+      assert.deepEqual(
+        await first.request('runtime.policy.query', {}),
+        await second.request('runtime.policy.query', {}),
+      );
+    } finally {
+      await Promise.allSettled([first.close(), second.close()]);
+      await fixture.stopHost(host);
+    }
+  });
+});
+
 test('two Clients share one execution after the starting Client disconnects', async () => {
   await withExecutionRoot(async (fixture) => {
     const host = await fixture.startHost();

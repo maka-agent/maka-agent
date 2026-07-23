@@ -15,7 +15,7 @@ import type {
   TurnStopInput,
 } from '../protocol/index.js';
 import type { RuntimeHostResidency } from './host-kernel.js';
-import type { ConnectionContext, DomainOperationHandlerMap } from './operation-dispatcher.js';
+import type { ConnectionContext, TurnOperationHandlerMap } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
 import { SessionAdmissionGate } from './session-admission-gate.js';
 
@@ -48,7 +48,7 @@ interface RecoverySessionPlan {
 }
 
 export class RootTurnCoordinator {
-  readonly handlers: DomainOperationHandlerMap = {
+  readonly handlers: TurnOperationHandlerMap = {
     'turn.start': (input, context) => this.startTurn(input, context),
     'turn.query': (input) => this.queryTurn(input),
     'turn.stop': (input) => this.stopTurn(input),

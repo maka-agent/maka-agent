@@ -27,6 +27,7 @@ import {
 } from './connection-session.js';
 import {
   composeOperationHandlers,
+  createUnavailableDomainOperationHandlers,
   type DomainOperationHandlerMap,
   type OperationResidency,
   type OperationHandlerMap,
@@ -117,7 +118,9 @@ export class RuntimeHostKernel {
     this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.#shutdownGraceMs = options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
     this.#options = options;
-    this.#operationHandlers = this.#createOperationHandlers(unavailableDomainHandlers());
+    this.#operationHandlers = this.#createOperationHandlers(
+      createUnavailableDomainOperationHandlers(),
+    );
     this.closed = new Promise((resolve, reject) => {
       this.#resolveClosed = resolve;
       this.#rejectClosed = reject;
@@ -619,19 +622,4 @@ function assertDuration(value: number, label: string, minimum: 0 | 1): void {
   if (!Number.isSafeInteger(value) || value < minimum || value > 120_000) {
     throw new RangeError(`${label} must be an integer between ${minimum} and 120000`);
   }
-}
-
-function unavailableDomainHandlers(): DomainOperationHandlerMap {
-  const unavailable = {
-    ok: false,
-    error: {
-      code: 'operation_unavailable',
-      message: 'Runtime Host operation is unavailable in this composition',
-    },
-  } as const;
-  return {
-    'turn.start': async () => unavailable,
-    'turn.query': async () => unavailable,
-    'turn.stop': async () => unavailable,
-  };
 }

@@ -34,7 +34,14 @@ export type OperationHandlerMap = {
 };
 
 export type DomainOperationKey = Exclude<OperationKey, 'host.status'>;
+export type TurnOperationKey = Extract<OperationKey, `turn.${string}`>;
+export type RuntimePolicyOperationKey = Extract<
+  OperationKey,
+  `runtime.policy.${string}` | `connection.catalog.${string}` | `credential.vault.${string}`
+>;
 export type DomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
+export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
+export type RuntimePolicyOperationHandlerMap = Pick<OperationHandlerMap, RuntimePolicyOperationKey>;
 
 export function composeOperationHandlers(
   ...handlerMaps: readonly Partial<OperationHandlerMap>[]
@@ -60,6 +67,27 @@ export function composeOperationHandlers(
     throw new Error(`Missing Runtime Host operation handlers: ${missing.join(', ')}`);
   }
   return combined as OperationHandlerMap;
+}
+
+export function createUnavailableDomainOperationHandlers(): DomainOperationHandlerMap {
+  const handlers: Partial<DomainOperationHandlerMap> = {};
+  for (const operation of Object.keys(HOST_OPERATION_SPECS) as OperationKey[]) {
+    if (operation === 'host.status') continue;
+    const errors = HOST_OPERATION_SPECS[operation].errors as readonly HostOperationErrorCode[];
+    if (!errors.includes('operation_unavailable')) {
+      throw new Error(`${operation} does not declare operation_unavailable`);
+    }
+    Object.assign(handlers, {
+      [operation]: async () => ({
+        ok: false,
+        error: {
+          code: 'operation_unavailable',
+          message: 'Runtime Host operation is unavailable in this composition',
+        },
+      }),
+    });
+  }
+  return handlers as DomainOperationHandlerMap;
 }
 
 export async function dispatchOperation(

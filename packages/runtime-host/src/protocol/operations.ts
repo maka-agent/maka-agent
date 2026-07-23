@@ -7,6 +7,7 @@ import {
   type HostOperationErrorCode,
   type OperationSpec,
 } from './operation-spec.js';
+import { RUNTIME_POLICY_OPERATION_SPECS } from './runtime-policy.js';
 import { TURN_OPERATION_SPECS } from './turn.js';
 
 export type { HostLifecycleState, HostStatusInput, HostStatusResult } from './host-status.js';
@@ -18,10 +19,11 @@ export type {
   TurnStartInput,
   TurnStopInput,
 } from './turn.js';
+export * from './runtime-policy.js';
 
 export const HOST_OPERATION_SPECS = composeOperationSpecMaps(
-  HOST_STATUS_OPERATION_SPECS,
-  TURN_OPERATION_SPECS,
+  composeOperationSpecMaps(HOST_STATUS_OPERATION_SPECS, TURN_OPERATION_SPECS),
+  RUNTIME_POLICY_OPERATION_SPECS,
 );
 
 export type OperationSpecMap = typeof HOST_OPERATION_SPECS;

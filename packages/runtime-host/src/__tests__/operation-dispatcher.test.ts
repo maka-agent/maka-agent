@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import type { OperationKey, OperationOutcome, RequestFrame } from '../protocol/index.js';
 import {
   composeOperationHandlers,
+  createUnavailableDomainOperationHandlers,
   dispatchOperation,
   type ConnectionContext,
   type OperationHandlerMap,
@@ -118,9 +119,7 @@ function validHandlers(): OperationHandlerMap {
     }) as OperationOutcome<K>;
   return {
     'host.status': unavailable,
-    'turn.start': unavailable,
-    'turn.query': unavailable,
-    'turn.stop': unavailable,
+    ...createUnavailableDomainOperationHandlers(),
   };
 }
 

@@ -108,7 +108,12 @@ import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { AgentRunLineage, RuntimeContinuationFailpoint } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
 import type { InvocationResult, InvocationSource } from './invocation-context.js';
-import { RuntimeKernel, type RuntimeKernelLike, type TurnStartOptions } from './runtime-kernel.js';
+import {
+  RuntimeKernel,
+  type BackendActivationBoundary,
+  type RuntimeKernelLike,
+  type TurnStartOptions,
+} from './runtime-kernel.js';
 import { fallbackSessionTitle, sessionTitleSource } from './session-title.js';
 import type { HistoryCompactCleanupRequest } from './runtime-kernel.js';
 import {
@@ -452,6 +457,7 @@ export interface SessionManagerDeps {
   cleanupHistoryCompactArtifacts?: (input: HistoryCompactCleanupRequest) => Promise<void>;
   inspectContinuationSafety?: (sessionId: string) => Promise<RuntimeContinuationSafetyObservation>;
   continuationFailpoint?: (point: RuntimeContinuationFailpoint) => Promise<void>;
+  runBackendActivation?: BackendActivationBoundary;
   safeBoundaryResumeEnabled?: boolean;
   onContinuationLifecycleEvent?: (event: RuntimeContinuationLifecycleEvent) => void | Promise<void>;
   generateSessionTitle?: (input: {

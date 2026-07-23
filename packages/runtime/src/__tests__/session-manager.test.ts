@@ -117,6 +117,7 @@ describe('SessionManager child-session runtime primitive', () => {
     const backends = new BackendRegistry();
     const parentGate = makeGate();
     const contexts: BackendFactoryContext[] = [];
+    const backendActivationSessions: string[] = [];
     const backendsBySession = new Map<string, TestBackend>();
     backends.register('fake', (ctx) => {
       contexts.push(ctx);
@@ -133,6 +134,14 @@ describe('SessionManager child-session runtime primitive', () => {
       newId: nextId(),
       now: nextNow(100),
       runtimeSource: 'test',
+      runBackendActivation: async (operation) => {
+        const contextIndex = contexts.length;
+        const result = await operation();
+        const activatedContext = contexts[contextIndex];
+        if (!activatedContext) throw new Error('Backend activation did not build a backend');
+        backendActivationSessions.push(activatedContext.sessionId);
+        return result;
+      },
     });
     const parent = await manager.createSession(
       makeInput({
@@ -202,6 +211,7 @@ describe('SessionManager child-session runtime primitive', () => {
     expect(childRun.agentId).toBe(LOCAL_READ_AGENT_ID);
     expect(isSessionInlineRun(childRun)).toBe(true);
     expect(result.status).toBe('completed');
+    expect(backendActivationSessions).toEqual([parent.id, result.childSessionId]);
     expect(
       (await runStore.readRuntimeEvents(result.childSessionId, childRun.runId)).every(
         (event) => event.sessionId === result.childSessionId,

@@ -25,14 +25,16 @@ const allowedHostExternalImports = new Set([
 const allowedServerExternalImports = new Set([
   ...allowedHostExternalImports,
   '@maka/core/agent-run',
+  '@maka/core/runtime-policy',
   '@maka/core/runtime-event',
   '@maka/core/session',
   '@maka/runtime',
   '@maka/storage/execution-stores',
+  '@maka/storage/runtime-policy-stores',
 ]);
 const allowedExternalImports = {
   client: allowedHostExternalImports,
-  protocol: new Set(['node:util']),
+  protocol: new Set(['@maka/core/runtime-policy', 'node:util']),
 } as const;
 
 async function dependencyScannerFixture(target: string): Promise<void> {
@@ -80,7 +82,11 @@ test('protocol and client stay within their subpaths and the root-authority boun
           if (!isInside(sourceRoot, target)) violations.push(`${path}: ${specifier}`);
           continue;
         }
-        if (!allowedExternalImports[area].has(specifier)) violations.push(`${path}: ${specifier}`);
+        const allowedImports =
+          topLevelArea === 'protocol'
+            ? allowedExternalImports.protocol
+            : allowedExternalImports[area];
+        if (!allowedImports.has(specifier)) violations.push(`${path}: ${specifier}`);
       }
     }
   }
@@ -96,7 +102,9 @@ test('only the server subgraph can reach the M2 Runtime composition', async () =
     const allowedImports =
       topLevelArea === 'server' || localPath === 'candidate-main.ts'
         ? allowedServerExternalImports
-        : allowedHostExternalImports;
+        : topLevelArea === 'protocol'
+          ? allowedExternalImports.protocol
+          : allowedHostExternalImports;
     for (const specifier of moduleSpecifiers(path)) {
       if (isRelativeSpecifier(specifier)) {
         const target = sourcePathForSpecifier(path, specifier);
@@ -116,13 +124,18 @@ test('the production Candidate dependency graph remains non-serving', () => {
     'server/execution-candidate.ts',
     'server/execution-composition.ts',
     'server/root-turn-coordinator.ts',
+    'server/runtime-policy-coordinator.ts',
   ]);
   const violations: string[] = [];
   for (const path of reached) {
     const localPath = relative(sourceRoot, path);
     if (forbiddenLocalModules.has(localPath)) violations.push(localPath);
     for (const specifier of moduleSpecifiers(path)) {
-      if (specifier === '@maka/runtime' || specifier === '@maka/storage/execution-stores') {
+      if (
+        specifier === '@maka/runtime' ||
+        specifier === '@maka/storage/execution-stores' ||
+        specifier === '@maka/storage/runtime-policy-stores'
+      ) {
         violations.push(`${localPath}: ${specifier}`);
       }
     }
