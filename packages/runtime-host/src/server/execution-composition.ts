@@ -37,6 +37,12 @@ export async function createExecutionRuntimeHostComposition(
       await manager.recoverInterruptedSessionsStrict(stores);
       await coordinator.recover();
     },
-    close: () => coordinator.close(),
+    close: async () => {
+      try {
+        await coordinator.close();
+      } finally {
+        stores.sessionStore.close?.();
+      }
+    },
   };
 }

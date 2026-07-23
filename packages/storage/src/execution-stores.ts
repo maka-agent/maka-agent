@@ -157,6 +157,7 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
       setGeneratedTitleIfAbsent: (sessionId, title) =>
         run(() => sessionStore.setGeneratedTitleIfAbsent(sessionId, title)),
       remove: (sessionId) => run(() => sessionStore.remove(sessionId)),
+      close: () => sessionStore.close?.(),
     },
     agentRunStore: {
       createRun: (header, options) => run(() => agentRunStore.createRun(header, options)),
