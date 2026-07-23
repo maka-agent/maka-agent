@@ -11,6 +11,7 @@ import {
   isSubagentSessionParent,
   isSubagentSessionRuntime,
   isSubagentSessionSpawn,
+  projectLinkedSessionTree,
   subagentSessionRuntimeSummary,
 } from '../session.js';
 import { isPermissionModeWithinCeiling } from '../permission.js';
@@ -122,6 +123,55 @@ describe('subagent session parent relation', () => {
       ),
       ['child-a', 'child-b'],
     );
+  });
+
+  test('projects linked children beneath parents while preserving branches and orphans', () => {
+    const parent = summary('parent');
+    const child = summary('child', {
+      subagentParent: { ...relation, parentSessionId: parent.id },
+    });
+    const grandchild = summary('grandchild', {
+      subagentParent: { ...relation, parentSessionId: child.id },
+    });
+    const branch = summary('branch', {
+      parentSessionId: parent.id,
+      branchOfTurnId: 'parent-turn',
+    });
+    const orphan = summary('orphan', {
+      subagentParent: { ...relation, parentSessionId: 'deleted-parent' },
+    });
+
+    const tree = projectLinkedSessionTree([parent, child, grandchild, branch, orphan]);
+
+    assert.deepEqual(
+      tree.roots.map((session) => session.id),
+      ['parent', 'branch', 'orphan'],
+    );
+    assert.deepEqual(
+      tree.childrenByParentId.get(parent.id)?.map((session) => session.id),
+      ['child'],
+    );
+    assert.deepEqual(
+      tree.childrenByParentId.get(child.id)?.map((session) => session.id),
+      ['grandchild'],
+    );
+  });
+
+  test('keeps cyclic linked relations visible as roots', () => {
+    const childA = summary('child-a', {
+      subagentParent: { ...relation, parentSessionId: 'child-b' },
+    });
+    const childB = summary('child-b', {
+      subagentParent: { ...relation, parentSessionId: 'child-a' },
+    });
+
+    const tree = projectLinkedSessionTree([childA, childB]);
+
+    assert.deepEqual(
+      tree.roots.map((session) => session.id),
+      ['child-a', 'child-b'],
+    );
+    assert.equal(tree.childrenByParentId.size, 0);
   });
 });
 

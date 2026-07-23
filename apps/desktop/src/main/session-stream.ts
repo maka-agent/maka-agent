@@ -115,6 +115,8 @@ export interface AiSdkBackendFactoryDeps {
   runtimeCommitStore: RuntimeCommitStore;
   planStore: PlanStore;
   safeSendToRenderer: (channel: string, ...args: unknown[]) => void;
+  openGateway: OpenGatewayService;
+  emitSessionsChanged: (reason: SessionChangedReason, sessionId?: string) => void;
   getRuntime: () => SessionManager;
   getLookupPricing: () => PricingLookup;
 }
@@ -153,6 +155,8 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     runtimeCommitStore,
     planStore,
     safeSendToRenderer,
+    openGateway,
+    emitSessionsChanged,
     getRuntime,
     getLookupPricing,
   } = deps;
@@ -257,8 +261,16 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       agentTeam,
       toolAvailability: backendToolAvailability,
       spawnChildAgent: (input) => getRuntime().spawnChildAgent(ctx.sessionId, input),
-      spawnChildSession: (input) =>
-        getRuntime().spawnChildSession(ctx.sessionId, {
+      spawnChildSession: (input) => {
+        const observation = createLinkedChildEventProjection({
+          lifecycle: 'created',
+          safeSendToRenderer,
+          openGateway,
+          emitSessionsChanged,
+          onReady: input.onReady,
+          onEvent: input.onEvent,
+        });
+        return getRuntime().spawnChildSession(ctx.sessionId, {
           spawnedBy: {
             parentRunId: input.parentRunId,
             parentTurnId: input.parentTurnId,
@@ -268,13 +280,42 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
           prompt: input.prompt,
           ...(input.swarm ? { swarm: input.swarm } : {}),
           abortSignal: input.abortSignal,
-          ...(input.onReady ? { onReady: input.onReady } : {}),
-          ...(input.onEvent ? { onEvent: input.onEvent } : {}),
-        }),
+          onReady: observation.onReady,
+          onEvent: observation.onEvent,
+        });
+      },
       prepareChildAgentResume: (sourceRunId) =>
         getRuntime().prepareChildAgentResume(ctx.sessionId, sourceRunId),
-      resumeChildAgent: (input) => getRuntime().resumeChildAgent(ctx.sessionId, input),
-      retryChildAgent: (input) => getRuntime().retryChildAgent(ctx.sessionId, input),
+      resumeChildAgent: (input) => {
+        const observation = createLinkedChildEventProjection({
+          lifecycle: 'continued',
+          safeSendToRenderer,
+          openGateway,
+          emitSessionsChanged,
+          onReady: input.onReady,
+          onEvent: input.onEvent,
+        });
+        return getRuntime().resumeChildAgent(ctx.sessionId, {
+          ...input,
+          onReady: observation.onReady,
+          onEvent: observation.onEvent,
+        });
+      },
+      retryChildAgent: (input) => {
+        const observation = createLinkedChildEventProjection({
+          lifecycle: 'continued',
+          safeSendToRenderer,
+          openGateway,
+          emitSessionsChanged,
+          onReady: input.onReady,
+          onEvent: input.onEvent,
+        });
+        return getRuntime().retryChildAgent(ctx.sessionId, {
+          ...input,
+          onReady: observation.onReady,
+          onEvent: observation.onEvent,
+        });
+      },
       listChildAgents: () => getRuntime().listChildAgents(ctx.sessionId),
       readChildAgentOutput: (input) => getRuntime().readChildAgentOutput(ctx.sessionId, input),
       providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
@@ -401,6 +442,68 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       newId: randomUUID,
       now: Date.now,
     });
+  };
+}
+
+interface LinkedChildReady {
+  childSessionId?: string;
+  turnId: string;
+  runId?: string;
+  agentId: string;
+  agentName: string;
+}
+
+/**
+ * Bridge linked-child events onto the child Session's normal Desktop and Open
+ * Gateway channels while the parent tool call remains the stream consumer.
+ * Direct user follow-ups already use createSessionStreamer; this closes the
+ * nested spawn/resume/retry observation gap without inventing a subagent-only
+ * event protocol.
+ */
+export function createLinkedChildEventProjection<
+  Ready extends LinkedChildReady = LinkedChildReady,
+>(input: {
+  lifecycle: 'created' | 'continued';
+  safeSendToRenderer: (channel: string, ...args: unknown[]) => void;
+  openGateway: Pick<OpenGatewayService, 'publishSessionEvent'>;
+  emitSessionsChanged: (reason: SessionChangedReason, sessionId?: string) => void;
+  onReady?: (ready: Ready) => void | Promise<void>;
+  onEvent?: (event: SessionEvent) => void;
+}): {
+  onReady(ready: Ready): Promise<void>;
+  onEvent(event: SessionEvent): void;
+} {
+  let childSessionId: string | undefined;
+  let messageAppendBroadcasted = false;
+  return {
+    async onReady(ready) {
+      childSessionId = ready.childSessionId;
+      if (childSessionId) {
+        input.emitSessionsChanged(
+          input.lifecycle === 'created' ? 'created' : 'status-change',
+          childSessionId,
+        );
+        input.emitSessionsChanged('turn-status-change', childSessionId);
+      }
+      await input.onReady?.(ready);
+    },
+    onEvent(event) {
+      if (childSessionId) {
+        input.safeSendToRenderer(`sessions:event:${childSessionId}`, event);
+        input.openGateway.publishSessionEvent(childSessionId, event);
+        if (!messageAppendBroadcasted) {
+          input.emitSessionsChanged('message-appended', childSessionId);
+          messageAppendBroadcasted = true;
+        }
+        if (isStatusChangingSessionEvent(event)) {
+          input.emitSessionsChanged('status-change', childSessionId);
+        }
+        if (isTurnStatusChangingSessionEvent(event)) {
+          input.emitSessionsChanged('turn-status-change', childSessionId);
+        }
+      }
+      input.onEvent?.(event);
+    },
   };
 }
 

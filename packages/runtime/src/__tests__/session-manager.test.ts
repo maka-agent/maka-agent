@@ -767,6 +767,105 @@ describe('SessionManager child-session runtime primitive', () => {
     while (!(await parentTurn.next()).done) {}
   });
 
+  test('reopens after restart with isolated history, tool activity, usage, and compaction', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
+    const childBackends: LifecycleChildBackend[] = [];
+    backends.register('fake', (ctx) => {
+      if (!ctx.header.subagentRuntime) return new TestBackend(ctx, parentGate);
+      const backend = new LifecycleChildBackend(ctx, compactCalls);
+      childBackends.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(186),
+      runtimeSource: 'test',
+    });
+    const parent = await manager.createSession(makeInput());
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'private parent context' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const child = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'restart-observation-tool',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'inspect README before restart',
+    });
+
+    // A new manager represents a restarted Runtime Host. It must activate the
+    // child through the durable Session header and replay only child history.
+    const restarted = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(196),
+      runtimeSource: 'test',
+    });
+    await drain(
+      restarted.sendMessage(child.childSessionId, {
+        turnId: 'child-follow-up',
+        text: 'inspect it again after restart',
+      }),
+    );
+    const restartedBackend = childBackends.at(-1);
+    const followUpContext = restartedBackend?.sendInputs.at(-1)?.runtimeContext ?? [];
+    expect(followUpContext.some((event) => event.runId === child.runId)).toBe(true);
+    expect(
+      followUpContext.some(
+        (event) =>
+          event.content?.kind === 'text' && event.content.text.includes('private parent context'),
+      ),
+    ).toBe(false);
+
+    await drain(restarted.compactSession(child.childSessionId, { turnId: 'child-compact' }));
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0]?.turnId).toBe('child-compact');
+
+    const childMessages = await restarted.getMessages(child.childSessionId);
+    expect(childMessages.some((message) => message.type === 'tool_call')).toBe(true);
+    expect(childMessages.some((message) => message.type === 'tool_result')).toBe(true);
+    expect(childMessages.some((message) => message.type === 'token_usage')).toBe(true);
+    expect(
+      childMessages.some(
+        (message) =>
+          message.type === 'turn_state' &&
+          message.turnId === 'child-compact' &&
+          message.status === 'completed',
+      ),
+    ).toBe(true);
+    const parentMessages = await restarted.getMessages(parent.id);
+    expect(
+      parentMessages.some(
+        (message) =>
+          message.turnId === child.turnId ||
+          message.turnId === 'child-follow-up' ||
+          message.turnId === 'child-compact',
+      ),
+    ).toBe(false);
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
   test('refuses to activate a linked legacy child without a runtime snapshot', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -12920,6 +13019,46 @@ class CompactingTestBackend extends TestBackend {
       runtimeContextCount: input.runtimeContext.length,
     });
     return compactHistoryResult();
+  }
+}
+
+class LifecycleChildBackend extends CompactingTestBackend {
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendInputs.push(input);
+    yield {
+      type: 'tool_start',
+      id: `${input.turnId}-tool-start`,
+      turnId: input.turnId,
+      ts: 1,
+      toolUseId: `${input.turnId}-read`,
+      toolName: 'Read',
+      args: { path: 'README.md' },
+    };
+    yield {
+      type: 'tool_result',
+      id: `${input.turnId}-tool-result`,
+      turnId: input.turnId,
+      ts: 2,
+      toolUseId: `${input.turnId}-read`,
+      isError: false,
+      content: { kind: 'text', text: 'README body' },
+    };
+    yield {
+      type: 'token_usage',
+      id: `${input.turnId}-usage`,
+      turnId: input.turnId,
+      ts: 3,
+      input: 10,
+      output: 5,
+      total: 15,
+    };
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 4,
+      stopReason: 'end_turn',
+    };
   }
 }
 

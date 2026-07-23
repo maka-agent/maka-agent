@@ -264,6 +264,20 @@ export interface SessionSummary {
   orchestrationMode?: OrchestrationMode;
 }
 
+/**
+ * Host-facing projection of linked subagent Sessions.
+ *
+ * The flat Session list remains the storage/read authority. Hosts use this
+ * projection to nest a linked child beneath its durable parent without
+ * confusing ordinary branch lineage with subagent ownership. Missing-parent
+ * and cyclic relations fail open into roots so an inspectable child can never
+ * disappear from the product surface.
+ */
+export interface LinkedSessionTree {
+  roots: SessionSummary[];
+  childrenByParentId: ReadonlyMap<string, readonly SessionSummary[]>;
+}
+
 const SUBAGENT_SESSION_PARENT_SHAPE = defineObjectShape<SubagentSessionParent>()(
   ['kind', 'parentSessionId', 'spawnedBy', 'lifecycle'],
   ['swarm'],
@@ -384,6 +398,56 @@ export function childSessionsForParent(
       isSubagentSessionParent(session.subagentParent) &&
       session.subagentParent.parentSessionId === parentSessionId,
   );
+}
+
+/** Read-model projection; input order is preserved at every tree level. */
+export function projectLinkedSessionTree(sessions: readonly SessionSummary[]): LinkedSessionTree {
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+  const nestedParentByChildId = new Map<string, string>();
+
+  for (const session of sessions) {
+    const relation = session.subagentParent;
+    if (!isSubagentSessionParent(relation)) continue;
+    if (!sessionsById.has(relation.parentSessionId)) continue;
+    if (relation.parentSessionId === session.id) continue;
+    if (linkedParentChainContainsCycle(session.id, sessionsById)) continue;
+    nestedParentByChildId.set(session.id, relation.parentSessionId);
+  }
+
+  const roots: SessionSummary[] = [];
+  const mutableChildren = new Map<string, SessionSummary[]>();
+  for (const session of sessions) {
+    const parentSessionId = nestedParentByChildId.get(session.id);
+    if (!parentSessionId) {
+      roots.push(session);
+      continue;
+    }
+    const children = mutableChildren.get(parentSessionId) ?? [];
+    children.push(session);
+    mutableChildren.set(parentSessionId, children);
+  }
+
+  return {
+    roots,
+    childrenByParentId: mutableChildren,
+  };
+}
+
+function linkedParentChainContainsCycle(
+  startSessionId: string,
+  sessionsById: ReadonlyMap<string, SessionSummary>,
+): boolean {
+  const visited = new Set<string>();
+  let sessionId: string | undefined = startSessionId;
+  while (sessionId) {
+    if (visited.has(sessionId)) return true;
+    visited.add(sessionId);
+    const relation: SubagentSessionParent | undefined = sessionsById.get(sessionId)?.subagentParent;
+    if (!isSubagentSessionParent(relation)) return false;
+    if (!sessionsById.has(relation.parentSessionId)) return false;
+    sessionId = relation.parentSessionId;
+  }
+  return false;
 }
 
 function isSessionLineageId(value: unknown): value is string {

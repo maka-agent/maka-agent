@@ -5755,6 +5755,58 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('nests linked child sessions in the picker and allows opening one directly', async () => {
+    const terminal = new FakeTerminal();
+    const parent = fakeSessionSummary('parent-session', '/repo', 'Parent chat');
+    const child = {
+      ...fakeSessionSummary('child-session', '/repo', 'Local Read'),
+      subagentParent: {
+        kind: 'subagent' as const,
+        parentSessionId: parent.id,
+        spawnedBy: {
+          parentRunId: 'parent-run',
+          parentTurnId: 'parent-turn',
+          toolCallId: 'tool-call',
+        },
+        lifecycle: 'foreground' as const,
+      },
+      subagentRuntime: {
+        schemaVersion: 1 as const,
+        definitionVersion: 1,
+        agentId: 'local-read',
+        agentName: 'Local Read',
+        profile: 'local_read',
+        toolNames: ['Read', 'Glob', 'Grep'],
+        permissionCeiling: 'ask' as const,
+      },
+    };
+    const driver = new SlashCommandDriver([parent, child]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('↳ Local Read'));
+    assert.match(
+      plainTerminalOutput(terminal.screenOutput()),
+      /Local Read.*subagent:local_read active/,
+    );
+
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.sessionIds.includes(child.id));
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('imports a foreign session from /session into a fresh handoff turn', async () => {
     const terminal = new FakeTerminal();
     // No Maka sessions, so the only picker row is the foreign one.

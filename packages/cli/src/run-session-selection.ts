@@ -76,6 +76,7 @@ async function selectLatestSession(
 
 function isContinueCandidate(session: SessionSummary): boolean {
   return (
+    session.subagentParent === undefined &&
     !session.isArchived &&
     (session.status === 'active' || session.status === 'aborted') &&
     typeof session.lastMessageAt === 'number' &&

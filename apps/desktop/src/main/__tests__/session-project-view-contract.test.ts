@@ -85,16 +85,40 @@ describe('sidebar project view mode', () => {
     assert.match(markup, /显示更多/);
   });
 
+  it('renders linked child sessions directly beneath their parent as normal selectable rows', () => {
+    const parent = makeSessionSummary({ id: 'parent', name: 'Parent task' });
+    const child = makeSessionSummary({ id: 'child', name: 'Child agent' });
+    const markup = renderSessionListPanel({
+      sessions: [parent],
+      childSessionsByParentId: new Map([[parent.id, [child]]]),
+    });
+
+    assert.ok(markup.indexOf('Parent task') < markup.indexOf('Child agent'));
+    assert.match(markup, /data-subagent="true"/);
+    assert.match(markup, /data-session-id="child"/);
+    assert.match(markup, /lucide-bot/);
+  });
+
   it('AppShell derives status and project groups from the same visible session set', async () => {
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
-    assert.match(appShell, /const sidebarSessions = useMemo\([\s\S]*collapseSessionRevisions\(sessions, activeId\)[\s\S]*\[sessions, activeId\]/);
-    assert.match(appShell, /const visibleSessions = useMemo\([\s\S]*filterSessions\(sidebarSessions, navSelection\)[\s\S]*\[sidebarSessions, navSelection\]/);
+    assert.match(
+      appShell,
+      /const sidebarSessionTree = useMemo\([\s\S]*projectLinkedSessionTree\(collapseSessionRevisions\(sessions, activeId\)\)[\s\S]*\[sessions, activeId\]/,
+    );
+    assert.match(
+      appShell,
+      /const visibleSessions = useMemo\([\s\S]*filterSessions\(sidebarSessionTree\.roots, navSelection\)[\s\S]*\[sidebarSessionTree, navSelection\]/,
+    );
     assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
     assert.match(appShell, /deriveProjectGroups\(visibleSessions, uiLocale\)/);
     assert.match(appShell, /const sessionListGroups = viewMode === 'project' \? sessionProjectGroups : sessionStatusGroups/);
     assert.match(appShell, /statusGroups=\{sessionListGroups\}/);
+    assert.match(
+      appShell,
+      /childSessionsByParentId=\{sidebarSessionTree\.childrenByParentId\}/,
+    );
     assert.doesNotMatch(appShell, /projectGroups=\{/);
 
     assert.doesNotMatch(panel, /projectGroups\?:/);

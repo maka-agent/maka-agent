@@ -24,7 +24,9 @@ import type { OrchestrationMode } from '@maka/core/orchestration';
 import {
   ShellRunUpdateBuffer,
   mergeShellRunUpdate,
+  projectLinkedSessionTree,
   projectShellRunUpdateForSession,
+  type SessionSummary,
   type ShellRunUpdate,
 } from '@maka/core';
 import {
@@ -1703,6 +1705,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
+    const sessionTree = projectLinkedSessionTree(sessions);
+    const projectedSessions = flattenLinkedSessionTree(
+      sessionTree.roots,
+      sessionTree.childrenByParentId,
+    );
     // Maka-session availability and the foreign scan are independent I/O; run
     // them concurrently so the picker's open latency is the slower of the two,
     // not their sum.
@@ -1745,19 +1752,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const renderScope = (): void => {
       const visibleSessions =
         sessionListScope === 'current'
-          ? sessions.filter((session) => session.cwd === cwd)
-          : sessions;
-      const items: SelectItem[] = visibleSessions.map((session) => {
+          ? projectedSessions.filter(({ session }) => session.cwd === cwd)
+          : projectedSessions;
+      const items: SelectItem[] = visibleSessions.map(({ session, depth }) => {
         const state = availability.get(session.id);
         const location =
           sessionListScope === 'all' && session.cwd ? ` ${basename(session.cwd)}` : '';
+        const childDetail = session.subagentRuntime
+          ? ` subagent:${session.subagentRuntime.profile} ${session.status}`
+          : '';
         return {
           value: session.id,
-          label: session.name || session.id,
+          label: `${depth > 0 ? `${'  '.repeat(depth - 1)}↳ ` : ''}${session.name || session.id}`,
           description:
             state?.available === false
               ? `${shortSessionId(session.id)} ${state.reason}`
-              : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
+              : `${shortSessionId(session.id)}${location}${childDetail} ${session.llmConnectionSlug} ${session.model}`,
         };
       });
       // Foreign sessions are cwd-scoped; show them in both scope views (they
@@ -2621,6 +2631,21 @@ const BOTTOM_PICKER_MARGIN_ROWS = 4;
 // full slash-command menu, so a bare `/` shows every command rather than
 // silently clipping the last command.
 const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 16;
+
+function flattenLinkedSessionTree(
+  roots: readonly SessionSummary[],
+  childrenByParentId: ReadonlyMap<string, readonly SessionSummary[]>,
+): Array<{ session: SessionSummary; depth: number }> {
+  const flattened: Array<{ session: SessionSummary; depth: number }> = [];
+  const visit = (session: SessionSummary, depth: number): void => {
+    flattened.push({ session, depth });
+    for (const child of childrenByParentId.get(session.id) ?? []) {
+      visit(child, depth + 1);
+    }
+  };
+  for (const root of roots) visit(root, 0);
+  return flattened;
+}
 
 // A short, stable slice of a session id — enough to tell two same-named
 // sessions apart in the picker without showing the full unreadable uuid.

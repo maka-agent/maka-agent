@@ -16,6 +16,7 @@ import {
   collapseSessionRevisions,
   hasSettledInitialOnboarding,
   parseSwarmCommand,
+  projectLinkedSessionTree,
   resolveUiLocale,
 } from '@maka/core';
 import {
@@ -341,13 +342,13 @@ function AppShellContent({
   // Running → Waiting → Blocked → Active → Review → Done → Archived);
   // `aborted` is dropped. Pinned (flagged) sessions float to the top
   // in their own group, preserving the PR48 pin-floats behavior.
-  const sidebarSessions = useMemo(
-    () => collapseSessionRevisions(sessions, activeId),
+  const sidebarSessionTree = useMemo(
+    () => projectLinkedSessionTree(collapseSessionRevisions(sessions, activeId)),
     [sessions, activeId],
   );
   const visibleSessions = useMemo(
-    () => filterSessions(sidebarSessions, navSelection),
-    [sidebarSessions, navSelection],
+    () => filterSessions(sidebarSessionTree.roots, navSelection),
+    [sidebarSessionTree, navSelection],
   );
   const sessionStatusGroups = useMemo(
     () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true, locale: uiLocale }),
@@ -1552,6 +1553,7 @@ function AppShellContent({
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             statusGroups={sessionListGroups}
+            childSessionsByParentId={sidebarSessionTree.childrenByParentId}
             onSelect={setNavSelection}
             onSelectSession={sessionListSelectSession}
             onOpenSettings={openSettings}

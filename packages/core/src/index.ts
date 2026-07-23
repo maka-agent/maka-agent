@@ -161,6 +161,7 @@ export { DurableStoreWriteError } from './runtime-event-store.js';
 export type {
   SessionHeader,
   SessionSummary,
+  LinkedSessionTree,
   SessionChangedEvent,
   SessionChangedReason,
   SessionStatus,
@@ -192,6 +193,7 @@ export {
   SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION,
   TURN_STATUSES,
   childSessionsForParent,
+  projectLinkedSessionTree,
   STEP_LIMIT_NOTICE_TEXT,
   deriveTurnRecords,
   isSessionStatus,
