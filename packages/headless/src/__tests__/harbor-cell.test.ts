@@ -5558,7 +5558,7 @@ describe('createHarborHttpToolExecutor', () => {
       assert.ok(optionsSymbol);
       const dispatcherOptions = Reflect.get(observedDispatcher, optionsSymbol);
       assert.equal(Reflect.get(dispatcherOptions, 'headersTimeout'), 0);
-      assert.equal(Reflect.get(dispatcherOptions, 'bodyTimeout'), 0);
+      assert.equal(Reflect.has(dispatcherOptions, 'bodyTimeout'), false);
       assert.equal(observedSignal, controller.signal);
       assert.deepEqual(observedBody, {
         command: 'sleep until cancelled',

@@ -23,7 +23,7 @@ export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 
 // The bridge returns response headers only after the isolated command exits.
 // Leave command duration to its timeout and the active tool's abort signal.
-const harborHttpDispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+const harborHttpDispatcher = new Agent({ headersTimeout: 0 });
 
 export function buildHarborCellAiSdkTools(
   executor: IsolatedToolExecutor,
