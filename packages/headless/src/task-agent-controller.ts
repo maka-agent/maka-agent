@@ -401,6 +401,7 @@ export async function runTaskOnceWithStorage(
 
     let runtimeInvocation: InvocationResult;
     let settledByDeadline = false;
+    let deadlineTriggered = false;
     const runtimeAttempt = await runWithTaskSessionCleanup(
       async () => {
         const attempt = await runRuntimeAttempt({
@@ -412,6 +413,9 @@ export async function runTaskOnceWithStorage(
           now,
           newId,
           settleByDeadline: active.settleByDeadline,
+          onDeadlineTriggered: () => {
+            deadlineTriggered = true;
+          },
           ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
         });
         settledByDeadline = attempt.settledByDeadline;
@@ -422,7 +426,7 @@ export async function runTaskOnceWithStorage(
           active,
           sessionCapabilities,
           header.id,
-          settledByDeadline ? 'benchmark_deadline' : 'stop_button',
+          deadlineTriggered ? 'benchmark_deadline' : undefined,
         ),
     );
     runtimeInvocation = runtimeAttempt.invocation;
@@ -522,6 +526,7 @@ export async function runTaskOnceWithStorage(
         });
         repairActive.bindRun(repairRun);
         let repairInvocation: InvocationResult;
+        let repairDeadlineTriggered = false;
         const repairRuntimeAttempt = await runWithTaskSessionCleanup(
           async () => {
             const attempt = await runRuntimeAttempt({
@@ -535,6 +540,9 @@ export async function runTaskOnceWithStorage(
               now,
               newId,
               settleByDeadline: repairActive.settleByDeadline,
+              onDeadlineTriggered: () => {
+                repairDeadlineTriggered = true;
+              },
               ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
             });
             settledByDeadline ||= attempt.settledByDeadline;
@@ -545,7 +553,7 @@ export async function runTaskOnceWithStorage(
               repairActive,
               sessionCapabilities,
               header.id,
-              settledByDeadline ? 'benchmark_deadline' : 'stop_button',
+              repairDeadlineTriggered ? 'benchmark_deadline' : undefined,
             ),
         );
         repairInvocation = repairRuntimeAttempt.invocation;
@@ -1204,6 +1212,7 @@ interface RunRuntimeAttemptInput {
   newId: () => string;
   deadlineAtMs?: number;
   settleByDeadline(): Promise<boolean>;
+  onDeadlineTriggered(): void;
 }
 
 async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
@@ -1248,6 +1257,7 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
   let settlementError: unknown;
   let settlementAttempt: Promise<void> | undefined;
   const settle = () => {
+    input.onDeadlineTriggered();
     settlementAttempt = input
       .settleByDeadline()
       .then((settled) => {
@@ -1423,11 +1433,37 @@ async function runWithTaskSessionCleanup<T>(
   try {
     result = await run();
   } catch (primaryError) {
-    await cleanup().catch(() => {});
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      attachTaskCleanupCause(primaryError, cleanupError);
+    }
     throw primaryError;
   }
   await cleanup();
   return result;
+}
+
+function attachTaskCleanupCause(primaryError: unknown, cleanupError: unknown): void {
+  if (!(primaryError instanceof Error)) return;
+  const existingCause = primaryError.cause;
+  const cause =
+    existingCause === undefined
+      ? cleanupError
+      : new AggregateError(
+          [existingCause, cleanupError],
+          'task session cleanup failed after the primary error',
+        );
+  try {
+    Object.defineProperty(primaryError, 'cause', {
+      value: cause,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+  } catch {
+    // A frozen caller-owned error must remain the primary thrown value.
+  }
 }
 
 async function disposeTaskRunSession(
@@ -1435,14 +1471,14 @@ async function disposeTaskRunSession(
   sessionCapabilities: {
     settle(
       sessionId: string,
-      input: { source: 'benchmark_deadline' | 'stop_button' },
+      input?: { source: 'benchmark_deadline' | 'stop_button' },
     ): Promise<void>;
   },
   sessionId: string,
-  source: 'benchmark_deadline' | 'stop_button',
+  source: 'benchmark_deadline' | undefined,
 ): Promise<void> {
   try {
-    await sessionCapabilities.settle(sessionId, { source });
+    await sessionCapabilities.settle(sessionId, source ? { source } : undefined);
   } finally {
     await active.dispose();
   }

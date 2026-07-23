@@ -28,6 +28,7 @@ import { commandResourceScope, hashNormalizedArgs } from '../permission-grants.j
 import {
   runTaskOnce,
   runTaskOnceWithStorage,
+  TaskAgentController,
   type RunTaskOnceResult,
 } from '../task-agent-controller.js';
 import type { TaskPermissionGrant } from '../task-contracts.js';
@@ -228,6 +229,7 @@ class BackgroundChildBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
   stopCalls = 0;
+  runId?: string;
   private release!: () => void;
   private readonly stopped = new Promise<void>((resolve) => {
     this.release = resolve;
@@ -241,6 +243,7 @@ class BackgroundChildBackend implements AgentBackend {
   }
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.runId = input.runId;
     this.onStarted();
     await this.stopped;
     yield {
@@ -1269,6 +1272,13 @@ describe('runTaskOnce', () => {
       assert.equal(childBackend?.stopCalls, 1);
       assert.equal(childSettled, true);
       await childPromise;
+      assert.ok(childBackend?.runId);
+      const childRunHeader = await readAgentRunHeader(
+        storageRoot,
+        childBackend.sessionId,
+        childBackend.runId,
+      );
+      assert.equal(childRunHeader.abortSource, 'user_stop');
     });
   });
 
@@ -1416,12 +1426,105 @@ describe('runTaskOnce', () => {
     });
   });
 
-  test('preserves the runtime error when deadline cleanup also fails', async (t) => {
+  test('settles child sessions with deadline provenance when parent settlement fails', async (t) => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const realSetTimeout = setTimeout;
       const realClearTimeout = clearTimeout;
       t.mock.timers.enable({ apis: ['setTimeout'] });
       const runtimeError = new Error('parent deadline stop failed');
+      let resolveChildStarted!: () => void;
+      const childStarted = new Promise<void>((resolve) => {
+        resolveChildStarted = resolve;
+      });
+      let childBackend: BackgroundChildBackend | undefined;
+      let childPromise: Promise<unknown> | undefined;
+      let childSettled = false;
+      let buildCount = 0;
+      const task: Task = {
+        id: 'deadline-parent-settlement-failure',
+        instruction: 'preserve deadline provenance',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const run = runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+        storageRoot,
+        registerBackends: (registry, context) => {
+          registry.register('ai-sdk', (ctx) => {
+            buildCount += 1;
+            if (buildCount === 1) {
+              return new ParentWithBackgroundChildBackend(
+                ctx.sessionId,
+                context,
+                childStarted,
+                (promise) => {
+                  childPromise = promise.finally(() => {
+                    childSettled = true;
+                  });
+                },
+                true,
+                runtimeError,
+              );
+            }
+            childBackend = new BackgroundChildBackend(ctx.sessionId, resolveChildStarted);
+            return childBackend;
+          });
+        },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+        now: () => 0,
+        deadlineAtMs: 100,
+      });
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await childStarted;
+        t.mock.timers.tick(100);
+        await assert.rejects(
+          Promise.race([
+            run,
+            new Promise<never>((_resolve, reject) => {
+              watchdog = realSetTimeout(
+                () => reject(new Error('deadline settlement failure watchdog expired')),
+                1_000,
+              );
+            }),
+          ]),
+          (error: unknown) => {
+            assert.equal(error, runtimeError);
+            return true;
+          },
+        );
+        assert.ok(childBackend?.runId);
+        assert.equal(childBackend.stopCalls, 1);
+        assert.equal(childSettled, true);
+        await childPromise;
+        const childRunHeader = await readAgentRunHeader(
+          storageRoot,
+          childBackend.sessionId,
+          childBackend.runId,
+        );
+        assert.equal(childRunHeader.abortSource, 'benchmark.deadline');
+      } finally {
+        if (watchdog) realClearTimeout(watchdog);
+        t.mock.timers.reset();
+      }
+    });
+  });
+
+  test('preserves the runtime error when deadline cleanup also fails', async (t) => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const realSetTimeout = setTimeout;
+      const realClearTimeout = clearTimeout;
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      class ParentSettlementError extends Error {}
+      const runtimeError = new ParentSettlementError('parent deadline stop failed');
       const cleanupError = new Error('child cleanup stop failed');
       let resolveChildStarted!: () => void;
       const childStarted = new Promise<void>((resolve) => {
@@ -1437,7 +1540,7 @@ describe('runTaskOnce', () => {
         verification: { command: 'true', protectedPaths: [] },
       };
 
-      const run = runTaskOnce({ ...fakeConfig, backend: 'ai-sdk' }, task, {
+      const run = new TaskAgentController({
         storageRoot,
         registerBackends: (registry, context) => {
           registry.register('ai-sdk', (ctx) => {
@@ -1473,7 +1576,7 @@ describe('runTaskOnce', () => {
         },
         now: () => 0,
         deadlineAtMs: 100,
-      });
+      }).runOnce({ ...fakeConfig, backend: 'ai-sdk' }, task);
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       try {
         await childStarted;
@@ -1490,6 +1593,8 @@ describe('runTaskOnce', () => {
           ]),
           (error: unknown) => {
             assert.equal(error, runtimeError);
+            assert.ok(error instanceof ParentSettlementError);
+            assert.equal(error.cause, cleanupError);
             return true;
           },
         );
