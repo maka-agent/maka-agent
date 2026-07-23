@@ -216,6 +216,10 @@ export interface HarnessAbRunManifestInput {
     dataset: 'terminal-bench' | 'deep-swe';
     version: '2.1' | '1.1';
     revision: string;
+    /** Present only for Pier benchmarks: the frozen executor identity whose
+     * version the toolchain fingerprint also hashes. Absent for Harbor
+     * benchmarks so existing Terminal-Bench manifests stay byte-identical. */
+    executor?: { id: 'pier'; version: string };
     timeoutPolicy: 'task-native';
     timeoutMultiplier: 1;
     outerTimeoutGraceSec: number;

@@ -527,6 +527,7 @@ export function buildHarnessAbManifest({
   armExecution = DEFAULT_ARM_EXECUTION,
   oracleEvidence,
   credentialIdentity,
+  pierVersion = null,
 }) {
   const runtime = resolveHarnessRuntimeProfile(competitorProfile);
   const execution = buildHarnessExecutionProfile(competitorProfile);
@@ -535,6 +536,10 @@ export function buildHarnessAbManifest({
       dataset: benchmarkProfile.dataset,
       version: benchmarkProfile.version,
       revision: benchmarkProfile.revision,
+      // Human-readable executor identity for Pier benchmarks; the same
+      // version is hashed into the toolchain fingerprint. Absent for Harbor
+      // benchmarks so Terminal-Bench manifests stay byte-identical.
+      ...(pierVersion === null ? {} : { executor: { id: 'pier', version: pierVersion } }),
       timeoutPolicy: 'task-native',
       timeoutMultiplier: 1,
       outerTimeoutGraceSec: HARBOR_SETUP_TEARDOWN_GRACE_SEC,
@@ -598,6 +603,13 @@ export async function main() {
   const competitorProfile = resolveHarnessCompetitorProfile(
     process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code',
   );
+  // Fail before any run root or lock exists: a doomed benchmark × competitor
+  // pairing must not leave run state behind.
+  if (benchmarkProfile.executor === 'pier' && competitorProfile.id === 'opencode') {
+    throw new Error(
+      'the OpenCode adapter has no Pier arm; DeepSWE supports the kimi-code and codex competitors',
+    );
+  }
   const runId = resolveHarnessAbRunId(
     competitorProfile,
     process.env.MAKA_HARNESS_AB_RUN_ID,
@@ -660,11 +672,6 @@ async function runLocked({
   benchmarkProfile,
   competitorProfile,
 }) {
-  if (benchmarkProfile.executor === 'pier' && competitorProfile.id === 'opencode') {
-    throw new Error(
-      'the OpenCode adapter has no Pier arm; DeepSWE supports the kimi-code and codex competitors',
-    );
-  }
   const { tasks: allTasks, taskSourceFingerprint } = await resolveFrozenBenchmarkTasks(
     benchmarkProfile,
     tasksRoot,
@@ -718,10 +725,11 @@ async function runLocked({
     env: process.env,
   });
 
+  const pierVersion = benchmarkProfile.executor === 'pier' ? await readPierVersion() : null;
   const toolchainFingerprint = buildHarnessAbToolchainFingerprint({
     hostToolchainFingerprint,
     competitorProfile,
-    pierVersion: benchmarkProfile.executor === 'pier' ? await readPierVersion() : null,
+    pierVersion,
   });
   const manifest = buildHarnessAbManifest({
     subjectFingerprint,
@@ -734,6 +742,7 @@ async function runLocked({
     ...(oracleEvidence ? { oracleEvidence } : {}),
     competitorProfile,
     credentialIdentity: credentials.credentialIdentity,
+    pierVersion,
   });
   await ensureAbRunManifest(manifestPath, manifest);
   const evaluationTasks = manifest.evaluationTaskIds
