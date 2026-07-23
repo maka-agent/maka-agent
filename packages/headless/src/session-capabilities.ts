@@ -10,6 +10,7 @@ import type {
   SpawnChildAgentResult,
   SpawnChildSessionInput,
   SpawnChildSessionResult,
+  StopSessionInput,
 } from '@maka/runtime';
 
 export interface HeadlessSessionCapabilities {
@@ -31,26 +32,36 @@ export interface HeadlessSessionCapabilities {
 export function createHeadlessSessionCapabilityBridge(): {
   capabilities: HeadlessSessionCapabilities;
   bind(manager: SessionManager): void;
+  settle(sessionId: string, input?: StopSessionInput): Promise<void>;
 } {
   let manager: SessionManager | undefined;
+  const activeOperations = new Set<Promise<unknown>>();
   const requireManager = (): SessionManager => {
     if (!manager) {
       throw new Error('Headless session capabilities are unavailable during backend registration');
     }
     return manager;
   };
+  const track = <T>(operation: Promise<T>): Promise<T> => {
+    activeOperations.add(operation);
+    void operation.then(
+      () => activeOperations.delete(operation),
+      () => activeOperations.delete(operation),
+    );
+    return operation;
+  };
   return {
     capabilities: {
       spawnChildAgent: async (sessionId, input) =>
-        await requireManager().spawnChildAgent(sessionId, input),
+        await track(requireManager().spawnChildAgent(sessionId, input)),
       spawnChildSession: async (parentSessionId, input) =>
-        await requireManager().spawnChildSession(parentSessionId, input),
+        await track(requireManager().spawnChildSession(parentSessionId, input)),
       prepareChildAgentResume: async (sessionId, sourceRunId) =>
         await requireManager().prepareChildAgentResume(sessionId, sourceRunId),
       resumeChildAgent: async (sessionId, input) =>
-        await requireManager().resumeChildAgent(sessionId, input),
+        await track(requireManager().resumeChildAgent(sessionId, input)),
       retryChildAgent: async (sessionId, input) =>
-        await requireManager().retryChildAgent(sessionId, input),
+        await track(requireManager().retryChildAgent(sessionId, input)),
       listChildAgents: async (sessionId) => await requireManager().listChildAgents(sessionId),
       readChildAgentOutput: async (sessionId, input) =>
         await requireManager().readChildAgentOutput(sessionId, input),
@@ -60,6 +71,27 @@ export function createHeadlessSessionCapabilityBridge(): {
         throw new Error('Headless session capabilities are already bound');
       }
       manager = nextManager;
+    },
+    async settle(sessionId, input) {
+      const operations = [...activeOperations];
+      let firstStopError: unknown;
+      try {
+        await requireManager().stopSession(sessionId, input);
+      } catch (error) {
+        firstStopError = error;
+      }
+      if (firstStopError !== undefined) {
+        try {
+          await requireManager().stopSession(sessionId, input);
+        } catch {
+          throw firstStopError;
+        }
+      }
+      const results = await Promise.allSettled(operations);
+      const error = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      )?.reason;
+      if (error !== undefined) throw error;
     },
   };
 }

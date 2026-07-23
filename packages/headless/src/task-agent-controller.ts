@@ -13,6 +13,8 @@ import {
   AiSdkFlow,
   BackendRegistry,
   RuntimeRunner,
+  SessionManager,
+  buildChildAgentTools,
   type AgentRunActiveSession,
   type InvocationResult,
   type SessionStore,
@@ -76,6 +78,7 @@ import {
   restoreProtectedPaths,
 } from './sandbox.js';
 import { defaultFinalScorer } from './scorer.js';
+import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
 import { approvalRequestInboxItem } from './task-inbox.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
 import {
@@ -104,6 +107,7 @@ import { taskDefinitionFromTask } from './task-run-adapter.js';
 import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
 import { bindSelfCheckEvidence } from './task-self-check-evidence.js';
+import { buildIsolatedHeadlessTools } from './tools.js';
 
 export interface RunTaskOnceDeps extends RunExperimentDeps {
   taskRunId?: string;
@@ -300,6 +304,7 @@ export async function runTaskOnceWithStorage(
       }),
     });
     const backends = new BackendRegistry();
+    const sessionCapabilities = createHeadlessSessionCapabilityBridge();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
     await registerBackends(backends, {
@@ -307,6 +312,7 @@ export async function runTaskOnceWithStorage(
       task,
       storageRoot: deps.storageRoot,
       workspaceDir: agentWorkspaceDir,
+      ...sessionCapabilities.capabilities,
       artifactStore: storage.artifactStore,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
@@ -319,6 +325,27 @@ export async function runTaskOnceWithStorage(
           }
         : {}),
     });
+
+    let parentActive: ReturnType<typeof createSingleRunActiveSession> | undefined;
+    const sessionCapabilityManager = new SessionManager({
+      store: sessionStore,
+      runStore: agentRunStore,
+      runtimeEventStore,
+      backends,
+      ...(deps.realBackendIsolation?.toolExecutor
+        ? {
+            childTools: buildChildAgentTools(
+              buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor),
+            ),
+          }
+        : {}),
+      isParentRunActive: (sessionId, runId, turnId) =>
+        parentActive?.hasActiveRun(sessionId, runId, turnId) ?? false,
+      newId,
+      now,
+      runtimeSource: 'test',
+    });
+    sessionCapabilities.bind(sessionCapabilityManager);
 
     const header = await sessionStore.create({
       cwd: agentWorkspaceDir,
@@ -334,6 +361,7 @@ export async function runTaskOnceWithStorage(
     });
     const turnId = newId();
     const active = createSingleRunActiveSession(backends, sessionStore, now, newId);
+    parentActive = active;
     const run = new AgentRun({
       sessionId: header.id,
       header,
@@ -373,23 +401,35 @@ export async function runTaskOnceWithStorage(
 
     let runtimeInvocation: InvocationResult;
     let settledByDeadline = false;
-    try {
-      const runtimeAttempt = await runRuntimeAttempt({
-        run,
-        header,
-        instruction,
-        ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
-        requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
-        now,
-        newId,
-        settleByDeadline: active.settleByDeadline,
-        ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
-      });
-      runtimeInvocation = runtimeAttempt.invocation;
-      settledByDeadline = runtimeAttempt.settledByDeadline;
-    } finally {
-      await active.dispose();
-    }
+    let deadlineTriggered = false;
+    const runtimeAttempt = await runWithTaskSessionCleanup(
+      async () => {
+        const attempt = await runRuntimeAttempt({
+          run,
+          header,
+          instruction,
+          ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
+          requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
+          now,
+          newId,
+          settleByDeadline: active.settleByDeadline,
+          onDeadlineTriggered: () => {
+            deadlineTriggered = true;
+          },
+          ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
+        });
+        settledByDeadline = attempt.settledByDeadline;
+        return attempt;
+      },
+      () =>
+        disposeTaskRunSession(
+          active,
+          sessionCapabilities,
+          header.id,
+          deadlineTriggered ? 'benchmark_deadline' : undefined,
+        ),
+    );
+    runtimeInvocation = runtimeAttempt.invocation;
     await appendTaskAttemptExecutionLink({
       store: taskRunStore,
       runtimeEventStore,
@@ -472,6 +512,7 @@ export async function runTaskOnceWithStorage(
 
       if (gateDecision.action === 'repair_prompt') {
         const repairActive = createSingleRunActiveSession(backends, sessionStore, now, newId);
+        parentActive = repairActive;
         const repairRun = new AgentRun({
           sessionId: header.id,
           header,
@@ -485,23 +526,37 @@ export async function runTaskOnceWithStorage(
         });
         repairActive.bindRun(repairRun);
         let repairInvocation: InvocationResult;
-        try {
-          const repairRuntimeAttempt = await runRuntimeAttempt({
-            run: repairRun,
-            header,
-            instruction: gateDecision.prompt,
-            ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
-            requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
-            now,
-            newId,
-            settleByDeadline: repairActive.settleByDeadline,
-            ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
-          });
-          repairInvocation = repairRuntimeAttempt.invocation;
-          settledByDeadline ||= repairRuntimeAttempt.settledByDeadline;
-        } finally {
-          await repairActive.dispose();
-        }
+        let repairDeadlineTriggered = false;
+        const repairRuntimeAttempt = await runWithTaskSessionCleanup(
+          async () => {
+            const attempt = await runRuntimeAttempt({
+              run: repairRun,
+              header,
+              instruction: gateDecision.prompt,
+              ...(deps.priorRuntimeContext
+                ? { priorRuntimeContext: deps.priorRuntimeContext }
+                : {}),
+              requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
+              now,
+              newId,
+              settleByDeadline: repairActive.settleByDeadline,
+              onDeadlineTriggered: () => {
+                repairDeadlineTriggered = true;
+              },
+              ...(deps.deadlineAtMs !== undefined ? { deadlineAtMs: deps.deadlineAtMs } : {}),
+            });
+            settledByDeadline ||= attempt.settledByDeadline;
+            return attempt;
+          },
+          () =>
+            disposeTaskRunSession(
+              repairActive,
+              sessionCapabilities,
+              header.id,
+              repairDeadlineTriggered ? 'benchmark_deadline' : undefined,
+            ),
+        );
+        repairInvocation = repairRuntimeAttempt.invocation;
         await appendTaskAttemptExecutionLink({
           store: taskRunStore,
           runtimeEventStore,
@@ -1157,6 +1212,7 @@ interface RunRuntimeAttemptInput {
   newId: () => string;
   deadlineAtMs?: number;
   settleByDeadline(): Promise<boolean>;
+  onDeadlineTriggered(): void;
 }
 
 async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
@@ -1201,6 +1257,7 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<{
   let settlementError: unknown;
   let settlementAttempt: Promise<void> | undefined;
   const settle = () => {
+    input.onDeadlineTriggered();
     settlementAttempt = input
       .settleByDeadline()
       .then((settled) => {
@@ -1259,6 +1316,7 @@ function createSingleRunActiveSession(
 ): {
   hooks: AgentRunHooks;
   bindRun(run: AgentRun): void;
+  hasActiveRun(sessionId: string, runId: string, turnId: string): boolean;
   settleByDeadline(): Promise<boolean>;
   dispose(): Promise<void>;
 } {
@@ -1269,6 +1327,10 @@ function createSingleRunActiveSession(
   };
   return {
     bindRun,
+    hasActiveRun: (sessionId, runId, turnId) =>
+      active?.sessionId === sessionId &&
+      active.activeRuns.get(runId)?.turnId === turnId &&
+      active.turnToRunId.get(turnId) === runId,
     settleByDeadline: async () => {
       if (!active) return false;
       const stoppedRuns = [...active.activeRuns.values()].filter((run) =>
@@ -1361,6 +1423,65 @@ function createSingleRunActiveSession(
       if (backend) await backend.dispose().catch(() => {});
     },
   };
+}
+
+async function runWithTaskSessionCleanup<T>(
+  run: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  let result: T;
+  try {
+    result = await run();
+  } catch (primaryError) {
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      attachTaskCleanupCause(primaryError, cleanupError);
+    }
+    throw primaryError;
+  }
+  await cleanup();
+  return result;
+}
+
+function attachTaskCleanupCause(primaryError: unknown, cleanupError: unknown): void {
+  if (!(primaryError instanceof Error)) return;
+  const existingCause = primaryError.cause;
+  const cause =
+    existingCause === undefined
+      ? cleanupError
+      : new AggregateError(
+          [existingCause, cleanupError],
+          'task session cleanup failed after the primary error',
+        );
+  try {
+    Object.defineProperty(primaryError, 'cause', {
+      value: cause,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+  } catch {
+    // A frozen caller-owned error must remain the primary thrown value.
+  }
+}
+
+async function disposeTaskRunSession(
+  active: { dispose(): Promise<void> },
+  sessionCapabilities: {
+    settle(
+      sessionId: string,
+      input?: { source: 'benchmark_deadline' | 'stop_button' },
+    ): Promise<void>;
+  },
+  sessionId: string,
+  source: 'benchmark_deadline' | undefined,
+): Promise<void> {
+  try {
+    await sessionCapabilities.settle(sessionId, source ? { source } : undefined);
+  } finally {
+    await active.dispose();
+  }
 }
 
 function statusPatch(

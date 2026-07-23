@@ -444,6 +444,8 @@ export interface SessionManagerDeps {
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
+  /** Optional host-owned parent run authority for runtimes that execute the parent externally. */
+  isParentRunActive?: (sessionId: string, runId: string, turnId: string) => boolean;
   shellRuns?: ShellRunProcessManager;
   cleanupHistoryCompactArtifacts?: (input: HistoryCompactCleanupRequest) => Promise<void>;
   inspectContinuationSafety?: (sessionId: string) => Promise<RuntimeContinuationSafetyObservation>;
@@ -2615,7 +2617,10 @@ export class SessionManager {
     if (
       parentRun.sessionId !== parentSessionId ||
       parentRun.turnId !== parentTurnId ||
-      !this.runtimeKernel.hasActiveRun?.(parentSessionId, parentRun.runId, parentTurnId)
+      !(
+        this.runtimeKernel.hasActiveRun?.(parentSessionId, parentRun.runId, parentTurnId) ||
+        this.deps.isParentRunActive?.(parentSessionId, parentRun.runId, parentTurnId)
+      )
     ) {
       throw new Error('Child session parent run is not active');
     }
