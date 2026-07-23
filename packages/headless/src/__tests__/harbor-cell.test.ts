@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -31,6 +32,7 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRecorder,
 } from '@maka/runtime';
+import { Agent } from 'undici';
 import type { Config } from '../contracts.js';
 import { openHeadlessStorageForWrite } from '../headless-storage.js';
 import type {
@@ -5372,12 +5374,45 @@ setTimeout(() => {
 });
 
 describe('createHarborHttpToolExecutor', () => {
+  const createMockedHarborHttpToolExecutor = (
+    env: Parameters<typeof createHarborHttpToolExecutor>[0],
+  ) => createHarborHttpToolExecutor(env, globalThis.fetch as never);
+
+  test('uses its explicit HTTP client for real bridge requests', async () => {
+    const server = createServer((_request, response) => {
+      response.end(JSON.stringify({ exitCode: 0, stdout: 'ok', stderr: '' }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => {
+        throw new Error('global fetch must not own Harbor bridge transport');
+      };
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: `http://127.0.0.1:${address.port}`,
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      assert.deepEqual(
+        await executor.exec({ command: 'echo hello', cwd: '/workspace', timeoutMs: 10_000 }),
+        { exitCode: 0, stdout: 'ok', stderr: '' },
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   test('keeps bridge failures out of command stderr', async () => {
     const previousFetch = globalThis.fetch;
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ error: 'executor bridge failed' }), { status: 500 });
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -5395,7 +5430,7 @@ describe('createHarborHttpToolExecutor', () => {
     const previousFetch = globalThis.fetch;
     try {
       globalThis.fetch = async () => new Response(JSON.stringify(['not', 'an', 'envelope']));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -5414,7 +5449,7 @@ describe('createHarborHttpToolExecutor', () => {
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ exitCode: 0, returnCode: 9, stdout: '', stderr: '' }));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -5433,7 +5468,7 @@ describe('createHarborHttpToolExecutor', () => {
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ exitCode: 0, stdout: '', stderr: '', timedOut: true }));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -5454,7 +5489,7 @@ describe('createHarborHttpToolExecutor', () => {
         new Response(
           JSON.stringify({ exitCode: Number.MAX_SAFE_INTEGER + 1, stdout: '', stderr: '' }),
         );
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -5473,7 +5508,7 @@ describe('createHarborHttpToolExecutor', () => {
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ exitCode: 124, stdout: '', stderr: '', timedOut: true }));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -5489,33 +5524,47 @@ describe('createHarborHttpToolExecutor', () => {
     }
   });
 
-  test('forwards active-tool cancellation to fetch without serializing execution control', async () => {
+  test('uses a long-running dispatcher without replacing active-tool cancellation', async () => {
     const previousFetch = globalThis.fetch;
     const controller = new AbortController();
+    let observedDispatcher: unknown;
     let observedSignal: AbortSignal | null | undefined;
     let observedBody: unknown;
     try {
       globalThis.fetch = async (_input, init) => {
+        observedDispatcher = Reflect.get(init ?? {}, 'dispatcher');
         observedSignal = init?.signal;
         observedBody = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({ exitCode: 0, stdout: 'ok', stderr: '' }), {
           status: 200,
         });
       };
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
 
       await executor.exec(
-        { command: 'sleep until cancelled', cwd: '/workspace' },
+        { command: 'sleep until cancelled', cwd: '/workspace', timeoutMs: 600_000 },
         { abortSignal: controller.signal },
       );
 
+      assert.ok(observedDispatcher instanceof Agent);
+      // Undici has no public getter for Agent defaults. Its own options symbol is
+      // the cheapest observable distinction from the default 300-second Agent.
+      const optionsSymbol = Object.getOwnPropertySymbols(observedDispatcher).find(
+        (symbol) => symbol.description === 'options',
+      );
+      assert.ok(optionsSymbol);
+      const dispatcherOptions = Reflect.get(observedDispatcher, optionsSymbol);
+      assert.equal(Reflect.get(dispatcherOptions, 'headersTimeout'), 0);
+      assert.equal(Reflect.get(dispatcherOptions, 'bodyTimeout'), 0);
       assert.equal(observedSignal, controller.signal);
       assert.deepEqual(observedBody, {
         command: 'sleep until cancelled',
         cwd: '/workspace',
+        timeoutMs: 600_000,
+        timeoutSec: 600,
       });
     } finally {
       globalThis.fetch = previousFetch;
