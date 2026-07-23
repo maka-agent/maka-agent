@@ -21,11 +21,22 @@ describe('Desktop explicit Skill invocation contract', () => {
     assert.doesNotMatch(popup, /skillMentionInsertion\(item\.id\)/);
     assert.match(composer, /className="maka-composer-skill-chip"/);
     assert.match(composer, /props\.onSend\(text, skillIds\)/);
+    assert.match(composer, /clearDraft\(draftKey\);\s*skillDraft\.clear\(draftKey\)/);
     assert.match(composer, /<UiButton[\s\S]*?size="icon"[\s\S]*?shape="pill"[\s\S]*?className="maka-composer-skill-chip-remove"/);
     assert.match(composer, /skillDraft\.remove\(skill\.id\);[\s\S]*?requestAnimationFrame\(\(\) => textareaRef\.current\?\.focus\(\)\)/);
     assert.match(draft, /storeRef = useRef<Map<string, ComposerSkillSelection\[\]>>/);
     assert.match(styles, /\.maka-composer-skill-chip \{[\s\S]*?min-height: 32px;/);
     assert.doesNotMatch(styles, /\.maka-composer-skill-chip-remove \{/);
+  });
+
+  it('clears the submitted Skill owner before guarding the visible draft', async () => {
+    const composer = await read('packages/ui/src/composer.tsx');
+    const clearSubmittedAt = composer.indexOf('skillDraft.clear(submittedSkillDraftKey)');
+    const ownerGuardAt = composer.indexOf(
+      'if (activeDraftKey() !== submittedDraftKey) return',
+      clearSubmittedAt,
+    );
+    assert.ok(clearSubmittedAt >= 0 && ownerGuardAt > clearSubmittedAt);
   });
 
   it('re-resolves structured ids and direct tokens before consuming attachments', async () => {

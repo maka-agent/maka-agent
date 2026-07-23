@@ -58,10 +58,12 @@ export interface ComposerHandle {
   appendText(text: string): void;
   /** Read the current uncontrolled textarea value. */
   getText(): string;
-  /** Clear one persisted draft without affecting a different active session. */
+  /** Clear one persisted text and Skill draft without affecting another session. */
   clearDraft(draftKey: string): void;
   /** Write a specific session draft before navigation changes the active key. */
   setDraft(draftKey: string, text: string): void;
+  /** Copy structured Skill selections when a revision changes draft ownership. */
+  copySkillDraft(sourceDraftKey: string, targetDraftKey: string): void;
   /** Move focus to the textarea without changing its content. */
   focus(): void;
   /** Fixture/integration seam for the same structured selection state used by `/`. */
@@ -332,6 +334,7 @@ export const Composer = forwardRef<
       },
       clearDraft(draftKey: string) {
         clearDraft(draftKey);
+        skillDraft.clear(draftKey);
         if (activeDraftKey() !== draftKey) return;
         const el = textareaRef.current;
         if (el) el.value = '';
@@ -347,6 +350,9 @@ export const Composer = forwardRef<
         el.value = text;
         autoResize();
         focusTextInputAtEnd(el);
+      },
+      copySkillDraft(sourceDraftKey: string, targetDraftKey: string) {
+        skillDraft.copy(sourceDraftKey, targetDraftKey);
       },
       focus() {
         textareaRef.current?.focus();
@@ -383,11 +389,11 @@ export const Composer = forwardRef<
     // survives page reloads and is shared across all input surfaces.
     if (text) rememberSentEntry(text);
     clearDraft(submittedDraftKey);
+    skillDraft.clear(submittedSkillDraftKey);
     // The owner may have changed while onSend awaited (new-session creation,
     // revision branch, or user navigation). Never erase a foreign draft.
     if (activeDraftKey() !== submittedDraftKey) return;
     saveCurrentDraft('');
-    skillDraft.clear(submittedSkillDraftKey);
     skillDraft.clear(skillDraft.activeDraftKey());
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse

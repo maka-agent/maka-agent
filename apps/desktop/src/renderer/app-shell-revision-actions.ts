@@ -192,6 +192,7 @@ export function createAppShellRevisionActions(deps: {
       }
 
       const prepared = { ...draft, draftSessionId: newSession.id };
+      composerRef.current?.copySkillDraft(sourceSessionId, newSession.id);
       composerRef.current?.setDraft(newSession.id, text);
       commitRevisionDraft(prepared);
       upsertSessionSummary(newSession);

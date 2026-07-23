@@ -34,6 +34,11 @@ describe('session revision (edit-and-resend) contract', () => {
     );
     assert.match(shell, /prepareRevisionSend/);
     assert.match(
+      source,
+      /copySkillDraft\(sourceSessionId, newSession\.id\)[\s\S]*setDraft\(newSession\.id, text\)/,
+      'revision preparation must migrate structured Skills with the text draft',
+    );
+    assert.match(
       shell,
       /revisionNotice=\{[\s\S]*revisionDraft && activeId === revisionDraft\.draftSessionId/,
     );

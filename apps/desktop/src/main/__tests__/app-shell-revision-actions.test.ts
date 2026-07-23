@@ -99,6 +99,9 @@ function createHarness(options: {
         appendText: () => undefined,
         getText: () => options.previousComposerText ?? 'Previous draft',
         setSkills: () => undefined,
+        copySkillDraft: (sourceKey: string, targetKey: string) => {
+          composerCalls.push(`<skills:${sourceKey}->${targetKey}>`);
+        },
         clearDraft: (key: string) => { composerCalls.push(`<clear:${key}>`); },
         setDraft: (key: string, text: string) => { composerCalls.push(`<draft:${key}:${text}>`); },
         focus: () => { composerCalls.push('<focus>'); },
@@ -149,7 +152,13 @@ describe('app shell revision actions', () => {
       assert.equal(harness.revisionDraftRef.current?.draftSessionId, 'revision');
       assert.deepEqual(
         harness.composerCalls,
-        ['Human-facing prompt', '<focus>', '<draft:revision:Edited prompt>', '<focus>'],
+        [
+          'Human-facing prompt',
+          '<focus>',
+          '<skills:source->revision>',
+          '<draft:revision:Edited prompt>',
+          '<focus>',
+        ],
       );
     } finally {
       harness.restoreWindow();

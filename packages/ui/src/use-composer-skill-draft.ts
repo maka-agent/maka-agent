@@ -14,6 +14,24 @@ export function addUniqueComposerSkillSelection(
     : [...skills, skill];
 }
 
+export function copyComposerSkillDraftSelections(
+  store: Map<string, ComposerSkillSelection[]>,
+  sourceKey: string | undefined,
+  targetKey: string | undefined,
+  activeKey: string | undefined,
+  activeSkills: readonly ComposerSkillSelection[],
+): ComposerSkillSelection[] {
+  const source =
+    sourceKey === activeKey
+      ? activeSkills
+      : sourceKey
+        ? (store.get(sourceKey) ?? [])
+        : [];
+  const next = [...source];
+  if (targetKey) store.set(targetKey, next);
+  return next;
+}
+
 /** Per-session structured Skill selections, parallel to the textarea draft. */
 export function useComposerSkillDraft(draftKey: string | undefined) {
   const storeRef = useRef<Map<string, ComposerSkillSelection[]>>(new Map());
@@ -49,6 +67,20 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
     if (key === activeKeyRef.current) commit([]);
   }
 
+  function copy(sourceKey: string | undefined, targetKey: string | undefined) {
+    const next = copyComposerSkillDraftSelections(
+      storeRef.current,
+      sourceKey,
+      targetKey,
+      activeKeyRef.current,
+      currentRef.current,
+    );
+    if (targetKey === activeKeyRef.current) {
+      currentRef.current = next;
+      setSkillsState(next);
+    }
+  }
+
   useEffect(() => {
     const previousKey = activeKeyRef.current;
     if (previousKey === draftKey) return;
@@ -65,6 +97,7 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
     remove,
     removeLast,
     clear,
+    copy,
     activeDraftKey: () => activeKeyRef.current,
   };
 }
