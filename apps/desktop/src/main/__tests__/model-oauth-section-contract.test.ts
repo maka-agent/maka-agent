@@ -115,7 +115,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /onCreated=\{async \(\) => \{[\s\S]*const lifecycle = providerDialogLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerDialogLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*closeDialog\(\);/,
+      /onCreated=\{async \(_slug, modelDiscoveryError\) => \{[\s\S]*const lifecycle = providerDialogLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerDialogLifecycleRef\.current !== lifecycle[\s\S]*\) return;[\s\S]*closeDialog\(\);/,
       'AddProviderForm completion must not close a newer dialog after the original dialog was dismissed',
     );
     assert.match(
@@ -268,7 +268,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /const connection = await props\.bridge\.create\([\s\S]*\);[\s\S]*if \(!addProviderMountedRef\.current\) return;[\s\S]*await props\.onCreated\(connection\.slug\);/,
+      /const connection = await props\.bridge\.create\([\s\S]*\);[\s\S]*if \(!addProviderMountedRef\.current\) return;[\s\S]*await props\.onCreated\(connection\.slug, modelDiscoveryError\);/,
       'AddProviderForm create completion must not re-open/select provider detail after the sheet was closed mid-save',
     );
     assert.match(
@@ -314,6 +314,11 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(src, /initialFocus=\{\(\) =>[\s\S]*summary[\s\S]*\?\? true\}/, 'connection dialogs must focus the visible Advanced summary when no form control precedes it');
     assert.match(src, /ariaLabel="API Key"/);
     assert.match(src, /\.\.\.\(normalizedApiKey \? \{ apiKey: normalizedApiKey \} : \{\}\)/);
+    assert.match(
+      src,
+      /defaults\.category === 'local'[\s\S]*props\.bridge\.fetchModels\(connection\.slug\)[\s\S]*props\.onCreated\(connection\.slug, modelDiscoveryError\)/,
+      'new local-provider connections must immediately discover the daemon model catalog',
+    );
     assert.doesNotMatch(src, /ProviderPageHeader|providerInlineEditor/, 'creation must not retain an in-pane child editor');
   });
 

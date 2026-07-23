@@ -66,7 +66,8 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
   const providersPanelRef = useRef<HTMLDivElement>(null);
   const providerCatalogRef = useRef<HTMLElement>(null);
   const locale = useUiLocale();
-  const copy = getProviderSettingsCopy(locale).panel;
+  const providerCopy = getProviderSettingsCopy(locale);
+  const copy = providerCopy.panel;
   const toast = useToast();
 
   function closeDialog() {
@@ -305,11 +306,21 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
             providerType={createType}
             existingSlugs={connections.map((connection) => connection.slug)}
             onCancel={closeDialog}
-            onCreated={async () => {
+            onCreated={async (_slug, modelDiscoveryError) => {
               const lifecycle = providerDialogLifecycleRef.current;
               const reloaded = await reload();
               if (!reloaded || !providersPanelMountedRef.current || providerDialogLifecycleRef.current !== lifecycle) return;
               closeDialog();
+              if (modelDiscoveryError) {
+                const providerName = providerDisplay(createType, locale).name;
+                toast.error(
+                  providerCopy.detail.modelsFetchFailed(providerName),
+                  providerCopy.detail.modelsFetchFailedDetail(
+                    providerPanelActionErrorMessage(modelDiscoveryError, locale),
+                    providerCopy.detail.endpointTroubleshooting,
+                  ),
+                );
+              }
             }}
           />
         </ProviderConnectionDialog>
