@@ -1,23 +1,15 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import { constants as fsConstants, type BigIntStats } from 'node:fs';
-import {
-  chmod,
-  link,
-  lstat,
-  mkdir,
-  open,
-  realpath,
-  rename,
-  stat,
-  unlink,
-  type FileHandle,
-} from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { type BigIntStats } from 'node:fs';
+import { chmod, lstat, mkdir, open, realpath, stat, type FileHandle } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { isAbsolute, join, normalize, parse, resolve } from 'node:path';
 import { tryLock, unlock } from 'fs-native-extensions';
 
+import { publishMarkerFile, readBoundedMarkerFile } from './marker-file.js';
+
 export const STORAGE_ROOT_MARKER_FILE = '.maka-storage-root.json';
 export const STORAGE_ROOT_MARKER_SCHEMA_VERSION = 1 as const;
+const MAX_STORAGE_ROOT_MARKER_BYTES = 1_024;
 
 export type StorageRootKind = 'interactive' | 'headless';
 export type StorageRootAccess = 'read' | 'write';
@@ -713,37 +705,24 @@ async function ensureRootMarker(
       ino: identity.ino.toString(),
     },
   };
-  const tempPath = join(root, `${STORAGE_ROOT_MARKER_FILE}.${process.pid}.${randomUUID()}.tmp`);
-  let tempCreated = false;
-  try {
-    const handle = await open(tempPath, 'wx', 0o600);
-    tempCreated = true;
-    try {
-      await handle.writeFile(`${JSON.stringify(marker)}\n`, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await assertRootPathIdentity(
-      root,
-      identity,
-      `Storage root identity changed before publishing its marker: ${root}`,
-    );
-    try {
-      await link(tempPath, markerPath);
-      await syncDirectory(root);
-    } catch (error) {
-      if (!isNodeError(error, 'EEXIST')) throw error;
-    }
-  } finally {
-    if (tempCreated) {
-      try {
-        await unlink(tempPath);
-      } catch (error) {
-        if (!isNodeError(error, 'ENOENT')) throw error;
-      }
-    }
-  }
+  await publishMarkerFile({
+    root,
+    markerFile: STORAGE_ROOT_MARKER_FILE,
+    contents: `${JSON.stringify(marker)}\n`,
+    maxBytes: MAX_STORAGE_ROOT_MARKER_BYTES,
+    publication: 'create',
+    beforePublish: () =>
+      assertRootPathIdentity(
+        root,
+        identity,
+        `Storage root identity changed before publishing its marker: ${root}`,
+      ),
+    invalidFile: () =>
+      new StorageRootAuthorityError(
+        'invalid_marker',
+        `Storage root marker candidate exceeds the size limit: ${markerPath}`,
+      ),
+  });
   return readAndValidateRootMarker(root, kind);
 }
 
@@ -767,34 +746,24 @@ async function replaceRootMarkerIdentity(
     },
   };
   const markerPath = join(root, STORAGE_ROOT_MARKER_FILE);
-  const tempPath = join(root, `${STORAGE_ROOT_MARKER_FILE}.${process.pid}.${randomUUID()}.tmp`);
-  let tempCreated = false;
-  try {
-    const handle = await open(tempPath, 'wx', 0o600);
-    tempCreated = true;
-    try {
-      await handle.writeFile(`${JSON.stringify(marker)}\n`, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await assertRootPathIdentity(
-      root,
-      identity,
-      `Storage root identity changed before adopting its marker: ${root}`,
-    );
-    await rename(tempPath, markerPath);
-    tempCreated = false;
-    await syncDirectory(root);
-  } finally {
-    if (tempCreated) {
-      try {
-        await unlink(tempPath);
-      } catch (error) {
-        if (!isNodeError(error, 'ENOENT')) throw error;
-      }
-    }
-  }
+  await publishMarkerFile({
+    root,
+    markerFile: STORAGE_ROOT_MARKER_FILE,
+    contents: `${JSON.stringify(marker)}\n`,
+    maxBytes: MAX_STORAGE_ROOT_MARKER_BYTES,
+    publication: 'replace',
+    beforePublish: () =>
+      assertRootPathIdentity(
+        root,
+        identity,
+        `Storage root identity changed before adopting its marker: ${root}`,
+      ),
+    invalidFile: () =>
+      new StorageRootAuthorityError(
+        'invalid_marker',
+        `Storage root marker candidate exceeds the size limit: ${markerPath}`,
+      ),
+  });
   await assertRootPathIdentity(
     root,
     identity,
@@ -839,28 +808,17 @@ async function readRootMarker(root: string): Promise<RootMarker> {
   const markerPath = join(root, STORAGE_ROOT_MARKER_FILE);
   let marker: unknown;
   try {
-    const handle = await open(markerPath, markerReadFlags());
-    try {
-      const [markerStat, pathStat] = await Promise.all([
-        handle.stat({ bigint: true }),
-        lstat(markerPath, { bigint: true }),
-      ]);
-      if (
-        !markerStat.isFile() ||
-        !pathStat.isFile() ||
-        markerStat.size > 1_024n ||
-        markerStat.dev !== pathStat.dev ||
-        markerStat.ino !== pathStat.ino
-      ) {
-        throw new StorageRootAuthorityError(
-          'invalid_marker',
-          `Storage root marker must be one bounded regular file: ${markerPath}`,
-        );
-      }
-      marker = JSON.parse(await handle.readFile('utf8'));
-    } finally {
-      await handle.close();
-    }
+    marker = JSON.parse(
+      await readBoundedMarkerFile({
+        path: markerPath,
+        maxBytes: MAX_STORAGE_ROOT_MARKER_BYTES,
+        invalidFile: () =>
+          new StorageRootAuthorityError(
+            'invalid_marker',
+            `Storage root marker must be one bounded regular file: ${markerPath}`,
+          ),
+      }),
+    );
   } catch (error) {
     if (error instanceof StorageRootAuthorityError) throw error;
     if (isNodeError(error, 'ENOENT')) {
@@ -940,16 +898,6 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   }
 }
 
-async function syncDirectory(path: string): Promise<void> {
-  if (process.platform === 'win32') return;
-  const handle = await open(path, 'r');
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
 async function assertStableLockArtifact(handle: FileHandle, path: string): Promise<void> {
   let stable = false;
   try {
@@ -999,11 +947,6 @@ function isMissingPathError(error: unknown): boolean {
 
 function isInvalidMarkerPathError(error: unknown): boolean {
   return isMissingPathError(error) || isNodeError(error, 'ELOOP') || isNodeError(error, 'ENXIO');
-}
-
-function markerReadFlags(): string | number {
-  if (process.platform === 'win32') return 'r';
-  return fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW;
 }
 
 async function statRootIfPresent(path: string): Promise<BigIntStats | undefined> {
