@@ -260,10 +260,16 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let pending = true;
     try {
       const header = await this.deps.store.readHeader(sessionId);
-      const workspaceIdentity =
-        this.deps.safeBoundaryResumeEnabled === true && this.deps.inspectContinuationSafety
-          ? (await this.deps.inspectContinuationSafety(sessionId)).workspaceIdentity
-          : undefined;
+      let workspaceIdentity: string | undefined;
+      if (this.deps.safeBoundaryResumeEnabled === true && this.deps.inspectContinuationSafety) {
+        try {
+          workspaceIdentity = (await this.deps.inspectContinuationSafety(sessionId))
+            .workspaceIdentity;
+        } catch {
+          // A new turn remains usable without continuation metadata. Actual
+          // continuation claims inspect the same facts strictly below.
+        }
+      }
       const run = new AgentRun({
         sessionId,
         header,

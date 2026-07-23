@@ -855,6 +855,38 @@ describe('SessionManager permission mode updates', () => {
     );
   });
 
+  test('starts a new turn without workspace identity when safety inspection fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FinalTextTestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      safeBoundaryResumeEnabled: true,
+      inspectContinuationSafety: async () => {
+        throw new Error('workspace marker is unavailable');
+      },
+      newId: nextId(),
+      now: nextNow(6_526),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    const events = await collectSessionEvents(
+      manager.sendMessage(session.id, {
+        turnId: 'turn-workspace-identity-unavailable',
+        text: 'continue without resumability',
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual(['text_complete', 'complete']);
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.workspaceIdentity).toBeUndefined();
+  });
+
   test('does not inspect continuation safety on normal turns while resume is disabled', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
