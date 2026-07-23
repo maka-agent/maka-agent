@@ -43,6 +43,8 @@ async function seedE2eInvocableSkills(userDataDir: string): Promise<void> {
   await Promise.all([
     mkdir(path.join(projectSkillRoot, 'project-only'), { recursive: true }),
     mkdir(path.join(projectSkillRoot, 'host-incompatible'), { recursive: true }),
+    mkdir(path.join(projectSkillRoot, 'agent-write'), { recursive: true }),
+    mkdir(path.join(projectSkillRoot, 'deep-research-only'), { recursive: true }),
     mkdir(path.join(workspaceSkillRoot, 'workspace-only'), { recursive: true }),
   ]);
   await Promise.all([
@@ -54,6 +56,16 @@ async function seedE2eInvocableSkills(userDataDir: string): Promise<void> {
     writeFile(
       path.join(projectSkillRoot, 'host-incompatible', 'SKILL.md'),
       `---\nname: Host Incompatible\ndescription: Must be hidden from this host.\nrequired-tools: [DefinitelyMissingTool]\n---\n# Host Incompatible`,
+      'utf8',
+    ),
+    writeFile(
+      path.join(projectSkillRoot, 'agent-write', 'SKILL.md'),
+      `---\nname: Agent Write\ndescription: Requires a mutating tool excluded from Plan mode.\nrequired-tools: [Write]\n---\n# Agent Write`,
+      'utf8',
+    ),
+    writeFile(
+      path.join(projectSkillRoot, 'deep-research-only', 'SKILL.md'),
+      `---\nname: Deep Research Only\ndescription: Requires a tool available only in Deep Research mode.\nrequired-tools: [deep_research_status]\n---\n# Deep Research Only`,
       'utf8',
     ),
     writeFile(

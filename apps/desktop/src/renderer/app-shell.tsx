@@ -10,7 +10,14 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import type { PermissionMode, PlanReminder, SessionSummary, UiLocale, UiLocalePreference } from '@maka/core';
+import type {
+  PermissionMode,
+  PlanReminder,
+  QuickChatMode,
+  SessionSummary,
+  UiLocale,
+  UiLocalePreference,
+} from '@maka/core';
 import {
   buildDeepResearchImplementationPrompt,
   collapseSessionRevisions,
@@ -228,6 +235,7 @@ function AppShellContent({
     draftKey: attachmentDraftKey,
   });
   const [newChatPlanModeActive, setNewChatPlanModeActive] = useState(false);
+  const [newChatQuickChatMode, setNewChatQuickChatMode] = useState<QuickChatMode | undefined>();
   const [pendingCollaborationModeBySession, setPendingCollaborationModeBySession] = useState<Record<string, boolean>>({});
   const [newChatSwarmModeActive, setNewChatSwarmModeActive] = useState(false);
   const [pendingOrchestrationModeBySession, setPendingOrchestrationModeBySession] = useState<Record<string, boolean>>({});
@@ -1010,6 +1018,9 @@ function AppShellContent({
     skills,
     sessionId: activeId,
     projectPath: projectInfo?.projectPath,
+    newSessionModel: newChatModel,
+    newSessionCollaborationMode: newChatPlanModeActive ? 'plan' : 'agent',
+    newSessionMode: newChatQuickChatMode,
   });
 
   const { applyE2eFixture } = useStableActions(createAppShellE2eFixtureActions, {
@@ -1390,6 +1401,7 @@ function AppShellContent({
   async function createSession() {
     startNewSession();
     setNewChatPlanModeActive(false);
+    setNewChatQuickChatMode(undefined);
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setSearchScrollTarget(null);
     // New-task affordances reset to the empty-state composer; move focus
@@ -1772,6 +1784,7 @@ function AppShellContent({
                 onBrowseProviders={openProviderCatalog}
                 onQuickChatSubmit={handleQuickChatSubmit}
                 mentionSkills={mentionSkills}
+                onQuickChatModeChange={setNewChatQuickChatMode}
                 quickChatPending={quickChatPending}
                 connections={connections}
                 onRefreshConnections={refreshConnections}

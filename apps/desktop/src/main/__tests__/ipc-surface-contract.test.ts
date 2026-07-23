@@ -69,8 +69,8 @@ describe('IPC surface contract', () => {
     assert.match(main, /new LocalMemoryService\([\s\S]*getPrivacyContext: getWorkspacePrivacyContext/);
     assert.doesNotMatch(main, /defaultWorkspacePrivacyContext/);
 
-    // The ai-sdk backend wiring moved into session-stream.ts (arch R5); these two
-    // pins now target the combined main-process source instead of main.ts itself.
+    // The ai-sdk backend wiring lives in session-stream.ts and its shared tool
+    // surface resolver; these pins target the combined main-process source.
     assert.match(combinedMainProcess, /const memoryPromptSnapshot = await systemPromptService\.buildLocalMemoryPromptFragment\(\)/);
     assert.match(
       combinedMainProcess,
@@ -85,11 +85,11 @@ describe('IPC surface contract', () => {
     assert.match(combinedMainProcess, /<memory-update>/);
     assert.match(
       combinedMainProcess,
-      /const candidateTools = ctx\.tools\s+\? \[\.\.\.ctx\.tools\]\s+: isComputerUseRealModelE2e/,
+      /const candidateTools = input\.tools\s+\? \[\.\.\.input\.tools\]\s+: deps\.isComputerUseRealModelE2e/,
     );
     assert.match(
       combinedMainProcess,
-      /const planControlTools = ctx\.tools\s+\? \[\]\s+: collaborationMode === 'plan'/,
+      /const planControlTools = input\.tools\s+\? \[\]\s+: collaborationMode === 'plan'/,
     );
   });
 });

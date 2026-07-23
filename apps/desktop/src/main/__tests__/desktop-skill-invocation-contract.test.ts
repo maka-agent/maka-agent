@@ -69,11 +69,37 @@ describe('Desktop explicit Skill invocation contract', () => {
 
   it('uses the same session project root and host for resolution and slash suggestions', async () => {
     const main = await read('apps/desktop/src/main/main.ts');
+    const desktopToolSurface = await read(
+      'apps/desktop/src/main/desktop-backend-tool-surface.ts',
+    );
+    const sessionStream = await read('apps/desktop/src/main/session-stream.ts');
     const workspaceIpc = await read('apps/desktop/src/main/workspace-resources-ipc-main.ts');
     const preload = await read('apps/desktop/src/preload/preload.ts');
     const mentions = await read('apps/desktop/src/renderer/use-composer-mentions.ts');
     assert.match(main, /resolveSkillDiscoveryPaths\([\s\S]*resolveProjectRootForContext\(sessionId\)[\s\S]*workspaceRoot/);
-    assert.match(main, /desktopSessionSkillHosts\.get\(sessionId\) \?\? desktopHostCapabilities/);
+    assert.match(main, /resolveDesktopSkillHostForSession\(sessionId\)/);
+    assert.match(main, /resolveDesktopSkillHostForNewSession\(projectRoot, newSessionContext\)/);
+    assert.match(
+      main,
+      /resolveDesktopSessionSkillHost\(desktopBackendToolSurfaceDeps, \{[\s\S]*header,[\s\S]*childTools: childAgentTools/,
+    );
+    assert.match(
+      main,
+      /resolveDesktopNewSessionSkillHost\(desktopBackendToolSurfaceDeps, \{[\s\S]*context,/,
+    );
+    assert.match(
+      desktopToolSurface,
+      /resolveDesktopBackendToolSurface\(deps, \{[\s\S]*header: input\.header,[\s\S]*\{ tools \}/,
+    );
+    assert.match(
+      desktopToolSurface,
+      /input\.context\?\.mode === 'deep_research'[\s\S]*labels: deepResearch \? \[DEEP_RESEARCH_SESSION_LABEL\]/,
+    );
+    assert.doesNotMatch(
+      main,
+      /host: desktopSessionSkillHosts\.get\(sessionId\) \?\? desktopHostCapabilities/,
+    );
+    assert.match(sessionStream, /resolveDesktopBackendToolSurface\(deps, ctx\)/);
     assert.doesNotMatch(main, /resolveDesktopSkillDiscoverySource/);
     assert.match(main, /listInvocableSkills: listDesktopInvocableSkills/);
     assert.match(
@@ -81,9 +107,14 @@ describe('Desktop explicit Skill invocation contract', () => {
       /if \(sessionId && isSessionWorkspaceUnavailableError\(error\)\) return \[\]/,
       'stale sessions must fail soft without rejected Skill-list IPC noise',
     );
-    assert.match(workspaceIpc, /ipcMain\.handle\('skills:listInvocable'[\s\S]*deps\.listInvocableSkills/);
-    assert.match(preload, /listInvocable\(sessionId\?: string\)[\s\S]*skills:listInvocable/);
-    assert.match(mentions, /window\.maka\.skills\.listInvocable\(sessionId\)/);
+    assert.match(workspaceIpc, /'skills:listInvocable'[\s\S]*deps\.listInvocableSkills/);
+    assert.match(preload, /listInvocable\([\s\S]*newSessionContext[\s\S]*skills:listInvocable/);
+    assert.match(
+      mentions,
+      /window\.maka\.skills\.listInvocable\(\s*sessionId,\s*sessionId/,
+    );
+    assert.match(mentions, /window\.maka\.sessions\.subscribeChanges\(\(event\) =>/);
+    assert.match(mentions, /window\.maka\.mcp\.subscribeChanges\(\(\) => refresh\(\)\)/);
     assert.doesNotMatch(mentions, /filter\(\(skill\) => skill\.enabled/);
   });
 
