@@ -14,6 +14,7 @@ import type {
   SandboxEscalationPlannerContext,
 } from './sandbox-escalation.js';
 import type { SandboxType } from './sandbox/types.js';
+import { isLikelySandboxDenial } from './sandbox/detect.js';
 import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.js';
 import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
@@ -382,7 +383,11 @@ export function shapeTerminalResult(input: {
       stderrTruncated: Boolean(input.result.stderrTruncated) || stderrView.truncated,
       redacted: stdout !== input.result.stdout || stderr !== input.result.stderr,
     },
-    ...(isLikelySandboxDenial(input.result)
+    ...(isLikelySandboxDenial({
+      stdout: input.result.stdout,
+      stderr: input.result.stderr,
+      sandboxed: 'sandboxed' in input.result && input.result.sandboxed === true,
+    })
       ? {
           sandboxDenial: {
             likely: true,
@@ -395,13 +400,6 @@ export function shapeTerminalResult(input: {
         }
       : {}),
   };
-}
-
-function isLikelySandboxDenial(result: ForegroundBashResult | BoundedShellResult): boolean {
-  if (!('sandboxed' in result) || result.sandboxed !== true) return false;
-  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
-    `${result.stderr}\n${result.stdout}`,
-  );
 }
 
 function terminalStatus(

@@ -46,6 +46,7 @@ export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 import type { SandboxManager } from './sandbox/sandbox-manager.js';
 import { SandboxCommandError } from './sandbox/errors.js';
+import { isLikelySandboxDenial } from './sandbox/detect.js';
 import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
 import type { SandboxPlatform, SandboxType } from './sandbox/types.js';
 import type { ChildFdInput } from './child-fd-input.js';
@@ -1057,7 +1058,11 @@ function terminalError(
   },
   code: number,
 ): Error {
-  const sandboxDenied = isLikelySandboxDenial(result);
+  const sandboxDenied = isLikelySandboxDenial({
+    stdout: result.stdout,
+    stderr: result.stderr,
+    sandboxed: result.sandboxed === true,
+  });
   const error = sandboxDenied
     ? new SandboxCommandError({
         domain: 'command',
@@ -1080,15 +1085,6 @@ function terminalError(
     ...(sandboxDenied ? { reason: 'sandbox_denial', recoverable: true } : {}),
   });
   return error;
-}
-
-function isLikelySandboxDenial(
-  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr'> & { sandboxed?: boolean },
-): boolean {
-  if (result.sandboxed !== true) return false;
-  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(
-    `${result.stderr}\n${result.stdout}`,
-  );
 }
 
 function assertRelativeGlobPattern(pattern: string): void {

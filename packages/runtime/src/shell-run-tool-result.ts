@@ -13,6 +13,7 @@ import type {
 
 import { shellRunResourceRef, type ShellRunWriteInput } from './shell-run-contract.js';
 import { truncateToolOutput } from './tool-output.js';
+import { isLikelySandboxDenial } from './sandbox/detect.js';
 
 export const PTY_MODEL_TEXT_BUDGET_BYTES = 50 * 1024;
 
@@ -152,12 +153,9 @@ function sandboxDenialForRecord(record: ShellRunRecord):
       recovery: 'require_escalated';
     }
   | undefined {
-  if (
-    record.status !== 'failed' ||
-    record.sandboxExecution?.enforced !== true ||
-    !isLikelySandboxDenialOutput(record.output)
-  )
-    return undefined;
+  if (record.status !== 'failed' || record.sandboxExecution?.enforced !== true) return undefined;
+  const flat = flattenSandboxDenialText(record.output);
+  if (!isLikelySandboxDenial({ ...flat, sandboxed: true })) return undefined;
   const backend = record.sandboxExecution.type;
   return {
     likely: true,
@@ -166,12 +164,15 @@ function sandboxDenialForRecord(record: ShellRunRecord):
   };
 }
 
-function isLikelySandboxDenialOutput(output: ShellOutput): boolean {
-  const text =
-    output.mode === 'pipes'
-      ? `${output.stderr}\n${output.stdout}`
-      : `${output.scrollback}\n${output.screen}\n${output.lastAlternateScreen ?? ''}`;
-  return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(text);
+function flattenSandboxDenialText(output: ShellOutput): {
+  stdout: string;
+  stderr: string;
+} {
+  if (output.mode === 'pipes') return { stdout: output.stdout, stderr: output.stderr };
+  return {
+    stdout: `${output.scrollback}\n${output.screen}\n${output.lastAlternateScreen ?? ''}`,
+    stderr: '',
+  };
 }
 
 function projectShellOutputForModel(output: ShellOutput): ShellOutput {
