@@ -173,11 +173,21 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;
-  if (options.enableBashAdditionalPermissions && sandboxPlatform !== 'darwin') {
-    throw new Error('Bash additional permissions are currently supported only on macOS.');
+  if (
+    options.enableBashAdditionalPermissions &&
+    sandboxPlatform !== 'darwin' &&
+    sandboxPlatform !== 'linux'
+  ) {
+    throw new Error('Bash additional permissions are currently supported only on macOS and Linux.');
   }
-  if (options.enableFileToolAdditionalPermissions && sandboxPlatform !== 'darwin') {
-    throw new Error('File tool additional permissions are currently supported only on macOS.');
+  if (
+    options.enableFileToolAdditionalPermissions &&
+    sandboxPlatform !== 'darwin' &&
+    sandboxPlatform !== 'linux'
+  ) {
+    throw new Error(
+      'File tool additional permissions are currently supported only on macOS and Linux.',
+    );
   }
   const bashAdditionalPermissionPlanner =
     options.sandboxManager && options.enableBashAdditionalPermissions

@@ -16,19 +16,27 @@ afterEach(async () => {
 });
 
 describe('builtin file tools use the sandboxed worker', () => {
-  test('requires a macOS filesystem worker before enabling one-call file permissions', () => {
+  test('requires a sandboxed worker and supports Linux one-call file permissions', () => {
     assert.throws(
       () => buildBuiltinTools({ enableFileToolAdditionalPermissions: true }),
       /require a sandboxed filesystem worker/,
     );
+
+    const linuxTools = buildBuiltinTools({
+      filesystemWorker: { execute: async () => ({ kind: 'read', content: '' }) },
+      enableFileToolAdditionalPermissions: true,
+      sandboxPlatform: 'linux',
+    });
+    assert.ok(linuxTools.find((tool) => tool.name === 'Write')?.planAdditionalPermissions);
+
     assert.throws(
       () =>
         buildBuiltinTools({
           filesystemWorker: { execute: async () => ({ kind: 'read', content: '' }) },
           enableFileToolAdditionalPermissions: true,
-          sandboxPlatform: 'linux',
+          sandboxPlatform: 'win32',
         }),
-      /supported only on macOS/,
+      /supported only on macOS and Linux/,
     );
   });
 
