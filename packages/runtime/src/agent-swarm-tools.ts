@@ -21,6 +21,7 @@ import {
   type AdaptiveSwarmItemResult,
 } from './adaptive-swarm.js';
 import type { SpawnChildAgentResult } from './session-manager.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 
 export const AGENT_SWARM_TOOL_NAME = 'agent_swarm';
@@ -80,6 +81,7 @@ interface PreparedAgentSwarmItem {
   readonly definition: AgentDefinition;
   readonly mode: 'spawn' | 'resume';
   readonly resumedFromRunId?: string;
+  readonly execution?: SubagentExecutionRef;
 }
 
 interface PendingAgentSwarmResume {
@@ -92,6 +94,7 @@ interface PendingAgentSwarmResume {
 interface StartedChildRef {
   readonly childSessionId?: string;
   readonly turnId: string;
+  readonly runId?: string;
   readonly agentId: string;
   readonly agentName: string;
 }
@@ -167,7 +170,7 @@ export function buildAgentSwarmTool(
       const rows = await runAdaptiveSwarm<
         PreparedAgentSwarmItem,
         ChildExecutionResult,
-        { sourceRunId: string }
+        { sourceRunId: string; execution?: SubagentExecutionRef }
       >(
         prepared.items,
         async (item, { index, attempt, retry, markReady }) => {
@@ -187,10 +190,17 @@ export function buildAgentSwarmTool(
             `Agent swarm item ${item.itemId} ${retry ? 'retry' : 'started'}: ${item.definition.name}\n`,
           );
           try {
-            const onReady = ({ childSessionId, turnId, agentId, agentName }: StartedChildRef) => {
+            const onReady = ({
+              childSessionId,
+              turnId,
+              runId,
+              agentId,
+              agentName,
+            }: StartedChildRef) => {
               readyRefs[index] = {
                 ...(childSessionId ? { childSessionId } : {}),
                 turnId,
+                ...(runId ? { runId } : {}),
                 agentId,
                 agentName,
               };
@@ -200,6 +210,7 @@ export function buildAgentSwarmTool(
               ? ctx.retryChildAgent
                 ? ((await ctx.retryChildAgent({
                     sourceRunId: retry.sourceRunId,
+                    ...(retry.execution ? { execution: retry.execution } : {}),
                     abortSignal: deadline.signal,
                     onReady,
                   })) as SpawnChildAgentResult)
@@ -237,12 +248,22 @@ export function buildAgentSwarmTool(
               effectiveResult.status === 'failed' &&
               effectiveResult.failureClass === 'RateLimit' &&
               effectiveResult.runId &&
-              !effectiveResult.childSessionId &&
               ctx.retryChildAgent
             ) {
               return {
                 status: 'rate_limited' as const,
-                retry: { sourceRunId: effectiveResult.runId },
+                retry: {
+                  sourceRunId: effectiveResult.runId,
+                  ...(effectiveResult.childSessionId
+                    ? {
+                        execution: {
+                          kind: 'child_session' as const,
+                          sessionId: effectiveResult.childSessionId,
+                          currentRunId: effectiveResult.runId,
+                        },
+                      }
+                    : {}),
+                },
                 reason: new ProviderRateLimitRetry(effectiveResult),
               };
             }
@@ -596,6 +617,7 @@ async function prepareAgentSwarmInput(
         definition,
         mode: 'resume',
         resumedFromRunId: item.sourceRunId,
+        execution: prepared.execution,
       };
     }),
   );

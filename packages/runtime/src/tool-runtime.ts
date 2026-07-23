@@ -201,6 +201,7 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   prepareChildAgentResume?: (sourceRunId: string) => Promise<{
     sourceRunId: string;
+    execution: SubagentExecutionRef;
     agentId: string;
     agentName: string;
     profile: string;
@@ -211,7 +212,9 @@ export interface MakaToolContext {
     /** Optional per-child signal, always composed with the owning tool invocation signal. */
     abortSignal?: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -219,10 +222,13 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   retryChildAgent?: (input: {
     sourceRunId: string;
+    execution?: SubagentExecutionRef;
     /** Optional per-child signal, always composed with the owning tool invocation signal. */
     abortSignal?: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -347,6 +353,7 @@ export interface ToolRuntimeInput {
   }) => Promise<unknown>;
   prepareChildAgentResume?: (sourceRunId: string) => Promise<{
     sourceRunId: string;
+    execution: SubagentExecutionRef;
     agentId: string;
     agentName: string;
     profile: string;
@@ -357,7 +364,9 @@ export interface ToolRuntimeInput {
     prompt: string;
     abortSignal: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -366,9 +375,12 @@ export interface ToolRuntimeInput {
   retryChildAgent?: (input: {
     parentRunId: string;
     sourceRunId: string;
+    execution?: SubagentExecutionRef;
     abortSignal: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -2007,6 +2019,7 @@ export class ToolRuntime {
                   await retryChildAgent({
                     parentRunId,
                     sourceRunId: retryInput.sourceRunId,
+                    ...(retryInput.execution ? { execution: retryInput.execution } : {}),
                     abortSignal,
                     ...(retryInput.onReady ? { onReady: retryInput.onReady } : {}),
                     ...(retryInput.onEvent ? { onEvent: retryInput.onEvent } : {}),

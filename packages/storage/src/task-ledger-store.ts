@@ -759,6 +759,7 @@ function normalizeOptionalOwner(value: unknown): Pick<Task, 'owner'> | Record<st
   return {
     owner: {
       actor: owner.actor,
+      ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
       ...(owner.agentId ? { agentId: owner.agentId } : {}),
       ...(owner.runId ? { runId: owner.runId } : {}),
       ...(owner.turnId ? { turnId: owner.turnId } : {}),

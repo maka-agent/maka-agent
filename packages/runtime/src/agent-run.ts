@@ -1072,6 +1072,7 @@ export class AgentRun {
     const runsById = new Map(sessionRuns.map((run) => [run.runId, run]));
     const reverseChain: AgentRunHeader[] = [];
     const visited = new Set<string>();
+    const linkedChildSession = this.input.header.subagentParent?.kind === 'subagent';
     let cursor: string | undefined = sourceRunId;
     while (cursor) {
       if (visited.has(cursor)) {
@@ -1080,14 +1081,16 @@ export class AgentRun {
       visited.add(cursor);
       const run = runsById.get(cursor);
       if (!run) throw new Error(`Child AgentRun resume source ${cursor} was not found`);
-      if (!run.parentRunId || isSessionInlineRun(run)) {
+      if (
+        linkedChildSession ? !isSessionInlineRun(run) : !run.parentRunId || isSessionInlineRun(run)
+      ) {
         throw new Error(`AgentRun ${cursor} is not a resumable child run`);
       }
       if (!run.agentId || run.agentId !== this.input.userInput.agentId) {
         throw new Error(`Child AgentRun resume profile changed at ${cursor}`);
       }
       reverseChain.push(run);
-      cursor = run.resumedFromRunId;
+      cursor = run.resumedFromRunId ?? (linkedChildSession ? run.retriedFromRunId : undefined);
     }
 
     const chain = reverseChain.reverse();

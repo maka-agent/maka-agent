@@ -108,6 +108,7 @@ import {
   type ToolModelOutput,
 } from './tool-runtime.js';
 import type { RuntimeCommitSink } from './runtime-commit-sink.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import {
   ModelAdapter,
   normalizeAiSdkUsage,
@@ -549,9 +550,12 @@ export interface AiSdkBackendInput {
   retryChildAgent?: (input: {
     parentRunId: string;
     sourceRunId: string;
+    execution?: SubagentExecutionRef;
     abortSignal: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;

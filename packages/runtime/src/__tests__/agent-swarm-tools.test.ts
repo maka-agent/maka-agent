@@ -390,6 +390,51 @@ describe('AgentSwarm adapter', () => {
     );
   });
 
+  test('continues a fresh swarm child by its returned runId and keeps the child Session ref', async () => {
+    const tool = buildAgentSwarmTool();
+    const result = await tool.impl(
+      {
+        resume_run_ids: {
+          'fresh-child-run': 'Continue the fresh child.',
+        },
+      },
+      context({
+        prepareChildAgentResume: async (sourceRunId) => ({
+          sourceRunId,
+          execution: {
+            kind: 'child_session',
+            sessionId: 'fresh-child-session',
+            currentRunId: sourceRunId,
+          },
+          agentId: 'local-read',
+          agentName: 'Local Read',
+          profile: LOCAL_READ_AGENT_PROFILE,
+        }),
+        resumeChildAgent: async (input) => {
+          await input.onReady?.({
+            childSessionId: 'fresh-child-session',
+            turnId: 'fresh-resumed-turn',
+            runId: 'fresh-resumed-run',
+            agentId: 'local-read',
+            agentName: 'Local Read',
+          });
+          return {
+            ...childResult(0),
+            childSessionId: 'fresh-child-session',
+            turnId: 'fresh-resumed-turn',
+            runId: 'fresh-resumed-run',
+            resumedFromRunId: input.sourceRunId,
+          };
+        },
+      }),
+    );
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.items[0]?.childSessionId, 'fresh-child-session');
+    assert.equal(result.items[0]?.runId, 'fresh-resumed-run');
+    assert.equal(result.items[0]?.resumedFromRunId, 'fresh-child-run');
+  });
+
   test('fails at the tool boundary when child spawning is unavailable', async () => {
     const tool = buildAgentSwarmTool();
 
@@ -618,29 +663,65 @@ describe('AgentSwarm adapter', () => {
     assert.ok(traceEvents.some((event) => event.data?.swarmStage === 'capacity_changed'));
   });
 
-  test('settles a rate-limited child-session run without invoking the legacy retry path', async () => {
+  test('adaptively retries a rate-limited run inside the same child Session', async () => {
     let retries = 0;
-    const result = await buildAgentSwarmTool().impl(
-      { items: [swarmItem(0)] },
+    const retryExecutions: unknown[] = [];
+    const traceEvents: TestTraceEvent[] = [];
+    const siblingGate = deferred<SpawnChildAgentResult>();
+    const pending = buildAgentSwarmTool({
+      adaptiveSwarmPolicy: {
+        initialLaunchLimit: 2,
+        initialLaunchIntervalMs: 1,
+        rateLimitRetryBaseMs: 1,
+        rateLimitRetryFactor: 2,
+        capacityShrinkIntervalMs: 1,
+        capacityRecoveryIntervalMs: 100,
+      },
+    }).impl(
+      { items: [swarmItem(0), swarmItem(1)], max_concurrency: 2 },
       context({
-        spawnChildSession: async () => ({
-          ...childResult(0, 'failed'),
-          childSessionId: 'child-session-0',
-          failureClass: 'RateLimit',
-          summary: 'provider 429',
-        }),
-        retryChildAgent: async () => {
+        emitRunTrace: (type, message, data) => traceEvents.push({ type, message, data }),
+        spawnChildSession: async (input) =>
+          input.prompt === 'task-1'
+            ? await siblingGate.promise
+            : {
+                ...childResult(0, 'failed'),
+                childSessionId: 'child-session-0',
+                failureClass: 'RateLimit',
+                summary: 'provider 429',
+              },
+        retryChildAgent: async (input) => {
           retries += 1;
-          return childResult(0);
+          retryExecutions.push(input.execution);
+          return {
+            ...childResult(0),
+            childSessionId: 'child-session-0',
+            turnId: 'turn-0-retry',
+            runId: 'run-0-retry',
+          };
         },
       }),
     );
 
-    assert.equal(retries, 0);
-    assert.equal(result.status, 'partial');
+    await waitFor(() => traceEvents.some((event) => event.data?.swarmStage === 'item_suspended'));
+    siblingGate.resolve({
+      ...childResult(1),
+      childSessionId: 'child-session-1',
+    });
+    const result = await pending;
+
+    assert.equal(retries, 1);
+    assert.deepEqual(retryExecutions, [
+      {
+        kind: 'child_session',
+        sessionId: 'child-session-0',
+        currentRunId: 'run-0',
+      },
+    ]);
+    assert.equal(result.status, 'completed');
     assert.equal(result.items[0]?.childSessionId, 'child-session-0');
-    assert.equal(result.items[0]?.runId, 'run-0');
-    assert.equal(result.items[0]?.failureClass, 'RateLimit');
+    assert.equal(result.items[0]?.runId, 'run-0-retry');
+    assert.equal(result.items[0]?.failureClass, undefined);
   });
 
   test('distinguishes active cancellation from items that never started', async () => {
@@ -1103,6 +1184,11 @@ function childResultForPrompt(prompt: string): SpawnChildAgentResult {
 function preparedResume(sourceRunId: string) {
   return {
     sourceRunId,
+    execution: {
+      kind: 'legacy_child_run' as const,
+      sessionId: 'session-1',
+      runId: sourceRunId,
+    },
     agentId: 'local-read',
     agentName: 'Local Read',
     profile: LOCAL_READ_AGENT_PROFILE,

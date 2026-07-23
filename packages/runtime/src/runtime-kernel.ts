@@ -118,6 +118,8 @@ export interface ChildAgentRetryInput {
   parentRunId: string;
   spec: ChildAgentTurnInput['spec'];
   continuation: RuntimeContinuation;
+  /** Retry an ordinary session-inline AgentRun inside a linked child Session. */
+  linkedSession?: boolean;
 }
 
 /**
@@ -620,15 +622,38 @@ export class RuntimeKernel implements RuntimeKernelLike {
       throw new Error('Child retry continuation belongs to a different session');
     }
     const parentHeader = await this.deps.store.readHeader(sessionId);
-    const definition = requireResolvedAgentDefinition(input.spec.id);
+    const linkedSnapshot = input.linkedSession ? parentHeader.subagentRuntime : undefined;
+    if (
+      input.linkedSession &&
+      (parentHeader.subagentParent?.kind !== 'subagent' ||
+        !linkedSnapshot ||
+        linkedSnapshot.agentId !== input.spec.id)
+    ) {
+      throw new Error('Linked child retry is missing its durable runtime snapshot');
+    }
+    const definition = linkedSnapshot
+      ? {
+          id: linkedSnapshot.agentId,
+          name: linkedSnapshot.agentName,
+          systemPrompt: linkedSnapshot.systemPrompt,
+          permissionMode: parentHeader.permissionMode,
+          tools: linkedSnapshot.toolNames,
+          categoryPolicy: linkedSnapshot.categoryPolicy,
+        }
+      : requireResolvedAgentDefinition(input.spec.id);
     const availableChildTools = this.deps.childTools ?? [];
-    assertAgentDefinitionRunnable({
-      parentPermissionMode: parentHeader.permissionMode,
-      definition,
-      tools: availableChildTools,
-    });
+    if (!linkedSnapshot) {
+      assertAgentDefinitionRunnable({
+        parentPermissionMode: parentHeader.permissionMode,
+        definition: requireResolvedAgentDefinition(input.spec.id),
+        tools: availableChildTools,
+      });
+    }
     const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
-    const expertIdentity = parseExpertAgentId(definition.id);
+    if (linkedSnapshot && childTools.length !== linkedSnapshot.toolNames.length) {
+      throw new Error('Linked child retry durable runtime tool snapshot is unavailable');
+    }
+    const expertIdentity = linkedSnapshot ? undefined : parseExpertAgentId(definition.id);
     const agentTeam: AgentTeamExecutionContext | undefined = expertIdentity
       ? {
           role: 'member',
@@ -637,15 +662,17 @@ export class RuntimeKernel implements RuntimeKernelLike {
           parentRunId: input.parentRunId,
         }
       : undefined;
-    const childHeader: SessionHeader = {
-      ...parentHeader,
-      permissionMode: definition.permissionMode,
-      connectionLocked: true,
-    };
+    const childHeader: SessionHeader = linkedSnapshot
+      ? parentHeader
+      : {
+          ...parentHeader,
+          permissionMode: definition.permissionMode,
+          connectionLocked: true,
+        };
     const userInput: UserMessageInput = {
       turnId: continuation.turnId,
       text: '',
-      parentRunId: input.parentRunId,
+      ...(!linkedSnapshot ? { parentRunId: input.parentRunId } : {}),
       retriedFromRunId: continuation.sourceRunId,
       agentId: definition.id,
       agentName: definition.name,
@@ -671,19 +698,33 @@ export class RuntimeKernel implements RuntimeKernelLike {
       recordSessionMessages: false,
       hooks: {
         ensureActive: (targetSessionId, nextHeader) =>
-          this.ensureChildActive(
-            activeKey,
-            targetSessionId,
-            nextHeader,
-            definition.systemPrompt,
-            childTools,
-            agentTeam,
-          ),
+          linkedSnapshot
+            ? this.ensureActive(targetSessionId, nextHeader)
+            : this.ensureChildActive(
+                activeKey,
+                targetSessionId,
+                nextHeader,
+                definition.systemPrompt,
+                childTools,
+                agentTeam,
+              ),
         registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterChildRun(activeKey, active, activeRun),
-        updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
-        updateStatus: async () => {},
-        appendTurnState: async () => {},
+        unregisterRun: (active, activeRun) =>
+          linkedSnapshot
+            ? this.unregisterParentRun(active, activeRun)
+            : this.unregisterChildRun(activeKey, active, activeRun),
+        updateHeader: (targetSessionId, patch) =>
+          linkedSnapshot
+            ? this.updateHeader(targetSessionId, patch)
+            : Promise.resolve({ ...childHeader, ...patch }),
+        updateStatus: (targetSessionId, status, blockedReason, ts) =>
+          linkedSnapshot
+            ? this.updateStatus(targetSessionId, status, blockedReason, ts)
+            : Promise.resolve(),
+        appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
+          linkedSnapshot
+            ? this.appendTurnState(targetSessionId, turnId, status, lineage, options)
+            : Promise.resolve(),
       },
     });
 

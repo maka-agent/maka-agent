@@ -274,6 +274,202 @@ describe('SessionManager child-session runtime primitive', () => {
     while (!(await parentTurn.next()).done) {}
   });
 
+  test('resumes a fresh child by returned runId inside the same linked Session', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    const backendsBySession = new Map<string, TestBackend>();
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx, ctx.header.subagentRuntime ? undefined : parentGate);
+      backendsBySession.set(ctx.sessionId, backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(130),
+      runtimeSource: 'test',
+    });
+    const parent = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'keep parent active' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const child = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'fresh-swarm-item',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'inspect the initial boundary',
+    });
+    const prepared = await manager.prepareChildAgentResume(parent.id, child.runId);
+    expect(prepared.execution).toEqual({
+      kind: 'child_session',
+      sessionId: child.childSessionId,
+      currentRunId: child.runId,
+    });
+
+    const resumed = await manager.resumeChildAgent(parent.id, {
+      parentRunId: parentRun.runId,
+      sourceRunId: child.runId,
+      prompt: 'continue from the returned swarm run id',
+    });
+    expect(resumed.childSessionId).toBe(child.childSessionId);
+    expect(resumed.resumedFromRunId).toBe(child.runId);
+    const resumedRun = await runStore.readRun(child.childSessionId, resumed.runId!);
+    expect(isSessionInlineRun(resumedRun)).toBe(true);
+    expect(resumedRun.parentRunId).toBe(undefined);
+    expect(resumedRun.resumedFromRunId).toBe(child.runId);
+    expect(
+      backendsBySession
+        .get(child.childSessionId)
+        ?.sendInputs[1]?.runtimeContext?.some((event) => event.runId === child.runId),
+    ).toBe(true);
+    expect((await manager.listChildAgents(parent.id)).executions[0]?.execution).toEqual({
+      kind: 'child_session',
+      sessionId: child.childSessionId,
+      currentRunId: resumed.runId,
+    });
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
+  test('retries a rate-limited fresh child inside the same linked Session', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    const childInputs: BackendSendInput[] = [];
+    let childAttempts = 0;
+    backends.register('fake', (ctx) => {
+      if (!ctx.header.subagentRuntime) return new TestBackend(ctx, parentGate);
+      return {
+        kind: 'fake' as const,
+        sessionId: ctx.sessionId,
+        async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+          childAttempts += 1;
+          childInputs.push(input);
+          if (childAttempts === 1) {
+            yield {
+              type: 'error',
+              id: `${input.turnId}-error`,
+              turnId: input.turnId,
+              ts: 1,
+              recoverable: true,
+              reason: 'RateLimit',
+              message: 'provider 429',
+            };
+            yield {
+              type: 'complete',
+              id: `${input.turnId}-complete`,
+              turnId: input.turnId,
+              ts: 2,
+              stopReason: 'error',
+            };
+            return;
+          }
+          yield {
+            type: 'text_delta',
+            id: `${input.turnId}-delta`,
+            turnId: input.turnId,
+            ts: 3,
+            messageId: `${input.turnId}-message`,
+            text: 'recovered',
+          };
+          yield {
+            type: 'complete',
+            id: `${input.turnId}-complete`,
+            turnId: input.turnId,
+            ts: 4,
+            stopReason: 'end_turn',
+          };
+        },
+        async stop(): Promise<void> {},
+        async respondToPermission(): Promise<void> {},
+        async dispose(): Promise<void> {},
+      };
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(145),
+      runtimeSource: 'test',
+    });
+    const parent = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'keep parent active' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const child = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'rate-limited-swarm-item',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'inspect with a transient provider failure',
+    });
+    expect(child.status).toBe('failed');
+    expect(child.failureClass).toBe('RateLimit');
+
+    const retried = await manager.retryChildAgent(parent.id, {
+      parentRunId: parentRun.runId,
+      sourceRunId: child.runId,
+      execution: {
+        kind: 'child_session',
+        sessionId: child.childSessionId,
+        currentRunId: child.runId,
+      },
+    });
+    expect(retried.status).toBe('completed');
+    expect(retried.childSessionId).toBe(child.childSessionId);
+    expect(retried.retriedFromRunId).toBe(child.runId);
+    expect(childInputs.map((input) => input.text)).toEqual([
+      'inspect with a transient provider failure',
+      '',
+    ]);
+    const retryRun = await runStore.readRun(child.childSessionId, retried.runId!);
+    expect(isSessionInlineRun(retryRun)).toBe(true);
+    expect(retryRun.parentRunId).toBe(undefined);
+    expect(retryRun.retriedFromRunId).toBe(child.runId);
+    expect((await manager.prepareChildAgentResume(parent.id, retried.runId!)).execution).toEqual({
+      kind: 'child_session',
+      sessionId: child.childSessionId,
+      currentRunId: retried.runId,
+    });
+    expect(
+      (await store.readMessages(child.childSessionId)).filter(
+        (message) => 'turnId' in message && message.turnId === retried.turnId,
+      ),
+    ).toEqual([]);
+    expect((await manager.listChildAgents(parent.id)).executions[0]?.execution).toEqual({
+      kind: 'child_session',
+      sessionId: child.childSessionId,
+      currentRunId: retried.runId,
+    });
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
   test('deduplicates concurrent and durable retries while rejecting request drift', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -6948,6 +7144,11 @@ describe('SessionManager permission mode updates', () => {
 
     expect(await manager.prepareChildAgentResume(session.id, source.runId)).toEqual({
       sourceRunId: source.runId,
+      execution: {
+        kind: 'legacy_child_run',
+        sessionId: session.id,
+        runId: source.runId,
+      },
       agentId: LOCAL_READ_AGENT_ID,
       agentName: LOCAL_READ_AGENT_DEFINITION.name,
       profile: LOCAL_READ_AGENT_DEFINITION.profile,

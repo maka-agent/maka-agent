@@ -723,7 +723,20 @@ describe('TaskLedgerStore', () => {
     await writeFile(
       tasksFilePath(root),
       JSON.stringify([
-        { id: 'legacy-task', subject: 'old task', status: 'pending', createdAt: 1, updatedAt: 1 },
+        {
+          id: 'legacy-task',
+          subject: 'old task',
+          status: 'pending',
+          createdAt: 1,
+          updatedAt: 1,
+          owner: {
+            actor: 'child_agent',
+            sessionId: 'child-session',
+            agentId: 'local-read',
+            runId: 'child-run',
+            turnId: 'child-turn',
+          },
+        },
       ]),
       'utf8',
     );
@@ -732,6 +745,13 @@ describe('TaskLedgerStore', () => {
       tasks.map((t) => t.id),
       ['legacy-task'],
     );
+    assert.deepEqual(tasks[0]?.owner, {
+      actor: 'child_agent',
+      sessionId: 'child-session',
+      agentId: 'local-read',
+      runId: 'child-run',
+      turnId: 'child-turn',
+    });
   });
 
   it('imports legacy tasks into the event log before appending the first create', async () => {
