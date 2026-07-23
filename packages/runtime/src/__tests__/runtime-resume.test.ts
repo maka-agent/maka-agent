@@ -333,23 +333,6 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     ]);
   });
 
-  test('migrates a legacy filesystem anchor through a marker alias', () => {
-    const workspaceIdentity = 'workspace:v1:123e4567-e89b-42d3-a456-426614174000';
-    const legacyIdentity = 'fs:7:42:/workspace/repo';
-    const plan = buildSafeBoundaryContinuationPlan(
-      [textEvent('user-1', 'user', 'inspect the repository')],
-      {
-        ...safeBoundaryFacts(),
-        sourceWorkspaceIdentity: legacyIdentity,
-        currentWorkspaceIdentity: workspaceIdentity,
-        currentWorkspaceIdentityAliases: [legacyIdentity],
-      },
-    );
-
-    assert.equal(plan.disposition, 'continue');
-    assert.equal(plan.continuation?.safetySnapshot.workspaceIdentity, workspaceIdentity);
-  });
-
   test('parks while a background operation is still unsettled', () => {
     const plan = buildSafeBoundaryContinuationPlan(
       [

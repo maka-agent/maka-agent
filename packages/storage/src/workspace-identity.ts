@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants as fsConstants, type BigIntStats } from 'node:fs';
-import { link, lstat, open, realpath, rename, stat, unlink } from 'node:fs/promises';
+import { link, lstat, open, realpath, stat, unlink } from 'node:fs/promises';
 import { isAbsolute, join, normalize, parse, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -9,32 +9,21 @@ export const WORKSPACE_MARKER_FILE = '.maka-workspace.json';
 export const WORKSPACE_MARKER_SCHEMA_VERSION = 1 as const;
 export const WORKSPACE_IDENTITY_PREFIX = 'workspace:v1:' as const;
 const MAX_WORKSPACE_MARKER_BYTES = 4_096;
-const MAX_LEGACY_ANCHORS = 32;
 const MAX_GIT_EXCLUDE_BYTES = 1024 * 1024;
 const execFileAsync = promisify(execFile);
 
 interface WorkspaceMarker {
   schemaVersion: typeof WORKSPACE_MARKER_SCHEMA_VERSION;
   workspaceId: string;
-  legacyAnchors: string[];
 }
 
 export interface WorkspaceIdentityResolution {
   workspaceIdentity: string;
   canonicalPath: string;
-  /** Legacy filesystem identities accepted only while migrating old AgentRun headers. */
-  legacyWorkspaceIdentities: readonly string[];
 }
 
 export interface ResolveWorkspaceIdentityInput {
   path: string;
-}
-
-export interface AdoptWorkspaceIdentityOnImportInput extends ResolveWorkspaceIdentityInput {
-  /** When supplied, importing a marker with any other UUID fails closed. */
-  expectedWorkspaceIdentity?: string;
-  /** Explicit provenance supplied by an importer for a pre-marker bundle. */
-  legacyWorkspaceIdentity?: string;
 }
 
 export type WorkspaceIdentityErrorCode =
@@ -42,7 +31,6 @@ export type WorkspaceIdentityErrorCode =
   | 'invalid_workspace'
   | 'workspace_unmarked'
   | 'invalid_workspace_marker'
-  | 'workspace_identity_conflict'
   | 'workspace_identity_changed'
   | 'workspace_io_failed';
 
@@ -67,69 +55,8 @@ export async function resolveWorkspaceIdentity(
 ): Promise<WorkspaceIdentityResolution> {
   return withWorkspaceFailure(async () => {
     const snapshot = await resolveWorkspaceSnapshot(input.path);
-    const currentLegacyAnchor = legacyAnchor(snapshot.canonicalPath, snapshot.workspaceStat);
-    const marker = await ensureWorkspaceMarker(snapshot, currentLegacyAnchor);
-    return toResolution(snapshot.canonicalPath, marker, currentLegacyAnchor);
-  });
-}
-
-/**
- * Explicit import boundary. It preserves a copied marker UUID, or creates a
- * marker for a legacy bundle while recording the importer's trusted old anchor.
- */
-export async function adoptWorkspaceIdentityOnImport(
-  input: AdoptWorkspaceIdentityOnImportInput,
-): Promise<WorkspaceIdentityResolution> {
-  return withWorkspaceFailure(async () => {
-    const expectedWorkspaceId =
-      input.expectedWorkspaceIdentity === undefined
-        ? undefined
-        : parseWorkspaceIdentity(input.expectedWorkspaceIdentity);
-    if (
-      input.legacyWorkspaceIdentity !== undefined &&
-      !isLegacyWorkspaceIdentity(input.legacyWorkspaceIdentity)
-    ) {
-      throw new WorkspaceIdentityError(
-        'invalid_workspace_marker',
-        `Invalid legacy workspace identity: ${input.legacyWorkspaceIdentity}`,
-      );
-    }
-
-    const snapshot = await resolveWorkspaceSnapshot(input.path);
-    const currentLegacyAnchor = legacyAnchor(snapshot.canonicalPath, snapshot.workspaceStat);
-    let marker: WorkspaceMarker;
-    try {
-      marker = await readWorkspaceMarker(snapshot.canonicalPath);
-    } catch (error) {
-      if (!(error instanceof WorkspaceIdentityError) || error.code !== 'workspace_unmarked') {
-        throw error;
-      }
-      marker = await createWorkspaceMarker(
-        snapshot,
-        expectedWorkspaceId ?? randomUUID(),
-        uniqueStrings([input.legacyWorkspaceIdentity, currentLegacyAnchor]),
-      );
-    }
-
-    if (expectedWorkspaceId !== undefined && marker.workspaceId !== expectedWorkspaceId) {
-      throw new WorkspaceIdentityError(
-        'workspace_identity_conflict',
-        `Imported workspace marker does not match the expected identity: ${snapshot.canonicalPath}`,
-      );
-    }
-    await ensureWorkspaceMarkerIgnored(snapshot.canonicalPath);
-
-    const nextLegacyAnchors = uniqueStrings([
-      ...marker.legacyAnchors,
-      input.legacyWorkspaceIdentity,
-    ]);
-    if (!sameStrings(marker.legacyAnchors, nextLegacyAnchors)) {
-      marker = await replaceWorkspaceMarker(snapshot, {
-        ...marker,
-        legacyAnchors: nextLegacyAnchors,
-      });
-    }
-    return toResolution(snapshot.canonicalPath, marker, currentLegacyAnchor);
+    const marker = await ensureWorkspaceMarker(snapshot);
+    return toResolution(snapshot.canonicalPath, marker);
   });
 }
 
@@ -161,10 +88,7 @@ async function resolveWorkspaceSnapshot(path: string): Promise<WorkspaceSnapshot
   return { canonicalPath, workspaceStat };
 }
 
-async function ensureWorkspaceMarker(
-  snapshot: WorkspaceSnapshot,
-  currentLegacyAnchor: string,
-): Promise<WorkspaceMarker> {
+async function ensureWorkspaceMarker(snapshot: WorkspaceSnapshot): Promise<WorkspaceMarker> {
   try {
     const marker = await readWorkspaceMarker(snapshot.canonicalPath);
     await ensureWorkspaceMarkerIgnored(snapshot.canonicalPath);
@@ -174,19 +98,17 @@ async function ensureWorkspaceMarker(
       throw error;
     }
   }
-  return createWorkspaceMarker(snapshot, randomUUID(), [currentLegacyAnchor]);
+  return createWorkspaceMarker(snapshot, randomUUID());
 }
 
 async function createWorkspaceMarker(
   snapshot: WorkspaceSnapshot,
   workspaceId: string,
-  legacyAnchors: string[],
 ): Promise<WorkspaceMarker> {
   await ensureWorkspaceMarkerIgnored(snapshot.canonicalPath);
   const marker: WorkspaceMarker = {
     schemaVersion: WORKSPACE_MARKER_SCHEMA_VERSION,
     workspaceId,
-    legacyAnchors,
   };
   const markerPath = join(snapshot.canonicalPath, WORKSPACE_MARKER_FILE);
   const tempPath = temporaryMarkerPath(snapshot.canonicalPath);
@@ -283,41 +205,6 @@ async function hasEnclosingGitEntry(workspacePath: string): Promise<boolean> {
   }
 }
 
-async function replaceWorkspaceMarker(
-  snapshot: WorkspaceSnapshot,
-  marker: WorkspaceMarker,
-): Promise<WorkspaceMarker> {
-  const markerPath = join(snapshot.canonicalPath, WORKSPACE_MARKER_FILE);
-  const existing = await readWorkspaceMarker(snapshot.canonicalPath);
-  if (existing.workspaceId !== marker.workspaceId) {
-    throw new WorkspaceIdentityError(
-      'workspace_identity_conflict',
-      `Workspace identity changed while adopting an import: ${snapshot.canonicalPath}`,
-    );
-  }
-  const tempPath = temporaryMarkerPath(snapshot.canonicalPath);
-  let tempCreated = false;
-  try {
-    await writeMarkerFile(tempPath, marker);
-    tempCreated = true;
-    await assertWorkspaceSnapshot(snapshot);
-    await rename(tempPath, markerPath);
-    tempCreated = false;
-    await syncDirectory(snapshot.canonicalPath);
-  } finally {
-    if (tempCreated) await unlinkIfPresent(tempPath);
-  }
-  await assertWorkspaceSnapshot(snapshot);
-  const adopted = await readWorkspaceMarker(snapshot.canonicalPath);
-  if (adopted.workspaceId !== marker.workspaceId) {
-    throw new WorkspaceIdentityError(
-      'workspace_identity_conflict',
-      `Workspace identity changed while adopting an import: ${snapshot.canonicalPath}`,
-    );
-  }
-  return adopted;
-}
-
 async function writeMarkerFile(path: string, marker: WorkspaceMarker): Promise<void> {
   const serializedMarker = serializeWorkspaceMarker(marker);
   const handle = await open(path, 'wx', 0o600);
@@ -403,71 +290,24 @@ function isWorkspaceMarker(value: unknown): value is WorkspaceMarker {
   const marker = value as Record<string, unknown>;
   const keys = Object.keys(marker).sort();
   return (
-    keys.length === 3 &&
-    keys[0] === 'legacyAnchors' &&
-    keys[1] === 'schemaVersion' &&
-    keys[2] === 'workspaceId' &&
+    keys.length === 2 &&
+    keys[0] === 'schemaVersion' &&
+    keys[1] === 'workspaceId' &&
     marker.schemaVersion === WORKSPACE_MARKER_SCHEMA_VERSION &&
     typeof marker.workspaceId === 'string' &&
-    isUuid(marker.workspaceId) &&
-    Array.isArray(marker.legacyAnchors) &&
-    marker.legacyAnchors.length <= MAX_LEGACY_ANCHORS &&
-    marker.legacyAnchors.every(isLegacyWorkspaceIdentity) &&
-    new Set(marker.legacyAnchors).size === marker.legacyAnchors.length
+    isUuid(marker.workspaceId)
   );
-}
-
-function parseWorkspaceIdentity(value: string): string {
-  if (!value.startsWith(WORKSPACE_IDENTITY_PREFIX)) {
-    throw new WorkspaceIdentityError(
-      'invalid_workspace_marker',
-      `Invalid workspace identity: ${value}`,
-    );
-  }
-  const workspaceId = value.slice(WORKSPACE_IDENTITY_PREFIX.length);
-  if (!isUuid(workspaceId)) {
-    throw new WorkspaceIdentityError(
-      'invalid_workspace_marker',
-      `Invalid workspace identity: ${value}`,
-    );
-  }
-  return workspaceId;
 }
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function isLegacyWorkspaceIdentity(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^fs:\d+:\d+:.+/.test(value) &&
-    Buffer.byteLength(value, 'utf8') <= 2_048
-  );
-}
-
-function legacyAnchor(path: string, workspaceStat: BigIntStats): string {
-  return `fs:${workspaceStat.dev.toString()}:${workspaceStat.ino.toString()}:${normalizeWorkspacePath(path)}`;
-}
-
-function toResolution(
-  canonicalPath: string,
-  marker: WorkspaceMarker,
-  currentLegacyAnchor: string,
-): WorkspaceIdentityResolution {
+function toResolution(canonicalPath: string, marker: WorkspaceMarker): WorkspaceIdentityResolution {
   return {
     workspaceIdentity: `${WORKSPACE_IDENTITY_PREFIX}${marker.workspaceId}`,
     canonicalPath,
-    legacyWorkspaceIdentities: uniqueStrings([...marker.legacyAnchors, currentLegacyAnchor]),
   };
-}
-
-function uniqueStrings(values: readonly (string | undefined)[]): string[] {
-  return [...new Set(values.filter((value): value is string => value !== undefined))];
-}
-
-function sameStrings(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 async function assertWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<void> {
@@ -510,11 +350,6 @@ function canonicalizePath(path: string): string {
   const normalized = normalize(path);
   const root = parse(normalized).root;
   return normalized === root ? normalized : normalized.replace(/[\\/]+$/, '');
-}
-
-function normalizeWorkspacePath(value: string): string {
-  const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
-  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
 function markerReadFlags(): string | number {

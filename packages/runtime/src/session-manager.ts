@@ -1132,9 +1132,6 @@ export class SessionManager {
       currentCwd: header.cwd,
       sourceWorkspaceIdentity: sourceRun.workspaceIdentity,
       currentWorkspaceIdentity: observation.workspaceIdentity,
-      ...(observation.legacyWorkspaceIdentities?.length
-        ? { currentWorkspaceIdentityAliases: observation.legacyWorkspaceIdentities }
-        : {}),
       backgroundOperationsSettled: observation.backgroundOperationsSettled,
       availableToolNames: observation.availableToolNames,
       ...(input.expectedRuntimeEventHighWater !== undefined
