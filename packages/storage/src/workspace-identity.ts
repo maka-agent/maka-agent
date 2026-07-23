@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants as fsConstants, type BigIntStats } from 'node:fs';
-import { link, lstat, open, realpath, stat, unlink } from 'node:fs/promises';
+import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, normalize, parse, resolve } from 'node:path';
 import { promisify } from 'node:util';
+
+import { publishMarkerFile, readBoundedMarkerFile } from './marker-file.js';
 
 export const WORKSPACE_MARKER_FILE = '.maka-workspace.json';
 export const WORKSPACE_MARKER_SCHEMA_VERSION = 1 as const;
@@ -110,22 +112,19 @@ async function createWorkspaceMarker(
     schemaVersion: WORKSPACE_MARKER_SCHEMA_VERSION,
     workspaceId,
   };
-  const markerPath = join(snapshot.canonicalPath, WORKSPACE_MARKER_FILE);
-  const tempPath = temporaryMarkerPath(snapshot.canonicalPath);
-  let tempCreated = false;
-  try {
-    await writeMarkerFile(tempPath, marker);
-    tempCreated = true;
-    await assertWorkspaceSnapshot(snapshot);
-    try {
-      await link(tempPath, markerPath);
-      await syncDirectory(snapshot.canonicalPath);
-    } catch (error) {
-      if (!isNodeError(error, 'EEXIST')) throw error;
-    }
-  } finally {
-    if (tempCreated) await unlinkIfPresent(tempPath);
-  }
+  await publishMarkerFile({
+    root: snapshot.canonicalPath,
+    markerFile: WORKSPACE_MARKER_FILE,
+    contents: serializeWorkspaceMarker(marker),
+    maxBytes: MAX_WORKSPACE_MARKER_BYTES,
+    publication: 'create',
+    beforePublish: () => assertWorkspaceSnapshot(snapshot),
+    invalidFile: () =>
+      new WorkspaceIdentityError(
+        'invalid_workspace_marker',
+        'Workspace marker candidate exceeds the size limit',
+      ),
+  });
   await assertWorkspaceSnapshot(snapshot);
   return readWorkspaceMarker(snapshot.canonicalPath);
 }
@@ -205,20 +204,6 @@ async function hasEnclosingGitEntry(workspacePath: string): Promise<boolean> {
   }
 }
 
-async function writeMarkerFile(path: string, marker: WorkspaceMarker): Promise<void> {
-  const serializedMarker = serializeWorkspaceMarker(marker);
-  const handle = await open(path, 'wx', 0o600);
-  try {
-    await handle.writeFile(serializedMarker, 'utf8');
-    await handle.sync();
-    await handle.close();
-  } catch (error) {
-    await handle.close().catch(() => {});
-    await unlinkIfPresent(path);
-    throw error;
-  }
-}
-
 function serializeWorkspaceMarker(marker: WorkspaceMarker): string {
   if (!isWorkspaceMarker(marker)) {
     throw new WorkspaceIdentityError(
@@ -226,42 +211,24 @@ function serializeWorkspaceMarker(marker: WorkspaceMarker): string {
       'Workspace marker candidate has invalid fields',
     );
   }
-  const serializedMarker = `${JSON.stringify(marker)}\n`;
-  if (Buffer.byteLength(serializedMarker, 'utf8') > MAX_WORKSPACE_MARKER_BYTES) {
-    throw new WorkspaceIdentityError(
-      'invalid_workspace_marker',
-      'Workspace marker candidate exceeds the size limit',
-    );
-  }
-  return serializedMarker;
+  return `${JSON.stringify(marker)}\n`;
 }
 
 async function readWorkspaceMarker(root: string): Promise<WorkspaceMarker> {
   const markerPath = join(root, WORKSPACE_MARKER_FILE);
   let marker: unknown;
   try {
-    const handle = await open(markerPath, markerReadFlags());
-    try {
-      const [handleStat, pathStat] = await Promise.all([
-        handle.stat({ bigint: true }),
-        lstat(markerPath, { bigint: true }),
-      ]);
-      if (
-        !handleStat.isFile() ||
-        !pathStat.isFile() ||
-        handleStat.size > BigInt(MAX_WORKSPACE_MARKER_BYTES) ||
-        handleStat.dev !== pathStat.dev ||
-        handleStat.ino !== pathStat.ino
-      ) {
-        throw new WorkspaceIdentityError(
-          'invalid_workspace_marker',
-          `Workspace marker must be one bounded regular file: ${markerPath}`,
-        );
-      }
-      marker = JSON.parse(await handle.readFile('utf8'));
-    } finally {
-      await handle.close();
-    }
+    marker = JSON.parse(
+      await readBoundedMarkerFile({
+        path: markerPath,
+        maxBytes: MAX_WORKSPACE_MARKER_BYTES,
+        invalidFile: () =>
+          new WorkspaceIdentityError(
+            'invalid_workspace_marker',
+            `Workspace marker must be one bounded regular file: ${markerPath}`,
+          ),
+      }),
+    );
   } catch (error) {
     if (error instanceof WorkspaceIdentityError) throw error;
     if (isMissingPathError(error)) {
@@ -324,37 +291,10 @@ async function assertWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<voi
   }
 }
 
-function temporaryMarkerPath(root: string): string {
-  return join(root, `${WORKSPACE_MARKER_FILE}.${process.pid}.${randomUUID()}.tmp`);
-}
-
-async function unlinkIfPresent(path: string): Promise<void> {
-  try {
-    await unlink(path);
-  } catch (error) {
-    if (!isNodeError(error, 'ENOENT')) throw error;
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  if (process.platform === 'win32') return;
-  const handle = await open(path, 'r');
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
 function canonicalizePath(path: string): string {
   const normalized = normalize(path);
   const root = parse(normalized).root;
   return normalized === root ? normalized : normalized.replace(/[\\/]+$/, '');
-}
-
-function markerReadFlags(): string | number {
-  if (process.platform === 'win32') return 'r';
-  return fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW;
 }
 
 async function statWorkspaceIfPresent(path: string): Promise<BigIntStats | undefined> {
