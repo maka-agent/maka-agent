@@ -1,4 +1,6 @@
 export * from './session-store.js';
+export * from './sqlite-session-metadata-store.js';
+export * from './session-metadata-transfer.js';
 export * from './agent-run-store.js';
 export * from './shell-run-store.js';
 export * from './connection-store.js';

@@ -419,10 +419,7 @@ class FileSessionStore implements SessionStore {
         const region = Buffer.concat(chunks).toString('utf8');
         const firstNl = region.indexOf('\n');
         if (firstNl !== -1) {
-          return migrateHeader(
-            JSON.parse(region.slice(0, firstNl)) as StoredSessionHeader,
-            sessionId,
-          );
+          return decodeSessionHeader(JSON.parse(region.slice(0, firstNl)), sessionId);
         }
         offset += bytesRead;
       }
@@ -479,7 +476,7 @@ class FileSessionStore implements SessionStore {
       .map((line, index) => ({ line, lineNumber: index + 1 }))
       .filter((entry) => entry.line.trim().length > 0);
     if (lines.length === 0 || !lines[0]) throw new Error(`Session ${sessionId} is empty`);
-    const header = migrateHeader(JSON.parse(lines[0].line) as StoredSessionHeader, sessionId);
+    const header = decodeSessionHeader(JSON.parse(lines[0].line), sessionId);
     const messages: StoredMessage[] = [];
     const lastLineNumber = lines.at(-1)?.lineNumber;
     for (const entry of lines.slice(1)) {
@@ -603,7 +600,17 @@ function createJsonlCorruptionNote(
   };
 }
 
-function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionHeader {
+/**
+ * Decode the legacy line-1 JSONL header into the current canonical shape.
+ *
+ * Kept public for one-way importers so file and SQLite storage apply exactly
+ * the same compatibility defaults and validation rules.
+ */
+export function decodeSessionHeader(value: unknown, sessionId: string): SessionHeader {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid session header for session ${sessionId}: expected an object`);
+  }
+  const header = value as StoredSessionHeader;
   const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
   const collaborationMode = isCollaborationMode(header.collaborationMode)
     ? header.collaborationMode
@@ -703,49 +710,53 @@ function normalizeMigratedHeader(
   sessionId: string,
 ): SessionHeader {
   const { pendingCwdReminder: _legacyPendingCwdReminder, ...normalizedHeader } = header;
+  return normalizeSessionHeader(normalizedHeader, sessionId);
+}
+
+/** Validate and normalize a current SessionHeader before canonical persistence. */
+export function normalizeSessionHeader(
+  header: SessionHeader,
+  sessionId: string = header.id,
+): SessionHeader {
   const valid =
-    normalizedHeader.id === sessionId &&
-    typeof normalizedHeader.workspaceRoot === 'string' &&
-    typeof normalizedHeader.cwd === 'string' &&
-    isFiniteNumber(normalizedHeader.createdAt) &&
-    isFiniteNumber(normalizedHeader.lastUsedAt) &&
-    (normalizedHeader.lastMessageAt === undefined ||
-      isFiniteNumber(normalizedHeader.lastMessageAt)) &&
-    typeof normalizedHeader.name === 'string' &&
-    typeof normalizedHeader.titleIsManual === 'boolean' &&
-    typeof normalizedHeader.isFlagged === 'boolean' &&
-    Array.isArray(normalizedHeader.labels) &&
-    normalizedHeader.labels.every((label) => typeof label === 'string') &&
-    typeof normalizedHeader.isArchived === 'boolean' &&
-    (normalizedHeader.archivedAt === undefined || isFiniteNumber(normalizedHeader.archivedAt)) &&
-    isSessionStatus(normalizedHeader.status) &&
-    (normalizedHeader.blockedReason === undefined ||
-      isSessionBlockedReason(normalizedHeader.blockedReason)) &&
-    (normalizedHeader.statusUpdatedAt === undefined ||
-      isFiniteNumber(normalizedHeader.statusUpdatedAt)) &&
-    (normalizedHeader.parentSessionId === undefined ||
-      typeof normalizedHeader.parentSessionId === 'string') &&
-    (normalizedHeader.branchOfTurnId === undefined ||
-      typeof normalizedHeader.branchOfTurnId === 'string') &&
-    isValidRevisionLineage(normalizedHeader) &&
-    (normalizedHeader.lastReadMessageId === undefined ||
-      typeof normalizedHeader.lastReadMessageId === 'string') &&
-    typeof normalizedHeader.hasUnread === 'boolean' &&
-    isBackendKind(normalizedHeader.backend) &&
-    typeof normalizedHeader.llmConnectionSlug === 'string' &&
-    typeof normalizedHeader.connectionLocked === 'boolean' &&
-    typeof normalizedHeader.model === 'string' &&
-    isPermissionMode(normalizedHeader.permissionMode) &&
-    isCollaborationMode(normalizedHeader.collaborationMode) &&
-    isOrchestrationMode(normalizedHeader.orchestrationMode) &&
-    normalizedHeader.schemaVersion === 1;
+    header.id === sessionId &&
+    typeof header.workspaceRoot === 'string' &&
+    typeof header.cwd === 'string' &&
+    isFiniteNumber(header.createdAt) &&
+    isFiniteNumber(header.lastUsedAt) &&
+    (header.lastMessageAt === undefined || isFiniteNumber(header.lastMessageAt)) &&
+    typeof header.name === 'string' &&
+    typeof header.titleIsManual === 'boolean' &&
+    typeof header.isFlagged === 'boolean' &&
+    Array.isArray(header.labels) &&
+    header.labels.every((label) => typeof label === 'string') &&
+    typeof header.isArchived === 'boolean' &&
+    (header.archivedAt === undefined || isFiniteNumber(header.archivedAt)) &&
+    isSessionStatus(header.status) &&
+    (header.blockedReason === undefined || isSessionBlockedReason(header.blockedReason)) &&
+    (header.statusUpdatedAt === undefined || isFiniteNumber(header.statusUpdatedAt)) &&
+    (header.parentSessionId === undefined || typeof header.parentSessionId === 'string') &&
+    (header.branchOfTurnId === undefined || typeof header.branchOfTurnId === 'string') &&
+    isValidRevisionLineage(header) &&
+    (header.lastReadMessageId === undefined || typeof header.lastReadMessageId === 'string') &&
+    typeof header.hasUnread === 'boolean' &&
+    isBackendKind(header.backend) &&
+    typeof header.llmConnectionSlug === 'string' &&
+    typeof header.connectionLocked === 'boolean' &&
+    typeof header.model === 'string' &&
+    isPermissionMode(header.permissionMode) &&
+    isCollaborationMode(header.collaborationMode) &&
+    isOrchestrationMode(header.orchestrationMode) &&
+    header.schemaVersion === 1;
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
   }
-  return {
-    ...normalizedHeader,
-    name: normalizeSessionName(normalizedHeader.name),
-  };
+  const normalizedName = normalizeSessionName(header.name);
+  if (header.blockedReason === undefined) {
+    const { blockedReason: _blockedReason, ...withoutBlockedReason } = header;
+    return { ...withoutBlockedReason, name: normalizedName };
+  }
+  return { ...header, name: normalizedName };
 }
 
 function isValidRevisionLineage(header: SessionHeader): boolean {
