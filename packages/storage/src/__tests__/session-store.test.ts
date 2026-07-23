@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
-import type { CreateSessionInput, SessionHeader, StoredMessage } from '@maka/core';
+import type {
+  CreateSessionInput,
+  SessionHeader,
+  StoredMessage,
+  SubagentSessionParent,
+} from '@maka/core';
 import { createLegacyFileSessionStore as createSessionStore } from '../session-store.js';
 
 describe('FileSessionStore CRUD', () => {
@@ -145,6 +150,90 @@ describe('FileSessionStore CRUD', () => {
       const [summary] = await store.list();
       assert.equal(summary?.parentSessionId, 'parent-session');
       assert.equal(summary?.branchOfTurnId, 'turn-parent');
+    });
+  });
+
+  test('persists typed subagent lineage but rejects relation scans without SQLite', async () => {
+    await withStore(async (store) => {
+      const parent = await store.create(makeInput({ name: 'Parent' }));
+      const child = await store.create(
+        makeInput({
+          name: 'Child',
+          subagentParent: makeSubagentParent(parent.id),
+        }),
+      );
+      await store.create(
+        makeInput({
+          name: 'Other child',
+          subagentParent: makeSubagentParent('other-parent'),
+        }),
+      );
+
+      assert.deepEqual((await store.readHeader(child.id)).subagentParent, {
+        ...makeSubagentParent(parent.id),
+      });
+      await assert.rejects(
+        () => store.list({ subagentParentSessionId: parent.id }),
+        /require SQLite session metadata/,
+      );
+    });
+  });
+
+  test('keeps subagent lineage distinct from branch and revision lineage', async () => {
+    await withStore(async (store) => {
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              parentSessionId: 'branch-parent',
+              branchOfTurnId: 'branch-turn',
+              subagentParent: makeSubagentParent(),
+            }),
+          ),
+        /Invalid subagent session lineage/,
+      );
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              revisionRootSessionId: 'root-session',
+              revisionParentSessionId: 'previous-version',
+              revisionOfTurnId: 'turn-edited',
+              revisionIndex: 2,
+              revisionState: 'preparing',
+              subagentParent: makeSubagentParent(),
+            }),
+          ),
+        /Invalid subagent session lineage/,
+      );
+    });
+  });
+
+  test('rejects malformed or mutated subagent lineage', async () => {
+    await withStore(async (store) => {
+      await assert.rejects(
+        () =>
+          store.create(
+            makeInput({
+              subagentParent: {
+                ...makeSubagentParent(),
+                spawnedBy: {
+                  parentRunId: 'parent-run',
+                  parentTurnId: 'parent-turn',
+                },
+              } as SubagentSessionParent,
+            }),
+          ),
+        /Invalid subagent session lineage/,
+      );
+
+      const child = await store.create(
+        makeInput({ subagentParent: makeSubagentParent('parent-session') }),
+      );
+      await assert.rejects(
+        () => store.updateHeader(child.id, { subagentParent: undefined }),
+        /parent relation is immutable/,
+      );
     });
   });
 
@@ -440,10 +529,12 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(header.status, 'active');
       assert.equal(header.titleIsManual, true);
       assert.equal(header.orchestrationMode, 'default');
+      assert.equal(header.subagentParent, undefined);
       const [summary] = await store.list();
       assert.equal(summary?.permissionMode, 'ask');
       assert.equal(summary?.status, 'active');
       assert.equal(summary?.orchestrationMode, 'default');
+      assert.equal(summary?.subagentParent, undefined);
     });
   });
 
@@ -1392,6 +1483,19 @@ function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionIn
     name: 'Session',
     labels: [],
     ...overrides,
+  };
+}
+
+function makeSubagentParent(parentSessionId = 'parent-session'): SubagentSessionParent {
+  return {
+    kind: 'subagent',
+    parentSessionId,
+    spawnedBy: {
+      parentRunId: 'parent-run',
+      parentTurnId: 'parent-turn',
+      toolCallId: 'tool-call',
+    },
+    lifecycle: 'foreground',
   };
 }
 

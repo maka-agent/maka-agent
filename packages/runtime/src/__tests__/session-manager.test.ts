@@ -66,6 +66,45 @@ import { AGENT_TEAM_CHILD_TOOL_NAMES } from '../agent-team-tool-names.js';
 import { createSqliteRuntimeStore } from '@maka/storage';
 import { ToolRecoveryContractRegistry } from '../tool-recovery-contract.js';
 
+describe('SessionManager child-session read model', () => {
+  test('lists typed child sessions without treating branches as children', async () => {
+    const store = new MemorySessionStore();
+    const manager = new SessionManager({
+      store,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(1),
+    });
+    const parent = await manager.createSession(makeInput({ name: 'Parent' }));
+    const child = await manager.createSession(
+      makeInput({
+        name: 'Child',
+        subagentParent: {
+          kind: 'subagent',
+          parentSessionId: parent.id,
+          spawnedBy: {
+            parentRunId: 'parent-run',
+            parentTurnId: 'parent-turn',
+            toolCallId: 'tool-call',
+          },
+          lifecycle: 'foreground',
+        },
+      }),
+    );
+    await manager.createSession(
+      makeInput({
+        name: 'Branch',
+        parentSessionId: parent.id,
+        branchOfTurnId: 'parent-turn',
+      }),
+    );
+
+    expect((await manager.listChildSessions(parent.id)).map((session) => session.id)).toEqual([
+      child.id,
+    ]);
+  });
+});
+
 describe('SessionManager automatic titles', () => {
   test('starts after user persistence and does not block the turn', async () => {
     const store = new MemorySessionStore();
@@ -13401,6 +13440,7 @@ class MemorySessionStore implements SessionStore {
       statusUpdatedAt: 1,
       ...(input.parentSessionId ? { parentSessionId: input.parentSessionId } : {}),
       ...(input.branchOfTurnId ? { branchOfTurnId: input.branchOfTurnId } : {}),
+      ...(input.subagentParent ? { subagentParent: input.subagentParent } : {}),
       ...(input.revisionRootSessionId
         ? { revisionRootSessionId: input.revisionRootSessionId }
         : {}),

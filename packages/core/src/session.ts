@@ -63,6 +63,33 @@ export const TURN_STATUSES = ['running', 'completed', 'aborted', 'failed'] as co
 
 export type TurnStatus = (typeof TURN_STATUSES)[number];
 
+export const SUBAGENT_SESSION_LIFECYCLES = ['foreground'] as const;
+
+export type SubagentSessionLifecycle = (typeof SUBAGENT_SESSION_LIFECYCLES)[number];
+
+/**
+ * Durable control-plane lineage for a subagent session.
+ *
+ * The relation lives only on the child. Parents do not persist a reciprocal
+ * child-id array; reverse lookup is a read-model concern. Cross-session
+ * provenance deliberately stays out of AgentRun.parentRunId so runs inside the
+ * child session can retain normal session-inline history semantics.
+ */
+export interface SubagentSessionParent {
+  kind: 'subagent';
+  parentSessionId: string;
+  spawnedBy: {
+    parentRunId: string;
+    parentTurnId: string;
+    toolCallId: string;
+  };
+  swarm?: {
+    swarmId: string;
+    itemId: string;
+  };
+  lifecycle: SubagentSessionLifecycle;
+}
+
 export function isSessionStatus(value: unknown): value is SessionStatus {
   return typeof value === 'string' && (SESSION_STATUSES as readonly string[]).includes(value);
 }
@@ -103,8 +130,11 @@ export interface SessionHeader {
   status: SessionStatus;
   blockedReason?: SessionBlockedReason;
   statusUpdatedAt?: number;
+  /** Ordinary branch lineage. Subagent lineage uses subagentParent instead. */
   parentSessionId?: string;
   branchOfTurnId?: string;
+  /** Immutable control-plane relation for a linked child-agent session. */
+  subagentParent?: SubagentSessionParent;
   /** Stable root id for an edit-and-resend version family. */
   revisionRootSessionId?: string;
   /** Immediate previous version in the same conversation slot. */
@@ -156,6 +186,7 @@ export interface SessionSummary {
   statusUpdatedAt?: number;
   parentSessionId?: string;
   branchOfTurnId?: string;
+  subagentParent?: SubagentSessionParent;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;
@@ -179,6 +210,66 @@ export interface SessionSummary {
   collaborationMode?: CollaborationMode;
   /** Defaults to `default` when absent on legacy summaries. */
   orchestrationMode?: OrchestrationMode;
+}
+
+const SUBAGENT_SESSION_PARENT_SHAPE = defineObjectShape<SubagentSessionParent>()(
+  ['kind', 'parentSessionId', 'spawnedBy', 'lifecycle'],
+  ['swarm'],
+);
+const SUBAGENT_SESSION_SPAWN_SHAPE = defineObjectShape<SubagentSessionParent['spawnedBy']>()(
+  ['parentRunId', 'parentTurnId', 'toolCallId'],
+  [],
+);
+const SUBAGENT_SESSION_SWARM_SHAPE = defineObjectShape<
+  NonNullable<SubagentSessionParent['swarm']>
+>()(['swarmId', 'itemId'], []);
+const SESSION_LINEAGE_ID_MAX_CHARS = 512;
+const SESSION_LINEAGE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
+/** Strict decoder guard for the persisted child-session relation. */
+export function isSubagentSessionParent(value: unknown): value is SubagentSessionParent {
+  if (
+    !isRecord(value) ||
+    !hasExactShape(value, SUBAGENT_SESSION_PARENT_SHAPE) ||
+    value.kind !== 'subagent' ||
+    !isSessionLineageId(value.parentSessionId) ||
+    value.lifecycle !== 'foreground' ||
+    !isRecord(value.spawnedBy) ||
+    !hasExactShape(value.spawnedBy, SUBAGENT_SESSION_SPAWN_SHAPE) ||
+    !isSessionLineageId(value.spawnedBy.parentRunId) ||
+    !isSessionLineageId(value.spawnedBy.parentTurnId) ||
+    !isSessionLineageId(value.spawnedBy.toolCallId)
+  ) {
+    return false;
+  }
+  return (
+    value.swarm === undefined ||
+    (isRecord(value.swarm) &&
+      hasExactShape(value.swarm, SUBAGENT_SESSION_SWARM_SHAPE) &&
+      isSessionLineageId(value.swarm.swarmId) &&
+      isSessionLineageId(value.swarm.itemId))
+  );
+}
+
+/** Read-model projection; input order is preserved. */
+export function childSessionsForParent(
+  sessions: readonly SessionSummary[],
+  parentSessionId: string,
+): SessionSummary[] {
+  return sessions.filter(
+    (session) =>
+      isSubagentSessionParent(session.subagentParent) &&
+      session.subagentParent.parentSessionId === parentSessionId,
+  );
+}
+
+function isSessionLineageId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= SESSION_LINEAGE_ID_MAX_CHARS &&
+    !SESSION_LINEAGE_CONTROL_CHARACTERS.test(value)
+  );
 }
 
 export type SessionChangedReason =

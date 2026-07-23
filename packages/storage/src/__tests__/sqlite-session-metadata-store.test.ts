@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, test } from 'node:test';
 import type { SessionHeader } from '@maka/core';
 import {
@@ -19,7 +20,7 @@ describe('SqliteSessionMetadataStore', () => {
     try {
       const store = createSqliteSessionMetadataStore(path, { now: () => 100 });
       const header = fullHeader();
-      assert.equal(store.schemaVersion(), 2);
+      assert.equal(store.schemaVersion(), 3);
       assert.equal(store.journalMode(), 'wal');
       assert.deepEqual(await store.create(header), {
         header,
@@ -30,7 +31,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const reopened = createSqliteSessionMetadataStore(path, { now: () => 200 });
       try {
-        assert.equal(reopened.schemaVersion(), 2);
+        assert.equal(reopened.schemaVersion(), 3);
         assert.deepEqual(await reopened.read(header.id), {
           header,
           metadataVersion: 1,
@@ -51,7 +52,7 @@ describe('SqliteSessionMetadataStore', () => {
     const metadata = createSqliteSessionMetadataStore(path);
     try {
       assert.equal(runtime.schemaVersion(), SQLITE_RUNTIME_SCHEMA_VERSION);
-      assert.equal(metadata.schemaVersion(), 2);
+      assert.equal(metadata.schemaVersion(), 3);
       await metadata.create(fullHeader());
       await runtime.appendRuntimeEvent('session-1', 'run-1', {
         id: 'event-1',
@@ -70,6 +71,106 @@ describe('SqliteSessionMetadataStore', () => {
     } finally {
       metadata.close();
       runtime.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('backfills the relation index when upgrading a populated v2 database', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-metadata-v2-'));
+    const path = join(root, 'sessions.sqlite');
+    const parentSessionId = 'parent-session';
+    const header = fullHeader({
+      id: 'child-session',
+      parentSessionId: undefined,
+      branchOfTurnId: undefined,
+      revisionRootSessionId: undefined,
+      revisionParentSessionId: undefined,
+      revisionOfTurnId: undefined,
+      revisionIndex: undefined,
+      revisionState: undefined,
+      subagentParent: {
+        kind: 'subagent',
+        parentSessionId,
+        spawnedBy: {
+          parentRunId: 'parent-run',
+          parentTurnId: 'parent-turn',
+          toolCallId: 'tool-call',
+        },
+        lifecycle: 'foreground',
+      },
+    });
+    const db = new DatabaseSync(path);
+    db.exec(`
+      CREATE TABLE session_metadata_schema (
+        scope TEXT PRIMARY KEY,
+        version INTEGER NOT NULL
+      );
+      INSERT INTO session_metadata_schema(scope, version) VALUES ('session_metadata', 2);
+      CREATE TABLE session_metadata (
+        session_id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER NOT NULL,
+        last_message_at INTEGER,
+        name TEXT NOT NULL,
+        is_flagged INTEGER NOT NULL,
+        is_archived INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        status_updated_at INTEGER,
+        parent_session_id TEXT,
+        revision_root_session_id TEXT,
+        revision_index INTEGER,
+        has_unread INTEGER NOT NULL,
+        backend TEXT NOT NULL,
+        llm_connection_slug TEXT NOT NULL,
+        model TEXT NOT NULL,
+        metadata_version INTEGER NOT NULL,
+        committed_at INTEGER NOT NULL
+      );
+    `);
+    db.prepare(`
+      INSERT INTO session_metadata(
+        session_id, payload_json, created_at, last_used_at, last_message_at,
+        name, is_flagged, is_archived, status, status_updated_at,
+        parent_session_id, revision_root_session_id, revision_index, has_unread,
+        backend, llm_connection_slug, model, metadata_version, committed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      header.id,
+      JSON.stringify(header),
+      header.createdAt,
+      header.lastUsedAt,
+      header.lastMessageAt ?? null,
+      header.name,
+      0,
+      0,
+      header.status,
+      header.statusUpdatedAt ?? null,
+      null,
+      null,
+      null,
+      1,
+      header.backend,
+      header.llmConnectionSlug,
+      header.model,
+      1,
+      100,
+    );
+    db.close();
+
+    const store = createSqliteSessionMetadataStore(path);
+    try {
+      assert.equal(store.schemaVersion(), 3);
+      assert.deepEqual(
+        (
+          await store.list({
+            subagentParentSessionId: parentSessionId,
+          })
+        ).map((record) => record.header.id),
+        [header.id],
+      );
+    } finally {
+      store.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -123,6 +224,75 @@ describe('SqliteSessionMetadataStore', () => {
       assert.deepEqual(
         (await store.list({ labelSlug: 'alpha' })).map((record) => record.header.id),
         ['older'],
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  test('queries typed subagent relations through the dedicated parent index', async () => {
+    const store = createSqliteSessionMetadataStore(':memory:');
+    const subagentParent = {
+      kind: 'subagent' as const,
+      parentSessionId: 'parent-session',
+      spawnedBy: {
+        parentRunId: 'parent-run',
+        parentTurnId: 'parent-turn',
+        toolCallId: 'tool-call',
+      },
+      lifecycle: 'foreground' as const,
+    };
+    try {
+      await store.create(
+        fullHeader({
+          id: 'child-session',
+          parentSessionId: undefined,
+          branchOfTurnId: undefined,
+          revisionRootSessionId: undefined,
+          revisionParentSessionId: undefined,
+          revisionOfTurnId: undefined,
+          revisionIndex: undefined,
+          revisionState: undefined,
+          subagentParent,
+        }),
+      );
+      await store.create(
+        fullHeader({
+          id: 'ordinary-branch',
+          parentSessionId: 'parent-session',
+          branchOfTurnId: 'parent-turn',
+          revisionRootSessionId: undefined,
+          revisionParentSessionId: undefined,
+          revisionOfTurnId: undefined,
+          revisionIndex: undefined,
+          revisionState: undefined,
+        }),
+      );
+      await store.create(
+        fullHeader({
+          id: 'other-child',
+          parentSessionId: undefined,
+          branchOfTurnId: undefined,
+          revisionRootSessionId: undefined,
+          revisionParentSessionId: undefined,
+          revisionOfTurnId: undefined,
+          revisionIndex: undefined,
+          revisionState: undefined,
+          subagentParent: { ...subagentParent, parentSessionId: 'other-parent' },
+        }),
+      );
+
+      const children = await store.list({
+        subagentParentSessionId: subagentParent.parentSessionId,
+      });
+      assert.deepEqual(
+        children.map((record) => record.header.id),
+        ['child-session'],
+      );
+      assert.deepEqual(children[0]?.header.subagentParent, subagentParent);
+      await assert.rejects(
+        () => store.update('child-session', { subagentParent: undefined }),
+        /parent relation is immutable/,
       );
     } finally {
       store.close();

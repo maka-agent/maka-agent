@@ -63,6 +63,46 @@ describe('default SQLite session metadata store', () => {
     }
   });
 
+  test('lists linked child sessions through SQLite without conflating ordinary branches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-default-session-relations-'));
+    const store = createSessionStore(root);
+    try {
+      const parent = await store.create(makeInput({ name: 'Parent' }));
+      const child = await store.create(
+        makeInput({
+          name: 'Child',
+          subagentParent: {
+            kind: 'subagent',
+            parentSessionId: parent.id,
+            spawnedBy: {
+              parentRunId: 'parent-run',
+              parentTurnId: 'parent-turn',
+              toolCallId: 'tool-call',
+            },
+            lifecycle: 'foreground',
+          },
+        }),
+      );
+      await store.create(
+        makeInput({
+          name: 'Branch',
+          parentSessionId: parent.id,
+          branchOfTurnId: 'parent-turn',
+        }),
+      );
+
+      const children = await store.list({ subagentParentSessionId: parent.id });
+      assert.deepEqual(
+        children.map((session) => session.id),
+        [child.id],
+      );
+      assert.equal(children[0]?.subagentParent?.parentSessionId, parent.id);
+    } finally {
+      store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('imports an existing JSONL catalog once and preserves later SQLite-only updates', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-default-session-migration-'));
     const legacy = createLegacyFileSessionStore(root);

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 2;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 3;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
@@ -70,6 +70,20 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       session_id TEXT PRIMARY KEY,
       deleted_at INTEGER NOT NULL
     );
+  `,
+  ],
+  [
+    3,
+    `
+    ALTER TABLE session_metadata ADD COLUMN subagent_parent_session_id TEXT;
+
+    UPDATE session_metadata
+    SET subagent_parent_session_id =
+      json_extract(payload_json, '$.subagentParent.parentSessionId')
+    WHERE json_type(payload_json, '$.subagentParent.parentSessionId') = 'text';
+
+    CREATE INDEX session_metadata_by_subagent_parent
+      ON session_metadata(subagent_parent_session_id, session_id);
   `,
   ],
 ]);
