@@ -1214,6 +1214,7 @@ wireAppLifecycle({
   isIsolatedE2e,
   e2eFixture,
   workspaceRoot,
+  sessionStore: store,
   credentialStore,
   connectionStore,
   settingsStore,

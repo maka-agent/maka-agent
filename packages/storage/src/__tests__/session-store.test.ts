@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
 import type { CreateSessionInput, SessionHeader, StoredMessage } from '@maka/core';
-import { createSessionStore } from '../session-store.js';
+import { createLegacyFileSessionStore as createSessionStore } from '../session-store.js';
 
 describe('FileSessionStore CRUD', () => {
   test('list on a missing workspace is observational and does not create session storage', async () => {

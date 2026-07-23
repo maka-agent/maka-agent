@@ -6,6 +6,7 @@ import type { BotRegistry, SessionManager, ShellRunProcessManager } from '@maka/
 import type { McpClientManager } from '@maka/mcp';
 import type {
   createConnectionStore,
+  createSessionStore,
   createSettingsStore,
   createTelemetryRepo,
   openRuntimeEventPersistence,
@@ -35,6 +36,7 @@ export interface AppLifecycleDeps {
   isIsolatedE2e: boolean;
   e2eFixture: ReturnType<typeof resolveE2eFixture>;
   workspaceRoot: string;
+  sessionStore: ReturnType<typeof createSessionStore>;
   credentialStore: ReturnType<typeof createFileCredentialStore>;
   connectionStore: ReturnType<typeof createConnectionStore>;
   settingsStore: ReturnType<typeof createSettingsStore>;
@@ -84,6 +86,7 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
     isIsolatedE2e,
     e2eFixture,
     workspaceRoot,
+    sessionStore,
     credentialStore,
     connectionStore,
     settingsStore,
@@ -331,5 +334,6 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
       if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
     }
     runtimePersistence.close();
+    sessionStore.close?.();
   }
 }

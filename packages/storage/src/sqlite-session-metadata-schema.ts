@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 1;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 2;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
@@ -60,6 +60,15 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       session_id TEXT NOT NULL,
       imported_at INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES session_metadata(session_id) ON DELETE CASCADE
+    );
+  `,
+  ],
+  [
+    2,
+    `
+    CREATE TABLE session_metadata_tombstones (
+      session_id TEXT PRIMARY KEY,
+      deleted_at INTEGER NOT NULL
     );
   `,
   ],

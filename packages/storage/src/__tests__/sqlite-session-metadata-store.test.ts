@@ -18,7 +18,7 @@ describe('SqliteSessionMetadataStore', () => {
     try {
       const store = createSqliteSessionMetadataStore(path, { now: () => 100 });
       const header = fullHeader();
-      assert.equal(store.schemaVersion(), 1);
+      assert.equal(store.schemaVersion(), 2);
       assert.equal(store.journalMode(), 'wal');
       assert.deepEqual(await store.create(header), {
         header,
@@ -29,7 +29,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const reopened = createSqliteSessionMetadataStore(path, { now: () => 200 });
       try {
-        assert.equal(reopened.schemaVersion(), 1);
+        assert.equal(reopened.schemaVersion(), 2);
         assert.deepEqual(await reopened.read(header.id), {
           header,
           metadataVersion: 1,
@@ -50,7 +50,7 @@ describe('SqliteSessionMetadataStore', () => {
     const metadata = createSqliteSessionMetadataStore(path);
     try {
       assert.equal(runtime.schemaVersion(), 4);
-      assert.equal(metadata.schemaVersion(), 1);
+      assert.equal(metadata.schemaVersion(), 2);
       await metadata.create(fullHeader());
       await runtime.appendRuntimeEvent('session-1', 'run-1', {
         id: 'event-1',
@@ -205,10 +205,12 @@ describe('SqliteSessionMetadataStore', () => {
       assert.deepEqual(await store.importEntries([entry]), {
         created: [true],
         sourcesAlreadyImported: 0,
+        sourcesTombstoned: 0,
       });
       assert.deepEqual(await store.importEntries([entry]), {
         created: [],
         sourcesAlreadyImported: 1,
+        sourcesTombstoned: 0,
       });
       await assert.rejects(
         () =>
@@ -264,6 +266,16 @@ describe('SqliteSessionMetadataStore', () => {
       assert.equal(await store.remove('session-1'), true);
       assert.equal(await store.remove('session-1'), false);
       assert.deepEqual(await store.list({ labelSlug: 'alpha' }), []);
+      assert.deepEqual(
+        await store.importEntries([
+          {
+            header: fullHeader(),
+            source: { path: '/session-1.jsonl', fingerprint: '1:1' },
+          },
+        ]),
+        { created: [], sourcesAlreadyImported: 0, sourcesTombstoned: 1 },
+      );
+      await assert.rejects(() => store.create(fullHeader()), /tombstoned/);
     } finally {
       store.close();
     }

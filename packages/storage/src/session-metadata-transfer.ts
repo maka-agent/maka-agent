@@ -16,6 +16,7 @@ export interface LegacySessionMetadataImportReport {
   headersImported: number;
   headersExisting: number;
   sourcesAlreadyImported: number;
+  sourcesTombstoned: number;
 }
 
 /**
@@ -32,19 +33,7 @@ export async function importLegacySessionMetadataTree(input: {
   const entries: SessionMetadataImportEntry[] = [];
   for (const directory of await sessionDirectoryNames(sessionsRoot)) {
     const sourcePath = join(sessionsRoot, directory, 'session.jsonl');
-    let value: unknown;
-    let headerLine: string;
-    try {
-      headerLine = await readFirstJsonlRecord(sourcePath);
-      value = JSON.parse(headerLine) as unknown;
-    } catch (error) {
-      throw new Error(`Invalid legacy session header at ${sourcePath}`, { cause: error });
-    }
-    const fingerprint = createHash('sha256').update(headerLine).digest('hex');
-    entries.push({
-      header: decodeSessionHeader(value, directory),
-      source: { path: sourcePath, fingerprint },
-    });
+    entries.push(await readLegacySessionMetadataEntry(sourcePath, directory));
   }
   const result = await input.destination.importEntries(entries);
   const headersImported = result.created.filter(Boolean).length;
@@ -54,7 +43,29 @@ export async function importLegacySessionMetadataTree(input: {
     headersImported,
     headersExisting: result.created.length - headersImported,
     sourcesAlreadyImported: result.sourcesAlreadyImported,
+    sourcesTombstoned: result.sourcesTombstoned,
   };
+}
+
+export async function readLegacySessionMetadataEntry(
+  sourcePath: string,
+  sessionId: string,
+): Promise<SessionMetadataImportEntry> {
+  let value: unknown;
+  let headerLine: string;
+  try {
+    headerLine = await readFirstJsonlRecord(sourcePath);
+    value = JSON.parse(headerLine) as unknown;
+    return {
+      header: decodeSessionHeader(value, sessionId),
+      source: {
+        path: sourcePath,
+        fingerprint: createHash('sha256').update(headerLine).digest('hex'),
+      },
+    };
+  } catch (error) {
+    throw new Error(`Invalid legacy session header at ${sourcePath}`, { cause: error });
+  }
 }
 
 async function sessionDirectoryNames(root: string): Promise<string[]> {

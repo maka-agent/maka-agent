@@ -8,6 +8,14 @@ import {
 } from './execution-record-codec.js';
 import { appendJsonl } from './jsonl-append.js';
 import { classifyJsonRecord } from './json-prefix.js';
+import {
+  importLegacySessionMetadataTree,
+  readLegacySessionMetadataEntry,
+} from './session-metadata-transfer.js';
+import {
+  createSqliteSessionMetadataStore,
+  type SqliteSessionMetadataStore,
+} from './sqlite-session-metadata-store.js';
 import { chainWrite } from './write-queue.js';
 import {
   DEFAULT_SESSION_NAME,
@@ -30,6 +38,7 @@ import type {
 } from '@maka/core';
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+export const SQLITE_SESSION_METADATA_DATABASE_NAME = 'sessions.sqlite';
 
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
@@ -56,10 +65,240 @@ export interface SessionStore {
   rename(sessionId: string, name: string): Promise<void>;
   setGeneratedTitleIfAbsent(sessionId: string, title: string): Promise<SessionHeader | null>;
   remove(sessionId: string): Promise<void>;
+  close?(): void;
 }
 
 export function createSessionStore(workspaceRoot: string): SessionStore {
+  return new SqliteSessionStore(workspaceRoot);
+}
+
+/** Legacy JSONL-header store retained only for migration and compatibility tests. */
+export function createLegacyFileSessionStore(workspaceRoot: string): SessionStore {
   return new FileSessionStore(workspaceRoot);
+}
+
+class SqliteSessionStore implements SessionStore {
+  private readonly files: FileSessionStore;
+  private readonly metadata: SqliteSessionMetadataStore;
+  private readonly ready: Promise<void>;
+
+  constructor(private readonly workspaceRoot: string) {
+    this.files = new FileSessionStore(workspaceRoot);
+    this.metadata = createSqliteSessionMetadataStore(
+      join(workspaceRoot, SQLITE_SESSION_METADATA_DATABASE_NAME),
+    );
+    this.ready = importLegacySessionMetadataTree({
+      workspaceRoot,
+      destination: this.metadata,
+    }).then(() => {});
+  }
+
+  async create(input: CreateSessionInput): Promise<SessionHeader> {
+    await this.ensureReady();
+    const staged = await this.files.create(input);
+    try {
+      const sourcePath = this.sessionPath(staged.id);
+      const entry = await readLegacySessionMetadataEntry(sourcePath, staged.id);
+      await this.metadata.importEntries([entry]);
+      return (await this.metadata.read(staged.id)).header;
+    } catch (error) {
+      await this.files.remove(staged.id).catch(() => {});
+      throw error;
+    }
+  }
+
+  async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
+    await this.ensureReady();
+    const records = await this.metadata.list(filter);
+    const withPreviews: Array<{
+      header: SessionHeader;
+      previewMessages: StoredMessage[];
+    }> = [];
+    for (const record of records) {
+      const previewMessages = await this.files
+        .readPreviewMessages(record.header.id)
+        .catch(() => []);
+      withPreviews.push({ header: record.header, previewMessages });
+    }
+    withPreviews.sort((a, b) => {
+      const aLastMessageAt = maxTimestamp(
+        a.header.lastMessageAt,
+        latestVisibleMessageAt(a.previewMessages),
+      );
+      const bLastMessageAt = maxTimestamp(
+        b.header.lastMessageAt,
+        latestVisibleMessageAt(b.previewMessages),
+      );
+      const tsDelta = (bLastMessageAt ?? 0) - (aLastMessageAt ?? 0);
+      return tsDelta !== 0 ? tsDelta : a.header.id.localeCompare(b.header.id);
+    });
+
+    const summaries: SessionSummary[] = [];
+    for (let index = 0; index < withPreviews.length; index += 1) {
+      const { header, previewMessages } = withPreviews[index]!;
+      let messages = previewMessages.slice(-10);
+      if (index < 3) {
+        messages = (await this.files.readMessagesSnapshot(header.id).catch(() => messages)).slice(
+          -10,
+        );
+      }
+      summaries.push(toSummary(header, messages));
+    }
+    return summaries;
+  }
+
+  async listForRecovery(): Promise<SessionHeader[]> {
+    await this.ensureReady();
+    const headers = (await this.metadata.list())
+      .map((record) => record.header)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    for (const header of headers) {
+      await this.files.readMessagesForRecovery(header.id);
+    }
+    return headers;
+  }
+
+  async readHeaderSnapshot(sessionId: string): Promise<SessionHeader> {
+    await this.ensureReady();
+    return (await this.metadata.read(sessionId)).header;
+  }
+
+  async readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]> {
+    await this.ensureReady();
+    return this.files.readMessagesSnapshot(sessionId);
+  }
+
+  async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
+    await this.ensureReady();
+    return this.files.readMessagesForRecovery(sessionId);
+  }
+
+  async listTurnsSnapshot(sessionId: string): Promise<TurnRecord[]> {
+    return deriveTurnRecords(await this.readMessagesSnapshot(sessionId));
+  }
+
+  async readHeader(sessionId: string): Promise<SessionHeader> {
+    const header = await this.readHeaderSnapshot(sessionId);
+    return this.lockConnectionAfterFirstUserMessage(header);
+  }
+
+  async readMessages(sessionId: string): Promise<StoredMessage[]> {
+    const messages = await this.readMessagesSnapshot(sessionId);
+    const header = (await this.metadata.read(sessionId)).header;
+    await this.lockConnectionAfterFirstUserMessage(header, messages);
+    return messages;
+  }
+
+  async listTurns(sessionId: string): Promise<TurnRecord[]> {
+    return deriveTurnRecords(await this.readMessages(sessionId));
+  }
+
+  async appendMessage(sessionId: string, message: StoredMessage): Promise<void> {
+    await this.appendMessages(sessionId, [message]);
+  }
+
+  async appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void> {
+    await this.ensureReady();
+    await this.files.appendMessages(sessionId, messages);
+  }
+
+  async updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader> {
+    await this.ensureReady();
+    return (await this.metadata.update(sessionId, patch)).header;
+  }
+
+  async markSessionReadThrough(sessionId: string, readThroughTs: number): Promise<SessionHeader> {
+    const header = await this.readHeaderSnapshot(sessionId);
+    const messages = await this.readMessagesSnapshot(sessionId);
+    const effectiveLastMessageAt = maxTimestamp(
+      header.lastMessageAt,
+      latestVisibleMessageAt(messages),
+    );
+    if (
+      !Number.isFinite(readThroughTs) ||
+      !header.hasUnread ||
+      (effectiveLastMessageAt !== undefined && effectiveLastMessageAt > readThroughTs)
+    ) {
+      return header;
+    }
+    return this.updateHeader(sessionId, { hasUnread: false });
+  }
+
+  async archive(sessionId: string): Promise<void> {
+    const now = Date.now();
+    await this.updateHeader(sessionId, {
+      isArchived: true,
+      archivedAt: now,
+      status: 'archived',
+      statusUpdatedAt: now,
+    });
+  }
+
+  async unarchive(sessionId: string): Promise<void> {
+    await this.updateHeader(sessionId, {
+      isArchived: false,
+      archivedAt: undefined,
+      status: 'active',
+      blockedReason: undefined,
+      statusUpdatedAt: Date.now(),
+    });
+  }
+
+  async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
+    await this.updateHeader(sessionId, { isFlagged });
+  }
+
+  async rename(sessionId: string, name: string): Promise<void> {
+    const normalized = normalizeUserSessionName(name);
+    if (!normalized.ok) throw new Error(normalized.error);
+    await this.updateHeader(sessionId, {
+      name: normalized.value,
+      titleIsManual: true,
+    });
+  }
+
+  async setGeneratedTitleIfAbsent(sessionId: string, title: string): Promise<SessionHeader | null> {
+    const normalized = normalizeUserSessionName(title);
+    if (!normalized.ok) return null;
+    const current = await this.readHeaderSnapshot(sessionId);
+    if (
+      current.titleIsManual ||
+      current.name !== DEFAULT_SESSION_NAME ||
+      normalized.value === current.name
+    ) {
+      return null;
+    }
+    return this.updateHeader(sessionId, { name: normalized.value });
+  }
+
+  async remove(sessionId: string): Promise<void> {
+    await this.ensureReady();
+    await this.metadata.remove(sessionId);
+    await this.files.remove(sessionId);
+  }
+
+  close(): void {
+    this.metadata.close();
+  }
+
+  private async lockConnectionAfterFirstUserMessage(
+    header: SessionHeader,
+    knownMessages?: StoredMessage[],
+  ): Promise<SessionHeader> {
+    if (header.connectionLocked) return header;
+    const messages = knownMessages ?? (await this.files.readMessagesSnapshot(header.id));
+    if (!messages.some((message) => message.type === 'user')) return header;
+    return this.updateHeader(header.id, { connectionLocked: true });
+  }
+
+  private async ensureReady(): Promise<void> {
+    await this.ready;
+  }
+
+  private sessionPath(sessionId: string): string {
+    assertSafeSessionId(sessionId);
+    return join(this.workspaceRoot, 'sessions', sessionId, 'session.jsonl');
+  }
 }
 
 class FileSessionStore implements SessionStore {
@@ -257,6 +496,10 @@ class FileSessionStore implements SessionStore {
 
   async readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]> {
     return (await this.readFileParts(sessionId)).messages;
+  }
+
+  async readPreviewMessages(sessionId: string): Promise<StoredMessage[]> {
+    return this.readTailPreviewMessages(sessionId);
   }
 
   async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
