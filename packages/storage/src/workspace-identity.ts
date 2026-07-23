@@ -6,6 +6,8 @@ import { join, normalize, parse, resolve } from 'node:path';
 export const WORKSPACE_MARKER_FILE = '.maka-workspace.json';
 export const WORKSPACE_MARKER_SCHEMA_VERSION = 1 as const;
 export const WORKSPACE_IDENTITY_PREFIX = 'workspace:v1:' as const;
+const MAX_WORKSPACE_MARKER_BYTES = 4_096;
+const MAX_LEGACY_ANCHORS = 32;
 
 interface WorkspaceMarker {
   schemaVersion: typeof WORKSPACE_MARKER_SCHEMA_VERSION;
@@ -234,13 +236,31 @@ async function replaceWorkspaceMarker(
 }
 
 async function writeMarkerFile(path: string, marker: WorkspaceMarker): Promise<void> {
+  const serializedMarker = serializeWorkspaceMarker(marker);
   const handle = await open(path, 'wx', 0o600);
   try {
-    await handle.writeFile(`${JSON.stringify(marker)}\n`, 'utf8');
+    await handle.writeFile(serializedMarker, 'utf8');
     await handle.sync();
   } finally {
     await handle.close();
   }
+}
+
+function serializeWorkspaceMarker(marker: WorkspaceMarker): string {
+  if (!isWorkspaceMarker(marker)) {
+    throw new WorkspaceIdentityError(
+      'invalid_workspace_marker',
+      'Workspace marker candidate has invalid fields',
+    );
+  }
+  const serializedMarker = `${JSON.stringify(marker)}\n`;
+  if (Buffer.byteLength(serializedMarker, 'utf8') > MAX_WORKSPACE_MARKER_BYTES) {
+    throw new WorkspaceIdentityError(
+      'invalid_workspace_marker',
+      'Workspace marker candidate exceeds the size limit',
+    );
+  }
+  return serializedMarker;
 }
 
 async function readWorkspaceMarker(root: string): Promise<WorkspaceMarker> {
@@ -256,7 +276,7 @@ async function readWorkspaceMarker(root: string): Promise<WorkspaceMarker> {
       if (
         !handleStat.isFile() ||
         !pathStat.isFile() ||
-        handleStat.size > 4_096n ||
+        handleStat.size > BigInt(MAX_WORKSPACE_MARKER_BYTES) ||
         handleStat.dev !== pathStat.dev ||
         handleStat.ino !== pathStat.ino
       ) {
@@ -305,7 +325,7 @@ function isWorkspaceMarker(value: unknown): value is WorkspaceMarker {
     typeof marker.workspaceId === 'string' &&
     isUuid(marker.workspaceId) &&
     Array.isArray(marker.legacyAnchors) &&
-    marker.legacyAnchors.length <= 32 &&
+    marker.legacyAnchors.length <= MAX_LEGACY_ANCHORS &&
     marker.legacyAnchors.every(isLegacyWorkspaceIdentity) &&
     new Set(marker.legacyAnchors).size === marker.legacyAnchors.length
   );

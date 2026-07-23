@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -71,6 +71,86 @@ test('import adoption rejects a conflicting workspace UUID', async () => {
         }),
       (error: unknown) =>
         error instanceof WorkspaceIdentityError && error.code === 'workspace_identity_conflict',
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('import adoption rejects an alias overflow without changing the durable marker', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'maka-workspace-alias-overflow-'));
+  try {
+    const original = await resolveWorkspaceIdentity({ path: workspace });
+    const markerPath = join(workspace, WORKSPACE_MARKER_FILE);
+    const marker = JSON.parse(await readFile(markerPath, 'utf8')) as {
+      schemaVersion: number;
+      workspaceId: string;
+      legacyAnchors: string[];
+    };
+    marker.legacyAnchors = Array.from(
+      { length: 32 },
+      (_, index) => `fs:1:${index + 1}:/legacy/workspace-${index}`,
+    );
+    await writeFile(markerPath, `${JSON.stringify(marker)}\n`, 'utf8');
+    const markerBefore = await readFile(markerPath);
+
+    await assert.rejects(
+      () =>
+        adoptWorkspaceIdentityOnImport({
+          path: workspace,
+          legacyWorkspaceIdentity: 'fs:9:9:/legacy/overflow',
+        }),
+      (error: unknown) =>
+        error instanceof WorkspaceIdentityError && error.code === 'invalid_workspace_marker',
+    );
+
+    assert.deepEqual(await readFile(markerPath), markerBefore);
+    assert.equal(
+      (await resolveWorkspaceIdentity({ path: workspace })).workspaceIdentity,
+      original.workspaceIdentity,
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('import adoption rejects a marker size overflow without changing the durable marker', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'maka-workspace-size-overflow-'));
+  try {
+    const original = await resolveWorkspaceIdentity({ path: workspace });
+    const markerPath = join(workspace, WORKSPACE_MARKER_FILE);
+    const marker = JSON.parse(await readFile(markerPath, 'utf8')) as {
+      schemaVersion: number;
+      workspaceId: string;
+      legacyAnchors: string[];
+    };
+    marker.legacyAnchors = [`fs:1:1:/${'a'.repeat(1_900)}`, `fs:1:2:/${'b'.repeat(1_900)}`];
+    const markerBeforeText = `${JSON.stringify(marker)}\n`;
+    const overflowAlias = `fs:1:3:/${'c'.repeat(300)}`;
+    assert.ok(Buffer.byteLength(markerBeforeText, 'utf8') <= 4_096);
+    assert.ok(
+      Buffer.byteLength(
+        `${JSON.stringify({ ...marker, legacyAnchors: [...marker.legacyAnchors, overflowAlias] })}\n`,
+        'utf8',
+      ) > 4_096,
+    );
+    await writeFile(markerPath, markerBeforeText, 'utf8');
+    const markerBefore = await readFile(markerPath);
+
+    await assert.rejects(
+      () =>
+        adoptWorkspaceIdentityOnImport({
+          path: workspace,
+          legacyWorkspaceIdentity: overflowAlias,
+        }),
+      (error: unknown) =>
+        error instanceof WorkspaceIdentityError && error.code === 'invalid_workspace_marker',
+    );
+
+    assert.deepEqual(await readFile(markerPath), markerBefore);
+    assert.equal(
+      (await resolveWorkspaceIdentity({ path: workspace })).workspaceIdentity,
+      original.workspaceIdentity,
     );
   } finally {
     await rm(workspace, { recursive: true, force: true });
