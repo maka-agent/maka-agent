@@ -92,6 +92,59 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('treats child tools and prompt from BackendFactoryContext as hard boundaries', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      try {
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'explore',
+          name: 'scoped-child',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(session.id);
+        const scopedTool: MakaTool = {
+          name: 'ReadOnlyProbe',
+          description: 'Read-only test probe',
+          parameters: {},
+          impl: () => 'ok',
+        };
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: session.id,
+          workspaceRoot,
+          header,
+          store: runtimeDeps.store,
+          tools: [scopedTool],
+          systemPrompt: 'Durable child prompt.',
+        });
+        const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
+
+        assert.deepEqual(
+          backendInput.tools.map((tool) => tool.name),
+          ['ReadOnlyProbe'],
+        );
+        assert.equal(backendInput.systemPrompt, 'Durable child prompt.');
+        assert.equal(backendInput.toolAvailability, undefined);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('uses an explicit connection and forwards one-shot limits and invocation results', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);

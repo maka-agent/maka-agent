@@ -2014,6 +2014,26 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.streamIdleTimeoutMs, 789_000);
       assert.equal(backendInput.supportsVision, true);
       assert.equal(typeof backendInput.readAttachmentBytes, 'function');
+
+      const scopedBackend = await registry.build('ai-sdk', {
+        ...backendContext(workspaceDir),
+        tools: [
+          {
+            name: 'ReadOnlyProbe',
+            description: 'Read-only test probe',
+            parameters: {},
+            impl: () => 'ok',
+          },
+        ],
+        systemPrompt: 'Durable child prompt.',
+      });
+      const scopedInput = (scopedBackend as unknown as { input: AiSdkBackendInput }).input;
+      assert.deepEqual(
+        scopedInput.tools.map((tool) => tool.name),
+        ['ReadOnlyProbe'],
+      );
+      assert.equal(scopedInput.systemPrompt, 'Durable child prompt.');
+      assert.equal(scopedInput.toolAvailability, undefined);
     });
   });
 

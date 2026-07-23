@@ -309,6 +309,152 @@ describe('SessionManager child-session runtime primitive', () => {
     while (!(await parentTurn.next()).done) {}
   });
 
+  test('starts a metadata-only retry once, notifies once, and rechecks cancellation', async () => {
+    const store = new MemorySessionStore();
+    const abortController = new AbortController();
+    const runStore = new MemoryAgentRunStore({
+      beforeRunRead: (sessionId, runId) => {
+        if (sessionId === 'session-3' && runId === 'cancelled-child-run') {
+          abortController.abort();
+        }
+      },
+    });
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    backends.register(
+      'fake',
+      (ctx) => new TestBackend(ctx, ctx.header.subagentRuntime ? undefined : parentGate),
+    );
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(170),
+    });
+    const parent = await manager.createSession(makeInput());
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'keep parent active' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const seedMetadataOnlyChild = async (
+      toolCallId: string,
+      prompt: string,
+      initialTurnId: string,
+      initialRunId: string,
+    ): Promise<SessionHeader> => {
+      const requestFingerprint = createHash('sha256')
+        .update(
+          JSON.stringify([
+            1,
+            parent.id,
+            parentRun.runId,
+            parentRun.turnId,
+            toolCallId,
+            LOCAL_READ_AGENT_PROFILE,
+            prompt,
+            null,
+            null,
+          ]),
+        )
+        .digest('hex');
+      return (
+        await store.createSubagent(
+          makeInput({
+            permissionMode: 'explore',
+            collaborationMode: 'agent',
+            orchestrationMode: 'default',
+            subagentParent: {
+              kind: 'subagent',
+              parentSessionId: parent.id,
+              spawnedBy: {
+                parentRunId: parentRun.runId,
+                parentTurnId: parentRun.turnId,
+                toolCallId,
+              },
+              lifecycle: 'foreground',
+            },
+            subagentRuntime: {
+              schemaVersion: 1,
+              definitionVersion: LOCAL_READ_AGENT_DEFINITION.definitionVersion,
+              agentId: LOCAL_READ_AGENT_ID,
+              agentName: LOCAL_READ_AGENT_DEFINITION.name,
+              profile: LOCAL_READ_AGENT_PROFILE,
+              systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+              toolNames: [...LOCAL_READ_AGENT_DEFINITION.tools],
+              categoryPolicy: { ...LOCAL_READ_AGENT_DEFINITION.categoryPolicy },
+              permissionCeiling: 'ask',
+            },
+            subagentSpawn: {
+              schemaVersion: 1,
+              requestFingerprint,
+              initialTurnId,
+              initialRunId,
+            },
+          }),
+        )
+      ).header;
+    };
+
+    const metadataOnly = await seedMetadataOnlyChild(
+      'metadata-only-tool',
+      'resume after metadata commit',
+      'metadata-only-turn',
+      'metadata-only-run',
+    );
+    let readyCalls = 0;
+    const resumed = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'metadata-only-tool',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'resume after metadata commit',
+      onReady: () => {
+        readyCalls += 1;
+      },
+    });
+    expect(resumed.childSessionId).toBe(metadataOnly.id);
+    expect(resumed.runId).toBe('metadata-only-run');
+    expect(readyCalls).toBe(1);
+    expect((await runStore.listSessionRuns(metadataOnly.id)).length).toBe(1);
+
+    const cancelled = await seedMetadataOnlyChild(
+      'cancelled-metadata-tool',
+      'must remain cancelled',
+      'cancelled-child-turn',
+      'cancelled-child-run',
+    );
+    let cancelledReadyCalls = 0;
+    await expectRejects(
+      manager.spawnChildSession(parent.id, {
+        spawnedBy: {
+          parentRunId: parentRun.runId,
+          parentTurnId: parentRun.turnId,
+          toolCallId: 'cancelled-metadata-tool',
+        },
+        agentProfile: LOCAL_READ_AGENT_PROFILE,
+        prompt: 'must remain cancelled',
+        abortSignal: abortController.signal,
+        onReady: () => {
+          cancelledReadyCalls += 1;
+        },
+      }),
+      /cancelled before its first run/,
+    );
+    expect(cancelledReadyCalls).toBe(0);
+    expect(await runStore.listSessionRuns(cancelled.id)).toEqual([]);
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
   test('reopens a child from its exact runtime snapshot after the builtin profile changes', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -391,6 +537,43 @@ describe('SessionManager child-session runtime primitive', () => {
 
     parentGate.release();
     while (!(await parentTurn.next()).done) {}
+  });
+
+  test('refuses to activate a linked legacy child without a runtime snapshot', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(188),
+    });
+    const legacyChild = await manager.createSession(
+      makeInput({
+        subagentParent: {
+          kind: 'subagent',
+          parentSessionId: 'legacy-parent',
+          spawnedBy: {
+            parentRunId: 'legacy-parent-run',
+            parentTurnId: 'legacy-parent-turn',
+            toolCallId: 'legacy-tool-call',
+          },
+          lifecycle: 'foreground',
+        },
+      }),
+    );
+
+    await expectRejects(
+      drain(
+        manager.sendMessage(legacyChild.id, {
+          turnId: 'legacy-child-turn',
+          text: 'must not execute unrestricted',
+        }),
+      ),
+      /missing its durable runtime snapshot/,
+    );
   });
 
   test('recovers an idempotent retry whose persisted initial run is no longer active', async () => {
@@ -13892,6 +14075,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
       failUpdateRunStatusOnce?: AgentRunHeader['status'];
       failContinuationCreate?: boolean;
       beforeRuntimeEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
+      beforeRunRead?: (sessionId: string, runId: string) => Promise<void> | void;
       beforeAgentRunEventAppend?: (
         sessionId: string,
         runId: string,
@@ -13929,8 +14113,13 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async readRun(sessionId: string, runId: string): Promise<AgentRunHeader> {
+    await this.options.beforeRunRead?.(sessionId, runId);
     const header = this.headers.get(key(sessionId, runId));
-    if (!header) throw new Error(`Unknown run ${runId}`);
+    if (!header) {
+      const error = new Error(`Unknown run ${runId}`) as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
     return { ...header };
   }
 

@@ -606,6 +606,7 @@ export async function createMakaCliRuntimeContext(
       mode: header.permissionMode,
       cwd: header.cwd,
     });
+    const backendTools = ctx.tools ? [...ctx.tools] : allTools;
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...header, model: ready.model },
@@ -616,9 +617,9 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
-      tools: allTools,
+      tools: backendTools,
       sandboxDiagnosticsSnapshot,
-      toolAvailability,
+      toolAvailability: ctx.tools ? undefined : toolAvailability,
       ...(input.surface === 'tui'
         ? {
             spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
@@ -658,26 +659,28 @@ export async function createMakaCliRuntimeContext(
       }),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
-      systemPrompt: async ({ cwd, emitSkillCatalogTrace }) => {
-        const settings = await settingsStore.get();
-        return buildCliSystemPrompt({
-          settings,
-          cwd,
-          workspaceRoot: input.workspaceRoot,
-          host,
-          modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
-          onSkillSelection: (report) =>
-            emitSkillCatalogTrace?.('Skill catalog selection completed', {
-              policyVersion: report.policyVersion,
-              budgetChars: report.budgetChars,
-              usedChars: report.usedChars,
-              totalCount: report.totalCount,
-              eligibleCount: report.eligibleCount,
-              advertisedCount: report.advertisedCount,
-              omittedCount: report.omittedCount,
-            }),
-        });
-      },
+      systemPrompt:
+        ctx.systemPrompt ??
+        (async ({ cwd, emitSkillCatalogTrace }) => {
+          const settings = await settingsStore.get();
+          return buildCliSystemPrompt({
+            settings,
+            cwd,
+            workspaceRoot: input.workspaceRoot,
+            host,
+            modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
+            onSkillSelection: (report) =>
+              emitSkillCatalogTrace?.('Skill catalog selection completed', {
+                policyVersion: report.policyVersion,
+                budgetChars: report.budgetChars,
+                usedChars: report.usedChars,
+                totalCount: report.totalCount,
+                eligibleCount: report.eligibleCount,
+                advertisedCount: report.advertisedCount,
+                omittedCount: report.omittedCount,
+              }),
+          });
+        }),
       turnTailPrompt: ({ cwd }) =>
         buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,

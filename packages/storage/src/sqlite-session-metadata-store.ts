@@ -170,23 +170,28 @@ export class SqliteSessionMetadataStore {
       if (this.readRecordSync(normalized.id)) {
         throw new SessionMetadataConflictError(`Session metadata already exists: ${normalized.id}`);
       }
-      const inserted = this.tryInsertHeader(normalized, 1, this.now(), true);
-      if (inserted) return { record: inserted, created: true };
-
-      const existing = this.readSubagentBySpawnIdentitySync(identity.parent);
-      if (!existing) {
-        throw new SessionMetadataConflictError(
-          'Child-session metadata insert conflicted outside its spawn identity',
-        );
+      const committedAt = this.now();
+      const claim = this.tryClaimSubagentSpawn(normalized, committedAt);
+      if (claim.created) {
+        return { record: this.insertHeader(normalized, 1, committedAt), created: true };
       }
-      if (
-        !isDeepStrictEqual(existing.header.subagentParent, identity.parent) ||
-        existing.header.subagentSpawn?.requestFingerprint !== identity.spawn.requestFingerprint
-      ) {
+      const existing = this.readRecordSync(claim.childSessionId);
+      if (claim.requestFingerprint !== identity.spawn.requestFingerprint) {
         throw new SessionMetadataConflictError(
           'Child-session spawn identity was reused for different work',
         );
       }
+      if (!existing) {
+        throw new SessionMetadataConflictError(
+          `Child-session spawn identity belongs to deleted session: ${claim.childSessionId}`,
+        );
+      }
+      if (!isDeepStrictEqual(existing.header.subagentParent, identity.parent)) {
+        throw new SessionMetadataConflictError(
+          'Child-session spawn claim disagrees with live session metadata',
+        );
+      }
+      this.assertMatchingSubagentSpawnClaim(existing.header);
       return { record: existing, created: false };
     });
   }
@@ -413,8 +418,20 @@ export class SqliteSessionMetadataStore {
               `Session metadata import conflict for ${entry.header.id}`,
             );
           }
+          if (entry.header.subagentSpawn) {
+            this.assertMatchingSubagentSpawnClaim(entry.header);
+          }
           created.push(false);
         } else {
+          if (entry.header.subagentSpawn) {
+            const claim = this.tryClaimSubagentSpawn(entry.header, this.now());
+            if (!claim.created && claim.childSessionId !== entry.header.id) {
+              throw new SessionMetadataConflictError(
+                `Child-session spawn identity already belongs to ${claim.childSessionId}`,
+              );
+            }
+            this.assertMatchingSubagentSpawnClaim(entry.header);
+          }
           this.insertHeader(entry.header, 1, this.now());
           created.push(true);
         }
@@ -543,28 +560,81 @@ export class SqliteSessionMetadataStore {
     return row ? decodeRecord(row) : undefined;
   }
 
-  private readSubagentBySpawnIdentitySync(
-    parent: SubagentSessionParent,
-  ): SessionMetadataRecord | undefined {
-    const row = this.db
+  private tryClaimSubagentSpawn(
+    header: SessionHeader,
+    claimedAt: number,
+  ): SubagentSpawnClaim & { created: boolean } {
+    const identity = requireSubagentSpawnIdentity(header);
+    const result = this.db
       .prepare(`
-        SELECT session_id, payload_json, metadata_version, committed_at
-        FROM session_metadata
-        WHERE subagent_parent_session_id = ?
-          AND subagent_parent_run_id = ?
-          AND subagent_tool_call_id = ?
-          AND subagent_swarm_id IS ?
-          AND subagent_item_id IS ?
-          AND subagent_request_fingerprint IS NOT NULL
+        INSERT OR IGNORE INTO subagent_spawns(
+          parent_session_id,
+          parent_run_id,
+          tool_call_id,
+          swarm_id,
+          item_id,
+          request_fingerprint,
+          child_session_id,
+          initial_turn_id,
+          initial_run_id,
+          claimed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        identity.parent.parentSessionId,
+        identity.parent.spawnedBy.parentRunId,
+        identity.parent.spawnedBy.toolCallId,
+        identity.parent.swarm?.swarmId ?? '',
+        identity.parent.swarm?.itemId ?? '',
+        identity.spawn.requestFingerprint,
+        header.id,
+        identity.spawn.initialTurnId,
+        identity.spawn.initialRunId,
+        claimedAt,
+      );
+    const claim = this.readSubagentSpawnClaim(identity.parent);
+    if (!claim) throw new Error('Subagent spawn claim was not persisted');
+    return { ...claim, created: result.changes === 1 };
+  }
+
+  private assertMatchingSubagentSpawnClaim(header: SessionHeader): void {
+    const identity = requireSubagentSpawnIdentity(header);
+    const claim = this.readSubagentSpawnClaim(identity.parent);
+    if (
+      !claim ||
+      claim.childSessionId !== header.id ||
+      claim.requestFingerprint !== identity.spawn.requestFingerprint ||
+      claim.initialTurnId !== identity.spawn.initialTurnId ||
+      claim.initialRunId !== identity.spawn.initialRunId
+    ) {
+      throw new SessionMetadataConflictError(
+        'Child-session spawn claim disagrees with session metadata',
+      );
+    }
+  }
+
+  private readSubagentSpawnClaim(parent: SubagentSessionParent): SubagentSpawnClaim | undefined {
+    return this.db
+      .prepare(`
+        SELECT
+          request_fingerprint AS requestFingerprint,
+          child_session_id AS childSessionId,
+          initial_turn_id AS initialTurnId,
+          initial_run_id AS initialRunId
+        FROM subagent_spawns
+        WHERE parent_session_id = ?
+          AND parent_run_id = ?
+          AND tool_call_id = ?
+          AND swarm_id = ?
+          AND item_id = ?
       `)
       .get(
         parent.parentSessionId,
         parent.spawnedBy.parentRunId,
         parent.spawnedBy.toolCallId,
-        parent.swarm?.swarmId ?? null,
-        parent.swarm?.itemId ?? null,
-      ) as SessionMetadataRow | undefined;
-    return row ? decodeRecord(row) : undefined;
+        parent.swarm?.swarmId ?? '',
+        parent.swarm?.itemId ?? '',
+      ) as SubagentSpawnClaim | undefined;
   }
 
   private hasTombstone(sessionId: string): boolean {
@@ -617,6 +687,13 @@ interface SessionMetadataRow {
   payload_json: string;
   metadata_version: number;
   committed_at: number;
+}
+
+interface SubagentSpawnClaim {
+  requestFingerprint: string;
+  childSessionId: string;
+  initialTurnId: string;
+  initialRunId: string;
 }
 
 function decodeRecord(row: SessionMetadataRow): SessionMetadataRecord {

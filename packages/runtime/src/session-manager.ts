@@ -338,6 +338,11 @@ export interface BackendFactoryContext {
    * system prompt.
    */
   systemPrompt?: string;
+  /**
+   * Optional hard tool ceiling for this backend activation. When present, a
+   * host may remove tools for stricter local policy, but must never append,
+   * substitute, or otherwise expose a tool outside this exact set.
+   */
   tools?: readonly MakaTool[];
   /** Trusted child expert-team identity. Main-session factories leave this undefined. */
   agentTeam?: AgentTeamExecutionContext;
@@ -1377,6 +1382,18 @@ export class SessionManager {
     }
     const turnId = spawn.initialTurnId;
     const runId = spawn.initialRunId;
+    const readyInfo = {
+      childSessionId: child.id,
+      turnId,
+      runId,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+    };
+    let readyNotification: Promise<void> | undefined;
+    const notifyReady = (): Promise<void> => {
+      readyNotification ??= Promise.resolve().then(() => input.onReady?.(readyInfo));
+      return readyNotification;
+    };
 
     // Close the create/start race: if the parent settled (or cancellation
     // arrived) while metadata was being written, retain an inspectable aborted
@@ -1392,8 +1409,25 @@ export class SessionManager {
     }
 
     if (!creation.created) {
-      const existing = await this.resolveExistingChildSpawn(child, input);
+      const existing = await this.resolveExistingChildSpawn(child, input, notifyReady);
       if (existing) return existing;
+    }
+
+    // A committed metadata row without its initial AgentRun is a recoverable
+    // crash boundary. Revalidate admission after the lookup: the parent or
+    // caller may have settled while durable state was being inspected.
+    try {
+      const latestParentRun = await this.deps.runStore.readRun(
+        parentSessionId,
+        input.spawnedBy.parentRunId,
+      );
+      this.assertActiveParentRun(parentSessionId, latestParentRun, input.spawnedBy.parentTurnId);
+      if (input.abortSignal?.aborted) {
+        throw new Error('Child session spawn was cancelled before its first run');
+      }
+    } catch (error) {
+      await this.updateStatus(child.id, 'aborted').catch(() => {});
+      throw error;
     }
 
     const startedAt = this.deps.now();
@@ -1411,26 +1445,19 @@ export class SessionManager {
       {
         runId,
         durability: 'required',
-        onRunStarted: async () => {
-          await input.onReady?.({
-            childSessionId: child.id,
-            turnId,
-            runId,
-            agentId: snapshot.agentId,
-            agentName: snapshot.agentName,
-          });
-        },
+        onRunStarted: notifyReady,
       },
     )[Symbol.asyncIterator]();
     const onAbort = () => {
       aborted = true;
       stopPromise ??= this.stopSession(child.id, { source: 'stop_button' });
     };
-    if (input.abortSignal && !input.abortSignal.aborted) {
+    if (input.abortSignal) {
       input.abortSignal.addEventListener('abort', onAbort, { once: true });
+      if (input.abortSignal.aborted) onAbort();
     }
     try {
-      while (true) {
+      while (!aborted) {
         const next = await iterator.next();
         if (next.done) break;
         summary.add(next.value);
@@ -1477,6 +1504,7 @@ export class SessionManager {
   private async resolveExistingChildSpawn(
     child: SessionHeader,
     input: SpawnChildSessionInput,
+    notifyReady: () => Promise<void>,
   ): Promise<SpawnChildSessionResult | undefined> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) return undefined;
     const snapshot = child.subagentRuntime;
@@ -1484,19 +1512,12 @@ export class SessionManager {
     if (!snapshot || !spawn) {
       throw new Error('Stored child session is missing its durable runtime or spawn identity');
     }
-    await input.onReady?.({
-      childSessionId: child.id,
-      turnId: spawn.initialTurnId,
-      runId: spawn.initialRunId,
-      agentId: snapshot.agentId,
-      agentName: snapshot.agentName,
-    });
-
     let run = await this.deps.runStore.readRun(child.id, spawn.initialRunId).catch((error) => {
       if (isNotFoundError(error)) return undefined;
       throw error;
     });
     if (!run) return undefined;
+    await notifyReady();
 
     while (
       !isTerminalRunStatus(run.status) &&

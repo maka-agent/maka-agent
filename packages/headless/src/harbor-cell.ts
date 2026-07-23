@@ -879,7 +879,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         sessionId: ctx.sessionId,
         modelId: input.model,
       });
-      const tools = buildHarborCellAiSdkTools(context.toolExecutor!, {
+      const hostTools = buildHarborCellAiSdkTools(context.toolExecutor!, {
         ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
         ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
         ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
@@ -888,6 +888,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           : {}),
         snapshotImage: createReadImageSnapshotter(artifactStore),
       });
+      const tools = ctx.tools ? [...ctx.tools] : hostTools;
       return new AiSdkBackend({
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
@@ -903,7 +904,9 @@ export function buildAiSdkCellBackendRegistration(input: {
             ...(subscriptionFetch ? { fetch: subscriptionFetch } : {}),
           }),
         tools,
-        toolAvailability: buildIsolatedHeadlessToolAvailability(tools.map((tool) => tool.name)),
+        toolAvailability: ctx.tools
+          ? undefined
+          : buildIsolatedHeadlessToolAvailability(tools.map((tool) => tool.name)),
         spawnChildAgent: context.spawnChildAgent
           ? (childInput) => context.spawnChildAgent!(ctx.sessionId, childInput)
           : undefined,
@@ -934,7 +937,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         }),
         ...(streamConnectTimeoutMs !== undefined ? { streamConnectTimeoutMs } : {}),
         ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
-        systemPrompt: context.config.systemPrompt,
+        systemPrompt: ctx.systemPrompt ?? context.config.systemPrompt,
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
           ? {
               turnTailPrompt: async ({ sessionId }) =>

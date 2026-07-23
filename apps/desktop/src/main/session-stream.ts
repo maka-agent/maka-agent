@@ -172,10 +172,10 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       .reverse()
       .find((execution) => execution.status === 'interrupted');
     const buildDesktopBaseTools = () => [...builtinTools, ...buildMcpTools(mcpManager)];
-    const candidateTools = isComputerUseRealModelE2e
-      ? computerUseTools
-      : ctx.tools
-        ? [...ctx.tools]
+    const candidateTools = ctx.tools
+      ? [...ctx.tools]
+      : isComputerUseRealModelE2e
+        ? computerUseTools
         : [
             ...buildDesktopBaseTools(),
             ...(isDeepResearchSession(ctx.header.labels) ? deepResearchTools : []),
@@ -194,14 +194,16 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     const agentTeam = ctx.agentTeam ?? (expertTeamId
       ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
       : undefined);
-    const planControlTools = collaborationMode === 'plan'
-      ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
-      : activeExecution
-        ? [
-            buildUpdatePlanTool(planStore, activeExecution.executionId),
-            buildCancelPlanTool(planStore, activeExecution.executionId),
-          ]
-        : [];
+    const planControlTools = ctx.tools
+      ? []
+      : collaborationMode === 'plan'
+        ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
+        : activeExecution
+          ? [
+              buildUpdatePlanTool(planStore, activeExecution.executionId),
+              buildCancelPlanTool(planStore, activeExecution.executionId),
+            ]
+          : [];
     const backendTools = computerUseToolsForModel(
       [...candidateTools, ...planControlTools],
       computerUseTools,

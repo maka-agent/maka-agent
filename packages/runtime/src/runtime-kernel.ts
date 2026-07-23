@@ -1530,7 +1530,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
     header: SessionHeader,
   ): { systemPrompt: string; tools: MakaTool[] } | undefined {
     const snapshot = header.subagentRuntime;
-    if (!snapshot) return undefined;
+    if (!snapshot) {
+      if (header.subagentParent) {
+        throw new Error('Linked child session is missing its durable runtime snapshot');
+      }
+      return undefined;
+    }
     if (!header.subagentParent) {
       throw new Error('Subagent runtime snapshot requires a linked child session');
     }
