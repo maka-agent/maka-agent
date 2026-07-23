@@ -37,6 +37,37 @@ export type {
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 export { renderSwarmModePrompt } from './swarm-mode.js';
+export { RuntimeMessageAuthorityInvariantError } from './message-authority.js';
+export type {
+  RuntimeMessageAuthority,
+  RuntimeMessageRunIdentity,
+  RuntimeMessageRunOwner,
+} from './message-authority.js';
+export {
+  RuntimeInteractionAdmissionRejectedError,
+  RuntimeInteractionClosedError,
+  RuntimeInteractionFailStopError,
+  RuntimeInteractionInvariantError,
+} from './interaction-authority.js';
+export type {
+  RuntimeInteractionAdmissionRejectionReason,
+  RuntimeInteractionAuthority,
+  RuntimeInteractionClosureReason,
+  RuntimeInteractionContinuationAuthority,
+  RuntimeInteractionContinuationIdentity,
+  RuntimeInteractionFatalError,
+  RuntimeInteractionRunClosureReason,
+  RuntimeInteractionRunFacet,
+  RuntimeInteractionRunIdentity,
+  RuntimeInteractionRunOwner,
+  RuntimePermissionAnswer,
+  RuntimePermissionContinuation,
+  RuntimePermissionOutcome,
+  RuntimeUserQuestionAnswer,
+  RuntimeUserQuestionClosureReason,
+  RuntimeUserQuestionContinuation,
+  RuntimeUserQuestionOutcome,
+} from './interaction-authority.js';
 
 export {
   MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS,
@@ -132,11 +163,7 @@ export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
-export {
-  buildSubmitPlanTool,
-  buildUpdatePlanTool,
-  buildCancelPlanTool,
-} from './plan-tools.js';
+export { buildSubmitPlanTool, buildUpdatePlanTool, buildCancelPlanTool } from './plan-tools.js';
 export type { PlanToolResult } from './plan-tools.js';
 export {
   selectCollaborationTools,
@@ -529,11 +556,7 @@ export {
   requireResolvedAgentDefinition,
   resolveAgentDefinition,
 } from './expert-catalog.js';
-export type {
-  ExpertDefinition,
-  ExpertTeamDefinition,
-  ExpertTeamLead,
-} from './expert-catalog.js';
+export type { ExpertDefinition, ExpertTeamDefinition, ExpertTeamLead } from './expert-catalog.js';
 export {
   EXPERT_DISPATCH_TOOL_NAME,
   buildExpertDispatchTool,
@@ -852,11 +875,7 @@ export {
   OpenAiCodexDiscoveryError,
 } from './model-fetcher.js';
 
-export {
-  materializeSession,
-  applyAppendedMessage,
-  setToolStatus,
-} from './materializer.js';
+export { materializeSession, applyAppendedMessage, setToolStatus } from './materializer.js';
 export type { ToolActivityItem, ChatItem, SessionViewModel } from './materializer.js';
 
 export { AsyncEventQueue } from './async-queue.js';
@@ -971,33 +990,19 @@ export type {
 } from './runtime-event-read-model.js';
 export { classifyTerminalRuntimeLedger } from './terminal-run-commit.js';
 export type { TerminalRuntimeLedgerClassification } from './terminal-run-commit.js';
-export {
-  RuntimeReadModel,
-  RuntimeReadModelError,
-} from './runtime-read-model.js';
+export { RuntimeReadModel, RuntimeReadModelError } from './runtime-read-model.js';
 export type {
   RuntimeReadModelDeps,
   RuntimeReadModelProjectionCache,
   RuntimeReadModelSessionView,
 } from './runtime-read-model.js';
 export { RuntimeKernel } from './runtime-kernel.js';
-export type {
-  RuntimeKernelDeps,
-  RuntimeKernelLike,
-  TurnStartOptions,
-} from './runtime-kernel.js';
+export type { RuntimeKernelDeps, RuntimeKernelLike, TurnStartOptions } from './runtime-kernel.js';
 export { AgentRun } from './agent-run.js';
-export type {
-  AgentRunActiveSession,
-  AgentRunDurability,
-  AgentRunLineage,
-} from './agent-run.js';
+export type { AgentRunActiveSession, AgentRunDurability, AgentRunLineage } from './agent-run.js';
 
 // agent-run-inspect.ts — internal AgentRun/RuntimeEvent source-health view.
-export {
-  inspectAgentRunReadModel,
-  inspectSessionRunReadModels,
-} from './agent-run-inspect.js';
+export { inspectAgentRunReadModel, inspectSessionRunReadModels } from './agent-run-inspect.js';
 export type {
   AgentRunInspectDiagnostic,
   AgentRunInspectDiagnosticCode,
@@ -1094,10 +1099,7 @@ export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety
 // instead of re-deriving a lossy projection of its own).
 export { replayPlanItemsToModelMessages } from './history-compact-summarizer.js';
 
-export {
-  buildToolOperationId,
-  canonicalToolArgsHash,
-} from './runtime-commit-sink.js';
+export { buildToolOperationId, canonicalToolArgsHash } from './runtime-commit-sink.js';
 export type {
   RuntimeCommitResult,
   RuntimeCommitSink,
@@ -1108,12 +1110,7 @@ export type {
 } from './runtime-commit-sink.js';
 
 // agent-flow.ts — formal Flow seam.
-export type {
-  AgentFlow,
-  AgentFlowControl,
-  FlowInput,
-  RunnableAgentFlow,
-} from './agent-flow.js';
+export type { AgentFlow, AgentFlowControl, FlowInput, RunnableAgentFlow } from './agent-flow.js';
 export { flowSupportsControl } from './agent-flow.js';
 
 // ai-sdk-flow.ts — default AgentFlow implementation over AiSdkBackend.
@@ -1123,11 +1120,7 @@ export {
   mapCompleteStopReason,
   createSessionEventMapMemory,
 } from './ai-sdk-flow.js';
-export type {
-  AiSdkFlowInput,
-  CompleteStopReason,
-  SessionEventMapMemory,
-} from './ai-sdk-flow.js';
+export type { AiSdkFlowInput, CompleteStopReason, SessionEventMapMemory } from './ai-sdk-flow.js';
 
 // tool-availability.ts — unified tool-availability runtime (catalog, the
 // `load_tools` connector, same-turn activation, gating, diagnostics).
@@ -1172,10 +1165,7 @@ export {
   collectPersonalizationWarnings,
 } from './system-prompt/personalization-prompt.js';
 export type { PersonalizationPromptFragment } from './system-prompt/personalization-prompt.js';
-export {
-  resolveProjectGitInfo,
-  resolveProjectRoot,
-} from './system-prompt/project-context.js';
+export { resolveProjectGitInfo, resolveProjectRoot } from './system-prompt/project-context.js';
 export type { ProjectGitInfo } from './system-prompt/project-context.js';
 export { buildSessionEnvironmentPromptFragment } from './system-prompt/session-environment-prompt.js';
 export type { SessionEnvironmentPromptInput } from './system-prompt/session-environment-prompt.js';
@@ -1256,14 +1246,8 @@ export type {
   GoalTurnAdmission,
   GoalTurnOutcome,
 } from './goal-continuation.js';
-export {
-  SessionActivityRegistry,
-  drainGoalTurn,
-} from './goal-turn-lifecycle.js';
-export type {
-  DrainGoalTurnInput,
-  SessionActivityLease,
-} from './goal-turn-lifecycle.js';
+export { SessionActivityRegistry, drainGoalTurn } from './goal-turn-lifecycle.js';
+export type { DrainGoalTurnInput, SessionActivityLease } from './goal-turn-lifecycle.js';
 
 export {
   MAX_SKILL_BODY_CHARS,
@@ -1318,11 +1302,7 @@ export type {
   SkillInvocationResult,
   SkillInvocationToken,
 } from './skill-invocation.js';
-export {
-  isPathInside,
-  isSafeSkillId,
-  toRelative,
-} from './path-containment.js';
+export { isPathInside, isSafeSkillId, toRelative } from './path-containment.js';
 export type { PathInsideApi } from './path-containment.js';
 export type {
   SkillRuntimeStatus,

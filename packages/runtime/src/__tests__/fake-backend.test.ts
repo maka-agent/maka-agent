@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
 import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '../fake-backend.js';
+import {
+  bindRuntimeInteractionRun,
+  type RuntimeUserQuestionContinuation,
+} from '../interaction-authority.js';
 import type { SessionStore } from '../session-manager.js';
 
 test('text deltas preserve the exact completed response, including Markdown line breaks', async () => {
@@ -68,6 +72,72 @@ test('AskUserQuestion scenario parks the same turn until one response continues 
   );
 });
 
+test('Fake question publication waits for exact hosted admission', async () => {
+  const admissionStarted = deferred<void>();
+  const allowAdmission = deferred<void>();
+  let continuation: RuntimeUserQuestionContinuation | undefined;
+  const binding = await bindRuntimeInteractionRun(
+    {
+      bindRun: (identity) => ({
+        ...identity,
+        acceptPermissionRequest: async () => ({ state: 'pending' }),
+        commitPermissionAnswer: async ({ answer }) => ({
+          kind: 'permission_answer',
+          answer,
+        }),
+        commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+        acceptUserQuestionRequest: async ({ continuation: admitted }) => {
+          continuation = admitted;
+          admissionStarted.resolve();
+          await allowAdmission.promise;
+        },
+        close: async () => {},
+        release: () => {},
+      }),
+    },
+    { sessionId: 'session-1', turnId: 'turn-1', runId: 'run-1' },
+  );
+  const backend = new FakeBackend({
+    sessionId: 'session-1',
+    header: { model: 'fake-model' } as SessionHeader,
+    store: {} as SessionStore,
+    appendMessage: async () => {},
+  });
+  const iterator = backend
+    .send({
+      turnId: 'turn-1',
+      runId: 'run-1',
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      context: [],
+      hostedInteraction: binding,
+    })
+    [Symbol.asyncIterator]();
+
+  assert.equal((await iterator.next()).value?.type, 'tool_start');
+  let published = false;
+  const requestEvent = iterator.next().then((result) => {
+    published = true;
+    return result;
+  });
+  await admissionStarted.promise;
+  await Promise.resolve();
+  assert.equal(published, false);
+
+  allowAdmission.resolve();
+  const request = (await requestEvent).value;
+  assert.equal(request?.type, 'user_question_request');
+  if (request?.type !== 'user_question_request') assert.fail('expected hosted fake question');
+  binding.assertPendingAdmission(request);
+  await continuation!.applyAnswer({ answers: ['邀请制', null, '本周'] });
+  for await (const _event of { [Symbol.asyncIterator]: () => iterator }) {
+    // Drain the real Fake question result and terminal path.
+  }
+
+  await binding.close('turn_terminal');
+  await binding.settleLocalClosures();
+  binding.release();
+});
+
 test('pullSteering drains queued messages at step boundaries as steering events', async () => {
   const backend = new FakeBackend({
     sessionId: 'session-1',
@@ -77,8 +147,8 @@ test('pullSteering drains queued messages at step boundaries as steering events'
   });
   // Queue two steering messages, delivered one per step boundary, then dry up.
   const pending = [
-    { id: 'lease-1', text: 'do X' },
-    { id: 'lease-2', text: 'and Y' },
+    { id: 'lease-1', messageId: 'message-1', content: { text: 'do X' } },
+    { id: 'lease-2', messageId: 'message-2', content: { text: 'and Y' } },
   ];
   const acked: string[] = [];
   const steered: string[] = [];
@@ -90,7 +160,7 @@ test('pullSteering drains queued messages at step boundaries as steering events'
     pullSteering: () => (pending.length > 0 ? [pending.shift()!] : []),
     ackSteering: (leaseIds) => acked.push(...leaseIds),
   })) {
-    if (event.type === 'steering_message') steered.push(event.text);
+    if (event.type === 'steering_message') steered.push(event.content.text);
     if (event.type === 'text_complete') completedText = event.text;
   }
   assert.deepEqual(steered, ['do X', 'and Y']);
@@ -124,8 +194,8 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
         if (pulled) return [];
         pulled = true;
         return [
-          { id: 'lease-a', text: 'A' },
-          { id: 'lease-b', text: 'B' },
+          { id: 'lease-a', messageId: 'message-a', content: { text: 'A' } },
+          { id: 'lease-b', messageId: 'message-b', content: { text: 'B' } },
         ];
       },
       ackSteering: (leaseIds) => acked.push(...leaseIds),
@@ -137,7 +207,7 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
   for (let i = 0; i < 20 && steered.length < 2; i += 1) {
     const result = await iterator.next();
     if (result.done) break;
-    if (result.value.type === 'steering_message') steered.push(result.value.text);
+    if (result.value.type === 'steering_message') steered.push(result.value.content.text);
   }
   assert.deepEqual(steered, ['A', 'B']);
 
@@ -157,7 +227,7 @@ test('a lease is acked only after its event is consumed, and nacked when the con
     store: {} as SessionStore,
     appendMessage: async () => {},
   });
-  const pending = [{ id: 'lease-1', text: 'do X' }];
+  const pending = [{ id: 'lease-1', messageId: 'message-1', content: { text: 'do X' } }];
   const acked: string[] = [];
   const nacked: string[] = [];
   const iterator = backend
@@ -185,3 +255,11 @@ test('a lease is acked only after its event is consumed, and nacked when the con
   assert.deepEqual(acked, []);
   assert.deepEqual(nacked, ['lease-1']);
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}

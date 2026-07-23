@@ -25,14 +25,24 @@ const allowedHostExternalImports = new Set([
 const allowedServerExternalImports = new Set([
   ...allowedHostExternalImports,
   '@maka/core/agent-run',
+  '@maka/core/backend-types',
+  '@maka/core/events',
+  '@maka/core/interaction',
   '@maka/core/runtime-event',
   '@maka/core/session',
   '@maka/runtime',
   '@maka/storage/execution-stores',
+  '@maka/storage/interaction-store',
+  'node:async_hooks',
 ]);
 const allowedExternalImports = {
   client: allowedHostExternalImports,
-  protocol: new Set(['node:util']),
+  protocol: new Set([
+    '@maka/core/attachments',
+    '@maka/core/events',
+    '@maka/core/interaction',
+    'node:util',
+  ]),
 } as const;
 
 async function dependencyScannerFixture(target: string): Promise<void> {
@@ -80,7 +90,11 @@ test('protocol and client stay within their subpaths and the root-authority boun
           if (!isInside(sourceRoot, target)) violations.push(`${path}: ${specifier}`);
           continue;
         }
-        if (!allowedExternalImports[area].has(specifier)) violations.push(`${path}: ${specifier}`);
+        const allowedImports =
+          topLevelArea === 'protocol'
+            ? allowedExternalImports.protocol
+            : allowedExternalImports[area];
+        if (!allowedImports.has(specifier)) violations.push(`${path}: ${specifier}`);
       }
     }
   }
@@ -96,7 +110,9 @@ test('only the server subgraph can reach the M2 Runtime composition', async () =
     const allowedImports =
       topLevelArea === 'server' || localPath === 'candidate-main.ts'
         ? allowedServerExternalImports
-        : allowedHostExternalImports;
+        : topLevelArea === 'protocol'
+          ? allowedExternalImports.protocol
+          : allowedHostExternalImports;
     for (const specifier of moduleSpecifiers(path)) {
       if (isRelativeSpecifier(specifier)) {
         const target = sourcePathForSpecifier(path, specifier);
@@ -116,6 +132,7 @@ test('the production Candidate dependency graph remains non-serving', () => {
     'server/execution-candidate.ts',
     'server/execution-composition.ts',
     'server/root-turn-coordinator.ts',
+    'server/session-continuity-coordinator.ts',
   ]);
   const violations: string[] = [];
   for (const path of reached) {
@@ -138,6 +155,7 @@ test('the public server entrypoint does not expose the test execution compositio
     'server/execution-candidate.ts',
     'server/execution-composition.ts',
     'server/root-turn-coordinator.ts',
+    'server/session-continuity-coordinator.ts',
   ]);
   assert.deepEqual(
     reachableModules(serverEntrypoint, publicEntrypoints)

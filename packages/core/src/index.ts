@@ -12,6 +12,7 @@ export * from './collaboration.js';
 export * from './orchestration.js';
 export * from './swarm-command.js';
 export * from './plan.js';
+export * from './interaction.js';
 
 // events.ts
 export type {
@@ -52,6 +53,7 @@ export type {
   StorageRef,
   AttachmentRef,
   QuoteRef,
+  MessageContent,
   AttachmentIngestItem,
   CompleteStopReason,
   ContextBudgetExhaustedDetail,
@@ -64,7 +66,15 @@ export type {
   UserQuestionResult,
 } from './user-question.js';
 export {
+  decodeMessageContent,
   failureClassFromCompleteStopReason,
+  isAttachmentRef,
+  isCanonicalAttachmentRef,
+  isCanonicalStorageRef,
+  isMessageContent,
+  isStorageRef,
+  messageContentsEqual,
+  normalizeMessageContent,
   TOOL_ACTIVITY_KINDS,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,

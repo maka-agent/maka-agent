@@ -588,7 +588,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       kind: 'tool_permission',
       toolName: input.toolName,
       category,
-      reason: categoryToReason(category),
+      reason: permissionReasonForCategory(category),
       args: permissionRequestArgs(input.args, category),
       rememberForTurnAllowed,
     },
@@ -661,7 +661,7 @@ function normalizeForScope(value: unknown, seen: WeakSet<object>): unknown {
   );
 }
 
-function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
+export function permissionReasonForCategory(c: ToolCategory): PermissionRequest['reason'] {
   switch (c) {
     case 'shell_unsafe':
       return 'shell_dangerous';

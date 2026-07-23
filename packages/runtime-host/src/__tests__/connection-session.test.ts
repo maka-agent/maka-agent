@@ -222,6 +222,7 @@ test('a connection accepted before composition exists resolves ready handlers wi
           ok: true,
           result: runningSnapshot(input.sessionId, input.turnId),
         })),
+        beginDrain() {},
         async recover() {},
         async close() {},
       };
@@ -307,6 +308,7 @@ test('connection reset while operation admission is pending does not execute the
       principal: 'local_os_user',
     },
     resolveHandlers: () => handlers,
+    resolveContinuity: () => undefined,
     beginOperation: async () => {
       admissionEntered.resolve();
       await releaseAdmission.promise;
@@ -525,6 +527,7 @@ async function withRuntimeHost(
     idleGraceMs: 10_000,
     compositionFactory: async () => ({
       handlers: createHandlers(queryTurn),
+      beginDrain() {},
       async recover() {},
       async close() {},
     }),
@@ -654,6 +657,7 @@ async function openHalfClosedDispatchedSession(
         };
       }),
     }),
+    resolveContinuity: () => undefined,
     beginOperation: async () => ({
       acquireResidency: () => ({ release() {} }),
       seal() {},
@@ -717,6 +721,27 @@ function closeServer(server: Server): Promise<void> {
 }
 
 function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['handlers'] {
+  const unavailable: Awaited<ReturnType<OperationHandlerMap['turn.message.submit']>> = {
+    ok: false,
+    error: {
+      code: 'operation_unavailable',
+      message: 'not available in this test composition',
+    },
+  };
+  const subscriptionUnavailable = {
+    ok: false,
+    error: {
+      code: 'operation_unavailable',
+      message: 'not available in this test composition',
+    },
+  } as const;
+  const interactionUnavailable = {
+    ok: false,
+    error: {
+      code: 'operation_unavailable',
+      message: 'not available in this test composition',
+    },
+  } as const;
   return {
     'turn.start': async (input) => ({
       ok: true,
@@ -727,6 +752,13 @@ function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['ha
       ok: true,
       result: runningSnapshot(input.sessionId, input.turnId),
     }),
+    'turn.message.submit': async () => unavailable,
+    'queue.retract': async () => unavailable,
+    'turn.interrupt': async () => unavailable,
+    'interaction.query': async () => interactionUnavailable,
+    'interaction.answer': async () => interactionUnavailable,
+    'subscription.open': async () => subscriptionUnavailable,
+    'subscription.close': async () => subscriptionUnavailable,
   };
 }
 

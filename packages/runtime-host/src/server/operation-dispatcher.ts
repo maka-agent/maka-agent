@@ -1,6 +1,7 @@
 import {
   HOST_OPERATION_SPECS,
   type ClientSurface,
+  decodeOperationOutcome,
   type HostOperationErrorCode,
   type OperationInput,
   type OperationKey,
@@ -33,7 +34,50 @@ export type OperationHandlerMap = {
 };
 
 export type DomainOperationKey = Exclude<OperationKey, 'host.status'>;
-export type DomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
+export type TurnOperationKey = Extract<OperationKey, 'turn.start' | 'turn.query' | 'turn.stop'>;
+export type MessageOperationKey = Extract<
+  OperationKey,
+  'turn.message.submit' | 'queue.retract' | 'turn.interrupt'
+>;
+export type InteractionOperationKey = Extract<OperationKey, `interaction.${string}`>;
+export type SessionContinuityOperationKey = Extract<
+  OperationKey,
+  'subscription.open' | 'subscription.close'
+>;
+export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
+export type MessageOperationHandlerMap = Pick<OperationHandlerMap, MessageOperationKey>;
+export type InteractionOperationHandlerMap = Pick<OperationHandlerMap, InteractionOperationKey>;
+export type SessionContinuityOperationHandlerMap = Pick<
+  OperationHandlerMap,
+  SessionContinuityOperationKey
+>;
+export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
+
+export function composeOperationHandlers(
+  ...handlerMaps: readonly Partial<OperationHandlerMap>[]
+): OperationHandlerMap {
+  const combined: Partial<OperationHandlerMap> = {};
+  for (const handlers of handlerMaps) {
+    for (const key of Object.keys(handlers)) {
+      if (!Object.hasOwn(HOST_OPERATION_SPECS, key)) {
+        throw new Error(`Unknown Runtime Host operation handler: ${key}`);
+      }
+      if (Object.hasOwn(combined, key)) {
+        throw new Error(`Duplicate Runtime Host operation handler: ${key}`);
+      }
+      const handler = handlers[key as OperationKey];
+      if (typeof handler !== 'function') {
+        throw new Error(`Invalid Runtime Host operation handler: ${key}`);
+      }
+      Object.assign(combined, { [key]: handler });
+    }
+  }
+  const missing = Object.keys(HOST_OPERATION_SPECS).filter((key) => !Object.hasOwn(combined, key));
+  if (missing.length > 0) {
+    throw new Error(`Missing Runtime Host operation handlers: ${missing.join(', ')}`);
+  }
+  return combined as OperationHandlerMap;
+}
 
 export async function dispatchOperation(
   request: RequestFrame,
@@ -73,7 +117,7 @@ async function dispatchTypedOperation<K extends OperationKey>(
   const handler = handlers[request.operation] as OperationHandler<K>;
   let outcome: OperationOutcome<K>;
   try {
-    outcome = await handler(request.input, context);
+    outcome = decodeOperationOutcome(request.operation, await handler(request.input, context));
   } catch {
     return operationFailureResponse(
       request as RequestFrame,

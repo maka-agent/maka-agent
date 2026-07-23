@@ -36,9 +36,12 @@ import {
 } from '../protocol/index.js';
 import {
   RuntimeHostKernel,
+  RuntimeHostProcessTerminationRequiredError,
   startRuntimeHostCandidate,
   type RuntimeHostCandidateOptions,
   type RuntimeHostCandidateResult,
+  type RuntimeHostComposition,
+  type RuntimeHostCompositionContext,
 } from '../server/index.js';
 import { FramedTransport, RuntimeHostTransportError } from '../transport/framed-transport.js';
 import {
@@ -99,6 +102,240 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(next.kind, 'winner');
       if (next.kind === 'winner') await next.host.closed;
+    });
+  });
+
+  test('serves bootstrap operations during recovery and rejects ready-only operations', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      let releaseFactory = () => {};
+      let markFactoryEntered!: () => void;
+      const factoryEntered = new Promise<void>((resolve) => {
+        markFactoryEntered = resolve;
+      });
+      const factoryReleased = new Promise<void>((resolve) => {
+        releaseFactory = resolve;
+      });
+      const unavailable = async () =>
+        ({
+          ok: false,
+          error: {
+            code: 'operation_unavailable',
+            message: 'not available in this composition',
+          },
+        }) as const;
+      const hostTask = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async () => {
+          markFactoryEntered();
+          await factoryReleased;
+          return {
+            handlers: {
+              'turn.start': unavailable,
+              'turn.query': unavailable,
+              'turn.stop': unavailable,
+              'turn.message.submit': unavailable,
+              'queue.retract': unavailable,
+              'turn.interrupt': unavailable,
+              'interaction.query': unavailable,
+              'interaction.answer': unavailable,
+              'subscription.open': unavailable,
+              'subscription.close': unavailable,
+            },
+            beginDrain() {},
+            async recover() {},
+            async close() {},
+          };
+        },
+      });
+      let host: RuntimeHostKernel | undefined;
+      let transport: FramedTransport | undefined;
+      try {
+        await withTimeout(factoryEntered, 1_000, 'Runtime Host did not enter composition');
+        const registration = await readHostRegistration(owner.controlDirectory);
+        assert.ok(registration);
+        assert.equal(registration.state, 'recovering');
+        transport = new FramedTransport(await openSocket(registration.endpoint));
+        await transport.write({
+          kind: 'hello',
+          clientInstanceId: 'lifecycle-test',
+          surface: 'inspect',
+          protocolMin: CURRENT_PROTOCOL.min,
+          protocolMax: CURRENT_PROTOCOL.max,
+        });
+        const handshake = decodeHostFrame(await transport.read(1_000));
+        assert.ok('kind' in handshake && handshake.kind === 'accepted');
+
+        await transport.write({ requestId: 'status', operation: 'host.status', input: {} });
+        const status = decodeHostFrame(await transport.read(1_000));
+        assert.ok(!('kind' in status) && status.operation === 'host.status' && status.ok);
+        if (!('kind' in status) && status.operation === 'host.status' && status.ok) {
+          assert.equal(status.result.state, 'recovering');
+        }
+
+        await transport.write({
+          requestId: 'query',
+          operation: 'turn.query',
+          input: { sessionId: 'session', turnId: 'turn' },
+        });
+        const query = decodeHostFrame(await transport.read(1_000));
+        assert.ok(!('kind' in query) && query.operation === 'turn.query' && !query.ok);
+        if (!('kind' in query) && query.operation === 'turn.query' && !query.ok) {
+          assert.equal(query.error.code, 'host_not_ready');
+        }
+      } finally {
+        releaseFactory();
+        transport?.destroy();
+        host = await hostTask.catch(() => undefined);
+        await host?.close().catch(() => undefined);
+      }
+    });
+  });
+
+  test('requestDrain synchronously begins composition drain exactly once', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      let context: RuntimeHostCompositionContext | undefined;
+      let drainCalls = 0;
+      const host = await RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async (value) => {
+          context = value;
+          return testComposition({
+            beginDrain: () => {
+              drainCalls += 1;
+            },
+          });
+        },
+      });
+
+      context?.requestDrain();
+      assert.equal(drainCalls, 1);
+      context?.requestDrain();
+      assert.equal(drainCalls, 1);
+      await host.closed;
+    });
+  });
+
+  test('drain requested before factory completion begins drain before recovery exactly once', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      const lifecycle: string[] = [];
+      let releaseFactory!: () => void;
+      let markFactorySuspended!: () => void;
+      const factorySuspended = new Promise<void>((resolve) => {
+        markFactorySuspended = resolve;
+      });
+      const factoryReleased = new Promise<void>((resolve) => {
+        releaseFactory = resolve;
+      });
+      let startSettled = false;
+      const hostTask = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async (context) => {
+          context.requestDrain();
+          markFactorySuspended();
+          await factoryReleased;
+          lifecycle.push('factory-return');
+          return testComposition({
+            beginDrain: () => lifecycle.push('begin-drain'),
+            recover: async () => {
+              lifecycle.push('recover');
+            },
+            close: async () => {
+              lifecycle.push('close');
+            },
+          });
+        },
+      });
+      void hostTask.then(
+        () => {
+          startSettled = true;
+        },
+        () => {
+          startSettled = true;
+        },
+      );
+
+      await withTimeout(factorySuspended, 1_000, 'composition factory did not suspend');
+      await sleep(50);
+      assert.equal(startSettled, false);
+      assert.deepEqual(lifecycle, []);
+      const registration = await readHostRegistration(owner.controlDirectory);
+      assert.ok(registration);
+      assert.equal(registration.state, 'draining');
+      assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
+
+      releaseFactory();
+      const host = await withTimeout(hostTask, 1_000, 'Runtime Host startup did not settle');
+      await host.closed;
+      assert.deepEqual(lifecycle, ['factory-return', 'begin-drain', 'recover', 'close']);
+      assert.equal(lifecycle.filter((event) => event === 'begin-drain').length, 1);
+    });
+  });
+
+  test('startup failure uses the active shutdown deadline without releasing ownership', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      let releaseClose!: () => void;
+      let markCloseEntered!: () => void;
+      const closeEntered = new Promise<void>((resolve) => {
+        markCloseEntered = resolve;
+      });
+      const closeReleased = new Promise<void>((resolve) => {
+        releaseClose = resolve;
+      });
+      const lifecycle: string[] = [];
+      const hostTask = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        shutdownGraceMs: 100,
+        compositionFactory: async (context) => {
+          context.requestDrain();
+          return testComposition({
+            beginDrain: () => lifecycle.push('begin-drain'),
+            recover: async () => {
+              lifecycle.push('recover');
+              throw new Error('forced startup recovery failure');
+            },
+            close: async () => {
+              lifecycle.push('close');
+              markCloseEntered();
+              await closeReleased;
+            },
+          });
+        },
+      });
+      const startupFailure = hostTask.then(
+        () => assert.fail('Runtime Host startup unexpectedly succeeded'),
+        (error: unknown) => error,
+      );
+
+      try {
+        await withTimeout(closeEntered, 1_000, 'composition close did not begin');
+        const error = await withTimeout(
+          startupFailure,
+          1_000,
+          'Runtime Host startup ignored its shutdown deadline',
+        );
+        assert.ok(error instanceof RuntimeHostProcessTerminationRequiredError);
+        assert.deepEqual(lifecycle, ['begin-drain', 'recover', 'close']);
+        assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
+      } finally {
+        releaseClose();
+        await owner.close();
+      }
     });
   });
 
@@ -744,7 +981,11 @@ describe('non-serving Runtime Host kernel', () => {
         await transport.write({
           requestId: 'blocked-turn-start',
           operation: 'turn.start',
-          input: { sessionId: 'session', turnId: 'turn', text: 'block forever' },
+          input: {
+            sessionId: 'session',
+            turnId: 'turn',
+            content: { text: 'block forever' },
+          },
         });
         await blocked;
         const shutdownRequested = waitForUncooperativeHostMessage(child, 'shutdown-requested');
@@ -1046,6 +1287,37 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 });
+
+function testComposition(
+  overrides: Partial<Pick<RuntimeHostComposition, 'beginDrain' | 'recover' | 'close'>> = {},
+): RuntimeHostComposition {
+  const unavailable = async () =>
+    ({
+      ok: false,
+      error: {
+        code: 'operation_unavailable',
+        message: 'not available in this test composition',
+      },
+    }) as const;
+  return {
+    handlers: {
+      'turn.start': unavailable,
+      'turn.query': unavailable,
+      'turn.stop': unavailable,
+      'turn.message.submit': unavailable,
+      'queue.retract': unavailable,
+      'turn.interrupt': unavailable,
+      'interaction.query': unavailable,
+      'interaction.answer': unavailable,
+      'subscription.open': unavailable,
+      'subscription.close': unavailable,
+    },
+    beginDrain() {},
+    async recover() {},
+    async close() {},
+    ...overrides,
+  };
+}
 
 interface HostPaths {
   base: string;

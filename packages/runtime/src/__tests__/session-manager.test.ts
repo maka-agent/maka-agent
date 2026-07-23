@@ -38,7 +38,7 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { RuntimeKernelLike } from '../runtime-kernel.js';
-import { FakeBackend } from '../fake-backend.js';
+import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '../fake-backend.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend } from '@maka/core/backend-types';
 import type { MakaTool } from '../tool-runtime.js';
@@ -63,6 +63,15 @@ import {
   materializeExpertAgentDefinition,
 } from '../expert-catalog.js';
 import { AGENT_TEAM_CHILD_TOOL_NAMES } from '../agent-team-tool-names.js';
+import {
+  RuntimeMessageAuthorityInvariantError,
+  type RuntimeMessageRunIdentity,
+} from '../message-authority.js';
+import {
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionRunIdentity,
+  type RuntimeUserQuestionContinuation,
+} from '../interaction-authority.js';
 
 describe('SessionManager automatic titles', () => {
   test('starts after user persistence and does not block the turn', async () => {
@@ -10668,6 +10677,315 @@ describe('SessionManager steering and followup queues', () => {
     return events;
   }
 
+  test('hosted root runs consume the Host owner and release it exactly once', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    const identities: RuntimeMessageRunIdentity[] = [];
+    const acked: string[] = [];
+    const nacked: string[] = [];
+    let pulled = false;
+    let releases = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      messageAuthority: {
+        bindRun: (identity) => {
+          identities.push(identity);
+          return {
+            ...identity,
+            pull: () => {
+              if (pulled) return [];
+              pulled = true;
+              return [
+                {
+                  id: 'host-lease-1',
+                  messageId: 'host-message-1',
+                  content: { text: 'host steer', displayText: 'visible host steer' },
+                },
+              ];
+            },
+            ack: (leaseIds) => acked.push(...leaseIds),
+            nack: (leaseIds) => nacked.push(...leaseIds),
+            release: () => {
+              releases += 1;
+            },
+          };
+        },
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'bypass' }),
+    );
+
+    const events = await drainAll(
+      manager.sendMessage(session.id, { turnId: 'turn-host-message', text: 'start' }),
+    );
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(identities).toEqual([
+      { sessionId: session.id, turnId: 'turn-host-message', runId: run?.runId },
+    ]);
+    expect(acked).toEqual(['host-lease-1']);
+    expect(nacked).toEqual([]);
+    expect(releases).toBe(1);
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'steering_message' &&
+          event.messageId === 'host-message-1' &&
+          event.content.displayText === 'visible host steer',
+      ),
+    ).toBe(true);
+    expect(events.some((event) => event.type === 'queue_update')).toBe(false);
+    for (const operation of [
+      () => manager.steer(session.id, 'runtime mirror'),
+      () => manager.queueMessage(session.id, 'runtime mirror'),
+      () => manager.drainFollowup(session.id),
+      () => manager.retractQueue(session.id),
+    ]) {
+      let error: unknown;
+      try {
+        operation();
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error instanceof RuntimeMessageAuthorityInvariantError).toBe(true);
+    }
+  });
+
+  test('hosted Interaction binds the durable Run identity and closes before release', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    const identities: RuntimeInteractionRunIdentity[] = [];
+    const lifecycle: string[] = [];
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      interactionAuthority: {
+        bindRun: (identity) => {
+          identities.push(identity);
+          return {
+            ...identity,
+            acceptPermissionRequest: async () => ({ state: 'pending' }),
+            commitPermissionAnswer: async ({ answer }) => ({
+              kind: 'permission_answer',
+              answer,
+            }),
+            commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+            acceptUserQuestionRequest: async () => {},
+            close: async (reason) => {
+              lifecycle.push(`close:${reason}`);
+            },
+            release: () => lifecycle.push('release'),
+          };
+        },
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'bypass' }),
+    );
+
+    await drainAll(
+      manager.sendMessage(session.id, { turnId: 'turn-host-interaction', text: 'go' }),
+    );
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(identities).toEqual([
+      { sessionId: session.id, turnId: 'turn-host-interaction', runId: run?.runId },
+    ]);
+    expect(lifecycle).toEqual(['close:turn_terminal', 'release']);
+  });
+
+  test('hosted stopped question abandonment preserves stop closure before release', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    const lifecycle: string[] = [];
+    let question: RuntimeUserQuestionContinuation | undefined;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      interactionAuthority: {
+        bindRun: (identity) => ({
+          ...identity,
+          acceptPermissionRequest: async () => ({ state: 'pending' }),
+          commitPermissionAnswer: async ({ answer }) => ({
+            kind: 'permission_answer',
+            answer,
+          }),
+          commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+          acceptUserQuestionRequest: async ({ continuation }) => {
+            question = continuation;
+          },
+          close: async (reason) => {
+            lifecycle.push(`close:${reason}`);
+            await question?.applyClosure(reason);
+            lifecycle.push('local-settled');
+          },
+          release: () => lifecycle.push('release'),
+        }),
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'ask' }),
+    );
+    const iterator = manager
+      .sendMessage(session.id, {
+        turnId: 'turn-host-question-abandoned',
+        text: FAKE_ASK_USER_QUESTION_PROMPT,
+      })
+      [Symbol.asyncIterator]();
+
+    let request: SessionEvent | undefined;
+    while (request?.type !== 'user_question_request') {
+      const next = await iterator.next();
+      if (next.done) break;
+      request = next.value;
+    }
+    expect(request?.type).toBe('user_question_request');
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    expect(lifecycle).toEqual(['close:turn_stopped', 'local-settled']);
+    await iterator.return?.(undefined);
+    expect(lifecycle).toEqual(['close:turn_stopped', 'local-settled', 'release']);
+  });
+
+  test('hosted RuntimeKernel rejects a backend request without an admission receipt', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new UnadmittedQuestionBackend(ctx));
+    let releases = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      interactionAuthority: {
+        bindRun: (identity) => ({
+          ...identity,
+          acceptPermissionRequest: async () => ({ state: 'pending' }),
+          commitPermissionAnswer: async ({ answer }) => ({
+            kind: 'permission_answer',
+            answer,
+          }),
+          commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+          acceptUserQuestionRequest: async () => {},
+          close: async () => {},
+          release: () => {
+            releases += 1;
+          },
+        }),
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'ask' }),
+    );
+
+    let failure: unknown;
+    try {
+      await drainAll(manager.sendMessage(session.id, { turnId: 'turn-forged', text: 'start' }));
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure instanceof RuntimeInteractionInvariantError).toBe(true);
+    expect(releases).toBe(1);
+  });
+
+  test('hosted owner is released when the event consumer abandons the run', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    let releases = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      messageAuthority: {
+        bindRun: (identity) => ({
+          ...identity,
+          pull: () => [],
+          ack: () => {},
+          nack: () => {},
+          release: () => {
+            releases += 1;
+          },
+        }),
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'bypass' }),
+    );
+    const iterator = manager
+      .sendMessage(session.id, { turnId: 'turn-host-abandoned', text: 'start' })
+      [Symbol.asyncIterator]();
+
+    await iterator.next();
+    await iterator.return?.(undefined);
+    expect(releases).toBe(1);
+  });
+
+  test('hosted owner is released when backend execution fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
+    let releases = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      messageAuthority: {
+        bindRun: (identity) => ({
+          ...identity,
+          pull: () => [],
+          ack: () => {},
+          nack: () => {},
+          release: () => {
+            releases += 1;
+          },
+        }),
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'bypass' }),
+    );
+
+    let failure: unknown;
+    try {
+      await drainAll(
+        manager.sendMessage(session.id, { turnId: 'turn-host-failed', text: 'start' }),
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect((failure as Error).message).toBe('backend failed before terminal');
+    expect(releases).toBe(1);
+  });
+
   test('steer injects a user message mid-turn and emits queue snapshots', async () => {
     const { manager } = steeringManager();
     const session = await manager.createSession(
@@ -10682,7 +11000,9 @@ describe('SessionManager steering and followup queues', () => {
     expect(steerOutcome).toEqual({ kind: 'queued' });
     // The interjection is echoed as a first-class user event…
     expect(
-      events.some((event) => event.type === 'steering_message' && event.text === 'also do X'),
+      events.some(
+        (event) => event.type === 'steering_message' && event.content.text === 'also do X',
+      ),
     ).toBe(true);
     // …the enqueue and the step-boundary consumption both push a queue snapshot…
     const queueUpdates = events.filter(
@@ -10810,7 +11130,9 @@ describe('SessionManager steering and followup queues', () => {
     });
     expect(outcome?.kind).toBe('queued');
     expect(
-      events.some((event) => event.type === 'steering_message' && event.text === 'now consumed'),
+      events.some(
+        (event) => event.type === 'steering_message' && event.content.text === 'now consumed',
+      ),
     ).toBe(true);
   });
 
@@ -10855,7 +11177,7 @@ describe('SessionManager steering and followup queues', () => {
     expect(backend?.pulls.get('turn-b')).toEqual([['for the owner']]);
     expect(
       secondEvents.some(
-        (event) => event.type === 'steering_message' && event.text === 'for the owner',
+        (event) => event.type === 'steering_message' && event.content.text === 'for the owner',
       ),
     ).toBe(true);
   });
@@ -11505,7 +11827,7 @@ class GatedSteeringBackend implements AgentBackend {
     await gate.promise;
     const leases = input.pullSteering?.() ?? [];
     const record = this.pulls.get(input.turnId) ?? [];
-    record.push(leases.map((lease) => lease.text));
+    record.push(leases.map((lease) => lease.content.text));
     this.pulls.set(input.turnId, record);
     let seq = 0;
     for (const lease of leases) {
@@ -11515,8 +11837,8 @@ class GatedSteeringBackend implements AgentBackend {
         id: `${input.turnId}-steer-${seq}`,
         turnId: input.turnId,
         ts: seq,
-        messageId: `${input.turnId}-steer-m-${seq}`,
-        text: lease.text,
+        messageId: lease.messageId,
+        content: lease.content,
       };
     }
     // Delivery for this fake is the echo itself; ack the leases.
@@ -11647,6 +11969,38 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
   async disposeBackend(sessionId: string): Promise<void> {
     this.disposed.push(sessionId);
   }
+}
+
+class UnadmittedQuestionBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'user_question_request',
+      id: 'unadmitted-event',
+      turnId: input.turnId,
+      ts: 1,
+      requestId: 'unadmitted-request',
+      toolUseId: 'unadmitted-tool',
+      questions: [
+        {
+          question: 'Continue?',
+          options: [{ label: 'Yes' }, { label: 'No' }],
+        },
+      ],
+    };
+  }
+
+  async stop(): Promise<void> {}
+
+  async respondToPermission(): Promise<void> {}
+
+  async dispose(): Promise<void> {}
 }
 
 class TestBackend implements AgentBackend {

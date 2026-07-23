@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AgentRunHeader } from '@maka/core/agent-run';
+import type { MessageContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import { isTerminalRuntimeEvent } from '@maka/core/runtime-event';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -25,11 +26,17 @@ import {
 import {
   connectRuntimeHost,
   RuntimeHostOperationError,
+  RuntimeHostSubscriptionError,
   type RuntimeHostConnection,
+  type RuntimeHostSessionSubscription,
 } from '../client/index.js';
 import {
   decodeHostFrame,
   RUNTIME_HOST_PROTOCOL_VERSION,
+  type InteractionPendingSnapshot,
+  type SubscriptionFrame,
+  type TurnMessageSubmitInput,
+  type TurnMessageSubmitResult,
   type TurnSnapshot,
 } from '../protocol/index.js';
 import { FramedTransport } from '../transport/framed-transport.js';
@@ -45,12 +52,16 @@ test('two Clients share one execution after the starting Client disconnects', as
     const host = await fixture.startHost();
     const first = await connectClient(fixture.root, 'desktop');
     const second = await connectClient(fixture.root, 'tui');
+    const secondSubscription = await second.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const secondProbe = new SubscriptionProbe(secondSubscription);
     const turnId = randomUUID();
 
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     assert.equal(started.turnId, turnId);
     await assert.rejects(
@@ -58,12 +69,25 @@ test('two Clients share one execution after the starting Client disconnects', as
         second.startTurn({
           sessionId: fixture.sessionId,
           turnId: randomUUID(),
-          text: 'must stay busy',
+          content: { text: 'must stay busy' },
         }),
       operationError('session_busy'),
     );
 
     await first.close();
+    const pending = await waitForPendingInteraction(secondSubscription, secondProbe, started.runId);
+    assert.equal(pending.sessionId, fixture.sessionId);
+    assert.equal(pending.turnId, turnId);
+    assert.equal(pending.runId, started.runId);
+    const questionRequest = pending.request;
+    assert.ok(questionRequest.kind === 'question');
+    assert.deepEqual(
+      await second.request('interaction.query', {
+        sessionId: fixture.sessionId,
+        interactionId: pending.interactionId,
+      }),
+      pending,
+    );
     const observed = await second.queryTurn({
       sessionId: fixture.sessionId,
       turnId,
@@ -79,18 +103,39 @@ test('two Clients share one execution after the starting Client disconnects', as
       PROCESS_TIMEOUT_MS,
     );
     assert.equal(stopped.status, 'cancelled');
+    const closed = await second.request('interaction.query', {
+      sessionId: fixture.sessionId,
+      interactionId: pending.interactionId,
+    });
+    assert.equal(closed.sessionId, fixture.sessionId);
+    assert.equal(closed.turnId, turnId);
+    assert.equal(closed.runId, started.runId);
+    assert.equal(closed.status, 'closed');
+    assert.equal(closed.outcome.kind, 'closure');
+    if (closed.outcome.kind === 'closure') assert.equal(closed.outcome.reason, 'turn_stopped');
+    await assert.rejects(
+      () =>
+        second.request('interaction.answer', {
+          interactionId: pending.interactionId,
+          answer: {
+            kind: 'question',
+            answers: questionRequest.questions.map(() => null),
+          },
+        }),
+      operationError('already_resolved'),
+    );
 
     const nextTurnId = randomUUID();
     const next = await second.startTurn({
       sessionId: fixture.sessionId,
       turnId: nextTurnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     assert.deepEqual(
       await second.startTurn({
         sessionId: fixture.sessionId,
         turnId,
-        text: FAKE_ASK_USER_QUESTION_PROMPT,
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
       }),
       stopped,
     );
@@ -116,6 +161,8 @@ test('two Clients share one execution after the starting Client disconnects', as
       },
       PROCESS_TIMEOUT_MS,
     );
+    await secondSubscription.close();
+    await secondProbe.done;
     await second.close();
     await fixture.stopHost(host);
 
@@ -131,6 +178,237 @@ test('two Clients share one execution after the starting Client disconnects', as
   });
 });
 
+test('a disconnected Client leaves a durable Interaction that another Client can answer', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const firstHost = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const turnId = randomUUID();
+    const started = await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+    });
+    await first.close();
+
+    const second = await connectClient(fixture.root, 'tui');
+    const subscription = await second.openSessionSubscription({ sessionId: fixture.sessionId });
+    const probe = new SubscriptionProbe(subscription);
+    const pending = await waitForPendingInteraction(subscription, probe, started.runId);
+    assert.equal(pending.sessionId, fixture.sessionId);
+    assert.equal(pending.turnId, turnId);
+    assert.equal(pending.runId, started.runId);
+    assert.equal(pending.status, 'pending');
+    const questionRequest = pending.request;
+    assert.ok(questionRequest.kind === 'question');
+
+    assert.deepEqual(
+      await second.request('interaction.query', {
+        sessionId: fixture.sessionId,
+        interactionId: pending.interactionId,
+      }),
+      pending,
+    );
+    const answer = {
+      kind: 'question' as const,
+      answers: questionRequest.questions.map((question) => question.options[0]?.label ?? null),
+    };
+    const winner = await second.request('interaction.answer', {
+      interactionId: pending.interactionId,
+      answer,
+    });
+    assert.equal(winner.sessionId, fixture.sessionId);
+    assert.equal(winner.turnId, turnId);
+    assert.equal(winner.runId, started.runId);
+    assert.equal(winner.status, 'answered');
+    assert.equal(winner.outcome.kind, 'question_answer');
+    assert.deepEqual(winner.outcome.answers, answer.answers);
+    assert.deepEqual(
+      await second.request('interaction.query', {
+        sessionId: fixture.sessionId,
+        interactionId: pending.interactionId,
+      }),
+      winner,
+    );
+    assert.deepEqual(
+      await second.request('interaction.answer', {
+        interactionId: pending.interactionId,
+        answer,
+      }),
+      winner,
+    );
+    const completed = await waitForTerminalTurn(second, fixture.sessionId, turnId);
+    assert.equal(completed.runId, started.runId);
+    assert.equal(completed.status, 'completed');
+    await subscription.close();
+    await probe.done;
+    await second.close();
+    await fixture.stopHost(firstHost);
+
+    const secondHost = await fixture.startHost();
+    const observer = await connectClient(fixture.root, 'run');
+    assert.deepEqual(
+      await observer.request('interaction.query', {
+        sessionId: fixture.sessionId,
+        interactionId: pending.interactionId,
+      }),
+      winner,
+    );
+    assert.deepEqual(
+      await observer.request('interaction.answer', {
+        interactionId: pending.interactionId,
+        answer,
+      }),
+      winner,
+    );
+    assert.deepEqual(await observer.queryTurn({ sessionId: fixture.sessionId, turnId }), completed);
+    await observer.close();
+    await fixture.stopHost(secondHost);
+  });
+});
+
+test('subscribed Clients share one canonical queue and ordered root handoff', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const desktop = await connectClient(fixture.root, 'desktop');
+    const tui = await connectClient(fixture.root, 'tui');
+    const desktopSubscription = await desktop.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const tuiSubscription = await tui.openSessionSubscription({ sessionId: fixture.sessionId });
+    const desktopProbe = new SubscriptionProbe(desktopSubscription);
+    const tuiProbe = new SubscriptionProbe(tuiSubscription);
+    for (const subscription of [desktopSubscription, tuiSubscription]) {
+      assert.equal(subscription.hostEpoch, host.hostEpoch);
+      assert.equal(subscription.snapshot.rootTurn, null);
+      assert.equal(subscription.snapshot.projectionRevision, 1);
+      assert.equal(subscription.snapshot.queue.hostEpoch, host.hostEpoch);
+    }
+
+    const firstTurnId = randomUUID();
+    const started = await desktop.startTurn({
+      sessionId: fixture.sessionId,
+      turnId: firstTurnId,
+      content: { text: `continuity root ${'x'.repeat(540)}` },
+    });
+    for (const probe of [desktopProbe, tuiProbe]) {
+      const liveDelta = await probe.waitFor(
+        (frame) =>
+          frame.kind === 'subscription.session_delta' && frame.delta.turnId === firstTurnId,
+        'continuity did not publish the live assistant delta',
+      );
+      assert.equal(liveDelta.kind, 'subscription.session_delta');
+      if (liveDelta.kind === 'subscription.session_delta') {
+        assert.equal(liveDelta.delta.runId, started.runId);
+      }
+    }
+
+    const followupId = randomUUID();
+    const followupContent = { text: 'continue after the first root completes' };
+    const queued = await tui.request('turn.message.submit', {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: followupId,
+      content: followupContent,
+      placement: 'next_turn',
+    });
+    assert.equal(queued.disposition, 'followup');
+    for (const probe of [desktopProbe, tuiProbe]) {
+      const queueProjection = await probe.waitFor(
+        (frame) =>
+          frame.kind === 'subscription.session_projection' &&
+          frame.snapshot.queue.followup.some((entry) => entry.messageId === followupId),
+        'continuity did not publish the accepted follow-up',
+      );
+      assert.equal(queueProjection.kind, 'subscription.session_projection');
+    }
+
+    await desktop.close();
+    await desktopProbe.waitForFailure('connection_closed');
+    assert.equal((await tui.status()).connections, 1);
+    const terminal = await tuiProbe.waitFor(
+      (frame) =>
+        frame.kind === 'subscription.session_projection' &&
+        frame.snapshot.rootTurn?.turnId === firstTurnId &&
+        frame.snapshot.rootTurn.status === 'completed',
+      'continuity did not publish the terminal root cut',
+    );
+    assert.equal(terminal.kind, 'subscription.session_projection');
+    const successor = await tuiProbe.waitFor(
+      (frame) =>
+        frame.kind === 'subscription.session_projection' &&
+        frame.snapshot.rootTurn !== null &&
+        frame.snapshot.rootTurn.turnId !== firstTurnId,
+      'continuity did not publish the successor root',
+    );
+    assert.equal(successor.kind, 'subscription.session_projection');
+    if (successor.kind !== 'subscription.session_projection' || !successor.snapshot.rootTurn) {
+      return;
+    }
+    assert.equal(successor.snapshot.rootTurn.sessionId, fixture.sessionId);
+    assert.ok(tuiProbe.indexOf(terminal) < tuiProbe.indexOf(successor));
+    await tuiSubscription.close();
+    await tuiProbe.done;
+    await waitForTerminalTurn(tui, fixture.sessionId, successor.snapshot.rootTurn.turnId);
+    await tui.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.deepEqual(
+      chain.map((admission) => admission.turnId),
+      [firstTurnId, successor.snapshot.rootTurn.turnId],
+    );
+    assert.deepEqual(chain[1]?.normalizedInput, followupContent);
+  });
+});
+
+test('concurrent root admission for one Session has a single winner', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const turnIds = [randomUUID(), randomUUID()] as const;
+
+    const outcomes = await Promise.allSettled([
+      first.startTurn({
+        sessionId: fixture.sessionId,
+        turnId: turnIds[0],
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+      }),
+      second.startTurn({
+        sessionId: fixture.sessionId,
+        turnId: turnIds[1],
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+      }),
+    ]);
+    const winners = outcomes.filter(
+      (outcome): outcome is PromiseFulfilledResult<TurnSnapshot> => outcome.status === 'fulfilled',
+    );
+    const rejected = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    assert.equal(winners.length, 1);
+    assert.equal(rejected.length, 1);
+    assert.ok(rejected[0]?.reason instanceof RuntimeHostOperationError);
+    assert.equal(rejected[0]?.reason.code, 'session_busy');
+
+    const winner = winners[0]?.value;
+    assert.ok(winner);
+    await first.stopTurn({
+      sessionId: fixture.sessionId,
+      turnId: winner.turnId,
+      runId: winner.runId,
+    });
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 1);
+    assert.equal(chain[0]?.turnId, winner.turnId);
+    assert.equal(chain[0]?.previousRootTurnId, null);
+  });
+});
+
 test('an archived Session rejects a new Turn before durable admission', async () => {
   await withExecutionRoot(async (fixture) => {
     await fixture.archiveSession();
@@ -143,7 +421,7 @@ test('an archived Session rejects a new Turn before durable admission', async ()
         client.startTurn({
           sessionId: fixture.sessionId,
           turnId,
-          text: 'must not execute',
+          content: { text: 'must not execute' },
         }),
       operationError('session_archived'),
     );
@@ -165,23 +443,72 @@ test('a killed Host is recovered exactly once before its successor becomes ready
   await withExecutionRoot(async (fixture) => {
     const firstHost = await fixture.startHost();
     const first = await connectClient(fixture.root, 'desktop');
+    const firstSubscription = await first.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
+    const firstProbe = new SubscriptionProbe(firstSubscription);
     const turnId = randomUUID();
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
+    await firstProbe.waitFor(
+      (frame) =>
+        frame.kind === 'subscription.session_projection' &&
+        frame.snapshot.rootTurn?.runId === started.runId &&
+        frame.snapshot.rootTurn.status !== 'admitted',
+      'first Host did not publish the active root projection',
+    );
+    const pending = await waitForPendingInteraction(firstSubscription, firstProbe, started.runId);
+    assert.equal(pending.sessionId, fixture.sessionId);
+    assert.equal(pending.turnId, turnId);
+    assert.equal(pending.runId, started.runId);
+    const questionRequest = pending.request;
+    assert.ok(questionRequest.kind === 'question');
 
     await fixture.killHost(firstHost);
     await first.closed;
+    await firstProbe.waitForFailure('connection_closed');
     const secondHost = await fixture.startHost();
     const second = await connectClient(fixture.root, 'tui');
+    const recoveredSubscription = await second.openSessionSubscription({
+      sessionId: fixture.sessionId,
+    });
     const recovered = await second.queryTurn({
       sessionId: fixture.sessionId,
       turnId,
     });
     assert.equal(recovered.status, 'failed');
     if (recovered.status === 'failed') assert.equal(recovered.failureClass, 'app_restarted');
+    assert.notEqual(recoveredSubscription.hostEpoch, firstSubscription.hostEpoch);
+    assert.equal(recoveredSubscription.snapshot.projectionRevision, 1);
+    assert.deepEqual(recoveredSubscription.snapshot.rootTurn, recovered);
+    assert.equal(recoveredSubscription.snapshot.queue.hostEpoch, recoveredSubscription.hostEpoch);
+    assert.deepEqual(recoveredSubscription.snapshot.queue.steering, []);
+    assert.deepEqual(recoveredSubscription.snapshot.queue.followup, []);
+    const closed = await second.request('interaction.query', {
+      sessionId: fixture.sessionId,
+      interactionId: pending.interactionId,
+    });
+    assert.equal(closed.sessionId, fixture.sessionId);
+    assert.equal(closed.turnId, turnId);
+    assert.equal(closed.runId, started.runId);
+    assert.equal(closed.status, 'closed');
+    assert.equal(closed.outcome.kind, 'closure');
+    if (closed.outcome.kind === 'closure') assert.equal(closed.outcome.reason, 'host_restarted');
+    await assert.rejects(
+      () =>
+        second.request('interaction.answer', {
+          interactionId: pending.interactionId,
+          answer: {
+            kind: 'question',
+            answers: questionRequest.questions.map(() => null),
+          },
+        }),
+      operationError('already_resolved'),
+    );
+    await recoveredSubscription.close();
     await second.close();
     await fixture.stopHost(secondHost);
 
@@ -193,6 +520,13 @@ test('a killed Host is recovered exactly once before its successor becomes ready
     });
     assert.deepEqual(stable, recovered);
     assert.equal(stable.runId, started.runId);
+    assert.deepEqual(
+      await third.request('interaction.query', {
+        sessionId: fixture.sessionId,
+        interactionId: pending.interactionId,
+      }),
+      closed,
+    );
     await third.close();
     await fixture.stopHost(thirdHost);
 
@@ -213,7 +547,7 @@ test('graceful Host shutdown stops and drains an active Turn before releasing ow
     const started = await client.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
 
     const exit = await fixture.stopHost(host);
@@ -259,7 +593,7 @@ test('a durable admission without a Run resumes before the Host becomes ready', 
         client.startTurn({
           sessionId: fixture.sessionId,
           turnId: randomUUID(),
-          text: 'must remain behind the recovered admission',
+          content: { text: 'must remain behind the recovered admission' },
         }),
       operationError('session_busy'),
     );
@@ -413,7 +747,7 @@ test('a pre-start durability failure rejects turn.start and drains the Host', {
           client.startTurn({
             sessionId: fixture.sessionId,
             turnId,
-            text: 'fail before the durable start barrier',
+            content: { text: 'fail before the durable start barrier' },
           }),
         operationError('internal_failure'),
       );
@@ -457,7 +791,7 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const retried = await observer.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text,
+      content: { text },
     });
     assert.equal(retried.runId, committed.runId);
     await assert.rejects(
@@ -465,19 +799,331 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
         observer.startTurn({
           sessionId: fixture.sessionId,
           turnId,
-          text: `${text} changed`,
+          content: { text: `${text} changed` },
         }),
       operationError('operation_conflict'),
     );
     const terminal = await waitForTerminalTurn(observer, fixture.sessionId, turnId);
     assert.equal(terminal.status, 'completed');
     await observer.close();
-    await fixture.stopHost(host);
+
+    await fixture.killHost(host);
+    const successorHost = await fixture.startHost();
+    const successorClient = await connectClient(fixture.root, 'run');
+    assert.deepEqual(
+      await successorClient.startTurn({
+        sessionId: fixture.sessionId,
+        turnId,
+        content: { text },
+      }),
+      terminal,
+    );
+    const successorTurnId = randomUUID();
+    await successorClient.startTurn({
+      sessionId: fixture.sessionId,
+      turnId: successorTurnId,
+      content: { text: 'successor must extend the recovered durable tip' },
+    });
+    await waitForTerminalTurn(successorClient, fixture.sessionId, successorTurnId);
+    await successorClient.close();
+    await fixture.stopHost(successorHost);
 
     const ledger = await fixture.readTurn(turnId);
     assert.equal(ledger.runs.length, 1);
     assert.equal(ledger.userMessages.length, 1);
     assert.equal(ledger.terminalEvents.length, 1);
+    const chain = await fixture.readAdmissionChain();
+    assert.deepEqual(
+      chain.map((admission) => admission.turnId),
+      [turnId, successorTurnId],
+    );
+    assert.equal(chain[1]?.previousRootTurnId, turnId);
+  });
+});
+
+test('same idle Message submit is connection-independent and starts one canonical root', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const messageId = randomUUID();
+    const content = {
+      text: '<context>canonical model input</context>',
+      displayText: 'canonical display input',
+      attachments: [attachment('idle-message', 'context.png')],
+    };
+    const input = {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId,
+      content,
+      placement: 'next_turn' as const,
+    };
+
+    const [firstResult, secondResult] = await Promise.all([
+      first.request('turn.message.submit', input),
+      second.request('turn.message.submit', input),
+    ]);
+    assert.deepEqual(secondResult, firstResult);
+    assert.equal(firstResult.disposition, 'turn_started');
+    if (firstResult.disposition !== 'turn_started') return;
+    await waitForTerminalTurn(first, fixture.sessionId, firstResult.turnId);
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 1);
+    assert.deepEqual(chain[0]?.normalizedInput, content);
+    assert.deepEqual(chain[0]?.sourceMessages, [
+      { messageId, content, placement: 'next_turn', disposition: 'turn_started' },
+    ]);
+    const ledger = await fixture.readTurn(firstResult.turnId);
+    assert.equal(ledger.runs.length, 1);
+    assert.equal(ledger.userMessages.length, 1);
+    assert.equal(ledger.userMessages[0]?.id, messageId);
+    assert.equal(ledger.userMessages[0]?.text, content.text);
+    assert.equal(ledger.userMessages[0]?.displayText, content.displayText);
+    assert.deepEqual(ledger.userMessages[0]?.attachments, content.attachments);
+  });
+});
+
+test('steering becomes durable and ordered followups automatically start the next root', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const firstTurnId = randomUUID();
+    await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId: firstTurnId,
+      content: { text: `long-running root ${'x'.repeat(540)}` },
+    });
+    const steeringId = randomUUID();
+    const steeringContent = {
+      text: '<steer>use the correction</steer>',
+      displayText: 'use the correction',
+      attachments: [attachment('steering', 'correction.png')],
+    };
+    const followupSources: Array<{ messageId: string; content: MessageContent }> = [
+      {
+        messageId: randomUUID(),
+        content: {
+          text: '<followup>first queued task</followup>',
+          displayText: 'first queued task',
+          attachments: [attachment('followup-first', 'first.png')],
+        },
+      },
+      {
+        messageId: randomUUID(),
+        content: { text: 'second queued task' },
+      },
+    ];
+
+    assert.equal(
+      (
+        await second.request('turn.message.submit', {
+          originHostEpoch: host.hostEpoch,
+          sessionId: fixture.sessionId,
+          messageId: steeringId,
+          content: steeringContent,
+          placement: 'current_turn',
+        })
+      ).disposition,
+      'steering',
+    );
+    for (const source of followupSources) {
+      assert.equal(
+        (
+          await second.request('turn.message.submit', {
+            originHostEpoch: host.hostEpoch,
+            sessionId: fixture.sessionId,
+            ...source,
+            placement: 'next_turn',
+          })
+        ).disposition,
+        'followup',
+      );
+    }
+
+    assert.equal(
+      (await waitForTerminalTurn(first, fixture.sessionId, firstTurnId)).status,
+      'completed',
+    );
+    await waitForDurableMessageDisposition(second, {
+      originHostEpoch: 'previous-host-epoch',
+      sessionId: fixture.sessionId,
+      ...followupSources[0],
+      placement: 'next_turn',
+    });
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const firstLedger = await fixture.readTurn(firstTurnId);
+    const steeringEvents = firstLedger.runtimeEvents.filter(
+      (event) =>
+        event.refs?.providerEventId === steeringId &&
+        event.content?.kind === 'text' &&
+        event.content.steering === true,
+    );
+    assert.equal(steeringEvents.length, 1);
+    assert.equal(steeringEvents[0]?.content?.kind, 'text');
+    if (steeringEvents[0]?.content?.kind === 'text') {
+      const { kind: _kind, steering: _steering, ...durableContent } = steeringEvents[0].content;
+      assert.deepEqual(durableContent, steeringContent);
+    }
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 2);
+    assert.equal(chain[1]?.previousRootTurnId, firstTurnId);
+    assert.deepEqual(
+      chain[1]?.sourceMessages,
+      followupSources.map((source) => ({
+        ...source,
+        placement: 'next_turn',
+        disposition: 'followup',
+      })),
+    );
+    assert.deepEqual(chain[1]?.normalizedInput, {
+      text: `${followupSources[0].content.text}\n\n${followupSources[1].content.text}`,
+      displayText: `${followupSources[0].content.displayText}\n\n${followupSources[1].content.text}`,
+      attachments: followupSources[0].content.attachments,
+    });
+  });
+});
+
+test('interrupt atomically retracts queued followup, stops the exact run, and is idempotent', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const turnId = randomUUID();
+    const started = await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+    });
+    const followupId = randomUUID();
+    const followupContent = {
+      text: '<followup>must be withdrawn</followup>',
+      displayText: 'must be withdrawn',
+      attachments: [attachment('interrupt-followup', 'withdraw.png')],
+    };
+    await second.request('turn.message.submit', {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: followupId,
+      content: followupContent,
+      placement: 'next_turn',
+    });
+    const interruptInput = {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      interruptId: randomUUID(),
+      turnId,
+      runId: started.runId,
+    };
+
+    const [interrupted, concurrentRetry] = await Promise.all([
+      first.request('turn.interrupt', interruptInput, PROCESS_TIMEOUT_MS),
+      second.request('turn.interrupt', interruptInput, PROCESS_TIMEOUT_MS),
+    ]);
+    assert.deepEqual(concurrentRetry, interrupted);
+    assert.deepEqual(
+      await second.request('turn.interrupt', interruptInput, PROCESS_TIMEOUT_MS),
+      interrupted,
+    );
+    assert.equal(interrupted.turn.turnId, turnId);
+    assert.equal(interrupted.turn.runId, started.runId);
+    assert.equal(interrupted.turn.status, 'cancelled');
+    assert.equal(interrupted.retracted.length, 1);
+    assert.ok(interrupted.retracted[0]?.entryId);
+    assert.deepEqual(interrupted.retracted, [
+      {
+        entryId: interrupted.retracted[0]?.entryId,
+        messageId: followupId,
+        content: followupContent,
+        placement: 'next_turn',
+        state: 'retracted',
+      },
+    ]);
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 1);
+    assert.equal(chain[0]?.turnId, turnId);
+  });
+});
+
+test('old-Epoch Message submit resolves durable proofs and rejects unproven outcomes', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const firstHost = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const rootMessageId = randomUUID();
+    const rootContent = { text: `durable root ${'x'.repeat(360)}` };
+    const rootResult = await first.request('turn.message.submit', {
+      originHostEpoch: firstHost.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: rootMessageId,
+      content: rootContent,
+      placement: 'next_turn',
+    });
+    assert.equal(rootResult.disposition, 'turn_started');
+    if (rootResult.disposition !== 'turn_started') return;
+    await waitForRunningTurn(first, fixture.sessionId, rootResult.turnId);
+    const steeringId = randomUUID();
+    const steeringContent = { text: 'durable steering proof' };
+    await first.request('turn.message.submit', {
+      originHostEpoch: firstHost.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: steeringId,
+      content: steeringContent,
+      placement: 'current_turn',
+    });
+    await waitForTerminalTurn(first, fixture.sessionId, rootResult.turnId);
+    await first.close();
+    await fixture.stopHost(firstHost);
+
+    const successorHost = await fixture.startHost();
+    const successor = await connectClient(fixture.root, 'run');
+    assert.deepEqual(
+      await successor.request('turn.message.submit', {
+        originHostEpoch: firstHost.hostEpoch,
+        sessionId: fixture.sessionId,
+        messageId: rootMessageId,
+        content: rootContent,
+        placement: 'next_turn',
+      }),
+      rootResult,
+    );
+    assert.equal(
+      (
+        await successor.request('turn.message.submit', {
+          originHostEpoch: firstHost.hostEpoch,
+          sessionId: fixture.sessionId,
+          messageId: steeringId,
+          content: steeringContent,
+          placement: 'current_turn',
+        })
+      ).disposition,
+      'steering',
+    );
+    await assert.rejects(
+      () =>
+        successor.request('turn.message.submit', {
+          originHostEpoch: firstHost.hostEpoch,
+          sessionId: fixture.sessionId,
+          messageId: randomUUID(),
+          content: { text: 'no durable proof exists' },
+          placement: 'next_turn',
+        }),
+      operationError('outcome_unknown'),
+    );
+    await successor.close();
+    await fixture.stopHost(successorHost);
   });
 });
 
@@ -489,7 +1135,8 @@ interface ExecutionHostHandle {
 
 interface TurnLedger {
   runs: AgentRunHeader[];
-  userMessages: StoredMessage[];
+  userMessages: Array<Extract<StoredMessage, { type: 'user' }>>;
+  runtimeEvents: RuntimeEvent[];
   terminalEvents: RuntimeEvent[];
   classification: ReturnType<typeof classifyTerminalRuntimeLedger>;
 }
@@ -555,7 +1202,9 @@ class ExecutionFixture {
         turnId,
         proposedRunId: randomUUID(),
         proposedUserMessageId: randomUUID(),
+        previousRootTurnId: null,
         normalizedInput: { text },
+        sourceMessages: [],
         admittedAt,
       });
       assert.equal(result.kind, 'admitted');
@@ -655,13 +1304,27 @@ class ExecutionFixture {
       return {
         runs,
         userMessages: messages.filter(
-          (message) => message.type === 'user' && message.turnId === turnId,
+          (message): message is Extract<StoredMessage, { type: 'user' }> =>
+            message.type === 'user' && message.turnId === turnId,
         ),
+        runtimeEvents,
         terminalEvents: runtimeEvents.filter(isTerminalRuntimeEvent),
         classification: classifyTerminalRuntimeLedger(run, runtimeEvents),
       };
     } finally {
       await reader.close();
+    }
+  }
+
+  async readAdmissionChain() {
+    const owner = await tryAcquireInteractiveRootOwner(this.capability);
+    assert.ok(owner);
+    if (!owner) throw new Error('Unable to acquire execution root for admission inspection');
+    try {
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      return stores.agentRunStore.listRootTurnAdmissionsForRecovery(this.sessionId);
+    } finally {
+      await owner.close();
     }
   }
 
@@ -778,7 +1441,11 @@ async function sendStartWithoutReadingResponse(
   await transport.write({
     requestId: randomUUID(),
     operation: 'turn.start',
-    input,
+    input: {
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      content: { text: input.text },
+    },
   });
   return transport;
 }
@@ -816,6 +1483,76 @@ async function waitForTurn(
   }
 }
 
+class SubscriptionProbe {
+  readonly frames: SubscriptionFrame[] = [];
+  readonly done: Promise<void>;
+  #failure: unknown;
+  #settled = false;
+
+  constructor(subscription: RuntimeHostSessionSubscription) {
+    this.done = this.#consume(subscription);
+  }
+
+  async waitFor(
+    predicate: (frame: SubscriptionFrame) => boolean,
+    message: string,
+  ): Promise<SubscriptionFrame> {
+    const deadline = Date.now() + PROCESS_TIMEOUT_MS;
+    while (true) {
+      const frame = this.frames.find(predicate);
+      if (frame) return frame;
+      if (this.#failure) throw this.#failure;
+      if (this.#settled) throw new Error(`${message}: subscription closed`);
+      if (Date.now() >= deadline) throw new Error(message);
+      await sleep(10);
+    }
+  }
+
+  async waitForFailure(reason: RuntimeHostSubscriptionError['reason']): Promise<void> {
+    const deadline = Date.now() + PROCESS_TIMEOUT_MS;
+    while (!this.#failure && !this.#settled && Date.now() < deadline) await sleep(10);
+    assert.ok(this.#failure instanceof RuntimeHostSubscriptionError);
+    assert.equal(this.#failure.reason, reason);
+  }
+
+  indexOf(frame: SubscriptionFrame): number {
+    return this.frames.indexOf(frame);
+  }
+
+  async #consume(subscription: RuntimeHostSessionSubscription): Promise<void> {
+    try {
+      for await (const frame of subscription) this.frames.push(frame);
+    } catch (error) {
+      this.#failure = error;
+    } finally {
+      this.#settled = true;
+    }
+  }
+}
+
+async function waitForPendingInteraction(
+  subscription: RuntimeHostSessionSubscription,
+  probe: SubscriptionProbe,
+  runId: string,
+): Promise<InteractionPendingSnapshot> {
+  const initial = subscription.snapshot.interactions.pending.find(
+    (interaction) => interaction.runId === runId,
+  );
+  if (initial) return initial;
+  const frame = await probe.waitFor(
+    (candidate) =>
+      candidate.kind === 'subscription.session_projection' &&
+      candidate.snapshot.interactions.pending.some((interaction) => interaction.runId === runId),
+    'subscription did not publish the pending Interaction',
+  );
+  assert.equal(frame.kind, 'subscription.session_projection');
+  const pending = frame.snapshot.interactions.pending.find(
+    (interaction) => interaction.runId === runId,
+  );
+  assert.ok(pending);
+  return pending;
+}
+
 async function waitForTerminalTurn(
   connection: RuntimeHostConnection,
   sessionId: string,
@@ -836,6 +1573,38 @@ async function waitForTerminalTurn(
   }
 }
 
+async function waitForRunningTurn(
+  connection: RuntimeHostConnection,
+  sessionId: string,
+  turnId: string,
+): Promise<TurnSnapshot> {
+  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
+  while (true) {
+    const snapshot = await connection.queryTurn({ sessionId, turnId });
+    if (snapshot.status === 'running' || snapshot.status === 'waiting_permission') return snapshot;
+    if (Date.now() >= deadline) throw new Error('Turn did not become active');
+    await sleep(20);
+  }
+}
+
+async function waitForDurableMessageDisposition(
+  connection: RuntimeHostConnection,
+  input: TurnMessageSubmitInput,
+): Promise<TurnMessageSubmitResult> {
+  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
+  while (true) {
+    try {
+      return await connection.request('turn.message.submit', input);
+    } catch (error) {
+      if (!(error instanceof RuntimeHostOperationError) || error.code !== 'outcome_unknown') {
+        throw error;
+      }
+      if (Date.now() >= deadline) throw new Error('Durable Message disposition was not observed');
+      await sleep(20);
+    }
+  }
+}
+
 function operationError(code: RuntimeHostOperationError['code']) {
   return (error: unknown): boolean =>
     error instanceof RuntimeHostOperationError && error.code === code;
@@ -845,6 +1614,16 @@ function assertJsonLines(bytes: string): void {
   for (const line of bytes.split('\n').filter(Boolean)) {
     assert.doesNotThrow(() => JSON.parse(line));
   }
+}
+
+function attachment(id: string, name: string) {
+  return {
+    kind: 'image' as const,
+    name,
+    mimeType: 'image/png',
+    bytes: 10,
+    ref: { kind: 'workspace_file' as const, relativePath: `attachments/${id}.png` },
+  };
 }
 
 function waitForHostReady(child: ChildProcess): Promise<{ hostEpoch: string; endpoint: string }> {

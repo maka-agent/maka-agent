@@ -12,8 +12,20 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
-import { createAgentRunStore } from '../agent-run-store.js';
+import {
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_COUNT,
+  type AgentRunEvent,
+  type AgentRunHeader,
+  type AttachmentRef,
+  type RuntimeEvent,
+} from '@maka/core';
+import {
+  createAgentRunStore,
+  ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES,
+  ROOT_TURN_ADMISSION_MAX_RECORD_BYTES,
+  ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+} from '../agent-run-store.js';
 import {
   authenticateExecutionStoresReader,
   authenticateExecutionStoresWriter,
@@ -31,6 +43,25 @@ import {
   type StorageRootLease,
 } from '../root-authority.js';
 import { createSessionStore } from '../session-store.js';
+
+const chartAttachment: AttachmentRef = {
+  kind: 'image',
+  name: 'chart.png',
+  mimeType: 'image/png',
+  bytes: 128,
+  ref: {
+    kind: 'session_file',
+    sessionId: 'session-files',
+    relativePath: 'attachments/chart.png',
+  },
+};
+const notesAttachment: AttachmentRef = {
+  kind: 'doc',
+  name: 'notes.txt',
+  mimeType: 'text/plain',
+  bytes: 64,
+  ref: { kind: 'workspace_file', relativePath: 'notes/notes.txt' },
+};
 
 describe('execution stores', () => {
   test('binds Headless execution readers and writers to Headless leases', async () => {
@@ -132,7 +163,7 @@ describe('execution stores', () => {
     });
   });
 
-  test('commits root-turn admission before Run creation and retains its original identity', async () => {
+  test('round-trips canonical root admission content and retains immutable identity', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
         path: root,
@@ -145,15 +176,40 @@ describe('execution stores', () => {
         const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
         assert.equal(stores.kind, 'interactive');
         const session = await stores.sessionStore.create(sessionInput(root));
+        const mutableAttachment = {
+          ...chartAttachment,
+          ref: { ...chartAttachment.ref },
+        };
         const first = await stores.agentRunStore.admitRootTurn({
           sessionId: session.id,
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
-          normalizedInput: { text: 'hello' },
+          previousRootTurnId: null,
+          normalizedInput: {
+            text: '<model>hello</model>',
+            displayText: 'hello',
+            attachments: [mutableAttachment, notesAttachment],
+          },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              content: {
+                text: '<model>hello</model>',
+                displayText: 'hello',
+                attachments: [mutableAttachment, notesAttachment],
+              },
+              placement: 'current_turn',
+              disposition: 'steering',
+            },
+          ],
           admittedAt: 10,
         });
         assert.equal(first.kind, 'admitted');
+        mutableAttachment.name = 'mutated.png';
+        assert.equal(first.admission.normalizedInput.attachments?.[0]?.name, 'chart.png');
+        assert.equal(Object.isFrozen(first.admission), true);
+        assert.equal(Object.isFrozen(first.admission.normalizedInput.attachments?.[0]?.ref), true);
         assert.deepEqual(await stores.agentRunStore.listSessionRuns(session.id), []);
 
         const retry = await stores.agentRunStore.admitRootTurn({
@@ -161,25 +217,129 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
-          normalizedInput: { text: 'hello' },
+          previousRootTurnId: null,
+          normalizedInput: {
+            text: '<model>hello</model>',
+            displayText: 'hello',
+            attachments: [chartAttachment, notesAttachment],
+          },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              content: {
+                text: '<model>hello</model>',
+                displayText: 'hello',
+                attachments: [chartAttachment, notesAttachment],
+              },
+              placement: 'current_turn',
+              disposition: 'steering',
+            },
+          ],
           admittedAt: 20,
         });
         assert.equal(retry.kind, 'existing');
         assert.equal(retry.admission.runId, 'run-1');
         assert.equal(retry.admission.userMessageId, 'message-1');
         assert.equal(retry.admission.admittedAt, 10);
-        assert.deepEqual(retry.admission.normalizedInput, { text: 'hello' });
+        assert.deepEqual(retry.admission.normalizedInput.attachments, [
+          chartAttachment,
+          notesAttachment,
+        ]);
+
+        const stored = await stores.agentRunStore.readRootTurnAdmission(session.id, 'turn-1');
+        assert.deepEqual(stored, first.admission);
+        assert.equal(Object.isFrozen(stored?.sourceMessages[0]?.content), true);
+
+        const receipt = await stores.agentRunStore.readRootTurnSourceMessageReceipt(
+          session.id,
+          'source-1',
+        );
+        assert.equal(receipt?.admission.turnId, 'turn-1');
+        assert.deepEqual(receipt?.sourceMessage, first.admission.sourceMessages[0]);
+        assert.equal(Object.isFrozen(receipt), true);
 
         const conflict = await stores.agentRunStore.admitRootTurn({
           sessionId: session.id,
           turnId: 'turn-1',
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
-          normalizedInput: { text: 'changed' },
+          previousRootTurnId: null,
+          normalizedInput: {
+            text: '<model>hello</model>',
+            displayText: 'hello',
+            attachments: [notesAttachment, chartAttachment],
+          },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              content: {
+                text: '<model>hello</model>',
+                displayText: 'hello',
+                attachments: [notesAttachment, chartAttachment],
+              },
+              placement: 'current_turn',
+              disposition: 'steering',
+            },
+          ],
           admittedAt: 30,
         });
         assert.equal(conflict.kind, 'conflict');
         assert.equal(conflict.admission.runId, 'run-1');
+
+        const dispositionConflict = await stores.agentRunStore.admitRootTurn({
+          sessionId: session.id,
+          turnId: 'turn-1',
+          proposedRunId: 'run-never-used',
+          proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: null,
+          normalizedInput: {
+            text: '<model>hello</model>',
+            displayText: 'hello',
+            attachments: [chartAttachment, notesAttachment],
+          },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              content: {
+                text: '<model>hello</model>',
+                displayText: 'hello',
+                attachments: [chartAttachment, notesAttachment],
+              },
+              placement: 'current_turn',
+              disposition: 'turn_started',
+            },
+          ],
+          admittedAt: 35,
+        });
+        assert.equal(dispositionConflict.kind, 'conflict');
+
+        const lineageConflict = await stores.agentRunStore.admitRootTurn({
+          sessionId: session.id,
+          turnId: 'turn-1',
+          proposedRunId: 'run-never-used',
+          proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: 'different-predecessor',
+          normalizedInput: {
+            text: '<model>hello</model>',
+            displayText: 'hello',
+            attachments: [chartAttachment, notesAttachment],
+          },
+          sourceMessages: [
+            {
+              messageId: 'source-1',
+              content: {
+                text: '<model>hello</model>',
+                displayText: 'hello',
+                attachments: [chartAttachment, notesAttachment],
+              },
+              placement: 'current_turn',
+              disposition: 'steering',
+            },
+          ],
+          admittedAt: 40,
+        });
+        assert.equal(lineageConflict.kind, 'conflict');
+        assert.equal(lineageConflict.admission.previousRootTurnId, null);
 
         const header = runHeader(session.id, first.admission.runId);
         await stores.agentRunStore.createRun(header);
@@ -204,6 +364,243 @@ describe('execution stores', () => {
     });
   });
 
+  test('treats ordered source messages as identity and fails closed on ambiguous receipts', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      const sources = [
+        {
+          messageId: 'source-steering',
+          content: { text: 'steering' },
+          placement: 'current_turn' as const,
+          disposition: 'steering' as const,
+        },
+        {
+          messageId: 'source-followup',
+          content: { text: 'followup' },
+          placement: 'next_turn' as const,
+          disposition: 'followup' as const,
+        },
+      ];
+      const base = {
+        sessionId: 'session-source-order',
+        turnId: 'turn-1',
+        proposedRunId: 'run-1',
+        proposedUserMessageId: 'message-1',
+        previousRootTurnId: null,
+        admittedAt: 10,
+      } as const;
+      assert.equal(
+        (
+          await store.admitRootTurn({
+            ...base,
+            normalizedInput: { text: 'steering\n\nfollowup' },
+            sourceMessages: sources,
+          })
+        ).kind,
+        'admitted',
+      );
+
+      const reordered = await store.admitRootTurn({
+        ...base,
+        proposedRunId: 'unused-run',
+        proposedUserMessageId: 'unused-message',
+        normalizedInput: { text: 'followup\n\nsteering' },
+        sourceMessages: [...sources].reverse(),
+      });
+      assert.equal(reordered.kind, 'conflict');
+
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            ...base,
+            proposedRunId: 'unused-run',
+            proposedUserMessageId: 'unused-message',
+            normalizedInput: { text: 'steering\n\nfollowup' },
+            sourceMessages: [{ ...sources[0]! }, { ...sources[1]!, placement: 'current_turn' }],
+          }),
+        /Invalid root turn source message/,
+      );
+
+      const invalidAdmissionRoot = join(
+        root,
+        'sessions',
+        'session-invalid-followup',
+        'turn-admissions',
+      );
+      await mkdir(invalidAdmissionRoot, { recursive: true });
+      await writeFile(
+        join(invalidAdmissionRoot, 'turn-1.json'),
+        `${JSON.stringify({
+          schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+          sessionId: 'session-invalid-followup',
+          turnId: 'turn-1',
+          runId: 'run-1',
+          userMessageId: 'message-1',
+          previousRootTurnId: null,
+          normalizedInput: { text: 'followup' },
+          sourceMessages: [
+            {
+              messageId: 'source-followup',
+              content: { text: 'followup' },
+              placement: 'current_turn',
+              disposition: 'followup',
+            },
+          ],
+          admittedAt: 10,
+        })}\n`,
+      );
+      await assert.rejects(
+        () => store.readRootTurnAdmission('session-invalid-followup', 'turn-1'),
+        /Invalid root turn source message/,
+      );
+
+      const startedFromNextPlacement = await store.admitRootTurn({
+        sessionId: 'session-turn-started-next',
+        turnId: 'turn-1',
+        proposedRunId: 'run-1',
+        proposedUserMessageId: 'message-1',
+        previousRootTurnId: null,
+        normalizedInput: { text: 'started' },
+        sourceMessages: [
+          {
+            messageId: 'source-started',
+            content: { text: 'started' },
+            placement: 'next_turn',
+            disposition: 'turn_started',
+          },
+        ],
+        admittedAt: 10,
+      });
+      assert.equal(startedFromNextPlacement.kind, 'admitted');
+
+      await store.admitRootTurn({
+        ...base,
+        turnId: 'turn-2',
+        proposedRunId: 'run-2',
+        proposedUserMessageId: 'message-2',
+        previousRootTurnId: 'turn-1',
+        normalizedInput: { text: 'followup' },
+        sourceMessages: [{ ...sources[1]! }],
+      });
+      await assert.rejects(
+        () => store.readRootTurnSourceMessageReceipt(base.sessionId, 'source-followup'),
+        /Ambiguous root turn source message receipt/,
+      );
+    });
+  });
+
+  test('rejects malformed and oversized admission content at the Store boundary', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      const admit = (label: string, attachment: AttachmentRef) =>
+        store.admitRootTurn({
+          sessionId: `session-${label}`,
+          turnId: 'turn-1',
+          proposedRunId: `run-${label}`,
+          proposedUserMessageId: `message-${label}`,
+          previousRootTurnId: null,
+          normalizedInput: { text: 'content', attachments: [attachment] },
+          sourceMessages: [],
+          admittedAt: 10,
+        });
+
+      await assert.rejects(
+        () =>
+          admit('unsafe-path', {
+            ...notesAttachment,
+            ref: { kind: 'workspace_file', relativePath: '../secret' },
+          }),
+        /Invalid root turn normalized input attachment/,
+      );
+      await assert.rejects(
+        () =>
+          admit('unsafe-session', {
+            ...chartAttachment,
+            ref: {
+              kind: 'session_file',
+              sessionId: 'not/safe',
+              relativePath: 'attachments/chart.png',
+            },
+          }),
+        /Invalid root turn normalized input attachment/,
+      );
+      await assert.rejects(
+        () =>
+          admit('oversized-attachment', { ...chartAttachment, bytes: MAX_ATTACHMENT_BYTES + 1 }),
+        /Invalid root turn normalized input attachment/,
+      );
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            sessionId: 'session-too-many',
+            turnId: 'turn-1',
+            proposedRunId: 'run-too-many',
+            proposedUserMessageId: 'message-too-many',
+            previousRootTurnId: null,
+            normalizedInput: {
+              text: 'content',
+              attachments: Array.from({ length: MAX_ATTACHMENT_COUNT + 1 }, () => notesAttachment),
+            },
+            sourceMessages: [],
+            admittedAt: 10,
+          }),
+        /Invalid root turn normalized input/,
+      );
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            sessionId: 'session-large-content',
+            turnId: 'turn-1',
+            proposedRunId: 'run-large-content',
+            proposedUserMessageId: 'message-large-content',
+            previousRootTurnId: null,
+            normalizedInput: { text: 'x'.repeat(ROOT_TURN_ADMISSION_MAX_CONTENT_BYTES + 1) },
+            sourceMessages: [],
+            admittedAt: 10,
+          }),
+        /content exceeds size limit/,
+      );
+
+      const oversizedAdmissionRoot = join(
+        root,
+        'sessions',
+        'session-large-record',
+        'turn-admissions',
+      );
+      await mkdir(oversizedAdmissionRoot, { recursive: true });
+      await writeFile(
+        join(oversizedAdmissionRoot, 'turn-1.json'),
+        JSON.stringify({ padding: 'x'.repeat(ROOT_TURN_ADMISSION_MAX_RECORD_BYTES) }),
+      );
+      await assert.rejects(
+        () => store.readRootTurnAdmission('session-large-record', 'turn-1'),
+        /record exceeds size limit/,
+      );
+
+      await assert.rejects(
+        () =>
+          store.admitRootTurn({
+            sessionId: 'session-invalid-source',
+            turnId: 'turn-1',
+            proposedRunId: 'run-invalid-source',
+            proposedUserMessageId: 'message-invalid-source',
+            previousRootTurnId: null,
+            normalizedInput: { text: 'content' },
+            sourceMessages: [
+              {
+                messageId: 'invalid/source',
+                content: { text: 'content' },
+                placement: 'current_turn',
+                disposition: 'turn_started',
+              },
+            ],
+            admittedAt: 10,
+          }),
+        /Invalid root turn source message/,
+      );
+    });
+  });
+
   test('keeps shared execution reads observational', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -225,7 +622,9 @@ describe('execution stores', () => {
         turnId: 'turn-1',
         proposedRunId: 'run-1',
         proposedUserMessageId: 'message-1',
+        previousRootTurnId: null,
         normalizedInput: { text: 'hello' },
+        sourceMessages: [],
         admittedAt: 9,
       });
       await rawAgentRunStore.createRun(runHeader(session.id, 'run-1'));
@@ -432,7 +831,9 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
+          sourceMessages: [],
           admittedAt: 10,
         });
 
@@ -458,6 +859,88 @@ describe('execution stores', () => {
     });
   });
 
+  test('strict recovery orders same-millisecond admissions by predecessor lineage', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      await store.admitRootTurn({
+        sessionId: 'session',
+        turnId: 'z-root',
+        proposedRunId: 'run-root',
+        proposedUserMessageId: 'message-root',
+        previousRootTurnId: null,
+        normalizedInput: { text: 'root' },
+        sourceMessages: [],
+        admittedAt: 100,
+      });
+      await store.admitRootTurn({
+        sessionId: 'session',
+        turnId: 'a-successor',
+        proposedRunId: 'run-successor',
+        proposedUserMessageId: 'message-successor',
+        previousRootTurnId: 'z-root',
+        normalizedInput: { text: 'successor' },
+        sourceMessages: [],
+        admittedAt: 100,
+      });
+
+      const chain = await store.listRootTurnAdmissionsForRecovery('session');
+      assert.deepEqual(
+        chain.map((admission) => admission.turnId),
+        ['z-root', 'a-successor'],
+      );
+    });
+  });
+
+  test('strict recovery rejects malformed predecessor graphs', async () => {
+    await withRoot(async ({ root }) => {
+      const store = createAgentRunStore(root);
+      const admissionsRoot = join(root, 'sessions', 'session', 'turn-admissions');
+      const install = async (
+        records: readonly ReturnType<typeof rootAdmissionRecord>[],
+      ): Promise<void> => {
+        await rm(admissionsRoot, { recursive: true, force: true });
+        await mkdir(admissionsRoot, { recursive: true });
+        await Promise.all(
+          records.map((record) =>
+            writeFile(
+              join(admissionsRoot, `${record.turnId}.json`),
+              `${JSON.stringify(record)}\n`,
+              'utf8',
+            ),
+          ),
+        );
+      };
+
+      await install([rootAdmissionRecord('root', null), rootAdmissionRecord('missing', 'absent')]);
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery('session'),
+        /missing predecessor/,
+      );
+
+      await install([rootAdmissionRecord('root-a', null), rootAdmissionRecord('root-b', null)]);
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery('session'),
+        /exactly one root/,
+      );
+
+      await install([
+        rootAdmissionRecord('root', null),
+        rootAdmissionRecord('left', 'root'),
+        rootAdmissionRecord('right', 'root'),
+      ]);
+      await assert.rejects(() => store.listRootTurnAdmissionsForRecovery('session'), /branches/);
+
+      await install([
+        rootAdmissionRecord('cycle-a', 'cycle-b'),
+        rootAdmissionRecord('cycle-b', 'cycle-a'),
+      ]);
+      await assert.rejects(
+        () => store.listRootTurnAdmissionsForRecovery('session'),
+        /exactly one root/,
+      );
+    });
+  });
+
   test('strict recovery enumeration fails on malformed durable entities', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -475,7 +958,9 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
+          sourceMessages: [],
           admittedAt: 10,
         });
         await writeFile(
@@ -507,6 +992,20 @@ describe('execution stores', () => {
     });
   });
 });
+
+function rootAdmissionRecord(turnId: string, previousRootTurnId: string | null) {
+  return {
+    schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+    sessionId: 'session',
+    turnId,
+    runId: `run-${turnId}`,
+    userMessageId: `message-${turnId}`,
+    previousRootTurnId,
+    normalizedInput: { text: turnId },
+    sourceMessages: [],
+    admittedAt: 100,
+  };
+}
 
 async function withRoot(
   run: (paths: { base: string; root: string }) => Promise<void>,
