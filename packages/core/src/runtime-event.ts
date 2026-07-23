@@ -14,7 +14,12 @@
  * projection, or ledger logic lives here. Those arrive in later nodes.
  */
 
-import type { AttachmentRef, QuoteRef } from './events.js';
+import {
+  isAttachmentRef,
+  normalizeMessageContent,
+  type MessageContent,
+  type QuoteRef,
+} from './events.js';
 import type { PermissionRequestPayload, PermissionResponse } from './permission.js';
 import type { UserQuestionRequest } from './user-question.js';
 import type {
@@ -32,7 +37,6 @@ import {
   isStringArray,
 } from './record-schema.js';
 import {
-  isAttachmentRef,
   isPermissionRequestPayload,
   isPermissionResponse,
   isUserQuestionRequest,
@@ -109,23 +113,8 @@ export function isTerminalRuntimeEventStatus(value: unknown): boolean {
 // Content (model-facing payload)
 // ============================================================================
 
-export interface RuntimeEventTextContent {
+export interface RuntimeEventTextContent extends MessageContent {
   kind: 'text';
-  text: string;
-  /**
-   * Human-facing text when it differs from `text` (e.g. the typed
-   * `/skill:…` prompt while `text` is the composed skill-injection
-   * envelope). Model-history projections MUST ignore this and use `text`
-   * only; UI/transcript/rewind projections should prefer it when present.
-   */
-  displayText?: string;
-  /**
-   * Optional user-bound attachments carried with the text turn. Adapters
-   * MUST preserve these when converting legacy UserMessage rows so
-   * RuntimeEvent history does not silently degrade multimodal/file turns
-   * into plain text.
-   */
-  attachments?: AttachmentRef[];
   /** Inline quoted excerpts carried with the text turn (see QuoteRef). */
   quotes?: QuoteRef[];
   /**
@@ -488,6 +477,17 @@ export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
     (value.refs !== undefined && !isRuntimeEventRefs(value.refs))
   ) {
     throw new Error('Invalid RuntimeEvent schema');
+  }
+  if (isRecord(value.content) && value.content.kind === 'text') {
+    return {
+      ...value,
+      content: {
+        kind: 'text',
+        ...normalizeMessageContent(value.content as unknown as MessageContent),
+        ...(value.content.quotes !== undefined ? { quotes: value.content.quotes } : {}),
+        ...(value.content.steering === true ? { steering: true as const } : {}),
+      },
+    } as unknown as RuntimeEvent;
   }
   return value as unknown as RuntimeEvent;
 }

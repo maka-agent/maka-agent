@@ -44,7 +44,7 @@ import {
 } from '@maka/core/runtime-event';
 import { normalizeShellToolResultContent } from '@maka/core';
 import type { AttachmentRef, QuoteRef } from '@maka/core/events';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, UserContent, UserModelMessage } from 'ai';
 
 // ============================================================================
 // Output type
@@ -762,11 +762,14 @@ export function steeringProviderOptions(
   return { [STEERING_PROVIDER_OPTIONS_NAMESPACE]: { steeringEventId: eventId } };
 }
 
-/** The canonical injected/replayed form of one steered user message. */
-export function steeringModelMessage(eventId: string, text: string): ModelMessage {
+/** Add structured steering identity to already-canonical provider content. */
+export function steeringModelMessage(
+  eventId: string,
+  providerContent: UserContent,
+): UserModelMessage {
   return {
     role: 'user',
-    content: buildSteeringEnvelope(text),
+    content: providerContent,
     providerOptions: steeringProviderOptions(eventId),
   };
 }

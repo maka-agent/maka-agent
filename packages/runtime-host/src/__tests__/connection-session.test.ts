@@ -307,6 +307,7 @@ test('connection reset while operation admission is pending does not execute the
       principal: 'local_os_user',
     },
     resolveHandlers: () => handlers,
+    resolveContinuity: () => undefined,
     beginOperation: async () => {
       admissionEntered.resolve();
       await releaseAdmission.promise;
@@ -654,6 +655,7 @@ async function openHalfClosedDispatchedSession(
         };
       }),
     }),
+    resolveContinuity: () => undefined,
     beginOperation: async () => ({
       acquireResidency: () => ({ release() {} }),
       seal() {},
@@ -717,6 +719,20 @@ function closeServer(server: Server): Promise<void> {
 }
 
 function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['handlers'] {
+  const unavailable: Awaited<ReturnType<OperationHandlerMap['turn.message.submit']>> = {
+    ok: false,
+    error: {
+      code: 'operation_unavailable',
+      message: 'not available in this test composition',
+    },
+  };
+  const subscriptionUnavailable = {
+    ok: false,
+    error: {
+      code: 'operation_unavailable',
+      message: 'not available in this test composition',
+    },
+  } as const;
   return {
     'turn.start': async (input) => ({
       ok: true,
@@ -727,6 +743,11 @@ function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['ha
       ok: true,
       result: runningSnapshot(input.sessionId, input.turnId),
     }),
+    'turn.message.submit': async () => unavailable,
+    'queue.retract': async () => unavailable,
+    'turn.interrupt': async () => unavailable,
+    'subscription.open': async () => subscriptionUnavailable,
+    'subscription.close': async () => subscriptionUnavailable,
   };
 }
 

@@ -102,6 +102,93 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 
+  test('serves bootstrap operations during recovery and rejects ready-only operations', async () => {
+    await withHostPaths(async (paths) => {
+      const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      let releaseFactory = () => {};
+      let markFactoryEntered!: () => void;
+      const factoryEntered = new Promise<void>((resolve) => {
+        markFactoryEntered = resolve;
+      });
+      const factoryReleased = new Promise<void>((resolve) => {
+        releaseFactory = resolve;
+      });
+      const unavailable = async () =>
+        ({
+          ok: false,
+          error: {
+            code: 'operation_unavailable',
+            message: 'not available in this composition',
+          },
+        }) as const;
+      const hostTask = RuntimeHostKernel.start({
+        owner,
+        idleGraceMs: 10_000,
+        compositionFactory: async () => {
+          markFactoryEntered();
+          await factoryReleased;
+          return {
+            handlers: {
+              'turn.start': unavailable,
+              'turn.query': unavailable,
+              'turn.stop': unavailable,
+              'turn.message.submit': unavailable,
+              'queue.retract': unavailable,
+              'turn.interrupt': unavailable,
+              'subscription.open': unavailable,
+              'subscription.close': unavailable,
+            },
+            async recover() {},
+            async close() {},
+          };
+        },
+      });
+      let host: RuntimeHostKernel | undefined;
+      let transport: FramedTransport | undefined;
+      try {
+        await withTimeout(factoryEntered, 1_000, 'Runtime Host did not enter composition');
+        const registration = await readHostRegistration(owner.controlDirectory);
+        assert.ok(registration);
+        assert.equal(registration.state, 'recovering');
+        transport = new FramedTransport(await openSocket(registration.endpoint));
+        await transport.write({
+          kind: 'hello',
+          clientInstanceId: 'lifecycle-test',
+          surface: 'inspect',
+          protocolMin: CURRENT_PROTOCOL.min,
+          protocolMax: CURRENT_PROTOCOL.max,
+        });
+        const handshake = decodeHostFrame(await transport.read(1_000));
+        assert.ok('kind' in handshake && handshake.kind === 'accepted');
+
+        await transport.write({ requestId: 'status', operation: 'host.status', input: {} });
+        const status = decodeHostFrame(await transport.read(1_000));
+        assert.ok(!('kind' in status) && status.operation === 'host.status' && status.ok);
+        if (!('kind' in status) && status.operation === 'host.status' && status.ok) {
+          assert.equal(status.result.state, 'recovering');
+        }
+
+        await transport.write({
+          requestId: 'query',
+          operation: 'turn.query',
+          input: { sessionId: 'session', turnId: 'turn' },
+        });
+        const query = decodeHostFrame(await transport.read(1_000));
+        assert.ok(!('kind' in query) && query.operation === 'turn.query' && !query.ok);
+        if (!('kind' in query) && query.operation === 'turn.query' && !query.ok) {
+          assert.equal(query.error.code, 'host_not_ready');
+        }
+      } finally {
+        releaseFactory();
+        transport?.destroy();
+        host = await hostTask.catch(() => undefined);
+        await host?.close().catch(() => undefined);
+      }
+    });
+  });
+
   test('blocks incompatible replacement while resident and permits it only after true idle', async () => {
     await withHostPaths(async (paths) => {
       const candidate = await startTestRuntimeHostCandidate(paths, {
@@ -744,7 +831,11 @@ describe('non-serving Runtime Host kernel', () => {
         await transport.write({
           requestId: 'blocked-turn-start',
           operation: 'turn.start',
-          input: { sessionId: 'session', turnId: 'turn', text: 'block forever' },
+          input: {
+            sessionId: 'session',
+            turnId: 'turn',
+            content: { text: 'block forever' },
+          },
         });
         await blocked;
         const shutdownRequested = waitForUncooperativeHostMessage(child, 'shutdown-requested');

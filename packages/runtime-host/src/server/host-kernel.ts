@@ -26,10 +26,12 @@ import {
   type ConnectionOperationLease,
 } from './connection-session.js';
 import {
-  type DomainOperationHandlerMap,
+  composeOperationHandlers,
+  type AllDomainOperationHandlerMap,
   type OperationResidency,
   type OperationHandlerMap,
 } from './operation-dispatcher.js';
+import type { SessionContinuityService } from './session-continuity-service.js';
 
 const DEFAULT_IDLE_GRACE_MS = 30_000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5_000;
@@ -54,12 +56,14 @@ export class RuntimeHostProcessTerminationRequiredError extends Error {
 
 export interface RuntimeHostCompositionContext {
   owner: InteractiveRootOwner;
+  hostEpoch: string;
   acquireResidency(): RuntimeHostResidency;
   requestDrain(): void;
 }
 
 export interface RuntimeHostComposition {
-  readonly handlers: DomainOperationHandlerMap;
+  readonly handlers: AllDomainOperationHandlerMap;
+  readonly continuity?: SessionContinuityService;
   recover(): Promise<void>;
   close(): Promise<void>;
 }
@@ -185,6 +189,7 @@ export class RuntimeHostKernel {
       await this.#publishRegistration();
       this.#composition = await this.#options.compositionFactory({
         owner: this.#options.owner,
+        hostEpoch: this.hostEpoch,
         acquireResidency: () => this.#acquireResidency(),
         requestDrain: () => this.#requestDrain(),
       });
@@ -233,6 +238,7 @@ export class RuntimeHostKernel {
           principal: 'local_os_user',
         },
         resolveHandlers: () => this.#operationHandlers,
+        resolveContinuity: () => this.#composition?.continuity,
         beginOperation: (request) => this.#beginOperation(request),
         onTeardown: releaseConnection,
       });
@@ -290,7 +296,7 @@ export class RuntimeHostKernel {
   ): Promise<ConnectionOperationLease | HostOperationErrorCode> {
     if (!(await this.#readAdmissionState())) return 'host_draining';
     if (
-      HOST_OPERATION_SPECS[frame.operation].admission !== 'bootstrap' &&
+      HOST_OPERATION_SPECS[frame.operation].availability !== 'bootstrap' &&
       this.#state !== 'ready'
     ) {
       return 'host_not_ready';
@@ -378,20 +384,22 @@ export class RuntimeHostKernel {
     };
   }
 
-  #createOperationHandlers(domainHandlers: DomainOperationHandlerMap): OperationHandlerMap {
-    return {
-      'host.status': async () => ({
-        ok: true,
-        result: {
-          hostEpoch: this.hostEpoch,
-          state: this.#state,
-          connections: this.#acceptedTransports.size,
-          activeOperations: this.#activeOperations,
-          activeResidencies: this.#activeResidencies,
-        },
-      }),
-      ...domainHandlers,
-    };
+  #createOperationHandlers(domainHandlers: AllDomainOperationHandlerMap): OperationHandlerMap {
+    return composeOperationHandlers(
+      {
+        'host.status': async () => ({
+          ok: true,
+          result: {
+            hostEpoch: this.hostEpoch,
+            state: this.#state,
+            connections: this.#acceptedTransports.size,
+            activeOperations: this.#activeOperations,
+            activeResidencies: this.#activeResidencies,
+          },
+        }),
+      },
+      domainHandlers,
+    );
   }
 
   #waitForOperations(): Promise<void> {
@@ -618,7 +626,7 @@ function assertDuration(value: number, label: string, minimum: 0 | 1): void {
   }
 }
 
-function unavailableDomainHandlers(): DomainOperationHandlerMap {
+function unavailableDomainHandlers(): AllDomainOperationHandlerMap {
   const unavailable = {
     ok: false,
     error: {
@@ -630,5 +638,10 @@ function unavailableDomainHandlers(): DomainOperationHandlerMap {
     'turn.start': async () => unavailable,
     'turn.query': async () => unavailable,
     'turn.stop': async () => unavailable,
+    'turn.message.submit': async () => unavailable,
+    'queue.retract': async () => unavailable,
+    'turn.interrupt': async () => unavailable,
+    'subscription.open': async () => unavailable,
+    'subscription.close': async () => unavailable,
   };
 }

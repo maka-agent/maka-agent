@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
+import { decodeMessageContent, messageContentsEqual, normalizeMessageContent } from '../events.js';
 import {
   RUNTIME_EVENT_AUTHORS,
   RUNTIME_EVENT_CONTENT_KINDS,
@@ -85,6 +86,73 @@ describe('RuntimeEvent role / author / status enums', () => {
 });
 
 describe('RuntimeEvent content variants', () => {
+  test('owns canonical MessageContent decoding, copying, and equality', () => {
+    const attachments = [
+      {
+        kind: 'code' as const,
+        name: 'b.ts',
+        mimeType: 'text/typescript',
+        bytes: 2,
+        ref: { kind: 'workspace_file' as const, relativePath: 'b.ts' },
+      },
+      {
+        kind: 'code' as const,
+        name: 'a.ts',
+        mimeType: 'text/typescript',
+        bytes: 1,
+        ref: { kind: 'workspace_file' as const, relativePath: 'a.ts' },
+      },
+    ];
+    assert.deepEqual(normalizeMessageContent({ text: 'model', displayText: 'model' }), {
+      text: 'model',
+    });
+    assert.deepEqual(normalizeMessageContent({ text: 'model', attachments: [] }), {
+      text: 'model',
+    });
+    const decoded = decodeMessageContent({ text: 'model', attachments });
+    assert.deepEqual(decoded.attachments, attachments);
+    assert.notEqual(decoded.attachments, attachments);
+    assert.notEqual(decoded.attachments?.[0], attachments[0]);
+    assert.notEqual(decoded.attachments?.[0]?.ref, attachments[0]?.ref);
+    assert.equal(messageContentsEqual(decoded, { text: 'model', attachments }), true);
+    assert.equal(
+      messageContentsEqual(decoded, { text: 'model', attachments: [...attachments].reverse() }),
+      false,
+    );
+    assert.throws(() => decodeMessageContent({ text: 'model', extra: true }), TypeError);
+    assert.throws(
+      () =>
+        decodeMessageContent({
+          text: 'model',
+          attachments: [{ ...attachments[0]!, ref: { kind: 'workspace_file', relativePath: 1 } }],
+        }),
+      TypeError,
+    );
+    assert.throws(
+      () =>
+        decodeMessageContent({
+          text: 'model',
+          attachments: [{ ...attachments[0]!, bytes: 1.5 }],
+        }),
+      TypeError,
+    );
+    assert.deepEqual(
+      decodeRuntimeEvent(
+        baseEvent({
+          role: 'user',
+          author: 'user',
+          content: {
+            kind: 'text',
+            text: 'model',
+            displayText: 'model',
+            attachments: [],
+          },
+        }),
+      ).content,
+      { kind: 'text', text: 'model' },
+    );
+  });
+
   test('text content carries a string body', () => {
     const content: RuntimeEventContent = { kind: 'text', text: 'hello' };
     if (content.kind !== 'text') throw new Error('unreachable');

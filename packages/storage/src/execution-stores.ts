@@ -17,6 +17,7 @@ import {
   type DurableAgentRunStore,
   type DurableRuntimeEventStore,
   type RootTurnAdmission,
+  type RootTurnSourceMessageReceipt,
 } from './agent-run-store.js';
 import { createSessionStore, type SessionStore } from './session-store.js';
 import {
@@ -32,9 +33,15 @@ const executionStoresReaderBrand: unique symbol = Symbol('ExecutionStoresReader'
 const executionStoresWriterKinds = new WeakMap<object, StorageRootKind>();
 const executionStoresReaderKinds = new WeakMap<object, StorageRootKind>();
 
+export { normalizeRootTurnAdmissionPayload } from './agent-run-store.js';
+
 export type {
+  AdmitRootTurnInput,
+  AdmitRootTurnResult,
   RootTurnAdmission,
-  RootTurnAdmissionInput,
+  RootTurnAdmissionStore,
+  RootTurnSourceMessage,
+  RootTurnSourceMessageReceipt,
 } from './agent-run-store.js';
 
 export type ExecutionSessionWriter = SessionStore;
@@ -65,6 +72,10 @@ export interface ExecutionAgentRunReader {
     type: AgentRunEventType,
   ): Promise<AgentRunEvent | null | undefined>;
   readRootTurnAdmission(sessionId: string, turnId: string): Promise<RootTurnAdmission | undefined>;
+  readRootTurnSourceMessageReceipt(
+    sessionId: string,
+    sourceMessageId: string,
+  ): Promise<RootTurnSourceMessageReceipt | undefined>;
 }
 
 export interface ExecutionRuntimeEventReader {
@@ -176,6 +187,8 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
         run(() => agentRunStore.admitRootTurn(input)),
       readRootTurnAdmission: (sessionId, turnId) =>
         run(() => agentRunStore.readRootTurnAdmission(sessionId, turnId)),
+      readRootTurnSourceMessageReceipt: (sessionId, sourceMessageId) =>
+        run(() => agentRunStore.readRootTurnSourceMessageReceipt(sessionId, sourceMessageId)),
       listRootTurnAdmissionsForRecovery: (sessionId) =>
         run(() => agentRunStore.listRootTurnAdmissionsForRecovery(sessionId)),
     },
@@ -237,6 +250,8 @@ async function openExecutionStoresForRead<K extends StorageRootKind>(
         run(() => agentRunStore.readEventProjection(sessionId, type)),
       readRootTurnAdmission: (sessionId, turnId) =>
         run(() => agentRunStore.readRootTurnAdmission(sessionId, turnId)),
+      readRootTurnSourceMessageReceipt: (sessionId, sourceMessageId) =>
+        run(() => agentRunStore.readRootTurnSourceMessageReceipt(sessionId, sourceMessageId)),
     },
     runtimeEventStore: {
       readRuntimeEvents: (sessionId, runId) =>
