@@ -212,7 +212,6 @@
 
 /* --- provider list panel (scrolls vertically as the list grows) --- */
 .maka-firstrun-list {
-  position: relative;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   overflow: hidden;
