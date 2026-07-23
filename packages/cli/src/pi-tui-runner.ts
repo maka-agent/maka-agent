@@ -24,7 +24,7 @@ import type { OrchestrationMode } from '@maka/core/orchestration';
 import {
   ShellRunUpdateBuffer,
   mergeShellRunUpdate,
-  projectLinkedSessionTree,
+  projectRevisionLinkedSessionTree,
   projectShellRunUpdateForSession,
   type SessionSummary,
   type ShellRunUpdate,
@@ -1705,7 +1705,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const sessionTree = projectLinkedSessionTree(sessions);
+    const sessionTree = projectRevisionLinkedSessionTree(
+      sessions,
+      input.driver.getSessionId() ?? undefined,
+    );
     const projectedSessions = flattenLinkedSessionTree(
       sessionTree.roots,
       sessionTree.childrenByParentId,

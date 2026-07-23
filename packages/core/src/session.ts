@@ -278,6 +278,15 @@ export interface LinkedSessionTree {
   childrenByParentId: ReadonlyMap<string, readonly SessionSummary[]>;
 }
 
+export interface LinkedSessionTreeProjectionOptions {
+  /**
+   * Read-model aliases from durable physical parent ids to visible logical
+   * Session ids. Revision projection uses this to keep a child attached when
+   * its spawning parent revision is no longer the selected representative.
+   */
+  parentSessionIdAliases?: ReadonlyMap<string, string>;
+}
+
 const SUBAGENT_SESSION_PARENT_SHAPE = defineObjectShape<SubagentSessionParent>()(
   ['kind', 'parentSessionId', 'spawnedBy', 'lifecycle'],
   ['swarm'],
@@ -401,17 +410,27 @@ export function childSessionsForParent(
 }
 
 /** Read-model projection; input order is preserved at every tree level. */
-export function projectLinkedSessionTree(sessions: readonly SessionSummary[]): LinkedSessionTree {
+export function projectLinkedSessionTree(
+  sessions: readonly SessionSummary[],
+  options: LinkedSessionTreeProjectionOptions = {},
+): LinkedSessionTree {
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const nestedParentByChildId = new Map<string, string>();
+  const linkedParentId = (session: SessionSummary): string | undefined => {
+    const relation = session.subagentParent;
+    if (!isSubagentSessionParent(relation)) return undefined;
+    return (
+      options.parentSessionIdAliases?.get(relation.parentSessionId) ?? relation.parentSessionId
+    );
+  };
 
   for (const session of sessions) {
-    const relation = session.subagentParent;
-    if (!isSubagentSessionParent(relation)) continue;
-    if (!sessionsById.has(relation.parentSessionId)) continue;
-    if (relation.parentSessionId === session.id) continue;
-    if (linkedParentChainContainsCycle(session.id, sessionsById)) continue;
-    nestedParentByChildId.set(session.id, relation.parentSessionId);
+    const parentSessionId = linkedParentId(session);
+    if (!parentSessionId) continue;
+    if (!sessionsById.has(parentSessionId)) continue;
+    if (parentSessionId === session.id) continue;
+    if (linkedParentChainContainsCycle(session.id, sessionsById, linkedParentId)) continue;
+    nestedParentByChildId.set(session.id, parentSessionId);
   }
 
   const roots: SessionSummary[] = [];
@@ -433,19 +452,54 @@ export function projectLinkedSessionTree(sessions: readonly SessionSummary[]): L
   };
 }
 
+/**
+ * Filter a linked tree without leaking non-matching descendants through a
+ * matching parent. Matching descendants whose ancestors do not match are
+ * promoted to the nearest matching ancestor, or to a root when none exists.
+ */
+export function filterLinkedSessionTree(
+  tree: LinkedSessionTree,
+  include: (session: SessionSummary) => boolean,
+): LinkedSessionTree {
+  const roots: SessionSummary[] = [];
+  const mutableChildren = new Map<string, SessionSummary[]>();
+
+  const visit = (session: SessionSummary, visibleParentId?: string): void => {
+    const included = include(session);
+    const nextVisibleParentId = included ? session.id : visibleParentId;
+    if (included) {
+      if (visibleParentId) {
+        const children = mutableChildren.get(visibleParentId) ?? [];
+        children.push(session);
+        mutableChildren.set(visibleParentId, children);
+      } else {
+        roots.push(session);
+      }
+    }
+    for (const child of tree.childrenByParentId.get(session.id) ?? []) {
+      visit(child, nextVisibleParentId);
+    }
+  };
+
+  for (const root of tree.roots) visit(root);
+  return { roots, childrenByParentId: mutableChildren };
+}
+
 function linkedParentChainContainsCycle(
   startSessionId: string,
   sessionsById: ReadonlyMap<string, SessionSummary>,
+  linkedParentId: (session: SessionSummary) => string | undefined,
 ): boolean {
   const visited = new Set<string>();
   let sessionId: string | undefined = startSessionId;
   while (sessionId) {
     if (visited.has(sessionId)) return true;
     visited.add(sessionId);
-    const relation: SubagentSessionParent | undefined = sessionsById.get(sessionId)?.subagentParent;
-    if (!isSubagentSessionParent(relation)) return false;
-    if (!sessionsById.has(relation.parentSessionId)) return false;
-    sessionId = relation.parentSessionId;
+    const session = sessionsById.get(sessionId);
+    if (!session) return false;
+    const parentSessionId = linkedParentId(session);
+    if (!parentSessionId || !sessionsById.has(parentSessionId)) return false;
+    sessionId = parentSessionId;
   }
   return false;
 }

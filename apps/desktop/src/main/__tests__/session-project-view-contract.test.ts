@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { filterLinkedSessionTree, projectLinkedSessionTree } from '@maka/core';
+import { sessionMatchesNavSelection } from '../../renderer/session-nav-filter.js';
 import { deriveProjectGroups } from '../../renderer/session-project-grouping.js';
 import { makeSessionSummary, renderSessionListPanel } from './session-list-render-helpers.js';
 
@@ -99,17 +101,84 @@ describe('sidebar project view mode', () => {
     assert.match(markup, /lucide-bot/);
   });
 
+  it('applies Chats, Flagged, and Archived filters independently to parents and children', () => {
+    const parent = makeSessionSummary({
+      id: 'parent',
+      name: 'Parent task',
+      lastMessageAt: 10,
+    });
+    const archivedChild = makeSessionSummary({
+      id: 'archived-child',
+      name: 'Archived child',
+      isArchived: true,
+      lastMessageAt: 20,
+      subagentParent: childRelation(parent.id),
+    });
+    const flaggedChild = makeSessionSummary({
+      id: 'flagged-child',
+      name: 'Flagged child',
+      isFlagged: true,
+      lastMessageAt: 30,
+      subagentParent: childRelation(parent.id),
+    });
+    const archivedParent = makeSessionSummary({
+      id: 'archived-parent',
+      name: 'Archived parent',
+      isArchived: true,
+      lastMessageAt: 40,
+    });
+    const activeChild = makeSessionSummary({
+      id: 'active-child',
+      name: 'Active child',
+      lastMessageAt: 50,
+      subagentParent: childRelation(archivedParent.id),
+    });
+    const tree = projectLinkedSessionTree([
+      parent,
+      archivedChild,
+      flaggedChild,
+      archivedParent,
+      activeChild,
+    ]);
+    const filter = (selection: 'chats' | 'flagged' | 'archived') =>
+      filterLinkedSessionTree(tree, (session) =>
+        sessionMatchesNavSelection(session, { section: 'sessions', filter: selection }),
+      );
+
+    const chats = filter('chats');
+    assert.deepEqual(
+      chats.roots.map((session) => session.id),
+      [parent.id, activeChild.id],
+    );
+    assert.deepEqual(
+      chats.childrenByParentId.get(parent.id)?.map((session) => session.id),
+      [flaggedChild.id],
+    );
+
+    const flagged = filter('flagged');
+    assert.deepEqual(
+      flagged.roots.map((session) => session.id),
+      [flaggedChild.id],
+    );
+
+    const archived = filter('archived');
+    assert.deepEqual(
+      archived.roots.map((session) => session.id),
+      [archivedChild.id, archivedParent.id],
+    );
+  });
+
   it('AppShell derives status and project groups from the same visible session set', async () => {
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
     assert.match(
       appShell,
-      /const sidebarSessionTree = useMemo\([\s\S]*projectLinkedSessionTree\(collapseSessionRevisions\(sessions, activeId\)\)[\s\S]*\[sessions, activeId\]/,
+      /const sidebarSessionTree = useMemo\([\s\S]*projectRevisionLinkedSessionTree\(sessions, activeId\)[\s\S]*\[sessions, activeId\]/,
     );
     assert.match(
       appShell,
-      /const visibleSessions = useMemo\([\s\S]*filterSessions\(sidebarSessionTree\.roots, navSelection\)[\s\S]*\[sidebarSessionTree, navSelection\]/,
+      /const visibleSessionTree = useMemo\([\s\S]*filterLinkedSessionTree\(sidebarSessionTree,[\s\S]*sessionMatchesNavSelection\(session, navSelection\)[\s\S]*\[sidebarSessionTree, navSelection\]/,
     );
     assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
     assert.match(appShell, /deriveProjectGroups\(visibleSessions, uiLocale\)/);
@@ -117,7 +186,7 @@ describe('sidebar project view mode', () => {
     assert.match(appShell, /statusGroups=\{sessionListGroups\}/);
     assert.match(
       appShell,
-      /childSessionsByParentId=\{sidebarSessionTree\.childrenByParentId\}/,
+      /childSessionsByParentId=\{visibleSessionTree\.childrenByParentId\}/,
     );
     assert.doesNotMatch(appShell, /projectGroups=\{/);
 
@@ -161,3 +230,16 @@ describe('sidebar project view mode', () => {
     }
   });
 });
+
+function childRelation(parentSessionId: string) {
+  return {
+    kind: 'subagent' as const,
+    parentSessionId,
+    spawnedBy: {
+      parentRunId: 'parent-run',
+      parentTurnId: 'parent-turn',
+      toolCallId: `spawn-${parentSessionId}`,
+    },
+    lifecycle: 'foreground' as const,
+  };
+}

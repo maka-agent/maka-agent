@@ -14,9 +14,10 @@ import type { PermissionMode, PlanReminder, SessionSummary, UiLocale, UiLocalePr
 import {
   buildDeepResearchImplementationPrompt,
   collapseSessionRevisions,
+  filterLinkedSessionTree,
   hasSettledInitialOnboarding,
   parseSwarmCommand,
-  projectLinkedSessionTree,
+  projectRevisionLinkedSessionTree,
   resolveUiLocale,
 } from '@maka/core';
 import {
@@ -62,7 +63,8 @@ import { deriveSessionStatusGroups } from './session-status-grouping';
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { filterSessions, readNavSelection } from './nav-selection';
+import { readNavSelection } from './nav-selection';
+import { sessionMatchesNavSelection } from './session-nav-filter';
 import { deriveSessionRevisionNavigation } from './session-revisions';
 import {
   SESSION_LIST_COLLAPSED_WIDTH,
@@ -343,13 +345,17 @@ function AppShellContent({
   // `aborted` is dropped. Pinned (flagged) sessions float to the top
   // in their own group, preserving the PR48 pin-floats behavior.
   const sidebarSessionTree = useMemo(
-    () => projectLinkedSessionTree(collapseSessionRevisions(sessions, activeId)),
+    () => projectRevisionLinkedSessionTree(sessions, activeId),
     [sessions, activeId],
   );
-  const visibleSessions = useMemo(
-    () => filterSessions(sidebarSessionTree.roots, navSelection),
+  const visibleSessionTree = useMemo(
+    () =>
+      filterLinkedSessionTree(sidebarSessionTree, (session) =>
+        sessionMatchesNavSelection(session, navSelection),
+      ),
     [sidebarSessionTree, navSelection],
   );
+  const visibleSessions = visibleSessionTree.roots;
   const sessionStatusGroups = useMemo(
     () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true, locale: uiLocale }),
     [visibleSessions, uiLocale],
@@ -1553,7 +1559,7 @@ function AppShellContent({
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             statusGroups={sessionListGroups}
-            childSessionsByParentId={sidebarSessionTree.childrenByParentId}
+            childSessionsByParentId={visibleSessionTree.childrenByParentId}
             onSelect={setNavSelection}
             onSelectSession={sessionListSelectSession}
             onOpenSettings={openSettings}
