@@ -1,13 +1,17 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants as fsConstants, type BigIntStats } from 'node:fs';
 import { link, lstat, open, realpath, rename, stat, unlink } from 'node:fs/promises';
-import { join, normalize, parse, resolve } from 'node:path';
+import { isAbsolute, join, normalize, parse, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 export const WORKSPACE_MARKER_FILE = '.maka-workspace.json';
 export const WORKSPACE_MARKER_SCHEMA_VERSION = 1 as const;
 export const WORKSPACE_IDENTITY_PREFIX = 'workspace:v1:' as const;
 const MAX_WORKSPACE_MARKER_BYTES = 4_096;
 const MAX_LEGACY_ANCHORS = 32;
+const MAX_GIT_EXCLUDE_BYTES = 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 interface WorkspaceMarker {
   schemaVersion: typeof WORKSPACE_MARKER_SCHEMA_VERSION;
@@ -113,6 +117,7 @@ export async function adoptWorkspaceIdentityOnImport(
         `Imported workspace marker does not match the expected identity: ${snapshot.canonicalPath}`,
       );
     }
+    await ensureWorkspaceMarkerIgnored(snapshot.canonicalPath);
 
     const nextLegacyAnchors = uniqueStrings([
       ...marker.legacyAnchors,
@@ -161,7 +166,9 @@ async function ensureWorkspaceMarker(
   currentLegacyAnchor: string,
 ): Promise<WorkspaceMarker> {
   try {
-    return await readWorkspaceMarker(snapshot.canonicalPath);
+    const marker = await readWorkspaceMarker(snapshot.canonicalPath);
+    await ensureWorkspaceMarkerIgnored(snapshot.canonicalPath);
+    return marker;
   } catch (error) {
     if (!(error instanceof WorkspaceIdentityError) || error.code !== 'workspace_unmarked') {
       throw error;
@@ -175,6 +182,7 @@ async function createWorkspaceMarker(
   workspaceId: string,
   legacyAnchors: string[],
 ): Promise<WorkspaceMarker> {
+  await ensureWorkspaceMarkerIgnored(snapshot.canonicalPath);
   const marker: WorkspaceMarker = {
     schemaVersion: WORKSPACE_MARKER_SCHEMA_VERSION,
     workspaceId,
@@ -198,6 +206,74 @@ async function createWorkspaceMarker(
   }
   await assertWorkspaceSnapshot(snapshot);
   return readWorkspaceMarker(snapshot.canonicalPath);
+}
+
+async function ensureWorkspaceMarkerIgnored(workspacePath: string): Promise<void> {
+  if (!(await hasEnclosingGitEntry(workspacePath))) return;
+
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_COMMON_DIR;
+  const { stdout } = await execFileAsync(
+    'git',
+    ['-C', workspacePath, 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'],
+    {
+      env,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024,
+      timeout: 3_000,
+      windowsHide: true,
+    },
+  );
+  const excludePath = stdout.trim();
+  if (!isAbsolute(excludePath)) {
+    throw new Error(`Git returned a non-absolute exclude path: ${excludePath}`);
+  }
+
+  const handle = await open(
+    excludePath,
+    fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW,
+    0o600,
+  );
+  try {
+    const [handleStat, pathStat] = await Promise.all([
+      handle.stat({ bigint: true }),
+      lstat(excludePath, { bigint: true }),
+    ]);
+    if (
+      !handleStat.isFile() ||
+      !pathStat.isFile() ||
+      handleStat.size > BigInt(MAX_GIT_EXCLUDE_BYTES) ||
+      handleStat.dev !== pathStat.dev ||
+      handleStat.ino !== pathStat.ino
+    ) {
+      throw new Error(`Git exclude must be one bounded regular file: ${excludePath}`);
+    }
+    const contents = await handle.readFile('utf8');
+    if (contents.split(/\r?\n/).includes(WORKSPACE_MARKER_FILE)) return;
+    const separator = contents.length === 0 || contents.endsWith('\n') ? '' : '\n';
+    await handle.writeFile(`${separator}${WORKSPACE_MARKER_FILE}\n`, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function hasEnclosingGitEntry(workspacePath: string): Promise<boolean> {
+  let currentPath = workspacePath;
+  while (true) {
+    try {
+      await lstat(join(currentPath, '.git'));
+      return true;
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error;
+    }
+    const parentPath = parse(currentPath).dir;
+    if (parentPath === currentPath) return false;
+    currentPath = parentPath;
+  }
 }
 
 async function replaceWorkspaceMarker(
@@ -241,8 +317,11 @@ async function writeMarkerFile(path: string, marker: WorkspaceMarker): Promise<v
   try {
     await handle.writeFile(serializedMarker, 'utf8');
     await handle.sync();
-  } finally {
     await handle.close();
+  } catch (error) {
+    await handle.close().catch(() => {});
+    await unlinkIfPresent(path);
+    throw error;
   }
 }
 
