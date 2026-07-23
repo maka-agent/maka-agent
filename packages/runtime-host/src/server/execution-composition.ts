@@ -41,7 +41,7 @@ export async function createExecutionRuntimeHostComposition(
       try {
         await coordinator.close();
       } finally {
-        stores.sessionStore.close?.();
+        await stores.sessionStore.close?.();
       }
     },
   };
