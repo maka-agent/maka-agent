@@ -254,7 +254,14 @@ async function ensureWorkspaceMarkerIgnored(workspacePath: string): Promise<void
     const contents = await handle.readFile('utf8');
     if (contents.split(/\r?\n/).includes(WORKSPACE_MARKER_FILE)) return;
     const separator = contents.length === 0 || contents.endsWith('\n') ? '' : '\n';
-    await handle.writeFile(`${separator}${WORKSPACE_MARKER_FILE}\n`, 'utf8');
+    const addition = `${separator}${WORKSPACE_MARKER_FILE}\n`;
+    if (
+      handleStat.size + BigInt(Buffer.byteLength(addition, 'utf8')) >
+      BigInt(MAX_GIT_EXCLUDE_BYTES)
+    ) {
+      throw new Error(`Git exclude must be one bounded regular file: ${excludePath}`);
+    }
+    await handle.writeFile(addition, 'utf8');
     await handle.sync();
   } finally {
     await handle.close();

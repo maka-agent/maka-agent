@@ -143,6 +143,31 @@ test('concurrent Git workspace resolution returns one clean identity', async () 
   }
 });
 
+test('a full Git exclude does not grow when resolving workspace identity', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'maka-workspace-git-exclude-full-'));
+  try {
+    await execFileAsync('git', ['init', '--quiet'], { cwd: workspace });
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'],
+      { cwd: workspace, encoding: 'utf8' },
+    );
+    const excludePath = stdout.trim();
+    const originalContents = '#'.repeat(1024 * 1024);
+    await writeFile(excludePath, originalContents, 'utf8');
+
+    await assert.rejects(
+      () => resolveWorkspaceIdentity({ path: workspace }),
+      (error: unknown) =>
+        error instanceof WorkspaceIdentityError && error.code === 'workspace_io_failed',
+    );
+    assert.equal(await readFile(excludePath, 'utf8'), originalContents);
+    await assert.rejects(access(join(workspace, WORKSPACE_MARKER_FILE)), { code: 'ENOENT' });
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('a malformed enclosing Git repository prevents publishing a new marker', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'maka-workspace-git-malformed-'));
   try {
