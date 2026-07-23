@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SessionHeader, SessionListFilter } from '@maka/core';
@@ -15,8 +15,23 @@ export { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from './sqlite-session-metadat
 
 const require = createRequire(import.meta.url);
 
-function loadDatabaseSync(): typeof import('node:sqlite').DatabaseSync {
-  return (require('node:sqlite') as typeof import('node:sqlite')).DatabaseSync;
+function loadSqliteModule(): typeof import('node:sqlite') {
+  const emitWarning = process.emitWarning;
+  process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+    const warningType = typeof args[0] === 'string' ? args[0] : undefined;
+    if (
+      warningType === 'ExperimentalWarning' &&
+      String(warning).startsWith('SQLite is an experimental feature')
+    ) {
+      return;
+    }
+    Reflect.apply(emitWarning, process, [warning, ...args]);
+  }) as typeof process.emitWarning;
+  try {
+    return require('node:sqlite') as typeof import('node:sqlite');
+  } finally {
+    process.emitWarning = emitWarning;
+  }
 }
 
 export type SqliteSessionMetadataStoreFailpoint =
@@ -66,11 +81,11 @@ export class SqliteSessionMetadataStore {
   private closed = false;
 
   constructor(
-    path: string,
+    private readonly path: string,
     private readonly options: SqliteSessionMetadataStoreOptions = {},
   ) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-    const DatabaseSync = loadDatabaseSync();
+    const { DatabaseSync } = loadSqliteModule();
     this.db = new DatabaseSync(path);
     configureSqliteSessionMetadataDatabase(this.db);
     migrateSqliteSessionMetadataDatabase(this.db);
@@ -94,6 +109,19 @@ export class SqliteSessionMetadataStore {
     if (this.closed) return;
     this.closed = true;
     this.db.close();
+  }
+
+  async backup(destinationPath: string): Promise<number> {
+    this.assertOpen();
+    if (!destinationPath) throw new Error('Session metadata backup destination is required');
+    if (this.path !== ':memory:' && resolve(destinationPath) === resolve(this.path)) {
+      throw new Error('Session metadata backup destination must differ from the source database');
+    }
+    if (existsSync(destinationPath)) {
+      throw new Error(`Session metadata backup destination already exists: ${destinationPath}`);
+    }
+    mkdirSync(dirname(destinationPath), { recursive: true });
+    return loadSqliteModule().backup(this.db, destinationPath);
   }
 
   async create(header: SessionHeader): Promise<SessionMetadataRecord> {

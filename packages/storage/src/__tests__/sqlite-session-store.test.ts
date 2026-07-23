@@ -35,14 +35,28 @@ describe('default SQLite session metadata store', () => {
       assert.equal((await store.readMessages(created.id))[0]?.type, 'user');
 
       const transcriptPath = join(root, 'sessions', created.id, 'session.jsonl');
-      const [legacyHeader, message] = (await readFile(transcriptPath, 'utf8'))
+      const [marker, message] = (await readFile(transcriptPath, 'utf8'))
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line) as Record<string, unknown>);
-      assert.equal(legacyHeader?.name, 'Initial title');
+      assert.deepEqual(marker, {
+        type: 'session_transcript',
+        sessionId: created.id,
+        schemaVersion: 1,
+      });
+      assert.equal('name' in (marker ?? {}), false);
       assert.equal(message?.type, 'user');
       await stat(join(root, SQLITE_SESSION_METADATA_DATABASE_NAME));
       await assert.rejects(() => stat(join(root, 'runtime.sqlite')), { code: 'ENOENT' });
+
+      store.close?.();
+      const reopened = createSessionStore(root);
+      try {
+        assert.equal((await reopened.readHeader(created.id)).name, 'SQLite title');
+        assert.equal((await reopened.readMessages(created.id)).length, 1);
+      } finally {
+        reopened.close?.();
+      }
     } finally {
       store.close?.();
       await rm(root, { recursive: true, force: true });
@@ -146,6 +160,30 @@ describe('default SQLite session metadata store', () => {
       assert.deepEqual(await metadata.list(), []);
     } finally {
       metadata.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when a transcript marker has no canonical SQLite metadata', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-default-session-orphan-marker-'));
+    const sessionId = 'orphan-session';
+    const sessionDir = join(root, 'sessions', sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, 'session.jsonl'),
+      `${JSON.stringify({
+        type: 'session_transcript',
+        sessionId,
+        schemaVersion: 1,
+      })}\n`,
+      'utf8',
+    );
+
+    const store = createSessionStore(root);
+    try {
+      await assert.rejects(() => store.list(), /has no SQLite metadata/);
+    } finally {
+      store.close?.();
       await rm(root, { recursive: true, force: true });
     }
   });

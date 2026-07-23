@@ -8,14 +8,16 @@ import {
 } from './execution-record-codec.js';
 import { appendJsonl } from './jsonl-append.js';
 import { classifyJsonRecord } from './json-prefix.js';
-import {
-  importLegacySessionMetadataTree,
-  readLegacySessionMetadataEntry,
-} from './session-metadata-transfer.js';
+import { importLegacySessionMetadataTree } from './session-metadata-transfer.js';
 import {
   createSqliteSessionMetadataStore,
   type SqliteSessionMetadataStore,
 } from './sqlite-session-metadata-store.js';
+import {
+  createSessionTranscriptMarker,
+  decodeSessionTranscriptMarker,
+  isSessionTranscriptMarker,
+} from './session-transcript.js';
 import { chainWrite } from './write-queue.js';
 import {
   DEFAULT_SESSION_NAME,
@@ -82,7 +84,7 @@ class SqliteSessionStore implements SessionStore {
   private readonly metadata: SqliteSessionMetadataStore;
   private readonly ready: Promise<void>;
 
-  constructor(private readonly workspaceRoot: string) {
+  constructor(workspaceRoot: string) {
     this.files = new FileSessionStore(workspaceRoot);
     this.metadata = createSqliteSessionMetadataStore(
       join(workspaceRoot, SQLITE_SESSION_METADATA_DATABASE_NAME),
@@ -95,12 +97,9 @@ class SqliteSessionStore implements SessionStore {
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
     await this.ensureReady();
-    const staged = await this.files.create(input);
+    const staged = await this.files.createTranscript(input);
     try {
-      const sourcePath = this.sessionPath(staged.id);
-      const entry = await readLegacySessionMetadataEntry(sourcePath, staged.id);
-      await this.metadata.importEntries([entry]);
-      return (await this.metadata.read(staged.id)).header;
+      return (await this.metadata.create(staged)).header;
     } catch (error) {
       await this.files.remove(staged.id).catch(() => {});
       throw error;
@@ -138,9 +137,9 @@ class SqliteSessionStore implements SessionStore {
       const { header, previewMessages } = withPreviews[index]!;
       let messages = previewMessages.slice(-10);
       if (index < 3) {
-        messages = (await this.files.readMessagesSnapshot(header.id).catch(() => messages)).slice(
-          -10,
-        );
+        messages = (
+          await this.files.readTranscriptMessagesSnapshot(header.id, header).catch(() => messages)
+        ).slice(-10);
       }
       summaries.push(toSummary(header, messages));
     }
@@ -153,7 +152,7 @@ class SqliteSessionStore implements SessionStore {
       .map((record) => record.header)
       .sort((a, b) => a.id.localeCompare(b.id));
     for (const header of headers) {
-      await this.files.readMessagesForRecovery(header.id);
+      await this.files.readTranscriptMessagesForRecovery(header.id, header);
     }
     return headers;
   }
@@ -165,12 +164,14 @@ class SqliteSessionStore implements SessionStore {
 
   async readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]> {
     await this.ensureReady();
-    return this.files.readMessagesSnapshot(sessionId);
+    const header = (await this.metadata.read(sessionId)).header;
+    return this.files.readTranscriptMessagesSnapshot(sessionId, header);
   }
 
   async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
     await this.ensureReady();
-    return this.files.readMessagesForRecovery(sessionId);
+    const header = (await this.metadata.read(sessionId)).header;
+    return this.files.readTranscriptMessagesForRecovery(sessionId, header);
   }
 
   async listTurnsSnapshot(sessionId: string): Promise<TurnRecord[]> {
@@ -286,18 +287,14 @@ class SqliteSessionStore implements SessionStore {
     knownMessages?: StoredMessage[],
   ): Promise<SessionHeader> {
     if (header.connectionLocked) return header;
-    const messages = knownMessages ?? (await this.files.readMessagesSnapshot(header.id));
+    const messages =
+      knownMessages ?? (await this.files.readTranscriptMessagesSnapshot(header.id, header));
     if (!messages.some((message) => message.type === 'user')) return header;
     return this.updateHeader(header.id, { connectionLocked: true });
   }
 
   private async ensureReady(): Promise<void> {
     await this.ready;
-  }
-
-  private sessionPath(sessionId: string): string {
-    assertSafeSessionId(sessionId);
-    return join(this.workspaceRoot, 'sessions', sessionId, 'session.jsonl');
   }
 }
 
@@ -313,6 +310,17 @@ class FileSessionStore implements SessionStore {
   }
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
+    return this.createWithInitialRecord(input, 'legacy-header');
+  }
+
+  async createTranscript(input: CreateSessionInput): Promise<SessionHeader> {
+    return this.createWithInitialRecord(input, 'transcript-marker');
+  }
+
+  private async createWithInitialRecord(
+    input: CreateSessionInput,
+    initialRecord: 'legacy-header' | 'transcript-marker',
+  ): Promise<SessionHeader> {
     const now = Date.now();
     const id = randomUUID();
     // PR-UI-IPC-2 (@kenji msg 0474c3fe + @xuan msg 88d96a87):
@@ -376,7 +384,9 @@ class FileSessionStore implements SessionStore {
 
     await this.withQueue(id, async () => {
       await mkdir(this.sessionDir(id), { recursive: true });
-      await writeFile(this.sessionPath(id), JSON.stringify(header) + '\n', 'utf8');
+      const firstRecord =
+        initialRecord === 'legacy-header' ? header : createSessionTranscriptMarker(header.id);
+      await writeFile(this.sessionPath(id), JSON.stringify(firstRecord) + '\n', 'utf8');
     });
 
     return header;
@@ -500,6 +510,20 @@ class FileSessionStore implements SessionStore {
 
   async readPreviewMessages(sessionId: string): Promise<StoredMessage[]> {
     return this.readTailPreviewMessages(sessionId);
+  }
+
+  async readTranscriptMessagesSnapshot(
+    sessionId: string,
+    header: SessionHeader,
+  ): Promise<StoredMessage[]> {
+    return this.readTranscriptMessagesUnlocked(sessionId, header);
+  }
+
+  async readTranscriptMessagesForRecovery(
+    sessionId: string,
+    header: SessionHeader,
+  ): Promise<StoredMessage[]> {
+    return this.readTranscriptMessagesUnlocked(sessionId, header, true);
   }
 
   async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
@@ -757,6 +781,72 @@ class FileSessionStore implements SessionStore {
       }
     }
     return { header, messages };
+  }
+
+  private async readTranscriptMessagesUnlocked(
+    sessionId: string,
+    header: SessionHeader,
+    strict = false,
+  ): Promise<StoredMessage[]> {
+    const text = await readFile(this.sessionPath(sessionId), 'utf8');
+    const rawLines = text.split('\n');
+    const endsWithNewline = text.endsWith('\n');
+    const lines = rawLines
+      .map((line, index) => ({ line, lineNumber: index + 1 }))
+      .filter((entry) => entry.line.trim().length > 0);
+    if (lines.length === 0 || !lines[0]) throw new Error(`Session ${sessionId} is empty`);
+
+    let firstRecord: unknown;
+    try {
+      firstRecord = JSON.parse(lines[0].line) as unknown;
+      if (isSessionTranscriptMarker(firstRecord)) {
+        decodeSessionTranscriptMarker(firstRecord, sessionId);
+      } else {
+        decodeSessionHeader(firstRecord, sessionId);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Session ${sessionId} has an invalid first JSONL record: ${detail}`);
+    }
+
+    const messages: StoredMessage[] = [];
+    const lastLineNumber = lines.at(-1)?.lineNumber;
+    for (const entry of lines.slice(1)) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(entry.line);
+      } catch (error) {
+        if (
+          !endsWithNewline &&
+          entry.lineNumber === lastLineNumber &&
+          classifyJsonRecord(entry.line) === 'incomplete-prefix'
+        ) {
+          continue;
+        }
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`,
+          );
+        }
+        messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
+        continue;
+      }
+      try {
+        messages.push(
+          strict ? decodeStoredMessageForRecovery(parsed) : decodeStoredMessageForRead(parsed),
+        );
+      } catch (error) {
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`,
+          );
+        }
+        messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
+      }
+    }
+    return messages;
   }
 
   private async writeAtomic(path: string, content: string): Promise<void> {

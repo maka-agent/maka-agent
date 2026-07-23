@@ -1,7 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UsageRange, UsageStats } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
+import { SQLITE_SESSION_METADATA_DATABASE_NAME } from './session-store.js';
+import { createSqliteSessionMetadataStore } from './sqlite-session-metadata-store.js';
 
 type UsageSessionHeader = Pick<SessionHeader, 'id' | 'llmConnectionSlug' | 'model'>;
 
@@ -54,7 +56,7 @@ export async function readUsageStats(
   range: UsageRange,
 ): Promise<UsageStats> {
   const since = rangeToSince(range);
-  const sessions = await readStoredSessions(join(workspaceRoot, 'sessions'));
+  const sessions = await readStoredSessions(workspaceRoot);
   const modelLogs = sessions.flatMap(({ header, messages }) => {
     const assistantByTurn = new Map(
       messages
@@ -116,11 +118,12 @@ export async function readUsageStats(
 }
 
 async function readStoredSessions(
-  sessionsRoot: string,
+  workspaceRoot: string,
 ): Promise<Array<{ header: UsageSessionHeader; messages: UsageMessage[] }>> {
-  const fs = await import('node:fs/promises');
+  const sessionsRoot = join(workspaceRoot, 'sessions');
   try {
-    const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
+    const canonicalHeaders = await readCanonicalUsageHeaders(workspaceRoot);
+    const entries = await readdir(sessionsRoot, { withFileTypes: true });
     const sessions: Array<{ header: UsageSessionHeader; messages: UsageMessage[] }> = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -128,7 +131,10 @@ async function readStoredSessions(
         const text = await readFile(join(sessionsRoot, entry.name, 'session.jsonl'), 'utf8');
         const lines = text.split('\n').filter((line) => line.trim());
         if (!lines[0]) continue;
-        const header = normalizeUsageSessionHeader(JSON.parse(lines[0]), entry.name);
+        const header =
+          canonicalHeaders === null
+            ? normalizeUsageSessionHeader(JSON.parse(lines[0]), entry.name)
+            : canonicalHeaders.get(entry.name);
         if (!header) continue;
         const messages: UsageMessage[] = [];
         for (const line of lines.slice(1)) {
@@ -150,6 +156,33 @@ async function readStoredSessions(
     return sessions;
   } catch {
     return [];
+  }
+}
+
+async function readCanonicalUsageHeaders(
+  workspaceRoot: string,
+): Promise<Map<string, UsageSessionHeader> | null> {
+  const path = join(workspaceRoot, SQLITE_SESSION_METADATA_DATABASE_NAME);
+  try {
+    await stat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  const metadata = createSqliteSessionMetadataStore(path);
+  try {
+    return new Map(
+      (await metadata.list()).map(({ header }) => [
+        header.id,
+        {
+          id: header.id,
+          llmConnectionSlug: header.llmConnectionSlug,
+          model: header.model,
+        },
+      ]),
+    );
+  } finally {
+    metadata.close();
   }
 }
 

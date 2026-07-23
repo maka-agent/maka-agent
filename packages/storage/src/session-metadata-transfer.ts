@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { open, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { decodeSessionHeader, isSafeSessionId } from './session-store.js';
+import { decodeSessionTranscriptMarker, isSessionTranscriptMarker } from './session-transcript.js';
 import type {
   SessionMetadataImportEntry,
   SqliteSessionMetadataStore,
@@ -31,11 +32,17 @@ export async function importLegacySessionMetadataTree(input: {
 }): Promise<LegacySessionMetadataImportReport> {
   const sessionsRoot = join(input.workspaceRoot, 'sessions');
   const entries: SessionMetadataImportEntry[] = [];
+  const transcriptMarkerSessionIds: string[] = [];
   const directories = await sessionDirectoryNames(sessionsRoot);
   for (const directory of directories) {
     const sourcePath = join(sessionsRoot, directory, 'session.jsonl');
     try {
-      entries.push(await readLegacySessionMetadataEntry(sourcePath, directory));
+      const entry = await readLegacySessionMetadataEntry(sourcePath, directory);
+      if (entry) {
+        entries.push(entry);
+      } else {
+        transcriptMarkerSessionIds.push(directory);
+      }
     } catch (error) {
       if (!isNotFound(error)) throw error;
       const canonicalStateExists =
@@ -43,6 +50,14 @@ export async function importLegacySessionMetadataTree(input: {
         (await input.destination.isTombstoned(directory));
       if (canonicalStateExists) continue;
       throw error;
+    }
+  }
+  for (const sessionId of transcriptMarkerSessionIds) {
+    if (
+      !(await input.destination.has(sessionId)) &&
+      !(await input.destination.isTombstoned(sessionId))
+    ) {
+      throw new Error(`Session transcript marker has no SQLite metadata: ${sessionId}`);
     }
   }
   const result = await input.destination.importEntries(entries);
@@ -60,12 +75,16 @@ export async function importLegacySessionMetadataTree(input: {
 export async function readLegacySessionMetadataEntry(
   sourcePath: string,
   sessionId: string,
-): Promise<SessionMetadataImportEntry> {
+): Promise<SessionMetadataImportEntry | null> {
   let value: unknown;
   let headerLine: string;
   try {
     headerLine = await readFirstJsonlRecord(sourcePath);
     value = JSON.parse(headerLine) as unknown;
+    if (isSessionTranscriptMarker(value)) {
+      decodeSessionTranscriptMarker(value, sessionId);
+      return null;
+    }
     return {
       header: decodeSessionHeader(value, sessionId),
       source: {
