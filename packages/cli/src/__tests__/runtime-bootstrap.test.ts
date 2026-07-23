@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -845,6 +845,174 @@ describe('Maka CLI runtime bootstrap', () => {
       assert.equal(first, '1'.repeat(64));
       assert.equal(second, first);
       assert.notEqual(first, pathHash);
+    });
+  });
+
+  test('isolates portable state from injected config roots', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const stateRoot = join(workspaceRoot, 'state');
+      const configRoot = join(workspaceRoot, 'config');
+      await Promise.all([mkdir(stateRoot), mkdir(configRoot)]);
+
+      const connectionStore = createConnectionStore(configRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+      const credentialStore = createFileCredentialStore(configRoot);
+      await credentialStore.setSecret('local', 'api_key', 'config-secret-canary');
+
+      const context = await createMakaCliRuntimeContext({
+        surface: 'run',
+        workspaceRoot,
+        stateRoot,
+        configRoot,
+        cwd: '/repo',
+      });
+      try {
+        assert.equal(context.workspaceRoot, workspaceRoot);
+        assert.equal(context.stateRoot, stateRoot);
+        assert.equal(context.configRoot, configRoot);
+
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'bypass',
+          name: 'isolated',
+        });
+
+        await access(join(stateRoot, 'sessions', session.id, 'session.jsonl'));
+        await assert.rejects(access(join(configRoot, 'sessions', session.id, 'session.jsonl')));
+        await access(join(configRoot, 'llm-connections.json'));
+        await access(join(configRoot, 'credentials.json'));
+        await assert.rejects(access(join(stateRoot, 'credentials.json')));
+
+        await getOrCreateCliClaudeDeviceId(configRoot, { newId: () => '3'.repeat(64) });
+        await access(join(configRoot, '.maka_cli_claude_device_id'));
+        await assert.rejects(access(join(stateRoot, '.maka_cli_claude_device_id')));
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('routes skill tools, search, and the model catalog through the config root', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const stateRoot = join(workspaceRoot, 'state');
+      const configRoot = join(workspaceRoot, 'config');
+      const skillRoot = join(configRoot, 'skills', 'config-only');
+      await Promise.all([mkdir(stateRoot), mkdir(skillRoot, { recursive: true })]);
+      await writeFile(
+        join(skillRoot, 'SKILL.md'),
+        [
+          '---',
+          'name: Config Only',
+          'description: Skill injected only through the host config root.',
+          '---',
+          '# Config Only',
+          'Follow the config-root instructions.',
+        ].join('\n'),
+      );
+      const connectionStore = createConnectionStore(configRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
+        workspaceRoot,
+        stateRoot,
+        configRoot,
+        cwd: '/repo',
+      });
+      try {
+        const toolContext = {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          cwd: '/repo',
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        };
+        const skill = context.tools.find((tool) => tool.name === 'Skill');
+        assert.ok(skill);
+        const loaded = (await skill.impl({ name: 'Config Only' }, toolContext)) as {
+          ok: boolean;
+        };
+        assert.equal(loaded.ok, true);
+
+        const skillSearch = context.tools.find((tool) => tool.name === 'SkillSearch');
+        assert.ok(skillSearch);
+        const searched = (await skillSearch.impl(
+          { query: 'host config root', limit: 3 },
+          toolContext,
+        )) as { matches: Array<{ name: string }> };
+        assert.equal(
+          searched.matches.some((match) => match.name === 'Config Only'),
+          true,
+        );
+
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'bypass',
+          name: 'config-root-skill',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(session.id);
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: session.id,
+          workspaceRoot: stateRoot,
+          header,
+          store: runtimeDeps.store,
+        });
+        const systemPrompt = (backend as unknown as { input: AiSdkBackendInput }).input
+          .systemPrompt;
+        assert.equal(typeof systemPrompt, 'function');
+        const rendered =
+          typeof systemPrompt === 'function'
+            ? await systemPrompt({
+                sessionId: session.id,
+                cwd: context.cwd,
+                workspaceRoot: stateRoot,
+              })
+            : systemPrompt;
+        assert.match(rendered ?? '', /Config Only/);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('defaults both new roots to the legacy workspaceRoot', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({
+        surface: 'run',
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      try {
+        assert.equal(context.stateRoot, workspaceRoot);
+        assert.equal(context.configRoot, workspaceRoot);
+      } finally {
+        await context.close();
+      }
     });
   });
 });
