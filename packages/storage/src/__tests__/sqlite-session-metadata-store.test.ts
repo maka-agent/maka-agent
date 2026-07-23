@@ -265,6 +265,8 @@ describe('SqliteSessionMetadataStore', () => {
       await store.create(fullHeader());
       assert.equal(await store.remove('session-1'), true);
       assert.equal(await store.remove('session-1'), false);
+      assert.equal(await store.has('session-1'), false);
+      assert.equal(await store.isTombstoned('session-1'), true);
       assert.deepEqual(await store.list({ labelSlug: 'alpha' }), []);
       assert.deepEqual(
         await store.importEntries([
