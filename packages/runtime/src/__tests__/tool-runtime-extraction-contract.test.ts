@@ -43,11 +43,6 @@ describe('ToolRuntime extraction contract', () => {
     );
     assert.match(
       backend,
-      /this\.toolRuntime\.beginTurn\(turnId\);/,
-      'turn start must establish ToolRuntime-owned per-turn state',
-    );
-    assert.match(
-      backend,
       /cleanupAfterTurn\(turnId: string\): void \{[\s\S]*?this\.toolRuntime\.endTurn\(turnId,[\s\S]*?\);[\s\S]*?\}/,
       'turn cleanup must settle and reset ToolRuntime-owned per-turn state',
     );

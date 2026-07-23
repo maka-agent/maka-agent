@@ -3,6 +3,7 @@ import { BackendRegistry, FakeBackend, SessionManager } from '@maka/runtime';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { CanonicalSessionProjectionReader } from './canonical-session-projection.js';
 import type { RuntimeHostComposition, RuntimeHostCompositionContext } from './host-kernel.js';
+import { HostInteractionCoordinator } from './interaction-coordinator.js';
 import { type HostMessageRootPort, HostMessageCoordinator } from './message-coordinator.js';
 import type { AllDomainOperationHandlerMap } from './operation-dispatcher.js';
 import { RootAdmissionOwner } from './root-admission-owner.js';
@@ -19,6 +20,7 @@ export async function createExecutionRuntimeHostComposition(
   const sessionAdmission = new SessionAdmissionGate();
   let rootCoordinator: RootTurnCoordinator | undefined;
   let continuity: SessionContinuityCoordinator | undefined;
+  let canonicalProjection: CanonicalSessionProjectionReader | undefined;
   const rootPort: HostMessageRootPort = {
     readSessionHeader: (sessionId) =>
       requireRootCoordinator(rootCoordinator).readSessionHeader(sessionId),
@@ -46,22 +48,51 @@ export async function createExecutionRuntimeHostComposition(
     },
     sessionAdmission,
     acquireResidency: context.acquireResidency,
+    preflightSessionSnapshot: (sessionId, candidate) =>
+      requireCanonicalProjection(canonicalProjection).fitsCandidate(sessionId, candidate),
     onProjectionChanged: (sessionId) =>
       requireContinuity(continuity).enqueueCanonicalRefresh(sessionId),
   });
   const rootAdmissionOwner = new RootAdmissionOwner(stores.agentRunStore);
-  const canonicalProjection = new CanonicalSessionProjectionReader({
+  const canonicalProjectionReader = new CanonicalSessionProjectionReader({
     stores,
     rootAdmissions: rootAdmissionOwner,
     messages,
   });
+  canonicalProjection = canonicalProjectionReader;
   continuity = new SessionContinuityCoordinator(
     context.hostEpoch,
-    (sessionId) => canonicalProjection.read(sessionId),
+    (sessionId) => canonicalProjectionReader.read(sessionId),
     sessionAdmission,
     context.requestDrain,
   );
   const continuityCoordinator = continuity;
+  let poisonFailure: Error | undefined;
+  let draining = false;
+  let recoveryTask: Promise<void> | undefined;
+  let rootCloseTask: Promise<void> | undefined;
+  let closeTask: Promise<void> | undefined;
+  const beginDrain = () => {
+    if (draining) return;
+    draining = true;
+    messages.beginDrain();
+    interactions.beginDrain();
+  };
+  const interactions = new HostInteractionCoordinator({
+    store: stores.interactionStore,
+    sessionAdmission,
+    preflightSessionSnapshot: (sessionId, interactionProjection) =>
+      canonicalProjectionReader.fitsCandidate(sessionId, { interactions: interactionProjection }),
+    refreshCanonicalContinuity: (sessionId, admission) =>
+      continuityCoordinator.refreshCanonical(sessionId, admission),
+    onPoison: (error) => {
+      if (poisonFailure) return;
+      poisonFailure = error;
+      context.acquireResidency();
+      beginDrain();
+      context.requestDrain();
+    },
+  });
   const manager = new SessionManager({
     store: stores.sessionStore,
     runStore: stores.agentRunStore,
@@ -70,12 +101,14 @@ export async function createExecutionRuntimeHostComposition(
     newId: randomUUID,
     now: Date.now,
     messageAuthority: messages,
+    interactionAuthority: interactions,
   });
   rootCoordinator = new RootTurnCoordinator(
     manager,
     stores,
     sessionAdmission,
     rootAdmissionOwner,
+    interactions,
     messages,
     continuityCoordinator,
     context.acquireResidency,
@@ -85,34 +118,65 @@ export async function createExecutionRuntimeHostComposition(
   const handlers = {
     ...coordinator.handlers,
     ...messages.handlers,
+    ...interactions.handlers,
     ...continuityCoordinator.handlers,
   } satisfies AllDomainOperationHandlerMap;
-  return {
-    handlers,
-    continuity: continuityCoordinator,
-    recover: async () => {
+  const recover = () => {
+    recoveryTask ??= (async () => {
       await coordinator.prepareRecovery();
+      await interactions.recoverPendingAfterHostRestart();
       await manager.recoverInterruptedSessionsStrict(stores);
       await coordinator.recover();
-    },
-    close: async () => {
-      messages.beginDrain();
+    })();
+    return recoveryTask;
+  };
+  const close = () => {
+    closeTask ??= (async () => {
+      beginDrain();
       const errors: unknown[] = [];
+      let recovered = false;
       try {
-        await coordinator.close();
+        await recover();
+        recovered = true;
       } catch (error) {
         errors.push(error);
+      }
+      if (recovered && !poisonFailure) {
+        try {
+          rootCloseTask ??= coordinator.close();
+          await rootCloseTask;
+        } catch (error) {
+          errors.push(error);
+        }
       }
       try {
         await messages.close();
       } catch (error) {
         errors.push(error);
       }
-      continuityCoordinator.close();
+      try {
+        await interactions.close();
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        continuityCoordinator.close();
+      } catch (error) {
+        errors.push(error);
+      }
+      if (poisonFailure && !errors.includes(poisonFailure)) errors.push(poisonFailure);
       if (errors.length > 0) {
         throw new AggregateError(errors, 'Unable to close Runtime Host execution composition');
       }
-    },
+    })();
+    return closeTask;
+  };
+  return {
+    handlers,
+    continuity: continuityCoordinator,
+    beginDrain,
+    recover,
+    close,
   };
 }
 
@@ -126,4 +190,11 @@ function requireContinuity(
 ): SessionContinuityCoordinator {
   if (!continuity) throw new Error('Runtime Host continuity coordinator is not composed');
   return continuity;
+}
+
+function requireCanonicalProjection(
+  projection: CanonicalSessionProjectionReader | undefined,
+): CanonicalSessionProjectionReader {
+  if (!projection) throw new Error('Runtime Host canonical projection is not composed');
+  return projection;
 }

@@ -38,7 +38,7 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { RuntimeKernelLike } from '../runtime-kernel.js';
-import { FakeBackend } from '../fake-backend.js';
+import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '../fake-backend.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend } from '@maka/core/backend-types';
 import type { MakaTool } from '../tool-runtime.js';
@@ -67,6 +67,11 @@ import {
   RuntimeMessageAuthorityInvariantError,
   type RuntimeMessageRunIdentity,
 } from '../message-authority.js';
+import {
+  RuntimeInteractionInvariantError,
+  type RuntimeInteractionRunIdentity,
+  type RuntimeUserQuestionContinuation,
+} from '../interaction-authority.js';
 
 describe('SessionManager automatic titles', () => {
   test('starts after user persistence and does not block the turn', async () => {
@@ -10753,6 +10758,156 @@ describe('SessionManager steering and followup queues', () => {
     }
   });
 
+  test('hosted Interaction binds the durable Run identity and closes before release', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    const identities: RuntimeInteractionRunIdentity[] = [];
+    const lifecycle: string[] = [];
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      interactionAuthority: {
+        bindRun: (identity) => {
+          identities.push(identity);
+          return {
+            ...identity,
+            acceptPermissionRequest: async () => ({ state: 'pending' }),
+            commitPermissionAnswer: async ({ answer }) => ({
+              kind: 'permission_answer',
+              answer,
+            }),
+            commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+            acceptUserQuestionRequest: async () => {},
+            close: async (reason) => {
+              lifecycle.push(`close:${reason}`);
+            },
+            release: () => lifecycle.push('release'),
+          };
+        },
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'bypass' }),
+    );
+
+    await drainAll(
+      manager.sendMessage(session.id, { turnId: 'turn-host-interaction', text: 'go' }),
+    );
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(identities).toEqual([
+      { sessionId: session.id, turnId: 'turn-host-interaction', runId: run?.runId },
+    ]);
+    expect(lifecycle).toEqual(['close:turn_terminal', 'release']);
+  });
+
+  test('hosted stopped question abandonment preserves stop closure before release', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    const lifecycle: string[] = [];
+    let question: RuntimeUserQuestionContinuation | undefined;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      interactionAuthority: {
+        bindRun: (identity) => ({
+          ...identity,
+          acceptPermissionRequest: async () => ({ state: 'pending' }),
+          commitPermissionAnswer: async ({ answer }) => ({
+            kind: 'permission_answer',
+            answer,
+          }),
+          commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+          acceptUserQuestionRequest: async ({ continuation }) => {
+            question = continuation;
+          },
+          close: async (reason) => {
+            lifecycle.push(`close:${reason}`);
+            await question?.applyClosure(reason);
+            lifecycle.push('local-settled');
+          },
+          release: () => lifecycle.push('release'),
+        }),
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'ask' }),
+    );
+    const iterator = manager
+      .sendMessage(session.id, {
+        turnId: 'turn-host-question-abandoned',
+        text: FAKE_ASK_USER_QUESTION_PROMPT,
+      })
+      [Symbol.asyncIterator]();
+
+    let request: SessionEvent | undefined;
+    while (request?.type !== 'user_question_request') {
+      const next = await iterator.next();
+      if (next.done) break;
+      request = next.value;
+    }
+    expect(request?.type).toBe('user_question_request');
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    expect(lifecycle).toEqual(['close:turn_stopped', 'local-settled']);
+    await iterator.return?.(undefined);
+    expect(lifecycle).toEqual(['close:turn_stopped', 'local-settled', 'release']);
+  });
+
+  test('hosted RuntimeKernel rejects a backend request without an admission receipt', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new UnadmittedQuestionBackend(ctx));
+    let releases = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+      interactionAuthority: {
+        bindRun: (identity) => ({
+          ...identity,
+          acceptPermissionRequest: async () => ({ state: 'pending' }),
+          commitPermissionAnswer: async ({ answer }) => ({
+            kind: 'permission_answer',
+            answer,
+          }),
+          commitPermissionTimeout: async () => ({ kind: 'closure', reason: 'timed_out' }),
+          acceptUserQuestionRequest: async () => {},
+          close: async () => {},
+          release: () => {
+            releases += 1;
+          },
+        }),
+      },
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'ask' }),
+    );
+
+    let failure: unknown;
+    try {
+      await drainAll(manager.sendMessage(session.id, { turnId: 'turn-forged', text: 'start' }));
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure instanceof RuntimeInteractionInvariantError).toBe(true);
+    expect(releases).toBe(1);
+  });
+
   test('hosted owner is released when the event consumer abandons the run', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -11814,6 +11969,38 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
   async disposeBackend(sessionId: string): Promise<void> {
     this.disposed.push(sessionId);
   }
+}
+
+class UnadmittedQuestionBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'user_question_request',
+      id: 'unadmitted-event',
+      turnId: input.turnId,
+      ts: 1,
+      requestId: 'unadmitted-request',
+      toolUseId: 'unadmitted-tool',
+      questions: [
+        {
+          question: 'Continue?',
+          options: [{ label: 'Yes' }, { label: 'No' }],
+        },
+      ],
+    };
+  }
+
+  async stop(): Promise<void> {}
+
+  async respondToPermission(): Promise<void> {}
+
+  async dispose(): Promise<void> {}
 }
 
 class TestBackend implements AgentBackend {

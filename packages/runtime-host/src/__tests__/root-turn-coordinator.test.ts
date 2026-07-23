@@ -83,6 +83,7 @@ test('shutdown re-scans a successor created by an in-flight terminal handoff', {
     const sessionAdmission = new SessionAdmissionGate();
     let coordinator: RootTurnCoordinator | undefined;
     let continuity: SessionContinuityCoordinator | undefined;
+    let canonicalProjection: CanonicalSessionProjectionReader | undefined;
     const rootPort: HostMessageRootPort = {
       readSessionHeader: (sessionId) =>
         requireCoordinator(coordinator).readSessionHeader(sessionId),
@@ -112,17 +113,20 @@ test('shutdown re-scans a successor created by an in-flight terminal handoff', {
       },
       sessionAdmission,
       acquireResidency,
+      preflightSessionSnapshot: (sessionId, candidate) =>
+        requireCanonicalProjection(canonicalProjection).fitsCandidate(sessionId, candidate),
       onProjectionChanged: (sessionId) =>
         requireContinuity(continuity).enqueueCanonicalRefresh(sessionId),
     });
-    const canonicalProjection = new CanonicalSessionProjectionReader({
+    const canonicalProjectionReader = new CanonicalSessionProjectionReader({
       stores,
       rootAdmissions: rootAdmissionOwner,
       messages,
     });
+    canonicalProjection = canonicalProjectionReader;
     continuity = new SessionContinuityCoordinator(
       hostEpoch,
-      (sessionId) => canonicalProjection.read(sessionId),
+      (sessionId) => canonicalProjectionReader.read(sessionId),
       sessionAdmission,
     );
     const backends = new BackendRegistry();
@@ -142,6 +146,7 @@ test('shutdown re-scans a successor created by an in-flight terminal handoff', {
       stores,
       sessionAdmission,
       rootAdmissionOwner,
+      { assertTerminalFence: async () => undefined },
       messages,
       continuity,
       acquireResidency,
@@ -202,7 +207,7 @@ test('shutdown re-scans a successor created by an in-flight terminal handoff', {
   }
 });
 
-test('pre-start message interrupt does not deadlock the Session admission lane', {
+test('pre-start interrupt and terminal Interaction fence preserve the Session admission lane', {
   timeout: 20_000,
 }, async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-root-turn-pre-start-interrupt-'));
@@ -243,6 +248,7 @@ test('pre-start message interrupt does not deadlock the Session admission lane',
     const runCreationEntered = deferred<void>();
     let coordinator: RootTurnCoordinator | undefined;
     let continuity: SessionContinuityCoordinator | undefined;
+    let canonicalProjection: CanonicalSessionProjectionReader | undefined;
     const stopClaimEntered = deferred<void>();
     const stopFenceCommitted = deferred<void>();
     const rootPort: HostMessageRootPort = {
@@ -280,17 +286,20 @@ test('pre-start message interrupt does not deadlock the Session admission lane',
       },
       sessionAdmission,
       acquireResidency,
+      preflightSessionSnapshot: (sessionId, candidate) =>
+        requireCanonicalProjection(canonicalProjection).fitsCandidate(sessionId, candidate),
       onProjectionChanged: (sessionId) =>
         requireContinuity(continuity).enqueueCanonicalRefresh(sessionId),
     });
-    const canonicalProjection = new CanonicalSessionProjectionReader({
+    const canonicalProjectionReader = new CanonicalSessionProjectionReader({
       stores,
       rootAdmissions: rootAdmissionOwner,
       messages,
     });
+    canonicalProjection = canonicalProjectionReader;
     continuity = new SessionContinuityCoordinator(
       hostEpoch,
-      (sessionId) => canonicalProjection.read(sessionId),
+      (sessionId) => canonicalProjectionReader.read(sessionId),
       sessionAdmission,
     );
     const sink = new RecordingContinuitySink();
@@ -321,11 +330,23 @@ test('pre-start message interrupt does not deadlock the Session admission lane',
       messageAuthority: messages,
     });
     let drainRequested = false;
+    let fencedTurnId: string | undefined;
+    const terminalFenceEntered = deferred<void>();
+    const rejectTerminalFence = deferred<void>();
+    const terminalFenceError = new Error('durable pending Interaction');
     coordinator = new RootTurnCoordinator(
       manager,
       stores,
       sessionAdmission,
       rootAdmissionOwner,
+      {
+        assertTerminalFence: async (identity) => {
+          if (identity.turnId !== fencedTurnId) return;
+          terminalFenceEntered.resolve();
+          await rejectTerminalFence.promise;
+          throw terminalFenceError;
+        },
+      },
       messages,
       continuity,
       acquireResidency,
@@ -386,13 +407,61 @@ test('pre-start message interrupt does not deadlock the Session admission lane',
     assert.equal(interruptOutcome.ok, true);
     assert.equal(interruptOutcome.result.turn.status, 'cancelled');
 
+    fencedTurnId = 'turn-terminal-fence';
+    const fencedStart = await coordinator.handlers['turn.start'](
+      {
+        sessionId: session.id,
+        turnId: fencedTurnId,
+        content: { text: `terminal fence root ${'x'.repeat(540)}` },
+      },
+      operationContext(hostEpoch, acquireResidency, connectionId),
+    );
+    assert.equal(fencedStart.ok, true);
+    const fencedRoot = coordinator.readRootState(session.id);
+    assert.equal(fencedRoot.kind, 'active');
+
+    const queuedFollowup = await messages.handlers['turn.message.submit'](
+      {
+        originHostEpoch: hostEpoch,
+        sessionId: session.id,
+        messageId: 'message-terminal-fence-followup',
+        content: { text: 'must remain queued behind the terminal fence' },
+        placement: 'next_turn',
+      },
+      operationContext(hostEpoch, acquireResidency, connectionId),
+    );
+    assert.equal(queuedFollowup.ok && queuedFollowup.result.disposition, 'followup');
+
+    await completesWithin(terminalFenceEntered.promise, 10_000, 'terminal Interaction fence');
+    const fencedProjection = [...sink.frames]
+      .reverse()
+      .find(
+        (frame) =>
+          frame.kind === 'subscription.session_projection' &&
+          frame.snapshot.rootTurn?.turnId === fencedTurnId,
+      );
+    assert.equal(fencedProjection?.kind, 'subscription.session_projection');
+    if (fencedProjection?.kind === 'subscription.session_projection') {
+      assert.equal(fencedProjection.snapshot.rootTurn?.status, 'running');
+    }
+
+    const frameCountAtFence = sink.frames.length;
+    rejectTerminalFence.resolve();
+    await completesWithin(
+      waitUntil(() => coordinator?.readRootState(session.id).kind === 'idle'),
+      5_000,
+      'terminal fence failure cleanup',
+    );
+    const admissions = await stores.agentRunStore.listRootTurnAdmissionsForRecovery(session.id);
+    assert.equal(admissions.length, 2);
+    assert.equal(sink.frames.length, frameCountAtFence);
+    assert.equal(drainRequested, true);
+
     await coordinator.close();
-    await messages.close();
     subscription.close();
     continuity.close();
     assert.deepEqual(coordinator.readRootState(session.id), { kind: 'idle' });
-    assert.equal(liveResidencies, 0);
-    assert.equal(drainRequested, false);
+    assert.equal(liveResidencies, 1);
   } finally {
     releaseRunCreation.resolve();
     await owner.close();
@@ -435,6 +504,13 @@ function requireContinuity(
 ): SessionContinuityCoordinator {
   if (!continuity) throw new Error('Continuity coordinator is not bound');
   return continuity;
+}
+
+function requireCanonicalProjection(
+  projection: CanonicalSessionProjectionReader | undefined,
+): CanonicalSessionProjectionReader {
+  if (!projection) throw new Error('Canonical projection is not composed');
+  return projection;
 }
 
 function operationContext(
@@ -490,4 +566,8 @@ async function completesWithin<T>(
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  while (!predicate()) await new Promise((resolve) => setTimeout(resolve, 10));
 }

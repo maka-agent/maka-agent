@@ -11,6 +11,7 @@
     "./runtime-event": "./dist/runtime-event.js",
     "./execution-evidence": "./dist/execution-evidence.js",
     "./events": "./dist/events.js",
+    "./interaction": "./dist/interaction.js",
     "./session": "./dist/session.js",
     "./collaboration": "./dist/collaboration.js",
     "./orchestration": "./dist/orchestration.js",

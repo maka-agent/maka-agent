@@ -884,5 +884,6 @@ function continuitySnapshot(hostEpoch: string) {
       steering: [],
       followup: [],
     },
+    interactions: { pending: [] },
   };
 }

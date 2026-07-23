@@ -27,6 +27,7 @@ import type {
 } from '../protocol/index.js';
 import type { RuntimeHostResidency } from './host-kernel.js';
 import { isMissingFile, readCanonicalTurnSnapshot } from './canonical-turn-snapshot.js';
+import type { HostInteractionCoordinator } from './interaction-coordinator.js';
 import {
   type HostMessageRootState,
   type HostMessageSessionHeader,
@@ -43,6 +44,8 @@ import {
   type RuntimeSessionTransientEvent,
   SessionContinuityCoordinator,
 } from './session-continuity-coordinator.js';
+
+type RootTerminalInteractionFence = Pick<HostInteractionCoordinator, 'assertTerminalFence'>;
 
 interface ActiveRootTurn {
   turnId: string;
@@ -97,6 +100,7 @@ export class RootTurnCoordinator {
     stores: ExecutionStoresWriter<'interactive'>,
     private readonly sessionAdmission: SessionAdmissionGate,
     private readonly rootAdmissionOwner: RootAdmissionOwner,
+    private readonly interactions: RootTerminalInteractionFence,
     private readonly messages: HostMessageCoordinator,
     private readonly continuity: SessionContinuityCoordinator,
     private readonly acquireRecoveryResidency: () => RuntimeHostResidency,
@@ -693,6 +697,7 @@ export class RootTurnCoordinator {
         );
       }
       const identity = { sessionId, turnId: active.turnId, runId: active.runId };
+      await this.interactions.assertTerminalFence(identity, lease);
       const batch = this.messages.beginTerminalTransition(identity);
       await this.continuity.publishTerminalProjection(
         sessionId,
