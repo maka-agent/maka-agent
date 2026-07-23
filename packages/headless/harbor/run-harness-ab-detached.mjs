@@ -7,7 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolveFixedPromptRunRoot } from '#fixed-prompt-task-source';
 import { envPath as parseEnvPath } from '#headless-run-env';
-import { resolveHarnessAbRunId, resolveHarnessCompetitorProfile } from './run-harness-ab.mjs';
+import {
+  resolveHarnessAbRunId,
+  resolveHarnessBenchmarkProfile,
+  resolveHarnessCompetitorProfile,
+} from './run-harness-ab.mjs';
 
 const JOURNAL_FILENAME = 'background-run.json';
 const LOG_FILENAME = 'background-run.log';
@@ -16,6 +20,9 @@ const envPath = (name) => parseEnvPath(name, process.env[name]);
 
 function detachedRunPaths() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
+  const benchmarkProfile = resolveHarnessBenchmarkProfile(
+    process.env.MAKA_HARNESS_AB_BENCHMARK || 'terminal-bench-2.1',
+  );
   const competitorProfile = resolveHarnessCompetitorProfile(
     process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code',
   );
@@ -24,6 +31,7 @@ function detachedRunPaths() {
     process.env.MAKA_HARNESS_AB_RUN_ID,
     process.env.MAKA_HARNESS_AB_TASK_ID,
     process.env.MAKA_HARNESS_AB_TASK_IDS,
+    benchmarkProfile,
   );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   return {

@@ -716,6 +716,83 @@ test('harness A/B CLI rejects modified task contents before reading credentials'
   }
 });
 
+test('harness A/B resolves the DeepSWE benchmark axis orthogonally to competitors', async () => {
+  const {
+    buildHarnessAbManifest,
+    resolveHarnessAbRunId,
+    resolveHarnessAbTaskSelection,
+    resolveHarnessBenchmarkProfile,
+    resolveHarnessCompetitorProfile,
+  } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const benchmarkProfile = resolveHarnessBenchmarkProfile('deep-swe-1.1');
+
+  assert.throws(
+    () => resolveHarnessBenchmarkProfile('swe-bench'),
+    /MAKA_HARNESS_AB_BENCHMARK must be one of: terminal-bench-2\.1, deep-swe-1\.1/,
+  );
+
+  // Task identity comes from the benchmark: a Terminal-Bench task id is
+  // unknown here, and the 30-task subset replaces the 89-task full set.
+  const selection = resolveHarnessAbTaskSelection(undefined, '30', undefined, benchmarkProfile);
+  assert.equal(selection.taskIds.length, 30);
+  assert.throws(
+    () =>
+      resolveHarnessAbTaskSelection(
+        'extract-moves-from-video',
+        undefined,
+        undefined,
+        benchmarkProfile,
+      ),
+    /MAKA_HARNESS_AB_TASK_ID must name a DeepSWE subset-30 task/,
+  );
+  assert.throws(
+    () => resolveHarnessAbTaskSelection(undefined, '89', undefined, benchmarkProfile),
+    /MAKA_HARNESS_AB_LIMIT must be 5 or 30/,
+  );
+
+  // The derived run id carries model, competitor, credential mode, benchmark.
+  assert.equal(
+    resolveHarnessAbRunId(
+      resolveHarnessCompetitorProfile('kimi-code'),
+      undefined,
+      undefined,
+      undefined,
+      benchmarkProfile,
+    ),
+    'k3-maka-vs-kimi-code-deepswe-subset30-v1',
+  );
+  assert.equal(
+    resolveHarnessAbRunId(
+      resolveHarnessCompetitorProfile('codex'),
+      undefined,
+      undefined,
+      undefined,
+      benchmarkProfile,
+    ),
+    'gpt-5.6-sol-maka-vs-codex-oauth-deepswe-subset30-v1',
+  );
+
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    benchmarkProfile,
+    competitorProfile: resolveHarnessCompetitorProfile('codex'),
+  });
+  assert.deepEqual(manifest.metadata.benchmark.dataset, 'deep-swe');
+  assert.equal(manifest.metadata.benchmark.version, '1.1');
+  assert.equal(manifest.metadata.order.seed, 'deep-swe-1.1:gpt-5.6-sol:harness-comparison:v1');
+  assert.equal(manifest.evaluationTaskIds.length, 30);
+
+  // The Terminal-Bench default keeps its historical order seed byte-for-byte.
+  const tbenchManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+  });
+  assert.equal(tbenchManifest.metadata.order.seed, 'terminal-bench-2.1:k3:harness-comparison:v1');
+});
+
 async function waitForJournal(
   path: string,
   predicate: (value: Record<string, unknown>) => boolean,
