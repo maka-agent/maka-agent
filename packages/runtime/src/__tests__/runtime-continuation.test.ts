@@ -15,14 +15,19 @@ import { RuntimeRunner } from '../runtime-runner.js';
 test('local continuation safety inspector derives portable authoritative host facts', async () => {
   const inspect = createLocalContinuationSafetyInspector({
     readSessionCwd: async () => '/workspace/repo-link',
-    resolveWorkspacePath: async () => '/workspace/repo',
-    readWorkspaceStat: async () => ({ dev: 7, ino: 42 }),
+    resolveWorkspaceIdentity: async () => ({
+      workspaceIdentity: 'workspace:v1:123e4567-e89b-42d3-a456-426614174000',
+      canonicalPath: '/workspace/repo',
+      legacyWorkspaceIdentities: ['fs:7:42:/workspace/repo'],
+    }),
     listAvailableToolNames: async () => ['Write', 'Read', 'Read'],
     hasPendingBackgroundOperations: async () => false,
   });
 
   assert.deepEqual(await inspect('session-1'), {
-    workspaceIdentity: 'fs:7:42:/workspace/repo',
+    workspaceIdentity: 'workspace:v1:123e4567-e89b-42d3-a456-426614174000',
+    workspacePath: '/workspace/repo',
+    legacyWorkspaceIdentities: ['fs:7:42:/workspace/repo'],
     backgroundOperationsSettled: true,
     availableToolNames: ['Read', 'Write'],
   });

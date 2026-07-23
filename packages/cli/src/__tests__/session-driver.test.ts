@@ -333,7 +333,7 @@ describe('Maka session driver', () => {
     assert.deepEqual(runtime.sessionUpdates, []);
   });
 
-  test('moves an active session, warns about dirty old cwd, and injects one replayable reminder', async () => {
+  test('moves an active session, warns about dirty old cwd, and leaves prompts unchanged', async () => {
     const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-old-'));
     const nextCwd = join(oldCwd, 'worktree-next');
     await mkdir(nextCwd);
@@ -364,21 +364,12 @@ describe('Maka session driver', () => {
       assert.deepEqual(inspected, [oldCwd]);
       assert.deepEqual(runtime.sessionUpdates.at(-1), {
         sessionId: 'session-1',
-        patch: {
-          cwd: canonicalNextCwd,
-          pendingCwdReminder: { from: oldCwd, to: canonicalNextCwd },
-        },
+        patch: { cwd: canonicalNextCwd },
       });
 
       await collectPrompt(driver, 'after move');
-      assert.match(
-        runtime.sent.at(-1)?.input.text ?? '',
-        new RegExp(`<system-reminder>.*${escapeRegExp(oldCwd)}.*${escapeRegExp(canonicalNextCwd)}`),
-      );
-      assert.equal(runtime.sent.at(-1)?.input.displayText, 'after move');
-
-      await collectPrompt(driver, 'later turn');
-      assert.equal(runtime.sent.at(-1)?.input.text, 'later turn');
+      assert.equal(runtime.sent.at(-1)?.input.text, 'after move');
+      assert.equal(runtime.sent.at(-1)?.input.displayText, undefined);
     } finally {
       await rm(oldCwd, { recursive: true, force: true });
     }
@@ -407,7 +398,7 @@ describe('Maka session driver', () => {
     }
   });
 
-  test('does not carry a pending cwd reminder into a new session', async () => {
+  test('uses the moved cwd for a new session without changing its prompt', async () => {
     const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-new-session-'));
     const nextCwd = join(oldCwd, 'next');
     await mkdir(nextCwd);
@@ -483,19 +474,14 @@ describe('Maka session driver', () => {
     }
   });
 
-  test('restores a persisted cwd reminder when resuming a moved session', async () => {
+  test('uses a resumed session cwd without injecting a synthetic reminder', async () => {
     const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-persisted-old-'));
     const nextCwd = join(oldCwd, 'worktree-next');
     await mkdir(nextCwd);
     try {
       const runtime = new RecordingRuntime();
       const canonicalNextCwd = await realpath(nextCwd);
-      runtime.sessionSummaries = [
-        {
-          ...sessionSummary({ id: 'session-2', cwd: canonicalNextCwd }),
-          pendingCwdReminder: { from: oldCwd, to: canonicalNextCwd },
-        },
-      ];
+      runtime.sessionSummaries = [sessionSummary({ id: 'session-2', cwd: canonicalNextCwd })];
       const driver = createMakaSessionDriver({
         runtime,
         cwd: oldCwd,
@@ -506,14 +492,9 @@ describe('Maka session driver', () => {
       await driver.switchSession('session-2');
       await collectPrompt(driver, 'after restart');
 
-      assert.match(
-        runtime.sent.at(-1)?.input.text ?? '',
-        new RegExp(`<system-reminder>.*${escapeRegExp(oldCwd)}.*${escapeRegExp(canonicalNextCwd)}`),
-      );
-      assert.deepEqual(runtime.sessionUpdates.at(-1), {
-        sessionId: 'session-2',
-        patch: { pendingCwdReminder: undefined },
-      });
+      assert.equal(runtime.sent.at(-1)?.input.text, 'after restart');
+      assert.equal(runtime.sent.at(-1)?.input.displayText, undefined);
+      assert.deepEqual(runtime.sessionUpdates, []);
     } finally {
       await rm(oldCwd, { recursive: true, force: true });
     }
@@ -1026,7 +1007,6 @@ class RecordingRuntime {
     sessionId: string;
     patch: {
       cwd?: string;
-      pendingCwdReminder?: SessionSummary['pendingCwdReminder'];
       model?: string;
       llmConnectionSlug?: string;
       thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined;
@@ -1199,7 +1179,6 @@ class RecordingRuntime {
     sessionId: string,
     patch: {
       cwd?: string;
-      pendingCwdReminder?: SessionSummary['pendingCwdReminder'];
       model?: string;
       llmConnectionSlug?: string;
       thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined;
@@ -1210,9 +1189,6 @@ class RecordingRuntime {
     return {
       id: sessionId,
       cwd: patch.cwd ?? '/repo',
-      ...(Object.hasOwn(patch, 'pendingCwdReminder')
-        ? { pendingCwdReminder: patch.pendingCwdReminder }
-        : {}),
       name: this.updatedSessionName,
       isFlagged: false,
       isArchived: false,

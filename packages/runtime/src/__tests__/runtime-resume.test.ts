@@ -310,6 +310,46 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     assert.deepEqual(plan.rejectionReasons, ['workspace_identity_mismatch']);
   });
 
+  test('continues after a workspace path change when the UUID marker is unchanged', () => {
+    const plan = buildSafeBoundaryContinuationPlan(
+      [textEvent('user-1', 'user', 'inspect the repository')],
+      {
+        ...safeBoundaryFacts(),
+        currentCwd: '/fresh-sandbox/repo',
+      },
+    );
+
+    assert.equal(plan.disposition, 'continue');
+    assert.deepEqual(plan.rejectionReasons, []);
+    assert.deepEqual(plan.diagnostics, [
+      {
+        code: 'workspace_location_changed',
+        message: 'workspace location differs from the source resume boundary',
+        detail: {
+          sourceCwd: '/workspace/repo',
+          currentCwd: '/fresh-sandbox/repo',
+        },
+      },
+    ]);
+  });
+
+  test('migrates a legacy filesystem anchor through a marker alias', () => {
+    const workspaceIdentity = 'workspace:v1:123e4567-e89b-42d3-a456-426614174000';
+    const legacyIdentity = 'fs:7:42:/workspace/repo';
+    const plan = buildSafeBoundaryContinuationPlan(
+      [textEvent('user-1', 'user', 'inspect the repository')],
+      {
+        ...safeBoundaryFacts(),
+        sourceWorkspaceIdentity: legacyIdentity,
+        currentWorkspaceIdentity: workspaceIdentity,
+        currentWorkspaceIdentityAliases: [legacyIdentity],
+      },
+    );
+
+    assert.equal(plan.disposition, 'continue');
+    assert.equal(plan.continuation?.safetySnapshot.workspaceIdentity, workspaceIdentity);
+  });
+
   test('parks while a background operation is still unsettled', () => {
     const plan = buildSafeBoundaryContinuationPlan(
       [
@@ -362,10 +402,6 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
       {
         facts: { ...safeBoundaryFacts(), terminalRepairSucceeded: false },
         reason: 'terminal_repair_failed',
-      },
-      {
-        facts: { ...safeBoundaryFacts(), currentCwd: '/workspace/other' },
-        reason: 'workspace_cwd_mismatch',
       },
     ] as const;
 

@@ -9,6 +9,7 @@
     ".": "./dist/index.js",
     "./execution-stores": "./dist/execution-stores.js",
     "./root-authority": "./dist/root-authority.js",
+    "./workspace-identity": "./dist/workspace-identity.js",
     "./write-queue": "./dist/write-queue.js"
   },
   "scripts": {

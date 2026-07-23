@@ -581,6 +581,8 @@ type StoredSessionHeader = Omit<
   status?: unknown;
   blockedReason?: unknown;
   titleIsManual?: unknown;
+  /** Accepted only while decoding old session headers and dropped on normalization. */
+  pendingCwdReminder?: unknown;
 };
 
 function createJsonlCorruptionNote(
@@ -696,42 +698,54 @@ function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['stat
   return 'active';
 }
 
-function normalizeMigratedHeader(header: SessionHeader, sessionId: string): SessionHeader {
+function normalizeMigratedHeader(
+  header: SessionHeader & { pendingCwdReminder?: unknown },
+  sessionId: string,
+): SessionHeader {
+  const { pendingCwdReminder: _legacyPendingCwdReminder, ...normalizedHeader } = header;
   const valid =
-    header.id === sessionId &&
-    typeof header.workspaceRoot === 'string' &&
-    typeof header.cwd === 'string' &&
-    (header.pendingCwdReminder === undefined || isCwdReminder(header.pendingCwdReminder)) &&
-    isFiniteNumber(header.createdAt) &&
-    isFiniteNumber(header.lastUsedAt) &&
-    (header.lastMessageAt === undefined || isFiniteNumber(header.lastMessageAt)) &&
-    typeof header.name === 'string' &&
-    typeof header.titleIsManual === 'boolean' &&
-    typeof header.isFlagged === 'boolean' &&
-    Array.isArray(header.labels) &&
-    header.labels.every((label) => typeof label === 'string') &&
-    typeof header.isArchived === 'boolean' &&
-    (header.archivedAt === undefined || isFiniteNumber(header.archivedAt)) &&
-    isSessionStatus(header.status) &&
-    (header.blockedReason === undefined || isSessionBlockedReason(header.blockedReason)) &&
-    (header.statusUpdatedAt === undefined || isFiniteNumber(header.statusUpdatedAt)) &&
-    (header.parentSessionId === undefined || typeof header.parentSessionId === 'string') &&
-    (header.branchOfTurnId === undefined || typeof header.branchOfTurnId === 'string') &&
-    isValidRevisionLineage(header) &&
-    (header.lastReadMessageId === undefined || typeof header.lastReadMessageId === 'string') &&
-    typeof header.hasUnread === 'boolean' &&
-    isBackendKind(header.backend) &&
-    typeof header.llmConnectionSlug === 'string' &&
-    typeof header.connectionLocked === 'boolean' &&
-    typeof header.model === 'string' &&
-    isPermissionMode(header.permissionMode) &&
-    isCollaborationMode(header.collaborationMode) &&
-    isOrchestrationMode(header.orchestrationMode) &&
-    header.schemaVersion === 1;
+    normalizedHeader.id === sessionId &&
+    typeof normalizedHeader.workspaceRoot === 'string' &&
+    typeof normalizedHeader.cwd === 'string' &&
+    isFiniteNumber(normalizedHeader.createdAt) &&
+    isFiniteNumber(normalizedHeader.lastUsedAt) &&
+    (normalizedHeader.lastMessageAt === undefined ||
+      isFiniteNumber(normalizedHeader.lastMessageAt)) &&
+    typeof normalizedHeader.name === 'string' &&
+    typeof normalizedHeader.titleIsManual === 'boolean' &&
+    typeof normalizedHeader.isFlagged === 'boolean' &&
+    Array.isArray(normalizedHeader.labels) &&
+    normalizedHeader.labels.every((label) => typeof label === 'string') &&
+    typeof normalizedHeader.isArchived === 'boolean' &&
+    (normalizedHeader.archivedAt === undefined || isFiniteNumber(normalizedHeader.archivedAt)) &&
+    isSessionStatus(normalizedHeader.status) &&
+    (normalizedHeader.blockedReason === undefined ||
+      isSessionBlockedReason(normalizedHeader.blockedReason)) &&
+    (normalizedHeader.statusUpdatedAt === undefined ||
+      isFiniteNumber(normalizedHeader.statusUpdatedAt)) &&
+    (normalizedHeader.parentSessionId === undefined ||
+      typeof normalizedHeader.parentSessionId === 'string') &&
+    (normalizedHeader.branchOfTurnId === undefined ||
+      typeof normalizedHeader.branchOfTurnId === 'string') &&
+    isValidRevisionLineage(normalizedHeader) &&
+    (normalizedHeader.lastReadMessageId === undefined ||
+      typeof normalizedHeader.lastReadMessageId === 'string') &&
+    typeof normalizedHeader.hasUnread === 'boolean' &&
+    isBackendKind(normalizedHeader.backend) &&
+    typeof normalizedHeader.llmConnectionSlug === 'string' &&
+    typeof normalizedHeader.connectionLocked === 'boolean' &&
+    typeof normalizedHeader.model === 'string' &&
+    isPermissionMode(normalizedHeader.permissionMode) &&
+    isCollaborationMode(normalizedHeader.collaborationMode) &&
+    isOrchestrationMode(normalizedHeader.orchestrationMode) &&
+    normalizedHeader.schemaVersion === 1;
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
   }
-  return { ...header, name: normalizeSessionName(header.name) };
+  return {
+    ...normalizedHeader,
+    name: normalizeSessionName(normalizedHeader.name),
+  };
 }
 
 function isValidRevisionLineage(header: SessionHeader): boolean {
@@ -765,15 +779,6 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isCwdReminder(value: unknown): value is NonNullable<SessionHeader['pendingCwdReminder']> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { from?: unknown }).from === 'string' &&
-    typeof (value as { to?: unknown }).to === 'string'
-  );
-}
-
 function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
   const preview = lastMessagePreview(messages);
   const derivedLastMessageAt = latestVisibleMessageAt(messages);
@@ -781,7 +786,6 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
   return {
     id: header.id,
     cwd: header.cwd,
-    ...(header.pendingCwdReminder ? { pendingCwdReminder: header.pendingCwdReminder } : {}),
     name: normalizeSessionName(header.name),
     isFlagged: header.isFlagged,
     isArchived: header.isArchived,
